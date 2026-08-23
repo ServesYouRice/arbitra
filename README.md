@@ -1,15 +1,11 @@
 # arbitra
 
-A multi-model software audit and implementation orchestrator.
+Just another multi-model software audit and implementation orchestrator. I was too lazy to do it manually, and others didn't really work for me, so I figured, "fine, I will do it myself".
 
 arbitra runs several independent models over one repository snapshot, makes them argue in
 a structured way, resolves what it can deterministically, and emits a plan a different
 agent can execute. Its premise — that independent auditors find defects a single model
 misses — is treated as a hypothesis the system measures, not as a marketing claim.
-
-The normative specification is [`docs/MASTER-BUILD-PROMPT.md`](docs/MASTER-BUILD-PROMPT.md).
-This README and the documents beside it describe **the system as built**, and mark
-anything not implemented as such.
 
 ## Status
 
