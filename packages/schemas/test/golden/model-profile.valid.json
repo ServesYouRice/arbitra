@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "provider": "example",
+  "modelId": "example-frontier",
+  "transport": "responses",
+  "servedBy": null,
+  "family": "example",
+  "independenceGroup": "example-provider",
+  "capabilityTier": "frontier",
+  "supports": {
+    "tools": true,
+    "parallelToolCalls": true,
+    "structuredOutput": true,
+    "reasoning": true,
+    "promptCaching": true,
+    "batch": false,
+    "vision": false
+  },
+  "limits": { "contextTokens": 128000, "maxOutputTokens": 32000 },
+  "effort": {
+    "supported": ["low", "medium", "high"],
+    "collapse": { "xhigh": "high" },
+    "params": { "low": { "thinking_level": "low" }, "high": { "thinking_level": "high" } }
+  },
+  "quirks": {
+    "systemPromptSupport": "full",
+    "fewShotPolicy": "neutral",
+    "promptStyle": "markdown",
+    "documentPlacement": "leading",
+    "historyPolicy": "strip_reasoning",
+    "samplingDefaults": { "temperature": null, "topP": null, "topK": null },
+    "greedyDecodingSafe": true,
+    "toolLoopLimit": 24,
+    "prefillSupported": false
+  },
+  "structuredOutputDialect": "openai_strict"
+}

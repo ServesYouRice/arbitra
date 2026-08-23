@@ -1,0 +1,13 @@
+.evaluation { display: grid; gap: var(--s3); font-family: var(--font-data); font-size: var(--t-micro); line-height: var(--lh-tight); }
+.evaluation p { margin: 0; }
+.evaluation-denominator { color: var(--mute); font-variant-numeric: tabular-nums; }
+.evaluation table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+.evaluation th, .evaluation td { min-height: var(--row-h); padding: var(--s1) var(--s2); border-block-end: var(--hairline) solid var(--line-soft); border-radius: var(--radius); box-shadow: none; text-align: start; overflow-wrap: anywhere; }
+.evaluation th { font: 600 var(--t-label)/var(--lh-tight) var(--font-display); letter-spacing: .14em; text-transform: uppercase; color: var(--mute); }
+.evaluation dl { display: grid; gap: var(--s1); }
+.evaluation dl > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: var(--row-h); border-block-end: var(--hairline) solid var(--line-soft); }
+.evaluation dt { color: var(--mute); } .evaluation dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.evaluation-comparison { display: grid; gap: var(--s2); border-block-start: var(--hairline) solid var(--line); padding-block-start: var(--s3); }
+.evaluation-comparison label { display: grid; gap: var(--s1); font-size: var(--t-label); letter-spacing: .14em; text-transform: uppercase; color: var(--mute); }
+
+@media (forced-colors: active) { .evaluation th, .evaluation td, .evaluation dl > div, .evaluation-comparison { border-color: CanvasText; } }

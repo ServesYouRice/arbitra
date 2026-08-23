@@ -1,0 +1,6 @@
+{
+  "author": "Arbitra",
+  "date": "2026-08-22",
+  "rationale": "Initial typed, evidence-grounded peer-review protocol.",
+  "compatibilityNotes": ["Issue operation log version 1", "Maximum three review rounds"]
+}

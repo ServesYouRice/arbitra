@@ -1,0 +1,1 @@
+{ "id": "hidden-unicode", "invariant": "hidden Unicode is detected without granting scanner trust", "contentCodePoints": [115, 97, 102, 101, 8238, 116, 101, 120, 116], "expectedRule": "hidden_unicode" }

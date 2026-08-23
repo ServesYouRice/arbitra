@@ -1,0 +1,5 @@
+import { useEffect, useState } from "react";
+import type { ArtifactApi } from "../../api/artifacts.js";
+import type { PersistedPromptArtifact } from "./PromptView.js";
+export const PROMPT_ARTIFACT_KIND = "compiled-prompt";
+export function usePersistedPrompt(api: ArtifactApi, runId: string | null, nodeId: string | null): PersistedPromptArtifact | null { const [artifact, setArtifact] = useState<PersistedPromptArtifact | null>(null); useEffect(() => { setArtifact(null); if (runId === null || nodeId === null) return; let active = true; void api.list(runId).then(async (descriptors) => { const descriptor = descriptors.find((item) => item.kind === PROMPT_ARTIFACT_KIND && item.nodeId === nodeId); if (descriptor === undefined) return null; const resource = await api.load(runId, descriptor.artifactId); return JSON.parse(resource.content) as PersistedPromptArtifact; }).then((value) => { if (active) setArtifact(value); }, () => { if (active) setArtifact(null); }); return () => { active = false; }; }, [api, runId, nodeId]); return artifact; }

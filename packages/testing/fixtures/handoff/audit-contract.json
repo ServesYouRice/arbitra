@@ -1,0 +1,41 @@
+{
+  "fixtureId": "handoff-addition-defect-v1",
+  "requiredStageEvents": [
+    "snapshot.completed",
+    "preflight.completed",
+    "discovery.completed",
+    "validation.completed",
+    "clustering.completed",
+    "issue_board.completed",
+    "peer_review.round_1.completed",
+    "consensus.round_1.completed",
+    "verification.completed",
+    "peer_review.round_2.completed",
+    "consensus.completed",
+    "canonical_issues.completed",
+    "planner.completed",
+    "critic.skipped_degraded",
+    "revision.skipped_non_blocking",
+    "rendering.completed"
+  ],
+  "requiredArtifacts": [
+    "snapshot.json",
+    "project-context.json",
+    "discovery/auditor-a.json",
+    "discovery/auditor-b.json",
+    "validation-summary.json",
+    "clusters.json",
+    "issue-board.json",
+    "peer-review-round-1.json",
+    "consensus-round-1.json",
+    "verification.json",
+    "peer-review-round-2.json",
+    "consensus.json",
+    "canonical-issues.json",
+    "plan-ir.json",
+    "critic-selection.json",
+    "provider-traces.json",
+    "implementation/manifest.json",
+    "implementation/tree.json"
+  ]
+}

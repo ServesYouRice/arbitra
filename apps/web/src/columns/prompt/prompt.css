@@ -1,0 +1,6 @@
+.shell__column--contract { overflow: auto; }
+.shell__column--contract dl { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: var(--s2); font-family: var(--font-data); font-size: var(--t-micro); }
+.shell__column--contract dt { color: var(--mute); }
+.shell__column--contract dd { margin: 0; overflow-wrap: anywhere; }
+.shell__column--contract pre { max-height: var(--s7); overflow: auto; white-space: pre-wrap; border: var(--hairline) solid var(--line); padding: var(--s2); background: var(--sunken); font: 400 var(--t-micro)/var(--lh-body) var(--font-data); }
+@media (forced-colors: active) { .shell__column--contract pre, .state { border-color: CanvasText; } }

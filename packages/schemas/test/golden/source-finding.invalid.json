@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "sourceFindingId": "SEC-001",
+  "category": "SECURITY",
+  "title": "Invalid unnamespaced finding"
+}

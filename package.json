@@ -1,0 +1,30 @@
+{
+  "name": "arbitra",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.24.0",
+  "engines": {
+    "node": ">=22 <23",
+    "pnpm": ">=10 <11"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "ci": "pnpm typecheck && pnpm lint && pnpm test && pnpm run validate:examples && pnpm run design:check",
+    "design:check": "vitest run examples/design-check.test.ts",
+    "lint": "eslint apps packages vitest.config.ts eslint.config.js --max-warnings 0",
+    "test": "pnpm -r test",
+    "validate:examples": "vitest run examples/validate.test.ts",
+    "test:lint-rules": "node --test tooling/eslint-rules/test/*.test.cjs",
+    "test:watch": "vitest",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^22.19.1",
+    "eslint": "^9.39.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.48.1",
+    "vitest": "^4.0.15"
+  }
+}

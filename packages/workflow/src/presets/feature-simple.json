@@ -1,0 +1,8 @@
+{
+  "presetId": "feature-simple",
+  "mode": "feature",
+  "requirementsMode": "automatic",
+  "graph": { "id": "canonical-feature", "version": 1 },
+  "stages": ["requirements", "targeted_exploration", "planner", "renderer"]
+}
+

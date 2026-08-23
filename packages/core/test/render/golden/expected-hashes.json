@@ -1,0 +1,19 @@
+{
+  "AGENTS.md": "1ec599b08ec5d000218ddd802333004923440fa9e93b98f4817c5bd6fdb08c60",
+  "CLAUDE.md": "8b2dc4e6af4f892073dbf3f96829496f9796a78ef3dd67816e4f9180d9fe83f2",
+  "GEMINI.md": "e57df94a6e027a19819bf10bf37b9397375e828b85a8818991e007d5bd9b9b05",
+  "README.md": "9673f0660e682679eb1a6c5e273075285525d067bdd5eacec346506b57a1d61d",
+  "context/architecture.md": "4da6eff7de48a47c4006c1828d72a88df7fa2a5dc70d3ea8976732f947702db2",
+  "context/invariants.md": "331925607c3b418ef97f5953cf27d3815b7a30a7a94c69ee728a7bed03a5d4b2",
+  "context/project.md": "6bea95a962bd7165b6c85554d2de54506e822fcd253faa0488f8984243d4d716",
+  "context/requirements.md": "c2b695d0c37bb17ec350db6383913d5078c60968babbd918ac7652d6968d0ebf",
+  "execution/README.md": "27fd323563c1936b24e72d4ea79c239b71ae1312aba63b4f98fc7419c6013878",
+  "issues/ISSUE-001.md": "cbbde6b6b7c98ee9824a2522a902c1fade8977c5f1b56ee4ae1b5e9c6f314218",
+  "issues/README.md": "2bcc4a1f50aaa2049da8ad1c3727e7726410090b9761ef336cde867ecf08a2fe",
+  "manifest.json": "f0c3fb92b9d8577db0b8fac53386a68f28e67809ff225843393d1da2e1736db0",
+  "progress.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "progress.schema.json": "1105b99573a74ee0dc3ede8c85ba404c522a024bea59510f26bad4ca530a29ef",
+  "tasks/INDEX.md": "35189d3698d1d9f3a5bbfddf88ea0f15f8401c569b6179352448bafd2f533462",
+  "tasks/TASK-001/task.md": "40426a3ba4ffa7044969ce101904561ce0201d3dc38580dbc7e7cab2ec59d4a2",
+  "validation/final-validation.md": "4c5505ca07b0835596582d90366c4e7e4e275b43ac28b5796c259dc5e8e54bbf"
+}

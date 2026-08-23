@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "operationId": "op-001",
+  "candidateId": "C-014",
+  "actorId": "auditor-a",
+  "round": -1,
+  "kind": "add_candidate",
+  "payload": {}
+}

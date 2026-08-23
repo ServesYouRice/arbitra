@@ -1,0 +1,4 @@
+.run-actions { display: flex; flex-wrap: wrap; gap: var(--s2); margin-block: var(--s3); }
+.checkpoint { border-inline-start: var(--stripe) solid var(--brass); padding: var(--s3); }
+.inspector-overlay { position: fixed; inset: 0 0 0 auto; width: 320px; height: 100vh; overflow: auto; z-index: 3; padding: var(--s4); border-inline-start: var(--hairline) solid var(--line); background: var(--surface); box-shadow: none; }
+@media (forced-colors: active) { .checkpoint, .inspector-overlay { border-color: CanvasText; } }

@@ -1,0 +1,4 @@
+{
+  "schemaVersion": 1,
+  "validation": [{ "id": "VAL-001", "assertion": "An assertion", "evidence": [] }]
+}

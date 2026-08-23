@@ -1,0 +1,9 @@
+{
+  "presetId": "testing-plan",
+  "mode": "testing",
+  "readOnly": true,
+  "graph": { "id": "canonical-testing-plan", "version": 1 },
+  "stages": ["test_inventory", "risk_gap_analysis", "validation_contract", "planner", "renderer"],
+  "capabilities": { "worktree": false, "writeScope": false, "shell": false, "sandbox": false, "advisorRuntime": false, "writeTools": [] }
+}
+

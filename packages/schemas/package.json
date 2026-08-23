@@ -1,0 +1,27 @@
+{
+  "name": "@arbitra/schemas",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./glyphs": {
+      "types": "./src/glyphs.ts",
+      "development": "./src/glyphs.ts",
+      "default": "./dist/src/glyphs.js"
+    },
+    "./http-control-plane": {
+      "types": "./src/http-control-plane.ts",
+      "development": "./src/http-control-plane.ts",
+      "default": "./dist/src/http-control-plane.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check:dialects": "vitest run test/projections/dialects.test.ts",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "zod": "4.4.3"
+  }
+}

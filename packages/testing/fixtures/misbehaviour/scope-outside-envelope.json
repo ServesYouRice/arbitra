@@ -1,0 +1,1 @@
+{ "id": "scope-outside-envelope", "invariant": "planner scope outside the derived envelope is displayed but never granted", "mechanism": "planner_scope_intersection", "expected": "displayed_only", "activatedIn": "TASK-037" }

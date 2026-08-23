@@ -1,0 +1,1 @@
+{ "id": "fabricated-location", "invariant": "snapshot locations are validated before model reasoning", "mechanism": "deterministic_finding_validation", "expected": "line_out_of_range", "script": { "path": "src/auth.ts", "startLine": 402, "endLine": 402, "snapshotLineCount": 180 } }

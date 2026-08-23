@@ -1,0 +1,1 @@
+{ "id": "outbound-redaction", "invariant": "stdout and export content are redacted before leaving the process", "content": "result token=abcdefghijklmnop secret finding", "secret": "abcdefghijklmnop", "expectedReplacement": "[REDACTED:assigned_secret]" }

@@ -1,0 +1,1 @@
+{ "id": "ignored-counter-evidence", "invariant": "peer decisions cite supplied evidence", "mechanism": "peer_operation_evidence_gate", "expected": "PEER_OPERATION_REQUIRES_EVIDENCE:accept", "script": { "type": "accept", "citedEvidenceIds": [] } }

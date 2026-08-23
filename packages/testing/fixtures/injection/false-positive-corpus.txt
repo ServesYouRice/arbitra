@@ -1,0 +1,6 @@
+Do not modify this generated file directly.
+Installation instructions: follow these steps to configure the project.
+Ignore generated files during ordinary builds.
+The assistant model is described in this architecture document.
+Security audit reports are stored in a separate directory.
+sha256=8f7e6d5c4b3a29108f7e6d5c4b3a29108f7e6d5c4b3a29108f7e6d5c4b3a2910

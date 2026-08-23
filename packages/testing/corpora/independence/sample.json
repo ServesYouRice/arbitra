@@ -1,0 +1,8 @@
+{
+  "corpus": "independence",
+  "observations": [
+    { "runId": "diff-review-001", "findingId": "F-1", "auditorIds": ["auditor-a", "auditor-b"], "independentlyFoundBy": ["auditor-b"], "accepted": true }
+  ],
+  "outcomeLifecycleData": null,
+  "note": "Blind multi-auditor source data is queried separately from real-world finding outcomes."
+}

@@ -1,0 +1,106 @@
+/* arbitra design tokens
+ * Destination: apps/web/src/tokens.css — land this BEFORE TASK-045 begins.
+ * Normative reference: docs/DESIGN-LANGUAGE.md
+ *
+ * Rules enforced elsewhere:
+ *   - no-raw-color.cjs fails the build on a hex literal outside this file
+ *   - every colour is defined in ALL THREE theme states; none may exist
+ *     only inside a media query or a [data-theme] block
+ */
+
+:root {
+  /* ---- neutrals · light · blue-slate bias, never neutral grey ---------- */
+  --ground:     #EDEFF1;
+  --surface:    #FFFFFF;
+  --sunken:     #E4E7EA;
+  --ink:        #11161B;
+  --body:       #39434D;
+  --mute:       #6B7681;
+  --faint:      #98A2AC;
+  --line:       #D3D8DD;
+  --line-soft:  #E2E6EA;
+
+  /* ---- signal · one meaning each, no reuse ---------------------------- */
+  --brass:      #96682A;   /* dissent preserved · model attention · brand  */
+  --steel:      #54697D;   /* deterministic work the orchestrator owns    */
+  --verified:   #2C7A61;   /* claim upheld by evidence, not by vote       */
+  --refuted:    #A5443B;   /* claim mechanically disproved; blocking      */
+  --tainted:    #6A57A4;   /* untrusted provenance                        */
+  /* null / unexamined / degraded use --faint. Absence of colour is a claim. */
+
+  /* ---- type ----------------------------------------------------------- */
+  --font-display: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-body:    'IBM Plex Sans', ui-sans-serif, system-ui, 'Segoe UI', Helvetica, Arial, sans-serif;
+  --font-data:    var(--font-display);
+
+  /* Type scale — 1.25 minor third off a 16px base, rounded to whole px.
+     Six steps. A seventh size is a defect; use weight or colour instead. */
+  --t-label:  11px;   /* mono 500, +0.14em, uppercase                     */
+  --t-micro:  13px;   /* mono 400, dense table cells, run log             */
+  --t-body:   16px;   /* sans 400, 1.62, max 66ch                         */
+  --t-lead:   19px;   /* sans 400, 1.5, intro paragraphs only             */
+  --t-head:   23px;   /* mono 600, -0.02em                                */
+  --t-display:38px;   /* mono 600, -0.03em, once per screen               */
+
+  --lh-tight: 1.22;
+  --lh-body:  1.62;
+  --measure:  66ch;
+
+  /* ---- space — 4px base, no value off this scale ----------------------- */
+  --s1:  4px;
+  --s2:  8px;
+  --s3: 12px;
+  --s4: 20px;
+  --s5: 32px;
+  --s6: 52px;
+  --s7: 84px;
+
+  /* ---- structure ------------------------------------------------------- */
+  --hairline: 1px;      /* the only border weight in the system            */
+  --radius:   0px;      /* squared corners; the product renders graphs     */
+  --stripe:   3px;      /* state stripe width on rows and chips            */
+  --row-h:   34px;      /* dense table row — Issue Board, task lists       */
+  --row-h-comfy: 44px;  /* default row                                     */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground:    #0E1116;
+    --surface:   #161B22;
+    --sunken:    #0A0D11;
+    --ink:       #E8ECEF;
+    --body:      #B3BCC5;
+    --mute:      #7F8A95;
+    --faint:     #5C666F;
+    --line:      #262D36;
+    --line-soft: #1D232B;
+    --brass:     #C0873C;
+    --steel:     #7D93A8;
+    --verified:  #3E9C7A;
+    --refuted:   #C1554A;
+    --tainted:   #8E7BC4;
+  }
+}
+
+:root[data-theme="dark"] {
+  --ground:    #0E1116;
+  --surface:   #161B22;
+  --sunken:    #0A0D11;
+  --ink:       #E8ECEF;
+  --body:      #B3BCC5;
+  --mute:      #7F8A95;
+  --faint:     #5C666F;
+  --line:      #262D36;
+  --line-soft: #1D232B;
+  --brass:     #C0873C;
+  --steel:     #7D93A8;
+  --verified:  #3E9C7A;
+  --refuted:   #C1554A;
+  --tainted:   #8E7BC4;
+}
+
+/* Severity is weight, never hue — it must survive a monochrome terminal. */
+[data-severity="critical"] { --stripe: 5px; }
+[data-severity="high"]     { --stripe: 4px; }
+[data-severity="medium"]   { --stripe: 3px; }
+[data-severity="low"]      { --stripe: 2px; }

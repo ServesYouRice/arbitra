@@ -1,0 +1,1 @@
+{ "id": "round-cap", "invariant": "peer review never exceeds three rounds", "mechanism": "peer_review_round_cap", "expected": "non_consensus", "script": { "requestedRounds": 4, "maximumRounds": 3 } }

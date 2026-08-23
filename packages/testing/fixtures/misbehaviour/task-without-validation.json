@@ -1,0 +1,1 @@
+{ "id": "task-without-validation", "invariant": "every task maps to at least one validation assertion", "mechanism": "plan_traceability_validation", "expected": "TASK_REQUIRES_VALIDATION_ASSERTION", "activatedIn": "TASK-036" }

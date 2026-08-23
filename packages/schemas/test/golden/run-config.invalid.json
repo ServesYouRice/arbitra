@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "mode": "audit",
+  "scope": { "kind": "repository" },
+  "auditDepth": "balanced",
+  "consensusPolicy": "risk_weighted",
+  "maxConsensusRounds": 4,
+  "verification": {},
+  "models": {},
+  "harness": { "mode": "canonical" },
+  "workflow": {},
+  "budgets": {},
+  "security": {},
+  "protocols": {},
+  "promptOverrides": {},
+  "contextPolicies": {}
+}

@@ -1,0 +1,1 @@
+{ "id": "outside-exposure", "invariant": "evidence must lie inside the quoting auditor exposure footprint", "mechanism": "deterministic_finding_validation", "expected": "evidence_outside_exposure", "script": { "path": "src/auth.ts", "lines": [2, 2], "exposedBytes": [0, 5] } }

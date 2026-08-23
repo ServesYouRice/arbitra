@@ -1,0 +1,14 @@
+{
+  "fixtureId": "premise-v1",
+  "version": 1,
+  "items": [
+    { "id": "DEF-AUTH-BYPASS", "kind": "defect", "category": "authorization", "path": "repo/src/auth.ts", "location": "authorize", "detectionCriteria": "Recognizes that a user-controlled support header bypasses role enforcement.", "rationale": "Authorization must derive from authenticated server-side identity, not a request header." },
+    { "id": "DEF-N-PLUS-ONE", "kind": "defect", "category": "performance", "path": "repo/src/users.ts", "location": "listUsers", "detectionCriteria": "Identifies one profile query per user inside the result loop.", "rationale": "Query count grows linearly with result count and causes production latency/load." },
+    { "id": "DEF-RACE", "kind": "defect", "category": "data_integrity", "path": "repo/src/inventory.ts", "location": "reserve", "detectionCriteria": "Identifies the read-check-write sequence as non-atomic.", "rationale": "Concurrent reservations can both pass the stock check and oversell." },
+    { "id": "DEF-MIGRATION", "kind": "defect", "category": "migration", "path": "repo/migrations/001_orders.sql", "location": "ALTER TABLE", "detectionCriteria": "Identifies the non-null column addition without a safe backfill/default rollout.", "rationale": "Existing rows make this migration fail or require a long blocking rewrite." },
+    { "id": "DEF-IDEMPOTENCY", "kind": "defect", "category": "payments", "path": "repo/src/payments.ts", "location": "capturePayment", "detectionCriteria": "Identifies retrying capture without persisting or forwarding an idempotency key.", "rationale": "A timeout followed by retry can charge the customer twice." },
+    { "id": "DECOY-TIMING-SAFE", "kind": "decoy", "category": "security", "path": "repo/src/decoys.ts", "location": "verifySignature", "detectionCriteria": "Does not report the constant-time signature comparison as a defect.", "rationale": "Length is checked and timingSafeEqual is the correct comparison primitive." },
+    { "id": "DECOY-PARAMETERIZED-SQL", "kind": "decoy", "category": "security", "path": "repo/src/decoys.ts", "location": "findAccount", "detectionCriteria": "Does not report SQL injection because the apparent user input is parameterized.", "rationale": "The query text is constant and the value is passed separately." },
+    { "id": "DECOY-IDEMPOTENT-RETRY", "kind": "decoy", "category": "reliability", "path": "repo/src/decoys.ts", "location": "publishOnce", "detectionCriteria": "Does not report duplicate publication because the stable event ID is enforced by the sink.", "rationale": "Retrying with a stable unique key is deliberately idempotent." }
+  ]
+}

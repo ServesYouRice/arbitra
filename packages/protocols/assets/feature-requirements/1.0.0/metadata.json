@@ -1,0 +1,7 @@
+{
+  "author": "Arbitra",
+  "date": "2026-08-23",
+  "rationale": "Initial structured Feature Mode requirements contract with explicit defaults and ambiguity blast radius.",
+  "compatibilityNotes": ["Requirements Contract version 1", "Feature workflow version 1"]
+}
+

@@ -1,0 +1,1 @@
+{ "id": "cost-amplification", "invariant": "medium and low scanner hits cannot amplify overlap past its configured budget", "signalCount": 20, "tokensPerSignal": 60, "maximumAdditionalTokens": 180, "expectedAllocated": 3, "expectedSkipped": 17, "expectedReason": "overlap_budget_exceeded" }

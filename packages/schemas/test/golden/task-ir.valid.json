@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "TASK-001",
+  "title": "Enforce role authorization",
+  "goal": {
+    "objective": "Reject unauthorized role changes.",
+    "doneWhen": ["The regression test passes."],
+    "stopWhen": ["The task verification passes."],
+    "blockedWhen": ["The policy is unavailable."]
+  },
+  "addresses": {
+    "issues": ["ISSUE-001"],
+    "validation": ["VAL-001"],
+    "requirements": ["ACC-001"]
+  },
+  "routing": {
+    "capability": "balanced",
+    "effort": "high",
+    "advisor": null,
+    "advisorMaxUses": null,
+    "reason": ["Authorization is high risk."]
+  },
+  "dependencies": { "dependsOn": [], "blocks": [], "conflictsWith": [] },
+  "scope": { "likelyFiles": ["src/auth.ts"], "components": ["auth"], "interfaces": [] },
+  "filesNotToTouch": [],
+  "readFirst": ["src/auth.ts"],
+  "context": [],
+  "invariants": ["Preserve administrator access."],
+  "outOfScope": [],
+  "implementationGuidance": [],
+  "acceptanceCriteria": ["Unauthorized access is rejected."],
+  "verification": {
+    "preconditions": [],
+    "commands": [{ "command": "pnpm test", "expectedExitCode": 0, "executionPolicy": "derived_repository_script" }],
+    "checks": []
+  },
+  "rollbackPlan": ["Revert the policy change."]
+}

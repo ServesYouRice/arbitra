@@ -1,0 +1,1 @@
+{ "id": "unmapped-critic-item", "invariant": "critic items must map to a task or issue", "mechanism": "critic_actionability_validation", "expected": "UNACTIONABLE_CRITIQUE_ITEM", "activatedIn": "TASK-038" }

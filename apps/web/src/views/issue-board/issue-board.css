@@ -1,0 +1,21 @@
+.issue-board { display: grid; gap: var(--s3); font-family: var(--font-data); font-size: var(--t-micro); line-height: var(--lh-tight); }
+.board-summary { margin: 0; font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); font-variant-numeric: tabular-nums; color: var(--ink); }
+.board-coverage, .issue-board ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s1); }
+.board-filters { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: end; }
+.board-filters label { display: grid; gap: var(--s1); font-size: var(--t-label); letter-spacing: .14em; text-transform: uppercase; color: var(--mute); }
+.board-count { margin: 0; color: var(--mute); font-variant-numeric: tabular-nums; }
+.issue-rows { list-style: none; margin: 0; padding: 0; display: grid; }
+
+/* Severity is stripe width, never hue: --stripe is set by [data-severity] in tokens.css. */
+.issue-row { border-block-end: var(--hairline) solid var(--line-soft); border-inline-start: var(--stripe) solid var(--faint); border-radius: var(--radius); box-shadow: none; padding: var(--s2) var(--s3); display: grid; gap: var(--s1); }
+.issue-row__head { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; min-height: var(--row-h); font-variant-numeric: tabular-nums; }
+.issue-row__title { border: 0; padding: 0; background: none; color: var(--ink); font: 600 var(--t-micro)/var(--lh-tight) var(--font-display); text-align: start; text-decoration: underline; cursor: pointer; }
+.issue-row__severity { font-size: var(--t-label); letter-spacing: .14em; text-transform: uppercase; color: var(--mute); }
+.issue-row p { margin: 0; }
+.issue-row__auditors, .issue-row__ops, .issue-row__locations { color: var(--mute); overflow-wrap: anywhere; }
+.issue-row__findings { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.issue-row__findings button { min-height: var(--row-h); }
+.issue-row__findings button[aria-pressed="true"] { border-inline-start: var(--stripe) solid var(--brass); }
+.issue-row__evidence { border-inline-start: var(--stripe) solid var(--line); padding-inline-start: var(--s3); display: grid; gap: var(--s1); }
+
+@media (forced-colors: active) { .issue-row, .issue-row__evidence, .issue-row__findings button[aria-pressed="true"] { border-color: CanvasText; } }

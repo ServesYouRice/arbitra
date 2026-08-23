@@ -1,0 +1,1 @@
+{ "id": "control-plane-subversion", "invariant": "head-side control rules are audit subjects and never active for their own run", "baseIgnore": "generated/**\n", "headIgnore": "src/auth/vulnerable.ts\n", "vulnerablePath": "src/auth/vulnerable.ts", "expected": "recorded_not_applied" }

@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "canonical",
+  "version": "1.0.0",
+  "kind": "canonical",
+  "capabilities": {
+    "readFiles": true,
+    "writeFiles": false,
+    "shell": true,
+    "skills": false,
+    "hooks": false,
+    "mcp": false,
+    "subagents": false,
+    "sandbox": true,
+    "resumableSessions": true,
+    "structuredEvents": true,
+    "enforcesExternalPolicy": true,
+    "managesContextInternally": false,
+    "reportsUsage": true
+  },
+  "policy": {
+    "projectInstructions": "disabled",
+    "network": "none",
+    "memory": "session",
+    "subagents": false,
+    "advisor": false
+  }
+}

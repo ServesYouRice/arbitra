@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "provider": "example",
+  "modelId": "example",
+  "transport": "responses",
+  "servedBy": null,
+  "family": "example",
+  "independenceGroup": "example",
+  "capabilityTier": "ultra"
+}

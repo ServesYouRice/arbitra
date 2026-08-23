@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "requiredCommands": ["validate", "estimate", "run", "audit", "resume", "status", "replay", "diff", "trace", "export"],
+  "commands": {
+    "validate": { "arguments": ["workflow.json"], "expectedExit": 0 },
+    "estimate": { "arguments": ["workflow.json"], "expectedExit": 0 },
+    "run": { "arguments": ["workflow.json"], "expectedExit": 0 },
+    "audit": { "arguments": ["--full"], "expectedExit": 0 },
+    "resume": { "arguments": ["run-a"], "expectedExit": 0 },
+    "status": { "arguments": ["run-a"], "expectedExit": 0 },
+    "replay": { "arguments": ["run-a", "--consensus-policy", "full", "--max-rounds", "2", "--no-critic"], "expectedExit": 0 },
+    "diff": { "arguments": ["run-a", "run-b"], "expectedExit": 0 },
+    "trace": { "arguments": ["run-a"], "expectedExit": 0 },
+    "export": { "arguments": ["run-a", "--format", "json"], "expectedExit": 0 }
+  },
+  "contract": {
+    "required": ["schemaVersion", "command", "ok", "policy", "result"],
+    "exitCodes": { "passed": 0, "failed": 1, "system_failure": 2, "suspended": 3 },
+    "jsonFlag": "--json"
+  }
+}

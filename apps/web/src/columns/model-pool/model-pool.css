@@ -1,0 +1,9 @@
+.auditor-semantics { max-width: var(--measure); font-size: var(--t-micro); color: var(--mute); }
+.model-list { display: grid; gap: var(--s3); }
+.model-card { display: grid; width: 100%; gap: var(--s1); text-align: start; padding: var(--s3); }
+.model-card[aria-pressed="true"] { border-inline-start: var(--stripe) solid var(--brass); }
+.model-card[data-enabled="false"] { color: var(--faint); }
+.model-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: var(--row-h); align-items: center; gap: var(--s2); }
+.model-row > span { color: var(--mute); }
+.model-row > strong { overflow-wrap: anywhere; font-weight: 500; }
+

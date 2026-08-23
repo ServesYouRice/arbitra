@@ -1,0 +1,9 @@
+{
+  "corpus": "real_world_outcomes",
+  "observations": [
+    { "runId": "diff-fast-001", "findingId": "F-1", "outcome": "fixed", "costUsd": 0.08, "latencyMs": 920 },
+    { "runId": "diff-fast-002", "findingId": "F-2", "outcome": "rejected", "costUsd": null, "latencyMs": 610 }
+  ],
+  "independenceData": null,
+  "note": "Single-auditor DIFF FAST outcomes do not answer independence questions."
+}

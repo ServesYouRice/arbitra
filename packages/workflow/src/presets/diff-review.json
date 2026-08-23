@@ -1,0 +1,1 @@
+{ "presetId": "diff-review", "mode": "audit", "scope": "diff", "depth": "balanced", "auditors": 2, "peerRounds": 0, "disagreement": "verification", "graph": { "id": "canonical-audit", "version": 1 } }

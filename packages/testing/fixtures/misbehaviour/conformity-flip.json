@@ -1,0 +1,1 @@
+{ "id": "conformity-flip", "invariant": "a reviewer cannot flip its vote without new evidence unnoticed", "mechanism": "vote_history_conformity_query", "expected": "CONFORMITY_VOTE_FLIP_WITHOUT_NEW_EVIDENCE", "script": { "round1": { "vote": "reject", "evidence": ["E-1"] }, "round2": { "vote": "accept", "evidence": ["E-1"] } } }

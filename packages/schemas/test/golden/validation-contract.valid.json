@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "validation": [
+    {
+      "id": "VAL-001",
+      "assertion": "Unauthorized users cannot change another user's role.",
+      "evidence": ["authorization regression test"]
+    }
+  ]
+}

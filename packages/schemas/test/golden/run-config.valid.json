@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "mode": "audit",
+  "scope": { "kind": "diff", "base": "origin/main", "head": "HEAD" },
+  "auditDepth": "balanced",
+  "consensusPolicy": "risk_weighted",
+  "maxConsensusRounds": 3,
+  "verification": {},
+  "models": {},
+  "harness": { "mode": "canonical" },
+  "workflow": {},
+  "budgets": {},
+  "security": {},
+  "protocols": {},
+  "promptOverrides": {},
+  "contextPolicies": {}
+}

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "operationId": "op-001",
+  "candidateId": "C-014",
+  "actorId": "auditor-a",
+  "round": 0,
+  "kind": "add_candidate",
+  "payload": {
+    "title": "Authorization is missing",
+    "description": "The mutation does not enforce its policy.",
+    "sourceFindingIds": ["auditor-a/SEC-001"]
+  }
+}

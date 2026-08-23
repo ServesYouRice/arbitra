@@ -1,0 +1,13 @@
+.plan-view { display: grid; gap: var(--s3); font-family: var(--font-data); font-size: var(--t-micro); line-height: var(--lh-tight); }
+.plan-view ul, .plan-view ol { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s1); }
+.plan-view li { min-height: var(--row-h); display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; border-block-end: var(--hairline) solid var(--line-soft); border-radius: var(--radius); box-shadow: none; overflow-wrap: anywhere; }
+.plan-title { margin: 0; color: var(--ink); font-variant-numeric: tabular-nums; }
+.plan-view p { margin: 0; }
+.plan-tasks .plan-task { color: var(--body); }
+.plan-trace { border-block-start: var(--hairline) solid var(--line); padding-block-start: var(--s3); display: grid; gap: var(--s2); }
+.trace-trail li { border-inline-start: var(--stripe) solid var(--brass); padding-inline-start: var(--s2); }
+.trace-links { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--s3); }
+.trace-links h4 { margin: 0 0 var(--s1); }
+
+@media (max-width: 900px) { .trace-links { grid-template-columns: minmax(0, 1fr); } }
+@media (forced-colors: active) { .plan-view li, .plan-trace, .trace-trail li { border-color: CanvasText; } }

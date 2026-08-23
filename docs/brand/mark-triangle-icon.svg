@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="arbitra">
+  <!-- 16 px and below, and any square lockup: the error triangle alone,
+       scaled 2.6x about its centroid (16.33, 14.67). -->
+  <path d="M5 5 L28.5 13 L15.5 26 Z" fill="#C0873C"/>
+</svg>

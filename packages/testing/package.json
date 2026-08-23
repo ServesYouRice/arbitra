@@ -1,0 +1,12 @@
+{
+  "name": "@arbitra/testing",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "handoff:real": "pnpm --filter @arbitra/schemas build && pnpm --filter @arbitra/core build && pnpm --filter @arbitra/providers build && pnpm --filter @arbitra/workflow build && node --experimental-strip-types scripts/run-real-handoff.ts",
+    "test": "vitest run --exclude fixtures/** --passWithNoTests",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

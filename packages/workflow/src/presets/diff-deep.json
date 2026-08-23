@@ -1,0 +1,1 @@
+{ "presetId": "diff-deep", "mode": "audit", "scope": "diff", "depth": "deep", "auditors": 3, "peerRounds": 3, "graph": { "id": "canonical-audit", "version": 1 } }

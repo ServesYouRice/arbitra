@@ -1,0 +1,61 @@
+{
+  "discovery:auditor-a": {
+    "auditorId": "auditor-a",
+    "findings": [
+      { "sourceFindingId": "auditor-a/DEFECT", "findingKey": "addition-subtracts", "category": "CORRECTNESS", "title": "Addition subtracts", "problem": "add returns subtraction", "recommendedFix": "Return left plus right", "severity": "high", "productionBlocker": false, "locations": [{ "id": "LA-D", "path": "src/add.js", "startLine": 2, "endLine": 2, "symbol": "add" }], "evidence": [{ "id": "EA-D", "text": "return left - right", "locationIds": ["LA-D"] }], "failureMechanisms": ["incorrect_operator"] },
+      { "sourceFindingId": "auditor-a/DECOY", "findingKey": "format-result", "category": "STYLE", "title": "Formatter is deliberate", "problem": "No defect", "recommendedFix": "No change", "severity": "low", "productionBlocker": false, "locations": [{ "id": "LA-C", "path": "src/format.js", "startLine": 2, "endLine": 2, "symbol": "formatResult" }], "evidence": [{ "id": "EA-C", "text": "return result prefix", "locationIds": ["LA-C"] }], "failureMechanisms": [] }
+    ],
+    "truncated": false,
+    "unexaminedDueToBudget": [],
+    "limitations": []
+  },
+  "discovery:auditor-b": {
+    "auditorId": "auditor-b",
+    "findings": [
+      { "sourceFindingId": "auditor-b/DEFECT", "findingKey": "addition-subtracts", "category": "CORRECTNESS", "title": "Addition subtracts", "problem": "add returns subtraction", "recommendedFix": "Return left plus right", "severity": "high", "productionBlocker": false, "locations": [{ "id": "LB-D", "path": "src/add.js", "startLine": 2, "endLine": 2, "symbol": "add" }], "evidence": [{ "id": "EB-D", "text": "return left - right", "locationIds": ["LB-D"] }], "failureMechanisms": ["incorrect_operator"] },
+      { "sourceFindingId": "auditor-b/DECOY", "findingKey": "format-result", "category": "STYLE", "title": "Formatter is deliberate", "problem": "No defect", "recommendedFix": "No change", "severity": "low", "productionBlocker": false, "locations": [{ "id": "LB-C", "path": "src/format.js", "startLine": 2, "endLine": 2, "symbol": "formatResult" }], "evidence": [{ "id": "EB-C", "text": "return result prefix", "locationIds": ["LB-C"] }], "failureMechanisms": [] }
+    ],
+    "truncated": false,
+    "unexaminedDueToBudget": [],
+    "limitations": []
+  },
+  "peer:1:auditor-a": [
+    { "operationId": "r1-a-defect", "candidateId": "C-DEFECT", "authorId": "auditor-a", "round": 1, "type": "accept", "citedEvidenceIds": ["EA-D"], "reason": "The cited operator contradicts the addition contract." },
+    { "operationId": "r1-a-decoy", "candidateId": "C-DECOY", "authorId": "auditor-a", "round": 1, "type": "reject", "citedEvidenceIds": ["EA-C"], "reason": "The formatter behavior is deliberate." }
+  ],
+  "peer:1:auditor-b": [
+    { "operationId": "r1-b-defect", "candidateId": "C-DEFECT", "authorId": "auditor-b", "round": 1, "type": "needs_verification", "citedEvidenceIds": ["EB-D"], "reason": "A deterministic call-path check should confirm the behavior." },
+    { "operationId": "r1-b-decoy", "candidateId": "C-DECOY", "authorId": "auditor-b", "round": 1, "type": "reject", "citedEvidenceIds": ["EB-C"], "reason": "No defect is established by the cited line." }
+  ],
+  "peer:2:auditor-a": [
+    { "operationId": "r2-a-defect", "candidateId": "C-DEFECT", "authorId": "auditor-a", "round": 2, "type": "accept", "citedEvidenceIds": ["EA-D", "E-VERIFIED"], "reason": "Deterministic verification confirms the defect." }
+  ],
+  "peer:2:auditor-b": [
+    { "operationId": "r2-b-defect", "candidateId": "C-DEFECT", "authorId": "auditor-b", "round": 2, "type": "accept", "citedEvidenceIds": ["EB-D", "E-VERIFIED"], "reason": "The verification evidence resolves the earlier question." }
+  ],
+  "planner": {
+    "mode": "audit",
+    "acceptedIssueIds": ["C-DEFECT"],
+    "unresolvedQuestions": [],
+    "validationContract": { "validation": [{ "id": "VAL-001" }] },
+    "tasks": [{
+      "id": "TASK-001",
+      "title": "Correct the addition operator",
+      "goal": { "objective": "Make add return the arithmetic sum.", "doneWhen": ["The fixture test passes."], "stopWhen": ["npm test exits zero."], "blockedWhen": ["The source is unavailable."] },
+      "addresses": { "issues": ["C-DEFECT"], "requirements": [], "validation": ["VAL-001"] },
+      "routing": { "capability": "balanced", "effort": "low", "reason": ["A local deterministic correction."] },
+      "dependencies": { "dependsOn": [], "blocks": [], "conflictsWith": [] },
+      "scope": { "likelyFiles": ["src/add.js"], "components": ["addition"], "interfaces": ["add(left, right)"] },
+      "filesNotToTouch": [],
+      "readFirst": ["src/add.js", "test/add.test.js"],
+      "context": ["The failing test expects 2 + 3 to equal 5."],
+      "invariants": ["Do not change the public function signature."],
+      "acceptanceCriteria": ["npm test passes."],
+      "verification": { "commands": [{ "command": "npm test", "expectedExitCode": 0, "executionPolicy": "derived_repository_script" }] },
+      "rollbackPlan": ["Restore the previous implementation."],
+      "escalateIf": ["The expected operation is not addition."]
+    }],
+    "traceability": { "issueToValidation": [{ "issueId": "C-DEFECT", "validationIds": ["VAL-001"] }], "requirementLinks": { "schemaVersion": 1, "links": [] } },
+    "routingRecommendations": [{ "taskId": "TASK-001" }]
+  }
+}

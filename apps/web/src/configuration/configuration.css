@@ -1,0 +1,4 @@
+#configuration-title + label, #configuration-title ~ label { display: grid; gap: var(--s1); margin-block-end: var(--s3); color: var(--mute); font-family: var(--font-data); font-size: var(--t-micro); }
+textarea { min-height: var(--s7); resize: vertical; }
+.configuration-actions { display: flex; flex-wrap: wrap; gap: var(--s2); }
+

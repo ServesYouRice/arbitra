@@ -1,0 +1,290 @@
+{
+  "schemaVersion": 1,
+  "mode": "audit",
+  "scope": {
+    "kind": "repository"
+  },
+  "auditDepth": "deep",
+  "consensusPolicy": "full",
+  "maxConsensusRounds": 3,
+  "verification": {
+    "deterministicFirst": true,
+    "maxModelQuestionsPerRound": 4
+  },
+  "models": {
+    "auditor-a": {
+      "schemaVersion": 1,
+      "provider": "openai",
+      "modelId": "replace-with-your-model-id",
+      "transport": "openai-responses",
+      "servedBy": null,
+      "family": "replace-with-your-model-family",
+      "independenceGroup": "openai",
+      "capabilityTier": "frontier",
+      "supports": {
+        "tools": true,
+        "parallelToolCalls": true,
+        "structuredOutput": true,
+        "reasoning": true,
+        "promptCaching": true,
+        "batch": false,
+        "vision": false
+      },
+      "limits": {
+        "contextTokens": null,
+        "maxOutputTokens": null
+      },
+      "effort": {
+        "supported": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "collapse": {},
+        "params": {}
+      },
+      "quirks": {
+        "systemPromptSupport": "full",
+        "fewShotPolicy": "neutral",
+        "promptStyle": "markdown",
+        "documentPlacement": "leading",
+        "historyPolicy": "strip_reasoning",
+        "samplingDefaults": {
+          "temperature": null,
+          "topP": null,
+          "topK": null
+        },
+        "greedyDecodingSafe": true,
+        "toolLoopLimit": 8,
+        "prefillSupported": false
+      },
+      "structuredOutputDialect": "openai_strict"
+    },
+    "auditor-b": {
+      "schemaVersion": 1,
+      "provider": "anthropic",
+      "modelId": "replace-with-your-model-id",
+      "transport": "anthropic-messages",
+      "servedBy": null,
+      "family": "replace-with-your-model-family",
+      "independenceGroup": "anthropic",
+      "capabilityTier": "frontier",
+      "supports": {
+        "tools": true,
+        "parallelToolCalls": true,
+        "structuredOutput": true,
+        "reasoning": true,
+        "promptCaching": true,
+        "batch": false,
+        "vision": false
+      },
+      "limits": {
+        "contextTokens": null,
+        "maxOutputTokens": null
+      },
+      "effort": {
+        "supported": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "collapse": {},
+        "params": {}
+      },
+      "quirks": {
+        "systemPromptSupport": "full",
+        "fewShotPolicy": "neutral",
+        "promptStyle": "xml",
+        "documentPlacement": "leading",
+        "historyPolicy": "round_trip_opaque",
+        "samplingDefaults": {
+          "temperature": null,
+          "topP": null,
+          "topK": null
+        },
+        "greedyDecodingSafe": true,
+        "toolLoopLimit": 8,
+        "prefillSupported": true
+      },
+      "structuredOutputDialect": "anthropic_tool"
+    },
+    "auditor-c": {
+      "schemaVersion": 1,
+      "provider": "google",
+      "modelId": "replace-with-your-model-id",
+      "transport": "gemini-native",
+      "servedBy": null,
+      "family": "replace-with-your-model-family",
+      "independenceGroup": "google",
+      "capabilityTier": "frontier",
+      "supports": {
+        "tools": true,
+        "parallelToolCalls": true,
+        "structuredOutput": true,
+        "reasoning": true,
+        "promptCaching": true,
+        "batch": false,
+        "vision": false
+      },
+      "limits": {
+        "contextTokens": null,
+        "maxOutputTokens": null
+      },
+      "effort": {
+        "supported": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "collapse": {},
+        "params": {}
+      },
+      "quirks": {
+        "systemPromptSupport": "discouraged",
+        "fewShotPolicy": "neutral",
+        "promptStyle": "markdown",
+        "documentPlacement": "leading",
+        "historyPolicy": "verbatim",
+        "samplingDefaults": {
+          "temperature": null,
+          "topP": null,
+          "topK": null
+        },
+        "greedyDecodingSafe": true,
+        "toolLoopLimit": 8,
+        "prefillSupported": false
+      },
+      "structuredOutputDialect": "gemini"
+    },
+    "planner": {
+      "schemaVersion": 1,
+      "provider": "openai",
+      "modelId": "replace-with-your-model-id",
+      "transport": "openai-responses",
+      "servedBy": null,
+      "family": "replace-with-your-model-family",
+      "independenceGroup": "openai",
+      "capabilityTier": "frontier",
+      "supports": {
+        "tools": true,
+        "parallelToolCalls": true,
+        "structuredOutput": true,
+        "reasoning": true,
+        "promptCaching": true,
+        "batch": false,
+        "vision": false
+      },
+      "limits": {
+        "contextTokens": null,
+        "maxOutputTokens": null
+      },
+      "effort": {
+        "supported": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "collapse": {},
+        "params": {}
+      },
+      "quirks": {
+        "systemPromptSupport": "full",
+        "fewShotPolicy": "neutral",
+        "promptStyle": "markdown",
+        "documentPlacement": "leading",
+        "historyPolicy": "strip_reasoning",
+        "samplingDefaults": {
+          "temperature": null,
+          "topP": null,
+          "topK": null
+        },
+        "greedyDecodingSafe": true,
+        "toolLoopLimit": 8,
+        "prefillSupported": false
+      },
+      "structuredOutputDialect": "openai_strict"
+    },
+    "critic": {
+      "schemaVersion": 1,
+      "provider": "anthropic",
+      "modelId": "replace-with-your-model-id",
+      "transport": "anthropic-messages",
+      "servedBy": null,
+      "family": "replace-with-your-model-family",
+      "independenceGroup": "anthropic",
+      "capabilityTier": "frontier",
+      "supports": {
+        "tools": true,
+        "parallelToolCalls": true,
+        "structuredOutput": true,
+        "reasoning": true,
+        "promptCaching": true,
+        "batch": false,
+        "vision": false
+      },
+      "limits": {
+        "contextTokens": null,
+        "maxOutputTokens": null
+      },
+      "effort": {
+        "supported": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "collapse": {},
+        "params": {}
+      },
+      "quirks": {
+        "systemPromptSupport": "full",
+        "fewShotPolicy": "neutral",
+        "promptStyle": "xml",
+        "documentPlacement": "leading",
+        "historyPolicy": "round_trip_opaque",
+        "samplingDefaults": {
+          "temperature": null,
+          "topP": null,
+          "topK": null
+        },
+        "greedyDecodingSafe": true,
+        "toolLoopLimit": 8,
+        "prefillSupported": true
+      },
+      "structuredOutputDialect": "anthropic_tool"
+    }
+  },
+  "harness": {
+    "mode": "canonical"
+  },
+  "workflow": {
+    "preset": "audit-deep"
+  },
+  "budgets": {
+    "maximumCostUsd": 60,
+    "maximumModelCalls": 200
+  },
+  "security": {
+    "excludeGlobs": [
+      ".runs/**",
+      "node_modules/**"
+    ],
+    "overlapBudget": 8
+  },
+  "protocols": {
+    "audit": "1.0.0",
+    "peer-review": "1.0.0",
+    "verification": "1.0.0",
+    "planner": "1.0.0",
+    "plan-critic": "1.0.0"
+  },
+  "promptOverrides": {},
+  "contextPolicies": {
+    "discovery": "independent",
+    "peerReview": "peer_findings_only"
+  }
+}

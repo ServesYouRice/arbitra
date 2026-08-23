@@ -1,0 +1,80 @@
+# ---------------------------------------------------------------------------
+# Documents kept locally for reference, not published.
+#
+# The build prompt and the round-table review are working inputs, not product
+# documentation: they describe how this repository was produced rather than how
+# the system behaves. The published documentation set is README.md plus the
+# eight documents in docs/, which describe the system as built.
+#
+# docs/DESIGN-LANGUAGE.md and docs/brand/ MUST stay tracked: `pnpm run
+# design:check` reads them as the normative presentation source, so a fresh
+# clone fails CI without them.
+# ---------------------------------------------------------------------------
+docs/archive/
+docs/MASTER-BUILD-PROMPT.md
+docs/ROUND-TABLE.md
+
+# ---------------------------------------------------------------------------
+# Orchestrator runtime output
+#
+# Anchored to the repository root on purpose. Golden fixtures under
+# packages/testing/ contain rendered implementation/ output that MUST stay
+# tracked (see spec §29.3), so these patterns must not match nested copies.
+# ---------------------------------------------------------------------------
+/.runs/
+/implementation/
+
+# ---------------------------------------------------------------------------
+# Per-user tool state
+#
+# settings.local.json is personal by convention. A shared .claude/settings.json
+# may be committed if the project ever needs one.
+# ---------------------------------------------------------------------------
+.claude/settings.local.json
+
+# ---------------------------------------------------------------------------
+# Secrets
+#
+# Provider configuration references environment variable names, never literal
+# keys (spec §4.12). The local .env holding those keys is never tracked.
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# ---------------------------------------------------------------------------
+# Dependencies
+# ---------------------------------------------------------------------------
+node_modules/
+.pnpm-store/
+
+# ---------------------------------------------------------------------------
+# Build output
+# ---------------------------------------------------------------------------
+dist/
+build/
+.vite/
+*.tsbuildinfo
+
+# ---------------------------------------------------------------------------
+# Test and coverage
+# ---------------------------------------------------------------------------
+coverage/
+.nyc_output/
+*.lcov
+
+# ---------------------------------------------------------------------------
+# Logs
+# ---------------------------------------------------------------------------
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+
+# ---------------------------------------------------------------------------
+# Editor and OS
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+.idea/
+*.swp

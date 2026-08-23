@@ -1,0 +1,11 @@
+export type ClusterRelationship = "same_root_cause" | "related_but_separate" | "same_symptom_different_causes" | "unrelated";
+export interface ClusterLocation { readonly path: string; readonly startLine: number; readonly endLine: number; readonly symbol?: string }
+export interface ClusterableFinding { readonly sourceFindingId: string; readonly category: string; readonly title: string; readonly problem: string; readonly recommendedFix: string; readonly locations: readonly ClusterLocation[]; readonly route?: string; readonly endpoint?: string; readonly component?: string; readonly failureMechanisms?: readonly string[] }
+export interface ValidatedClusterInput { readonly validation: "accepted"; readonly auditorId: string; readonly finding: ClusterableFinding }
+export interface FindingCluster { readonly clusterId: string; readonly sourceFindingIds: readonly string[] }
+export interface AmbiguousPair { readonly leftId: string; readonly rightId: string; readonly signals: readonly string[]; readonly score: number; readonly relationship: ClusterRelationship | null }
+export type ClusterOperation = { readonly type: "merge"; readonly sourceFindingIds: readonly string[]; readonly reason: "exact" | "structural" | "semantic" } | { readonly type: "split"; readonly sourceFindingId: string; readonly candidateIds: readonly string[]; readonly reason: string };
+export interface ClusteringMetrics { readonly deterministicPairsResolved: number; readonly escalatedPairs: number; readonly semanticClusteringCalls: number; readonly semanticClusteringTokens: number; readonly semanticClusteringCost: number }
+export interface StrategyResult { readonly findings: readonly ValidatedClusterInput[]; readonly clusters: readonly FindingCluster[]; readonly ambiguousPairs: readonly AmbiguousPair[]; readonly operations: readonly ClusterOperation[]; readonly deterministicPairsResolved: number }
+export interface ClusteringStrategy { readonly id: string; cluster(findings: readonly ValidatedClusterInput[]): StrategyResult }
+export interface ClusteringResult { readonly clusters: readonly FindingCluster[]; readonly ambiguousPairs: readonly AmbiguousPair[]; readonly operations: readonly ClusterOperation[]; readonly metrics: ClusteringMetrics }

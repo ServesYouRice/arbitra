@@ -1,0 +1,5 @@
+.graph-region { display: grid; grid-template-rows: auto minmax(420px, 1fr) auto; gap: var(--s3); min-height: 0; }
+.graph-canvas { min-height: 420px; border: var(--hairline) solid var(--line); }
+.react-flow__node { border: var(--hairline) solid var(--line); border-radius: var(--radius); box-shadow: none; background: var(--surface); color: var(--ink); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); }
+.run-stages { display: grid; gap: var(--s1); padding: 0; list-style: none; }
+

@@ -1,0 +1,7 @@
+{
+  "author": "Arbitra test suite",
+  "date": "2026-08-22",
+  "rationale": "Exercises registry versioning without creating production protocol content.",
+  "compatibilityNotes": ["Test-only; never available through production resolution."],
+  "fixture": true
+}

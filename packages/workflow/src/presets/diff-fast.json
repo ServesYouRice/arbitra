@@ -1,0 +1,1 @@
+{ "presetId": "diff-fast", "mode": "audit", "scope": "diff", "depth": "fast", "auditors": 1, "peerRounds": 0, "graph": { "id": "canonical-audit", "version": 1 } }
