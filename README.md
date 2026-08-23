@@ -48,7 +48,7 @@ packages/schemas      canonical schemas, provider projections, glyphs
 packages/security     taint, exclusions, redaction, scanner, command policy
 packages/tools        read-only repository tools and evidence bounds
 packages/testing      fake transports, scripted auditors, premise scoring
-docs/                 specification, design language, brand, and this document set
+docs/                 design language, brand assets, and this document set
 examples/             six example run configurations and their validation gate
 tooling/              ESLint rules that enforce architecture invariants
 ```
