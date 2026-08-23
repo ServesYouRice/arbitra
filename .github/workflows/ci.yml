@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A superseded run tells you nothing useful; cancel it and keep the latest.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: typecheck · lint · test · examples · design
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Before setup-node, so its pnpm store cache has a package manager to find.
+      # The version comes from packageManager in package.json.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # typecheck && lint && test && validate:examples && design:check.
+      # No network access and no API keys: real-provider suites are
+      # environment-gated and skip by default (VAL-031).
+      - name: Verify
+        run: pnpm run ci
+
+      # Not part of `ci`, but a broken Vite or tsc build should fail the branch.
+      - name: Build
+        run: pnpm build
