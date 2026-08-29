@@ -7,5 +7,11 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "exports": {
+    "./*.js": {
+      "types": "./src/*.ts",
+      "default": "./dist/src/*.js"
+    }
   }
 }

@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { EvaluationApi, measured } from "../../src/views/evaluation/api.js";
 import { EvaluationView } from "../../src/views/evaluation/EvaluationView.js";
+import { fromPackageRoot } from "../package-root.js";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -84,14 +84,14 @@ describe("web evaluation surface over the localhost routes", () => {
   });
 
   it("imports no persistence code and derives no metric in the browser", () => {
-    const source = ["src/views/evaluation/api.ts", "src/views/evaluation/EvaluationView.tsx"].map((path) => readFileSync(resolve(process.cwd(), path), "utf8")).join("\n");
+    const source = ["src/views/evaluation/api.ts", "src/views/evaluation/EvaluationView.tsx"].map((path) => readFileSync(fromPackageRoot(path), "utf8")).join("\n");
     expect(source).not.toMatch(/@arbitra\/persistence|MetricStore|contributionQuery|costQuery|protocolComparison\(/u);
     expect(source).not.toMatch(/reduce\(|\/ *denominator|Math\.round/u);
     expect(source).toContain("/runs/compare");
   });
 
   it("uses only the supplied scales and stays legible in forced colours", () => {
-    const css = readFileSync(resolve(process.cwd(), "src/views/evaluation/evaluation.css"), "utf8");
+    const css = readFileSync(fromPackageRoot("src/views/evaluation/evaluation.css"), "utf8");
     expect(css).not.toMatch(/#[0-9a-f]{3,8}\b/iu);
     expect(css).toContain("var(--row-h)");
     expect(css).toContain("border-radius: var(--radius)");

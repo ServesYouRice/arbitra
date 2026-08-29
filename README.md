@@ -32,12 +32,37 @@ pnpm install
 pnpm run ci # typecheck, lint, tests, example validation, design integrity
 ```
 
+## Running it
+
+`packages/runtime` composes the workspace packages into one `Orchestrator`. Both
+interfaces call it — the CLI through `orchestratorCore`, the control plane through
+`controlPlaneCore` — so there is one run lifecycle, not two.
+
+```bash
+pnpm build                                  # both entrypoints run from dist/
+
+node apps/cli/dist/src/bin.js audit --preset audit-deep --full
+node apps/server/dist/src/serve.js          # control plane on 127.0.0.1:4178
+pnpm --filter @arbitra/web dev              # UI on 127.0.0.1:4173, proxied to the control plane
+```
+
+With the control plane up, the UI is addressable: `?run=<id>` opens a recorded run and
+`?view=graph|issues|plan|evaluation` opens a column-two view directly.
+
+**Without configured model profiles the auditors are deterministic detectors, not models.**
+They produce real, evidence-grounded findings — every one cites a repository path and line
+that validation checks — so the pipeline has something real to cluster, peer-review, verify and
+plan over with no API key. They do not exercise the premise: every run they produce reports
+`auditor_kind: scripted_auditors` and carries `interpretation: "smoke_test_only_not_proof"`.
+Configure model profiles for a real audit.
+
 ## Repository layout
 
 ```text
 apps/cli          command-line interface and CI exit codes
 apps/server       localhost Fastify control plane (127.0.0.1:4178)
 apps/web          four-column read-only UI
+packages/runtime  composition root: the one core the CLI and the server both call
 packages/core     workflow runner, prompt compiler, preflight, renderer, replay
 packages/workflow audit/feature/testing nodes, clustering, consensus, verification
 packages/persistence  journal, artifact store, issue-op log, traces, metric queries

@@ -1,3 +1,4 @@
+import "./plan.css";
 import { useMemo, useState, type ReactElement } from "react";
 import { ArtifactApi } from "../../api/artifacts.js";
 import type { PersistedFinding, PersistedIssueSet } from "../issue-board/model.js";

@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ArtifactApi } from "../../src/api/artifacts.js";
 import { PlanView } from "../../src/views/plan/PlanView.js";
 import { backward, forward, type TraceGraph } from "../../src/views/plan/traceability.js";
 import { ARTIFACT_CONTENT, findings, issueSet, plan } from "./fixtures.js";
+import { fromPackageRoot } from "../package-root.js";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const graph: TraceGraph = { plan, issues: issueSet.issues, findings };
@@ -83,14 +83,14 @@ describe("plan view and traceability navigation", () => {
   });
 
   it("uses only the supplied scales and keeps dense rows monochrome-legible", () => {
-    const css = readFileSync(resolve(process.cwd(), "src/views/plan/plan.css"), "utf8");
+    const css = readFileSync(fromPackageRoot("src/views/plan/plan.css"), "utf8");
     expect(css).not.toMatch(/#[0-9a-f]{3,8}\b/iu);
     expect(css).toContain("var(--row-h)");
     expect(css).toContain("border-radius: var(--radius)");
     expect(css).toContain("@media (forced-colors: active)");
     expect(css.match(/box-shadow:[^;]+/gu)).toEqual(["box-shadow: none"]);
     expect(css).not.toContain("gradient(");
-    const source = readFileSync(resolve(process.cwd(), "src/views/plan/PlanView.tsx"), "utf8");
+    const source = readFileSync(fromPackageRoot("src/views/plan/PlanView.tsx"), "utf8");
     expect(source).not.toMatch(/consensus\(|tallyVotes|computeConsensus|@arbitra\/workflow/iu);
   });
 });

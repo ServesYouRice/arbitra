@@ -1,18 +1,26 @@
+import "@xyflow/react/dist/style.css";
+import "./graph.css";
 import { NODE_GLYPHS, STATE_LABELS, type NodeKind, type RunState } from "@arbitra/schemas/glyphs";
-import { Background, Controls, ReactFlow, type Edge, type Node } from "@xyflow/react";
+import { Background, Controls, ReactFlow, type Edge, type Node, type ReactFlowInstance } from "@xyflow/react";
 import { useEffect, useMemo, useState, type ReactElement } from "react";
 import type { RunEvent } from "../../api/sse.js";
 import { layoutWorkflow, type WorkflowJson } from "./layout.js";
 interface GraphViewProps { readonly workflowJson: WorkflowJson; readonly runEvents: readonly RunEvent[]; readonly modelAliases: readonly string[]; readonly assignments: Readonly<Record<string, string>>; readonly onAssign: (nodeId: string, alias: string) => void; readonly onSelect?: (node: WorkflowJson["nodes"][number] | null) => void }
 interface GraphNodeData extends Record<string, unknown> { readonly label: string; readonly kind: NodeKind; readonly semanticState: RunState | null; readonly runtimeStatus: "not_started" | "running" | "completed" | "failed" | "replayed"; readonly activity: string; readonly assignment: string | null; readonly retries: number }
 export function GraphView({ workflowJson, runEvents, modelAliases, assignments, onAssign, onSelect }: GraphViewProps): ReactElement {
-  const [positions, setPositions] = useState<ReadonlyMap<string, { x: number; y: number }>>(new Map()); const [selected, setSelected] = useState<string | null>(null);
+  const [positions, setPositions] = useState<ReadonlyMap<string, { x: number; y: number }>>(new Map()); const [selected, setSelected] = useState<string | null>(null); const [flow, setFlow] = useState<ReactFlowInstance<Node<GraphNodeData>, Edge> | null>(null);
   useEffect(() => { let active = true; void layoutWorkflow(workflowJson).then((layout) => { if (active) setPositions(new Map(layout.map(({ id, x, y }) => [id, { x, y }]))); }); return () => { active = false; }; }, [workflowJson]);
+  // `fitView` on the ReactFlow element only fits the graph present on the first render, and
+  // that one is every node stacked at the origin: elkjs loads on demand and its layout
+  // resolves a tick later. Fitting a zero-extent graph clamps to maxZoom, which left seven
+  // of the eight audit-deep nodes outside the canvas with nothing to indicate they existed.
+  // Re-fit when the real positions arrive, a frame later so React Flow has measured them.
+  useEffect(() => { if (flow === null || positions.size === 0) return; const frame = requestAnimationFrame(() => { void flow.fitView({ padding: 0.12 }); }); return () => { cancelAnimationFrame(frame); }; }, [flow, positions]);
   const live = useMemo(() => projectLiveState(workflowJson, runEvents, assignments), [workflowJson, runEvents, assignments]);
   const nodes: Node<GraphNodeData>[] = workflowJson.nodes.map((item) => ({ id: item.id, position: positions.get(item.id) ?? { x: 0, y: 0 }, data: live.get(item.id)!, type: "default", draggable: false, selectable: true }));
   const edges: Edge[] = workflowJson.edges.map(({ id, from, to }) => ({ id, source: from, target: to, animated: live.get(from)?.runtimeStatus === "running" }));
   const selectedNode = workflowJson.nodes.find(({ id }) => id === selected);
-  return <section className="graph-region" aria-labelledby="graph-title"><h2 className="panel-title" id="graph-title">workflow graph · read only</h2><div className="graph-canvas"><ReactFlow nodes={nodes} edges={edges} fitView nodesDraggable={false} nodesConnectable={false} onNodeClick={(_, item) => { setSelected(item.id); onSelect?.(workflowJson.nodes.find(({ id }) => id === item.id) ?? null); }}><Background /><Controls showInteractive={false} /></ReactFlow></div>
+  return <section className="graph-region" aria-labelledby="graph-title"><h2 className="panel-title" id="graph-title">workflow graph · read only</h2><div className="graph-canvas"><ReactFlow nodes={nodes} edges={edges} fitView minZoom={0.1} nodesDraggable={false} nodesConnectable={false} onInit={setFlow} onNodeClick={(_, item) => { setSelected(item.id); onSelect?.(workflowJson.nodes.find(({ id }) => id === item.id) ?? null); }}><Background /><Controls showInteractive={false} /></ReactFlow></div>
     <ol aria-label="live run stages" className="run-stages">{nodes.map(({ id, data }) => <li className={data.semanticState === null ? "run-stage" : "run-stage state"} data-state={data.semanticState ?? undefined} data-runtime={data.runtimeStatus} key={id}><span style={{ color: `var(${NODE_GLYPHS[data.kind].token})` }}>{NODE_GLYPHS[data.kind].glyph}</span> {data.label} · {data.semanticState === null ? data.runtimeStatus.replace("_", " ") : STATE_LABELS[data.semanticState]} · {data.activity}{data.assignment === null ? "" : ` · ${data.assignment}`}{data.retries === 0 ? "" : ` · retry ${data.retries}`}</li>)}</ol>
     {selectedNode?.kind !== "model" ? null : <label>model assignment<select aria-label="model assignment" value={assignments[selectedNode.id] ?? ""} onChange={(event) => onAssign(selectedNode.id, event.target.value)}><option value="">unassigned</option>{modelAliases.map((alias) => <option key={alias}>{alias}</option>)}</select></label>}
   </section>;

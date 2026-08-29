@@ -1,5 +1,5 @@
 {
-  "name": "@arbitra/persistence",
+  "name": "@arbitra/runtime",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -7,6 +7,12 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@arbitra/core": "workspace:*",
+    "@arbitra/persistence": "workspace:*",
+    "@arbitra/schemas": "workspace:*",
+    "@arbitra/workflow": "workspace:*"
   },
   "exports": {
     "./*.js": {
