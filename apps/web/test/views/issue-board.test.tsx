@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ArtifactApi } from "../../src/api/artifacts.js";
 import { IssueBoardView } from "../../src/views/issue-board/IssueBoardView.js";
 import { EMPTY_FILTERS, filterIssues, issueRows } from "../../src/views/issue-board/model.js";
 import { ARTIFACT_CONTENT, findings, issueSet, operations, verifications } from "./fixtures.js";
+import { fromPackageRoot } from "../package-root.js";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -85,7 +85,7 @@ describe("issue board over persisted artifacts", () => {
   });
 
   it("computes no consensus in the client and reads only persisted fields", () => {
-    const source = ["src/views/issue-board/model.ts", "src/views/issue-board/IssueBoardView.tsx", "src/views/issue-board/run-artifacts.ts"].map((path) => readFileSync(resolve(process.cwd(), path), "utf8")).join("\n");
+    const source = ["src/views/issue-board/model.ts", "src/views/issue-board/IssueBoardView.tsx", "src/views/issue-board/run-artifacts.ts"].map((path) => readFileSync(fromPackageRoot(path), "utf8")).join("\n");
     expect(source).not.toMatch(/consensus\(|tallyVotes|computeConsensus|riskWeighted|@arbitra\/workflow/iu);
     const rows = issueRows({ issueSet, findings, operations, verifications });
     expect(rows[0]).toMatchObject({ supportCount: 2, reviewDenominator: 3, consensusState: "accepted", status: "accepted", verificationMethod: "cited_lines" });
@@ -100,9 +100,9 @@ describe("issue board over persisted artifacts", () => {
     const critical = rows.find((row) => row.dataset.candidateId === "issue-1");
     expect(critical?.dataset.severity).toBe("critical");
     expect(rows.find((row) => row.dataset.candidateId === "issue-2")?.dataset.severity).toBe("medium");
-    const tokens = readFileSync(resolve(process.cwd(), "src/tokens.css"), "utf8");
+    const tokens = readFileSync(fromPackageRoot("src/tokens.css"), "utf8");
     expect(tokens).toContain('[data-severity="critical"] { --stripe: 5px; }');
-    const css = readFileSync(resolve(process.cwd(), "src/views/issue-board/issue-board.css"), "utf8");
+    const css = readFileSync(fromPackageRoot("src/views/issue-board/issue-board.css"), "utf8");
     expect(css).not.toMatch(/#[0-9a-f]{3,8}\b/iu);
     expect(css).not.toMatch(/data-severity[^{]*\{[^}]*color/iu);
     expect(css).toContain("var(--row-h)");

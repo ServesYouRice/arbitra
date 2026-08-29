@@ -1,3 +1,4 @@
+import "./evaluation.css";
 import { useState, type ReactElement } from "react";
 import { EvaluationApi, measured, useEvaluationMetrics, type ComparisonRefusal, type ComparisonResult, type EvaluationRow } from "./api.js";
 export interface EvaluationViewProps { readonly runId: string | null; readonly api?: EvaluationApi }

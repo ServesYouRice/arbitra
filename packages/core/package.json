@@ -10,5 +10,11 @@
   },
   "dependencies": {
     "@arbitra/schemas": "workspace:*"
+  },
+  "exports": {
+    "./*.js": {
+      "types": "./src/*.ts",
+      "default": "./dist/src/*.js"
+    }
   }
 }

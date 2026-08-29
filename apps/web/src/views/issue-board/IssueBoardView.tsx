@@ -1,3 +1,4 @@
+import "./issue-board.css";
 import { useMemo, useState, type ReactElement } from "react";
 import { ArtifactApi } from "../../api/artifacts.js";
 import { EMPTY_FILTERS, filterIssues, filterOptions, issueRows, type IssueFilters, type IssueRow, type PersistedFinding, type PersistedIssueOp, type PersistedIssueSet, type PersistedVerification } from "./model.js";

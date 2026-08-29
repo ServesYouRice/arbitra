@@ -33,12 +33,18 @@ importers:
 
   apps/cli:
     dependencies:
+      '@arbitra/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
       '@arbitra/security':
         specifier: workspace:*
         version: link:../../packages/security
 
   apps/server:
     dependencies:
+      '@arbitra/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
       '@arbitra/schemas':
         specifier: workspace:*
         version: link:../../packages/schemas
@@ -99,6 +105,21 @@ importers:
   packages/protocols: {}
 
   packages/providers: {}
+
+  packages/runtime:
+    dependencies:
+      '@arbitra/core':
+        specifier: workspace:*
+        version: link:../core
+      '@arbitra/persistence':
+        specifier: workspace:*
+        version: link:../persistence
+      '@arbitra/schemas':
+        specifier: workspace:*
+        version: link:../schemas
+      '@arbitra/workflow':
+        specifier: workspace:*
+        version: link:../workflow
 
   packages/schemas:
     dependencies:

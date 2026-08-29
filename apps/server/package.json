@@ -6,10 +6,13 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run --passWithNoTests",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/src/serve.js",
+    "dev": "node dist/src/serve.js"
   },
   "dependencies": {
     "@arbitra/schemas": "workspace:*",
-    "fastify": "5.11.3"
+    "fastify": "5.11.3",
+    "@arbitra/runtime": "workspace:*"
   }
 }

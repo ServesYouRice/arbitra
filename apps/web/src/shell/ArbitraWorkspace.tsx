@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useState, type ReactElement } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState, type ReactElement } from "react";
 import { ArtifactApi, useArtifacts } from "../api/artifacts.js";
 import { ConfigurationApi, useConfigurations } from "../api/configurations.js";
 import { RunApi, useRehydratedRun } from "../api/runs.js";
-import { GraphView } from "../columns/graph/GraphView.js";
 import type { WorkflowJson } from "../columns/graph/layout.js";
 import { InspectorView } from "../columns/inspector/InspectorView.js";
 import { inspectorSelectionFor, type WorkflowNode } from "../columns/inspector/selection.js";
@@ -13,10 +12,14 @@ import { ConfigurationWorkspace } from "../configuration/ConfigurationWorkspace.
 import { ArtifactView } from "../controls/ArtifactView.js";
 import { InspectorOverlay, RunControls } from "../controls/RunControls.js";
 import { EvaluationApi } from "../views/evaluation/api.js";
-import { EvaluationView } from "../views/evaluation/EvaluationView.js";
-import { IssueBoardView } from "../views/issue-board/IssueBoardView.js";
-import { PlanView } from "../views/plan/PlanView.js";
 import { AppShell } from "./AppShell.js";
+// Column two shows one view at a time, so each is its own chunk. This keeps React Flow and
+// the per-view code out of the entry chunk, and a deep link to a non-graph view never pays
+// for the graph renderer. elkjs stays lazy behind the graph chunk (see graph/layout.ts).
+const GraphView = lazy(async () => ({ default: (await import("../columns/graph/GraphView.js")).GraphView }));
+const IssueBoardView = lazy(async () => ({ default: (await import("../views/issue-board/IssueBoardView.js")).IssueBoardView }));
+const PlanView = lazy(async () => ({ default: (await import("../views/plan/PlanView.js")).PlanView }));
+const EvaluationView = lazy(async () => ({ default: (await import("../views/evaluation/EvaluationView.js")).EvaluationView }));
 export const INSPECTOR_OVERLAY_QUERY = "(max-width: 1180px)";
 /** Column two is the only fluid column, so the run-level views share it with the graph. */
 export const WORKSPACE_VIEWS = Object.freeze({ graph: "workflow graph", issues: "issue board", plan: "plan", evaluation: "evaluation" });
@@ -40,10 +43,12 @@ export function ArbitraWorkspace({ api, runApi, artifactApi, evaluationApi, runI
   const runConfigurationId = configurationId ?? configurations[0]?.id ?? null;
   const graph = <>
     <nav aria-label="workspace views" className="view-tabs">{(Object.keys(WORKSPACE_VIEWS) as WorkspaceView[]).map((key) => <button aria-current={view === key ? "page" : undefined} key={key} type="button" onClick={() => setView(key)}>{WORKSPACE_VIEWS[key]}</button>)}</nav>
-    {view === "graph" ? <GraphView workflowJson={workflow} runEvents={events} modelAliases={models.map(({ alias }) => alias)} assignments={assignments} onAssign={(nodeId, alias) => setAssignments((current) => ({ ...current, [nodeId]: alias }))} onSelect={setNode} />
-      : view === "issues" ? <IssueBoardView api={artifactStore} runId={runId} selectedFindingId={finding} onSelectFinding={setFinding} />
-      : view === "plan" ? <PlanView api={artifactStore} runId={runId} />
-      : <EvaluationView api={metricsApi} runId={runId} />}
+    <Suspense fallback={<p className="state" data-state="unexamined">loading view</p>}>
+      {view === "graph" ? <GraphView workflowJson={workflow} runEvents={events} modelAliases={models.map(({ alias }) => alias)} assignments={assignments} onAssign={(nodeId, alias) => setAssignments((current) => ({ ...current, [nodeId]: alias }))} onSelect={setNode} />
+        : view === "issues" ? <IssueBoardView api={artifactStore} runId={runId} selectedFindingId={finding} onSelectFinding={setFinding} />
+        : view === "plan" ? <PlanView api={artifactStore} runId={runId} />
+        : <EvaluationView api={metricsApi} runId={runId} />}
+    </Suspense>
   </>;
   const contract = <><ConfigurationWorkspace api={configurationApi} defaults={defaultConfiguration} /><PromptView selection={promptSelection} /></>;
   const inspector = <>
