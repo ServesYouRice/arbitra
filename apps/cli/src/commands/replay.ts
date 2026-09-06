@@ -10,7 +10,8 @@ export async function executeReplay(core: ReplayCommandPort, argv: readonly stri
   let criticEnabled = true;
   const seen = new Set<string>();
   for (let index = 0; index < options.length; index += 1) {
-    const name = options[index]!;
+    const name = options[index];
+    if (name === undefined) return invalid("invalid_arguments:replay");
     if (seen.has(name)) return invalid("duplicate_option:replay");
     seen.add(name);
     if (name === "--no-critic") { criticEnabled = false; continue; }

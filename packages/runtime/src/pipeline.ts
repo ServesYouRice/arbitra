@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { redactSecrets } from "@arbitra/security/redaction";
 import { deterministicCluster } from "@arbitra/workflow/clustering/deterministic.js";
 import type { ValidatedClusterInput } from "@arbitra/workflow/clustering/types.js";
 import { computeConsensus, DEFAULT_CONSENSUS_POLICY, type ConsensusBoard, type ConsensusCandidate, type ConsensusPolicy, type ConsensusState, type ConsensusVote } from "@arbitra/workflow/consensus/engine.js";
@@ -103,7 +104,7 @@ export async function converge(context: AuditContext, byAuditor: Readonly<Record
     if (lead === undefined) continue;
     const rule = ruleOf(lead.sourceFindingId);
     const votes: ConsensusVote[] = [];
-    for (const auditor of context.auditors) {
+    for (const auditor of context.maximumRounds === 0 ? [] : context.auditors) {
       if (!auditor.ruleIds.includes(rule)) continue;
       const own = members.find(({ sourceFindingId }) => sourceFindingId.startsWith(`${auditor.auditorId}/`));
       votes.push(Object.freeze(own === undefined
@@ -130,7 +131,7 @@ export async function converge(context: AuditContext, byAuditor: Readonly<Record
   const board: ConsensusBoard = Object.freeze({ candidates: Object.freeze(candidates) });
   const consensus = computeConsensus(board, context.policy, {
     auditors: context.auditors.map(({ auditorId, independenceGroup }) => ({ auditorId, independenceGroup })),
-    round: 1,
+    round: Math.min(1, context.maximumRounds),
     maximumRounds: context.maximumRounds,
   });
 
@@ -169,7 +170,7 @@ export async function readStage<T>(store: RunStore, kind: string): Promise<T> {
  */
 export async function verify(context: AuditContext, convergence: ConvergenceResult): Promise<readonly VerificationResult[]> {
   const items: VerificationItem[] = convergence.consensus.candidates
-    .filter(({ escalateToVerification }) => escalateToVerification)
+    .filter(({ escalateToVerification, outcome }) => escalateToVerification || outcome === "single_source" || context.maximumRounds === 0)
     .flatMap(({ candidateId }) => {
       const candidate = convergence.board.candidates[candidateId];
       if (candidate === undefined) return [];
@@ -210,7 +211,7 @@ function deterministicTools(context: AuditContext, convergence: ConvergenceResul
       const checks = members.flatMap((finding) => finding.locations.map((location) => {
         const line = byPath.get(location.path)?.lines[location.startLine - 1];
         const evidence = finding.evidence.find(({ locationIds }) => locationIds.includes(location.id));
-        return line !== undefined && evidence !== undefined && line.trim().slice(0, 200) === evidence.text;
+        return line !== undefined && evidence !== undefined && redactSecrets(line.trim().slice(0, 200)).text === evidence.text;
       }));
       const confirmed = checks.length > 0 && checks.every(Boolean);
       return Object.freeze({

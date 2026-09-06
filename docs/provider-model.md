@@ -56,6 +56,22 @@ model behind two names. That collapse is reported rather than silently accepted,
 A transport translates; it does not decide policy. Budget, retry and scheduling live above
 it.
 
+The adapters use native wire formats, including tool-call history and tool-result IDs.
+The Responses adapter reads every text/refusal content block and uses
+`previous_response_id`; the other three APIs use explicit message history rather than
+an invented top-level continuation field. Gemini includes the model in the request URL
+and sends system instructions as Content parts. These corrections were checked against
+the [OpenAI function-calling guide](https://developers.openai.com/api/docs/guides/function-calling),
+[OpenAI structured-output guide](https://developers.openai.com/api/docs/guides/structured-outputs),
+[Gemini GenerateContent reference](https://ai.google.dev/api/generate-content), and
+[Anthropic structured-output guide](https://platform.claude.com/docs/en/build-with-claude/structured-outputs).
+
+Effort parameters are transport-specific: Responses uses `{ "effort": "high" }`,
+Chat Completions uses `{ "reasoning_effort": "high" }` (or the `effort` alias),
+Anthropic uses native thinking fields, and Gemini uses native `thinkingConfig` fields.
+Only supply fields supported by the selected model. Mock contract tests do not establish
+live model capabilities; the composed CLI/server still uses scripted auditors only.
+
 ## Effort
 
 `packages/providers/src/effort.ts` resolves a requested effort level against what a profile

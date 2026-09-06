@@ -3,12 +3,12 @@ import { useMemo, useState, type ReactElement } from "react";
 import { ArtifactApi } from "../../api/artifacts.js";
 import { EMPTY_FILTERS, filterIssues, filterOptions, issueRows, type IssueFilters, type IssueRow, type PersistedFinding, type PersistedIssueOp, type PersistedIssueSet, type PersistedVerification } from "./model.js";
 import { RUN_ARTIFACT_KINDS, useRunArtifact } from "./run-artifacts.js";
-export interface IssueBoardViewProps { readonly runId: string | null; readonly api?: ArtifactApi; readonly selectedFindingId?: string | null; readonly onSelectFinding?: (sourceFindingId: string | null) => void }
-export function IssueBoardView({ runId, api = SHARED_ARTIFACT_API, selectedFindingId = null, onSelectFinding }: IssueBoardViewProps): ReactElement {
-  const issueSet = useRunArtifact<PersistedIssueSet>(api, runId, RUN_ARTIFACT_KINDS.canonicalIssues);
-  const findings = useRunArtifact<readonly PersistedFinding[]>(api, runId, RUN_ARTIFACT_KINDS.sourceFindings);
-  const operations = useRunArtifact<readonly PersistedIssueOp[]>(api, runId, RUN_ARTIFACT_KINDS.issueOperations);
-  const verifications = useRunArtifact<readonly PersistedVerification[]>(api, runId, RUN_ARTIFACT_KINDS.verificationResults);
+export interface IssueBoardViewProps { readonly runId: string | null; readonly api?: ArtifactApi; readonly selectedFindingId?: string | null; readonly onSelectFinding?: (sourceFindingId: string | null) => void; readonly refreshKey?: unknown }
+export function IssueBoardView({ runId, api = SHARED_ARTIFACT_API, selectedFindingId = null, onSelectFinding, refreshKey = null }: IssueBoardViewProps): ReactElement {
+  const issueSet = useRunArtifact<PersistedIssueSet>(api, runId, RUN_ARTIFACT_KINDS.canonicalIssues, refreshKey);
+  const findings = useRunArtifact<readonly PersistedFinding[]>(api, runId, RUN_ARTIFACT_KINDS.sourceFindings, refreshKey);
+  const operations = useRunArtifact<readonly PersistedIssueOp[]>(api, runId, RUN_ARTIFACT_KINDS.issueOperations, refreshKey);
+  const verifications = useRunArtifact<readonly PersistedVerification[]>(api, runId, RUN_ARTIFACT_KINDS.verificationResults, refreshKey);
   const [filters, setFilters] = useState<IssueFilters>(EMPTY_FILTERS);
   const [expanded, setExpanded] = useState<string | null>(null);
   const rows = useMemo(() => issueSet.value === null ? [] : issueRows({ issueSet: issueSet.value, findings: findings.value ?? [], operations: operations.value ?? [], verifications: verifications.value ?? [] }), [issueSet.value, findings.value, operations.value, verifications.value]);

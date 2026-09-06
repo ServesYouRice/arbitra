@@ -37,6 +37,17 @@ describe("Issue Board projection", () => {
 
   it("selects only candidates changed after a round", () => { expect(boardDelta(projectBoard(completeLog()), 2).map(({ candidateId }) => candidateId)).toEqual(["C-3", "C-4", "C-5", "C-6"]); });
 
+  it("rejects stale operations and serializes competing durable writes", async () => {
+    const initial: IssueOperation = { ...base("op-1", "C-1", 0), type: "add_candidate", candidate: seed("C-1") };
+    const latest: IssueOperation = { ...base("op-2", "C-1", 2), type: "supplement_remediation", text: "Latest advice" };
+    expect(() => projectBoard([initial, latest, { ...base("op-3", "C-1", 1), type: "supplement_remediation", text: "Stale advice" }])).toThrow("ISSUE_OPERATION_ROUND_REGRESSION");
+    const persisted: IssueOperation[] = [];
+    const controller = new IssueBoardController({ async append(operation) { await Promise.resolve(); persisted.push(operation); } });
+    const results = await Promise.allSettled([controller.append(initial), controller.append(initial)]);
+    expect(results.map(({ status }) => status)).toEqual(["fulfilled", "rejected"]);
+    expect(persisted).toHaveLength(1);
+  });
+
   it("validates before durable append and requires cited evidence", async () => {
     const persisted: IssueOperation[] = []; const controller = new IssueBoardController({ async append(operation) { persisted.push(operation); } });
     await controller.append({ ...base("op-1", "C-1", 0), type: "add_candidate", candidate: seed("C-1") });

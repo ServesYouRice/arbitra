@@ -20,7 +20,7 @@ describe("report command redaction and refusal passthrough", () => {
     expect(encoded).not.toContain("AKIAIOSFODNN7EXAMPLE");
     expect(encoded).not.toContain("ghp_abcdefghijklmnopqrstuvwxyz012345");
     expect(encoded).toContain("model-a");
-    expect(result.value).toMatchObject({ redaction: { patternVersion: "1", count: 3 } });
+    expect(result.value).toMatchObject({ redaction: { patternVersion: "2", count: 3 } });
   });
 
   it("fails closed rather than printing a report redaction could not clean", async () => {

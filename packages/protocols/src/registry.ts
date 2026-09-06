@@ -114,9 +114,8 @@ export class ProtocolRegistry {
     assertProtocolId(targetId);
     const source = await this.resolve(id, version);
     const versions = await this.requireControlPlane().listVersions(targetId);
-    const targetVersion = versions.length === 0
-      ? "1.0.0"
-      : nextPatchVersion([...versions].sort(compareSemver).at(-1)!);
+    const latestVersion = [...versions].sort(compareSemver).at(-1);
+    const targetVersion = latestVersion === undefined ? "1.0.0" : nextPatchVersion(latestVersion);
     return draftFrom(source, targetId, targetVersion);
   }
 
@@ -211,10 +210,11 @@ function diffLines(before: string, after: string): TextDiffLine[] {
   const right = after.split("\n");
   const lengths = Array.from({ length: left.length + 1 }, () => new Uint32Array(right.length + 1));
   for (let i = left.length - 1; i >= 0; i -= 1) {
+    const row = requiredAt(lengths, i, "diff matrix row");
     for (let j = right.length - 1; j >= 0; j -= 1) {
-      lengths[i]![j] = left[i] === right[j]
-        ? lengths[i + 1]![j + 1]! + 1
-        : Math.max(lengths[i + 1]![j]!, lengths[i]![j + 1]!);
+      row[j] = requiredAt(left, i, "left diff line") === requiredAt(right, j, "right diff line")
+        ? matrixValue(lengths, i + 1, j + 1) + 1
+        : Math.max(matrixValue(lengths, i + 1, j), matrixValue(lengths, i, j + 1));
     }
   }
   const output: TextDiffLine[] = [];
@@ -222,16 +222,28 @@ function diffLines(before: string, after: string): TextDiffLine[] {
   let j = 0;
   while (i < left.length || j < right.length) {
     if (i < left.length && j < right.length && left[i] === right[j]) {
-      output.push(Object.freeze({ kind: "context", text: left[i]! }));
+      output.push(Object.freeze({ kind: "context", text: requiredAt(left, i, "left diff line") }));
       i += 1;
       j += 1;
-    } else if (j < right.length && (i === left.length || lengths[i]![j + 1]! >= lengths[i + 1]![j]!)) {
-      output.push(Object.freeze({ kind: "added", text: right[j]! }));
+    } else if (j < right.length && (i === left.length || matrixValue(lengths, i, j + 1) >= matrixValue(lengths, i + 1, j))) {
+      output.push(Object.freeze({ kind: "added", text: requiredAt(right, j, "right diff line") }));
       j += 1;
     } else {
-      output.push(Object.freeze({ kind: "removed", text: left[i]! }));
+      output.push(Object.freeze({ kind: "removed", text: requiredAt(left, i, "left diff line") }));
       i += 1;
     }
   }
   return output;
+}
+
+function requiredAt<T>(values: readonly T[], index: number, description: string): T {
+  const value = values[index];
+  if (value === undefined) throw new RangeError(`Missing ${description} at index ${index}`);
+  return value;
+}
+
+function matrixValue(matrix: readonly Uint32Array[], rowIndex: number, columnIndex: number): number {
+  const value = requiredAt(matrix, rowIndex, "diff matrix row")[columnIndex];
+  if (value === undefined) throw new RangeError(`Missing diff matrix column at index ${columnIndex}`);
+  return value;
 }

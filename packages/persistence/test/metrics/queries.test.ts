@@ -51,7 +51,7 @@ describe("evaluation queries over the guarded metric substrate", () => {
 
   it("reports a run with no independence data as explicitly not applicable", async () => {
     const store = await storeWith([trace("a", "success")]);
-    const single: PremiseInput = { ...premise, auditors: [premise.auditors[0]!] };
+    const single: PremiseInput = { ...premise, auditors: [requiredAt(premise.auditors, 0)] };
     expect(contributionQuery({ store, premise: single }).independence).toEqual({ applicable: false, reason: "single_auditor_run_produces_no_independence_data", groups: ["provider-a"] });
     expect(contributionQuery({ store }).independence).toEqual({ applicable: false, reason: "no_ground_truth_measurement", groups: [] });
     expect(contributionQuery({ store, premise }).independence).toEqual({ applicable: true, reason: null, groups: ["provider-a", "provider-b"] });
@@ -87,6 +87,8 @@ describe("evaluation queries over the guarded metric substrate", () => {
     expect(comparison.sides[0]?.rows[0]?.group).toHaveProperty("protocol");
   });
 });
+
+function requiredAt<T>(values: readonly T[], index: number): T { const value = values[index]; if (value === undefined) throw new RangeError(`Missing test value at index ${index}`); return value; }
 
 async function storeWith(traces: readonly ModelActivityTraceRecord[]): Promise<MetricStore> {
   const root = await mkdtemp(join(tmpdir(), "arbitra-eval-")); temporaryRoots.push(root);

@@ -4,10 +4,15 @@ import { JsonProtocolTransport, array, number, object, response, string, type Pr
 const codec: ProtocolCodec = {
   id: "openai-chat", path: "chat/completions",
   authHeaders: (key) => ({ authorization: `Bearer ${key}` }),
-  encode: (request) => ({ model: request.modelId, messages: request.messages, max_tokens: request.maximumOutputTokens,
+  encode: (request) => ({ model: request.modelId, messages: request.messages.map((message) => {
+    if (message.role === "tool" && !message.toolCallId) throw new Error("TOOL_CALL_ID_REQUIRED");
+    return { role: message.role, content: message.content,
+      tool_call_id: message.role === "tool" ? message.toolCallId : undefined,
+      tool_calls: message.toolCalls?.map((call) => ({ type: "function", id: call.id, function: { name: call.name, arguments: JSON.stringify(call.arguments) } })) };
+  }), max_completion_tokens: request.maximumOutputTokens,
     tools: request.tools?.map((tool) => ({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.inputSchema } })),
     response_format: request.responseSchema === undefined ? undefined : { type: "json_schema", json_schema: { name: "response", strict: true, schema: request.responseSchema } },
-    reasoning_effort: request.effortParams, continuation: request.continuation }),
+    reasoning_effort: request.effortParams?.["reasoning_effort"] ?? request.effortParams?.["effort"] }),
   parse(body, request, headers) {
     const root = object(body, "openai-chat response");
     const choice = object(array(root["choices"])[0], "choice");
@@ -20,7 +25,7 @@ const codec: ProtocolCodec = {
       return { id: string(call["id"]) ?? "", name: string(fn["name"]) ?? "", arguments: args };
     });
     const usage = object(root["usage"] ?? {}, "usage");
-    return response(request, { text, toolCalls: calls, refusal: string(message["refusal"]), continuation: string(root["continuation"]),
+    return response(request, { text, toolCalls: calls, refusal: string(message["refusal"]),
       usage: { inputTokens: number(usage["prompt_tokens"]), outputTokens: number(usage["completion_tokens"]),
         cacheReadTokens: number(object(usage["prompt_tokens_details"] ?? {}, "details")["cached_tokens"]) }, requestId: headers["x-request-id"] ?? null });
   },

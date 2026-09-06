@@ -120,11 +120,14 @@ function assertIdentity(context: ProviderInvocationContext, identity: ModelActiv
 }
 
 class EventStream<T> implements AsyncIterable<T> {
-  private readonly queue: T[] = [];
-  private readonly waiters: Array<(value: IteratorResult<T>) => void> = [];
-  emit(value: T): void { const waiter = this.waiters.shift(); if (waiter === undefined) this.queue.push(value); else waiter({ value, done: false }); }
-  [Symbol.asyncIterator](): AsyncIterator<T> { return { next: async () => {
-    const value = this.queue.shift();
-    return value === undefined ? new Promise((resolve) => this.waiters.push(resolve)) : { value, done: false };
-  } }; }
+  private readonly subscribers = new Set<{ queue: T[]; waiters: Array<(value: IteratorResult<T>) => void> }>();
+  emit(value: T): void { for (const subscriber of this.subscribers) { const waiter = subscriber.waiters.shift(); if (waiter === undefined) subscriber.queue.push(value); else waiter({ value, done: false }); } }
+  [Symbol.asyncIterator](): AsyncIterator<T> {
+    const subscriber = { queue: [] as T[], waiters: [] as Array<(value: IteratorResult<T>) => void> };
+    this.subscribers.add(subscriber);
+    return {
+      next: async () => { const value = subscriber.queue.shift(); return value === undefined ? new Promise((resolve) => subscriber.waiters.push(resolve)) : { value, done: false }; },
+      return: async () => { this.subscribers.delete(subscriber); for (const waiter of subscriber.waiters.splice(0)) waiter({ value: undefined, done: true }); return { value: undefined, done: true }; },
+    };
+  }
 }

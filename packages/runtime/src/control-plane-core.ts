@@ -1,3 +1,4 @@
+import { realpath, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { Orchestrator } from "./orchestrator.js";
 
@@ -8,16 +9,19 @@ import type { Orchestrator } from "./orchestrator.js";
  * localhost UI and a CI invocation observe one run lifecycle, not two.
  */
 export function controlPlaneCore(orchestrator: Orchestrator) {
+  let selectedRepository = orchestrator.repository;
   const named = (body: unknown): { name: string; config: unknown } => {
     const value = body as { name?: unknown; config?: unknown } | undefined;
     if (typeof value?.name !== "string") throw new Error("CONFIGURATION_NAME_REQUIRED");
     return { name: value.name, config: value.config };
   };
 
-  const configured = async (body: unknown): Promise<Awaited<ReturnType<Orchestrator["configurations"]["load"]>>["config"]> => {
-    const request = body as { configurationId?: unknown } | undefined;
+  const configured = async (body: unknown): Promise<{ config: Awaited<ReturnType<Orchestrator["configurations"]["load"]>>["config"]; repository: string }> => {
+    const request = body as { configurationId?: unknown; repository?: unknown } | undefined;
     if (typeof request?.configurationId !== "string") throw new Error("CONFIGURATION_ID_REQUIRED");
-    return (await orchestrator.configurations.load(request.configurationId)).config;
+    if (request.repository !== undefined && typeof request.repository !== "string") throw new Error("REPOSITORY_PATH_REQUIRED");
+    const repository = request.repository === undefined ? selectedRepository : await repositoryPath(request.repository);
+    return { config: (await orchestrator.configurations.load(request.configurationId)).config, repository };
   };
 
   return {
@@ -36,14 +40,14 @@ export function controlPlaneCore(orchestrator: Orchestrator) {
       // records the path the operator named; it never writes to it.
       select: async (body: unknown) => {
         const path = (body as { path?: unknown } | undefined)?.path;
-        if (typeof path !== "string") throw new Error("REPOSITORY_PATH_REQUIRED");
-        return Object.freeze({ repository: resolve(path), selected: true });
+        selectedRepository = await repositoryPath(path);
+        return Object.freeze({ repository: selectedRepository, selected: true });
       },
     },
 
     runs: {
-      estimate: async (body: unknown) => orchestrator.estimate(await configured(body)),
-      start: async (body: unknown) => orchestrator.start(await configured(body)),
+      estimate: async (body: unknown) => { const request = await configured(body); return orchestrator.estimate(request.config, request.repository); },
+      start: async (body: unknown) => { const request = await configured(body); return orchestrator.start(request.config, request.repository); },
       status: (id: string) => orchestrator.status(id),
       resume: (id: string) => orchestrator.resume(id),
       events: (id: string) => orchestrator.events(id),
@@ -89,4 +93,11 @@ export function controlPlaneCore(orchestrator: Orchestrator) {
       },
     },
   };
+}
+
+async function repositoryPath(value: unknown): Promise<string> {
+  if (typeof value !== "string" || value.trim() === "") throw new Error("REPOSITORY_PATH_REQUIRED");
+  const path = resolve(value);
+  if (!(await stat(path)).isDirectory()) throw new Error(`REPOSITORY_NOT_DIRECTORY:${path}`);
+  return realpath(path);
 }

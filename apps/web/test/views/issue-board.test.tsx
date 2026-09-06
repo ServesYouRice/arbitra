@@ -117,7 +117,8 @@ function stubArtifacts(): void {
     const path = String(input);
     if (path === "/runs/run-1/artifacts") return json(Object.keys(ARTIFACT_CONTENT).map((kind) => ({ artifactId: `artifact:${kind}`, kind, mediaType: "application/json", bytes: 256, redacted: true })));
     const match = /^\/runs\/run-1\/artifacts\/artifact%3A(.+)$/u.exec(path);
-    if (match !== null) return json({ artifactId: `artifact:${match[1]!}`, kind: match[1]!, mediaType: "application/json", bytes: 256, redacted: true, content: JSON.stringify(ARTIFACT_CONTENT[match[1]!]), truncated: false, continuationArtifactId: null });
+    const kind = match?.[1];
+    if (kind !== undefined) return json({ artifactId: `artifact:${kind}`, kind, mediaType: "application/json", bytes: 256, redacted: true, content: JSON.stringify(ARTIFACT_CONTENT[kind]), truncated: false, continuationArtifactId: null });
     return json({}, 404);
   });
 }

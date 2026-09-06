@@ -6,7 +6,7 @@ import {
 
 export interface ProtocolCodec {
   readonly id: TransportId;
-  readonly path: string;
+  readonly path: string | ((request: TransportRequest) => string);
   encode(request: TransportRequest): unknown;
   parse(body: unknown, request: TransportRequest, headers: Readonly<Record<string, string>>): TransportResponse;
   authHeaders(apiKey: string): Readonly<Record<string, string>>;
@@ -22,7 +22,12 @@ export class JsonProtocolTransport implements ProviderTransport {
     private readonly credential: (environmentName: string) => string | undefined = (name) => process.env[name],
   ) {
     this.id = codec.id;
-    try { this.endpoint = new URL(codec.path, ensureTrailingSlash(configuration.endpoint)).toString(); }
+    try {
+      const endpoint = new URL(configuration.endpoint);
+      if (!["http:", "https:"].includes(endpoint.protocol) || endpoint.username || endpoint.password || endpoint.hash) throw new Error("invalid endpoint");
+      endpoint.pathname = ensureTrailingSlash(endpoint.pathname);
+      this.endpoint = endpoint.toString();
+    }
     catch { throw new Error("INVALID_TRANSPORT_ENDPOINT"); }
     this.apiKeyEnvironmentName = configuration.apiKeyEnv;
     this.compatibleProviderName = configuration.compatibleProviderName ?? null;
@@ -34,10 +39,17 @@ export class JsonProtocolTransport implements ProviderTransport {
     if (signal.aborted) throw new TransportError("CANCELLED", "Provider request cancelled", false);
     const apiKey = this.credential(this.apiKeyEnvironmentName);
     if (apiKey === undefined || apiKey.length === 0) throw new TransportError("AUTH", `Credential environment variable ${this.apiKeyEnvironmentName} is not set`, false);
+    let url: string; let body: unknown;
+    try {
+      url = new URL(typeof this.codec.path === "string" ? this.codec.path : this.codec.path(request), this.endpoint).toString();
+      body = this.codec.encode(request);
+    } catch (error) {
+      throw new TransportError("INVALID_REQUEST", error instanceof Error ? error.message : "Invalid provider request", false);
+    }
     let response: HttpResponse;
     try {
       response = await this.client.send({
-        url: this.endpoint, headers: this.codec.authHeaders(apiKey), body: this.codec.encode(request), signal,
+        url, headers: this.codec.authHeaders(apiKey), body, signal,
       });
     } catch (error) {
       if (signal.aborted || (error instanceof Error && error.name === "AbortError")) throw new TransportError("CANCELLED", "Provider request cancelled", false);
@@ -62,7 +74,7 @@ export function response(
 ): TransportResponse {
   const text = values.text ?? null;
   let structured = values.structured ?? null;
-  if (request.responseSchema !== undefined && structured === null && text !== null) {
+  if (request.responseSchema !== undefined && structured === null && text !== null && values.refusal == null && (values.toolCalls?.length ?? 0) === 0) {
     try { structured = JSON.parse(text); } catch { throw new Error("Structured response was not valid JSON"); }
   }
   return Object.freeze({
@@ -86,11 +98,23 @@ export function number(value: unknown): number | null { return typeof value === 
 function assertHttpSuccess(value: HttpResponse): void {
   if (value.status >= 200 && value.status < 300) return;
   if (value.status === 429) {
-    const seconds = Number(value.headers["retry-after"]);
-    throw new TransportError("RATE_LIMIT", "Provider rate limit", true, Number.isFinite(seconds) ? seconds * 1_000 : null);
+    const header = Object.entries(value.headers).find(([name]) => name.toLowerCase() === "retry-after")?.[1];
+    throw new TransportError("RATE_LIMIT", "Provider rate limit", true, retryAfterMilliseconds(header));
   }
   if (value.status === 408 || value.status === 504) throw new TransportError("TIMEOUT", "Provider request timed out", true);
   if (value.status === 401 || value.status === 403) throw new TransportError("AUTH", "Provider rejected credentials", false);
   throw new TransportError("HTTP", `Provider HTTP ${value.status}`, value.status >= 500);
 }
 function ensureTrailingSlash(value: string): string { return value.endsWith("/") ? value : `${value}/`; }
+
+export function retryAfterMilliseconds(value: string | undefined, now = Date.now()): number | null {
+  if (value === undefined) return null;
+  const trimmed = value.trim();
+  if (/^(?:0|[1-9]\d*)(?:\.\d+)?$/u.test(trimmed)) {
+    const milliseconds = Number(trimmed) * 1_000;
+    return Number.isFinite(milliseconds) ? milliseconds : null;
+  }
+  if (!/^[A-Za-z]{3}, \d{2} [A-Za-z]{3} \d{4} \d{2}:\d{2}:\d{2} GMT$/u.test(trimmed)) return null;
+  const date = Date.parse(trimmed);
+  return Number.isFinite(date) ? Math.max(0, date - now) : null;
+}

@@ -10,7 +10,6 @@ import {
   proveOrchestratorId,
   proveSchemaEnum,
   proveSnapshotPath,
-  type DeclassificationProof,
   type DeclassifiableSchemaPath,
 } from "../../src/declassify/index.js";
 import type { FieldTrust } from "../../src/provenance.js";
@@ -67,18 +66,9 @@ describe("declassifier registry", () => {
     ["plan.criticRationale", "critic_rationale"],
     ["plan.plannerRationale", "planner_rationale"],
   ])("rejects never-declassifiable free text at %s", (field, reason) => {
-    const unsafeCall = declassify as unknown as (
-      path: string,
-      value: string,
-      proof: DeclassificationProof<string>,
-      trust: FieldTrust,
-    ) => unknown;
-    expect(() => unsafeCall(
-      field,
-      "prose",
-      proveSchemaEnum("prose", ["prose"]),
-      taintedModelData,
-    )).toThrow(new RegExp(`FREE_TEXT_NEVER_DECLASSIFIABLE: ${reason}`, "u"));
+    expect(() => Reflect.apply(declassify, undefined, [
+      field, "prose", proveSchemaEnum("prose", ["prose"]), taintedModelData,
+    ])).toThrow(new RegExp(`FREE_TEXT_NEVER_DECLASSIFIABLE: ${reason}`, "u"));
   });
 
   it("excludes a finding title from the typed public interface", () => {
@@ -103,8 +93,8 @@ describe("declassifier registry", () => {
       category: "schema_enum",
       value: "high",
       property: "claimed",
-    } as unknown as DeclassificationProof<string>;
-    expect(() => declassify("sourceFinding.severity", "high", forged, taintedModelData)).toThrow(
+    };
+    expect(() => Reflect.apply(declassify, undefined, ["sourceFinding.severity", "high", forged, taintedModelData])).toThrow(
       /UNREGISTERED_DECLASSIFIER_PROOF/u,
     );
     expect(() => declassify(

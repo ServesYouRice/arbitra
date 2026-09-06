@@ -1,9 +1,9 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { CheckpointRegistry } from "../src/checkpoints.js";
-import { buildServer, DEFAULT_SERVER_HOST, startServer } from "../src/main.js";
+import { assertLoopbackHost, buildServer, DEFAULT_SERVER_HOST, startServer } from "../src/main.js";
 import { registerControlPlaneRoutes, type ControlPlaneCore } from "../src/routes/control-plane.js";
 import { EVALUATION_ROUTE_INVENTORY } from "../src/routes/evaluation.js";
 import { ROUTE_INVENTORY } from "../src/routes/inventory.js";
@@ -17,6 +17,9 @@ describe("localhost control plane contracts", () => {
     expect(server.listenOptions).toEqual({ host: "127.0.0.1", port: 4178 }); expect(DEFAULT_SERVER_HOST).toBe("127.0.0.1");
     expect(JSON.stringify(ROUTE_INVENTORY)).not.toMatch(/websocket|ws:/iu);
     expect(Object.keys(HTTP_ROUTE_SCHEMAS).sort()).toEqual([...ROUTE_INVENTORY, ...EVALUATION_ROUTE_INVENTORY].map(([method, url]) => `${method} ${url}`).sort());
+    expect(assertLoopbackHost("::1")).toBe("::1");
+    expect(() => assertLoopbackHost("0.0.0.0")).toThrow("NON_LOOPBACK_SERVER_HOST");
+    await expect(startServer(fakeServer(), core(), HTTP_ROUTE_SCHEMAS, { host: "localhost" })).rejects.toThrow("NON_LOOPBACK_SERVER_HOST");
   });
 
   it("round-trips canonical configurations byte-stably and rejects resolved credentials", async () => {
@@ -30,6 +33,8 @@ describe("localhost control plane contracts", () => {
       expect(await store.export(saved.id)).toBe('{"mode":"audit","models":{"primary":{"credentialEnvVar":"OPENAI_API_KEY","provider":"openai"}}}\n');
       expect(await readFile(join(directory, `${saved.id}.json`), "utf8")).not.toContain("resolved-secret");
       expect(() => store.validate({ apiKey: "sk-this-must-never-persist" })).toThrow("RESOLVED_CREDENTIAL_FORBIDDEN");
+      await writeFile(join(directory, "spoof.json"), JSON.stringify({ id: "other", name: "Spoof", config: value }));
+      await expect(store.load("spoof")).rejects.toThrow("CONFIGURATION_ID_MISMATCH:spoof");
     } finally { await rm(directory, { recursive: true, force: true }); }
   });
 
@@ -39,12 +44,27 @@ describe("localhost control plane contracts", () => {
     await invoke(server, "POST", "/repositories/select", { body: { path: "fixture" } }); await invoke(server, "POST", "/estimate", { body: {} }); await invoke(server, "POST", "/runs", { body: {} }); await invoke(server, "GET", "/runs/:id", { params: { id: "run-1" } }); await invoke(server, "POST", "/runs/:id/resume", { params: { id: "run-1" } }); await invoke(server, "GET", "/runs/:id/artifacts", { params: { id: "run-1" } }); await invoke(server, "GET", "/runs/:id/artifacts/:artifactId", { params: { id: "run-1", artifactId: "a-1" } }); await invoke(server, "POST", "/runs/:id/cancel", { params: { id: "run-1" } });
     expect(calls).toEqual(["select", "estimate", "start", "status", "resume", "artifacts", "artifact", "cancel"]);
     const waiting = checkpoints.wait("run-1", "interactive", { id: "cp-1", stage: "before_planning", prompt: "Proceed?" }); expect(checkpoints.list("run-1")).toHaveLength(1); checkpoints.respond("run-1", "cp-1", "continue"); expect(await waiting).toBe("continue"); expect(await checkpoints.wait("run-2", "automatic", { id: "cp-2", stage: "before_planning", prompt: "Proceed?" })).toBeNull();
+    const duplicate = checkpoints.wait("run-3", "interactive", { id: "cp-3", stage: "before_planning", prompt: "Proceed?" });
+    await expect(checkpoints.wait("run-3", "interactive", { id: "cp-3", stage: "before_planning", prompt: "Again?" })).rejects.toThrow("DUPLICATE_CHECKPOINT");
+    checkpoints.respond("run-3", "cp-3", "continue"); await expect(duplicate).resolves.toBe("continue");
     const reply = sseReply(); await invoke(server, "GET", "/runs/:id/events", { params: { id: "run-1" } }, reply); expect(reply.chunks.join("")).toContain('data: {"t":"run_transition","runId":"run-1","state":"COMPLETED"}');
   });
 
   it("fails closed when core output contains a credential", async () => {
     const server = fakeServer(); const schemas = Object.fromEntries(ROUTE_INVENTORY.map(([method, url]) => [`${method} ${url}`, {}])); const service = core(); service.configurations.list = async () => [{ apiKey: "sk-abcdefghijklmnop" }]; registerControlPlaneRoutes(server, service, new CheckpointRegistry(), schemas);
     await expect(invoke(server, "GET", "/configurations", {})).rejects.toThrow("HTTP_SECRET_EGRESS_BLOCKED");
+    for (const secret of ["github_pat_abcdefghijklmnopqrstuvwxyz", "password=abcdefghijklmnop", "-----BEGIN PRIVATE KEY-----\nabcdefghijklmnop\n-----END PRIVATE KEY-----"]) {
+      service.configurations.list = async () => [{ value: secret }];
+      await expect(invoke(server, "GET", "/configurations", {})).rejects.toThrow("HTTP_SECRET_EGRESS_BLOCKED");
+    }
+  });
+
+  it("applies the outbound secret guard to SSE frames", async () => {
+    const service = core(); service.runs.events = async function* events() { yield { token: "github_pat_abcdefghijklmnopqrstuvwxyz" }; };
+    const server = fakeServer(); registerControlPlaneRoutes(server, service, new CheckpointRegistry(), HTTP_ROUTE_SCHEMAS);
+    const reply = sseReply();
+    await expect(invoke(server, "GET", "/runs/:id/events", { params: { id: "run-secret" } }, reply)).rejects.toThrow("HTTP_SECRET_EGRESS_BLOCKED");
+    expect(reply.chunks.join("")).not.toContain("github_pat_");
   });
 
   it("serves the route inventory through a real Fastify instance", async () => {
@@ -56,12 +76,27 @@ describe("localhost control plane contracts", () => {
     await app.close();
   });
 
+  it("blocks off-host browser requests and secrets in error responses", async () => {
+    const service = core();
+    const app = buildServer(service);
+    try {
+      expect((await app.inject({ method: "GET", url: "/configurations", headers: { host: "attacker.example" } })).statusCode).toBe(403);
+      expect((await app.inject({ method: "POST", url: "/runs/run-1/cancel", headers: { origin: "https://attacker.example" } })).statusCode).toBe(403);
+      service.configurations.list = async () => { throw new Error("upstream key sk-abcdefghijklmnop failed"); };
+      const response = await app.inject({ method: "GET", url: "/configurations" });
+      expect(response.statusCode).toBe(500);
+      expect(response.body).not.toContain("sk-abcdefghijklmnop");
+      expect(response.body).toContain("HTTP_SECRET_EGRESS_BLOCKED");
+    } finally { await app.close(); }
+  });
+
   it("keeps the event loop responsive while a large SSE stream is active", async () => {
     const service = core(); service.runs.events = async function* events(id) { for (let index = 0; index < 500; index += 1) yield { t: "node_completed", runId: id, nodeId: `node-${index}` }; };
     const server = fakeServer(); registerControlPlaneRoutes(server, service, new CheckpointRegistry(), HTTP_ROUTE_SCHEMAS);
     let timerRan = false; setImmediate(() => { timerRan = true; });
     const reply = sseReply(); await invoke(server, "GET", "/runs/:id/events", { params: { id: "run-heavy" } }, reply);
-    expect(timerRan).toBe(true); expect(reply.chunks).toHaveLength(500);
+    expect(timerRan).toBe(true); expect(reply.chunks.filter((chunk) => chunk.startsWith("data:"))).toHaveLength(500);
+    expect(reply.chunks.at(-1)).toBe("event: end\ndata: {}\n\n");
   });
 });
 

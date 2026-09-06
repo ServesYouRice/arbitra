@@ -277,28 +277,42 @@ function describeError(error: unknown): string {
 }
 
 class EventStream<T> implements AsyncIterable<T> {
-  readonly #queue: T[] = [];
-  readonly #waiters: Array<(result: IteratorResult<T>) => void> = [];
+  readonly #subscribers = new Set<{ queue: T[]; waiters: Array<(result: IteratorResult<T>) => void>; active: boolean }>();
   #closed = false;
 
   emit(value: T): void {
-    const waiter = this.#waiters.shift();
-    if (waiter === undefined) this.#queue.push(value);
-    else waiter({ value, done: false });
+    for (const subscriber of this.#subscribers) {
+      const waiter = subscriber.waiters.shift();
+      if (waiter === undefined) subscriber.queue.push(value);
+      else waiter({ value, done: false });
+    }
   }
 
   close(): void {
     this.#closed = true;
-    for (const waiter of this.#waiters.splice(0)) waiter({ value: undefined, done: true });
+    for (const subscriber of this.#subscribers) {
+      for (const waiter of subscriber.waiters.splice(0)) waiter({ value: undefined, done: true });
+    }
+    this.#subscribers.clear();
   }
 
   [Symbol.asyncIterator](): AsyncIterator<T> {
+    const subscriber = { queue: [] as T[], waiters: [] as Array<(result: IteratorResult<T>) => void>, active: !this.#closed };
+    if (subscriber.active) this.#subscribers.add(subscriber);
+    const finish = (): IteratorResult<T> => ({ value: undefined, done: true });
     return {
       next: async (): Promise<IteratorResult<T>> => {
-        const value = this.#queue.shift();
+        const value = subscriber.queue.shift();
         if (value !== undefined) return { value, done: false };
-        if (this.#closed) return { value: undefined, done: true };
-        return new Promise((resolve) => this.#waiters.push(resolve));
+        if (!subscriber.active || this.#closed) return finish();
+        return new Promise((resolve) => subscriber.waiters.push(resolve));
+      },
+      return: async (): Promise<IteratorResult<T>> => {
+        subscriber.active = false;
+        this.#subscribers.delete(subscriber);
+        for (const waiter of subscriber.waiters.splice(0)) waiter(finish());
+        subscriber.queue.length = 0;
+        return finish();
       },
     };
   }

@@ -25,7 +25,8 @@ describe("canonical harness", () => {
     ).events);
     expect(requests).toHaveLength(2); expect(traces).toEqual([{ outcome: "success", continuation: null }, { outcome: "success", continuation: null }]);
     expect(events.map(({ type }) => type)).toEqual(["model_turn_started", "model_turn_completed", "tool_call", "tool_result", "model_turn_started", "model_turn_completed", "completed"]);
-    expect(requests[1]!.messages.at(-1)).toMatchObject({ role: "tool", toolCallId: "call-1" });
+    expect(requiredAt(requests, 1).messages.at(-1)).toMatchObject({ role: "tool", toolCallId: "call-1", toolName: "repo.readFile" });
+    expect(requiredAt(requests, 1).messages.at(-2)).toMatchObject({ role: "assistant", toolCalls: [{ id: "call-1" }] });
   });
 
   it("enforces the model-profile tool-loop bound", async () => {
@@ -57,6 +58,7 @@ describe("canonical harness", () => {
 });
 
 async function collect(events: AsyncIterable<HarnessEvent>): Promise<HarnessEvent[]> { const result: HarnessEvent[] = []; for await (const event of events) result.push(event); return result; }
+function requiredAt<T>(values: readonly T[], index: number): T { const value = values[index]; if (value === undefined) throw new RangeError(`Missing test value at index ${index}`); return value; }
 async function sourceFiles(directory: string): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true });
   return (await Promise.all(entries.map((entry) => entry.isDirectory() ? sourceFiles(resolve(directory, entry.name)) : Promise.resolve(entry.name.endsWith(".ts") ? [resolve(directory, entry.name)] : [])))).flat();

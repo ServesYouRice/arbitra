@@ -15,23 +15,23 @@ describe("single coherent Planner", () => {
   });
 
   it("hard-fails with a named diagnostic when a task omits its validation link", async () => {
-    const invalid = plan(); invalid.tasks[0]!.addresses.validation = [];
+    const invalid = plan(); requiredAt(invalid.tasks, 0).addresses.validation = [];
     const node = plannerNode({ protocolVersion: "1.0.0", protocolHash: "a".repeat(64), schema: await planSchema(), runtime: { async plan() { return invalid; } } });
     await expect(node.run(input())).rejects.toMatchObject({ name: "PlannerTraceabilityError", diagnostics: [expect.objectContaining({ code: "TASK_REQUIRES_VALIDATION_ASSERTION" })] });
   });
 
-  it("requires every accepted issue to map to a real assertion", () => {
+  it("requires every accepted issue to map to a real assertion", async () => {
     const missing = plan(); missing.traceability.issueToValidation = [];
-    expect(validateTraceability(missing as unknown as TraceablePlan, ["C-1"])).toEqual([expect.objectContaining({ code: "ACCEPTED_ISSUE_REQUIRES_VALIDATION_ASSERTION" })]);
+    expect(validateTraceability((await planSchema()).parse(missing), ["C-1"])).toEqual([expect.objectContaining({ code: "ACCEPTED_ISSUE_REQUIRES_VALIDATION_ASSERTION" })]);
   });
 
-  it("does not allow the planner to omit an accepted input issue from its declared set", () => {
+  it("does not allow the planner to omit an accepted input issue from its declared set", async () => {
     const omitted = plan(); omitted.acceptedIssueIds = [];
-    expect(validateTraceability(omitted as unknown as TraceablePlan, ["C-1"])).toContainEqual(expect.objectContaining({ code: "ACCEPTED_ISSUE_SET_MISMATCH" }));
+    expect(validateTraceability((await planSchema()).parse(omitted), ["C-1"])).toContainEqual(expect.objectContaining({ code: "ACCEPTED_ISSUE_SET_MISMATCH" }));
   });
 
   it("retains additive versioned Feature requirement links without replacing validation links", async () => {
-    const feature = plan(); feature.mode = "feature"; feature.tasks[0]!.addresses.issues = []; feature.tasks[0]!.addresses.requirements = ["REQ-1"]; feature.traceability.requirementLinks = { schemaVersion: 1, links: [{ requirementId: "REQ-1", validationIds: ["VAL-001"], taskIds: ["TASK-001"] }] };
+    const feature = plan(); feature.mode = "feature"; const task = requiredAt(feature.tasks, 0); task.addresses.issues = []; task.addresses.requirements = ["REQ-1"]; feature.traceability.requirementLinks = { schemaVersion: 1, links: [{ requirementId: "REQ-1", validationIds: ["VAL-001"], taskIds: ["TASK-001"] }] };
     const parsed = (await planSchema()).parse(feature);
     expect(parsed.tasks[0]?.addresses).toEqual({ issues: [], validation: ["VAL-001"], requirements: ["REQ-1"] });
     expect(validateTraceability(parsed)).toEqual([]);
@@ -40,8 +40,8 @@ describe("single coherent Planner", () => {
   it("rejects raw transcript-shaped input and silent resolution of a high-blast-radius question", async () => {
     const node = plannerNode({ protocolVersion: "1.0.0", protocolHash: "a".repeat(64), schema: await planSchema(), runtime: { async plan() { return plan(); } } });
     await expect(node.run({ ...input(), rawAuditTranscript: "not reachable" } as PlannerInput)).rejects.toThrow("RAW_AUDIT_TRANSCRIPT_FORBIDDEN");
-    const silent = plan(); silent.unresolvedQuestions = [{ id: "UQ-1", question: "Migration strategy?", blocking: true, blastRadius: "high" }]; silent.tasks[0]!.context = ["resolves:UQ-1"];
-    expect(validateTraceability(silent as unknown as TraceablePlan)).toEqual([expect.objectContaining({ code: "HIGH_BLAST_RADIUS_QUESTION_SILENTLY_RESOLVED" })]);
+    const silent = plan(); silent.unresolvedQuestions = [{ id: "UQ-1", question: "Migration strategy?", blocking: true, blastRadius: "high" }]; requiredAt(silent.tasks, 0).context = ["resolves:UQ-1"];
+    expect(validateTraceability((await planSchema()).parse(silent))).toEqual([expect.objectContaining({ code: "HIGH_BLAST_RADIUS_QUESTION_SILENTLY_RESOLVED" })]);
   });
 
   it("ships a lean pinned planner protocol that references schemas and capability routing", () => {
@@ -69,3 +69,4 @@ function input(): PlannerInput { return { projectContext: { language: "TypeScrip
 function plan() {
   return { schemaVersion: 1, id: "PLAN-1", title: "Premise fixture remediation", mode: "audit", reasoningOutcome: "Fix the authorization boundary first.", implementationStrategy: ["Enforce authenticated role checks and add regression coverage."], dependencies: [], acceptedIssueIds: ["C-1"], unresolvedQuestions: [] as Array<{ id: string; question: string; blocking: boolean; blastRadius: "low" | "medium" | "high" }>, validationContract: { schemaVersion: 1, validation: [{ id: "VAL-001", assertion: "Support headers cannot bypass authorization.", evidence: ["authorization regression test"] }] }, tasks: [{ schemaVersion: 1, id: "TASK-001", title: "Close authorization bypass", goal: { objective: "Enforce authorization", doneWhen: ["Header cannot bypass"], stopWhen: ["Regression passes"], blockedWhen: ["Identity unavailable"] }, addresses: { issues: ["C-1"], validation: ["VAL-001"], requirements: [] as string[] }, routing: { capability: "frontier", effort: "high", advisor: null, advisorMaxUses: null, reason: ["securitySensitivity:4"] }, dependencies: { dependsOn: [], blocks: [], conflictsWith: [] }, scope: { likelyFiles: ["src/auth.ts", "test/auth.test.ts"], components: ["authorization"], interfaces: ["authorize"] }, filesNotToTouch: [], readFirst: ["src/auth.ts"], context: [] as string[], invariants: ["Deny by default"], outOfScope: ["Identity redesign"], implementationGuidance: ["Keep tests with behavior"], acceptanceCriteria: ["Bypass rejected"], verification: { preconditions: [], commands: [{ command: "pnpm test", expectedExitCode: 0, executionPolicy: "derived_repository_script" }], checks: ["Regression is deterministic"] }, rollbackPlan: ["Revert guard"], escalateIf: ["Identity source ambiguous"], expectedEvidence: ["test output"], estimatedTurns: 2 }], taskGraph: [], traceability: { issueToValidation: [{ issueId: "C-1", validationIds: ["VAL-001"] }], requirementLinks: { schemaVersion: 1, links: [] as Array<{ requirementId: string; validationIds: string[]; taskIds: string[] }> } }, routingRecommendations: [{ taskId: "TASK-001", capability: "frontier", effort: "high", reason: ["securitySensitivity:4"] }], rolloutConcerns: [], migrationConcerns: [], premiseReport: { status: "positive", interpretation: "smoke_test_only_not_proof", limitations: ["One fixture is not proof."] } };
 }
+function requiredAt<T>(values: readonly T[], index: number): T { const value = values[index]; if (value === undefined) throw new RangeError(`Missing test value at index ${index}`); return value; }

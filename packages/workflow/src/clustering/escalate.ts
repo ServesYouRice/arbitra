@@ -13,7 +13,10 @@ export async function cluster(findings: readonly ValidatedClusterInput[], option
   let calls = 0; let tokens = 0; let cost = 0;
   for (const [index, pair] of base.ambiguousPairs.entries()) {
     if (index >= maximum || options.semantic === undefined) { pairs.push(pair); continue; }
-    const decision = await options.semantic.classify({ left: byId.get(pair.leftId)!, right: byId.get(pair.rightId)!, signals: pair.signals }); calls += 1; tokens += decision.inputTokens + decision.outputTokens; cost += decision.cost;
+    const left = byId.get(pair.leftId);
+    const right = byId.get(pair.rightId);
+    if (left === undefined || right === undefined) throw new Error(`AMBIGUOUS_PAIR_FINDING_MISSING:${pair.leftId}:${pair.rightId}`);
+    const decision = await options.semantic.classify({ left, right, signals: pair.signals }); calls += 1; tokens += decision.inputTokens + decision.outputTokens; cost += decision.cost;
     pairs.push(Object.freeze({ ...pair, relationship: decision.relationship }));
     if (decision.relationship === "same_root_cause") { mergeParent(parent, pair.leftId, pair.rightId); operations.push(Object.freeze({ type: "merge", sourceFindingIds: Object.freeze([pair.leftId, pair.rightId]), reason: "semantic" })); }
   }

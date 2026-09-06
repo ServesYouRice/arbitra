@@ -29,7 +29,7 @@ describe("contextual inspector", () => {
     { kind: "workflow", repository: "fixture", snapshot: "sha256:snapshot", base: "main", head: "HEAD", budgets: "$20", concurrency: 4, retries: 2, outputLocations: ["implementation/"], exclusions: [".runs/"], secretSettings: "environment references", protocolVersion: "1.0.0", runState: "BLOCKED", telemetry: "local" },
   ];
   for (const selection of variants) it(`renders only the ${selection.kind} field set`, () => { render(<InspectorView selection={selection} />); expect(screen.getByLabelText(`${selection.kind} inspector`)).toBeTruthy(); expect(screen.getByText(`${selection.kind} inspector`)).toBeTruthy(); });
-  it("keeps collapse and structured-tier degradation as labelled non-colour states", () => { render(<InspectorView selection={variants[1]!} />); expect(screen.getByText("xhigh→high").dataset.state).toBe("degraded"); expect(screen.getByText("strict→json_mode").dataset.state).toBe("degraded"); });
+  it("keeps collapse and structured-tier degradation as labelled non-colour states", () => { render(<InspectorView selection={requiredAt(variants, 1)} />); expect(screen.getByText("xhigh→high").dataset.state).toBe("degraded"); expect(screen.getByText("strict→json_mode").dataset.state).toBe("degraded"); });
 });
 
 describe("run controls, reconnect and persisted artifacts", () => {
@@ -43,3 +43,4 @@ describe("run controls, reconnect and persisted artifacts", () => {
 });
 
 function json(value: unknown, status = 200): Response { return new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } }); }
+function requiredAt<T>(values: readonly T[], index: number): T { const value = values[index]; if (value === undefined) throw new RangeError(`Missing test value at index ${index}`); return value; }

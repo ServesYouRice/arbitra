@@ -1,4 +1,5 @@
 import { ROUTE_INVENTORY } from "./inventory.js";
+import { redactSecrets } from "@arbitra/security/redaction";
 import type { CheckpointRegistry } from "../checkpoints.js";
 import { streamSse, type SseReply } from "../sse.js";
 
@@ -25,7 +26,7 @@ export function registerControlPlaneRoutes(server: RouteServer, core: ControlPla
   route("POST", "/runs", ({ body }) => core.runs.start(body));
   route("GET", "/runs/:id", ({ params }) => core.runs.status(required(params, "id")));
   route("POST", "/runs/:id/resume", ({ params }) => core.runs.resume(required(params, "id")));
-  route("GET", "/runs/:id/events", async ({ params }, reply) => streamSse(reply as SseReply, core.runs.events(required(params, "id"))));
+  route("GET", "/runs/:id/events", async ({ params }, reply) => streamSse(reply as SseReply, guardedEvents(core.runs.events(required(params, "id")))));
   route("POST", "/runs/:id/cancel", ({ params }) => core.runs.cancel(required(params, "id")));
   route("POST", "/runs/:id/checkpoints/:checkpointId", ({ params, body }) => { const id = required(params, "id"); const checkpointId = required(params, "checkpointId"); const decision = (body as { decision?: unknown } | undefined)?.decision; if (typeof decision !== "string") throw new Error("CHECKPOINT_DECISION_REQUIRED"); checkpoints.respond(id, checkpointId, decision); return { accepted: true }; });
   route("GET", "/runs/:id/artifacts", ({ params }) => core.runs.artifacts(required(params, "id")));
@@ -36,5 +37,15 @@ export function registerControlPlaneRoutes(server: RouteServer, core: ControlPla
 function required(params: Record<string, string> | undefined, key: string): string { const value = params?.[key]; if (value === undefined || value === "") throw new Error(`MISSING_ROUTE_PARAMETER:${key}`); return value; }
 function redactHandler(handler: Handler): Handler { return async (request, reply) => assertNoSecretEgress(await handler(request, reply)); }
 /** The single outbound secret guard for every localhost route; evaluation routes reuse it rather than defining a second pattern set. */
-export function assertNoSecretEgress(value: unknown): unknown { const encoded = JSON.stringify(value); if (/(?:sk-[A-Za-z0-9_-]{12,}|gh[opusr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|Bearer\s+[A-Za-z0-9._~+/=-]{16,})/u.test(encoded)) throw new Error("HTTP_SECRET_EGRESS_BLOCKED"); return value; }
+export function assertNoSecretEgress<T>(value: T): T {
+  const encoded = JSON.stringify(value, (_key, child: unknown) => {
+    if (typeof child === "string" && redactSecrets(child).redactions.length > 0) throw new Error("HTTP_SECRET_EGRESS_BLOCKED");
+    return child;
+  });
+  if (encoded !== undefined && redactSecrets(encoded).redactions.length > 0) throw new Error("HTTP_SECRET_EGRESS_BLOCKED");
+  return value;
+}
 
+async function* guardedEvents(events: AsyncIterable<unknown>): AsyncIterable<unknown> {
+  for await (const event of events) yield assertNoSecretEgress(event);
+}

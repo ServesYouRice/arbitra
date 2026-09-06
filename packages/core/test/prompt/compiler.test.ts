@@ -37,7 +37,7 @@ describe("prompt compiler", () => {
 
   it("gives fan-out auditors the same prefix through the round breakpoint", () => {
     const prompts = ["a", "b", "c"].map((model) => compile(spec("same-round", model)));
-    expect(new Set(prompts.map((prompt) => prompt.breakpoints[2]!.prefixHash)).size).toBe(1);
+    expect(new Set(prompts.map((prompt) => requiredAt(prompt.breakpoints, 2).prefixHash)).size).toBe(1);
     expect(new Set(prompts.map((prompt) => prompt.hash)).size).toBe(1);
   });
 
@@ -53,3 +53,5 @@ describe("prompt compiler", () => {
     expect(() => compile({ ...spec(), security: { ...security, frame: (text) => text } })).toThrow("unframed repository content");
   });
 });
+
+function requiredAt<T>(values: readonly T[], index: number): T { const value = values[index]; if (value === undefined) throw new RangeError(`Missing test value at index ${index}`); return value; }

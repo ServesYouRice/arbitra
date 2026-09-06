@@ -21,6 +21,7 @@ describe("audit targets", () => {
     expect(resolveDiffTarget({ kind: "branch_range", base: "release", head: "feature" }, git).range).toBe("mb:release:feature...feature");
     expect(resolveDiffTarget({ kind: "commit_range", base: "abc123", head: "def456" }, git).range).toBe("abc123..def456");
     expect(resolveDiffTarget({ kind: "custom_range", range: "base...head" }, git).mergeBase).toBe("mb:base:head");
+    expect(() => resolveDiffTarget({ kind: "commit_range", base: "--output=/tmp/x", head: "HEAD" }, git)).toThrow("INVALID_DIFF_REVISION");
     expect(resolveDiffTarget({ kind: "staged" }, git)).toMatchObject({ range: "--cached", controlPlaneRevision: "HEAD" });
     expect(resolveDiffTarget({ kind: "working_tree" }, git)).toMatchObject({ range: "working-tree", controlPlaneRevision: "HEAD" });
   });

@@ -16,7 +16,8 @@ export interface CandidateConsensus { readonly candidateId: string; readonly out
 export interface ConsensusState { readonly policy: ConsensusPolicyName; readonly auditorCount: number; readonly round: number; readonly exhausted: boolean; readonly candidates: readonly CandidateConsensus[] }
 
 export function computeConsensus(board: ConsensusBoard, policy: ConsensusPolicy = DEFAULT_CONSENSUS_POLICY, context: { readonly auditors: readonly ConsensusAuditor[]; readonly round: number; readonly maximumRounds?: number }): ConsensusState {
-  const maximumRounds = context.maximumRounds ?? 3; if (!Number.isSafeInteger(maximumRounds) || maximumRounds < 1 || maximumRounds > 3) throw new Error("INVALID_PEER_REVIEW_MAXIMUM_ROUNDS");
+  const maximumRounds = context.maximumRounds ?? 3; if (!Number.isSafeInteger(maximumRounds) || maximumRounds < 0 || maximumRounds > 3) throw new Error("INVALID_PEER_REVIEW_MAXIMUM_ROUNDS");
+  if (!Number.isSafeInteger(context.round) || context.round < 0 || context.round > maximumRounds) throw new Error("INVALID_PEER_REVIEW_ROUND");
   const auditors = context.auditors; const auditorIds = new Set(auditors.map(({ auditorId }) => auditorId)); if (auditorIds.size !== auditors.length || auditors.length === 0) throw new Error("INVALID_CONSENSUS_AUDITORS");
   const groupByAuditor = new Map(auditors.map(({ auditorId, independenceGroup }) => [auditorId, independenceGroup])); const exhausted = context.round >= maximumRounds;
   const candidates = Object.values(board.candidates).sort((a, b) => a.candidateId.localeCompare(b.candidateId)).map((candidate) => decide(candidate, policy, auditors, groupByAuditor, exhausted));

@@ -4,6 +4,11 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./path-guard": {
+      "types": "./src/path-guard.ts",
+      "development": "./src/path-guard.ts",
+      "default": "./dist/src/path-guard.js"
+    },
     "./redaction": {
       "types": "./src/redaction.ts",
       "development": "./src/redaction.ts",

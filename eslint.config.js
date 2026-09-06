@@ -10,6 +10,12 @@ export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    files: ["**/*.{ts,tsx}"],
+    rules: {
+      "@typescript-eslint/no-non-null-assertion": "error",
+    },
+  },
+  {
     files: ["packages/{core,workflow,persistence}/src/**/*.{js,jsx,ts,tsx}"],
     plugins: {
       arbitra: {

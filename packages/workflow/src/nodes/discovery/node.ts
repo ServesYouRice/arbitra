@@ -31,7 +31,8 @@ export function discoveryNode(config: DiscoveryNodeConfig, runtime: DiscoveryAud
     const scopes = allocateDiscoveryScopes(config.depth, config.auditors.map(({ auditorId }) => auditorId), config.modules, config.hotspots);
     const byAuditor = new Map(scopes.map((scope) => [scope.auditorId, scope]));
     const completed = await Promise.all(config.auditors.map(async (auditor) => {
-      const assignedScope = byAuditor.get(auditor.auditorId)!;
+      const assignedScope = byAuditor.get(auditor.auditorId);
+      if (assignedScope === undefined) throw new Error(`DISCOVERY_SCOPE_MISSING:${auditor.auditorId}`);
       const raw = await runtime.run(Object.freeze({ auditor, artifacts: Object.freeze([...artifacts]), assignedScope, protocol: config.protocol, forceStructuredEmission, forbiddenContextSources: ROUND_ZERO_CONTEXT_POLICY.exclude }));
       const result = normalizeResult(raw, auditor.auditorId, assignedScope, forceStructuredEmission);
       const ref = await store.persist(auditor.auditorId, result);

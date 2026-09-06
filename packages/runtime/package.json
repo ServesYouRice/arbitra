@@ -12,6 +12,7 @@
     "@arbitra/core": "workspace:*",
     "@arbitra/persistence": "workspace:*",
     "@arbitra/schemas": "workspace:*",
+    "@arbitra/security": "workspace:*",
     "@arbitra/workflow": "workspace:*"
   },
   "exports": {

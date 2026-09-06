@@ -1,16 +1,18 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { resolve } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { ConfigStore } from "@arbitra/core/config/config-store.js";
 import type { NodeExecutionContext, RunnerGraph, RunHandle } from "@arbitra/core/runner/workflow-runner.js";
 import { WorkflowRunner } from "@arbitra/core/runner/workflow-runner.js";
+import { diffRuns, type ComparableRun, type ReplayOverrides } from "@arbitra/core/replay/index.js";
 import type { RunEvent, RunState } from "@arbitra/core/runner/events.js";
 import { runConfigSchema, type RunConfig } from "@arbitra/schemas/config.js";
 import { DEFAULT_AUDITORS, type AuditFinding } from "./auditors.js";
 import type { CanonicalIssueSet } from "@arbitra/workflow/nodes/canonical-issues.js";
-import { AUDIT_DEEP_GRAPH, graphForPreset } from "./graphs.js";
+import { AUDIT_DEEP_GRAPH, auditorIdsFor, graphForPreset } from "./graphs.js";
 import { canonicalise, converge, critique, discover, plan, preflight, readStage, verify, type AuditContext, type ConvergenceResult, type Plan } from "./pipeline.js";
-import { snapshotRepository } from "./repository.js";
-import { listRunIds, RunStore, type ArtifactDescriptor } from "./run-store.js";
+import { snapshotRepository, type RepositorySnapshot } from "./repository.js";
+import { listRunIds, RunStore, type ArtifactDescriptor, type StoredRunContext } from "./run-store.js";
 
 export interface OrchestratorOptions {
   /** Where runs and saved configurations live. Defaults to `<repository>/.runs`. */
@@ -25,6 +27,7 @@ export interface RunResource {
   readonly resumable: boolean;
   readonly checkpoints: readonly never[];
   readonly preservedArtifacts: number;
+  readonly workflow?: RunnerGraph;
 }
 
 /**
@@ -40,6 +43,7 @@ export class Orchestrator {
   readonly #runsDirectory: string;
   readonly #newRunId: () => string;
   readonly #live = new Map<string, RunHandle>();
+  readonly #resuming = new Set<string>();
 
   constructor(options: OrchestratorOptions = {}) {
     this.repository = resolve(options.repository ?? process.cwd());
@@ -59,15 +63,17 @@ export class Orchestrator {
    * A pre-flight cost estimate. Scripted auditors make no provider calls, so the estimate
    * reports zero spend and says why, rather than inventing a number.
    */
-  async estimate(config: RunConfig): Promise<unknown> {
-    const snapshot = await snapshotRepository(this.repository);
-    const graph = graphForPreset(presetOf(config));
+  async estimate(config: RunConfig, repository = this.repository): Promise<unknown> {
+    const validated = runConfigSchema.parse(config);
+    assertRuntimeConfiguration(validated);
+    const snapshot = await snapshotRepository(resolve(repository), 400, { scope: validated.scope });
+    const graph = graphForPreset(presetOf(validated));
     return Object.freeze({
       estimate: Object.freeze({
         files: snapshot.files.length,
         lines: snapshot.files.reduce((total, file) => total + file.lines.length, 0),
         nodes: graph.nodes.length,
-        auditors: DEFAULT_AUDITORS.length,
+        auditors: auditorIdsFor(graph).length,
         providerCalls: 0,
         costUsd: 0,
         currency: null,
@@ -78,21 +84,26 @@ export class Orchestrator {
   }
 
   /** Start a run and return as soon as it is created; it continues in the background. */
-  async start(config: RunConfig): Promise<RunResource> {
+  async start(config: RunConfig, repository = this.repository): Promise<RunResource> {
+    const validated = runConfigSchema.parse(config);
+    assertRuntimeConfiguration(validated);
     const runId = this.#newRunId();
     const store = new RunStore(this.#runsDirectory, runId);
-    const snapshot = await snapshotRepository(this.repository);
+    const selectedRepository = resolve(repository);
+    const snapshot = await snapshotRepository(selectedRepository, 400, { scope: validated.scope });
+    const graph = graphForPreset(presetOf(validated));
+    const storedContext: StoredRunContext = Object.freeze({ repository: selectedRepository, repositoryDigest: snapshotDigest(snapshot), scope: validated.scope, consensusPolicy: validated.consensusPolicy, maximumRounds: validated.maxConsensusRounds, criticEnabled: graph.nodes.some(({ id }) => id === "critic") });
+    await store.saveContext(storedContext);
     const context: AuditContext = Object.freeze({
       snapshot,
       store,
-      auditors: DEFAULT_AUDITORS,
-      policy: Object.freeze({ name: config.consensusPolicy, quorum: 2, minimumIndependentGroupsForHighRisk: 2 }),
-      maximumRounds: config.maxConsensusRounds,
-      criticEnabled: true,
+      auditors: auditorsFor(graph),
+      policy: Object.freeze({ name: storedContext.consensusPolicy, quorum: 2, minimumIndependentGroupsForHighRisk: 2 }),
+      maximumRounds: storedContext.maximumRounds,
+      criticEnabled: storedContext.criticEnabled,
     });
-    const handle = this.#runner(store, context).start(graphForPreset(presetOf(config)), { runId });
-    this.#live.set(runId, handle);
-    void handle.result.catch(() => undefined);
+    const handle = this.#runner(store, context).start(graph, { runId });
+    this.#track(runId, handle);
     return Object.freeze({ runId, state: handle.state, resumable: true, checkpoints: Object.freeze([]), preservedArtifacts: 0 });
   }
 
@@ -105,17 +116,69 @@ export class Orchestrator {
     return Object.freeze({ runId: resource.runId, state, summary: await this.summary(resource.runId) });
   }
 
-  async resume(runId: string): Promise<RunResource> {
+  async wait(runId: string): Promise<RunResource> {
+    const live = this.#live.get(runId);
+    if (live !== undefined) await live.result;
+    return this.status(runId);
+  }
+
+  /** Reuse durable discovery findings, then rerun the downstream workflow under new policy. */
+  async replay(sourceRunId: string, overrides: ReplayOverrides): Promise<{ readonly runId: string; readonly state: RunState }> {
+    if (this.#live.has(sourceRunId) || this.#resuming.has(sourceRunId)) throw new Error(`REPLAY_SOURCE_RUNNING:${sourceRunId}`);
+    await this.status(sourceRunId);
+    const source = new RunStore(this.#runsDirectory, sourceRunId);
+    const original = await source.loadContext();
+    const snapshot = await snapshotRepository(original.repository, 400, { scope: original.scope });
+    if (snapshotDigest(snapshot) !== original.repositoryDigest) throw new Error(`RUN_REPOSITORY_CHANGED:${sourceRunId}`);
+    const definition = await source.definitions().load(sourceRunId);
+    const auditors = auditorsFor(definition.graph);
+    const findings = Object.fromEntries(await Promise.all(auditors.map(async ({ auditorId }) => [auditorId, await readStage<readonly AuditFinding[]>(source, `findings-${auditorId}`)] as const)));
+    const runId = this.#newRunId();
+    if (runId === sourceRunId) throw new Error("REPLAY_MUST_CREATE_NEW_RUN");
     const store = new RunStore(this.#runsDirectory, runId);
-    const snapshot = await snapshotRepository(this.repository);
+    await store.saveContext({ ...original, replaySourceRunId: sourceRunId, consensusPolicy: overrides.consensusPolicy, maximumRounds: overrides.maximumRounds, criticEnabled: overrides.criticEnabled });
+    await store.publish("replay-source", { sourceRunId, overrides, reusedArtifacts: (await source.listArtifacts()).filter(({ kind }) => auditors.some(({ auditorId }) => kind === `findings-${auditorId}`)).map(({ artifactId, ref }) => ({ artifactId, hash: ref.hash })) });
+    const context: AuditContext = Object.freeze({ snapshot, store, auditors, policy: Object.freeze({ name: overrides.consensusPolicy, quorum: 2, minimumIndependentGroupsForHighRisk: 2 }), maximumRounds: overrides.maximumRounds, criticEnabled: overrides.criticEnabled });
+    const handle = this.#runner(store, context, findings).start(definition.graph, { ...definition.config, runId });
+    this.#track(runId, handle);
+    return Object.freeze({ runId, state: await handle.result });
+  }
+
+  async diff(runA: string, runB: string) {
+    const comparable = async (runId: string): Promise<ComparableRun> => {
+      await this.status(runId);
+      const store = new RunStore(this.#runsDirectory, runId);
+      const issues = await readStage<CanonicalIssueSet>(store, "canonical-issues");
+      return { runId, issues: issues.issues.map((issue) => ({ id: issue.candidateId, status: issue.disposition, severity: issue.severity, verification: issue.verificationOutcome })), metrics: { ...issues.summary } };
+    };
+    const [a, b] = await Promise.all([comparable(runA), comparable(runB)]);
+    return diffRuns(a, b);
+  }
+
+  async resume(runId: string): Promise<RunResource> {
+    if (this.#live.has(runId) || this.#resuming.has(runId)) throw new Error(`RUN_ALREADY_LIVE:${runId}`);
+    this.#resuming.add(runId);
+    try { return await this.#resume(runId); }
+    finally { this.#resuming.delete(runId); }
+  }
+
+  async #resume(runId: string): Promise<RunResource> {
+    const previous = await this.status(runId);
+    if (!previous.resumable) throw new Error(`RUN_NOT_RESUMABLE:${runId}`);
+    const store = new RunStore(this.#runsDirectory, runId);
+    const storedContext = await store.loadContext();
+    const snapshot = await snapshotRepository(storedContext.repository, 400, { scope: storedContext.scope });
+    if (snapshotDigest(snapshot) !== storedContext.repositoryDigest) throw new Error(`RUN_REPOSITORY_CHANGED:${runId}`);
+    const definition = await store.definitions().load(runId);
     const context: AuditContext = Object.freeze({
-      snapshot, store, auditors: DEFAULT_AUDITORS,
-      policy: Object.freeze({ name: "risk_weighted" as const, quorum: 2, minimumIndependentGroupsForHighRisk: 2 }),
-      maximumRounds: 2, criticEnabled: true,
+      snapshot, store, auditors: auditorsFor(definition.graph),
+      policy: Object.freeze({ name: storedContext.consensusPolicy, quorum: 2, minimumIndependentGroupsForHighRisk: 2 }),
+      maximumRounds: storedContext.maximumRounds, criticEnabled: storedContext.criticEnabled,
     });
-    const handle = this.#runner(store, context).resume(runId);
-    this.#live.set(runId, handle);
-    void handle.result.catch(() => undefined);
+    const sourceStore = storedContext.replaySourceRunId === undefined ? undefined : new RunStore(this.#runsDirectory, storedContext.replaySourceRunId);
+    const reused = sourceStore === undefined ? undefined : Object.fromEntries(await Promise.all(context.auditors.map(async ({ auditorId }) => [auditorId, await readStage<readonly AuditFinding[]>(sourceStore, `findings-${auditorId}`)] as const)));
+    const handle = this.#runner(store, context, reused).resume(runId);
+    this.#track(runId, handle);
     return Object.freeze({ runId, state: handle.state, resumable: true, checkpoints: Object.freeze([]), preservedArtifacts: (await store.listArtifacts()).length });
   }
 
@@ -126,13 +189,20 @@ export class Orchestrator {
     const last = [...events].reverse().find((event): event is Extract<RunEvent, { t: "run_transition" }> => event.t === "run_transition");
     const state = live?.state ?? last?.state ?? "CREATED";
     if (last === undefined && live === undefined) throw new Error(`RUN_ABSENT:${runId}`);
-    return Object.freeze({ runId, state, resumable: state !== "COMPLETED", checkpoints: Object.freeze([]), preservedArtifacts: (await store.listArtifacts()).length });
+    const workflow = last === undefined ? undefined : (await store.definitions().load(runId)).graph;
+    return Object.freeze({ runId, state, resumable: state !== "COMPLETED", checkpoints: Object.freeze([]), preservedArtifacts: (await store.listArtifacts()).length, ...(workflow === undefined ? {} : { workflow }) });
   }
 
-  cancel(runId: string): RunResource {
+  async cancel(runId: string): Promise<RunResource> {
     const handle = this.#live.get(runId);
-    handle?.cancel("cancelled_by_operator");
-    return Object.freeze({ runId, state: handle?.state ?? "CANCELLED", resumable: true, checkpoints: Object.freeze([]), preservedArtifacts: 0 });
+    if (handle === undefined) {
+      const existing = await this.status(runId);
+      if (["COMPLETED", "FAILED", "CANCELLED"].includes(existing.state)) return existing;
+      throw new Error(`RUN_NOT_LIVE:${runId}`);
+    }
+    handle.cancel("cancelled_by_operator");
+    const state = await handle.result;
+    return Object.freeze({ runId, state, resumable: state !== "COMPLETED", checkpoints: Object.freeze([]), preservedArtifacts: (await new RunStore(this.#runsDirectory, runId).listArtifacts()).length });
   }
 
   /**
@@ -141,11 +211,20 @@ export class Orchestrator {
    */
   async *events(runId: string): AsyncIterable<RunEvent> {
     const store = new RunStore(this.#runsDirectory, runId);
-    for (const event of await store.loadEvents()) yield event;
-    const live = this.#live.get(runId);
-    if (live === undefined) return;
-    const seen = new Set((await store.loadEvents()).map((event) => JSON.stringify(event)));
-    for await (const event of live.events) if (!seen.has(JSON.stringify(event))) yield event;
+    let cursor = 0;
+    while (true) {
+      // Read the durable sequence for each subscriber. An event's position, not its
+      // content, is its identity: resume can legitimately emit the same transition twice.
+      const live = this.#live.get(runId);
+      const history = await store.loadEvents();
+      for (const event of history.slice(cursor)) yield event;
+      cursor = history.length;
+      if (live === undefined) {
+        if (cursor === 0) throw new Error(`RUN_ABSENT:${runId}`);
+        return;
+      }
+      await Promise.race([delay(50), live.result.then(() => undefined, () => undefined)]);
+    }
   }
 
   async artifacts(runId: string): Promise<readonly PublicArtifact[]> {
@@ -189,7 +268,7 @@ export class Orchestrator {
     return Object.freeze({ gateStatus: reasons.length === 0 ? "passed" : "failed", reasons: Object.freeze(reasons) });
   }
 
-  #runner(store: RunStore, context: AuditContext): WorkflowRunner {
+  #runner(store: RunStore, context: AuditContext, reusedFindings?: Readonly<Record<string, readonly AuditFinding[]>>): WorkflowRunner {
     // Stages hand off through the artifact store rather than through closure state, so a
     // resumed run can start at any node with every earlier stage's output still readable.
     return new WorkflowRunner({
@@ -208,7 +287,8 @@ export class Orchestrator {
             const reviewed = await critique(context, await readStage<Plan>(store, "plan-ir"), await readStage<CanonicalIssueSet>(store, "canonical-issues"));
             return { items: reviewed?.items.length ?? 0, blocking: reviewed?.items.filter(({ blocking }) => blocking).length ?? 0 };
           }
-          const discovered = discover(context, node.id);
+          const discovered = reusedFindings === undefined ? discover(context, node.id) : reusedFindings[node.id];
+          if (discovered === undefined) throw new Error(`REPLAY_SOURCE_FINDINGS_UNAVAILABLE:${node.id}`);
           await store.publish(`findings-${node.id}`, discovered, node.id);
           return { auditorId: node.id, findingCount: discovered.length };
         },
@@ -232,6 +312,11 @@ export class Orchestrator {
     const entries = await Promise.all(context.auditors.map(async ({ auditorId }) => [auditorId, await readStage<readonly AuditFinding[]>(store, `findings-${auditorId}`)] as const));
     return Object.fromEntries(entries);
   }
+
+  #track(runId: string, handle: RunHandle): void {
+    this.#live.set(runId, handle);
+    void handle.result.finally(() => { if (this.#live.get(runId) === handle) this.#live.delete(runId); }).catch(() => undefined);
+  }
 }
 
 export { AUDIT_DEEP_GRAPH, type RunnerGraph };
@@ -246,4 +331,22 @@ function withoutRef(descriptor: ArtifactDescriptor): PublicArtifact {
 function presetOf(config: RunConfig): string | undefined {
   const preset = (config.workflow as { preset?: unknown } | undefined)?.preset;
   return typeof preset === "string" ? preset : undefined;
+}
+
+/** Do not misrepresent a scripted audit as an uncomposed model/Feature/Testing run. */
+function assertRuntimeConfiguration(config: RunConfig): void {
+  if (config.mode !== "audit") throw new Error(`RUNTIME_MODE_NOT_AVAILABLE:${config.mode}`);
+  if (config.harness.mode !== "canonical") throw new Error("RUNTIME_NATIVE_HARNESS_NOT_AVAILABLE");
+  if (Object.keys(config.models).length > 0) throw new Error("RUNTIME_MODEL_EXECUTION_NOT_AVAILABLE:the composed runtime currently uses scripted auditors; model profiles cannot be silently ignored");
+  if (config.workflow["preset"] !== undefined && typeof config.workflow["preset"] !== "string") throw new Error("INVALID_WORKFLOW_PRESET");
+  graphForPreset(presetOf(config));
+}
+
+function snapshotDigest(snapshot: RepositorySnapshot): string {
+  return createHash("sha256").update(JSON.stringify(snapshot.files)).digest("hex");
+}
+
+function auditorsFor(graph: RunnerGraph) {
+  const ids = auditorIdsFor(graph);
+  return DEFAULT_AUDITORS.filter(({ auditorId }) => ids.includes(auditorId));
 }

@@ -6,6 +6,10 @@ const consensus = (overrides: Partial<CanonicalisationBoard["consensus"]["candid
 const coverage = { securityCoverage: { degraded: false, reason: null }, suppressionCandidates: [], unexaminedSurfaces: [], limitations: [] } as const;
 
 describe("canonical issue projection", () => {
+  it("rejects mismatched identities and orphaned consensus", () => {
+    expect(() => canonicaliseIssues({ candidates: { wrong: candidate() }, consensus: { auditorCount: 3, candidates: [consensus()] } }, [], coverage)).toThrow("CANONICAL_CANDIDATE_ID_MISMATCH:wrong");
+    expect(() => canonicaliseIssues({ candidates: {}, consensus: { auditorCount: 3, candidates: [consensus()] } }, [], coverage)).toThrow("ORPHAN_CANONICAL_CONSENSUS:C-1");
+  });
   it("retains 2-1 dissent, counter-evidence, traceability and coverage", () => {
     const artifact = canonicaliseIssues({ candidates: { "C-1": candidate() }, consensus: { auditorCount: 3, candidates: [consensus()] } }, [], coverage);
     expect(artifact.issues[0]).toMatchObject({ supportCount: 2, reviewDenominator: 3, sourceFindingIds: ["F-C-1"], dissent: [{ authorId: "auditor-c", citedEvidenceIds: ["E-counter"] }], counterEvidence: [{ id: "E-counter" }], verificationOutcome: null });

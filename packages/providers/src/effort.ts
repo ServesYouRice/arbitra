@@ -43,6 +43,7 @@ export function parseEffortProfile(value: unknown): EffortProfile {
     const rawParams = plainRecord(raw, `effort.params.${level}`);
     for (const [key, parameter] of Object.entries(rawParams)) {
       if (!["string", "number", "boolean"].includes(typeof parameter) && parameter !== null) throw new Error(`INVALID_PROFILE:effort.params.${level}.${key}`);
+      if (typeof parameter === "number" && !Number.isFinite(parameter)) throw new Error(`INVALID_PROFILE:effort.params.${level}.${key}`);
     }
     params[parsedLevel] = Object.freeze(rawParams as Record<string, EffortParameter>);
   }

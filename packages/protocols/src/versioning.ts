@@ -36,7 +36,10 @@ export function compareSemver(a: string, b: string): number {
   const left = parseSemver(a);
   const right = parseSemver(b);
   for (let index = 0; index < left.length; index += 1) {
-    const delta = left[index]! - right[index]!;
+    const leftPart = left[index];
+    const rightPart = right[index];
+    if (leftPart === undefined || rightPart === undefined) throw new Error("INVALID_SEMVER_COMPONENTS");
+    const delta = leftPart - rightPart;
     if (delta !== 0) return Math.sign(delta);
   }
   return 0;

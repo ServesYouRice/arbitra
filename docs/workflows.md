@@ -107,6 +107,9 @@ when none qualifies — a skipped critic is a recorded degradation, not a silent
 
 ## Feature mode
 
+The following describes the library node. The CLI/server composition does not yet
+dispatch Feature mode and rejects it explicitly.
+
 Same engine. `packages/workflow/src/nodes/requirements/` produces a durable Requirements
 Contract and routes by ambiguity and repository risk (`routing.ts`), preserving assumption
 and acceptance traceability into planning.
@@ -116,6 +119,9 @@ consensus engine is mode-agnostic and will be reused unchanged when it lands; th
 branch currently routes single-model.
 
 ## Testing mode
+
+The following describes the library node. The CLI/server composition does not yet
+dispatch Testing mode and rejects it explicitly.
 
 Plan-only, by construction. `packages/workflow/src/nodes/test-inventory.ts` inventories the
 existing test architecture deterministically, selects gaps that cite production failure

@@ -1,14 +1,23 @@
+import { setTimeout as delay } from "node:timers/promises";
+import { TransportError } from "./transport-contract.js";
+
 export interface RateLimitPolicy { readonly rpm: number; readonly tpm: number; readonly maxConcurrent: number; }
-export interface SchedulerClock { now(): number; sleep(milliseconds: number): Promise<void>; }
+export interface SchedulerClock { now(): number; sleep(milliseconds: number, signal?: AbortSignal): Promise<void>; }
 export interface SchedulerLease { readonly providerId: string; readonly estimatedTokens: number; release(): void; }
 
 interface Admission { readonly at: number; readonly tokens: number; }
 interface ProviderState { active: number; blockedUntil: number; admissions: Admission[]; waiters: Set<() => void>; }
 
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
 const systemClock: SchedulerClock = {
   now: () => Date.now(),
-  sleep: async (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  sleep: async (milliseconds, signal) => delay(boundedTimerDelay(milliseconds), undefined, { signal }),
 };
+
+function boundedTimerDelay(milliseconds: number): number {
+  if (!Number.isFinite(milliseconds) || milliseconds < 0) throw new Error("INVALID_SCHEDULER_DELAY");
+  return Math.min(MAX_TIMER_DELAY_MS, Math.ceil(milliseconds));
+}
 
 export class RateLimitScheduler {
   private readonly states = new Map<string, ProviderState>();
@@ -16,12 +25,13 @@ export class RateLimitScheduler {
     for (const [providerId, policy] of Object.entries(policies)) validatePolicy(providerId, policy);
   }
 
-  async acquire(providerId: string, estimatedTokens: number): Promise<SchedulerLease> {
+  async acquire(providerId: string, estimatedTokens: number, signal?: AbortSignal): Promise<SchedulerLease> {
     const policy = this.policy(providerId);
     if (!Number.isSafeInteger(estimatedTokens) || estimatedTokens < 0) throw new Error("INVALID_ESTIMATED_TOKENS");
     if (estimatedTokens > policy.tpm) throw new Error(`REQUEST_EXCEEDS_PROVIDER_TPM:${providerId}`);
     const state = this.state(providerId);
     while (true) {
+      if (signal?.aborted === true) throw new TransportError("CANCELLED", "Provider admission cancelled", false);
       const now = this.clock.now();
       state.admissions = state.admissions.filter(({ at }) => at > now - 60_000);
       const tokensInWindow = state.admissions.reduce((total, item) => total + item.tokens, 0);
@@ -41,10 +51,13 @@ export class RateLimitScheduler {
         const first = state.admissions[0]; if (first !== undefined) delays.push(Math.max(1, first.at + 60_000 - now));
       }
       const waitForRelease = changed(state);
+      const wakeOnAbort = (): void => wake(state);
+      const timerAbort = new AbortController();
+      signal?.addEventListener("abort", wakeOnAbort, { once: true });
       try {
         if (delays.length === 0) await waitForRelease.promise;
-        else await Promise.race([this.clock.sleep(Math.min(...delays)), waitForRelease.promise]);
-      } finally { waitForRelease.cancel(); }
+        else await Promise.race([this.clock.sleep(Math.min(...delays), timerAbort.signal), waitForRelease.promise]);
+      } finally { waitForRelease.cancel(); signal?.removeEventListener("abort", wakeOnAbort); timerAbort.abort(); }
     }
   }
 

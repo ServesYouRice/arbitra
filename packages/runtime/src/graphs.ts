@@ -61,15 +61,25 @@ export const DIFF_REVIEW_GRAPH: RunnerGraph = Object.freeze({
   ]),
 });
 
+export const AUDIT_BALANCED_GRAPH: RunnerGraph = Object.freeze({ ...DIFF_REVIEW_GRAPH, id: "audit-balanced" });
+export const DIFF_FAST_GRAPH: RunnerGraph = Object.freeze({
+  ...DIFF_REVIEW_GRAPH, id: "diff-fast",
+  nodes: Object.freeze(DIFF_REVIEW_GRAPH.nodes.filter(({ id }) => id !== "auditor-b")),
+  edges: Object.freeze(DIFF_REVIEW_GRAPH.edges.filter(({ from, to }) => from !== "auditor-b" && to !== "auditor-b")),
+});
+
 export const PRESET_GRAPHS: Readonly<Record<string, RunnerGraph>> = Object.freeze({
   "audit-deep": AUDIT_DEEP_GRAPH,
-  "audit-balanced": AUDIT_DEEP_GRAPH,
+  "audit-balanced": AUDIT_BALANCED_GRAPH,
   "diff-review": DIFF_REVIEW_GRAPH,
-  "diff-fast": DIFF_REVIEW_GRAPH,
+  "diff-fast": DIFF_FAST_GRAPH,
 });
 
 export function graphForPreset(preset: string | undefined): RunnerGraph {
-  return PRESET_GRAPHS[preset ?? "audit-deep"] ?? AUDIT_DEEP_GRAPH;
+  const name = preset ?? "audit-deep";
+  const graph = Object.hasOwn(PRESET_GRAPHS, name) ? PRESET_GRAPHS[name] : undefined;
+  if (graph === undefined) throw new Error(`UNKNOWN_WORKFLOW_PRESET:${name}`);
+  return graph;
 }
 
 /** The auditors a preset's graph actually dispatches, so discovery never runs blind. */

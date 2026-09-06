@@ -9,16 +9,18 @@ const vote = (authorId: string, disposition: "accept" | "reject" | "needs_verifi
 class FixtureRng implements ReviewRng { constructor(private readonly seed: string) {} forActivity(id: string) { return new FixtureRng(`${this.seed}:${id}`); } shuffle<T>(items: T[]): T[] { const offset = [...this.seed].reduce((sum, char) => sum + char.charCodeAt(0), 0) % Math.max(1, items.length); return [...items.slice(offset), ...items.slice(0, offset)].reverse(); } }
 
 describe("consensus semantics", () => {
-  it("skips consensus for one auditor and labels findings single-source", () => { const state = computeConsensus(board(candidate()), DEFAULT_CONSENSUS_POLICY, { auditors: auditors.slice(0, 1), round: 0 }); expect(state.candidates[0]!.outcome).toBe("single_source"); });
+  it("skips consensus for one auditor and labels findings single-source", () => { const state = computeConsensus(board(candidate()), DEFAULT_CONSENSUS_POLICY, { auditors: auditors.slice(0, 1), round: 0 }); expect(requiredAt(state.candidates, 0).outcome).toBe("single_source"); });
   it("routes two-auditor material disagreement to verification without inventing a majority", () => { const state = computeConsensus(board(candidate({ votes: [vote("auditor-a", "accept"), vote("auditor-b", "reject")] })), DEFAULT_CONSENSUS_POLICY, { auditors: auditors.slice(0, 2), round: 1 }); expect(state.candidates[0]).toMatchObject({ outcome: "needs_verification", supportCount: 1, reviewDenominator: 2 }); });
   it("requires high-risk support across independence groups and preserves dissent", () => {
-    const sameGroup = [{ auditorId: "auditor-a", independenceGroup: "same" }, { auditorId: "auditor-b", independenceGroup: "same" }, auditors[2]!] as const;
+    const sameGroup = [{ auditorId: "auditor-a", independenceGroup: "same" }, { auditorId: "auditor-b", independenceGroup: "same" }, requiredAt(auditors, 2)] as const;
     const issue = candidate({ votes: [vote("auditor-a", "accept"), vote("auditor-b", "accept"), vote("auditor-c", "reject")] });
     expect(computeConsensus(board(issue), DEFAULT_CONSENSUS_POLICY, { auditors: sameGroup, round: 1 }).candidates[0]).toMatchObject({ outcome: "needs_verification", supportCount: 2, independentGroupsRepresented: 1 });
-    const accepted = computeConsensus(board(issue), DEFAULT_CONSENSUS_POLICY, { auditors, round: 1 }).candidates[0]!; expect(accepted.outcome).toBe("accepted"); expect(accepted.dissent).toMatchObject([{ authorId: "auditor-c", disposition: "reject" }]);
+    const accepted = requiredAt(computeConsensus(board(issue), DEFAULT_CONSENSUS_POLICY, { auditors, round: 1 }).candidates, 0); expect(accepted.outcome).toBe("accepted"); expect(accepted.dissent).toMatchObject([{ authorId: "auditor-c", disposition: "reject" }]);
   });
   it("escalates a qualifying high-risk minority objection rather than outvoting it", () => { const issue = candidate({ votes: [vote("auditor-a", "accept"), vote("auditor-b", "accept"), vote("auditor-c", "reject")], objections: [{ authorId: "auditor-c", reason: "reachable path", citesLocation: true, evidenceType: "repository", resolvedBy: null }] }); expect(computeConsensus(board(issue), DEFAULT_CONSENSUS_POLICY, { auditors, round: 1 }).candidates[0]).toMatchObject({ outcome: "needs_verification", escalateToVerification: true }); });
 });
+
+function requiredAt<T>(values: readonly T[], index: number): T { const value = values[index]; if (value === undefined) throw new RangeError(`Missing test value at index ${index}`); return value; }
 
 describe("peer review rounds", () => {
   it("replays identical randomized labels/order and hides each reviewer's own sources", async () => {

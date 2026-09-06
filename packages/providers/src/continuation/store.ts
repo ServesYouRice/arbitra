@@ -40,11 +40,12 @@ export class ContinuationStateStore {
     if (!this.options.enabled) return null;
     const value = await this.backend.load(activityId);
     if (value === null) return null;
+    validatePersisted(value);
     if (value.activityId !== activityId) throw new Error("CONTINUATION_ACTIVITY_MISMATCH");
     if (value.transport !== expected.transport) throw new Error("CONTINUATION_TRANSPORT_BOUNDARY_CROSSING");
     if (value.modelId !== expected.modelId) throw new Error("CONTINUATION_MODEL_BOUNDARY_CROSSING");
     if (value.expiresAt !== null && value.expiresAt <= this.options.now()) return null;
-    const bytes = Buffer.from(value.opaqueBase64, "base64");
+    const bytes = decodeBase64(value.opaqueBase64);
     return sessionContinuationState({
       transport: value.transport, modelId: value.modelId, activityId,
       opaque: value.opaqueEncoding === "utf8" ? bytes.toString("utf8") : new Uint8Array(bytes),
@@ -61,3 +62,17 @@ function trace(bytes: Uint8Array, provider: string, model: string): Continuation
     scope: "session", provider, model });
 }
 function toBytes(value: string | Uint8Array): Uint8Array { return typeof value === "string" ? new TextEncoder().encode(value) : value; }
+
+function validatePersisted(value: PersistedContinuation): void {
+  for (const field of [value.transport, value.modelId, value.activityId]) if (typeof field !== "string" || field === "") throw new Error("INVALID_PERSISTED_CONTINUATION");
+  if (value.opaqueEncoding !== "utf8" && value.opaqueEncoding !== "bytes") throw new Error("INVALID_CONTINUATION_ENCODING");
+  if (value.expiresAt !== null && (!Number.isFinite(value.expiresAt) || value.expiresAt < 0)) throw new Error("INVALID_CONTINUATION_EXPIRY");
+  if (typeof value.opaqueBase64 !== "string") throw new Error("INVALID_CONTINUATION_BASE64");
+}
+
+function decodeBase64(value: string): Buffer {
+  if (value.length % 4 !== 0 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(value)) throw new Error("INVALID_CONTINUATION_BASE64");
+  const bytes = Buffer.from(value, "base64");
+  if (bytes.toString("base64") !== value) throw new Error("INVALID_CONTINUATION_BASE64");
+  return bytes;
+}

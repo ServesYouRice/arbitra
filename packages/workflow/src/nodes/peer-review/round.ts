@@ -35,7 +35,8 @@ export async function runPeerReview(initialBoard: ConsensusBoard, dependencies: 
     const result = await peerReviewRound(board, policy, round, dependencies); operations.push(...result.operations); dispatches.push(...result.dispatches); board = await dependencies.apply(board, result.operations); consensus = computeConsensus(board, policy, { auditors: dependencies.auditors, round, maximumRounds });
     if (consensus.candidates.every(({ outcome, reason }) => outcome !== "needs_verification" || reason !== "Consensus requirements are not yet satisfied.")) return Object.freeze({ board, consensus, operations: Object.freeze(operations), dispatches: Object.freeze(dispatches), rounds: round });
   }
-  return Object.freeze({ board, consensus: consensus!, operations: Object.freeze(operations), dispatches: Object.freeze(dispatches), rounds: maximumRounds });
+  if (consensus === null) throw new Error("PEER_REVIEW_CONSENSUS_MISSING");
+  return Object.freeze({ board, consensus, operations: Object.freeze(operations), dispatches: Object.freeze(dispatches), rounds: maximumRounds });
 }
 
 function selectionReason(candidate: ConsensusCandidate, policy: ConsensusPolicy, round: number, reviewerIndex: number, auditorCount: number): string | null {
@@ -49,8 +50,24 @@ function selectionReason(candidate: ConsensusCandidate, policy: ConsensusPolicy,
   return reviewerIndex < Math.min(policy.quorum, auditorCount) ? "risk_weighted_quorum" : null;
 }
 function view(candidate: ConsensusCandidate, reviewerId: string, rng: ReviewRng): ReviewCandidateView {
-  const peerIds = [...new Set(candidate.sourceFindingIds.map((id) => id.split("/", 1)[0]!).filter((id) => id !== reviewerId))]; const labelPool = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map((letter) => `Auditor ${letter}`); const labels = rng.shuffle(labelPool.slice(0, peerIds.length)); const labelByPeer = new Map(rng.shuffle(peerIds).map((peer, index) => [peer, labels[index]! ]));
-  const sources = candidate.sourceFindingIds.flatMap((id) => { const [author, ...rest] = id.split("/"); if (author === reviewerId || !labelByPeer.has(author!)) return []; const label = labelByPeer.get(author!)!; return [{ label, findingRef: `${label}/${rest.join("/")}` }]; });
+  const peerIds = [...new Set(candidate.sourceFindingIds.flatMap((id) => {
+    const author = id.split("/", 1)[0];
+    return author === undefined || author === reviewerId ? [] : [author];
+  }))];
+  const labelPool = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map((letter) => `Auditor ${letter}`);
+  if (peerIds.length > labelPool.length) throw new Error("PEER_REVIEW_LABEL_CAPACITY_EXCEEDED");
+  const labels = rng.shuffle(labelPool.slice(0, peerIds.length));
+  const labelByPeer = new Map(rng.shuffle(peerIds).map((peer, index) => {
+    const label = labels[index];
+    if (label === undefined) throw new Error(`PEER_REVIEW_LABEL_MISSING:${index}`);
+    return [peer, label] as const;
+  }));
+  const sources = candidate.sourceFindingIds.flatMap((id) => {
+    const [author, ...rest] = id.split("/");
+    if (author === undefined || author === reviewerId) return [];
+    const label = labelByPeer.get(author);
+    return label === undefined ? [] : [{ label, findingRef: `${label}/${rest.join("/")}` }];
+  });
   return Object.freeze({ candidateId: candidate.candidateId, claim: candidate.claim, severity: candidate.severity, blocker: candidate.blocker, peerSources: Object.freeze(rng.shuffle(sources)) });
 }
 function validateReturnedOperation(operation: PeerIssueOperation, reviewerId: string, round: number, candidates: ReadonlyMap<string, ConsensusCandidate>): void {

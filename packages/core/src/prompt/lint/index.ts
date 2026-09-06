@@ -108,10 +108,12 @@ function xmlBalanceProblem(text: string): string | null {
   const tags = text.matchAll(/<\/?([A-Za-z][\w:.-]*)\b[^>]*>/gu);
   const stack: string[] = [];
   for (const match of tags) {
-    const token = match[0]; const name = match[1]!;
+    const token = match[0]; const name = match[1];
+    if (name === undefined) throw new Error("PROMPT_LINT_TAG_CAPTURE_MISSING");
     if (token.startsWith("</")) {
       if (stack.pop() !== name) return `Closing XML tag </${name}> does not match its opening tag.`;
     } else if (!token.endsWith("/>")) stack.push(name);
   }
-  return stack.length === 0 ? null : `XML tag <${stack.at(-1)!}> is not closed.`;
+  const unclosed = stack.at(-1);
+  return unclosed === undefined ? null : `XML tag <${unclosed}> is not closed.`;
 }

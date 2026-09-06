@@ -35,6 +35,7 @@ export class RepositoryPathGuard {
   static async create(root: string): Promise<RepositoryPathGuard> {
     const absoluteRoot = resolve(root) as AbsolutePath;
     const canonicalRoot = (await realpath(absoluteRoot)) as AbsolutePath;
+    if (!(await stat(canonicalRoot)).isDirectory()) throw new Error("REPOSITORY_NOT_DIRECTORY");
     return new RepositoryPathGuard(absoluteRoot, canonicalRoot);
   }
 
@@ -45,6 +46,11 @@ export class RepositoryPathGuard {
   async readFile(candidate: string, encoding: BufferEncoding = "utf8"): Promise<string> {
     const path = await this.resolveExisting(candidate);
     return readFile(path, encoding);
+  }
+
+  async readBytes(candidate: string): Promise<Uint8Array> {
+    const path = await this.resolveExisting(candidate);
+    return readFile(path);
   }
 
   async stat(candidate: string): Promise<{ readonly size: number; readonly mtimeMs: number }> {

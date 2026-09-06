@@ -8,13 +8,16 @@ export function deterministicCluster(inputs: readonly ValidatedClusterInput[]): 
   if (findings.some(({ validation }) => validation !== "accepted")) throw new Error("CLUSTERING_REQUIRES_VALIDATED_FINDINGS");
   const ids = findings.map(({ finding }) => finding.sourceFindingId); if (new Set(ids).size !== ids.length) throw new Error("DUPLICATE_CLUSTER_SOURCE_FINDING");
   const parent = new Map(ids.map((id) => [id, id])); const ambiguousPairs: AmbiguousPair[] = []; const operations: ClusterOperation[] = []; let deterministicPairsResolved = 0;
-  for (let left = 0; left < findings.length; left += 1) for (let right = left + 1; right < findings.length; right += 1) {
-    const a = findings[left]!.finding; const b = findings[right]!.finding;
-    if (fingerprint(a) === fingerprint(b)) { union(parent, a.sourceFindingId, b.sourceFindingId); operations.push(Object.freeze({ type: "merge", sourceFindingIds: Object.freeze([a.sourceFindingId, b.sourceFindingId]), reason: "exact" })); deterministicPairsResolved += 1; continue; }
-    const result = signals(a, b);
-    if (result.score >= 5) { union(parent, a.sourceFindingId, b.sourceFindingId); operations.push(Object.freeze({ type: "merge", sourceFindingIds: Object.freeze([a.sourceFindingId, b.sourceFindingId]), reason: "structural" })); deterministicPairsResolved += 1; }
-    else if (result.score <= 1) deterministicPairsResolved += 1;
-    else ambiguousPairs.push(Object.freeze({ leftId: a.sourceFindingId, rightId: b.sourceFindingId, signals: Object.freeze(result.names), score: result.score, relationship: null }));
+  for (let left = 0; left < findings.length; left += 1) {
+    const a = requiredFinding(findings, left);
+    for (let right = left + 1; right < findings.length; right += 1) {
+      const b = requiredFinding(findings, right);
+      if (fingerprint(a) === fingerprint(b)) { union(parent, a.sourceFindingId, b.sourceFindingId); operations.push(Object.freeze({ type: "merge", sourceFindingIds: Object.freeze([a.sourceFindingId, b.sourceFindingId]), reason: "exact" })); deterministicPairsResolved += 1; continue; }
+      const result = signals(a, b);
+      if (result.score >= 5) { union(parent, a.sourceFindingId, b.sourceFindingId); operations.push(Object.freeze({ type: "merge", sourceFindingIds: Object.freeze([a.sourceFindingId, b.sourceFindingId]), reason: "structural" })); deterministicPairsResolved += 1; }
+      else if (result.score <= 1) deterministicPairsResolved += 1;
+      else ambiguousPairs.push(Object.freeze({ leftId: a.sourceFindingId, rightId: b.sourceFindingId, signals: Object.freeze(result.names), score: result.score, relationship: null }));
+    }
   }
   return Object.freeze({ findings: Object.freeze(findings), clusters: clustersFrom(parent), ambiguousPairs: Object.freeze(ambiguousPairs), operations: Object.freeze(operations), deterministicPairsResolved });
 }
@@ -24,7 +27,24 @@ export function clustersFrom(parent: Map<string, string>): readonly FindingClust
   return Object.freeze([...groups.values()].map((sourceFindingIds) => Object.freeze({ clusterId: clusterId(sourceFindingIds), sourceFindingIds: Object.freeze(sourceFindingIds) })).sort((a, b) => a.clusterId.localeCompare(b.clusterId)));
 }
 export function mergeParent(parent: Map<string, string>, left: string, right: string): void { union(parent, left, right); }
-export function parentFrom(clusters: readonly FindingCluster[]): Map<string, string> { const parent = new Map<string, string>(); for (const cluster of clusters) for (const id of cluster.sourceFindingIds) { parent.set(id, id); if (id !== cluster.sourceFindingIds[0]) union(parent, cluster.sourceFindingIds[0]!, id); } return parent; }
+export function parentFrom(clusters: readonly FindingCluster[]): Map<string, string> {
+  const parent = new Map<string, string>();
+  for (const cluster of clusters) {
+    const firstId = cluster.sourceFindingIds[0];
+    if (firstId === undefined) throw new Error("EMPTY_FINDING_CLUSTER");
+    for (const id of cluster.sourceFindingIds) {
+      parent.set(id, id);
+      if (id !== firstId) union(parent, firstId, id);
+    }
+  }
+  return parent;
+}
+
+function requiredFinding(findings: readonly ValidatedClusterInput[], index: number): ValidatedClusterInput["finding"] {
+  const input = findings[index];
+  if (input === undefined) throw new RangeError(`Missing clustering input at index ${index}`);
+  return input.finding;
+}
 
 function signals(a: ValidatedClusterInput["finding"], b: ValidatedClusterInput["finding"]): { score: number; names: string[] } {
   let score = 0; const names: string[] = []; const add = (name: string, value: number) => { names.push(name); score += value; };

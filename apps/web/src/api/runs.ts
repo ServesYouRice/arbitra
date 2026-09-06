@@ -1,17 +1,65 @@
+import { useEffect, useState } from "react";
+import type { RunEvent } from "./sse.js";
+import type { WorkflowJson } from "../columns/graph/layout.js";
+
 export interface CheckpointResource { readonly id: string; readonly stage: string; readonly status: "pending"; readonly prompt: string }
-export interface RunResource { readonly runId: string; readonly state: string; readonly resumable: boolean; readonly checkpoints: readonly CheckpointResource[]; readonly eventsCursor?: string; readonly preservedArtifacts?: number }
+export interface RunResource { readonly runId: string; readonly state: string; readonly resumable: boolean; readonly checkpoints: readonly CheckpointResource[]; readonly eventsCursor?: string; readonly preservedArtifacts?: number; readonly workflow?: WorkflowJson }
 export interface EstimateResource { readonly estimate: unknown; readonly gate: string }
 export class RunApi {
   constructor(private readonly baseUrl = "") {}
   selectRepository(path: string): Promise<unknown> { return this.request("/repositories/select", { method: "POST", body: JSON.stringify({ path }) }); }
-  estimate(configurationId: string, repository: string): Promise<EstimateResource> { return this.request("/estimate", { method: "POST", body: JSON.stringify({ configurationId, repository }) }); }
-  start(configurationId: string, repository: string): Promise<RunResource> { return this.request("/runs", { method: "POST", body: JSON.stringify({ configurationId, repository }) }); }
+  estimate(configurationId: string, repository = ""): Promise<EstimateResource> { return this.request("/estimate", { method: "POST", body: JSON.stringify(runBody(configurationId, repository)) }); }
+  start(configurationId: string, repository = ""): Promise<RunResource> { return this.request("/runs", { method: "POST", body: JSON.stringify(runBody(configurationId, repository)) }); }
   status(runId: string): Promise<RunResource> { return this.request(`/runs/${encodeURIComponent(runId)}`); }
   resume(runId: string): Promise<RunResource> { return this.request(`/runs/${encodeURIComponent(runId)}/resume`, { method: "POST" }); }
   cancel(runId: string): Promise<RunResource> { return this.request(`/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" }); }
   respondCheckpoint(runId: string, checkpointId: string, decision: string): Promise<{ readonly accepted: true }> { return this.request(`/runs/${encodeURIComponent(runId)}/checkpoints/${encodeURIComponent(checkpointId)}`, { method: "POST", body: JSON.stringify({ decision }) }); }
+  eventsUrl(runId: string): string { return `${this.baseUrl}/runs/${encodeURIComponent(runId)}/events`; }
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> { const response = await fetch(`${this.baseUrl}${path}`, { ...init, headers: { "content-type": "application/json", ...init.headers } }); if (!response.ok) throw new Error(`RUN_API_${response.status}`); return await response.json() as T; }
 }
-export function useRehydratedRun(api: RunApi, runId: string | null): { readonly resource: RunResource | null; readonly events: readonly RunEvent[]; readonly error: string | null } { const [resource, setResource] = useState<RunResource | null>(null); const [events, setEvents] = useState<readonly RunEvent[]>([]); const [error, setError] = useState<string | null>(null); useEffect(() => { if (runId === null) { setResource(null); setEvents([]); return; } let active = true; let source: EventSource | null = null; void api.status(runId).then((initial) => { if (!active) return; setResource(initial); source = new EventSource(`/runs/${encodeURIComponent(runId)}/events`); source.onmessage = ({ data }) => { const event = JSON.parse(data as string) as RunEvent; setEvents((current) => Object.freeze([...current, event])); if (event.t === "run_transition" && event.state !== undefined) setResource((current) => current === null ? current : { ...current, state: event.state! }); }; }, (cause: unknown) => { if (active) setError(cause instanceof Error ? cause.message : String(cause)); }); return () => { active = false; source?.close(); }; }, [api, runId]); return { resource, events, error }; }
-import { useEffect, useState } from "react";
-import type { RunEvent } from "./sse.js";
+export function useRehydratedRun(api: RunApi, runId: string | null, refreshKey: unknown = null): { readonly resource: RunResource | null; readonly events: readonly RunEvent[]; readonly error: string | null } {
+  const [resource, setResource] = useState<RunResource | null>(null);
+  const [events, setEvents] = useState<readonly RunEvent[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setResource(null); setEvents([]); setError(null);
+    if (runId === null) return;
+    let active = true;
+    let source: EventSource | null = null;
+    let ended = false;
+    void api.status(runId).then((initial) => {
+      if (!active) return;
+      setResource(initial);
+      try { source = new EventSource(api.eventsUrl(runId)); }
+      catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); return; }
+      source.onmessage = ({ data }) => {
+        if (!active) return;
+        try {
+          const event: unknown = JSON.parse(data as string);
+          if (!isRunEvent(event) || event.runId !== runId) throw new Error("INVALID_RUN_EVENT");
+          setError(null);
+          setEvents((current) => Object.freeze([...current, event]));
+          if (event.t === "run_transition" && event.state !== undefined) {
+            const state = event.state;
+            setResource((current) => current === null ? current : { ...current, state, resumable: state !== "COMPLETED" });
+          }
+        } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); source?.close(); }
+      };
+      source.addEventListener?.("end", () => { ended = true; source?.close(); });
+      source.onerror = () => { if (active && !ended) { setError("RUN_EVENT_STREAM_UNAVAILABLE"); source?.close(); } };
+    }, (cause: unknown) => { if (active) setError(cause instanceof Error ? cause.message : String(cause)); });
+    return () => { active = false; source?.close(); };
+  }, [api, runId, refreshKey]);
+  return { resource, events, error };
+}
+
+function runBody(configurationId: string, repository: string): { configurationId: string; repository?: string } {
+  return repository.trim() === "" ? { configurationId } : { configurationId, repository };
+}
+function isRunEvent(value: unknown): value is RunEvent {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const event = value as Record<string, unknown>;
+  if (typeof event["t"] !== "string" || typeof event["runId"] !== "string") return false;
+  if (event["t"] === "run_transition" && typeof event["state"] !== "string") return false;
+  return true;
+}

@@ -158,13 +158,14 @@ export function validateProjection(
 }
 
 export function projectSchema(schema: ZodType, dialect: SchemaDialect): JsonSchema {
-  const generated = z.toJSONSchema(schema, {
+  const generated: unknown = z.toJSONSchema(schema, {
     target: "draft-07",
     io: "input",
     cycles: "throw",
     reused: "inline",
     unrepresentable: "throw",
-  }) as unknown as JsonSchema;
+  });
+  if (!isSchema(generated)) throw new TypeError("Zod generated a non-object JSON schema");
   const projected = normalize(generated);
   const diagnostics = validateProjection(projected, dialect);
   if (diagnostics.length > 0) throw new SchemaProjectionError(diagnostics);

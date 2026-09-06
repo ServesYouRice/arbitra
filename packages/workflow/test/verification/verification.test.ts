@@ -28,7 +28,7 @@ describe("verification subgraph", () => {
   it("permits one narrow model question only after every deterministic rung is inconclusive", async () => {
     const calls: string[] = []; const requests: ModelVerificationRequest[] = [];
     const result = await verifyItem(item(), tools({}, calls), { allowModelCall: true }, { model: { async verify(request) { requests.push(request); return { outcome: "STILL_NEEDS_VERIFICATION", evidenceIds: ["ev-1"], artifactRefs: ["model-answer"], activityId: "model-activity", confidence: 0.6 }; } }, sink: { async append() {} }, round: 2 });
-    expect(calls).toEqual(["cited_lines", "symbol_or_call_path", "route_config_middleware", "dependency_or_import_path", "bounded_deterministic_check"]); expect(requests).toHaveLength(1); expect(Object.keys(requests[0]!)).toEqual(["candidateId", "question", "context"]); expect(requests[0]!.question).not.toContain("\n"); expect(JSON.stringify(requests[0])).not.toContain("Issue Board"); expect(result.modelCalls).toBe(1);
+    expect(calls).toEqual(["cited_lines", "symbol_or_call_path", "route_config_middleware", "dependency_or_import_path", "bounded_deterministic_check"]); expect(requests).toHaveLength(1); const request = requiredAt(requests, 0); expect(Object.keys(request)).toEqual(["candidateId", "question", "context"]); expect(request.question).not.toContain("\n"); expect(JSON.stringify(request)).not.toContain("Issue Board"); expect(result.modelCalls).toBe(1);
   });
 
   it("runs an existing test only with the derived repository script policy", async () => {
@@ -43,3 +43,5 @@ describe("verification subgraph", () => {
     expect(operations).toHaveLength(1); expect(run.metrics).toMatchObject({ itemCount: 1, resolvedDisputes: 1, modelCalls: 0, deferredItemIds: ["C-2"], rungDistribution: { cited_lines: 1, single_model_question: 0 } });
   });
 });
+
+function requiredAt<T>(values: readonly T[], index: number): T { const value = values[index]; if (value === undefined) throw new RangeError(`Missing test value at index ${index}`); return value; }
