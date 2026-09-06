@@ -38,7 +38,7 @@ describe("premise metric report", () => {
   });
 
   it("reports honest null results when an auditor and consensus emit no findings", () => {
-    const run: PremiseRun = { ...fixtureRun(), auditors: [{ ...fixtureRun().auditors[0]!, findings: [], repairCount: 0, invalidEvidenceCount: 0, refusalCount: 1, cost: 0 }], canonicalIssues: [] };
+    const run: PremiseRun = { ...fixtureRun(), auditors: [{ ...requiredAt(fixtureRun().auditors, 0), findings: [], repairCount: 0, invalidEvidenceCount: 0, refusalCount: 1, cost: 0 }], canonicalIssues: [] };
     const report = scorePremiseRun(run, groundTruth);
     expect(report.auditors[0]).toMatchObject({ findingCount: 0, trueFindingCount: 0, precision: null, falsePositiveRate: null, recall: 0, uniqueTrueContribution: 0, marginalTrueContribution: 0, repairFrequency: null, invalidEvidenceRate: null, refusalRate: null });
     expect(report.consensus).toMatchObject({ acceptedIssueCount: 0, precision: null, recall: 0, costPerTrueAcceptedIssue: null });
@@ -48,7 +48,8 @@ describe("premise metric report", () => {
   it("keeps protocol and model identity on every metric row and rejects identity collisions", () => {
     const report = scorePremiseRun(fixtureRun(), groundTruth);
     expect(report.auditors.map(({ modelIdentity, protocolIdentity }) => [modelIdentity, protocolIdentity])).toEqual([["fixture/model-a@1", "production-audit@1.0.0"], ["fixture/model-b@1", "production-audit@1.0.0"], ["fixture/model-c@1", "production-audit@1.0.0"]]);
-    const duplicate: PremiseRun = { ...fixtureRun(), auditors: [fixtureRun().auditors[0]!, { ...fixtureRun().auditors[1]!, auditorId: "auditor-a" }] };
+    const fixture = fixtureRun();
+    const duplicate: PremiseRun = { ...fixture, auditors: [requiredAt(fixture.auditors, 0), { ...requiredAt(fixture.auditors, 1), auditorId: "auditor-a" }] };
     expect(() => scorePremiseRun(duplicate, groundTruth)).toThrow("INVALID_PREMISE_AUDITOR_IDENTITY");
   });
 
@@ -71,3 +72,4 @@ function fixtureRun(): PremiseRun {
     canonicalIssues: [{ issueId: "C-1", accepted: true, matchedGroundTruthIds: ["DEF-AUTH-BYPASS"] }, { issueId: "C-2", accepted: true, matchedGroundTruthIds: ["DEF-N-PLUS-ONE"] }, { issueId: "C-3", accepted: true, matchedGroundTruthIds: ["DEF-RACE"] }, { issueId: "C-FP", accepted: true, matchedGroundTruthIds: ["DECOY-PARAMETERIZED-SQL"] }, { issueId: "C-R", accepted: false, matchedGroundTruthIds: ["DEF-MIGRATION"] }],
   };
 }
+function requiredAt<T>(values: readonly T[], index: number): T { const value = values[index]; if (value === undefined) throw new RangeError(`Missing test value at index ${index}`); return value; }

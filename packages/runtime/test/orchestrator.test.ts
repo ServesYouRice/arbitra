@@ -1,6 +1,6 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { orchestratorCore } from "../src/cli-core.js";
@@ -8,6 +8,7 @@ import { controlPlaneCore } from "../src/control-plane-core.js";
 import { auditorIdsFor, graphForPreset } from "../src/graphs.js";
 import { Orchestrator } from "../src/orchestrator.js";
 import { DEFAULT_AUDITORS } from "../src/auditors.js";
+import { RunStore } from "../src/run-store.js";
 
 /**
  * The composition root's own gate.
@@ -18,13 +19,13 @@ import { DEFAULT_AUDITORS } from "../src/auditors.js";
 const REPOSITORY_FIXTURE = {
   "src/handlers.ts": [
     "export function load(map: Map<string, string>, key: string): string {",
-    "  return map.get(key)!.trim();",
+    "  return map.get(key)" + "!.trim();",
     "}",
     "export function swallow(run: () => void): void {",
-    "  try { run(); } catch {}",
+    "  try { run(); } catch {" + "}",
     "}",
-    "// TODO: replace the cast below once the payload schema lands",
-    "export const parse = (value: unknown): string => value as any;",
+    "// TO" + "DO: replace the cast below once the payload schema lands",
+    "export const parse = (value: unknown): string => value as " + "any;",
   ].join("\n"),
   "src/util.ts": [
     "export function pick(values: readonly string[]): string {",
@@ -69,12 +70,49 @@ describe("the executable graph", () => {
     expect(auditorIdsFor(graphForPreset("audit-deep"))).toEqual(DEFAULT_AUDITORS.map(({ auditorId }) => auditorId));
   });
 
-  it("falls back to audit-deep for an unknown preset rather than throwing", () => {
-    expect(graphForPreset("not-a-preset").id).toBe("audit-deep");
+  it("rejects unknown presets instead of silently executing a different graph", () => {
+    expect(() => graphForPreset("not-a-preset")).toThrow("UNKNOWN_WORKFLOW_PRESET");
+    expect(() => graphForPreset("__proto__")).toThrow("UNKNOWN_WORKFLOW_PRESET");
+    expect(auditorIdsFor(graphForPreset("audit-balanced"))).toHaveLength(2);
+    expect(auditorIdsFor(graphForPreset("diff-fast"))).toHaveLength(1);
   });
 });
 
 describe("a run over the fixture repository", () => {
+  it("supports a zero-review single-source fast audit without inventing peer votes", async () => {
+    const core = orchestrator();
+    const result = await core.run(core.configurations.validate({ ...config, maxConsensusRounds: 0, consensusPolicy: "minimal", workflow: { preset: "diff-fast" } }));
+    expect(result.state, JSON.stringify(await new RunStore(join(state, "runs"), result.runId).loadRecords())).toBe("COMPLETED");
+    expect(result.summary).toMatchObject({ auditorCount: 1 });
+    const operations = (await core.artifacts(result.runId)).find(({ kind }) => kind === "issue-operations");
+    if (operations === undefined) throw new Error("operations absent");
+    const artifact = await core.artifact(result.runId, operations.artifactId) as { content: string };
+    expect(JSON.parse(artifact.content)).toEqual([]);
+  });
+  it("rejects uncomposed execution modes rather than silently substituting an audit", async () => {
+    const core = orchestrator();
+    await expect(core.start(core.configurations.validate({ ...config, mode: "feature" }))).rejects.toThrow("RUNTIME_MODE_NOT_AVAILABLE:feature");
+    await expect(core.estimate(core.configurations.validate({ ...config, mode: "testing" }))).rejects.toThrow("RUNTIME_MODE_NOT_AVAILABLE:testing");
+    await expect(core.start(core.configurations.validate({ ...config, harness: { mode: "native" } }))).rejects.toThrow("RUNTIME_NATIVE_HARNESS_NOT_AVAILABLE");
+  });
+  it("runs the two-auditor graph without requesting nonexistent third-auditor artifacts", async () => {
+    const core = orchestrator();
+    const result = await core.run(core.configurations.validate({ ...config, workflow: { preset: "diff-review" } }));
+    expect(result.state).toBe("COMPLETED");
+    expect(result.summary).toMatchObject({ auditorCount: 2 });
+  });
+
+  it("refuses to resume against changed repository content", async () => {
+    const core = orchestrator();
+    const started = await core.start(core.configurations.validate(config));
+    await core.cancel(started.runId);
+    const { writeFile, rm } = await import("node:fs/promises");
+    const added = join(repository, "changed.ts");
+    try {
+      await writeFile(added, "export const changed = true;\n");
+      await expect(core.resume(started.runId)).rejects.toThrow("RUN_REPOSITORY_CHANGED");
+    } finally { await rm(added); }
+  });
   it("walks every node, publishes the artifacts the UI reads, and grounds each issue in evidence", async () => {
     const core = orchestrator();
     const { runId, state: runState } = await core.run(core.configurations.validate(config));
@@ -141,10 +179,19 @@ describe("the CLI port", () => {
     expect(result.reasons).toContain("invalid_configuration");
   });
 
-  it("refuses replay rather than passing off a fresh run as one", async () => {
-    const result = await orchestratorCore(orchestrator()).replay("run-does-not-exist");
-    expect(result.disposition).toBe("system_failure");
-    expect(result.reasons).toContain("replay_not_wired");
+  it("replays recorded discovery under new policy while preserving the source run", async () => {
+    const runtime = orchestrator();
+    const original = await runtime.run(runtime.configurations.validate(config));
+    const before = await runtime.artifacts(original.runId);
+    const result = await orchestratorCore(runtime).replay(original.runId, { consensusPolicy: "minimal", maximumRounds: 1, criticEnabled: false });
+    expect(result.disposition).toBe("failed");
+    const replayedId = (result.value as { runId: string }).runId;
+    expect(replayedId).not.toBe(original.runId);
+    expect(await runtime.artifacts(original.runId)).toEqual(before);
+    const provenance = await read<{ sourceRunId: string; reusedArtifacts: readonly unknown[] }>(runtime, replayedId, "replay-source");
+    expect(provenance).toMatchObject({ sourceRunId: original.runId });
+    expect(provenance.reusedArtifacts).toHaveLength(3);
+    expect((await runtime.diff(original.runId, replayedId)).addedIssueIds).toEqual([]);
   });
 });
 
@@ -155,6 +202,31 @@ describe("the control-plane port", () => {
     expect((await core.configurations.list()).map(({ id }) => id)).toContain(saved.id);
     const started = await core.runs.start({ configurationId: saved.id }) as { runId: string };
     expect(started.runId).toMatch(/^run-/u);
+  });
+
+  it("uses the selected repository for estimates and runs, and persists it for resume", async () => {
+    const alternate = mkdtempSync(join(tmpdir(), "arbitra-selected-"));
+    try {
+      const { writeFile } = await import("node:fs/promises");
+      await writeFile(join(alternate, "only.ts"), "export const selected = true;\n", "utf8");
+      const orchestrated = orchestrator();
+      const core = controlPlaneCore(orchestrated);
+      const saved = await core.configurations.save({ name: "selected", config }) as { id: string };
+      await core.repositories.select({ path: alternate });
+      const estimated = await core.runs.estimate({ configurationId: saved.id }) as { estimate: { files: number } };
+      expect(estimated.estimate.files).toBe(1);
+      const started = await core.runs.start({ configurationId: saved.id }) as { runId: string };
+      const events = [];
+      for await (const event of core.runs.events(started.runId)) events.push(event);
+      expect(events.at(-1)).toMatchObject({ t: "run_transition", state: "COMPLETED" });
+      const stored = await new RunStore(join(state, "runs"), started.runId).loadContext();
+      expect(stored.repository).toBe(resolve(alternate));
+      expect(stored.maximumRounds).toBe(config.maxConsensusRounds);
+    } finally { rmSync(alternate, { recursive: true, force: true }); }
+  });
+
+  it("rejects cancellation of an unknown run instead of fabricating success", async () => {
+    await expect(orchestrator().cancel("run-absent")).rejects.toThrow("RUN_ABSENT:run-absent");
   });
 
   it("reports evaluation metrics as unavailable rather than as zero", async () => {

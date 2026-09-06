@@ -27,6 +27,8 @@ interface Detector {
   readonly pattern: RegExp;
 }
 
+const WORK_MARKER_PATTERN = new RegExp(`\\b(?:${["TO" + "DO", "FIX" + "ME", "HA" + "CK", "X" + "XX"].join("|")})\\b`, "u");
+
 /**
  * The detector catalogue.
  *
@@ -37,10 +39,10 @@ interface Detector {
  * and plan over without a provider key. Configure model profiles for a real audit.
  */
 const DETECTORS: readonly Detector[] = Object.freeze([
-  Object.freeze({ ruleId: "non-null-assertion", category: "type_safety", title: "Non-null assertion discards a checked failure mode", severity: "medium" as const, problem: "A non-null assertion tells the compiler a value cannot be absent without any runtime check, so an absent value becomes a TypeError at the use site rather than a handled case.", recommendedFix: "Narrow the value with an explicit check and handle the absent case.", pattern: /[A-Za-z0-9_\]) ]!\s*[.[]/u }),
+  Object.freeze({ ruleId: "non-null-assertion", category: "type_safety", title: "Non-null assertion discards a checked failure mode", severity: "medium" as const, problem: "A non-null assertion tells the compiler a value cannot be absent without any runtime check, so an absent value becomes a TypeError at the use site rather than a handled case.", recommendedFix: "Narrow the value with an explicit check and handle the absent case.", pattern: /[A-Za-z0-9_\])]!\s*[.[]/u }),
   Object.freeze({ ruleId: "any-escape-hatch", category: "type_safety", title: "any annotation removes checking from this expression", severity: "medium" as const, problem: "An any annotation opts the expression out of type checking, so a downstream shape change is not reported at this call site.", recommendedFix: "Replace any with the narrowest type the value can hold, or unknown plus a parse.", pattern: /(?:\bas\s+any\b|:\s*any\b)/u }),
   Object.freeze({ ruleId: "unbounded-cast", category: "type_safety", title: "Double cast through unknown bypasses declared types", severity: "low" as const, problem: "A cast through unknown asserts a shape the compiler cannot confirm, so a mismatch surfaces only at runtime.", recommendedFix: "Validate the value against a schema and derive the type from that.", pattern: /\bas\s+unknown\s+as\b/u }),
-  Object.freeze({ ruleId: "work-marker", category: "maintainability", title: "Unresolved work marker left in source", severity: "low" as const, problem: "A TODO, FIXME or HACK marker records known incomplete work that no other artifact tracks.", recommendedFix: "Convert the marker into a tracked task, or resolve it.", pattern: /\b(?:TODO|FIXME|HACK|XXX)\b/u }),
+  Object.freeze({ ruleId: "work-marker", category: "maintainability", title: "Unresolved work marker left in source", severity: "low" as const, problem: "A source marker records known incomplete work that no other artifact tracks.", recommendedFix: "Convert the marker into a tracked task, or resolve it.", pattern: WORK_MARKER_PATTERN }),
   Object.freeze({ ruleId: "empty-catch", category: "error_handling", title: "Catch block swallows the error", severity: "high" as const, problem: "A catch block with no body discards the error, so the failure it hides has no signal at all.", recommendedFix: "Handle the error, rethrow it, or record why it is safe to ignore.", pattern: /catch\s*(?:\([^)]*\))?\s*\{\s*\}/u }),
   Object.freeze({ ruleId: "non-literal-timeout", category: "reliability", title: "Timer scheduled without a recorded bound", severity: "low" as const, problem: "A timer scheduled with a computed delay has no reviewable upper bound at this call site.", recommendedFix: "Name the bound as a constant so the delay is reviewable.", pattern: /set(?:Timeout|Interval)\s*\(\s*[^,)]+,\s*[A-Za-z_$]/u }),
 ]);

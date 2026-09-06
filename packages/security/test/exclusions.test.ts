@@ -8,7 +8,7 @@ describe("repository exclusions", () => {
     "implementation/tasks/TASK-001/task.md",
     ".runs/run-1/private/continuation-state/state.json",
   ])("unconditionally excludes %s", (path) => {
-    const attemptedNegation = createExclusionPolicy("!implementation/**\n!.runs/**");
+    const attemptedNegation = createExclusionPolicy(["!implementation/**", "!.runs/**"].join("\n"));
     expect(isExcluded(path, attemptedNegation)).toBe(true);
   });
 

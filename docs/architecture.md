@@ -6,6 +6,22 @@ disagree, the code is the defect or this document is, and the review should say 
 
 ## Layering
 
+### Composition boundary
+
+The executable CLI/server currently composes the scripted Audit pipeline only. The
+provider transports, canonical harness, Requirements and Testing nodes described below
+are library implementations, not fully composed end-to-end CLI modes. Configuring a
+model, native harness, Feature mode or Testing mode now produces an explicit
+`RUNTIME_*_NOT_AVAILABLE` error; an unknown preset produces `UNKNOWN_WORKFLOW_PRESET`.
+Schema validation and saving a configuration do not imply that its execution mode is
+available. This boundary is distinct from the planned v1.1 extensions.
+
+Audit runs honor their selected repository and source scope. Durable context binds
+resume/replay to the original source digest. Replay reuses source discovery artifacts in
+a new run and recomputes downstream stages; it never overwrites its source run.
+
+### Dependency direction
+
 Dependencies point downward. Nothing below imports anything above it.
 
 ```text

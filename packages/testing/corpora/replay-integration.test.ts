@@ -13,14 +13,14 @@ describe("production replay integration", () => {
     const result = await replay("source-run", { consensusPolicy: "full", maximumRounds: 2, criticEnabled: false }, {
       repository: { async loadRun() { return structuredClone(source); }, async saveReplay(value) { saved.push(value); } },
       pipeline: {
-        async cluster(values) { return cluster(values as readonly ValidatedClusterInput[], { strategy: deterministicClusteringStrategy }); },
+        async cluster(values) { expect(values).toEqual(findings); return cluster(findings, { strategy: deterministicClusteringStrategy }); },
         async reachConsensus(clustering) {
-          const clusterId = (clustering as { readonly clusters: readonly { readonly clusterId: string }[] }).clusters[0]!.clusterId;
+          const clusterId = firstStringField(clustering, "clusters", "clusterId");
           const board: ConsensusBoard = { candidates: { [clusterId]: { candidateId: clusterId, claim: { title: "Authorization bypass", description: "Header bypasses roles" }, sourceFindingIds: findings.map(({ finding: value }) => value.sourceFindingId), severity: "high", blocker: false, status: "open", votes: [{ authorId: "auditor-a", disposition: "accept", citedEvidenceIds: ["E-1"], reason: "confirmed" }, { authorId: "auditor-b", disposition: "accept", citedEvidenceIds: ["E-2"], reason: "confirmed" }], evidence: [], counterEvidence: [], firstSeenRound: 0, lastChangedRound: 1, category: "authorization" } } };
           return computeConsensus(board, { name: "full", quorum: 2, minimumIndependentGroupsForHighRisk: 2 }, { auditors: [{ auditorId: "auditor-a", independenceGroup: "a" }, { auditorId: "auditor-b", independenceGroup: "b" }], round: 1, maximumRounds: 2 });
         },
         async verify(consensus) {
-          const candidateId = (consensus as { readonly candidates: readonly { readonly candidateId: string }[] }).candidates[0]!.candidateId;
+          const candidateId = firstStringField(consensus, "candidates", "candidateId");
           const operations: unknown[] = [];
           return verifyItems([{ candidateId, severity: "high", claim: "Header bypasses roles", question: "Is the bypass reachable?", citedEvidenceIds: ["E-1"], citedContext: [{ evidenceId: "E-1", text: "header === let-me-in" }], symbols: ["isAdmin"], routes: [], dependencies: [] }], deterministicTools(), { maximumItems: 1, allowModelCall: false, round: 1 }, { sink: { async append(operation) { operations.push(operation); } } });
         },
@@ -47,3 +47,13 @@ function deterministicTools() {
   const attempt = (method: string, verdict: string) => ({ method, verdict, evidenceIds: verdict === "confirmed" ? ["E-V"] : [], artifactRefs: [`artifact:${method}`], toolCallIds: [`tool:${method}`], activityId: `activity:${method}`, confidence: verdict === "confirmed" ? 1 : null });
   return { async readCitedLines() { return attempt("cited_lines", "confirmed"); }, async searchSymbolOrCallPath() { return attempt("symbol_or_call_path", "inconclusive"); }, async inspectRouteConfigMiddleware() { return attempt("route_config_middleware", "inconclusive"); }, async inspectDependencyOrImportPath() { return attempt("dependency_or_import_path", "inconclusive"); }, async runAllowlistedSafeTest() { return attempt("allowlisted_safe_test", "inconclusive"); }, async boundedDeterministicCheck() { return attempt("bounded_deterministic_check", "inconclusive"); } } as never;
 }
+
+function firstStringField(value: unknown, collectionKey: string, fieldKey: string): string {
+  if (!isRecord(value)) throw new TypeError(`Expected ${collectionKey} container`);
+  const collection = value[collectionKey];
+  if (!Array.isArray(collection)) throw new TypeError(`Expected ${collectionKey} array`);
+  const first = collection[0];
+  if (!isRecord(first) || typeof first[fieldKey] !== "string") throw new TypeError(`Expected ${collectionKey}[0].${fieldKey}`);
+  return first[fieldKey];
+}
+function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }

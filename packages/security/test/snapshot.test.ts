@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 
@@ -21,11 +21,14 @@ afterEach(async () => {
 describe("repository snapshot", () => {
   it("captures immutable full-scope identity and working tree state", async () => {
     const root = await temporaryDirectory();
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src", "new.ts"), "export const value = 1;\n");
     const git = new FakeGit(root, {
       "branch --show-current": "main\n",
       "rev-parse HEAD": "abc123\n",
-      "status --porcelain=v1 -z": " M src/a.ts\0?? src/new.ts\0",
+      "status --porcelain=v1 -z --untracked-files=all": " M src/a.ts\0?? src/new.ts\0",
       "ls-files --stage -z": "100644 abc 0\tsrc/a.ts\0",
+      "diff --binary --no-ext-diff HEAD --": "diff-content",
     });
 
     const snapshot = await createSnapshot(root, { kind: "full" }, { git });
@@ -41,8 +44,9 @@ describe("repository snapshot", () => {
     const git = new FakeGit(root, {
       "branch --show-current": "feature\n",
       "rev-parse HEAD": "head-sha\n",
-      "status --porcelain=v1 -z": "",
+      "status --porcelain=v1 -z --untracked-files=all": "",
       "ls-files --stage -z": "100644 abc 0\tsrc/a.ts\0",
+      "diff --binary --no-ext-diff HEAD --": "",
       "diff --name-only -z base head": "src/b.ts\0src/a.ts\0",
       "merge-base base head": "merge-sha\n",
     });
@@ -58,11 +62,13 @@ describe("repository snapshot", () => {
     const git = new FakeGit(root, {
       "branch --show-current": "main\n",
       "rev-parse HEAD": "abc123\n",
-      "status --porcelain=v1 -z": "",
+      "status --porcelain=v1 -z --untracked-files=all": "",
       "ls-files --stage -z": "100644 abc 0\tsrc/a.ts\0",
+      "diff --binary --no-ext-diff HEAD --": "",
     });
     const snapshot = await createSnapshot(root, { kind: "full" }, { git });
-    git.responses["status --porcelain=v1 -z"] = " M src/a.ts\0";
+    git.responses["status --porcelain=v1 -z --untracked-files=all"] = " M src/a.ts\0";
+    git.responses["diff --binary --no-ext-diff HEAD --"] = "changed bytes";
 
     await expect(detectWorkingTreeDrift(snapshot, git)).resolves.toMatchObject({
       changed: true,
@@ -75,12 +81,26 @@ describe("repository snapshot", () => {
     const git = new FakeGit(root, {
       "branch --show-current": "main\n",
       "rev-parse HEAD": "abc123\n",
-      "status --porcelain=v1 -z": "R  src/new.ts\0src/old.ts\0",
+      "status --porcelain=v1 -z --untracked-files=all": "R  src/new.ts\0src/old.ts\0",
       "ls-files --stage -z": "100644 abc 0\tsrc/new.ts\0",
+      "diff --binary --no-ext-diff HEAD --": "rename",
     });
 
     const snapshot = await createSnapshot(root, { kind: "full" }, { git });
     expect(snapshot.changedFiles).toEqual(["src/new.ts", "src/old.ts"]);
+  });
+
+  it("detects content changes even when porcelain status is unchanged", async () => {
+    const root = await temporaryDirectory();
+    await writeFile(join(root, "new.ts"), "first\n");
+    const git = new FakeGit(root, {
+      "branch --show-current": "main\n", "rev-parse HEAD": "abc123\n",
+      "status --porcelain=v1 -z --untracked-files=all": "?? new.ts\0",
+      "ls-files --stage -z": "", "diff --binary --no-ext-diff HEAD --": "",
+    });
+    const snapshot = await createSnapshot(root, { kind: "full" }, { git });
+    await writeFile(join(root, "new.ts"), "second\n");
+    await expect(detectWorkingTreeDrift(snapshot, git)).resolves.toMatchObject({ changed: true });
   });
 });
 

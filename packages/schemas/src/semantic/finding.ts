@@ -113,7 +113,8 @@ export function validateSemantics(
           message: `location id ${pointerSegment(locationId)} does not resolve`,
         });
       } else if (context.exposureRanges !== undefined) {
-        const location = locationsById.get(locationId)!;
+        const location = locationsById.get(locationId);
+        if (location === undefined) throw new Error(`SEMANTIC_LOCATION_MISSING:${locationId}`);
         const file = context.files[location.path];
         if (file !== undefined && file.lineStartBytes !== undefined && file.byteLength !== undefined) {
           const start = file.lineStartBytes[location.startLine - 1];

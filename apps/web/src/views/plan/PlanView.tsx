@@ -4,12 +4,12 @@ import { ArtifactApi } from "../../api/artifacts.js";
 import type { PersistedFinding, PersistedIssueSet } from "../issue-board/model.js";
 import { RUN_ARTIFACT_KINDS, useRunArtifact } from "../issue-board/run-artifacts.js";
 import { backward, forward, TRACE_CHAIN, type PersistedCritique, type PersistedPlan, type TraceGraph, type TraceNode } from "./traceability.js";
-export interface PlanViewProps { readonly runId: string | null; readonly api?: ArtifactApi }
-export function PlanView({ runId, api = SHARED_ARTIFACT_API }: PlanViewProps): ReactElement {
-  const plan = useRunArtifact<PersistedPlan>(api, runId, RUN_ARTIFACT_KINDS.plan);
-  const issueSet = useRunArtifact<PersistedIssueSet>(api, runId, RUN_ARTIFACT_KINDS.canonicalIssues);
-  const findings = useRunArtifact<readonly PersistedFinding[]>(api, runId, RUN_ARTIFACT_KINDS.sourceFindings);
-  const critique = useRunArtifact<PersistedCritique>(api, runId, RUN_ARTIFACT_KINDS.criticFeedback);
+export interface PlanViewProps { readonly runId: string | null; readonly api?: ArtifactApi; readonly refreshKey?: unknown }
+export function PlanView({ runId, api = SHARED_ARTIFACT_API, refreshKey = null }: PlanViewProps): ReactElement {
+  const plan = useRunArtifact<PersistedPlan>(api, runId, RUN_ARTIFACT_KINDS.plan, refreshKey);
+  const issueSet = useRunArtifact<PersistedIssueSet>(api, runId, RUN_ARTIFACT_KINDS.canonicalIssues, refreshKey);
+  const findings = useRunArtifact<readonly PersistedFinding[]>(api, runId, RUN_ARTIFACT_KINDS.sourceFindings, refreshKey);
+  const critique = useRunArtifact<PersistedCritique>(api, runId, RUN_ARTIFACT_KINDS.criticFeedback, refreshKey);
   const [trail, setTrail] = useState<readonly TraceNode[]>([]);
   const graph: TraceGraph | null = useMemo(() => plan.value === null ? null : { plan: plan.value, issues: issueSet.value?.issues ?? [], findings: findings.value ?? [] }, [plan.value, issueSet.value, findings.value]);
   if (plan.state !== "loaded" || plan.value === null || graph === null) return <section aria-label="plan"><h2 className="panel-title">plan</h2><p className="state" data-state={plan.state === "error" ? "degraded" : "unexamined"}>plan artifact {plan.state === "error" ? `unavailable · ${plan.error ?? "error"}` : plan.state}</p></section>;

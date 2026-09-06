@@ -27,7 +27,7 @@ export class ConfigStore<T> {
   }
 
   async save(name: string, value: unknown, id = this.#id()): Promise<StoredConfiguration<T>> {
-    validateId(id); if (name.trim() === "") throw new Error("CONFIGURATION_NAME_REQUIRED");
+    validateId(id); validateName(name);
     const record = Object.freeze({ id, name, config: this.validate(value) });
     await mkdir(this.#directory, { recursive: true });
     const target = join(this.#directory, `${id}.json`); const temporary = join(this.#directory, `.${id}.${this.#id()}.tmp`);
@@ -37,8 +37,14 @@ export class ConfigStore<T> {
   }
 
   async load(id: string): Promise<StoredConfiguration<T>> {
-    validateId(id); const parsed = JSON.parse(await readFile(join(this.#directory, `${id}.json`), "utf8")) as { id: string; name: string; config: unknown };
-    return Object.freeze({ id: parsed.id, name: parsed.name, config: this.validate(parsed.config) });
+    validateId(id);
+    const parsed: unknown = JSON.parse(await readFile(join(this.#directory, `${id}.json`), "utf8"));
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error(`INVALID_STORED_CONFIGURATION:${id}`);
+    const record = parsed as Record<string, unknown>;
+    if (record["id"] !== id) throw new Error(`CONFIGURATION_ID_MISMATCH:${id}`);
+    validateName(record["name"]);
+    if (!Object.prototype.hasOwnProperty.call(record, "config")) throw new Error(`INVALID_STORED_CONFIGURATION:${id}`);
+    return Object.freeze({ id, name: record["name"], config: this.validate(record["config"]) });
   }
 
   async update(id: string, name: string, value: unknown): Promise<StoredConfiguration<T>> { await this.load(id); return this.save(name, value, id); }
@@ -54,6 +60,10 @@ function sort(value: unknown): unknown {
   return Object.fromEntries(Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => [key, sort(child)]));
 }
 function validateId(id: string): void { if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(id)) throw new Error("INVALID_CONFIGURATION_ID"); }
+function validateName(name: unknown): asserts name is string {
+  if (typeof name !== "string" || name.trim() === "") throw new Error("CONFIGURATION_NAME_REQUIRED");
+  if (name.length > 200) throw new Error("CONFIGURATION_NAME_TOO_LONG");
+}
 function assertNoResolvedCredentials(value: unknown, path = "$"): unknown {
   if (Array.isArray(value)) { value.forEach((child, index) => assertNoResolvedCredentials(child, `${path}[${index}]`)); return value; }
   if (typeof value !== "object" || value === null) return value;

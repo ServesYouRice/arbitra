@@ -20,6 +20,14 @@ describe("secret redaction", () => {
     expect(assembleRedactedContext([key]).text).toBe("[REDACTED:private_key]");
   });
 
+  it("redacts JSON credential values and keeps redacted output stable", () => {
+    const raw = JSON.stringify({ password: "arbitrary-long-secret", apiKey: "sk-abcdefghijklmnop" });
+    const redacted = redactSecrets(raw);
+    expect(redacted.text).not.toContain("arbitrary-long-secret");
+    expect(redacted.text).not.toContain("sk-abcdefghijklmnop");
+    expect(redactSecrets(redacted.text)).toMatchObject({ text: redacted.text, redactions: [] });
+  });
+
   it.each([
     "token budget = 12000",
     "password policy requires twelve characters",

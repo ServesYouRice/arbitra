@@ -58,8 +58,8 @@ describe("workflow graph schema", () => {
   });
 
   it("locates an unknown node kind at the offending node id", () => {
-    const graph = generatedGraph(1) as unknown as { nodes: Array<Record<string, unknown>> };
-    graph.nodes[1]!.kind = "verification";
+    const source = generatedGraph(1);
+    const graph = { ...source, nodes: source.nodes.map((node, index) => index === 1 ? { ...node, kind: "verification" } : node) };
     const diagnostics = validateWorkflow(graph);
     expect(diagnostics).toContainEqual({
       path: "nodes[1](discover).kind",
@@ -69,8 +69,8 @@ describe("workflow graph schema", () => {
   });
 
   it("rejects a loop without a positive maximum", () => {
-    const graph = generatedGraph(2) as unknown as { nodes: Array<Record<string, unknown>> };
-    delete graph.nodes[3]!.maximum;
+    const source = generatedGraph(2);
+    const graph = { ...source, nodes: source.nodes.map((node, index) => index === 3 ? { id: node.id, kind: node.kind, label: node.label, goal: node.goal } : node) };
     expect(validateWorkflow(graph)).toContainEqual({
       path: "nodes[3](review).maximum",
       message: "Loop maximum must be a positive integer.",
@@ -78,9 +78,9 @@ describe("workflow graph schema", () => {
   });
 
   it("rejects continuation state and incomplete edge contracts", () => {
-    const graph = generatedGraph(3) as unknown as { edges: Array<Record<string, unknown>> };
-    graph.edges[0]!.continuationState = "provider-secret";
-    delete (graph.edges[0]!.prompt as Record<string, unknown>).protocolLayers;
+    const source = generatedGraph(3);
+    const edge = requiredAt(source.edges, 0);
+    const graph = { ...source, edges: [{ ...edge, continuationState: "provider-secret", prompt: {} }] };
     const diagnostics = validateWorkflow(graph);
     expect(diagnostics.map(({ path }) => path)).toEqual(expect.arrayContaining([
       "edges[0].continuationState",
@@ -100,3 +100,5 @@ describe("workflow graph schema", () => {
     }
   });
 });
+
+function requiredAt<T>(values: readonly T[], index: number): T { const value = values[index]; if (value === undefined) throw new RangeError(`Missing test value at index ${index}`); return value; }

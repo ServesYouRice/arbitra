@@ -49,7 +49,7 @@ describe("independent discovery", () => {
     const requests: DiscoveryRequest[] = [];
     const node = discoveryNode(config({ auditors: [{ auditorId: "auditor-a", modelProfileId: "fake" }], nodeTokenBudget: 100, structuredEmissionReserveTokens: 20 }), { async run(request) { requests.push(request); return { auditorId: "auditor-a", findings: [], truncated: false, unexaminedDueToBudget: [], limitations: [] }; } }, { async persist() { return "result.json"; } });
     const run = await node.run([{ kind: "snapshot_identity", provenance: "deterministic", ref: "snapshot", tokenEstimate: 85 }]);
-    expect(requests[0]!.forceStructuredEmission).toBe(true); expect(run.results[0]).toMatchObject({ truncated: true, limitations: ["node_token_budget"] }); expect(run.results[0]!.unexaminedDueToBudget.length).toBeGreaterThan(0);
+    expect(requiredAt(requests, 0).forceStructuredEmission).toBe(true); expect(run.results[0]).toMatchObject({ truncated: true, limitations: ["node_token_budget"] }); expect(requiredAt(run.results, 0).unexaminedDueToBudget.length).toBeGreaterThan(0);
   });
 
   it("records degraded independence whenever a shared reasoning source is enabled", async () => {
@@ -67,3 +67,5 @@ describe("independent discovery", () => {
     expect((await node.run(baseline)).protocol.protocolHash).toBe(protocolHash);
   });
 });
+
+function requiredAt<T>(values: readonly T[], index: number): T { const value = values[index]; if (value === undefined) throw new RangeError(`Missing test value at index ${index}`); return value; }

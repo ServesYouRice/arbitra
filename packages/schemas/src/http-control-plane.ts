@@ -8,7 +8,7 @@ const runConfigJsonSchema = z.toJSONSchema(runConfigSchema, { target: "draft-7",
 const { definitions: runConfigDefinitions, ...nestedRunConfigJsonSchema } = runConfigJsonSchema as typeof runConfigJsonSchema & { definitions?: unknown };
 const configurationBody = { type: "object", additionalProperties: false, required: ["name", "config"], properties: { name: { type: "string", minLength: 1, maxLength: 200 }, config: nestedRunConfigJsonSchema }, ...(runConfigDefinitions === undefined ? {} : { definitions: runConfigDefinitions }) } as const;
 const jsonResponse = { 200: true, 201: true, 202: true } as const;
-const bodyObject = { type: "object" } as const;
+const runBody = { type: "object", additionalProperties: false, required: ["configurationId"], properties: { configurationId: idParams.properties.id, repository: { type: "string", minLength: 1 } } } as const;
 const comparisonSide = { type: "object", additionalProperties: false, required: ["protocolIdentity"], properties: { protocolIdentity: { type: "string", minLength: 1, maxLength: 512 }, runIds: { type: "array", items: { type: "string", minLength: 1, maxLength: 128 } } } } as const;
 
 export const HTTP_ROUTE_SCHEMAS = Object.freeze({
@@ -20,8 +20,8 @@ export const HTTP_ROUTE_SCHEMAS = Object.freeze({
   "POST /configurations/validate": { body: runConfigJsonSchema, response: jsonResponse },
   "GET /configurations/:id/export": { params: idParams, response: jsonResponse },
   "POST /repositories/select": { body: { type: "object", additionalProperties: false, required: ["path"], properties: { path: { type: "string", minLength: 1 } } }, response: jsonResponse },
-  "POST /estimate": { body: bodyObject, response: jsonResponse },
-  "POST /runs": { body: bodyObject, response: jsonResponse },
+  "POST /estimate": { body: runBody, response: jsonResponse },
+  "POST /runs": { body: runBody, response: jsonResponse },
   "GET /runs/:id": { params: idParams, response: jsonResponse },
   "POST /runs/:id/resume": { params: idParams, response: jsonResponse },
   "GET /runs/:id/events": { params: idParams },

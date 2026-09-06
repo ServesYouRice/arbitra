@@ -26,20 +26,23 @@ describe("deterministic finding validation", () => {
   ] as const)("rejects the negative %s fixture and persists its reason", async (code, value) => {
     const persisted: Array<{ reasons: readonly { code: string }[] }> = [];
     const result = await validateFindings([submission(value)], snapshot, footprints, dependencies(persisted));
-    expect(result.rejected[0]!.reasons.map((reason) => reason.code)).toContain(code as ValidationReasonCode); expect(result.rejected[0]!.rejectionRef).toBe("rejections/1.json"); expect(persisted[0]!.reasons.map(({ code: persistedCode }) => persistedCode)).toContain(code);
+    const rejected = requiredAt(result.rejected, 0);
+    expect(rejected.reasons.map((reason) => reason.code)).toContain(code as ValidationReasonCode); expect(rejected.rejectionRef).toBe("rejections/1.json"); expect(requiredAt(persisted, 0).reasons.map(({ code: persistedCode }) => persistedCode)).toContain(code);
   });
 
   it("rejects evidence outside exposure and reports per-auditor quality rates", async () => {
     const result = await validateFindings([submission()], snapshot, { "auditor-a": { nodeId: "auditor-a", ranges: [{ path: "src/auth.ts", start: 8, end: 20 }] } }, dependencies());
-    expect(result.rejected[0]!.reasons).toMatchObject([{ code: "evidence_outside_exposure" }]);
+    expect(requiredAt(result.rejected, 0).reasons).toMatchObject([{ code: "evidence_outside_exposure" }]);
     expect(result.summaries).toEqual([{ auditorId: "auditor-a", total: 1, accepted: 0, rejected: 1, repaired: 0, invalidLocationCount: 0, invalidLocationRate: 0, invalidEvidenceCount: 1, invalidEvidenceRate: 1 }]);
   });
 
   it("uses at most one repair and records that an accepted finding needed it", async () => {
     let attempts = 0;
     const result = await validateFindings([submission(finding({ locations: [{ id: "loc-1", path: "src/auth.ts", startLine: 1, endLine: 402 }] }))], snapshot, footprints, { ...dependencies(), repair: { async repair() { attempts += 1; return finding(); } } });
-    expect(attempts).toBe(1); expect(result.accepted[0]).toMatchObject({ repaired: true }); expect(result.repairs).toEqual([{ sourceFindingId: "auditor-a/SEC-001", attempted: true, outcome: "accepted" }]); expect(result.summaries[0]!.repaired).toBe(1);
+    expect(attempts).toBe(1); expect(result.accepted[0]).toMatchObject({ repaired: true }); expect(result.repairs).toEqual([{ sourceFindingId: "auditor-a/SEC-001", attempted: true, outcome: "accepted" }]); expect(requiredAt(result.summaries, 0).repaired).toBe(1);
     const alreadyRepaired = await validateFindings([submission(finding({ severity: "low", productionBlocker: true }), 1)], snapshot, footprints, { ...dependencies(), repair: { async repair() { attempts += 1; return finding(); } } });
     expect(attempts).toBe(1); expect(alreadyRepaired.rejected).toHaveLength(1);
   });
 });
+
+function requiredAt<T>(values: readonly T[], index: number): T { const value = values[index]; if (value === undefined) throw new RangeError(`Missing test value at index ${index}`); return value; }

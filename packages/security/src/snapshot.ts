@@ -44,15 +44,19 @@ export async function createSnapshot(
   scope: SnapshotScope = { kind: "full" },
   options: SnapshotOptions = {},
 ): Promise<RepositorySnapshot> {
+  if (scope.kind === "diff") {
+    for (const revision of [scope.base, scope.head]) if (revision.trim() === "" || revision.startsWith("-") || /[\s\0]/u.test(revision)) throw new Error("INVALID_DIFF_REVISION");
+  }
   const guard = await RepositoryPathGuard.create(root);
   const git = options.git ?? processGitRunner;
   const repositoryRoot = (await git.run(guard.root, ["rev-parse", "--show-toplevel"])).trim();
   const validatedRoot = guard.resolve(repositoryRoot);
-  const [branchOutput, commitOutput, statusOutput, indexOutput] = await Promise.all([
+  const [branchOutput, commitOutput, statusOutput, indexOutput, diffOutput] = await Promise.all([
     git.run(validatedRoot, ["branch", "--show-current"]),
     git.run(validatedRoot, ["rev-parse", "HEAD"]),
-    git.run(validatedRoot, ["status", "--porcelain=v1", "-z"]),
+    git.run(validatedRoot, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
     git.run(validatedRoot, ["ls-files", "--stage", "-z"]),
+    git.run(validatedRoot, ["diff", "--binary", "--no-ext-diff", "HEAD", "--"]),
   ]);
   const changedFiles = scope.kind === "diff"
     ? splitNull(await git.run(validatedRoot, ["diff", "--name-only", "-z", scope.base, scope.head]))
@@ -70,7 +74,7 @@ export async function createSnapshot(
     commit: commitOutput.trim(),
     dirty: statusOutput.length > 0,
     changedFiles: Object.freeze(changedFiles),
-    workingTreeDigest: digestWorkingTree(indexOutput, statusOutput),
+    workingTreeDigest: await digestWorkingTree(guard, branchOutput, commitOutput, indexOutput, statusOutput, diffOutput),
     scope: resolvedScope,
   });
 }
@@ -85,11 +89,15 @@ export async function detectWorkingTreeDrift(
   snapshot: RepositorySnapshot,
   git: GitRunner = processGitRunner,
 ): Promise<DriftResult> {
-  const [status, index] = await Promise.all([
-    git.run(snapshot.root, ["status", "--porcelain=v1", "-z"]),
+  const guard = await RepositoryPathGuard.create(snapshot.root);
+  const [branch, commit, status, index, diff] = await Promise.all([
+    git.run(snapshot.root, ["branch", "--show-current"]),
+    git.run(snapshot.root, ["rev-parse", "HEAD"]),
+    git.run(snapshot.root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
     git.run(snapshot.root, ["ls-files", "--stage", "-z"]),
+    git.run(snapshot.root, ["diff", "--binary", "--no-ext-diff", "HEAD", "--"]),
   ]);
-  const currentDigest = digestWorkingTree(index, status);
+  const currentDigest = await digestWorkingTree(guard, branch, commit, index, status, diff);
   const changed = currentDigest !== snapshot.workingTreeDigest;
   return Object.freeze({
     changed,
@@ -98,8 +106,27 @@ export async function detectWorkingTreeDrift(
   });
 }
 
-function digestWorkingTree(index: string, status: string): string {
-  return createHash("sha256").update(index).update("\0").update(status).digest("hex");
+async function digestWorkingTree(guard: RepositoryPathGuard, branch: string, commit: string, index: string, status: string, diff: string): Promise<string> {
+  const hash = createHash("sha256");
+  for (const value of [branch, commit, index, status, diff]) updateFramed(hash, Buffer.from(value));
+  const untracked: string[] = [];
+  const entries = status.split("\0");
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
+    if (entry === undefined) continue;
+    if (entry.startsWith("?? ")) untracked.push(entry.slice(3));
+    if (entry[0] === "R" || entry[0] === "C" || entry[1] === "R" || entry[1] === "C") index += 1;
+  }
+  untracked.sort();
+  for (const path of untracked) {
+    updateFramed(hash, Buffer.from(path));
+    updateFramed(hash, await guard.readBytes(path));
+  }
+  return hash.digest("hex");
+}
+
+function updateFramed(hash: ReturnType<typeof createHash>, value: Uint8Array): void {
+  hash.update(String(value.byteLength)).update(":").update(value).update(";");
 }
 
 function splitNull(value: string): string[] {

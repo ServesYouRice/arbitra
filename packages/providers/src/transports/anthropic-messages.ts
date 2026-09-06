@@ -6,10 +6,19 @@ const codec: ProtocolCodec = {
   authHeaders: (key) => ({ "x-api-key": key, "anthropic-version": "2023-06-01" }),
   encode(request) {
     const system = request.messages.filter(({ role }) => role === "system").map(({ content }) => content).join("\n");
-    return { model: request.modelId, system: system || undefined, messages: request.messages.filter(({ role }) => role !== "system"),
+    return { model: request.modelId, system: system || undefined, messages: request.messages.filter(({ role }) => role !== "system").map((message) => {
+      if (message.role === "tool") {
+        if (!message.toolCallId) throw new Error("TOOL_CALL_ID_REQUIRED");
+        return { role: "user", content: [{ type: "tool_result", tool_use_id: message.toolCallId, content: message.content }] };
+      }
+      return { role: message.role, content: message.toolCalls?.length ? [
+        ...(message.content === "" ? [] : [{ type: "text", text: message.content }]),
+        ...message.toolCalls.map((call) => ({ type: "tool_use", id: call.id, name: call.name, input: call.arguments })),
+      ] : message.content };
+    }),
       max_tokens: request.maximumOutputTokens, tools: request.tools?.map((tool) => ({ name: tool.name, description: tool.description, input_schema: tool.inputSchema })),
-      output_format: request.responseSchema === undefined ? undefined : { type: "json_schema", schema: request.responseSchema },
-      thinking: request.effortParams, continuation: request.continuation };
+      output_config: request.responseSchema === undefined ? undefined : { format: { type: "json_schema", schema: request.responseSchema } },
+      thinking: request.effortParams };
   },
   parse(body, request, headers) {
     const root = object(body, "anthropic response");
@@ -22,7 +31,7 @@ const codec: ProtocolCodec = {
     }
     const usage = object(root["usage"] ?? {}, "usage");
     return response(request, { text, toolCalls: calls, refusal: root["stop_reason"] === "refusal" ? string(root["refusal"]) ?? "refused" : null,
-      continuation: string(root["continuation"]), usage: { inputTokens: number(usage["input_tokens"]), outputTokens: number(usage["output_tokens"]),
+      usage: { inputTokens: number(usage["input_tokens"]), outputTokens: number(usage["output_tokens"]),
         cacheReadTokens: number(usage["cache_read_input_tokens"]), cacheWriteTokens: number(usage["cache_creation_input_tokens"]) },
       requestId: headers["request-id"] ?? null });
   },

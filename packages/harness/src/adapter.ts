@@ -12,7 +12,7 @@ export interface HarnessToolContext {
 }
 export interface HarnessToolResult { readonly ok: boolean; readonly summary: string; readonly content: string; readonly artifact: string | null; readonly truncated: boolean; readonly trust: "untrusted"; readonly error?: { readonly code: string; readonly message: string } }
 export interface HarnessModelRequest { readonly modelId: string; readonly messages: readonly HarnessMessage[]; readonly tools: readonly HarnessToolDefinition[]; readonly maximumOutputTokens: number }
-export interface HarnessMessage { readonly role: "system" | "user" | "assistant" | "tool"; readonly content: string; readonly toolCallId?: string }
+export interface HarnessMessage { readonly role: "system" | "user" | "assistant" | "tool"; readonly content: string; readonly toolCallId?: string; readonly toolName?: string; readonly toolCalls?: readonly HarnessToolCall[] }
 export interface HarnessToolCall { readonly id: string; readonly name: string; readonly arguments: unknown }
 export interface HarnessUsage { readonly inputTokens: number | null; readonly outputTokens: number | null; readonly cacheReadTokens: number | null; readonly cacheWriteTokens: number | null }
 export interface HarnessModelResponse { readonly text: string | null; readonly toolCalls: readonly HarnessToolCall[]; readonly refusal: string | null; readonly usage: HarnessUsage }

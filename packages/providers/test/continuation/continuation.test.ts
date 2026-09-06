@@ -41,6 +41,15 @@ describe("continuation state boundaries", () => {
     cache.set("shared-prefix", { transport: "transport-a", modelId: "model-a", cacheKey: "shared-prefix", opaqueHandle: "cache-1", expiresAt: 10_000 });
     expect(cache.get("shared-prefix")).toEqual({ transport: "transport-a", modelId: "model-a", cacheKey: "shared-prefix", opaqueHandle: "cache-1", expiresAt: 10_000 });
   });
+
+  it("fails closed on corrupt persisted encodings and metadata", async () => {
+    const backend = new MemoryBackend();
+    const corrupt: PersistedContinuation = { transport: "transport-a", modelId: "model-a", activityId: "activity-1", opaqueBase64: "not base64!", opaqueEncoding: "utf8", expiresAt: null };
+    backend.values.set("activity-1", corrupt);
+    await expect(enabledStore(backend).load("activity-1", { transport: "transport-a", modelId: "model-a" })).rejects.toThrow("INVALID_CONTINUATION_BASE64");
+    backend.values.set("activity-1", { ...corrupt, opaqueBase64: "", opaqueEncoding: "invalid" as "utf8" });
+    await expect(enabledStore(backend).load("activity-1", { transport: "transport-a", modelId: "model-a" })).rejects.toThrow("INVALID_CONTINUATION_ENCODING");
+  });
 });
 
 async function integrationRun(store: ContinuationStateStore) {

@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { RunConfig } from "@arbitra/schemas/config.js";
+import type { ReplayOverrides } from "@arbitra/core/replay/index.js";
 import type { Orchestrator } from "./orchestrator.js";
 
 export interface CoreCommandResult {
@@ -63,11 +64,11 @@ export function orchestratorCore(orchestrator: Orchestrator) {
         schemaVersion: 1,
         mode: "audit",
         scope: request.target.kind === "diff"
-          ? { kind: "diff", base: request.target.base ?? "origin/main", head: request.target.head ?? "HEAD" }
-          : request.target.kind === "module" ? { kind: "module", module: request.target.moduleId } : { kind: "repository" },
-        auditDepth: "balanced",
-        consensusPolicy: "risk_weighted",
-        maxConsensusRounds: 2,
+          ? { kind: "diff", diffMode: request.target.target, ...(request.target.range === undefined ? { base: request.target.base ?? "origin/main", head: request.target.head ?? "HEAD" } : { revisionRange: request.target.range }) }
+          : request.target.kind === "module" ? { kind: "module", modules: [request.target.moduleId] } : { kind: "repository" },
+        auditDepth: request.preset === "diff-fast" ? "fast" : request.preset === "audit-deep" ? "deep" : "balanced",
+        consensusPolicy: request.preset === "diff-fast" ? "minimal" : request.preset === "audit-deep" ? "full" : "risk_weighted",
+        maxConsensusRounds: request.preset === "diff-fast" ? 0 : request.preset === "audit-deep" ? 3 : 2,
         verification: {}, models: {}, harness: { mode: "canonical" },
         workflow: { preset: request.preset },
         budgets: {}, security: {}, protocols: {}, promptOverrides: {}, contextPolicies: {},
@@ -82,21 +83,17 @@ export function orchestratorCore(orchestrator: Orchestrator) {
     },
 
     async resume(runId: string): Promise<CoreCommandResult> {
-      return { disposition: "suspended", reasons: ["resume_started"], value: await orchestrator.resume(runId) };
+      await orchestrator.resume(runId);
+      return completed(runId, (await orchestrator.wait(runId)).state);
     },
 
-    /**
-     * Replay is not implemented: re-running a recorded run under changed policy needs the
-     * replay engine wired to the journal, which this composition root does not yet do.
-     * It reports that rather than silently running a fresh audit and calling it a replay.
-     */
-    async replay(runId: string): Promise<CoreCommandResult> {
-      return { disposition: "system_failure", reasons: ["replay_not_wired"], value: { runId, message: "Replay requires the journal replay engine, which is not yet composed." } };
+    async replay(runId: string, overrides: ReplayOverrides): Promise<CoreCommandResult> {
+      const replayed = await orchestrator.replay(runId, overrides);
+      return completed(replayed.runId, replayed.state);
     },
 
     async diff(runA: string, runB: string): Promise<CoreCommandResult> {
-      const [a, b] = await Promise.all([orchestrator.summary(runA), orchestrator.summary(runB)]);
-      return { disposition: "passed", reasons: [], value: { a, b } };
+      return { disposition: "passed", reasons: [], value: await orchestrator.diff(runA, runB) };
     },
 
     async trace(runId: string): Promise<CoreCommandResult> {

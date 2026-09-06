@@ -1,5 +1,6 @@
 import { TransportError, type ProviderTransport, type TransportRequest, type TransportResponse } from "./transport-contract.js";
-import { RateLimitScheduler } from "./scheduler.js";
+import { setTimeout as delay } from "node:timers/promises";
+import { RateLimitScheduler, type SchedulerLease } from "./scheduler.js";
 import { ContinuationStateStore } from "./continuation/store.js";
 import { sessionContinuationState } from "./continuation/types.js";
 
@@ -15,11 +16,13 @@ export interface InvocationTrace {
 export interface TraceSink { record(trace: InvocationTrace): void; }
 export interface RuntimeTimer {
   timeout(milliseconds: number, callback: () => void): () => void;
-  sleep(milliseconds: number): Promise<void>;
+  sleep(milliseconds: number, signal?: AbortSignal): Promise<void>;
 }
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+const systemSetTimeout = setTimeout;
 const systemTimer: RuntimeTimer = {
-  timeout(milliseconds, callback) { const handle = setTimeout(callback, milliseconds); return () => clearTimeout(handle); },
-  sleep: async (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  timeout(milliseconds, callback) { const handle = systemSetTimeout(callback, boundedTimerDelay(milliseconds)); return () => clearTimeout(handle); },
+  sleep: async (milliseconds, signal) => delay(boundedTimerDelay(milliseconds), undefined, { signal }),
 };
 export interface ProviderInvocationContext {
   readonly activityId: string; readonly providerId: string; readonly transportId: string; readonly modelId: string;
@@ -50,24 +53,31 @@ export class ProviderInvocationRuntime {
   private readonly timer: RuntimeTimer;
   private readonly maximumBackoffMs: number;
   constructor(private readonly options: ProviderRuntimeOptions) {
-    this.timer = options.timer ?? systemTimer; this.maximumBackoffMs = options.maximumBackoffMs ?? 30_000;
+    this.timer = options.timer ?? systemTimer;
+    this.maximumBackoffMs = boundedTimerDelay(options.maximumBackoffMs ?? 30_000);
+    if (this.maximumBackoffMs < 1) throw new Error("INVALID_MAXIMUM_BACKOFF");
   }
 
   async invoke(request: TransportRequest, context: ProviderInvocationContext): Promise<TransportResponse> {
     validateContext(context);
-    const reservation = this.options.budget.reserve(context.activityId, context.estimatedTokens);
-    if (!reservation.allowed) throw new ProviderBudgetSuspendedError(reservation.reason ?? "Provider budget preflight refused dispatch");
+    if (context.signal.aborted) throw new ProviderInvocationFailure("Provider request cancelled before dispatch", 0, "CANCELLED");
     const transport = this.options.transports[context.transportId];
     if (transport === undefined) throw new Error(`UNKNOWN_TRANSPORT:${context.transportId}`);
+    const reservation = this.options.budget.reserve(context.activityId, context.estimatedTokens);
+    if (!reservation.allowed) throw new ProviderBudgetSuspendedError(reservation.reason ?? "Provider budget preflight refused dispatch");
     const restored = await this.options.continuation.load(context.activityId, { transport: context.transportId, modelId: context.modelId });
     const continuation = restored?.opaque;
     const effectiveRequest: TransportRequest = { ...request,
       ...(continuation === undefined ? {} : { continuation: typeof continuation === "string" ? continuation : Buffer.from(continuation).toString("base64") }) };
 
     let lastError: unknown;
+    let attempts = 0;
     for (let attempt = 1; attempt <= context.maximumRetries + 1; attempt += 1) {
-      const lease = await this.options.scheduler.acquire(context.providerId, context.estimatedTokens);
+      let lease: SchedulerLease | undefined;
+      let retryDelay: number | null = null;
       try {
+        lease = await this.options.scheduler.acquire(context.providerId, context.estimatedTokens, context.signal);
+        attempts = attempt;
         const result = await sendWithTimeout(transport, effectiveRequest, context.signal, context.timeoutMs, this.timer);
         this.options.budget.recordActual(context.activityId, result.usage);
         if (result.continuation !== null) await this.options.continuation.save(context.activityId, sessionContinuationState({
@@ -82,19 +92,30 @@ export class ProviderInvocationRuntime {
         this.options.traces.record(trace(context, attempt, retryable ? "retry" : "failed",
           error instanceof TransportError ? error.code : "UNKNOWN", null));
         if (!retryable) break;
-        const retryAfter = error.retryAfterMs ?? Math.min(this.maximumBackoffMs, 1_000 * (2 ** (attempt - 1)));
+        const retryAfter = boundedTimerDelay(error.retryAfterMs ?? Math.min(this.maximumBackoffMs, 1_000 * (2 ** (attempt - 1))));
         if (error.code === "RATE_LIMIT") this.options.scheduler.respectRetryAfter(context.providerId, retryAfter);
-        await this.timer.sleep(retryAfter);
-      } finally { lease.release(); }
+        retryDelay = retryAfter;
+      } finally { lease?.release(); }
+      if (retryDelay !== null) {
+        try { await sleepUnlessAborted(this.timer, retryDelay, context.signal); }
+        catch (error) { lastError = error; break; }
+      }
     }
     const code = lastError instanceof TransportError ? lastError.code : "UNKNOWN";
-    throw new ProviderInvocationFailure(`Provider ${context.providerId} failed after ${context.maximumRetries + 1} attempts (${code}); completed artifacts are preserved and the run may resume with degraded completeness.`, context.maximumRetries + 1, code);
+    throw new ProviderInvocationFailure(`Provider ${context.providerId} failed after ${attempts} attempt${attempts === 1 ? "" : "s"} (${code}); completed artifacts are preserved and the run may resume with degraded completeness.`, attempts, code);
   }
+}
+
+function boundedTimerDelay(milliseconds: number): number {
+  if (!Number.isFinite(milliseconds) || milliseconds < 0) throw new Error("INVALID_TIMER_DELAY");
+  return Math.min(MAX_TIMER_DELAY_MS, Math.ceil(milliseconds));
 }
 
 async function sendWithTimeout(transport: ProviderTransport, request: TransportRequest, outer: AbortSignal, milliseconds: number, timer: RuntimeTimer): Promise<TransportResponse> {
   const controller = new AbortController();
-  const abort = () => controller.abort(outer.reason);
+  let rejectAbort: (error: TransportError) => void = () => {};
+  const cancelled = new Promise<never>((_resolve, reject) => { rejectAbort = reject; });
+  const abort = () => { controller.abort(outer.reason); rejectAbort(new TransportError("CANCELLED", "Provider request cancelled", false)); };
   outer.addEventListener("abort", abort, { once: true });
   if (outer.aborted) abort();
   let timedOut = false;
@@ -106,15 +127,29 @@ async function sendWithTimeout(transport: ProviderTransport, request: TransportR
     rejectTimeout(new TransportError("TIMEOUT", `Provider stage timed out after ${milliseconds}ms`, true));
   });
   try {
-    return await Promise.race([transport.send(request, controller.signal), timeout]);
+    return await Promise.race([transport.send(request, controller.signal), timeout, cancelled]);
   } catch (error) {
     if (timedOut) throw new TransportError("TIMEOUT", `Provider stage timed out after ${milliseconds}ms`, true);
     throw error;
   } finally { cancelTimeout(); outer.removeEventListener("abort", abort); }
 }
 function validateContext(value: ProviderInvocationContext): void {
-  if (!Number.isSafeInteger(value.maximumRetries) || value.maximumRetries < 0) throw new Error("INVALID_MAXIMUM_RETRIES");
+  for (const [name, identifier] of [["ACTIVITY", value.activityId], ["PROVIDER", value.providerId], ["TRANSPORT", value.transportId], ["MODEL", value.modelId]] as const) {
+    if (identifier.trim() === "") throw new Error(`INVALID_${name}_ID`);
+  }
+  if (!Number.isSafeInteger(value.estimatedTokens) || value.estimatedTokens < 0) throw new Error("INVALID_ESTIMATED_TOKENS");
+  if (!Number.isSafeInteger(value.maximumRetries) || value.maximumRetries < 0 || value.maximumRetries >= Number.MAX_SAFE_INTEGER) throw new Error("INVALID_MAXIMUM_RETRIES");
   if (!Number.isSafeInteger(value.timeoutMs) || value.timeoutMs < 1) throw new Error("INVALID_STAGE_TIMEOUT");
+}
+
+async function sleepUnlessAborted(timer: RuntimeTimer, milliseconds: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) throw new TransportError("CANCELLED", "Provider request cancelled", false);
+  let rejectAbort: (error: TransportError) => void = () => {};
+  const aborted = new Promise<never>((_resolve, reject) => { rejectAbort = reject; });
+  const abort = (): void => rejectAbort(new TransportError("CANCELLED", "Provider request cancelled", false));
+  signal.addEventListener("abort", abort, { once: true });
+  try { await Promise.race([timer.sleep(milliseconds, signal), aborted]); }
+  finally { signal.removeEventListener("abort", abort); }
 }
 function trace(context: ProviderInvocationContext, attempt: number, outcome: InvocationTrace["outcome"], errorCode: string | null,
   usage: TransportResponse["usage"] | null): InvocationTrace {

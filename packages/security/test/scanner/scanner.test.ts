@@ -69,7 +69,8 @@ describe("injection scanner rules", () => {
     const hit = result.instructionRisk.affectedRanges.find(({ ruleId }) => ruleId === testCase.ruleId);
 
     expect(hit).toBeDefined();
-    expect(bytesAt(content, hit!.byteStart, hit!.byteEnd)).toBe(testCase.expectedText);
+    if (hit === undefined) throw new Error(`Expected scanner hit for ${testCase.ruleId}`);
+    expect(bytesAt(content, hit.byteStart, hit.byteEnd)).toBe(testCase.expectedText);
   });
 
   it.each(RULE_CASES)("does not fire $ruleId for its negative fixture", async (testCase) => {
@@ -87,7 +88,8 @@ describe("injection scanner rules", () => {
     const hit = result.instructionRisk.affectedRanges.find(({ ruleId }) => ruleId === "hidden_unicode");
 
     expect(hit).toBeDefined();
-    expect(hit!.byteEnd - hit!.byteStart).toBe(Buffer.byteLength(tagCharacter));
+    if (hit === undefined) throw new Error("Expected hidden Unicode scanner hit");
+    expect(hit.byteEnd - hit.byteStart).toBe(Buffer.byteLength(tagCharacter));
   });
 });
 

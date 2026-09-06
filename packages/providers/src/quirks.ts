@@ -63,6 +63,6 @@ export function nullableNumber(value: unknown, path: string): number | null {
   return value;
 }
 export function positiveInteger(value: unknown, path: string): number {
-  if (!Number.isInteger(value) || (value as number) <= 0) throw new Error(`INVALID_PROFILE:${path}: expected positive integer`);
+  if (!Number.isSafeInteger(value) || (value as number) <= 0) throw new Error(`INVALID_PROFILE:${path}: expected positive safe integer`);
   return value as number;
 }

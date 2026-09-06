@@ -1,7 +1,8 @@
-export const REDACTION_PATTERN_VERSION = "1" as const;
+export const REDACTION_PATTERN_VERSION = "2" as const;
 
 export type SecretKind =
   | "aws_access_key"
+  | "api_token"
   | "github_token"
   | "bearer_token"
   | "assigned_secret"
@@ -28,11 +29,12 @@ interface Detector {
 
 const DETECTORS: readonly Detector[] = [
   { kind: "aws_access_key", expression: /\b(AKIA[0-9A-Z]{16})\b/gu, secretGroup: 1 },
+  { kind: "api_token", expression: /\b(sk-[A-Za-z0-9_-]{12,255})\b/gu, secretGroup: 1 },
   { kind: "github_token", expression: /\b((?:gh[opusr]_[A-Za-z0-9]{20,255}|github_pat_[A-Za-z0-9_]{20,255}))\b/gu, secretGroup: 1 },
   { kind: "bearer_token", expression: /\bBearer\s+([A-Za-z0-9._~+/=-]{16,})/giu, secretGroup: 1 },
   {
     kind: "assigned_secret",
-    expression: /\b(?:api[_-]?key|secret|password|token)\s*[:=]\s*["']?([^\s"']{12,})["']?/giu,
+    expression: /\b(?:api[_-]?key|secret|password|token)["']?\s*[:=]\s*["']?([^\s"']{12,})["']?/giu,
     secretGroup: 1,
   },
   {
@@ -48,6 +50,7 @@ export function redactSecrets(text: string): RedactionResult {
     for (const match of text.matchAll(detector.expression)) {
       const secret = match[detector.secretGroup];
       if (secret === undefined || match.index === undefined) continue;
+      if (/^\[REDACTED:(?:aws_access_key|api_token|github_token|bearer_token|assigned_secret|private_key)\]$/u.test(secret)) continue;
       const offset = match[0].indexOf(secret);
       matches.push({ kind: detector.kind, start: match.index + offset, end: match.index + offset + secret.length });
     }

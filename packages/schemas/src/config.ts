@@ -12,6 +12,7 @@ export const runScopeSchema = z.object({
   base: z.string().min(1).optional(),
   head: z.string().min(1).optional(),
   revisionRange: z.string().min(1).optional(),
+  diffMode: z.enum(["staged", "working_tree", "range"]).optional(),
 }).strict();
 
 export const runConfigSchema = z.object({

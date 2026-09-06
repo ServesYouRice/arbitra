@@ -45,9 +45,19 @@ export function compile(spec: PromptCompileSpec): CompiledPrompt {
   for (const [index, part] of encoded.entries()) { parts.push(part, new TextEncoder().encode(index === encoded.length - 1 ? "" : "\n")); length += part.byteLength + (index === encoded.length - 1 ? 0 : 1); ends.push(length); }
   const bytes = new Uint8Array(length); let offset = 0; for (const part of parts) { bytes.set(part, offset); offset += part.byteLength; }
   const hash = createHash("sha256").update(bytes).digest("hex");
-  const breakpoints = Object.freeze([cacheBreakpoint("locked", bytes, ends[0]!), cacheBreakpoint("stable_repository", bytes, ends[1]!), cacheBreakpoint("round", bytes, ends[2]!)]);
+  const breakpoints = Object.freeze([
+    cacheBreakpoint("locked", bytes, requiredAt(ends, 0, "locked prompt layer")),
+    cacheBreakpoint("stable_repository", bytes, requiredAt(ends, 1, "stable repository prompt layer")),
+    cacheBreakpoint("round", bytes, requiredAt(ends, 2, "round prompt layer")),
+  ]);
   const provenance = Object.freeze({ protocolId: spec.protocol.protocolId, protocolVersion: spec.protocol.protocolVersion, protocolHash: spec.protocol.protocolHash, nodeId: spec.nodeId, modelId: spec.modelId, overrides: Object.freeze({ before: beforeOverride, after: afterOverride }), promptHash: hash, redactionCount });
   return Object.freeze({ bytes, text: new TextDecoder().decode(bytes), hash, layers, breakpoints, provenance });
+}
+
+function requiredAt<T>(values: readonly T[], index: number, description: string): T {
+  const value = values[index];
+  if (value === undefined) throw new RangeError(`Missing ${description}`);
+  return value;
 }
 
 function canonicalJson(value: unknown): string {

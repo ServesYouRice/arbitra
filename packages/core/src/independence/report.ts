@@ -40,7 +40,12 @@ export function independenceReport(profiles: readonly IndependenceProfile[], fin
   }
   const support = [...supports].sort(([a], [b]) => a.localeCompare(b)).map(([findingKey, auditors]) => {
     const identities = new Set<string>(); const representedGroups = new Set<string>();
-    for (const auditorId of auditors) { const profile = byAuditor.get(auditorId)!; identities.add(servedIdentityOf(profile)); representedGroups.add(profile.independenceGroup ?? `singleton:${servedIdentityOf(profile)}`); }
+    for (const auditorId of auditors) {
+      const profile = byAuditor.get(auditorId);
+      if (profile === undefined) throw new Error(`UNKNOWN_FINDING_AUDITOR:${auditorId}`);
+      identities.add(servedIdentityOf(profile));
+      representedGroups.add(profile.independenceGroup ?? `singleton:${servedIdentityOf(profile)}`);
+    }
     return Object.freeze({ findingKey, supportCount: auditors.size, auditorCount: profiles.length, independentGroupsRepresented: representedGroups.size, servedIdentitiesRepresented: identities.size, display: `Support: ${auditors.size}/${profiles.length} auditors\nIndependent groups represented: ${representedGroups.size}` });
   });
   return Object.freeze({ degraded: reason !== null, reason, configuredAuditors: profiles.length, distinctServedIdentities: identityRepresentatives.size, groups: Object.freeze([...groups].sort(([a], [b]) => a.localeCompare(b)).map(([group, auditorIds]) => Object.freeze({ group, auditorIds: Object.freeze([...auditorIds].sort()) }))), support: Object.freeze(support) });

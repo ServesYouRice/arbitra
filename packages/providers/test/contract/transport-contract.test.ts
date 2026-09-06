@@ -5,6 +5,7 @@ import { AnthropicMessagesTransport } from "../../src/transports/anthropic-messa
 import { GeminiNativeTransport } from "../../src/transports/gemini-native.js";
 import { OpenAiChatTransport } from "../../src/transports/openai-chat.js";
 import { OpenAiResponsesTransport } from "../../src/transports/openai-responses.js";
+import { retryAfterMilliseconds } from "../../src/transports/json-transport.js";
 
 const adapters = [
   { name: "anthropic-messages", create: factory(AnthropicMessagesTransport), body: anthropicBody },
@@ -13,7 +14,7 @@ const adapters = [
   { name: "gemini-native", create: factory(GeminiNativeTransport), body: geminiBody },
 ] as const;
 
-describe.each(adapters)("$name transport contract", ({ create, body }) => {
+describe.each(adapters)("$name transport contract", ({ name, create, body }) => {
   it("handles success, structured output, tool calls, usage, refusal and continuation", async () => {
     const client = new ScriptedHttpClient([
       http(200, body("success")), http(200, body("structured")), http(200, body("tool")), http(200, body("refusal")),
@@ -22,7 +23,7 @@ describe.each(adapters)("$name transport contract", ({ create, body }) => {
     const success = await transport.send(request(), signal());
     expect(success.text).toBe("hello");
     expect(success.usage).toMatchObject({ inputTokens: 10, outputTokens: 4 });
-    expect(success.continuation).toBe("continue-1");
+    expect(success.continuation).toBe(name === "openai-responses" ? "continue-1" : null);
     const structured = await transport.send({ ...request(), responseSchema: { type: "object" } }, signal());
     expect(structured.structured).toEqual({ ok: true });
     expect(structured.structuredOutputTier).toBe("native_structured");
@@ -56,6 +57,74 @@ describe.each(adapters)("$name transport contract", ({ create, body }) => {
   });
 });
 
+describe("native wire formats", () => {
+  const messages = [
+    { role: "system" as const, content: "Instructions" },
+    { role: "user" as const, content: "Look it up" },
+    { role: "assistant" as const, content: "", toolCalls: [{ id: "call-1", name: "lookup", arguments: { q: "x" } }] },
+    { role: "tool" as const, content: "found", toolCallId: "call-1", toolName: "lookup" },
+  ];
+  it("addresses Gemini models and encodes native instructions, thinking and tool history", async () => {
+    const client = new ScriptedHttpClient([http(200, geminiBody("success"))]);
+    await factory(GeminiNativeTransport)(client).send({ ...request(), modelId: "models/fixture-model", messages, effortParams: { thinkingBudget: 128 } }, signal());
+    expect(client.requests[0]?.url).toBe("https://compatible.example.test/api/models/fixture-model:generateContent");
+    const wire = JSON.parse(JSON.stringify(client.requests[0]?.body)) as Record<string, unknown>;
+    expect(wire).toMatchObject({ systemInstruction: { parts: [{ text: "Instructions" }] }, generationConfig: { thinkingConfig: { thinkingBudget: 128 } }, contents: [
+      { role: "user", parts: [{ text: "Look it up" }] },
+      { role: "model", parts: [{ functionCall: { name: "lookup", args: { q: "x" } } }] },
+      { role: "user", parts: [{ functionResponse: { name: "lookup", response: { result: "found" } } }] },
+    ] });
+    expect(wire).not.toHaveProperty("continuation"); expect(wire).not.toHaveProperty("model");
+  });
+  it("keeps blocked Gemini responses distinct from malformed responses", async () => {
+    const client = new ScriptedHttpClient([http(200, { promptFeedback: { blockReason: "SAFETY" } }), http(200, { candidates: [{ finishReason: "SAFETY" }] })]);
+    const transport = factory(GeminiNativeTransport)(client);
+    for (let i = 0; i < 2; i += 1) await expect(transport.send({ ...request(), responseSchema: { type: "object" } }, signal())).resolves.toMatchObject({ refusal: "SAFETY", structured: null });
+  });
+  it("uses Chat Completions scalar effort and snake-case tool identifiers", async () => {
+    const client = new ScriptedHttpClient([http(200, chatBody("success"))]);
+    await factory(OpenAiChatTransport)(client).send({ ...request(), messages, effortParams: { effort: "high" } }, signal());
+    expect(client.requests[0]?.body).toMatchObject({ reasoning_effort: "high", max_completion_tokens: 100, messages: [
+      { role: "system" }, { role: "user" }, { tool_calls: [{ id: "call-1", function: { name: "lookup", arguments: '{"q":"x"}' } }] }, { role: "tool", tool_call_id: "call-1" },
+    ] });
+    expect(client.requests[0]?.body).not.toHaveProperty("continuation");
+  });
+  it("encodes Responses tool results and reads every text and refusal content block", async () => {
+    const client = new ScriptedHttpClient([
+      http(200, { output: [{ type: "message", content: [{ type: "output_text", text: "hel" }, { type: "output_text", text: "lo" }] }] }),
+      http(200, { output: [{ type: "message", content: [{ type: "refusal", refusal: "cannot comply" }] }] }),
+    ]);
+    const transport = factory(OpenAiResponsesTransport)(client);
+    expect((await transport.send({ ...request(), messages }, signal())).text).toBe("hello");
+    expect(client.requests[0]?.body).toMatchObject({ input: [
+      { role: "system" }, { role: "user" }, { type: "function_call", call_id: "call-1" }, { type: "function_call_output", call_id: "call-1", output: "found" },
+    ], previous_response_id: "previous-1" });
+    await expect(transport.send({ ...request(), responseSchema: { type: "object" } }, signal())).resolves.toMatchObject({ refusal: "cannot comply", structured: null });
+  });
+  it("uses Anthropic output configuration and native tool-result blocks", async () => {
+    const client = new ScriptedHttpClient([http(200, anthropicBody("structured"))]);
+    await factory(AnthropicMessagesTransport)(client).send({ ...request(), messages, responseSchema: { type: "object" } }, signal());
+    expect(client.requests[0]?.body).toMatchObject({ output_config: { format: { type: "json_schema", schema: { type: "object" } } }, messages: [
+      { role: "user" }, { role: "assistant", content: [{ type: "tool_use", id: "call-1" }] }, { role: "user", content: [{ type: "tool_result", tool_use_id: "call-1", content: "found" }] },
+    ] });
+    expect(client.requests[0]?.body).not.toHaveProperty("continuation");
+  });
+  it("does not retry local encoding failures as network failures", async () => {
+    const client = new ScriptedHttpClient([]);
+    await expect(factory(GeminiNativeTransport)(client).send({ ...request(), modelId: "../../unsafe" }, signal())).rejects.toMatchObject({ code: "INVALID_REQUEST", retryable: false });
+    expect(client.requests).toEqual([]);
+  });
+});
+
+describe("Retry-After parsing", () => {
+  it("accepts delay seconds and HTTP dates but rejects negative and malformed values", () => {
+    expect(retryAfterMilliseconds("1.5", 0)).toBe(1_500);
+    expect(retryAfterMilliseconds("Thu, 01 Jan 1970 00:00:02 GMT", 1_000)).toBe(1_000);
+    expect(retryAfterMilliseconds("-1", 0)).toBeNull();
+    expect(retryAfterMilliseconds("tomorrow", 0)).toBeNull();
+  });
+});
+
 function factory<T extends ProviderTransport>(Constructor: new (
   config: { endpoint: string; apiKeyEnv: string; compatibleProviderName?: string }, client?: HttpClient,
   credential?: (name: string) => string | undefined,
@@ -65,7 +134,7 @@ function factory<T extends ProviderTransport>(Constructor: new (
 
 function request(): TransportRequest {
   return { modelId: "fixture-model", messages: [{ role: "user", content: "hello" }], maximumOutputTokens: 100,
-    effortParams: { level: "high" }, continuation: "previous-1" };
+    continuation: "previous-1" };
 }
 function tool() { return { name: "lookup", description: "Lookup a value", inputSchema: { type: "object" } }; }
 function signal() { return new AbortController().signal; }

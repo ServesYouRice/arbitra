@@ -21,8 +21,8 @@ describe("canonical Audit acceptance fixture", () => {
     expect(Object.keys(result.artifacts).sort()).toEqual([...contract.requiredArtifacts].sort());
     expect(result.implementationTree["manifest.json"]).toBeDefined();
     expect(result.implementationTree["tasks/TASK-001/task.md"]).toContain("TASK-001");
-    expect(JSON.parse(result.artifacts["project-context.json"]!) as unknown).toMatchObject({ intensity: { effective: "DEEP" }, projectContext: { repository: { commit: "fixture", scope: { kind: "full" } } } });
-    expect(JSON.parse(result.artifacts["issue-board.json"]!) as unknown).toMatchObject({ operationIds: ["cluster:C-DEFECT", "cluster:C-DECOY"] });
+    expect(JSON.parse(requiredArtifact(result.artifacts, "project-context.json")) as unknown).toMatchObject({ intensity: { effective: "DEEP" }, projectContext: { repository: { commit: "fixture", scope: { kind: "full" } } } });
+    expect(JSON.parse(requiredArtifact(result.artifacts, "issue-board.json")) as unknown).toMatchObject({ operationIds: ["cluster:C-DEFECT", "cluster:C-DECOY"] });
   });
 
   it("uses delta-only round two, deterministic verification, and degraded critic coverage", async () => {
@@ -58,3 +58,4 @@ async function runFixture() {
 function readJson<T>(path: string): T {
   return JSON.parse(readFileSync(new URL(path, fixtureRoot), "utf8")) as T;
 }
+function requiredArtifact(artifacts: Readonly<Record<string, string>>, name: string): string { const value = artifacts[name]; if (value === undefined) throw new Error(`Missing test artifact ${name}`); return value; }

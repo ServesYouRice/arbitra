@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "@arbitra/schemas": "workspace:*",
-    "fastify": "5.11.3",
+    "@arbitra/security": "workspace:*",
+    "fastify": "5.12.1",
     "@arbitra/runtime": "workspace:*"
   }
 }

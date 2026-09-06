@@ -16,7 +16,7 @@ describe("integrated workspace selection, prompts and run controls", () => {
   it("loads the selected auditor's persisted prompt artifact through the declared artifact routes", async () => {
     stubEnvironment(); const calls = stubFetch();
     render(<ArbitraWorkspace runId="run-1" workflow={PRESET_WORKFLOWS["audit-deep"]} models={[model]} defaultConfiguration={configuration} />);
-    fireEvent.click((await screen.findAllByText("Auditor A"))[0]!);
+    fireEvent.click(requiredAt(await screen.findAllByText("Auditor A"), 0));
     expect(await screen.findByText("integrated-hash-a")).toBeTruthy();
     expect(screen.getByText(/never recompiled in browser/)).toBeTruthy();
     expect(calls).toContain("GET /runs/run-1/artifacts");
@@ -27,7 +27,7 @@ describe("integrated workspace selection, prompts and run controls", () => {
     stubEnvironment(); stubFetch();
     const workflow: WorkflowJson = { id: "deterministic", nodes: [{ id: "cluster", kind: "deterministic", label: "Cluster", config: { strategy: "exact-signals" } }], edges: [] };
     render(<ArbitraWorkspace runId="run-1" workflow={workflow} models={[model]} defaultConfiguration={configuration} />);
-    fireEvent.click((await screen.findAllByText("Cluster"))[0]!);
+    fireEvent.click(requiredAt(await screen.findAllByText("Cluster"), 0));
     expect(await screen.findByText("deterministic transformation")).toBeTruthy();
     expect(screen.getByText(/exact-signals/)).toBeTruthy();
     expect(screen.queryByText("persisted redacted compiled preview")).toBeNull();
@@ -86,3 +86,4 @@ function stubFetch(): string[] {
   return calls;
 }
 function json(value: unknown, status = 200): Response { return new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } }); }
+function requiredAt<T>(values: readonly T[], index: number): T { const value = values[index]; if (value === undefined) throw new RangeError(`Missing test value at index ${index}`); return value; }

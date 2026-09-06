@@ -13,9 +13,10 @@ export interface VerificationTools {
 }
 
 export async function runDeterministicLadder(item: VerificationItem, tools: VerificationTools): Promise<{ readonly resolved: VerificationAttempt | null; readonly attempts: readonly VerificationAttempt[] }> {
+  const allowlistedTest = item.allowlistedTest;
   const calls: Array<() => Promise<VerificationAttempt>> = [
     () => tools.readCitedLines(item), () => tools.searchSymbolOrCallPath(item), () => tools.inspectRouteConfigMiddleware(item), () => tools.inspectDependencyOrImportPath(item),
-    ...(item.allowlistedTest === undefined ? [] : [() => tools.runAllowlistedSafeTest(item, { executionPolicy: "derived_repository_script", command: item.allowlistedTest! })]),
+    ...(allowlistedTest === undefined ? [] : [() => tools.runAllowlistedSafeTest(item, { executionPolicy: "derived_repository_script", command: allowlistedTest })]),
     () => tools.boundedDeterministicCheck(item),
   ];
   const attempts: VerificationAttempt[] = [];

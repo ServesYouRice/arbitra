@@ -62,6 +62,17 @@ describe("WorkflowRunner", () => {
     expect(projectRunState(storage.records)).toBe(handle.state);
   });
 
+  it("broadcasts the complete live event sequence to every subscriber", async () => {
+    const storage = new MemoryRuntimeStorage();
+    const handle = createRunner(storage, async ({ node }) => node.id).start(fiveNodeFanOut(), { runId: "broadcast-run" });
+    const first = collect(handle.events);
+    const second = collect(handle.events);
+    expect(await handle.result).toBe("COMPLETED");
+    const [firstEvents, secondEvents] = await Promise.all([first, second]);
+    expect(firstEvents).toEqual(secondEvents);
+    expect(firstEvents.filter(({ t }) => t === "node_completed")).toHaveLength(5);
+  });
+
   it("cancels active fan-out, preserves completions, and remains resumable", async () => {
     const storage = new MemoryRuntimeStorage();
     let releaseBlocked: (() => void) | undefined;

@@ -36,7 +36,12 @@ export interface RunnerJournalPort {
   append(record: RunnerJournalRecord, durability?: "cheap" | "expensive"): Promise<void>;
 }
 
-export function isRunEvent(record: RunnerJournalRecord): record is RunEvent {
-  return record.t === "run_transition" || record.t === "node_dispatched" || record.t === "node_completed";
+export function isRunEvent(record: unknown): record is RunEvent {
+  if (typeof record !== "object" || record === null || Array.isArray(record)) return false;
+  const value = record as Record<string, unknown>;
+  if (typeof value["runId"] !== "string" || value["runId"] === "") return false;
+  if (value["t"] === "run_transition") return typeof value["state"] === "string" && RUN_STATES.includes(value["state"] as RunState) && (value["reason"] === undefined || typeof value["reason"] === "string");
+  if (value["t"] === "node_dispatched") return typeof value["nodeId"] === "string" && value["nodeId"] !== "" && typeof value["activityId"] === "string" && value["activityId"] !== "";
+  if (value["t"] === "node_completed") return typeof value["nodeId"] === "string" && value["nodeId"] !== "" && typeof value["activityId"] === "string" && value["activityId"] !== "" && typeof value["replayed"] === "boolean";
+  return false;
 }
-

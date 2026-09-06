@@ -5,6 +5,8 @@ export interface TransportMessage {
   readonly role: "system" | "user" | "assistant" | "tool";
   readonly content: string;
   readonly toolCallId?: string;
+  readonly toolName?: string;
+  readonly toolCalls?: readonly TransportToolCall[];
 }
 export interface TransportTool {
   readonly name: string;
@@ -41,7 +43,7 @@ export interface ProviderTransport {
   readonly id: TransportId;
   send(request: TransportRequest, signal: AbortSignal): Promise<TransportResponse>;
 }
-export type TransportErrorCode = "AUTH" | "MALFORMED_RESPONSE" | "RATE_LIMIT" | "TIMEOUT" | "CANCELLED" | "HTTP";
+export type TransportErrorCode = "AUTH" | "INVALID_REQUEST" | "MALFORMED_RESPONSE" | "RATE_LIMIT" | "TIMEOUT" | "CANCELLED" | "HTTP";
 export class TransportError extends Error {
   constructor(
     readonly code: TransportErrorCode,

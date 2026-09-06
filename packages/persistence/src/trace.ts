@@ -84,10 +84,11 @@ function validateTrace(value: unknown): asserts value is ModelActivityTraceRecor
   if (!positiveInteger(value.attempt)) throw new Error("INVALID_MODEL_ACTIVITY_TRACE:attempt");
   if (!nonnegative(value.durationMs)) throw new Error("INVALID_MODEL_ACTIVITY_TRACE:durationMs");
   for (const key of ["toolCallCount", "toolCallErrors", "repairCount"] as const) if (!nonnegativeInteger(value[key])) throw new Error(`INVALID_MODEL_ACTIVITY_TRACE:${key}`);
-  if (value.schemaVersion !== 1 || !["success", "refusal", "error", "cancelled"].includes(value.outcome as string)) throw new Error("INVALID_MODEL_ACTIVITY_TRACE:outcome");
-  if (!["frontier", "balanced", "fast"].includes(value.capability as string)
-    || !["low", "medium", "high", "xhigh"].includes(value.effortRequested as string)
-    || !["low", "medium", "high", "xhigh"].includes(value.effortResolved as string)) throw new Error("INVALID_MODEL_ACTIVITY_TRACE:routing");
+  if (value.schemaVersion !== 1 || typeof value.outcome !== "string"
+    || ["success", "refusal", "error", "cancelled"].includes(value.outcome) === false) throw new Error("INVALID_MODEL_ACTIVITY_TRACE:outcome");
+  if (typeof value.capability !== "string" || ["frontier", "balanced", "fast"].includes(value.capability) === false
+    || typeof value.effortRequested !== "string" || ["low", "medium", "high", "xhigh"].includes(value.effortRequested) === false
+    || typeof value.effortResolved !== "string" || ["low", "medium", "high", "xhigh"].includes(value.effortResolved) === false) throw new Error("INVALID_MODEL_ACTIVITY_TRACE:routing");
   if (!Array.isArray(value.inputArtifactRefs) || !value.inputArtifactRefs.every((item) => typeof item === "string")) throw new Error("INVALID_MODEL_ACTIVITY_TRACE:inputArtifactRefs");
   if (value.outputArtifactRef !== null && typeof value.outputArtifactRef !== "string") throw new Error("INVALID_MODEL_ACTIVITY_TRACE:outputArtifactRef");
   if (!validUsage(value.tokenUsage) || !nullableNonnegative(value.costUsd)

@@ -17,7 +17,7 @@ export function GraphView({ workflowJson, runEvents, modelAliases, assignments, 
   // Re-fit when the real positions arrive, a frame later so React Flow has measured them.
   useEffect(() => { if (flow === null || positions.size === 0) return; const frame = requestAnimationFrame(() => { void flow.fitView({ padding: 0.12 }); }); return () => { cancelAnimationFrame(frame); }; }, [flow, positions]);
   const live = useMemo(() => projectLiveState(workflowJson, runEvents, assignments), [workflowJson, runEvents, assignments]);
-  const nodes: Node<GraphNodeData>[] = workflowJson.nodes.map((item) => ({ id: item.id, position: positions.get(item.id) ?? { x: 0, y: 0 }, data: live.get(item.id)!, type: "default", draggable: false, selectable: true }));
+  const nodes: Node<GraphNodeData>[] = workflowJson.nodes.map((item) => ({ id: item.id, position: positions.get(item.id) ?? { x: 0, y: 0 }, data: requiredNodeData(live, item.id), type: "default", draggable: false, selectable: true }));
   const edges: Edge[] = workflowJson.edges.map(({ id, from, to }) => ({ id, source: from, target: to, animated: live.get(from)?.runtimeStatus === "running" }));
   const selectedNode = workflowJson.nodes.find(({ id }) => id === selected);
   return <section className="graph-region" aria-labelledby="graph-title"><h2 className="panel-title" id="graph-title">workflow graph · read only</h2><div className="graph-canvas"><ReactFlow nodes={nodes} edges={edges} fitView minZoom={0.1} nodesDraggable={false} nodesConnectable={false} onInit={setFlow} onNodeClick={(_, item) => { setSelected(item.id); onSelect?.(workflowJson.nodes.find(({ id }) => id === item.id) ?? null); }}><Background /><Controls showInteractive={false} /></ReactFlow></div>
@@ -25,5 +25,23 @@ export function GraphView({ workflowJson, runEvents, modelAliases, assignments, 
     {selectedNode?.kind !== "model" ? null : <label>model assignment<select aria-label="model assignment" value={assignments[selectedNode.id] ?? ""} onChange={(event) => onAssign(selectedNode.id, event.target.value)}><option value="">unassigned</option>{modelAliases.map((alias) => <option key={alias}>{alias}</option>)}</select></label>}
   </section>;
 }
-export function projectLiveState(workflow: WorkflowJson, events: readonly RunEvent[], assignments: Readonly<Record<string, string>>): ReadonlyMap<string, GraphNodeData> { const result = new Map<string, GraphNodeData>(); for (const node of workflow.nodes) result.set(node.id, { label: node.label, kind: node.kind, semanticState: "unexamined", runtimeStatus: "not_started", activity: "not started", assignment: assignments[node.id] ?? null, retries: 0 }); for (const event of events) { if (event.nodeId === undefined || !result.has(event.nodeId)) continue; const current = result.get(event.nodeId)!; const semanticState = isRunState(event.semanticState) ? event.semanticState : null; if (event.t === "node_dispatched") result.set(event.nodeId, { ...current, semanticState, runtimeStatus: "running", activity: event.activityId ?? "active", retries: event.attempt ?? current.retries }); if (event.t === "node_completed") result.set(event.nodeId, { ...current, semanticState, runtimeStatus: event.replayed === true ? "replayed" : "completed", activity: event.replayed === true ? "replayed artifact" : "completed", retries: event.attempt ?? current.retries }); if (event.t === "node_failed") result.set(event.nodeId, { ...current, semanticState, runtimeStatus: "failed", activity: event.reason ?? "failed", retries: event.attempt ?? current.retries }); } return result; }
+export function projectLiveState(workflow: WorkflowJson, events: readonly RunEvent[], assignments: Readonly<Record<string, string>>): ReadonlyMap<string, GraphNodeData> {
+  const result = new Map<string, GraphNodeData>();
+  for (const node of workflow.nodes) result.set(node.id, { label: node.label, kind: node.kind, semanticState: "unexamined", runtimeStatus: "not_started", activity: "not started", assignment: assignments[node.id] ?? null, retries: 0 });
+  for (const event of events) {
+    if (event.nodeId === undefined) continue;
+    const current = result.get(event.nodeId);
+    if (current === undefined) continue;
+    const semanticState = isRunState(event.semanticState) ? event.semanticState : null;
+    if (event.t === "node_dispatched") result.set(event.nodeId, { ...current, semanticState, runtimeStatus: "running", activity: event.activityId ?? "active", retries: event.attempt ?? current.retries });
+    if (event.t === "node_completed") result.set(event.nodeId, { ...current, semanticState, runtimeStatus: event.replayed === true ? "replayed" : "completed", activity: event.replayed === true ? "replayed artifact" : "completed", retries: event.attempt ?? current.retries });
+    if (event.t === "node_failed") result.set(event.nodeId, { ...current, semanticState, runtimeStatus: "failed", activity: event.reason ?? "failed", retries: event.attempt ?? current.retries });
+  }
+  return result;
+}
+function requiredNodeData(values: ReadonlyMap<string, GraphNodeData>, id: string): GraphNodeData {
+  const value = values.get(id);
+  if (value === undefined) throw new Error(`GRAPH_NODE_STATE_MISSING:${id}`);
+  return value;
+}
 function isRunState(value: string | undefined): value is RunState { return value !== undefined && ["verified", "dissent", "refuted", "tainted", "unexamined", "degraded"].includes(value); }

@@ -1,6 +1,6 @@
 import { parseEffortProfile, type EffortProfile } from "../effort.js";
 import {
-  booleanValue, enumValue, exactKeys, nullableNumber, parseProviderQuirks,
+  booleanValue, enumValue, exactKeys, parseProviderQuirks, positiveInteger,
   record, type ProviderQuirks,
 } from "../quirks.js";
 
@@ -59,8 +59,8 @@ export function parseModelProfile(value: unknown): ModelProfile {
       promptCaching: booleanValue(supports["promptCaching"], "supports.promptCaching"),
       batch: booleanValue(supports["batch"], "supports.batch"), vision: booleanValue(supports["vision"], "supports.vision"),
     }),
-    limits: Object.freeze({ contextTokens: nullableNumber(limits["contextTokens"], "limits.contextTokens"),
-      maxOutputTokens: nullableNumber(limits["maxOutputTokens"], "limits.maxOutputTokens") }),
+    limits: Object.freeze({ contextTokens: nullablePositiveInteger(limits["contextTokens"], "limits.contextTokens"),
+      maxOutputTokens: nullablePositiveInteger(limits["maxOutputTokens"], "limits.maxOutputTokens") }),
     effort: parseEffortProfile(input["effort"]), quirks: parseProviderQuirks(input["quirks"]),
     structuredOutputDialect: enumValue(input["structuredOutputDialect"], ["openai_strict", "gemini", "anthropic_tool", "json_mode", "prompt_json", "none"], "structuredOutputDialect"),
   });
@@ -73,4 +73,7 @@ function nonempty(value: unknown, path: string): string {
 function nullableString(value: unknown, path: string): string | null {
   if (value === null) return null;
   return nonempty(value, path);
+}
+function nullablePositiveInteger(value: unknown, path: string): number | null {
+  return value === null ? null : positiveInteger(value, path);
 }

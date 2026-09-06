@@ -34,12 +34,17 @@ export function boardDelta(board: IssueBoard, sinceRound: number): readonly Issu
 export interface IssueOperationSink { append(operation: IssueOperation): Promise<void> }
 export class IssueBoardController {
   readonly #operations: IssueOperation[];
+  #writes: Promise<unknown> = Promise.resolve();
   constructor(private readonly sink: IssueOperationSink, initial: readonly IssueOperation[] = []) { projectBoard(initial); this.#operations = [...initial]; }
-  async append(operation: IssueOperation): Promise<void> { assertIssueOperation(operation); projectBoard([...this.#operations, operation]); await this.sink.append(operation); this.#operations.push(operation); }
+  async append(operation: IssueOperation): Promise<void> {
+    const write = this.#writes.then(async () => { assertIssueOperation(operation); projectBoard([...this.#operations, operation]); await this.sink.append(operation); this.#operations.push(operation); });
+    this.#writes = write.catch(() => undefined);
+    await write;
+  }
   project(): IssueBoard { return projectBoard(this.#operations); }
   delta(sinceRound: number): readonly IssueCandidate[] { return boardDelta(this.project(), sinceRound); }
 }
 function add(candidates: Map<string, MutableCandidate>, seed: CandidateSeed, round: number, parents: readonly string[], children: readonly string[]): MutableCandidate { if (candidates.has(seed.candidateId)) throw new Error(`DUPLICATE_ISSUE_CANDIDATE:${seed.candidateId}`); const value: MutableCandidate = { candidateId: seed.candidateId, claim: { title: seed.title, description: seed.description }, sourceFindingIds: [...seed.sourceFindingIds], evidence: [], counterEvidence: [], severity: seed.severity, blocker: seed.blocker, votes: [], remediationSupplements: [], verificationSupplements: [], parentCandidateIds: [...parents], childCandidateIds: [...children], firstSeenRound: round, lastChangedRound: round, status: "open" }; candidates.set(seed.candidateId, value); return value; }
 function requireCandidate(candidates: Map<string, MutableCandidate>, id: string): MutableCandidate { const value = candidates.get(id); if (value === undefined) throw new Error(`UNKNOWN_ISSUE_CANDIDATE:${id}`); return value; }
-function changed(candidate: MutableCandidate, round: number): void { if (round < candidate.firstSeenRound) throw new Error("ISSUE_OPERATION_ROUND_REGRESSION"); candidate.lastChangedRound = Math.max(candidate.lastChangedRound, round); }
+function changed(candidate: MutableCandidate, round: number): void { if (round < candidate.lastChangedRound) throw new Error("ISSUE_OPERATION_ROUND_REGRESSION"); candidate.lastChangedRound = round; }
 function freezeCandidate(value: MutableCandidate): IssueCandidate { return Object.freeze({ ...value, claim: Object.freeze({ ...value.claim }), sourceFindingIds: Object.freeze([...value.sourceFindingIds]), evidence: Object.freeze([...value.evidence]), counterEvidence: Object.freeze([...value.counterEvidence]), votes: Object.freeze([...value.votes]), remediationSupplements: Object.freeze([...value.remediationSupplements]), verificationSupplements: Object.freeze([...value.verificationSupplements]), parentCandidateIds: Object.freeze([...value.parentCandidateIds]), childCandidateIds: Object.freeze([...value.childCandidateIds]) }); }

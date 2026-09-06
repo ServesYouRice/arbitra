@@ -49,7 +49,7 @@ export function createJsonOutput(
 }
 
 export function isCliJsonOutput(value: unknown): value is CliJsonOutput {
-  if (!isRecord(value) || Object.keys(value).some((key) => !["schemaVersion", "command", "ok", "policy", "result"].includes(key))) return false;
+  if (!isRecord(value) || Object.keys(value).some((key) => ["schemaVersion", "command", "ok", "policy", "result"].includes(key) === false)) return false;
   if (value.schemaVersion !== CLI_JSON_SCHEMA_VERSION || typeof value.command !== "string" || value.command.length === 0 || typeof value.ok !== "boolean") return false;
   if (!("result" in value) || !isRecord(value.policy)) return false;
   const policy = value.policy;

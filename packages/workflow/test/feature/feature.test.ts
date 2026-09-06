@@ -30,7 +30,7 @@ describe("Feature Mode requirements and routing", () => {
 
   it("persists before checkpointing and sends high risk through targeted review, Planner and Critic", async () => {
     const events: string[] = [];
-    const risky = { ...draft, ambiguities: [{ ...draft.ambiguities[0]!, blastRadius: "high" as const }] };
+    const risky = { ...draft, ambiguities: [{ ...requiredAt(draft.ambiguities, 0), blastRadius: "high" as const }] };
     const node = requirementsNode({
       mode: "interactive", protocolVersion: "1.0.0", protocolHash: "b".repeat(64), schema: { parse: () => risky },
       runtime: { async generate() { events.push("model"); return risky; } },
@@ -71,4 +71,4 @@ function contractFromDraft(): RequirementsContract {
 function preflight() {
   return { affectedSurfaces: [{ id: "settings", paths: ["src/settings.ts"], riskCategories: [], relevantTo: ["ACC-1"] }, { id: "unrelated", paths: ["src/billing.ts"], riskCategories: ["billing"], relevantTo: ["OTHER"] }], securitySensitiveSurfaceCount: 0, migrationInvolvement: false, architectureBreadth: 0, testingComplexity: 0 };
 }
-
+function requiredAt<T>(values: readonly T[], index: number): T { const value = values[index]; if (value === undefined) throw new RangeError(`Missing test value at index ${index}`); return value; }

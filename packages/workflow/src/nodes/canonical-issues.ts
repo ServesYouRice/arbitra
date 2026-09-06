@@ -31,6 +31,8 @@ export function canonicaliseIssues(board: CanonicalisationBoard, verification: r
   if (!Number.isSafeInteger(board.consensus.auditorCount) || board.consensus.auditorCount < 1) throw new Error("INVALID_CANONICAL_AUDITOR_COUNT");
   const consensusById = uniqueById(board.consensus.candidates, "DUPLICATE_CANONICAL_CONSENSUS");
   const verificationById = uniqueById(verification, "DUPLICATE_CANONICAL_VERIFICATION");
+  for (const [id, candidate] of Object.entries(board.candidates)) if (id !== candidate.candidateId) throw new Error(`CANONICAL_CANDIDATE_ID_MISMATCH:${id}`);
+  for (const id of consensusById.keys()) if (!Object.hasOwn(board.candidates, id)) throw new Error(`ORPHAN_CANONICAL_CONSENSUS:${id}`);
   const singleSource = board.consensus.auditorCount === 1;
   const issues = Object.values(board.candidates).sort((a, b) => a.candidateId.localeCompare(b.candidateId)).map((candidate): CanonicalIssue => {
     if (candidate.sourceFindingIds.length === 0) throw new Error(`CANONICAL_ISSUE_REQUIRES_SOURCE_FINDING:${candidate.candidateId}`);
@@ -55,7 +57,7 @@ export function canonicaliseIssues(board: CanonicalisationBoard, verification: r
       singleSource,
     });
   });
-  for (const id of verificationById.keys()) if (!(id in board.candidates)) throw new Error(`ORPHAN_CANONICAL_VERIFICATION:${id}`);
+  for (const id of verificationById.keys()) if (!Object.hasOwn(board.candidates, id)) throw new Error(`ORPHAN_CANONICAL_VERIFICATION:${id}`);
   const incompleteReview = issues.some((issue) => issue.coverage.missingReviewers.length > 0);
   const complete = !coverage.securityCoverage.degraded && coverage.suppressionCandidates.length === 0 && coverage.unexaminedSurfaces.length === 0 && !incompleteReview;
   const limitations = [...new Set([

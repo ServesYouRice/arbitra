@@ -44,6 +44,9 @@ describe("model profiles", () => {
     expect(() => parseModelProfile({ ...invalidQuirk, quirks: { ...invalidQuirk.quirks, magic: true } })).toThrow(/unknown fields magic/u);
     const invalidEffort = profileInput();
     expect(() => parseModelProfile({ ...invalidEffort, effort: { ...invalidEffort.effort, collapse: { medium: "high" } } })).toThrow(/collapse\.xhigh/u);
+    expect(() => parseModelProfile({ ...profileInput(), limits: { contextTokens: 0, maxOutputTokens: 1 } })).toThrow(/positive safe integer/u);
+    const nonFinite = profileInput();
+    expect(() => parseModelProfile({ ...nonFinite, effort: { ...nonFinite.effort, params: { ...nonFinite.effort.params, low: { thinking_level: Number.NaN } } } })).toThrow(/effort\.params\.low\.thinking_level/u);
   });
 });
 

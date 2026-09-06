@@ -96,7 +96,7 @@ describe("semantic finding validation", () => {
     const overflow: SourceFinding = {
       ...finding,
       locations: [
-        { ...finding.locations[0]!, endLine: 13 },
+        { ...requiredAt(finding.locations, 0), endLine: 13 },
         { id: "missing", path: "src/missing.ts", startLine: 1, endLine: 1 },
       ],
     };
@@ -112,12 +112,14 @@ describe("semantic finding validation", () => {
   it("rejects unresolved evidence references", () => {
     const invalid: SourceFinding = {
       ...finding,
-      evidence: [{ ...finding.evidence[0]!, locationIds: ["not-there"] }],
+      evidence: [{ ...requiredAt(finding.evidence, 0), locationIds: ["not-there"] }],
     };
     expect(validateSemantics(invalid, { files: { "src/auth.ts": { lineCount: 12 } } }))
       .toContainEqual(expect.objectContaining({ code: "unknown_location_id" }));
   });
 });
+
+function requiredAt<T>(values: readonly T[], index: number): T { const value = values[index]; if (value === undefined) throw new RangeError(`Missing test value at index ${index}`); return value; }
 
 describe("bounded structured repair", () => {
   const schema = z.object({ id: z.string().min(1) }).strict();

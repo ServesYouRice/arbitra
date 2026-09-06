@@ -70,9 +70,11 @@ describe("structured critic and conditional revision", () => {
     expect(revise).toHaveBeenCalledTimes(1);
     expect(revise.mock.calls[0]?.[0]).toMatchObject({ originalGoal: "original goal", plannerConfiguration: { profile: "same-planner" } });
     await expect(revisePlanOnce("goal", input.plan, blocking, {}, { revise: vi.fn().mockResolvedValue({ plan: input.plan, resolutions: [{ critiqueItemId: "CRIT-B1", resolution: "only one" }] }) })).rejects.toThrow(/EVERY_BLOCKING/u);
-    await expect(revisePlanOnce("goal", input.plan, [blocking[0]!], {}, { revise: vi.fn().mockResolvedValue({ plan: input.plan, resolutions: [{ critiqueItemId: "CRIT-B1", resolution: "" }] }) })).rejects.toThrow(/EVERY_BLOCKING/u);
-    await expect(revisePlanOnce("goal", input.plan, [blocking[0]!], {}, { revise: vi.fn().mockResolvedValue({ plan: input.plan, resolutions: [{ critiqueItemId: "CRIT-B1", resolution: "one" }, { critiqueItemId: "CRIT-B1", resolution: "duplicate" }] }) })).rejects.toThrow(/EVERY_BLOCKING/u);
+    const firstBlocking = requiredAt(blocking, 0);
+    await expect(revisePlanOnce("goal", input.plan, [firstBlocking], {}, { revise: vi.fn().mockResolvedValue({ plan: input.plan, resolutions: [{ critiqueItemId: "CRIT-B1", resolution: "" }] }) })).rejects.toThrow(/EVERY_BLOCKING/u);
+    await expect(revisePlanOnce("goal", input.plan, [firstBlocking], {}, { revise: vi.fn().mockResolvedValue({ plan: input.plan, resolutions: [{ critiqueItemId: "CRIT-B1", resolution: "one" }, { critiqueItemId: "CRIT-B1", resolution: "duplicate" }] }) })).rejects.toThrow(/EVERY_BLOCKING/u);
   });
 });
 
 function schema(value: StructuredCritique) { return { parse() { return value; } }; }
+function requiredAt<T>(values: readonly T[], index: number): T { const value = values[index]; if (value === undefined) throw new RangeError(`Missing test value at index ${index}`); return value; }

@@ -9,10 +9,12 @@ misses — is treated as a hypothesis the system measures, not as a marketing cl
 
 ## Status
 
-v1 is implemented across the workspace packages listed in
-[`docs/architecture.md`](docs/architecture.md). The v1.1 extension points are listed there
-too, and are explicitly **not implemented** — no document in this set shows a v1.1 feature
-as working.
+The workspace contains the v1 building blocks and a runnable **scripted Audit pipeline**.
+The CLI/server composition does not yet execute configured models, native harnesses,
+Feature workflows, or Testing workflows. Those requests now fail explicitly rather than
+silently becoming scripted audits. Library implementations and composition limitations
+are distinguished in [`docs/architecture.md`](docs/architecture.md); the separately
+planned v1.1 extensions are also listed there.
 
 One thing is worth knowing before reading further: **the premise is unmeasured on real
 models.** `packages/testing/src/metrics/premise.ts` scores a run against a ground-truth
@@ -49,12 +51,21 @@ pnpm --filter @arbitra/web dev              # UI on 127.0.0.1:4173, proxied to t
 With the control plane up, the UI is addressable: `?run=<id>` opens a recorded run and
 `?view=graph|issues|plan|evaluation` opens a column-two view directly.
 
-**Without configured model profiles the auditors are deterministic detectors, not models.**
+**The composed runtime's auditors are deterministic detectors, not models.**
 They produce real, evidence-grounded findings — every one cites a repository path and line
 that validation checks — so the pipeline has something real to cluster, peer-review, verify and
 plan over with no API key. They do not exercise the premise: every run they produce reports
 `auditor_kind: scripted_auditors` and carries `interpretation: "smoke_test_only_not_proof"`.
-Configure model profiles for a real audit.
+Keep `models: {}` for this runtime. Model profiles are schema/library inputs, not an
+enabled model-execution switch. A scripted run deliberately fails the CI quality gate
+with `degraded_coverage`, even when no findings are produced; that is not a process crash.
+
+Audit presets select three auditors (`audit-deep`), two (`audit-balanced` and
+`diff-review`), or one (`diff-fast`). `diff-fast` skips peer review and verifies its
+single-source findings deterministically. Repository, module, staged, working-tree and
+revision-range scopes are supported. Resume checks the original repository snapshot;
+replay creates a separate run from recorded discovery findings and leaves its source
+unchanged.
 
 ## Repository layout
 
@@ -130,8 +141,9 @@ controls proving a stale example fails.
 `replace-with-your-model-id` / `replace-with-your-model-family`, and both context and
 output limits are `null`. arbitra does not ship a table of provider model names,
 capabilities or prices: those change, and inventing them would be exactly the fabrication
-the product refuses elsewhere. Fill them in from your provider's own documentation before
-running. See [`docs/provider-model.md`](docs/provider-model.md).
+the product refuses elsewhere. Fill them in from your provider's own documentation when
+using the provider libraries. These examples validate schema coverage; they are not
+model-backed CLI smoke tests. See [`docs/provider-model.md`](docs/provider-model.md).
 
 No example carries a credential, and none can: `ConfigStore.validate`
 (`packages/core/src/config/config-store.ts`) rejects any key ending in `apiKey`, `secret`,
