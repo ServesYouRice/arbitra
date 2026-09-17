@@ -1,5 +1,6 @@
 import { mkdir, open, readFile, readdir, rename, truncate, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { ActivityJournal, type JournalRecord } from "@arbitra/persistence/journal.js";
 import { ArtifactStore } from "@arbitra/persistence/artifact-store.js";
 import { loadJournal } from "@arbitra/persistence/journal-load.js";
@@ -7,8 +8,9 @@ import type { ActivityArtifactRef } from "@arbitra/core/activity.js";
 import type { RunEvent, RunnerJournalPort, RunnerJournalRecord } from "@arbitra/core/runner/events.js";
 import { isRunEvent } from "@arbitra/core/runner/events.js";
 import type { RunDefinitionStore, StoredRunDefinition } from "@arbitra/core/runner/workflow-runner.js";
-import { runScopeSchema, type RunScope } from "@arbitra/schemas/config.js";
+import { runScopeSchema, runConfigSchema, type RunScope, type RunConfig } from "@arbitra/schemas/config.js";
 import { redactSecrets } from "@arbitra/security/redaction";
+import { TraceRecorder, loadActivityTraces, type ModelActivityTraceRecord } from "@arbitra/persistence/trace.js";
 
 const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 
@@ -38,6 +40,7 @@ export interface StoredRunContext {
   readonly consensusPolicy: "full" | "risk_weighted" | "minimal";
   readonly maximumRounds: number;
   readonly criticEnabled: boolean;
+  readonly modelConfiguration?: RunConfig;
 }
 
 export class RunStore {
@@ -51,6 +54,9 @@ export class RunStore {
   readonly #definition: string;
   readonly #context: string;
   readonly #journalPath: string;
+  readonly #traces: TraceRecorder;
+  readonly #runsDirectory: string;
+  #traceWrites: Promise<unknown> = Promise.resolve();
   // The artifact index is a read-modify-write over one file, and the graph dispatches
   // sibling nodes concurrently, so publishes are serialised through this chain. Without
   // it two auditors finishing together each write an index missing the other's entry.
@@ -64,11 +70,26 @@ export class RunStore {
     this.directory = join(rootDirectory, runId);
     this.#journalPath = join(this.directory, "journal.jsonl");
     this.#journal = new ActivityJournal(this.#journalPath);
+    this.#traces = new TraceRecorder(rootDirectory);
+    this.#runsDirectory = rootDirectory;
     this.#events = join(this.directory, "events.jsonl");
     this.#index = join(this.directory, "artifacts.json");
     this.#definition = join(this.directory, "definition.json");
     this.#context = join(this.directory, "context.json");
     this.artifacts = new ArtifactStore(this.directory);
+  }
+
+  async recordModelTrace(trace: ModelActivityTraceRecord): Promise<void> {
+    if (trace.runId !== this.runId) throw new Error("TRACE_RUN_ID_MISMATCH");
+    const safe = JSON.parse(JSON.stringify(trace, (_key, value: unknown) => typeof value === "string" ? redactSecrets(value).text : value)) as ModelActivityTraceRecord;
+    const write = this.#traceWrites.then(() => this.#traces.record(safe));
+    this.#traceWrites = write.catch(() => undefined);
+    await write;
+  }
+
+  async nextModelTraceAttempt(activityId: string): Promise<number> {
+    const traces = await loadActivityTraces(this.#runsDirectory, this.runId);
+    return traces.reduce((maximum, trace) => trace.activityId === activityId ? Math.max(maximum, trace.attempt) : maximum, 0) + 1;
   }
 
   /** The runner's single journal port, splitting activity records from run events. */
@@ -214,6 +235,7 @@ function validateContext(value: unknown): asserts value is StoredRunContext {
   if (typeof context["repository"] !== "string" || !isAbsolute(context["repository"])) throw new Error("INVALID_RUN_CONTEXT_REPOSITORY");
   if (typeof context["repositoryDigest"] !== "string" || !/^[a-f0-9]{64}$/u.test(context["repositoryDigest"])) throw new Error("INVALID_RUN_CONTEXT_DIGEST");
   runScopeSchema.parse(context["scope"]);
+  if (context["modelConfiguration"] !== undefined) runConfigSchema.parse(context["modelConfiguration"]);
   if (context["replaySourceRunId"] !== undefined && (typeof context["replaySourceRunId"] !== "string" || !RUN_ID_PATTERN.test(context["replaySourceRunId"]))) throw new Error("INVALID_REPLAY_SOURCE_RUN_ID");
   if (context["consensusPolicy"] !== "full" && context["consensusPolicy"] !== "risk_weighted" && context["consensusPolicy"] !== "minimal") throw new Error("INVALID_RUN_CONTEXT_POLICY");
   if (!Number.isSafeInteger(context["maximumRounds"]) || (context["maximumRounds"] as number) < 0 || (context["maximumRounds"] as number) > 3) throw new Error("INVALID_RUN_CONTEXT_ROUNDS");
@@ -225,5 +247,14 @@ async function atomicJson(path: string, value: unknown): Promise<void> {
   const file = await open(temporary, "w");
   try { await file.writeFile(JSON.stringify(value, null, 2), "utf8"); await file.sync(); }
   finally { await file.close(); }
-  await rename(temporary, path);
+  for (let attempt = 0; ; attempt += 1) {
+    try { await rename(temporary, path); return; }
+    catch (error) {
+      // Windows readers and file scanners can briefly hold a replace target open.
+      // Preserve the existing committed file and retry the atomic rename itself.
+      const code = (error as NodeJS.ErrnoException).code;
+      if (attempt >= 9 || !["EPERM", "EACCES", "EBUSY"].includes(code ?? "")) throw error;
+      await delay(Math.min(100, 10 * (attempt + 1)));
+    }
+  }
 }

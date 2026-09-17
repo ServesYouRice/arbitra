@@ -3,7 +3,7 @@ type ConsensusOutcome = "accepted" | "rejected" | "needs_verification" | "non_co
 type VerificationOutcome = "CONFIRMED" | "REJECTED" | "STILL_NEEDS_VERIFICATION";
 interface Evidence { readonly id: string; readonly text: string; readonly locationIds: readonly string[] }
 interface Vote { readonly authorId: string; readonly disposition: "accept" | "reject" | "needs_verification"; readonly citedEvidenceIds: readonly string[]; readonly reason: string }
-interface BoardCandidate { readonly candidateId: string; readonly claim: { readonly title: string; readonly description: string }; readonly sourceFindingIds: readonly string[]; readonly severity: Severity; readonly blocker: boolean; readonly counterEvidence: readonly Evidence[] }
+interface BoardCandidate { readonly candidateId: string; readonly claim: { readonly title: string; readonly description: string }; readonly sourceFindingIds: readonly string[]; readonly severity: Severity; readonly blocker: boolean; readonly counterEvidence: readonly Evidence[]; readonly remediationSupplements?: readonly string[]; readonly verificationSupplements?: readonly string[] }
 interface CandidateConsensus { readonly candidateId: string; readonly outcome: ConsensusOutcome; readonly supportCount: number; readonly reviewDenominator: number; readonly dissent: readonly Vote[]; readonly coverage: { readonly reviewedBy: readonly string[]; readonly missingReviewers: readonly string[] }; readonly reason: string }
 export interface CanonicalisationBoard { readonly candidates: Readonly<Record<string, BoardCandidate>>; readonly consensus: { readonly auditorCount: number; readonly candidates: readonly CandidateConsensus[] } }
 export interface CanonicalVerification { readonly candidateId: string; readonly outcome: VerificationOutcome }
@@ -17,6 +17,7 @@ export interface CanonicalIssue {
   readonly candidateId: string; readonly claim: { readonly trust: "untrusted_data"; readonly title: string; readonly description: string };
   readonly severity: Severity; readonly blocker: boolean; readonly disposition: ConsensusOutcome; readonly consensusClaim: string | null;
   readonly supportCount: number; readonly reviewDenominator: number; readonly dissent: readonly Vote[]; readonly counterEvidence: readonly Evidence[];
+  readonly remediationSupplements?: readonly string[]; readonly verificationSupplements?: readonly string[];
   readonly sourceFindingIds: readonly string[]; readonly verificationOutcome: VerificationOutcome | null;
   readonly coverage: { readonly reviewedBy: readonly string[]; readonly missingReviewers: readonly string[] }; readonly singleSource: boolean;
 }
@@ -51,6 +52,8 @@ export function canonicaliseIssues(board: CanonicalisationBoard, verification: r
       reviewDenominator: consensus.reviewDenominator,
       dissent: Object.freeze(consensus.dissent.map((vote) => Object.freeze({ ...vote, citedEvidenceIds: Object.freeze([...vote.citedEvidenceIds]) }))),
       counterEvidence: Object.freeze(candidate.counterEvidence.map((evidence) => Object.freeze({ ...evidence, locationIds: Object.freeze([...evidence.locationIds]) }))),
+      ...(candidate.remediationSupplements === undefined ? {} : { remediationSupplements: Object.freeze([...candidate.remediationSupplements]) }),
+      ...(candidate.verificationSupplements === undefined ? {} : { verificationSupplements: Object.freeze([...candidate.verificationSupplements]) }),
       sourceFindingIds: Object.freeze([...new Set(candidate.sourceFindingIds)].sort()),
       verificationOutcome: verified,
       coverage: Object.freeze({ reviewedBy: Object.freeze([...consensus.coverage.reviewedBy].sort()), missingReviewers: Object.freeze([...consensus.coverage.missingReviewers].sort()) }),

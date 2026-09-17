@@ -3,9 +3,45 @@ import { describe, expect, it, vi } from "vitest";
 import { ContinuationStateStore } from "../src/continuation/store.js";
 import { ProviderInvocationFailure, ProviderInvocationRuntime, type RuntimeTimer } from "../src/runtime.js";
 import { RateLimitScheduler } from "../src/scheduler.js";
+import { DurableTokenBudget } from "../src/token-budget.js";
 import { TransportError, type ProviderTransport, type TransportResponse } from "../src/transport-contract.js";
 
 describe("provider invocation runtime", () => {
+  it("suspends a retry before dispatch when the preceding attempt consumed the remaining budget", async () => {
+    const send = vi.fn(async () => { throw new TransportError("TIMEOUT", "unknown billed usage", true); });
+    const traces = vi.fn();
+    const runtime = new ProviderInvocationRuntime({
+      transports: { fixture: { id: "fixture", send } }, scheduler: scheduler(),
+      budget: new DurableTokenBudget(10, { async load() { return null; }, async save() {} }),
+      continuation: new ContinuationStateStore({ async load() { return null; }, async save() {} }, { enabled: false, now: () => 0 }),
+      traces: { record: traces }, timer: { timeout: () => () => {}, sleep: async () => {} },
+    });
+    await expect(runtime.invoke(request(), context({ maximumRetries: 2 }))).rejects.toMatchObject({ state: "SUSPENDED_BUDGET" });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(traces).toHaveBeenCalledWith(expect.objectContaining({ outcome: "retry", usage: null }));
+  });
+
+  it("does not dispatch when cancelled during asynchronous budget persistence", async () => {
+    const controller = new AbortController();
+    const send = vi.fn(async () => successfulResponse());
+    const runtime = new ProviderInvocationRuntime({
+      transports: { fixture: { id: "fixture", send } }, scheduler: scheduler(),
+      budget: { async reserve() { controller.abort(); return { allowed: true }; }, recordActual() {} },
+      continuation: new ContinuationStateStore({ async load() { return null; }, async save() {} }, { enabled: false, now: () => 0 }),
+      traces: { record() {} },
+    });
+    await expect(runtime.invoke(request(), context({ signal: controller.signal }))).rejects.toMatchObject({ causeCode: "CANCELLED", attempts: 0 });
+    expect(send).not.toHaveBeenCalled();
+  });
+  it("rejects mismatched model identity and inherited transport names before reserving budget", async () => {
+    const reserve = vi.fn(() => ({ allowed: true }));
+    const transport: ProviderTransport = { id: "fixture", async send() { return successfulResponse(); } };
+    const runtime = createRuntime(transport, scheduler(), undefined, reserve);
+    await expect(runtime.invoke(request(), context({ modelId: "different-model" }))).rejects.toThrow("INVOCATION_MODEL_MISMATCH");
+    await expect(runtime.invoke(request(), context({ transportId: "toString" }))).rejects.toThrow("UNKNOWN_TRANSPORT");
+    await expect(scheduler().acquire("toString", 1)).rejects.toThrow("UNKNOWN_PROVIDER_POLICY");
+    expect(reserve).not.toHaveBeenCalled();
+  });
   it("cancels queued admissions without consuming a concurrency slot", async () => {
     const limits = scheduler();
     const first = await limits.acquire("provider", 1);

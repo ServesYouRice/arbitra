@@ -76,7 +76,7 @@ export class RateLimitScheduler {
   }
 
   private policy(providerId: string): RateLimitPolicy {
-    const value = this.policies[providerId]; if (value === undefined) throw new Error(`UNKNOWN_PROVIDER_POLICY:${providerId}`); return value;
+    const value = Object.hasOwn(this.policies, providerId) ? this.policies[providerId] : undefined; if (value === undefined) throw new Error(`UNKNOWN_PROVIDER_POLICY:${providerId}`); return value;
   }
   private state(providerId: string): ProviderState {
     let value = this.states.get(providerId);

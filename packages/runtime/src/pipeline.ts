@@ -37,6 +37,7 @@ export interface AuditContext {
   readonly policy: ConsensusPolicy;
   readonly maximumRounds: number;
   readonly criticEnabled: boolean;
+  readonly auditorKind?: "scripted_auditors" | "model_auditors";
 }
 
 export interface PreflightResult { readonly fileCount: number; readonly lineCount: number; readonly auditorIds: readonly string[] }
@@ -48,7 +49,7 @@ export async function preflight(context: AuditContext): Promise<PreflightResult>
     lineCount,
     auditorIds: Object.freeze(context.auditors.map(({ auditorId }) => auditorId)),
   });
-  await context.store.publish("preflight", { ...result, auditorKind: AUDITOR_KIND, root: context.snapshot.root });
+  await context.store.publish("preflight", { ...result, auditorKind: context.auditorKind ?? AUDITOR_KIND, root: context.snapshot.root });
   return result;
 }
 

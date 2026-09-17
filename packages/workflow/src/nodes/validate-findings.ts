@@ -24,10 +24,11 @@ export async function validateFindings(findings: readonly FindingSubmission[], s
   const quality = new Map<string, { total: number; accepted: number; rejected: number; repaired: number; invalidLocations: number; invalidEvidence: number }>();
   for (const submission of findings) {
     const metric = quality.get(submission.auditorId) ?? { total: 0, accepted: 0, rejected: 0, repaired: 0, invalidLocations: 0, invalidEvidence: 0 }; metric.total += 1; quality.set(submission.auditorId, metric);
-    let candidate = submission.finding; let reasons = validateOne(submission.auditorId, candidate, snapshot, footprints[submission.auditorId]); let repaired = false;
+    const footprint = Object.hasOwn(footprints, submission.auditorId) ? footprints[submission.auditorId] : undefined;
+    let candidate = submission.finding; let reasons = validateOne(submission.auditorId, candidate, snapshot, footprint); let repaired = false;
     if (reasons.length > 0 && submission.repairCount === 0 && dependencies.repair !== undefined) {
       const replacement = await dependencies.repair.repair(submission, reasons);
-      if (replacement !== null) { candidate = replacement; reasons = validateOne(submission.auditorId, candidate, snapshot, footprints[submission.auditorId]); repaired = reasons.length === 0; }
+      if (replacement !== null) { candidate = replacement; reasons = validateOne(submission.auditorId, candidate, snapshot, footprint); repaired = reasons.length === 0; }
       repairs.push(Object.freeze({ sourceFindingId: submission.finding.sourceFindingId, attempted: true as const, outcome: replacement === null ? "unavailable" as const : repaired ? "accepted" as const : "rejected" as const }));
     }
     if (reasons.length === 0) {
@@ -50,10 +51,10 @@ function validateOne(auditorId: string, finding: ValidatableFinding, snapshot: V
     const pointer = `/locations/${index}`;
     if (ids.has(location.id)) reasons.push(reason("duplicate_location_id", `${pointer}/id`, `location id ${location.id} is duplicated`)); ids.add(location.id); locations.set(location.id, location);
     if (!relativePath(location.path)) { reasons.push(reason("invalid_repository_path", `${pointer}/path`, "path is not normalized and repository-relative")); continue; }
-    const file = snapshot.files[location.path];
+    const file = Object.hasOwn(snapshot.files, location.path) ? snapshot.files[location.path] : undefined;
     if (file === undefined) reasons.push(reason("path_not_in_snapshot", `${pointer}/path`, `${location.path} is absent from the snapshot`));
     else if (location.endLine > file.lineCount) reasons.push(reason("line_out_of_range", `${pointer}/endLine`, `line ${location.endLine} exceeds ${file.lineCount}`));
-    if (location.startLine < 1 || location.endLine < 1 || location.startLine > location.endLine) reasons.push(reason("invalid_line_range", pointer, "location line range is invalid"));
+    if (!Number.isSafeInteger(location.startLine) || !Number.isSafeInteger(location.endLine) || location.startLine < 1 || location.endLine < 1 || location.startLine > location.endLine) reasons.push(reason("invalid_line_range", pointer, "location line range is invalid"));
   }
   if (finding.productionBlocker && finding.severity !== "critical" && finding.severity !== "high") reasons.push(reason("invalid_blocker_severity", "/productionBlocker", `${finding.severity} cannot be a production blocker`));
   const evidenceIds = new Set<string>();
@@ -62,7 +63,7 @@ function validateOne(auditorId: string, finding: ValidatableFinding, snapshot: V
     for (const [referenceIndex, locationId] of evidence.locationIds.entries()) {
       const pointer = `/evidence/${evidenceIndex}/locationIds/${referenceIndex}`; const location = locations.get(locationId);
       if (location === undefined) { reasons.push(reason("unknown_location_id", pointer, `location id ${locationId} does not resolve`)); continue; }
-      const file = snapshot.files[location.path];
+      const file = Object.hasOwn(snapshot.files, location.path) ? snapshot.files[location.path] : undefined;
       if (file !== undefined && validLineRange(location, file) && !covered(location, file, footprint?.ranges ?? [])) reasons.push(reason("evidence_outside_exposure", pointer, `location ${locationId} lies outside ${auditorId}'s exposure footprint`));
     }
   }
@@ -70,7 +71,7 @@ function validateOne(auditorId: string, finding: ValidatableFinding, snapshot: V
 }
 function reason(code: ValidationReasonCode, pointer: string, message: string): ValidationReason { return Object.freeze({ code, pointer, message }); }
 function relativePath(path: string): boolean { return !path.startsWith("/") && !path.startsWith("\\") && !/^[A-Za-z]:/u.test(path) && !path.includes("\\") && path.split("/").every((part) => part !== "" && part !== "." && part !== ".."); }
-function validLineRange(location: FindingLocation, file: SnapshotFact): boolean { return location.startLine >= 1 && location.endLine >= location.startLine && location.endLine <= file.lineCount; }
+function validLineRange(location: FindingLocation, file: SnapshotFact): boolean { return Number.isSafeInteger(location.startLine) && Number.isSafeInteger(location.endLine) && location.startLine >= 1 && location.endLine >= location.startLine && location.endLine <= file.lineCount; }
 function covered(location: FindingLocation, file: SnapshotFact, ranges: readonly ExposureRange[]): boolean {
   const start = file.lineStartBytes[location.startLine - 1]; const end = location.endLine < file.lineCount ? file.lineStartBytes[location.endLine] : file.byteLength; if (start === undefined || end === undefined) return false;
   let cursor = start; for (const range of ranges.filter((item) => item.path === location.path).sort((a, b) => a.start - b.start)) { if (range.end <= cursor || range.start > cursor) continue; cursor = Math.max(cursor, range.end); if (cursor >= end) return true; } return false;

@@ -30,7 +30,7 @@ export function orchestratorCore(orchestrator: Orchestrator) {
   };
 
   const completed = async (runId: string, state: string): Promise<CoreCommandResult> => {
-    if (state !== "COMPLETED") return { disposition: state === "CANCELLED" ? "suspended" : "system_failure", reasons: [`run_${state.toLowerCase()}`], value: { runId, state } };
+    if (state !== "COMPLETED") return { disposition: ["CANCELLED", "SUSPENDED_BUDGET", "SUSPENDED_RATE_LIMIT"].includes(state) ? "suspended" : "system_failure", reasons: [`run_${state.toLowerCase()}`], value: { runId, state } };
     const gate = await orchestrator.gate(runId);
     return {
       disposition: gate.gateStatus === "passed" ? "passed" : "failed",

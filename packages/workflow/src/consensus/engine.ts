@@ -7,6 +7,7 @@ export interface ConsensusCandidate {
   readonly severity: "critical" | "high" | "medium" | "low" | "informational"; readonly blocker: boolean; readonly status: string;
   readonly votes: readonly ConsensusVote[]; readonly objections?: readonly ConsensusObjection[]; readonly evidence: readonly unknown[]; readonly counterEvidence: readonly unknown[];
   readonly firstSeenRound: number; readonly lastChangedRound: number; readonly category?: string; readonly highBlastRadius?: boolean; readonly lowConfidence?: boolean;
+  readonly unresolvedOperationIds?: readonly string[];
 }
 export interface ConsensusBoard { readonly candidates: Readonly<Record<string, ConsensusCandidate>> }
 export interface ConsensusAuditor { readonly auditorId: string; readonly independenceGroup: string }
@@ -34,6 +35,7 @@ function decide(candidate: ConsensusCandidate, policy: ConsensusPolicy, auditors
   const blockingObjection = isHighRisk(candidate) && (candidate.objections ?? []).some((objection) => objection.citesLocation && objection.evidenceType !== "speculation" && objection.resolvedBy === null);
   let outcome: ConsensusOutcome; let reason: string;
   if (auditors.length === 1) { outcome = "single_source"; reason = "One auditor: consensus stage is skipped."; }
+  else if ((candidate.unresolvedOperationIds?.length ?? 0) > 0) { outcome = "needs_verification"; reason = "Conflicting peer operations require targeted verification; original claims remain active."; }
   else if (auditors.length === 2 && (verification.length > 0 || accepts.length !== 2 && rejects.length !== 2)) { outcome = "needs_verification"; reason = "Two-auditor material disagreement has no majority semantics."; }
   else if (blockingObjection) { outcome = "needs_verification"; reason = "An unresolved high-risk evidence-backed objection requires targeted verification."; }
   else if (verification.length > 0 || candidate.counterEvidence.length > 0 && accepts.length > 0) { outcome = "needs_verification"; reason = "Evidence is incomplete or conflicting."; }

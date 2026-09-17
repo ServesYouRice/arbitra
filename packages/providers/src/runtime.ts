@@ -5,9 +5,10 @@ import { ContinuationStateStore } from "./continuation/store.js";
 import { sessionContinuationState } from "./continuation/types.js";
 
 export interface InvocationBudget {
-  reserve(activityId: string, estimatedTokens: number): { readonly allowed: boolean; readonly reason?: string };
-  recordActual(activityId: string, usage: TransportResponse["usage"]): void;
+  reserve(activityId: string, estimatedTokens: number): BudgetReservation | Promise<BudgetReservation>;
+  recordActual(activityId: string, usage: TransportResponse["usage"], reservationId?: string): void | Promise<void>;
 }
+export interface BudgetReservation { readonly allowed: boolean; readonly reason?: string; readonly reservationId?: string; }
 export interface InvocationTrace {
   readonly activityId: string; readonly providerId: string; readonly modelId: string; readonly transportId: string;
   readonly attempt: number; readonly outcome: "completed" | "retry" | "failed"; readonly errorCode: string | null;
@@ -60,11 +61,10 @@ export class ProviderInvocationRuntime {
 
   async invoke(request: TransportRequest, context: ProviderInvocationContext): Promise<TransportResponse> {
     validateContext(context);
+    if (request.modelId !== context.modelId) throw new Error("INVOCATION_MODEL_MISMATCH");
     if (context.signal.aborted) throw new ProviderInvocationFailure("Provider request cancelled before dispatch", 0, "CANCELLED");
-    const transport = this.options.transports[context.transportId];
+    const transport = Object.hasOwn(this.options.transports, context.transportId) ? this.options.transports[context.transportId] : undefined;
     if (transport === undefined) throw new Error(`UNKNOWN_TRANSPORT:${context.transportId}`);
-    const reservation = this.options.budget.reserve(context.activityId, context.estimatedTokens);
-    if (!reservation.allowed) throw new ProviderBudgetSuspendedError(reservation.reason ?? "Provider budget preflight refused dispatch");
     const restored = await this.options.continuation.load(context.activityId, { transport: context.transportId, modelId: context.modelId });
     const continuation = restored?.opaque;
     const effectiveRequest: TransportRequest = { ...request,
@@ -73,13 +73,17 @@ export class ProviderInvocationRuntime {
     let lastError: unknown;
     let attempts = 0;
     for (let attempt = 1; attempt <= context.maximumRetries + 1; attempt += 1) {
+      if (context.signal.aborted) throw new ProviderInvocationFailure("Provider request cancelled before dispatch", attempts, "CANCELLED");
+      const reservation = await this.options.budget.reserve(context.activityId, context.estimatedTokens);
+      if (!reservation.allowed) throw new ProviderBudgetSuspendedError(reservation.reason ?? "Provider budget preflight refused dispatch");
       let lease: SchedulerLease | undefined;
       let retryDelay: number | null = null;
       try {
         lease = await this.options.scheduler.acquire(context.providerId, context.estimatedTokens, context.signal);
+        if (context.signal.aborted) throw new TransportError("CANCELLED", "Provider request cancelled before dispatch", false);
         attempts = attempt;
         const result = await sendWithTimeout(transport, effectiveRequest, context.signal, context.timeoutMs, this.timer);
-        this.options.budget.recordActual(context.activityId, result.usage);
+        await this.options.budget.recordActual(context.activityId, result.usage, reservation.reservationId);
         if (result.continuation !== null) await this.options.continuation.save(context.activityId, sessionContinuationState({
           transport: context.transportId, modelId: context.modelId, activityId: context.activityId,
           opaque: result.continuation, expiresAt: null,
@@ -112,6 +116,7 @@ function boundedTimerDelay(milliseconds: number): number {
 }
 
 async function sendWithTimeout(transport: ProviderTransport, request: TransportRequest, outer: AbortSignal, milliseconds: number, timer: RuntimeTimer): Promise<TransportResponse> {
+  if (outer.aborted) throw new TransportError("CANCELLED", "Provider request cancelled before dispatch", false);
   const controller = new AbortController();
   let rejectAbort: (error: TransportError) => void = () => {};
   const cancelled = new Promise<never>((_resolve, reject) => { rejectAbort = reject; });

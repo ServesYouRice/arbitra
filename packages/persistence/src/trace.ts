@@ -1,4 +1,4 @@
-import { mkdir, open, readFile } from "node:fs/promises";
+import { mkdir, open, readFile, truncate } from "node:fs/promises";
 import { join } from "node:path";
 
 import { canonicalJson } from "./canonical-json.js";
@@ -14,8 +14,8 @@ export interface ModelActivityTraceRecord {
   readonly protocolId: string; readonly protocolVersion: string; readonly protocolHash: string;
   readonly promptHash: string; readonly resolvedProviderConfigHash: string;
   readonly capability: "frontier" | "balanced" | "fast";
-  readonly effortRequested: "low" | "medium" | "high" | "xhigh";
-  readonly effortResolved: "low" | "medium" | "high" | "xhigh";
+  readonly effortRequested: "low" | "medium" | "high" | "xhigh" | null;
+  readonly effortResolved: "low" | "medium" | "high" | "xhigh" | null;
   readonly inputArtifactRefs: readonly string[]; readonly outputArtifactRef: string | null;
   readonly durationMs: number;
   readonly tokenUsage: { readonly inputTokens: number | null; readonly outputTokens: number | null;
@@ -31,24 +31,39 @@ interface TraceHandle extends Fsyncable { write(data: Uint8Array): Promise<unkno
 export interface TraceFileSystem {
   mkdir(path: string, options: { recursive: true }): Promise<unknown>;
   open(path: string, flags: "a"): Promise<TraceHandle>;
+  recover?(path: string): Promise<void>;
 }
-const nodeFileSystem: TraceFileSystem = { mkdir, open };
+const nodeFileSystem: TraceFileSystem = { mkdir, open, async recover(path) {
+  let bytes: Buffer;
+  try { bytes = await readFile(path); } catch (error) { if (hasCode(error, "ENOENT")) return; throw error; }
+  if (bytes.length > 0 && bytes.at(-1) !== 10) await truncate(path, bytes.lastIndexOf(10) + 1);
+} };
 
 export class TraceRecorder {
   private readonly fileSystem: TraceFileSystem;
   private readonly fsyncPolicy: FsyncPolicy;
+  private readonly writes = new Map<string, Promise<unknown>>();
+  private readonly ready = new Set<string>();
   constructor(private readonly runsDirectory: string, options: { readonly fileSystem?: TraceFileSystem; readonly fsyncPolicy?: FsyncPolicy } = {}) {
     this.fileSystem = options.fileSystem ?? nodeFileSystem; this.fsyncPolicy = options.fsyncPolicy ?? DEFAULT_FSYNC_POLICY;
   }
   async record(trace: ModelActivityTraceRecord): Promise<void> {
     validateTrace(trace);
+    const pending = (this.writes.get(trace.runId) ?? Promise.resolve()).then(() => this.append(trace));
+    this.writes.set(trace.runId, pending.catch(() => undefined));
+    await pending;
+  }
+  private async append(trace: ModelActivityTraceRecord): Promise<void> {
     const directory = traceDirectory(this.runsDirectory, trace.runId);
     await this.fileSystem.mkdir(directory, { recursive: true });
-    const handle = await this.fileSystem.open(join(directory, "model-activity.jsonl"), "a");
+    const path = join(directory, "model-activity.jsonl");
+    if (!this.ready.has(trace.runId)) { await this.fileSystem.recover?.(path); this.ready.add(trace.runId); }
+    const handle = await this.fileSystem.open(path, "a");
     try {
       await handle.write(new TextEncoder().encode(`${canonicalJson(trace)}\n`));
       await fsync(handle, this.fsyncPolicy, "expensive");
-    } finally { await handle.close(); }
+    } catch (error) { this.ready.delete(trace.runId); throw error; }
+    finally { await handle.close(); }
   }
   async recordEvent(event: ModelActivityTerminalEventLike): Promise<void> { await this.record(event.trace); }
 }
@@ -57,7 +72,7 @@ export async function loadActivityTraces(runsDirectory: string, runId: string): 
   let text: string;
   try { text = await readFile(join(traceDirectory(runsDirectory, runId), "model-activity.jsonl"), "utf8"); }
   catch (error) { if (hasCode(error, "ENOENT")) return []; throw error; }
-  const lines = text.split("\n").filter(Boolean);
+  const lines = text.slice(0, text.lastIndexOf("\n") + 1).split("\n").filter(Boolean);
   return Object.freeze(lines.map((line, index) => {
     let value: unknown;
     try { value = JSON.parse(line) as unknown; } catch (error) { throw new SyntaxError(`Invalid model trace JSON at line ${index + 1}`, { cause: error }); }
@@ -87,8 +102,8 @@ function validateTrace(value: unknown): asserts value is ModelActivityTraceRecor
   if (value.schemaVersion !== 1 || typeof value.outcome !== "string"
     || ["success", "refusal", "error", "cancelled"].includes(value.outcome) === false) throw new Error("INVALID_MODEL_ACTIVITY_TRACE:outcome");
   if (typeof value.capability !== "string" || ["frontier", "balanced", "fast"].includes(value.capability) === false
-    || typeof value.effortRequested !== "string" || ["low", "medium", "high", "xhigh"].includes(value.effortRequested) === false
-    || typeof value.effortResolved !== "string" || ["low", "medium", "high", "xhigh"].includes(value.effortResolved) === false) throw new Error("INVALID_MODEL_ACTIVITY_TRACE:routing");
+    || value.effortRequested !== null && (typeof value.effortRequested !== "string" || ["low", "medium", "high", "xhigh"].includes(value.effortRequested) === false)
+    || value.effortResolved !== null && (typeof value.effortResolved !== "string" || ["low", "medium", "high", "xhigh"].includes(value.effortResolved) === false)) throw new Error("INVALID_MODEL_ACTIVITY_TRACE:routing");
   if (!Array.isArray(value.inputArtifactRefs) || !value.inputArtifactRefs.every((item) => typeof item === "string")) throw new Error("INVALID_MODEL_ACTIVITY_TRACE:inputArtifactRefs");
   if (value.outputArtifactRef !== null && typeof value.outputArtifactRef !== "string") throw new Error("INVALID_MODEL_ACTIVITY_TRACE:outputArtifactRef");
   if (!validUsage(value.tokenUsage) || !nullableNonnegative(value.costUsd)

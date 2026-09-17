@@ -8,11 +8,15 @@ disagree, the code is the defect or this document is, and the review should say 
 
 ### Composition boundary
 
-The executable CLI/server currently composes the scripted Audit pipeline only. The
-provider transports, canonical harness, Requirements and Testing nodes described below
-are library implementations, not fully composed end-to-end CLI modes. Configuring a
-model, native harness, Feature mode or Testing mode now produces an explicit
-`RUNTIME_*_NOT_AVAILABLE` error; an unknown preset produces `UNKNOWN_WORKFLOW_PRESET`.
+The executable CLI/server composes scripted Audit and a bounded model Audit over the
+selected source snapshot. Configured models require endpoint bindings and explicit
+planner/verifier/critic roles in `workflow.modelExecution`; see
+[`provider-model.md`](provider-model.md). Model Audit includes independent discovery,
+bounded peer review, targeted verification, planning, critique and durable resume/replay.
+Model calls use the canonical tool loop, pinned trusted protocols, layered prompts and
+durable model traces. Requirements and Testing remain library implementations.
+Native harness, Feature mode and Testing mode produce
+an explicit `RUNTIME_*_NOT_AVAILABLE` error; an unknown preset produces `UNKNOWN_WORKFLOW_PRESET`.
 Schema validation and saving a configuration do not imply that its execution mode is
 available. This boundary is distinct from the planned v1.1 extensions.
 

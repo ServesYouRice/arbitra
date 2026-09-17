@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { appendFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 
@@ -18,6 +18,23 @@ afterEach(async () => {
 });
 
 describe("model activity traces and derived metrics", () => {
+  it("ignores an interrupted tail and repairs it before the next writer appends", async () => {
+    const root = await temporaryRoot();
+    await new TraceRecorder(root).record(trace("a", "success"));
+    const path = join(root, "run-1", "metrics", "model-activity.jsonl");
+    await appendFile(path, '{"schemaVersion":1,"activityId":"interrupted');
+    expect(await loadActivityTraces(root, "run-1")).toHaveLength(1);
+    const restarted = new TraceRecorder(root);
+    await Promise.all([restarted.record(trace("b", "success")), restarted.record(trace("c", "success"))]);
+    expect((await loadActivityTraces(root, "run-1")).map(({ activityId }) => activityId)).toEqual(["a", "b", "c"]);
+    expect(await rebuildIndex(root)).toMatchObject({ traceCount: 3 });
+  });
+
+  it("retains unknown effort instead of inventing a resolved level", async () => {
+    const root = await temporaryRoot();
+    await new TraceRecorder(root).record({ ...trace("failed-preflight", "error"), effortRequested: null, effortResolved: null });
+    expect((await loadActivityTraces(root, "run-1"))[0]).toMatchObject({ effortRequested: null, effortResolved: null });
+  });
   it("records one exhaustive terminal trace for each outcome and keeps refusals separate", async () => {
     const root = await temporaryRoot(); const recorder = new TraceRecorder(root);
     for (const [index, outcome] of (["success", "refusal", "error", "cancelled"] as const).entries()) {

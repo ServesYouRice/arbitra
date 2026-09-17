@@ -23,6 +23,37 @@ describe("consensus semantics", () => {
 function requiredAt<T>(values: readonly T[], index: number): T { const value = values[index]; if (value === undefined) throw new RangeError(`Missing test value at index ${index}`); return value; }
 
 describe("peer review rounds", () => {
+  it("allows structural operations on presented candidates and rejects hidden sources or existing targets", async () => {
+    const current = board(candidate(), candidate({ candidateId: "C-2" }), candidate({ candidateId: "C-retired", status: "merged" }));
+    const merge = { operationId: "merge", candidateId: "C-new", authorId: "auditor-a", round: 1, type: "merge", citedEvidenceIds: ["ev-1"], sourceCandidateIds: ["C-1", "C-2"], candidate: { candidateId: "C-new", sourceFindingIds: ["auditor-b/SEC-2"] } };
+    const run = (operation = merge) => peerReviewRound(current, { ...DEFAULT_CONSENSUS_POLICY, name: "full" }, 1, { auditors, rng: new FixtureRng("structural"), runtime: { async review({ reviewerId }) { return reviewerId === "auditor-a" ? [operation] : []; } } });
+    expect((await run()).operations).toEqual([merge]);
+    await expect(run({ ...merge, sourceCandidateIds: ["C-1", "C-retired"] })).rejects.toThrow("INVALID_PEER_REVIEW_MERGE_SOURCES");
+    await expect(run({ ...merge, candidateId: "C-2", candidate: { ...merge.candidate, candidateId: "C-2" } })).rejects.toThrow("PEER_REVIEW_TARGET_ALREADY_EXISTS");
+  });
+
+  it("accepts split and missing findings with reviewer provenance and unique new targets", async () => {
+    const split = { operationId: "split", candidateId: "C-1", authorId: "auditor-a", round: 1, type: "split", citedEvidenceIds: ["ev-1"], candidates: [{ candidateId: "C-new-1", sourceFindingIds: ["auditor-b/SEC-2"] }, { candidateId: "C-new-2", sourceFindingIds: ["auditor-b/SEC-2"] }] };
+    const missing = { operationId: "missing", candidateId: "C-new-3", authorId: "auditor-a", round: 1, type: "add_missing_finding", citedEvidenceIds: ["ev-2"], candidate: { candidateId: "C-new-3", sourceFindingIds: ["auditor-a/new"] } };
+    const run = (operation = missing) => peerReviewRound(board(candidate()), { ...DEFAULT_CONSENSUS_POLICY, name: "full" }, 1, { auditors, rng: new FixtureRng("structural"), runtime: { async review({ reviewerId }) { return reviewerId === "auditor-a" ? [split, operation] : []; } } });
+    expect((await run()).operations).toHaveLength(2);
+    await expect(run({ ...missing, candidate: { ...missing.candidate, sourceFindingIds: ["auditor-b/forged"] } })).rejects.toThrow("INVALID_PEER_REVIEW_MISSING_FINDING");
+    await expect(run({ ...missing, candidateId: "C-new-1", candidate: { ...missing.candidate, candidateId: "C-new-1" } })).rejects.toThrow("PEER_REVIEW_TARGET_ALREADY_EXISTS");
+  });
+
+  it("does not dispatch a candidate supported only by the reviewer's hidden own source", async () => {
+    const requests: PeerReviewRequest[] = [];
+    const result = await peerReviewRound(board(candidate({ sourceFindingIds: ["auditor-a/own"] })), { ...DEFAULT_CONSENSUS_POLICY, name: "full" }, 1,
+      { auditors, rng: new FixtureRng("own"), runtime: { async review(request) { requests.push(request); return []; } } });
+    expect(requests.map(({ reviewerId }) => reviewerId).sort()).toEqual(["auditor-b", "auditor-c"]);
+    expect(result.dispatches.find(({ reviewerId }) => reviewerId === "auditor-a")).toMatchObject({ candidateIds: [], reasons: {}, peerPresentation: {} });
+  });
+
+  it("rejects a disposition flip that cites no new evidence", async () => {
+    await expect(peerReviewRound(board(candidate({ lastChangedRound: 1, votes: [vote("auditor-a", "accept")] })), DEFAULT_CONSENSUS_POLICY, 2,
+      { auditors, rng: new FixtureRng("flip"), runtime: { async review({ reviewerId, round }) { return [{ operationId: `op-${reviewerId}`, candidateId: "C-1", authorId: reviewerId, round, type: "reject", citedEvidenceIds: [`ev-${reviewerId}`] }]; } } })).rejects.toThrow("CONFORMITY_VOTE_FLIP_WITHOUT_NEW_EVIDENCE");
+  });
+
   it("replays identical randomized labels/order and hides each reviewer's own sources", async () => {
     const requestsA: PeerReviewRequest[] = []; const requestsB: PeerReviewRequest[] = [];
     const run = (requests: PeerReviewRequest[]) => peerReviewRound(board(candidate()), DEFAULT_CONSENSUS_POLICY, 1, { auditors, rng: new FixtureRng("run-1"), runtime: { async review(request) { requests.push(request); return []; } } });

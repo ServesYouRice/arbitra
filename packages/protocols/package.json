@@ -3,6 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./package.json": "./package.json",
+    "./*.js": { "types": "./src/*.ts", "default": "./dist/src/*.js" }
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run --passWithNoTests",

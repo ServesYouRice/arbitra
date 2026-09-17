@@ -110,6 +110,74 @@ every provider.
 
 ## Budget, scheduling and continuation
 
+`packages/providers/src/registry.ts` binds endpoint IDs to transport implementations.
+It supports OpenAI Responses, OpenAI Chat, Anthropic Messages, and Gemini Native in the
+same registry. Multiple compatible services can share a protocol while retaining separate
+URLs and environment-variable credential references. Custom transport factories can be
+supplied for other protocols; unknown protocols fail explicitly.
+
+`packages/providers/src/model-pool.ts` routes model-profile IDs through those bindings
+and the existing invocation runtime. It validates endpoint identity, output/context
+limits, tool and structured-output capability, and explicit effort collapse before
+dispatch. Endpoint identity separates continuation state even when two services expose
+the same model name. Request model identity must also match the trace context.
+
+The run schema validates optional `workflow.modelExecution` settings: `endpoints`,
+`modelEndpoints`, `maximumOutputTokens`, `timeoutMs`, `maximumRetries`, `maximumTokens`,
+per-provider `rateLimits`, and `roles` (`planner`, `verifier`, optional `critic`). Endpoint credentials are named by `apiKeyEnvVar`; values
+are resolved only at dispatch. Limits are supplied by the operator, not inferred from a
+provider-name table. The CLI/server executes a bounded source-snapshot Audit when these
+settings and model profiles are supplied. Profile IDs for discovery match the selected
+preset's `auditor-a`, `auditor-b` and, for deep audits, `auditor-c` nodes. Roles reference
+configured profile IDs; deep audits require a critic profile. Audit depth requests low,
+medium or high effort, with unsupported effort rejected unless an explicit collapse is
+configured. Feature/Testing and native harness composition remain unavailable.
+
+`packages/runtime/src/model-activities.ts` durably records request fingerprints, parsed
+results, per-attempt provider traces and actual token usage. Completed calls are reused
+after restart; changed requests under an existing activity ID are rejected. Calls are
+stateless with explicit context, so an interrupted retry does not append the same prompt
+to an opaque provider conversation. `DurableTokenBudget` saves reservations before
+dispatch, reserves retries separately, and retains estimated charges for unknown usage.
+Estimates are admission limits, not actual billed usage; monetary cost remains unknown.
+The shared `inputTokens` value includes cache reads/writes. Anthropic's disjoint input
+buckets are summed in its codec according to the
+[documented token breakdown](https://platform.claude.com/docs/en/build-with-claude/prompt-caching).
+
+Model Audit uses the canonical harness with bounded read-only snapshot tools. Tool
+artifacts are scoped to the current activity; discovery cannot read peer outputs.
+Trusted protocol bytes are pinned per run and reused on resume/replay. Layered prompt
+compilation locks the protocol, schema and tool declarations, and frames repository and
+model artifacts as untrusted input. Each turn records prompt, profile, harness and
+protocol identity, input/output references, duration and available usage. Unknown usage,
+effort and monetary cost remain unknown rather than being reported as zero.
+
+Discovery is isolated. Peer review uses seeded anonymous source labels, hides the
+reviewer's own sources, aliases evidence/location IDs and dispatches candidates according
+to the full, risk-weighted or minimal policy. Later rounds use candidate deltas; omitted
+votes and objections are retained. A changed disposition requires new cited evidence.
+Round artifacts record dispatch decisions, and accepted citations map back to their
+original evidence IDs outside the model context. Verification asks a targeted model
+question when deterministic checks cannot establish the claim. The configured
+`verification.maxModelQuestionsPerRound` limits questions (default four; zero disables
+model verification). Remaining candidates can still undergo deterministic checks and
+remain unresolved when evidence is insufficient. Verification does not treat a
+matching quotation as proof of a bug. Security coverage remains degraded because no
+deployment/runtime evidence is collected. Wire-level and end-to-end tests inject HTTP
+responses; these tests do not establish real-model correctness or the multi-model premise.
+Peer review also accepts merge/split, added evidence and counter-evidence, severity and
+blocker changes, remediation/verification supplements and missing findings. New evidence
+must quote the selected snapshot and declare valid locations. The runtime binds local
+IDs to reviewer provenance and rejects forged verification metadata and cross-candidate
+citations. The durable board retains structural lineage; only active claims enter
+verification and planning. Overlapping structural edits and contradictory severity or
+blocker changes are deferred together, with every proposal preserved. Original claims
+stay active and enter verification; planning receives the unresolved proposals. These
+conflicts remain explicit coverage gaps, even if verification confirms the underlying
+defect. Reviewer order does not select a winning structural claim.
+Context allocation, semantic clustering escalation and executed verification still
+require runtime integration.
+
 - `packages/providers/src/runtime.ts` enforces an `InvocationBudget` and suspends with
   `ProviderBudgetSuspendedError` rather than overspending. Every invocation emits an
   `InvocationTrace` to a `TraceSink`.

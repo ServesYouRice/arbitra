@@ -29,7 +29,7 @@ export class CanonicalHarnessAdapter implements HarnessAdapter {
         yield Object.freeze({ type: "tool_call", nodeId: node.id, turn, call });
         const result = await toolRuntime.invoke(call.name, call.arguments, { nodeId: node.id, ...policy.toolContext });
         yield Object.freeze({ type: "tool_result", nodeId: node.id, turn, callId: call.id, result });
-        messages.push({ role: "tool", content: result.content, toolCallId: call.id, toolName: call.name });
+        messages.push({ role: "tool", content: JSON.stringify(result), toolCallId: call.id, toolName: call.name });
       }
     }
     throw new Error("HARNESS_LOOP_UNREACHABLE");

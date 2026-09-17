@@ -10,9 +10,13 @@
   },
   "dependencies": {
     "@arbitra/core": "workspace:*",
+    "@arbitra/harness": "workspace:*",
     "@arbitra/persistence": "workspace:*",
+    "@arbitra/providers": "workspace:*",
+    "@arbitra/protocols": "workspace:*",
     "@arbitra/schemas": "workspace:*",
     "@arbitra/security": "workspace:*",
+    "@arbitra/tools": "workspace:*",
     "@arbitra/workflow": "workspace:*"
   },
   "exports": {

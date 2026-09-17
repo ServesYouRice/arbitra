@@ -58,6 +58,15 @@ describe.each(adapters)("$name transport contract", ({ name, create, body }) => 
 });
 
 describe("native wire formats", () => {
+  it("includes Anthropic cache reads and writes in total input without inventing missing usage", async () => {
+    const client = new ScriptedHttpClient([
+      http(200, { content: [{ type: "text", text: "ok" }], usage: { input_tokens: 10, cache_read_input_tokens: 80, cache_creation_input_tokens: 20, output_tokens: 4 } }),
+      http(200, { content: [{ type: "text", text: "ok" }], usage: { cache_read_input_tokens: 80, output_tokens: 4 } }),
+    ]);
+    const transport = factory(AnthropicMessagesTransport)(client);
+    expect((await transport.send(request(), signal())).usage).toEqual({ inputTokens: 110, outputTokens: 4, cacheReadTokens: 80, cacheWriteTokens: 20 });
+    expect((await transport.send(request(), signal())).usage.inputTokens).toBeNull();
+  });
   const messages = [
     { role: "system" as const, content: "Instructions" },
     { role: "user" as const, content: "Look it up" },

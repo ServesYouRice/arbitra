@@ -192,6 +192,16 @@ describe("the CLI port", () => {
     expect(provenance).toMatchObject({ sourceRunId: original.runId });
     expect(provenance.reusedArtifacts).toHaveLength(3);
     expect((await runtime.diff(original.runId, replayedId)).addedIssueIds).toEqual([]);
+    expect((await runtime.status(replayedId)).workflow?.nodes.some(({ id }) => id === "critic")).toBe(false);
+  });
+
+  it("adds and executes a critic when replay enables it on a balanced source", async () => {
+    const runtime = orchestrator();
+    const source = await runtime.run(runtime.configurations.validate({ ...config, workflow: { preset: "audit-balanced" } }));
+    const replay = await runtime.replay(source.runId, { consensusPolicy: "risk_weighted", maximumRounds: 1, criticEnabled: true });
+    expect(replay.state).toBe("COMPLETED");
+    expect((await runtime.status(replay.runId)).workflow?.nodes.some(({ id }) => id === "critic")).toBe(true);
+    expect((await runtime.artifacts(replay.runId)).some(({ kind }) => kind === "critic-feedback")).toBe(true);
   });
 });
 
