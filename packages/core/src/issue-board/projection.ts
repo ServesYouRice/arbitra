@@ -23,8 +23,8 @@ export function projectBoard(operations: readonly IssueOperation[]): IssueBoard 
       case "change_severity": { const candidate = requireCandidate(candidates, operation.candidateId); candidate.severity = operation.severity; changed(candidate, operation.round); break; }
       case "change_blocker": { const candidate = requireCandidate(candidates, operation.candidateId); candidate.blocker = operation.blocker; changed(candidate, operation.round); break; }
       case "supplement_remediation": case "supplement_verification": { const candidate = requireCandidate(candidates, operation.candidateId); (operation.type === "supplement_remediation" ? candidate.remediationSupplements : candidate.verificationSupplements).push(operation.text); changed(candidate, operation.round); break; }
-      case "merge": { const sources = operation.sourceCandidateIds.map((id) => requireCandidate(candidates, id)); const target = add(candidates, operation.candidate, operation.round, operation.sourceCandidateIds, []); for (const source of sources) { source.status = "merged"; source.childCandidateIds.push(target.candidateId); changed(source, operation.round); } break; }
-      case "split": { const source = requireCandidate(candidates, operation.candidateId); source.status = "split"; for (const seed of operation.candidates) { add(candidates, seed, operation.round, [source.candidateId], []); source.childCandidateIds.push(seed.candidateId); } changed(source, operation.round); break; }
+      case "merge": { const sources = operation.sourceCandidateIds.map((id) => requireCandidate(candidates, id)); const target = add(candidates, operation.candidate, operation.round, operation.sourceCandidateIds, []); inheritContext(target, sources); for (const source of sources) { source.status = "merged"; source.childCandidateIds.push(target.candidateId); changed(source, operation.round); } break; }
+      case "split": { const source = requireCandidate(candidates, operation.candidateId); source.status = "split"; for (const seed of operation.candidates) { const target = add(candidates, seed, operation.round, [source.candidateId], []); inheritContext(target, [source]); source.childCandidateIds.push(seed.candidateId); } changed(source, operation.round); break; }
     }
   }
   return Object.freeze({ candidates: Object.freeze(Object.fromEntries([...candidates].sort(([a], [b]) => a.localeCompare(b)).map(([id, candidate]) => [id, freezeCandidate(candidate)]))), operationIds: Object.freeze([...operationIds]) });
@@ -35,9 +35,10 @@ export interface IssueOperationSink { append(operation: IssueOperation): Promise
 export class IssueBoardController {
   readonly #operations: IssueOperation[];
   #writes: Promise<unknown> = Promise.resolve();
-  constructor(private readonly sink: IssueOperationSink, initial: readonly IssueOperation[] = []) { projectBoard(initial); this.#operations = [...initial]; }
+  constructor(private readonly sink: IssueOperationSink, initial: readonly IssueOperation[] = []) { projectBoard(initial); this.#operations = structuredClone([...initial]); }
   async append(operation: IssueOperation): Promise<void> {
-    const write = this.#writes.then(async () => { assertIssueOperation(operation); projectBoard([...this.#operations, operation]); await this.sink.append(operation); this.#operations.push(operation); });
+    const owned = structuredClone(operation);
+    const write = this.#writes.then(async () => { assertIssueOperation(owned); projectBoard([...this.#operations, owned]); await this.sink.append(structuredClone(owned)); this.#operations.push(owned); });
     this.#writes = write.catch(() => undefined);
     await write;
   }
@@ -45,6 +46,24 @@ export class IssueBoardController {
   delta(sinceRound: number): readonly IssueCandidate[] { return boardDelta(this.project(), sinceRound); }
 }
 function add(candidates: Map<string, MutableCandidate>, seed: CandidateSeed, round: number, parents: readonly string[], children: readonly string[]): MutableCandidate { if (candidates.has(seed.candidateId)) throw new Error(`DUPLICATE_ISSUE_CANDIDATE:${seed.candidateId}`); const value: MutableCandidate = { candidateId: seed.candidateId, claim: { title: seed.title, description: seed.description }, sourceFindingIds: [...seed.sourceFindingIds], evidence: [], counterEvidence: [], severity: seed.severity, blocker: seed.blocker, votes: [], remediationSupplements: [], verificationSupplements: [], parentCandidateIds: [...parents], childCandidateIds: [...children], firstSeenRound: round, lastChangedRound: round, status: "open" }; candidates.set(seed.candidateId, value); return value; }
-function requireCandidate(candidates: Map<string, MutableCandidate>, id: string): MutableCandidate { const value = candidates.get(id); if (value === undefined) throw new Error(`UNKNOWN_ISSUE_CANDIDATE:${id}`); return value; }
+function requireCandidate(candidates: Map<string, MutableCandidate>, id: string): MutableCandidate { const value = candidates.get(id); if (value === undefined) throw new Error(`UNKNOWN_ISSUE_CANDIDATE:${id}`); if (value.status === "merged" || value.status === "split") throw new Error(`RETIRED_ISSUE_CANDIDATE:${id}`); return value; }
+/** A structural edit changes the claim, not the repository record supporting it.
+ * Preserve context and dissenting evidence; old votes stay on the parent claim and
+ * must not count as independent acceptance of a newly merged or split claim.
+ */
+function inheritContext(target: MutableCandidate, sources: readonly MutableCandidate[]): void {
+  target.sourceFindingIds = [...new Set([...target.sourceFindingIds, ...sources.flatMap(({ sourceFindingIds }) => sourceFindingIds)])];
+  for (const field of ["evidence", "counterEvidence"] as const) {
+    const entries = new Map<string, IssueEvidence>();
+    for (const entry of sources.flatMap((source) => source[field])) {
+      const previous = entries.get(entry.id);
+      if (previous !== undefined && (previous.text !== entry.text || JSON.stringify([...previous.locationIds].sort()) !== JSON.stringify([...entry.locationIds].sort()))) throw new Error(`CONFLICTING_ISSUE_EVIDENCE:${entry.id}`);
+      entries.set(entry.id, entry);
+    }
+    target[field] = [...entries.values()];
+  }
+  target.remediationSupplements = [...new Set(sources.flatMap(({ remediationSupplements }) => remediationSupplements))];
+  target.verificationSupplements = [...new Set(sources.flatMap(({ verificationSupplements }) => verificationSupplements))];
+}
 function changed(candidate: MutableCandidate, round: number): void { if (round < candidate.lastChangedRound) throw new Error("ISSUE_OPERATION_ROUND_REGRESSION"); candidate.lastChangedRound = round; }
-function freezeCandidate(value: MutableCandidate): IssueCandidate { return Object.freeze({ ...value, claim: Object.freeze({ ...value.claim }), sourceFindingIds: Object.freeze([...value.sourceFindingIds]), evidence: Object.freeze([...value.evidence]), counterEvidence: Object.freeze([...value.counterEvidence]), votes: Object.freeze([...value.votes]), remediationSupplements: Object.freeze([...value.remediationSupplements]), verificationSupplements: Object.freeze([...value.verificationSupplements]), parentCandidateIds: Object.freeze([...value.parentCandidateIds]), childCandidateIds: Object.freeze([...value.childCandidateIds]) }); }
+function freezeCandidate(value: MutableCandidate): IssueCandidate { const freezeEvidence = (entry: IssueEvidence): IssueEvidence => Object.freeze({ ...entry, locationIds: Object.freeze([...entry.locationIds]) }); return Object.freeze({ ...value, claim: Object.freeze({ ...value.claim }), sourceFindingIds: Object.freeze([...value.sourceFindingIds]), evidence: Object.freeze(value.evidence.map(freezeEvidence)), counterEvidence: Object.freeze(value.counterEvidence.map(freezeEvidence)), votes: Object.freeze([...value.votes]), remediationSupplements: Object.freeze([...value.remediationSupplements]), verificationSupplements: Object.freeze([...value.verificationSupplements]), parentCandidateIds: Object.freeze([...value.parentCandidateIds]), childCandidateIds: Object.freeze([...value.childCandidateIds]) }); }

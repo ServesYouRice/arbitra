@@ -30,9 +30,17 @@ const codec: ProtocolCodec = {
       if (part["type"] === "tool_use") calls.push({ id: string(part["id"]) ?? "", name: string(part["name"]) ?? "", arguments: part["input"] });
     }
     const usage = object(root["usage"] ?? {}, "usage");
+    const input = number(usage["input_tokens"]);
+    const cacheRead = number(usage["cache_read_input_tokens"]);
+    const cacheWrite = number(usage["cache_creation_input_tokens"]);
+    // Anthropic reports disjoint buckets. Normalize to total input, matching the
+    // shared usage contract and the other codecs' prompt-token totals.
+    const completeCacheUsage = (usage["cache_read_input_tokens"] === undefined || cacheRead !== null)
+      && (usage["cache_creation_input_tokens"] === undefined || cacheWrite !== null);
+    const totalInput = input === null || !completeCacheUsage ? null : input + (cacheRead ?? 0) + (cacheWrite ?? 0);
     return response(request, { text, toolCalls: calls, refusal: root["stop_reason"] === "refusal" ? string(root["refusal"]) ?? "refused" : null,
-      usage: { inputTokens: number(usage["input_tokens"]), outputTokens: number(usage["output_tokens"]),
-        cacheReadTokens: number(usage["cache_read_input_tokens"]), cacheWriteTokens: number(usage["cache_creation_input_tokens"]) },
+      usage: { inputTokens: totalInput, outputTokens: number(usage["output_tokens"]),
+        cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite },
       requestId: headers["request-id"] ?? null });
   },
 };

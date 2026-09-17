@@ -1,0 +1,6 @@
+{
+  "author": "Arbitra",
+  "date": "2026-09-16",
+  "rationale": "Bounded evidence-grounded verification after inconclusive deterministic checks.",
+  "compatibilityNotes": ["Model Verification Result version 1", "Canonical harness version 1"]
+}

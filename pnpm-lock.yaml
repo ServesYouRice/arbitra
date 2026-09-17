@@ -118,15 +118,27 @@ importers:
       '@arbitra/core':
         specifier: workspace:*
         version: link:../core
+      '@arbitra/harness':
+        specifier: workspace:*
+        version: link:../harness
       '@arbitra/persistence':
         specifier: workspace:*
         version: link:../persistence
+      '@arbitra/protocols':
+        specifier: workspace:*
+        version: link:../protocols
+      '@arbitra/providers':
+        specifier: workspace:*
+        version: link:../providers
       '@arbitra/schemas':
         specifier: workspace:*
         version: link:../schemas
       '@arbitra/security':
         specifier: workspace:*
         version: link:../security
+      '@arbitra/tools':
+        specifier: workspace:*
+        version: link:../tools
       '@arbitra/workflow':
         specifier: workspace:*
         version: link:../workflow

@@ -23,6 +23,7 @@ export interface TransportRequest {
   readonly continuation?: string;
 }
 export interface TransportUsage {
+  /** Total input tokens, including cached reads/writes when reported separately. */
   readonly inputTokens: number | null;
   readonly outputTokens: number | null;
   readonly cacheReadTokens: number | null;

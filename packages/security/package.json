@@ -4,6 +4,11 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./framing": {
+      "types": "./src/framing.ts",
+      "development": "./src/framing.ts",
+      "default": "./dist/src/framing.js"
+    },
     "./path-guard": {
       "types": "./src/path-guard.ts",
       "development": "./src/path-guard.ts",

@@ -9,10 +9,11 @@ misses — is treated as a hypothesis the system measures, not as a marketing cl
 
 ## Status
 
-The workspace contains the v1 building blocks and a runnable **scripted Audit pipeline**.
-The CLI/server composition does not yet execute configured models, native harnesses,
-Feature workflows, or Testing workflows. Those requests now fail explicitly rather than
-silently becoming scripted audits. Library implementations and composition limitations
+The workspace contains the v1 building blocks, a **scripted Audit pipeline**, and a
+bounded **model Audit pipeline** over a selected source snapshot. Configured model
+execution requires endpoint bindings and explicit roles; see
+[`docs/provider-model.md`](docs/provider-model.md). Native harnesses, Feature workflows
+and Testing workflows still fail explicitly. Library implementations and composition limitations
 are distinguished in [`docs/architecture.md`](docs/architecture.md); the separately
 planned v1.1 extensions are also listed there.
 
@@ -51,13 +52,15 @@ pnpm --filter @arbitra/web dev              # UI on 127.0.0.1:4173, proxied to t
 With the control plane up, the UI is addressable: `?run=<id>` opens a recorded run and
 `?view=graph|issues|plan|evaluation` opens a column-two view directly.
 
-**The composed runtime's auditors are deterministic detectors, not models.**
+**With `models: {}`, the auditors are deterministic detectors.**
 They produce real, evidence-grounded findings — every one cites a repository path and line
 that validation checks — so the pipeline has something real to cluster, peer-review, verify and
 plan over with no API key. They do not exercise the premise: every run they produce reports
 `auditor_kind: scripted_auditors` and carries `interpretation: "smoke_test_only_not_proof"`.
-Keep `models: {}` for this runtime. Model profiles are schema/library inputs, not an
-enabled model-execution switch. A scripted run deliberately fails the CI quality gate
+To run models, configure `workflow.modelExecution` as described in the provider guide.
+The model path uses independent discovery, bounded review, targeted verification,
+planning and critique, with durable usage accounting and resume. Its source-only
+security coverage is also reported degraded. A scripted run deliberately fails the CI quality gate
 with `degraded_coverage`, even when no findings are produced; that is not a process crash.
 
 Audit presets select three auditors (`audit-deep`), two (`audit-balanced` and

@@ -86,3 +86,12 @@ export function graphForPreset(preset: string | undefined): RunnerGraph {
 export function auditorIdsFor(graph: RunnerGraph): readonly string[] {
   return Object.freeze(graph.nodes.filter(({ id, kind }) => kind === "model" && id.startsWith("auditor-")).map(({ id }) => id));
 }
+
+/** Replay overrides change the executable graph, including presets without a critic. */
+export function withCritic(graph: RunnerGraph, enabled: boolean): RunnerGraph {
+  const present = graph.nodes.some(({ id }) => id === "critic");
+  if (present === enabled) return graph;
+  if (!enabled) return { ...graph, nodes: graph.nodes.filter(({ id }) => id !== "critic"), edges: graph.edges.filter(({ from, to }) => from !== "critic" && to !== "critic") };
+  if (!graph.nodes.some(({ id }) => id === "planner")) throw new Error("CRITIC_REQUIRES_PLANNER");
+  return { ...graph, nodes: [...graph.nodes, node("critic", "model", "Critic")], edges: [...graph.edges, { id: "planner-critic", from: "planner", to: "critic" }] };
+}

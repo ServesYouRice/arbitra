@@ -42,6 +42,18 @@ describe("verification subgraph", () => {
     const run = await verifyItems([item(), item({ candidateId: "C-2" })], tools({ cited_lines: "confirmed" }), { maximumItems: 1, allowModelCall: false, round: 1 }, { sink: { async append(operation) { operations.push(operation); } } });
     expect(operations).toHaveLength(1); expect(run.metrics).toMatchObject({ itemCount: 1, resolvedDisputes: 1, modelCalls: 0, deferredItemIds: ["C-2"], rungDistribution: { cited_lines: 1, single_model_question: 0 } });
   });
+
+  it("caps model questions while continuing deterministic verification after exhaustion", async () => {
+    const requests: string[] = [];
+    const verificationTools = tools();
+    verificationTools.readCitedLines = async ({ candidateId }) => attempt("cited_lines", candidateId === "C-3" ? "confirmed" : "inconclusive");
+    const run = await verifyItems([item(), item({ candidateId: "C-2" }), item({ candidateId: "C-3" })], verificationTools,
+      { maximumItems: 3, maximumModelCalls: 1, allowModelCall: true, round: 1 },
+      { sink: { async append() {} }, model: { async verify({ candidateId }) { requests.push(candidateId); return { outcome: "CONFIRMED", evidenceIds: ["ev-1"], artifactRefs: [], activityId: "model", confidence: 0.9 }; } } });
+    expect(requests).toEqual(["C-1"]);
+    expect(run.results.map(({ outcome }) => outcome)).toEqual(["CONFIRMED", "STILL_NEEDS_VERIFICATION", "CONFIRMED"]);
+    expect(run.metrics).toMatchObject({ itemCount: 3, modelCalls: 1, resolvedDisputes: 2 });
+  });
 });
 
 function requiredAt<T>(values: readonly T[], index: number): T { const value = values[index]; if (value === undefined) throw new RangeError(`Missing test value at index ${index}`); return value; }

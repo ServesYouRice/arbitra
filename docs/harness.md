@@ -87,6 +87,13 @@ remembered about later.
 implementation. It owns the bounded tool loop: `maxToolTurns` and `toolLoopLimit` are
 enforced, and `AbortSignal` makes cancellation real rather than advisory.
 
+The CLI/server model Audit composes this adapter in `packages/runtime/src/model-harness.ts`.
+Each model turn is a durable activity. Snapshot tools expose list, read, literal search
+and stat operations; artifact reads are restricted to outputs from the current activity.
+They provide no shell, writes or live repository access. Tool results preserve errors,
+truncation and artifact references. Run artifacts retain compiled prompts, harness events
+and inspection footprints.
+
 ## Model × harness
 
 Model and harness are independently selectable where compatibility is known. A model does

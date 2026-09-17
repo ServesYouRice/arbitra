@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { modelProfileSchema } from "./model-profile.js";
+import { providerExecutionSchema } from "./provider-execution.js";
 
 export const RUN_CONFIG_SCHEMA_VERSION = 1 as const;
 
@@ -22,19 +23,47 @@ export const runConfigSchema = z.object({
   auditDepth: z.enum(["fast", "balanced", "deep"]),
   consensusPolicy: z.enum(["full", "risk_weighted", "minimal"]),
   maxConsensusRounds: z.number().int().min(0).max(3),
-  verification: jsonObjectSchema,
+  verification: jsonObjectSchema.superRefine((verification, context) => {
+    const maximum = verification["maxModelQuestionsPerRound"];
+    if (maximum !== undefined && (typeof maximum !== "number" || !Number.isSafeInteger(maximum) || maximum < 0)) {
+      context.addIssue({ code: "custom", path: ["maxModelQuestionsPerRound"], message: "Expected a nonnegative safe integer" });
+    }
+  }),
   models: z.record(z.string(), modelProfileSchema),
   harness: z.object({
     mode: z.enum(["canonical", "native"]),
     profileId: z.string().min(1).optional(),
   }).strict(),
-  workflow: jsonObjectSchema,
+  workflow: jsonObjectSchema.superRefine((workflow, context) => {
+    if (workflow["modelExecution"] === undefined) return;
+    const result = providerExecutionSchema.safeParse(workflow["modelExecution"]);
+    if (!result.success) for (const issue of result.error.issues) context.addIssue({ ...issue, path: ["modelExecution", ...issue.path] });
+  }),
   budgets: jsonObjectSchema,
   security: jsonObjectSchema,
   protocols: jsonObjectSchema,
   promptOverrides: jsonObjectSchema,
   contextPolicies: jsonObjectSchema,
-}).strict();
+}).strict().superRefine((config, context) => {
+  if (config.workflow["modelExecution"] === undefined) return;
+  const result = providerExecutionSchema.safeParse(config.workflow["modelExecution"]);
+  if (!result.success) return;
+  const execution = result.data;
+  const endpoints = new Map(execution.endpoints.map((endpoint) => [endpoint.id, endpoint]));
+  for (const [role, id] of Object.entries(execution.roles ?? {})) {
+    if (id !== undefined && !Object.hasOwn(config.models, id)) context.addIssue({ code: "custom", path: ["workflow", "modelExecution", "roles", role], message: "Unknown model profile" });
+  }
+  for (const [id, model] of Object.entries(config.models)) {
+    const endpointId = Object.hasOwn(execution.modelEndpoints, id) ? execution.modelEndpoints[id] : undefined;
+    const endpoint = endpointId === undefined ? undefined : endpoints.get(endpointId);
+    if (endpoint === undefined || endpoint.providerId !== model.provider || endpoint.transport !== model.transport) {
+      context.addIssue({ code: "custom", path: ["workflow", "modelExecution", "modelEndpoints", id], message: "Model requires an endpoint with matching provider and transport" });
+    }
+  }
+  for (const id of Object.keys(execution.modelEndpoints)) {
+    if (!Object.hasOwn(config.models, id)) context.addIssue({ code: "custom", path: ["workflow", "modelExecution", "modelEndpoints", id], message: "Unknown model profile" });
+  }
+});
 
 export const RUN_CONFIG_FIELD_INVENTORY = [
   "mode",

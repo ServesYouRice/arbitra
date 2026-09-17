@@ -12,15 +12,22 @@ export interface PeerReviewRoundResult { readonly operations: readonly PeerIssue
 export async function peerReviewRound(board: ConsensusBoard, policy: ConsensusPolicy, round: number, dependencies: { readonly auditors: readonly ConsensusAuditor[]; readonly rng: ReviewRng; readonly runtime: PeerReviewRuntime }): Promise<PeerReviewRoundResult> {
   if (!Number.isSafeInteger(round) || round < 1 || round > 3) throw new Error("PEER_REVIEW_ROUND_OUT_OF_RANGE");
   if (dependencies.auditors.length <= 1) return Object.freeze({ operations: Object.freeze([]), dispatches: Object.freeze([]) });
-  const allCandidates = Object.values(board.candidates).sort((a, b) => a.candidateId.localeCompare(b.candidateId)); const operations: PeerIssueOperation[] = []; const dispatches: RoundDispatchRecord[] = [];
+  const allCandidates = Object.values(board.candidates).filter(({ status }) => status !== "merged" && status !== "split").sort((a, b) => a.candidateId.localeCompare(b.candidateId)); const operations: PeerIssueOperation[] = []; const dispatches: RoundDispatchRecord[] = [];
+  const createdIds = new Set<string>();
   const reviewerOrder = dependencies.rng.forActivity(`peer-review:${round}:reviewers`).shuffle([...dependencies.auditors]);
   for (const [reviewerIndex, reviewer] of reviewerOrder.entries()) {
     const rng = dependencies.rng.forActivity(`peer-review:${round}:${reviewer.auditorId}`); const selected = allCandidates.flatMap((candidate) => { const reason = selectionReason(candidate, policy, round, reviewerIndex, dependencies.auditors.length); return reason === null ? [] : [{ candidate, reason }]; });
-    const views = rng.shuffle(selected.map(({ candidate }) => view(candidate, reviewer.auditorId, rng))); const reasons = Object.fromEntries(selected.map(({ candidate, reason }) => [candidate.candidateId, reason]));
+    const views = rng.shuffle(selected.map(({ candidate }) => view(candidate, reviewer.auditorId, rng))).filter(({ peerSources }) => peerSources.length > 0); const reasons = Object.fromEntries(selected.filter(({ candidate }) => views.some(({ candidateId }) => candidateId === candidate.candidateId)).map(({ candidate, reason }) => [candidate.candidateId, reason]));
     const request = Object.freeze({ reviewerId: reviewer.auditorId, round, candidates: Object.freeze(views), instruction: "return_typed_issue_operations_with_evidence_ids" as const });
     const returned = views.length === 0 ? [] : await dependencies.runtime.review(request);
-    const presented = new Map(selected.map(({ candidate }) => [candidate.candidateId, candidate]));
-    for (const operation of returned) validateReturnedOperation(operation, reviewer.auditorId, round, presented);
+    const presented = new Map(selected.filter(({ candidate }) => views.some(({ candidateId }) => candidateId === candidate.candidateId)).map(({ candidate }) => [candidate.candidateId, candidate]));
+    for (const operation of returned) {
+      validateReturnedOperation(operation, reviewer.auditorId, round, presented);
+      if (operations.some(({ operationId }) => operationId === operation.operationId) || returned.filter(({ operationId }) => operationId === operation.operationId).length > 1) throw new Error("DUPLICATE_PEER_REVIEW_OPERATION");
+      const targetIds = operation.type === "merge" || operation.type === "add_missing_finding" ? [operation.candidateId] : operation.type === "split" ? seeds(operation["candidates"]).map(({ candidateId }) => candidateId) : [];
+      if (targetIds.some((id) => Object.hasOwn(board.candidates, id) || createdIds.has(id))) throw new Error("PEER_REVIEW_TARGET_ALREADY_EXISTS");
+      for (const id of targetIds) createdIds.add(id);
+    }
     operations.push(...returned); dispatches.push(Object.freeze({ round, reviewerId: reviewer.auditorId, candidateIds: Object.freeze(views.map(({ candidateId }) => candidateId)), reasons: Object.freeze(reasons), peerPresentation: Object.freeze(Object.fromEntries(views.map(({ candidateId, peerSources }) => [candidateId, peerSources]))) }));
   }
   return Object.freeze({ operations: Object.freeze(operations), dispatches: Object.freeze(dispatches) });
@@ -72,11 +79,30 @@ function view(candidate: ConsensusCandidate, reviewerId: string, rng: ReviewRng)
 }
 function validateReturnedOperation(operation: PeerIssueOperation, reviewerId: string, round: number, candidates: ReadonlyMap<string, ConsensusCandidate>): void {
   const candidate = candidates.get(operation.candidateId);
-  if (operation.authorId !== reviewerId || operation.round !== round || candidate === undefined) throw new Error("INVALID_PEER_REVIEW_OPERATION_PROVENANCE");
-  if (["accept", "reject", "needs_verification", "change_severity", "change_blocker", "add_evidence", "add_counter_evidence"].includes(operation.type) && operation.citedEvidenceIds.length === 0) throw new Error(`PEER_OPERATION_REQUIRES_EVIDENCE:${operation.type}`);
+  if (operation.authorId !== reviewerId || operation.round !== round || operation.operationId.trim() === "" || operation.candidateId.trim() === "") throw new Error("INVALID_PEER_REVIEW_OPERATION_PROVENANCE");
+  if (!["accept", "reject", "needs_verification", "merge", "split", "add_evidence", "add_counter_evidence", "change_severity", "change_blocker", "supplement_remediation", "supplement_verification", "add_missing_finding"].includes(operation.type)) throw new Error("UNKNOWN_PEER_REVIEW_OPERATION");
+  if (operation.type === "merge") {
+    const sourceIds = operation["sourceCandidateIds"];
+    if (!Array.isArray(sourceIds) || sourceIds.length < 2 || new Set(sourceIds).size !== sourceIds.length || sourceIds.some((id: unknown) => typeof id !== "string" || !candidates.has(id))) throw new Error("INVALID_PEER_REVIEW_MERGE_SOURCES");
+    const target = seeds([operation["candidate"]]);
+    if (target[0]?.candidateId !== operation.candidateId) throw new Error("INVALID_PEER_REVIEW_TARGET");
+  } else if (operation.type === "add_missing_finding") {
+    const target = seeds([operation["candidate"]]);
+    if (target[0]?.candidateId !== operation.candidateId || target[0].sourceFindingIds.some((id) => !id.startsWith(`${reviewerId}/`))) throw new Error("INVALID_PEER_REVIEW_MISSING_FINDING");
+  } else if (candidate === undefined) throw new Error("INVALID_PEER_REVIEW_OPERATION_PROVENANCE");
+  if (operation.type === "split") {
+    const targets = seeds(operation["candidates"]);
+    if (targets.length < 2 || new Set(targets.map(({ candidateId }) => candidateId)).size !== targets.length) throw new Error("INVALID_PEER_REVIEW_SPLIT_TARGETS");
+  }
+  if (["accept", "reject", "needs_verification", "change_severity", "change_blocker", "add_evidence", "add_counter_evidence", "merge", "split", "add_missing_finding"].includes(operation.type) && operation.citedEvidenceIds.length === 0) throw new Error(`PEER_OPERATION_REQUIRES_EVIDENCE:${operation.type}`);
   if (operation.type === "accept" || operation.type === "reject" || operation.type === "needs_verification") {
-    const prior = [...candidate.votes].reverse().find(({ authorId }) => authorId === reviewerId);
+    const prior = [...(candidate?.votes ?? [])].reverse().find(({ authorId }) => authorId === reviewerId);
     const addsEvidence = operation.citedEvidenceIds.some((id) => !prior?.citedEvidenceIds.includes(id));
     if (prior !== undefined && prior.disposition !== operation.type && !addsEvidence) throw new Error("CONFORMITY_VOTE_FLIP_WITHOUT_NEW_EVIDENCE");
   }
+}
+
+function seeds(value: unknown): readonly { candidateId: string; sourceFindingIds: string[] }[] {
+  if (!Array.isArray(value) || value.some((entry: unknown) => typeof entry !== "object" || entry === null || !("candidateId" in entry) || typeof entry.candidateId !== "string" || entry.candidateId.trim() === "" || !("sourceFindingIds" in entry) || !Array.isArray(entry.sourceFindingIds) || entry.sourceFindingIds.length === 0 || entry.sourceFindingIds.some((id: unknown) => typeof id !== "string" || id.trim() === ""))) throw new Error("INVALID_PEER_REVIEW_TARGET");
+  return value as { candidateId: string; sourceFindingIds: string[] }[];
 }

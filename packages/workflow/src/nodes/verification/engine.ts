@@ -25,9 +25,16 @@ export async function verifyItem(item: VerificationItem, tools: VerificationTool
   return Object.freeze({ candidateId: item.candidateId, outcome, method, operation, attempts: ladder.attempts, modelCalls });
 }
 
-export async function verifyItems(items: readonly VerificationItem[], tools: VerificationTools, config: { readonly maximumItems: number; readonly allowModelCall: boolean; readonly round: number }, dependencies: { readonly model?: VerificationModel; readonly sink: VerificationOperationSink }): Promise<{ readonly results: readonly VerificationResult[]; readonly metrics: VerificationRunMetrics }> {
+export async function verifyItems(items: readonly VerificationItem[], tools: VerificationTools, config: { readonly maximumItems: number; readonly allowModelCall: boolean; readonly maximumModelCalls?: number; readonly round: number }, dependencies: { readonly model?: VerificationModel; readonly sink: VerificationOperationSink }): Promise<{ readonly results: readonly VerificationResult[]; readonly metrics: VerificationRunMetrics }> {
   if (!Number.isSafeInteger(config.maximumItems) || config.maximumItems < 0) throw new Error("INVALID_VERIFICATION_ITEM_BUDGET"); const selected = items.slice(0, config.maximumItems); const deferred = items.slice(config.maximumItems).map(({ candidateId }) => candidateId); const results: VerificationResult[] = [];
-  for (const item of selected) results.push(await verifyItem(item, tools, { allowModelCall: config.allowModelCall }, { ...dependencies, round: config.round }));
+  const maximumModelCalls = config.maximumModelCalls ?? config.maximumItems;
+  if (!Number.isSafeInteger(maximumModelCalls) || maximumModelCalls < 0) throw new Error("INVALID_VERIFICATION_MODEL_BUDGET");
+  let modelCalls = 0;
+  for (const item of selected) {
+    const result = await verifyItem(item, tools, { allowModelCall: config.allowModelCall && modelCalls < maximumModelCalls }, { ...dependencies, round: config.round });
+    results.push(result);
+    modelCalls += result.modelCalls;
+  }
   const distribution = Object.fromEntries((["cited_lines", "symbol_or_call_path", "route_config_middleware", "dependency_or_import_path", "allowlisted_safe_test", "bounded_deterministic_check", "single_model_question"] as VerificationMethod[]).map((method) => [method, results.filter((result) => result.method === method).length])) as Record<VerificationMethod, number>;
   return Object.freeze({ results: Object.freeze(results), metrics: Object.freeze({ itemCount: results.length, resolvedDisputes: results.filter(({ outcome }) => outcome !== "STILL_NEEDS_VERIFICATION").length, modelCalls: results.reduce((sum, result) => sum + result.modelCalls, 0), deferredItemIds: Object.freeze(deferred), rungDistribution: Object.freeze(distribution) }) });
 }

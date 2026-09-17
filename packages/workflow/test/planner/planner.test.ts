@@ -31,7 +31,7 @@ describe("single coherent Planner", () => {
   });
 
   it("retains additive versioned Feature requirement links without replacing validation links", async () => {
-    const feature = plan(); feature.mode = "feature"; const task = requiredAt(feature.tasks, 0); task.addresses.issues = []; task.addresses.requirements = ["REQ-1"]; feature.traceability.requirementLinks = { schemaVersion: 1, links: [{ requirementId: "REQ-1", validationIds: ["VAL-001"], taskIds: ["TASK-001"] }] };
+    const feature = plan(); feature.mode = "feature"; feature.acceptedIssueIds = []; feature.traceability.issueToValidation = []; const task = requiredAt(feature.tasks, 0); task.addresses.issues = []; task.addresses.requirements = ["REQ-1"]; feature.traceability.requirementLinks = { schemaVersion: 1, links: [{ requirementId: "REQ-1", validationIds: ["VAL-001"], taskIds: ["TASK-001"] }] };
     const parsed = (await planSchema()).parse(feature);
     expect(parsed.tasks[0]?.addresses).toEqual({ issues: [], validation: ["VAL-001"], requirements: ["REQ-1"] });
     expect(validateTraceability(parsed)).toEqual([]);
@@ -48,6 +48,24 @@ describe("single coherent Planner", () => {
     const protocol = readFileSync(new URL("../../../protocols/assets/planner/1.0.0/protocol.md", import.meta.url), "utf8");
     const metadata = JSON.parse(readFileSync(new URL("../../../protocols/assets/planner/1.0.0/metadata.json", import.meta.url), "utf8")) as { compatibilityNotes: string[] };
     expect(protocol).toContain("unresolvedQuestions"); expect(protocol).toContain("never name a model"); expect(metadata.compatibilityNotes).toContain("Plan IR version 1");
+  });
+
+  it("rejects duplicate identifiers, orphan task references and accepted issues without tasks", async () => {
+    const base = (await planSchema()).parse(plan()); const task = requiredAt(base.tasks, 0);
+    expect(validateTraceability({ ...base, tasks: [task, task] })).toContainEqual(expect.objectContaining({ code: "DUPLICATE_PLAN_ID" }));
+    expect(validateTraceability({ ...base, tasks: [] })).toContainEqual(expect.objectContaining({ code: "ACCEPTED_ISSUE_REQUIRES_TASK" }));
+    expect(validateTraceability({ ...base, tasks: [{ ...task, addresses: { ...task.addresses, issues: ["unaccepted"] } }] })).toContainEqual(expect.objectContaining({ code: "UNKNOWN_TASK_ISSUE" }));
+    expect(validateTraceability({ ...base, taskGraph: [{ from: task.id, to: "missing" }] })).toContainEqual(expect.objectContaining({ code: "INVALID_TASK_GRAPH" }));
+  });
+
+  it("rejects cycles and disagreements between task dependencies and the rendered graph", async () => {
+    const base = (await planSchema()).parse(plan()); const first = requiredAt(base.tasks, 0);
+    const second = { ...first, id: "TASK-002", dependencies: { dependsOn: [first.id], blocks: [], conflictsWith: [] } };
+    const both = { ...base, tasks: [first, second], routingRecommendations: [...base.routingRecommendations, { taskId: second.id }] };
+    expect(validateTraceability({ ...both, taskGraph: [] })).toContainEqual(expect.objectContaining({ code: "INVALID_TASK_GRAPH" }));
+    expect(validateTraceability({ ...both, taskGraph: [{ from: first.id, to: second.id }] })).toEqual([]);
+    const cyclic = { ...both, tasks: [{ ...first, dependencies: { dependsOn: [second.id], blocks: [], conflictsWith: [] } }, second], taskGraph: [{ from: first.id, to: second.id }, { from: second.id, to: first.id }] };
+    expect(validateTraceability(cyclic)).toContainEqual(expect.objectContaining({ code: "TASK_GRAPH_CYCLE" }));
   });
 });
 
