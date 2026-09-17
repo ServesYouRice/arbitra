@@ -10,9 +10,10 @@ import { Orchestrator } from "../src/orchestrator.js";
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
-async function fixture(options: { lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean } = {}) {
+async function fixture(options: { lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; oversizedRepository?: boolean } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "arbitra-model-run-")); directories.push(directory);
   await writeFile(join(directory, "a.ts"), "const value = null;\n", "utf8");
+  if (options.oversizedRepository === true) await writeFile(join(directory, "large.ts"), "// unrelated source\n".repeat(12_000), "utf8");
   const example = runConfigSchema.parse(JSON.parse(await readFile(new URL("../../../examples/audit-balanced.json", import.meta.url), "utf8")));
   const template = example.models["auditor-a"];
   if (template === undefined) throw new Error("FIXTURE_PROFILE_ABSENT");
@@ -46,7 +47,7 @@ async function fixture(options: { lowRisk?: boolean; structuralReview?: boolean;
     if (system.startsWith("Audit the supplied")) {
       requests.push({ stage: "discovery", url: request.url });
       if (blockDiscovery !== undefined) { blockDiscovery(); return new Promise(() => {}); }
-      const auditorId = /Every sourceFindingId must start with ([^/]+)\//u.exec(system)?.[1];
+      const auditorId = /Every sourceFindingId must start with (.+)\/ and be unique/u.exec(system)?.[1];
       output = { findings: [{ schemaVersion: 1, sourceFindingId: `${auditorId}/1`, category: "CORRECTNESS", title: "Null value", severity: options.lowRisk === true ? "low" : "high", status: "needs_verification", confidence: 0.5, productionBlocker: false,
         locations: [{ id: `${auditorId}-L1`, path: "a.ts", startLine: 1, endLine: 1 }], evidence: [{ id: `${auditorId}-E1`, text: "const value = null;", locationIds: [`${auditorId}-L1`] }],
         problem: "Fixture null claim", recommendedFix: "Check null", productionImpact: "", trigger: "", verification: "", dependencies: [], relatedRisks: [] }], truncated: false, unexaminedDueToBudget: [], limitations: [] };
@@ -90,6 +91,20 @@ async function fixture(options: { lowRisk?: boolean; structuralReview?: boolean;
 }
 
 describe("composed model audits", () => {
+  it("bounds source context in every later model stage and records omitted source", async () => {
+    const { create, config } = await fixture({ oversizedRepository: true });
+    const core = create(); const result = await core.run(config);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
+    const descriptors = (await core.artifacts(result.runId)).filter(({ kind }) => kind.startsWith("model-context-"));
+    const contexts = await Promise.all(descriptors.map(async ({ artifactId }) => {
+      const artifact = await core.artifact(result.runId, artifactId) as { content: string };
+      return JSON.parse(artifact.content) as { activityId: string; omittedPaths: string[]; estimatedTokens: number; maximumEstimatedTokens: number };
+    }));
+    expect(new Set(contexts.map(({ activityId }) => activityId.split("/")[0]))).toEqual(new Set(["peer-review", "verification", "planner", "critic"]));
+    expect(contexts.every(({ omittedPaths, estimatedTokens, maximumEstimatedTokens }) => omittedPaths.includes("large.ts") && estimatedTokens <= maximumEstimatedTokens)).toBe(true);
+  });
+
   it("preserves conflicting structural proposals and completes with explicit unresolved coverage", async () => {
     const { create, config } = await fixture({ conflictingReview: true });
     const core = create(); const result = await core.run(config);

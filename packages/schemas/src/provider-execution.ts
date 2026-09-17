@@ -20,6 +20,7 @@ export const providerExecutionSchema = z.object({
   modelEndpoints: z.record(identifier, identifier),
   roles: z.object({ planner: identifier, verifier: identifier, critic: identifier.optional() }).strict().optional(),
   maximumOutputTokens: z.number().int().positive(),
+  maximumDiscoveryTokens: z.number().int().positive().optional(),
   maximumContextTokens: z.number().int().positive().optional(),
   timeoutMs: z.number().int().positive().max(2_147_483_647),
   maximumRetries: z.number().int().min(0).max(10),
@@ -40,6 +41,7 @@ export const providerExecutionSchema = z.object({
     if (!ids.has(endpointId)) context.addIssue({ code: "custom", path: ["modelEndpoints", modelId], message: "Unknown provider endpoint" });
   }
   if (value.maximumTokens < value.maximumOutputTokens) context.addIssue({ code: "custom", path: ["maximumTokens"], message: "Token budget cannot be smaller than the output reserve" });
+  if (value.maximumDiscoveryTokens !== undefined && value.maximumDiscoveryTokens <= value.maximumOutputTokens) context.addIssue({ code: "custom", path: ["maximumDiscoveryTokens"], message: "Discovery context budget must leave room beyond the output reserve" });
   if (value.maximumContextTokens !== undefined && value.maximumContextTokens <= value.maximumOutputTokens) context.addIssue({ code: "custom", path: ["maximumContextTokens"], message: "Context budget must leave room beyond the output reserve" });
 });
 
