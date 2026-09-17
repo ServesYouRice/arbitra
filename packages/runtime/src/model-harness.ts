@@ -32,7 +32,7 @@ export class ModelHarness {
       ...input, activityId: `${input.activityId}/turn-${context.turn}`, messages: context.turn === 0 ? initialMessages : [
         ...initialMessages, ...request.messages.slice(1),
       ], tools: request.tools, responseMode: "harness_turn", schema: modelTurnResultSchema,
-      harnessIdentity: { id: CANONICAL_HARNESS_PROFILE.id, version: CANONICAL_HARNESS_PROFILE.version, policyHash: createHash("sha256").update(JSON.stringify(CANONICAL_HARNESS_PROFILE.policy)).digest("hex") },
+      harnessIdentity: { id: CANONICAL_HARNESS_PROFILE.id, version: CANONICAL_HARNESS_PROFILE.version, policyHash: createHash("sha256").update(JSON.stringify({ policy: CANONICAL_HARNESS_PROFILE.policy, sourcePaths: input.sourcePaths === undefined ? null : [...input.sourcePaths].sort() })).digest("hex") },
     }) });
     const prompt = compiled ?? { text: JSON.stringify(initialMessages), hash: createHash("sha256").update(JSON.stringify(initialMessages)).digest("hex") };
     const run = adapter.run({ id: input.activityId, modelId: profile.modelId, maximumOutputTokens: execution.maximumOutputTokens, maxToolTurns: profile.supports.tools ? profile.quirks.toolLoopLimit : 0 }, prompt, tools, toolSet.runtime, {

@@ -70,7 +70,7 @@ duplicate IDs, invalid dependencies and cycles. Replay critic overrides change t
 Trace writes recover torn tails and serialize concurrent appends; atomic artifact writes
 retry transient Windows rename errors. Failed parallel work is settled before stage exit.
 
-The path does not yet integrate contextual scope allocation, semantic clustering
+The path now allocates discovery context but does not yet bound later-stage context, semantic clustering
 escalation, executed verification tests or the complete anonymous peer-review operation
 protocol follow-up review (the model path now supports typed operations with anonymous
 source views, hidden own findings, policy-driven dispatch, round deltas and vote-flip
@@ -145,7 +145,17 @@ present anonymous conflict deltas to reviewers and allow explicit evidence-backe
 resolution across rounds, rather than carrying all conflicts to planning unresolved.
 Full CI and production build passed after conflict handling and evidence namespacing.
 
-Next integration work: conflict-resolution follow-up; scope allocation and
-bounded context; semantic clustering escalation;
+Discovery context now uses module-first allocation through the import-topology library.
+It measures compiled prompts including tools/schema/framing/output reserve, uses a
+configurable maximumDiscoveryTokens budget and respects the model's known context limit.
+Scope-specific tools are restricted to assigned files, and scope/harness identities are
+bound to durable activity fingerprints. Oversized modules split at file boundaries;
+oversized files and lost joint module context are explicitly unexamined. Aggregate findings
+retain unique scoped IDs, coverage and validation across independent calls. Initial full
+CI passed; 28 focused tests passed after the final budget/coverage refinements.
+The production build also passed with those refinements included.
+
+Next integration work: bounded later-stage context and tool history; conflict-resolution
+follow-up; semantic clustering escalation;
 executed verification where permitted. Continue the remaining Feature/Testing, native
 harness, advisor, incremental audit, batch, canvas and trace-browser queue above.

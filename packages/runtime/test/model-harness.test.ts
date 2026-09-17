@@ -39,6 +39,17 @@ const request = () => ({ activityId: "auditor-a/discovery", modelProfileId: "aud
 });
 
 describe("durable canonical model harness", () => {
+  it("restricts scoped tool reads and binds the source scope to durable identity", async () => {
+    const { create, requests } = await setup();
+    const input = { ...request(), sourcePaths: [] };
+    expect(await create().invoke(input)).toEqual({ answer: "ok" });
+    const wire = JSON.stringify(requests[1]?.body);
+    expect(wire).toContain("PATH_NOT_IN_SNAPSHOT");
+    expect(wire).not.toContain("const value = null;");
+    await expect(create().invoke({ ...input, sourcePaths: ["a.ts"] })).rejects.toThrow("MODEL_ACTIVITY_INPUT_CHANGED");
+    expect(requests).toHaveLength(2);
+  });
+
   it("reads the immutable snapshot, preserves tool metadata, and reuses every model turn after restart", async () => {
     const { create, requests, store } = await setup();
     expect(await create().invoke(request())).toEqual({ answer: "ok" });

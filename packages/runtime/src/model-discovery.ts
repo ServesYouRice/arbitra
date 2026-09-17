@@ -67,8 +67,11 @@ export async function discoverWithModel(options: ModelDiscoveryOptions): Promise
   if (maximum === undefined) return discoverScopeWithModel(options);
   if (!Number.isSafeInteger(maximum) || maximum < 1 || options.activities.estimateInitialTokens === undefined) throw new Error("INVALID_DISCOVERY_CONTEXT_BUDGET");
   const estimate = (request: ModelActivityRequest<unknown>) => options.activities.estimateInitialTokens?.(request) ?? Number.POSITIVE_INFINITY;
-  if (estimate(discoveryRequest(options)) <= maximum) return discoverScopeWithModel(options);
-  const allocation = allocateDiscoveryScopes(options.snapshot, (files) => estimate(discoveryRequest({ ...options, snapshot: { ...options.snapshot, files }, scopeId: `scope-${"0".repeat(24)}` })) <= maximum);
+  if (options.snapshot.files.reduce((sum, { byteLength }) => sum + byteLength, 0) <= maximum && estimate(discoveryRequest(options)) <= maximum) {
+    await options.store.publish(`discovery-scopes-${options.auditorId}`, { scopes: [{ scopeId: "whole", paths: options.snapshot.files.map(({ path }) => path), estimatedTokens: estimate(discoveryRequest(options)), splitModules: [] }], unallocatedPaths: [], maximumEstimatedTokens: maximum });
+    return discoverScopeWithModel(options);
+  }
+  const allocation = allocateDiscoveryScopes(options.snapshot, (files) => files.reduce((sum, { byteLength }) => sum + byteLength, 0) <= maximum && estimate(discoveryRequest({ ...options, snapshot: { ...options.snapshot, files }, scopeId: `scope-${"0".repeat(24)}` })) <= maximum);
   const findings: SourceFinding[] = [];
   const scopes: { scopeId: string; paths: readonly string[]; estimatedTokens: number; splitModules: readonly string[] }[] = [];
   const coverage: { rejectedCount: number; truncated: boolean; unexaminedDueToBudget: string[]; limitations: string[] } = { rejectedCount: 0, truncated: false, unexaminedDueToBudget: [...allocation.unallocatedPaths], limitations: [] };
@@ -84,11 +87,12 @@ export async function discoverWithModel(options: ModelDiscoveryOptions): Promise
     coverage.rejectedCount += result.rejectedCount;
     coverage.truncated ||= result.truncated;
     coverage.unexaminedDueToBudget.push(...result.unexaminedDueToBudget);
+    coverage.unexaminedDueToBudget.push(...scope.splitModules.map((id) => `module_joint_context:${id}`));
     coverage.limitations.push(...result.limitations, ...scope.splitModules.map((id) => `module_context_split:${id}`));
   }
   coverage.limitations.push("discovery_partitioned_context", ...(allocation.unallocatedPaths.length === 0 ? [] : ["files_exceed_discovery_context_budget"]));
   await options.store.publish(`discovery-scopes-${options.auditorId}`, { scopes, unallocatedPaths: allocation.unallocatedPaths, maximumEstimatedTokens: maximum });
-  await options.store.publish(`discovery-validation-${options.auditorId}`, { ...coverage, acceptedCount: findings.length, limitations: [...new Set(coverage.limitations)] });
+  await options.store.publish(`discovery-validation-${options.auditorId}`, { ...coverage, unexaminedDueToBudget: [...new Set(coverage.unexaminedDueToBudget)], acceptedCount: findings.length, limitations: [...new Set(coverage.limitations)] });
   await options.store.publish(`findings-${options.auditorId}`, findings, options.auditorId);
   return findings;
 }

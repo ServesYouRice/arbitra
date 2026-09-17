@@ -123,7 +123,7 @@ dispatch. Endpoint identity separates continuation state even when two services 
 the same model name. Request model identity must also match the trace context.
 
 The run schema validates optional `workflow.modelExecution` settings: `endpoints`,
-`modelEndpoints`, `maximumOutputTokens`, `timeoutMs`, `maximumRetries`, `maximumTokens`,
+`modelEndpoints`, `maximumOutputTokens`, optional `maximumDiscoveryTokens`, `timeoutMs`, `maximumRetries`, `maximumTokens`,
 per-provider `rateLimits`, and `roles` (`planner`, `verifier`, optional `critic`). Endpoint credentials are named by `apiKeyEnvVar`; values
 are resolved only at dispatch. Limits are supplied by the operator, not inferred from a
 provider-name table. The CLI/server executes a bounded source-snapshot Audit when these
@@ -165,6 +165,16 @@ remain unresolved when evidence is insufficient. Verification does not treat a
 matching quotation as proof of a bug. Security coverage remains degraded because no
 deployment/runtime evidence is collected. Wire-level and end-to-end tests inject HTTP
 responses; these tests do not establish real-model correctness or the multi-model premise.
+
+Discovery packs source by approximate import topology. Its initial compiled request,
+including schemas, tools, framing and output reserve, must fit 80% of the smaller of
+the configured discovery limit (default 128,000 conservative estimated tokens) and the
+profile's known context limit. The remaining space accommodates tool turns. Oversized
+modules split at file boundaries; files that cannot fit are reported as unexamined.
+Lost joint module context is also reported. Each scope has isolated tools, unique finding
+IDs and durable model activities, so resume reuses completed calls. Discovery allocation
+artifacts record the selected paths and estimates. This limit is separate from total
+run spend, and does not yet allocate context for later stages or trim growing tool history.
 Peer review also accepts merge/split, added evidence and counter-evidence, severity and
 blocker changes, remediation/verification supplements and missing findings. New evidence
 must quote the selected snapshot and declare valid locations. The runtime binds local
@@ -175,7 +185,7 @@ blocker changes are deferred together, with every proposal preserved. Original c
 stay active and enter verification; planning receives the unresolved proposals. These
 conflicts remain explicit coverage gaps, even if verification confirms the underlying
 defect. Reviewer order does not select a winning structural claim.
-Context allocation, semantic clustering escalation and executed verification still
+Context allocation for later stages, semantic clustering escalation and executed verification still
 require runtime integration.
 
 - `packages/providers/src/runtime.ts` enforces an `InvocationBudget` and suspends with
