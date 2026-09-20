@@ -15,6 +15,14 @@ const response = (operations: unknown[], locations: unknown[] = [], findings: un
 const translate = (value: unknown) => translatePeerOperations(value, view, snapshot, "reviewer", 1);
 
 describe("model board operations", () => {
+  it("namespaces repeated local IDs independently across context batches", () => {
+    const value = response([{ ...base, type: "accept", reason: "Grounded" }]);
+    const first = translatePeerOperations(value, view, snapshot, "reviewer", 1, "batch-a");
+    const second = translatePeerOperations(value, view, snapshot, "reviewer", 1, "batch-b");
+    expect(first.operations[0]?.operationId).not.toBe(second.operations[0]?.operationId);
+    expect(first.operations[0]?.authorId).toBe("reviewer");
+    expect(first.operations[0]?.citedEvidenceIds).toEqual(second.operations[0]?.citedEvidenceIds);
+  });
   it("translates votes, supplements, severity, blocker, merge and split with private provenance", () => {
     const value = response([
       { ...base, operationId: "new:accept", type: "accept", reason: "Grounded" },

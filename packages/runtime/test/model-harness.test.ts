@@ -12,7 +12,7 @@ import { snapshotTools } from "../src/snapshot-tools.js";
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 const snapshot = { root: "fixture", files: [{ path: "a.ts", lines: ["const value = null;"], lineStartBytes: [0], byteLength: 19 }] };
-async function setup(maxToolTurns = 2) {
+async function setup(maxToolTurns = 2, historySize = 0) {
   const root = await mkdtemp(join(tmpdir(), "arbitra-harness-")); directories.push(root);
   const example = runConfigSchema.parse(JSON.parse(await readFile(new URL("../../../examples/audit-balanced.json", import.meta.url), "utf8")));
   const profile = example.models["auditor-a"];
@@ -20,6 +20,7 @@ async function setup(maxToolTurns = 2) {
   const config = runConfigSchema.parse({ ...example, models: { "auditor-a": { ...profile, quirks: { ...profile.quirks, toolLoopLimit: maxToolTurns } } }, workflow: { modelExecution: {
     endpoints: [{ id: "primary", providerId: "openai", transport: "openai-responses", endpoint: "https://fixture.example/v1", apiKeyEnvVar: "FIXTURE_KEY" }],
     modelEndpoints: { "auditor-a": "primary" }, maximumOutputTokens: 500, maximumTokens: 100_000, timeoutMs: 1_000, maximumRetries: 0,
+    ...(historySize === 0 ? {} : { maximumContextTokens: 4_000 }),
     rateLimits: { openai: { rpm: 100, tpm: 100_000, maxConcurrent: 4 } },
   } } });
   const store = new RunStore(root, "run-1");
@@ -27,7 +28,7 @@ async function setup(maxToolTurns = 2) {
   const send = vi.fn<HttpClient["send"]>(async (request) => {
     requests.push(request);
     return { status: 200, headers: {}, body: requests.length === 1
-      ? { output: [{ type: "function_call", call_id: "call-1", name: "repo_read_file", arguments: '{"path":"a.ts"}' }], usage: { input_tokens: 10, output_tokens: 10 } }
+      ? { output_text: "x".repeat(historySize), output: [{ type: "function_call", call_id: "call-1", name: "repo_read_file", arguments: '{"path":"a.ts"}' }], usage: { input_tokens: 10, output_tokens: 10 } }
       : { output_text: '{"answer":"ok"}', usage: { input_tokens: 20, output_tokens: 10 } } };
   });
   const create = () => new ModelHarness(new ModelActivities(store, config, { client: { send }, credential: () => "fixture-credential" }), config, snapshot, store);
@@ -39,6 +40,17 @@ const request = () => ({ activityId: "auditor-a/discovery", modelProfileId: "aud
 });
 
 describe("durable canonical model harness", () => {
+  it("archives overflowing tool history and reuses the same bounded turns after restart", async () => {
+    const { create, requests, store } = await setup(2, 3_000);
+    expect(await create().invoke(request())).toEqual({ answer: "ok" });
+    expect(await create().invoke(request())).toEqual({ answer: "ok" });
+    expect(requests).toHaveLength(2);
+    const wire = JSON.stringify(requests[1]?.body);
+    expect(wire).toContain("archivedToolMessages");
+    expect(wire).not.toContain("x".repeat(3_000));
+    expect((await store.listArtifacts()).some(({ kind }) => kind.startsWith("model-history-"))).toBe(true);
+  });
+
   it("restricts scoped tool reads and binds the source scope to durable identity", async () => {
     const { create, requests } = await setup();
     const input = { ...request(), sourcePaths: [] };
@@ -81,5 +93,9 @@ describe("durable canonical model harness", () => {
     expect(await runtime.invoke("artifact_read", { ref: peer.artifactId }, context)).toMatchObject({ ok: false, error: { code: "ARTIFACT_OUTSIDE_ACTIVITY_CONTEXT" } });
     expect(await runtime.invoke("repo_read_file", { path: "../outside.ts" }, context)).toMatchObject({ ok: false, error: { code: "PATH_NOT_IN_SNAPSHOT" } });
     expect(await runtime.invoke("shell", { command: "ignored" }, context)).toMatchObject({ ok: false, error: { code: "TOOL_NOT_ALLOWED" } });
+    const scoped = snapshotTools(snapshot, store, "scoped-history");
+    const ref = await scoped.archive("Earlier tool result");
+    expect(await scoped.runtime.invoke("artifact_read", { ref }, { ...context, nodeId: "scoped-history" })).toMatchObject({ ok: true, content: expect.stringContaining("Earlier tool result") });
+    expect(await runtime.invoke("artifact_read", { ref }, context)).toMatchObject({ ok: false, error: { code: "ARTIFACT_OUTSIDE_ACTIVITY_CONTEXT" } });
   });
 });

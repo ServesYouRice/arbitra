@@ -123,7 +123,8 @@ dispatch. Endpoint identity separates continuation state even when two services 
 the same model name. Request model identity must also match the trace context.
 
 The run schema validates optional `workflow.modelExecution` settings: `endpoints`,
-`modelEndpoints`, `maximumOutputTokens`, optional `maximumDiscoveryTokens`, `timeoutMs`, `maximumRetries`, `maximumTokens`,
+`modelEndpoints`, `maximumOutputTokens`, optional `maximumDiscoveryTokens` and
+`maximumContextTokens`, `timeoutMs`, `maximumRetries`, `maximumTokens`,
 per-provider `rateLimits`, and `roles` (`planner`, `verifier`, optional `critic`). Endpoint credentials are named by `apiKeyEnvVar`; values
 are resolved only at dispatch. Limits are supplied by the operator, not inferred from a
 provider-name table. The CLI/server executes a bounded source-snapshot Audit when these
@@ -174,7 +175,26 @@ modules split at file boundaries; files that cannot fit are reported as unexamin
 Lost joint module context is also reported. Each scope has isolated tools, unique finding
 IDs and durable model activities, so resume reuses completed calls. Discovery allocation
 artifacts record the selected paths and estimates. This limit is separate from total
-run spend, and does not yet allocate context for later stages or trim growing tool history.
+run spend. The global `maximumContextTokens` policy defaults to 128,000 conservative
+estimated tokens and also caps the discovery allocation.
+
+Later stages retain all required decision data and allocate optional source context from
+the same compiled-prompt estimate. Cited files and related imports take priority; oversized
+cited files can use excerpts with original line numbers. Allocation artifacts and the
+model input identify omitted/excerpted paths. Required issues, evidence, conflicts and
+plan data are never dropped to fit; an oversized required input fails explicitly.
+Growing tool histories archive complete older exchanges into activity-local artifacts,
+preserving the original prompt and valid tool-call/result pairing. Archived content is
+available through the read-only artifact tool and remains recorded in the run.
+Peer review partitions oversized candidate sets using the actual compiled prompt budget
+(and at most 20 candidates per primary batch). Each candidate receives one full review
+per selected reviewer. Pairs separated by batching receive additional merge-only checks,
+so batching does not silently remove duplicate-detection opportunities. These checks can
+grow quadratically and share the run token budget; exhaustion suspends the run. Complete
+candidates or pairs that cannot fit still fail explicitly. Batch manifests, namespaces
+and durable activities preserve coverage and restart reuse. Planning and unusually large
+single-candidate contexts still require further hierarchical composition.
+
 Peer review also accepts merge/split, added evidence and counter-evidence, severity and
 blocker changes, remediation/verification supplements and missing findings. New evidence
 must quote the selected snapshot and declare valid locations. The runtime binds local
@@ -182,11 +202,21 @@ IDs to reviewer provenance and rejects forged verification metadata and cross-ca
 citations. The durable board retains structural lineage; only active claims enter
 verification and planning. Overlapping structural edits and contradictory severity or
 blocker changes are deferred together, with every proposal preserved. Original claims
-stay active and enter verification; planning receives the unresolved proposals. These
+stay active while follow-up reviewers examine anonymous alternatives before the next
+review round. Applying a proposal or retaining the original requires evidence-backed
+agreement from every configured auditor, plus quorum and independence requirements.
+A changed resolution vote requires newly cited evidence. Proposals, votes, and decisions
+remain durable artifacts; ordinary peer review evaluates the resulting claims. Missing
+reviewers, disagreement, or stale source claims keep the conflict unresolved and planning
+receives those proposals. These
 conflicts remain explicit coverage gaps, even if verification confirms the underlying
 defect. Reviewer order does not select a winning structural claim.
-Context allocation for later stages, semantic clustering escalation and executed verification still
-require runtime integration.
+Ambiguous finding pairs now use durable semantic classification through the verifier profile.
+`maximumClusteringPairs` defaults to 20 (0 disables escalation; maximum 1000).
+Exact and structural matches still resolve without model calls. Unclassified pairs remain
+separate. The run persists classifications, rationales, operations, and unresolved pairs.
+Clustering aggregate token/cost metrics are null when model calls occur; individual
+provider turn traces retain available usage. Executed verification still requires runtime integration.
 
 - `packages/providers/src/runtime.ts` enforces an `InvocationBudget` and suspends with
   `ProviderBudgetSuspendedError` rather than overspending. Every invocation emits an
@@ -221,3 +251,22 @@ grouping key, throwing `IncomparableIdentityError`. See [`evaluation.md`](evalua
   lane. v1.1.
 - **Advisor runtime.** `advisor` and `advisorMaxUses` exist in Task IR and `advisorTokens`
   is recorded on traces, but nothing consumes them. v1.1.
+
+Large critic inputs are partitioned into complete task, canonical issue, and validation
+records. Every batch retains the global dependency, routing, traceability, and scope
+index; cross-batch record pairs receive additional checks. Inputs explicitly identify
+partial review scope so omitted batch records are not mistaken for missing plan work.
+Feedback IDs are namespaced per durable batch and every item is preserved for validation.
+Rejected mappings or duplicate critique IDs mark review coverage degraded. The runtime
+records the actual number of critique batches and reuses completed batches on restart.
+Global metadata or individual records/pairs that exceed context still fail explicitly;
+large planner output composition remains unfinished.
+
+The model audit runtime now performs at most one planner revision after a complete,
+non-degraded critic review reports blocking findings. The same planner profile returns
+a full Plan IR and an explicit resolution for every blocking item. Traceability, exact
+accepted issue coverage, audit mode and premise provenance are checked before a second
+independent critic review. That review receives the original feedback and proposed
+resolutions as untrusted claims. Remaining blocking feedback still fails the gate.
+Original plan/critique, revision output and final review remain durable; restart reuses
+completed work. Oversized revision inputs still need hierarchical planner composition.

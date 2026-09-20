@@ -54,7 +54,13 @@ describe("structured critic and conditional revision", () => {
     const unmapped = { ...mapped, id: "CRIT-UNMAPPED", taskIds: [], issueIds: [] };
     const node = criticNode({ protocolVersion: "1.0.0", protocolHash, runtime: { critique: vi.fn().mockResolvedValue({}) }, schema: schema({ items: [mapped, unmapped], summary: "review" }) });
     const result = await node.run(input, { requirement: { deepMode: true }, planner, pool: [{ id: "critic", capability: "frontier", independenceGroup: "group-b", available: true }] });
-    expect(result).toMatchObject({ status: "completed", critique: { items: [mapped] }, rejected: [{ item: { id: "CRIT-UNMAPPED" }, code: "UNACTIONABLE_CRITIQUE_ITEM", reason: "unactionable_no_task_or_issue" }], criticCalls: 1 });
+    expect(result).toMatchObject({ status: "completed", degradedReviewCoverage: true, critique: { items: [mapped] }, rejected: [{ item: { id: "CRIT-UNMAPPED" }, code: "UNACTIONABLE_CRITIQUE_ITEM", reason: "unactionable_no_task_or_issue" }], criticCalls: 1 });
+  });
+
+  it("marks rejected duplicate critiques as degraded instead of silently reporting a clean review", async () => {
+    const node = criticNode({ protocolVersion: "1.0.0", protocolHash, runtime: { critique: async () => ({}) }, schema: schema({ items: [mapped, { ...mapped, blocking: true }], summary: "review" }) });
+    const result = await node.run(input, { requirement: { deepMode: true }, planner, pool: [{ id: "critic", capability: "frontier", independenceGroup: "group-b", available: true }] });
+    expect(result).toMatchObject({ status: "completed", degradedReviewCoverage: true, critique: { items: [] }, rejected: [{ code: "DUPLICATE_CRITIQUE_ID" }, { code: "DUPLICATE_CRITIQUE_ID" }] });
   });
 
   it("skips revision for non-blocking findings", async () => {

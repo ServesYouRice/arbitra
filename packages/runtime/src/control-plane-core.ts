@@ -1,3 +1,6 @@
+import { queryActivityTraces } from "@arbitra/persistence/metrics/query.js";
+import { protocolIdentity } from "@arbitra/persistence/index-db/rebuild.js";
+import { CrossProtocolComparisonError } from "@arbitra/persistence/metrics/queries.js";
 import { realpath, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { Orchestrator } from "./orchestrator.js";
@@ -56,40 +59,25 @@ export function controlPlaneCore(orchestrator: Orchestrator) {
       artifact: (id: string, artifactId: string) => orchestrator.artifact(id, artifactId),
     },
 
-    /**
-     * Evaluation.
-     *
-     * The guarded query layer reads model activity traces out of a per-run SQLite index.
-     * A scripted-auditor run makes no provider calls, so it records no traces and there is
-     * no index to query: rather than hand `MetricStore` an empty directory and present
-     * whatever falls out as a measurement, this reports the absence. Every rate is `null`
-     * and the denominator says the run carried no activity, which is what the UI's
-     * `measured()` helper renders as "unavailable". A measurement the run did not produce
-     * is never reported as zero.
-     */
     evaluation: {
-      metrics: async (runId: string) => {
-        const summary = await orchestrator.summary(runId) as { auditorCount?: number };
-        return Object.freeze({
-          rows: Object.freeze([]),
-          denominator: Object.freeze({ activityCount: 0, auditorCount: summary.auditorCount ?? 0, groundTruthAvailable: false }),
-          segmentation: Object.freeze([]),
-          independence: Object.freeze({ applicable: false, reason: "scripted_auditors_record_no_provider_activity", groups: Object.freeze([]) }),
-          totalCostUsd: null, currency: null, costPerTrueAcceptedIssue: null,
-          consensusPrecision: null, consensusRecall: null,
-          verificationResolutionRate: null, cacheHitRate: null, escalatedPairs: null,
-          securityOverlapBudget: null, suppressionCandidateCount: null,
-        });
-      },
+      metrics: (runId: string) => orchestrator.metrics(runId),
       compare: async (request: { readonly a: unknown; readonly b: unknown }) => {
-        for (const value of [request.a, request.b]) {
-          if (typeof (value as { protocolIdentity?: unknown })?.protocolIdentity !== "string") throw new Error("COMPARISON_SIDE_REQUIRES_PROTOCOL_IDENTITY");
+        const side = (value: unknown) => {
+          const input = value as { protocolIdentity?: unknown; runIds?: unknown } | null;
+          if (typeof input?.protocolIdentity !== "string" || input.protocolIdentity.trim() === "") throw new Error("COMPARISON_SIDE_REQUIRES_PROTOCOL_IDENTITY");
+          if (input.runIds !== undefined && (!Array.isArray(input.runIds) || input.runIds.some((id: unknown) => typeof id !== "string" || id === ""))) throw new Error("INVALID_COMPARISON_RUN_IDS");
+          return { protocolIdentity: input.protocolIdentity, runIds: input.runIds as string[] | undefined };
+        };
+        const a = side(request.a); const b = side(request.b);
+        if (a.protocolIdentity !== b.protocolIdentity) throw new CrossProtocolComparisonError(a.protocolIdentity, b.protocolIdentity);
+        const sides = [];
+        for (const selected of [a, b]) {
+          const ids = selected.runIds ?? await orchestrator.runIds();
+          const traces = (await Promise.all([...new Set(ids)].map((id) => orchestrator.modelTraces(id)))).flat().filter((trace) => protocolIdentity(trace) === selected.protocolIdentity);
+          if (traces.length === 0) return { comparable: false, error: "NO_MATCHING_PROVIDER_ACTIVITY", message: "A comparison side has no recorded activity for the exact protocol identity and selected runs." };
+          sides.push({ protocolIdentity: selected.protocolIdentity, rows: queryActivityTraces(traces, { groupBy: ["model", "harness", "protocol"] }) });
         }
-        return Object.freeze({
-          comparable: false,
-          error: "NO_RECORDED_PROVIDER_ACTIVITY",
-          message: "Neither side has model activity traces to compare; scripted-auditor runs record none.",
-        });
+        return { comparable: true, protocolIdentity: a.protocolIdentity, sides };
       },
     },
   };

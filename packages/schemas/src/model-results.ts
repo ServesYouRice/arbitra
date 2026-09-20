@@ -1,5 +1,22 @@
 import { z } from "zod";
 import { sourceFindingSchema } from "./finding.js";
+import { planIRSchema } from "./plan.js";
+
+export const modelPlanRevisionSchema = z.object({
+  plan: planIRSchema,
+  resolutions: z.array(z.object({ critiqueItemId: z.string().min(1), resolution: z.string().trim().min(1) }).strict()),
+}).strict();
+
+export const modelClusteringResultSchema = z.object({
+  relationship: z.enum(["same_root_cause", "related_but_separate", "same_symptom_different_causes", "unrelated"]),
+  rationale: z.string().trim().min(1),
+}).strict();
+
+export const modelConflictResolutionSchema = z.object({
+  selection: z.string().min(1),
+  evidenceIds: z.array(z.string().min(1)),
+  rationale: z.string().trim().min(1),
+}).strict();
 
 export const modelDiscoveryResultSchema = z.object({
   findings: sourceFindingSchema.array().max(40),

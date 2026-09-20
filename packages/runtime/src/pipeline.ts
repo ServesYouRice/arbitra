@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { redactSecrets } from "@arbitra/security/redaction";
-import { deterministicCluster } from "@arbitra/workflow/clustering/deterministic.js";
+import { cluster, type ClusterOptions } from "@arbitra/workflow/clustering/escalate.js";
 import type { ValidatedClusterInput } from "@arbitra/workflow/clustering/types.js";
 import { computeConsensus, DEFAULT_CONSENSUS_POLICY, type ConsensusBoard, type ConsensusCandidate, type ConsensusPolicy, type ConsensusState, type ConsensusVote } from "@arbitra/workflow/consensus/engine.js";
 import { canonicaliseIssues, type CanonicalIssueSet } from "@arbitra/workflow/nodes/canonical-issues.js";
@@ -74,7 +74,7 @@ export interface ConvergenceResult {
  * re-examines it and votes on what it finds, while an auditor without that rule abstains
  * and is recorded as a missing reviewer rather than as a silent accept.
  */
-export async function converge(context: AuditContext, byAuditor: Readonly<Record<string, readonly AuditFinding[]>>): Promise<ConvergenceResult> {
+export async function converge(context: AuditContext, byAuditor: Readonly<Record<string, readonly AuditFinding[]>>, clustering: ClusterOptions = {}): Promise<ConvergenceResult> {
   const snapshot: ValidationSnapshot = Object.freeze({
     files: Object.fromEntries(context.snapshot.files.map((file) => [file.path, Object.freeze({ lineCount: file.lines.length, lineStartBytes: file.lineStartBytes, byteLength: file.byteLength })])),
   });
@@ -95,7 +95,8 @@ export async function converge(context: AuditContext, byAuditor: Readonly<Record
     const full = findingById.get(finding.sourceFindingId);
     return full === undefined ? [] : [{ validation: "accepted" as const, auditorId, finding: full }];
   });
-  const clustered = deterministicCluster(clusterInputs);
+  const clustered = await cluster(clusterInputs, clustering);
+  await context.store.publish("clustering", clustered);
 
   const candidates: Record<string, ConsensusCandidate> = {};
   const candidateFindings: Record<string, readonly AuditFinding[]> = {};

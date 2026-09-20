@@ -5,11 +5,13 @@ import type { ConvergenceResult } from "./pipeline.js";
 import type { AuditFinding } from "./auditors.js";
 import type { PeerOperationBatch } from "./model-peer-operations.js";
 import { adjudicatePeerOperations, type PeerOperationConflict } from "./peer-operation-conflicts.js";
+import { conflictId, type ConflictResolutionVote } from "./model-conflict-resolution.js";
 
 /** Rebuildable append-only board plus the source records required downstream. */
 export class ModelPeerBoard {
   readonly operations: IssueOperation[] = [];
   readonly conflicts: PeerOperationConflict[] = [];
+  readonly resolvedConflicts: { conflict: PeerOperationConflict; selection: string; round: number; votes: readonly ConflictResolutionVote[] }[] = [];
   private readonly findings = new Map<string, AuditFinding>();
   private readonly additions = new Map<string, AuditFinding[]>();
 
@@ -46,6 +48,22 @@ export class ModelPeerBoard {
     }
     this.operations.push(...ordered);
     this.conflicts.push(...adjudication.conflicts);
+  }
+
+  resolve(conflict: PeerOperationConflict, selection: string, round: number, votes: readonly ConflictResolutionVote[]): void {
+    const index = this.conflicts.indexOf(conflict);
+    if (index < 0) throw new Error("UNKNOWN_BOARD_CONFLICT");
+    const active = this.view().candidates;
+    if (conflict.candidateIds.some((id) => !Object.hasOwn(active, id))) throw new Error("STALE_BOARD_CONFLICT");
+    if (selection !== "retain_original") {
+      const proposal = conflict.proposals.find(({ operationId }) => operationId === selection);
+      if (proposal === undefined) throw new Error("UNKNOWN_BOARD_CONFLICT_PROPOSAL");
+      const operation = { ...proposal, operationId: `resolution:${conflictId(conflict)}:${round}`, authorId: "peer-resolution", round };
+      projectBoard([...this.operations, operation]);
+      this.operations.push(operation);
+    }
+    this.resolvedConflicts.push({ conflict, selection, round, votes: structuredClone(votes) });
+    this.conflicts.splice(index, 1);
   }
 
   view(): { board: IssueBoard; candidates: Record<string, ConsensusCandidate>; candidateFindings: Record<string, readonly AuditFinding[]> } {

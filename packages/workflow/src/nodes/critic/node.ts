@@ -5,7 +5,7 @@ export const CRITIQUE_CATEGORIES = ["missing_issues", "incomplete_requirements",
 export type CritiqueCategory = typeof CRITIQUE_CATEGORIES[number];
 export interface CritiqueItem { readonly id: string; readonly category: CritiqueCategory; readonly blocking: boolean; readonly summary: string; readonly taskIds: readonly string[]; readonly issueIds: readonly string[] }
 export interface StructuredCritique { readonly items: readonly CritiqueItem[]; readonly summary: string }
-export interface RejectedCritiqueItem { readonly item: CritiqueItem; readonly code: "UNACTIONABLE_CRITIQUE_ITEM" | "UNKNOWN_CRITIQUE_MAPPING"; readonly reason: "unactionable_no_task_or_issue" | "unknown_task_or_issue" }
+export interface RejectedCritiqueItem { readonly item: CritiqueItem; readonly code: "UNACTIONABLE_CRITIQUE_ITEM" | "UNKNOWN_CRITIQUE_MAPPING" | "DUPLICATE_CRITIQUE_ID"; readonly reason: "unactionable_no_task_or_issue" | "unknown_task_or_issue" | "duplicate_item_id" }
 export interface CriticInput { readonly plan: { readonly tasks: readonly { readonly id: string }[] }; readonly validationContract: unknown; readonly canonicalIssues: readonly { readonly candidateId: string }[]; readonly necessaryContext: readonly { readonly ref: string; readonly content: string; readonly trust: "repo" | "derived" | "untrusted_data" }[] }
 export interface CriticRequest { readonly criticId: string; readonly protocol: { readonly protocolId: "plan-critic"; readonly protocolVersion: string; readonly protocolHash: string }; readonly input: CriticInput; readonly outputSchema: "StructuredCritique" }
 export interface CriticRuntime { critique(request: CriticRequest): Promise<unknown> }
@@ -23,11 +23,14 @@ export function criticNode(config: CriticNodeConfig) {
     const critique = config.schema.parse(await config.runtime.critique(Object.freeze({ criticId: selection.critic.id, protocol: Object.freeze({ protocolId: "plan-critic" as const, protocolVersion: config.protocolVersion, protocolHash: config.protocolHash }), input, outputSchema: "StructuredCritique" as const })));
     const taskIds = new Set(input.plan.tasks.map(({ id }) => id)); const issueIds = new Set(input.canonicalIssues.map(({ candidateId }) => candidateId));
     const accepted: CritiqueItem[] = []; const rejected: RejectedCritiqueItem[] = [];
+    const counts = new Map<string, number>();
+    for (const { id } of critique.items) counts.set(id, (counts.get(id) ?? 0) + 1);
     for (const item of critique.items) {
-      if (item.taskIds.length === 0 && item.issueIds.length === 0) rejected.push(Object.freeze({ item, code: "UNACTIONABLE_CRITIQUE_ITEM", reason: "unactionable_no_task_or_issue" }));
+      if ((counts.get(item.id) ?? 0) > 1) rejected.push(Object.freeze({ item, code: "DUPLICATE_CRITIQUE_ID", reason: "duplicate_item_id" }));
+      else if (item.taskIds.length === 0 && item.issueIds.length === 0) rejected.push(Object.freeze({ item, code: "UNACTIONABLE_CRITIQUE_ITEM", reason: "unactionable_no_task_or_issue" }));
       else if (item.taskIds.some((id) => !taskIds.has(id)) || item.issueIds.some((id) => !issueIds.has(id))) rejected.push(Object.freeze({ item, code: "UNKNOWN_CRITIQUE_MAPPING", reason: "unknown_task_or_issue" }));
       else accepted.push(item);
     }
-    return Object.freeze({ status: "completed" as const, requirement, selection, critique: Object.freeze({ ...critique, items: Object.freeze(accepted) }), rejected: Object.freeze(rejected), degradedReviewCoverage: selection.reducedIndependence, criticCalls: 1 as const });
+    return Object.freeze({ status: "completed" as const, requirement, selection, critique: Object.freeze({ ...critique, items: Object.freeze(accepted) }), rejected: Object.freeze(rejected), degradedReviewCoverage: selection.reducedIndependence || rejected.length > 0, criticCalls: 1 as const });
   } });
 }

@@ -46,7 +46,7 @@ describe("the shell mounts every run-level view", () => {
     stub();
     render(<Workspace />);
     fireEvent.click(tab(screen.getByLabelText("workspace views"), "evaluation"));
-    expect(await screen.findByText(/segmented by model · 1 model activities/)).toBeTruthy();
+    expect(await screen.findByText(/segmented by model · 1 model activity attempts/)).toBeTruthy();
     expect(screen.getByText(/independence · not applicable · no_ground_truth_measurement/)).toBeTruthy();
   });
 
