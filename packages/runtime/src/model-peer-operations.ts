@@ -11,9 +11,10 @@ type View = ReturnType<typeof peerReviewView>;
 export interface PeerOperationBatch { readonly operations: readonly IssueOperation[]; readonly findings: readonly AuditFinding[]; readonly locations: readonly FindingLocation[] }
 
 /** Validate model additions against immutable source and bind all local provenance. */
-export function translatePeerOperations(value: unknown, view: View, snapshot: RepositorySnapshot, reviewerId: string, round: number): PeerOperationBatch {
+export function translatePeerOperations(value: unknown, view: View, snapshot: RepositorySnapshot, reviewerId: string, round: number, scopeId?: string): PeerOperationBatch {
   const parsed = peerOperationsResultSchema.parse(value);
-  const prefix = `${reviewerId}/review-${round}/`;
+  if (scopeId !== undefined && !/^[a-z0-9-]+$/u.test(scopeId)) throw new Error("INVALID_PEER_SCOPE_ID");
+  const prefix = `${reviewerId}/review-${round}/${scopeId === undefined ? "" : `${scopeId}/`}`;
   const local = (id: string): string => {
     if (!/^new:[A-Za-z0-9_-]+$/u.test(id)) throw new Error("INVALID_PEER_LOCAL_ID");
     return `${prefix}${id.slice(4)}`;

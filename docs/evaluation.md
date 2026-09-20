@@ -170,3 +170,18 @@ output through `redactSecrets` (`packages/security/src/redaction.ts`), failing c
   `packages/workflow/src/clustering/deterministic.ts` stands unless escalation metrics
   justify replacing it. Those metrics are recorded now
   (`clustering/escalate.ts`), which is the point.
+
+## Runtime operational metrics
+
+The localhost evaluation API now reads authoritative model trace journals directly,
+without waiting for a SQLite rebuild. Rows remain separated by model, harness, and
+exact protocol identity. Activity counts count recorded attempts; latency is the mean
+recorded attempt duration. Token and cost totals stay null if any contributing value
+is unknown. Cache rates use known cache-read/input-token totals. Verification resolution
+includes deferred items in its denominator.
+
+These operational measurements do not establish ground truth: precision, recall,
+contribution, and measured independence remain unavailable without an evaluation corpus.
+Protocol comparisons accept exact identities and optional runIds, refuse different
+protocol identities, and report missing matching activity explicitly. The full trace
+browser remains unfinished.

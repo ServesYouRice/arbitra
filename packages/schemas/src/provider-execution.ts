@@ -19,6 +19,7 @@ export const providerExecutionSchema = z.object({
   endpoints: z.array(providerEndpointSchema).min(1),
   modelEndpoints: z.record(identifier, identifier),
   roles: z.object({ planner: identifier, verifier: identifier, critic: identifier.optional() }).strict().optional(),
+  maximumClusteringPairs: z.number().int().min(0).max(1000).optional(),
   maximumOutputTokens: z.number().int().positive(),
   maximumDiscoveryTokens: z.number().int().positive().optional(),
   maximumContextTokens: z.number().int().positive().optional(),

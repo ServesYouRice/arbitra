@@ -16,7 +16,7 @@ describe("web evaluation surface over the localhost routes", () => {
   it("shows every per-auditor and per-run metric with its denominator and identity segmentation", async () => {
     stubMetrics(metrics);
     render(<EvaluationView api={new EvaluationApi()} runId="run-1" />);
-    expect(await screen.findByText("segmented by model · 6 model activities · 2 scored auditors · ground truth available")).toBeTruthy();
+    expect(await screen.findByText("segmented by model · 6 model activity attempts · 2 scored auditors · ground truth available")).toBeTruthy();
     const table = screen.getByLabelText("per-auditor contribution");
     for (const column of ["recall", "precision", "false-positive rate", "unique true contribution", "marginal contribution", "repair frequency", "invalid-evidence rate", "refusal rate", "cost", "latency"]) expect(within(table).getByText(column)).toBeTruthy();
     const summary = screen.getByLabelText("per-run evaluation");

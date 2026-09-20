@@ -8,6 +8,7 @@ import { providerExecutionSchema } from "@arbitra/schemas/provider-execution.js"
 import type { RunConfig } from "@arbitra/schemas/config.js";
 import { frameUntrusted } from "@arbitra/security/framing";
 import { redactSecrets } from "@arbitra/security/redaction";
+import { boundModelHistory } from "./model-history.js";
 import { ModelActivities, type ModelActivityRequest } from "./model-activities.js";
 import { snapshotTools, SNAPSHOT_TOOLS } from "./snapshot-tools.js";
 import type { RepositorySnapshot } from "./repository.js";
@@ -28,12 +29,17 @@ export class ModelHarness {
     if (compiled !== undefined) await this.store.publish(`compiled-prompt-${key}`, { text: compiled.text, provenance: compiled.provenance, breakpoints: compiled.breakpoints }, input.activityId);
     const allowedPaths = input.sourcePaths === undefined ? null : new Set(input.sourcePaths);
     const toolSet = snapshotTools(allowedPaths === null ? this.snapshot : { ...this.snapshot, files: this.snapshot.files.filter(({ path }) => allowedPaths.has(path)) }, this.store, input.activityId);
-    const adapter = new CanonicalHarnessAdapter({ invoke: async (request, context) => this.activities.invoke({
-      ...input, activityId: `${input.activityId}/turn-${context.turn}`, messages: context.turn === 0 ? initialMessages : [
-        ...initialMessages, ...request.messages.slice(1),
-      ], tools: request.tools, responseMode: "harness_turn", schema: modelTurnResultSchema,
-      harnessIdentity: { id: CANONICAL_HARNESS_PROFILE.id, version: CANONICAL_HARNESS_PROFILE.version, policyHash: createHash("sha256").update(JSON.stringify({ policy: CANONICAL_HARNESS_PROFILE.policy, sourcePaths: input.sourcePaths === undefined ? null : [...input.sourcePaths].sort() })).digest("hex") },
-    }) });
+    const maximumContext = Math.min(execution.maximumContextTokens ?? 128_000, profile.limits.contextTokens ?? Number.POSITIVE_INFINITY);
+    const adapter = new CanonicalHarnessAdapter({ invoke: async (request, context) => {
+      const bounded = await boundModelHistory(initialMessages, context.turn === 0 ? [] : request.messages.slice(1),
+        (messages) => Buffer.byteLength(JSON.stringify({ messages, tools: request.tools }), "utf8") + execution.maximumOutputTokens <= maximumContext, toolSet.archive);
+      if (bounded.archiveRef !== null) await this.store.publish(`model-history-${key}-${context.turn}`, { activityId: input.activityId, turn: context.turn, archiveRef: bounded.archiveRef, archivedMessages: bounded.archivedMessages, maximumEstimatedTokens: maximumContext });
+      return this.activities.invoke({
+        ...input, activityId: `${input.activityId}/turn-${context.turn}`, messages: bounded.messages,
+        tools: request.tools, responseMode: "harness_turn", schema: modelTurnResultSchema,
+        harnessIdentity: { id: CANONICAL_HARNESS_PROFILE.id, version: CANONICAL_HARNESS_PROFILE.version, policyHash: createHash("sha256").update(JSON.stringify({ policy: CANONICAL_HARNESS_PROFILE.policy, sourcePaths: input.sourcePaths === undefined ? null : [...input.sourcePaths].sort(), historyPolicy: "archive-complete-exchanges-v1", maximumContext })).digest("hex") },
+      });
+    } });
     const prompt = compiled ?? { text: JSON.stringify(initialMessages), hash: createHash("sha256").update(JSON.stringify(initialMessages)).digest("hex") };
     const run = adapter.run({ id: input.activityId, modelId: profile.modelId, maximumOutputTokens: execution.maximumOutputTokens, maxToolTurns: profile.supports.tools ? profile.quirks.toolLoopLimit : 0 }, prompt, tools, toolSet.runtime, {
       mode: this.config.mode, round: discovery ? 0 : 1,

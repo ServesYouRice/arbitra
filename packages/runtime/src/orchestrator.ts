@@ -16,6 +16,8 @@ import { listRunIds, RunStore, type ArtifactDescriptor, type StoredRunContext } 
 import { ModelAuditPipeline, validateModelAudit } from "./model-pipeline.js";
 import type { TransportFactoryOptions } from "@arbitra/providers/registry.js";
 import type { PlanIR } from "@arbitra/schemas/plan.js";
+import { loadActivityTraces } from "@arbitra/persistence/trace.js";
+import { evaluationMetrics } from "./evaluation-metrics.js";
 
 export interface OrchestratorOptions {
   /** Where runs and saved configurations live. Defaults to `<repository>/.runs`. */
@@ -254,6 +256,15 @@ export class Orchestrator {
   }
 
   async runIds(): Promise<readonly string[]> { return listRunIds(this.#runsDirectory); }
+
+  async modelTraces(runId: string) {
+    await new RunStore(this.#runsDirectory, runId).loadContext();
+    return loadActivityTraces(this.#runsDirectory, runId);
+  }
+
+  async metrics(runId: string) {
+    return evaluationMetrics(new RunStore(this.#runsDirectory, runId), await this.modelTraces(runId));
+  }
 
   /** The shape both `report` and the CLI's human output read. */
   async summary(runId: string): Promise<unknown> {

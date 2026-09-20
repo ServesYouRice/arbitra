@@ -3,7 +3,7 @@ import { useState, type ReactElement } from "react";
 import { EvaluationApi, measured, useEvaluationMetrics, type ComparisonRefusal, type ComparisonResult, type EvaluationRow } from "./api.js";
 export interface EvaluationViewProps { readonly runId: string | null; readonly api?: EvaluationApi }
 const AUDITOR_COLUMNS: readonly (readonly [string, (row: EvaluationRow) => string])[] = Object.freeze([
-  ["model identity", (row) => row.modelIdentity],
+  ["model identity", (row) => [row.modelIdentity, row.protocolIdentity, row.harnessIdentity].filter(Boolean).join(" / ")],
   ["independence group", (row) => row.independenceGroup ?? "unavailable"],
   ["recall", (row) => measured(row.recall)],
   ["precision", (row) => measured(row.precision)],
@@ -23,10 +23,10 @@ export function EvaluationView({ runId, api = SHARED_EVALUATION_API }: Evaluatio
   if (state !== "loaded" || metrics === null) return <section aria-label="evaluation"><h2 className="panel-title">evaluation</h2><p className="state" data-state={state === "error" ? "degraded" : "unexamined"}>{state === "error" ? `metrics unavailable · ${error ?? "error"}` : `metrics ${state}`}</p></section>;
   return <section aria-label="evaluation" className="evaluation">
     <h2 className="panel-title">evaluation</h2>
-    <p className="evaluation-denominator">segmented by {metrics.segmentation.join(", ") || "nothing"} · {metrics.denominator.activityCount} model activities · {metrics.denominator.auditorCount} scored auditors · ground truth {metrics.denominator.groundTruthAvailable ? "available" : "unavailable"}</p>
+    <p className="evaluation-denominator">segmented by {metrics.segmentation.join(", ") || "nothing"} · {metrics.denominator.activityCount} model activity attempts · {metrics.denominator.auditorCount} scored auditors · ground truth {metrics.denominator.groundTruthAvailable ? "available" : "unavailable"}</p>
     <p className="state" data-state={metrics.independence.applicable ? "verified" : "unexamined"}>independence · {metrics.independence.applicable ? `applicable · groups ${metrics.independence.groups.join(", ")}` : `not applicable · ${metrics.independence.reason ?? "reason unavailable"}`}</p>
     <table aria-label="per-auditor contribution"><thead><tr>{AUDITOR_COLUMNS.map(([label]) => <th key={label} scope="col">{label}</th>)}</tr></thead>
-      <tbody>{metrics.rows.map((row) => <tr key={row.modelIdentity}>{AUDITOR_COLUMNS.map(([label, read]) => { const value = read(row); return <td className={value === "unavailable" ? "state" : undefined} data-state={value === "unavailable" ? "unexamined" : undefined} key={label}>{value}</td>; })}</tr>)}</tbody></table>
+      <tbody>{metrics.rows.map((row) => <tr key={JSON.stringify([row.modelIdentity, row.protocolIdentity, row.harnessIdentity])}>{AUDITOR_COLUMNS.map(([label, read]) => { const value = read(row); return <td className={value === "unavailable" ? "state" : undefined} data-state={value === "unavailable" ? "unexamined" : undefined} key={label}>{value}</td>; })}</tr>)}</tbody></table>
     <dl aria-label="per-run evaluation">
       <div><dt>consensus precision</dt><dd>{measured(metrics.consensusPrecision)}</dd></div>
       <div><dt>consensus recall</dt><dd>{measured(metrics.consensusRecall)}</dd></div>

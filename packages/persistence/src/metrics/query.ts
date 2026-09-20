@@ -41,17 +41,23 @@ export class MetricStore {
       const rows = database.prepare("SELECT trace_json FROM model_activity_traces ORDER BY run_id, activity_id, attempt").all();
       traces = rows.map((row) => JSON.parse(String((row as { trace_json: unknown }).trace_json)) as ModelActivityTraceRecord);
     } finally { database.close(); }
-    const selected = traces.filter((trace) => (query.runIds === undefined || query.runIds.includes(trace.runId))
-      && (query.outcomes === undefined || query.outcomes.includes(trace.outcome)));
-    guardAggregation(selected, query.groupBy);
-    const groups = new Map<string, ModelActivityTraceRecord[]>();
-    for (const trace of selected) {
-      const key = query.groupBy.map((dimension) => identity(dimension, trace)).join("\u001f");
-      const values = groups.get(key) ?? []; values.push(trace); groups.set(key, values);
-    }
-    return Object.freeze([...groups.entries()].map(([key, values]) => aggregate(query.groupBy, key, values))
-      .sort((left, right) => JSON.stringify(left.group).localeCompare(JSON.stringify(right.group))));
+    return queryActivityTraces(traces, query);
   }
+}
+
+/** Apply the same identity guard to authoritative journals and SQLite projections. */
+export function queryActivityTraces(traces: readonly ModelActivityTraceRecord[], query: MetricQuery): readonly MetricRow[] {
+  validateGroupBy(query.groupBy);
+  const selected = traces.filter((trace) => (query.runIds === undefined || query.runIds.includes(trace.runId))
+    && (query.outcomes === undefined || query.outcomes.includes(trace.outcome)));
+  guardAggregation(selected, query.groupBy);
+  const groups = new Map<string, ModelActivityTraceRecord[]>();
+  for (const trace of selected) {
+    const key = query.groupBy.map((dimension) => identity(dimension, trace)).join("\u001f");
+    const values = groups.get(key) ?? []; values.push(trace); groups.set(key, values);
+  }
+  return Object.freeze([...groups.entries()].map(([key, values]) => aggregate(query.groupBy, key, values))
+    .sort((left, right) => JSON.stringify(left.group).localeCompare(JSON.stringify(right.group))));
 }
 
 function guardAggregation(traces: readonly ModelActivityTraceRecord[], groupBy: readonly IdentityDimension[]): void {

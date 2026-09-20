@@ -70,7 +70,7 @@ duplicate IDs, invalid dependencies and cycles. Replay critic overrides change t
 Trace writes recover torn tails and serialize concurrent appends; atomic artifact writes
 retry transient Windows rename errors. Failed parallel work is settled before stage exit.
 
-The path now allocates discovery context but does not yet bound later-stage context, semantic clustering
+The path now allocates discovery and later-stage context but does not yet integrate semantic clustering
 escalation, executed verification tests or the complete anonymous peer-review operation
 protocol follow-up review (the model path now supports typed operations with anonymous
 source views, hidden own findings, policy-driven dispatch, round deltas and vote-flip
@@ -155,7 +155,78 @@ retain unique scoped IDs, coverage and validation across independent calls. Init
 CI passed; 28 focused tests passed after the final budget/coverage refinements.
 The production build also passed with those refinements included.
 
-Next integration work: bounded later-stage context and tool history; conflict-resolution
-follow-up; semantic clustering escalation;
+Later-stage context allocation now prioritizes cited source and import neighbors, falls
+back to line-numbered excerpts, and records full/excerpted/omitted paths. Required issues,
+evidence, conflicts and plan data remain intact; mandatory inputs that cannot fit fail
+explicitly. The maximumContextTokens policy applies across canonical model turns. Tool
+history compaction archives whole exchanges into activity-local readable artifacts,
+preserving the initial prompt and call/result pairing. Added a full mixed-provider run
+with a large unrelated file plus context, history and archive-isolation regressions;
+21 focused tests passed. Very large mandatory candidate/plan sets still need batching
+or hierarchical composition rather than dropping required records.
+Full CI and production build passed. A subsequent harness regression also passed,
+confirming overflowing history is archived and identical turns are reused after restart;
+affected-file lint passed with that test included.
+
+Next integration work: large mandatory-context batching;
 executed verification where permitted. Continue the remaining Feature/Testing, native
 harness, advisor, incremental audit, batch, canvas and trace-browser queue above.
+
+Semantic clustering now runs through the durable model harness after validation, using
+the verifier profile and a bounded maximumClusteringPairs policy (default 20; zero
+disables). Anonymous pair inputs retain source locations, model rationales are persisted,
+and unclassified pairs remain separate. Aggregate unknown usage/cost stays null while
+provider turn traces remain authoritative. Regression coverage exercises zero/one/three
+pair budgets and restart after downstream failure. Real-model clustering quality and
+embedding evaluation remain unmeasured.
+Validation: full CI, production build, and diff whitespace check passed; 84 runtime tests include bounded semantic escalation and restart reuse.
+
+Peer conflict follow-up is now composed before later review rounds. Each configured
+auditor sees anonymous proposal content and source evidence through a pinned protocol
+and durable calls. Applying one proposal or retaining originals requires unanimous
+evidence-backed agreement plus configured quorum and independence. Changed selections
+require newly cited evidence. Missing reviewers, disagreement and stale claims remain
+unresolved. Resolved proposals and votes are retained separately, followed by ordinary
+review of active claims. Added agreement, disagreement, identity, citation, conformity
+and restart regressions.
+Validation: full CI passed with the resolution path; after adding the pinned resolution protocol and restart regression, 19 focused tests, affected-file lint, and production build passed.
+
+Oversized peer-review candidate sets now partition against compiled context estimates.
+Every candidate gets one full review, with namespaced local output IDs per batch. All
+pairs separated by the partition receive merge-only follow-ups; their additional work
+shares durable token/rate budgets rather than silently dropping global merge coverage.
+Batch manifests and activity identities replay deterministically. Single candidates or
+pairs that cannot fit fail explicitly. Added complete candidate/pair coverage, oversized
+context, collision prevention, and downstream-failure restart regressions. Large
+mandatory planner/critic payloads and individually oversized candidates remain open.
+Validation: full CI (94 runtime tests), production build, and diff whitespace check passed after peer context batching.
+
+Critic context batching now reviews complete task/issue/validation records and every
+cross-batch pair while retaining global dependency, traceability, routing and scope
+metadata. Partial context is labelled, feedback IDs are scoped per batch, and actual
+critic batch counts are persisted. A composed regression resumes after the second batch
+fails without repeating the first, and confirms all feedback survives aggregation.
+Rejected mappings and duplicate critic item IDs now degrade coverage rather than allowing
+a silently clean review. Global metadata and individually oversized records still fail
+explicitly; large planner composition remains open.
+Validation: full CI passed for critic batching and degraded coverage; subsequent restart/feedback regressions passed (4 runtime and 18 workflow focused tests), affected-file lint and production build passed.
+
+The model audit runtime now performs at most one planner revision after a complete,
+non-degraded critic review reports blocking findings. The same planner profile returns
+a full Plan IR and an explicit resolution for every blocking item. Traceability, exact
+accepted issue coverage, audit mode and premise provenance are checked before a second
+independent critic review. That review receives the original feedback and proposed
+resolutions as untrusted claims. Remaining blocking feedback still fails the gate.
+Original plan/critique, revision output and final review remain durable; restart reuses
+completed work. Oversized revision inputs still need hierarchical planner composition.
+Validation: full CI (102 runtime tests), production build, and whitespace check passed. Revision regressions cover independent re-review, persistent blockers, invalid traceability, missing resolutions, and restart after a failed final review.
+
+Fixed the evaluation API placeholder that reported no provider activity for model runs.
+Metrics now read authoritative traces, using the same identity aggregation guard as
+SQLite queries. Model/harness/protocol segments remain separate in the UI. Counts,
+latency, known token/cost totals and weighted cache rates are operational measurements;
+ground-truth quality remains unavailable. Comparisons now load exact protocol/run
+selections, reject cross-protocol comparison and distinguish absent matching activity.
+Verification resolution includes deferred items. Added a composed mixed-provider
+metrics/comparison regression. The full trace browser remains open.
+Validation: full CI (103 runtime tests), production build, and diff whitespace check passed for trace-backed operational evaluation and protocol comparison.

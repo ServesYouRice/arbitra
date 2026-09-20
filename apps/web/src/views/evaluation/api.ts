@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
  * number here was produced by the guarded query layer, and a refusal arrives as a refusal.
  */
 export interface EvaluationRow {
+  readonly protocolIdentity?: string; readonly harnessIdentity?: string;
   readonly modelIdentity: string; readonly activityCount: number; readonly successCount: number; readonly refusalCount: number; readonly errorCount: number;
   readonly cacheHitRate: number | null; readonly repairCount: number;
   readonly recall: number | null; readonly precision: number | null; readonly falsePositiveRate: number | null;

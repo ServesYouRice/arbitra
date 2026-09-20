@@ -1,0 +1,9 @@
+{
+  "author": "Arbitra",
+  "date": "2026-09-19",
+  "rationale": "Bounded source-grounded classification of ambiguous finding pairs.",
+  "compatibilityNotes": [
+    "Model clustering result version 1",
+    "Canonical harness version 1"
+  ]
+}

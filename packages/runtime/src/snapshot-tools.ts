@@ -15,7 +15,7 @@ export const SNAPSHOT_TOOLS: readonly HarnessToolDefinition[] = [
   { name: "artifact_read", description: "Read only a tool-output artifact produced by this activity.", inputSchema: { type: "object", properties: { ref: { type: "string" } }, required: ["ref"], additionalProperties: false } },
 ];
 
-export function snapshotTools(snapshot: RepositorySnapshot, store: RunStore, activityId: string, maximumBytes = 128_000): { runtime: HarnessToolRuntime; footprints: FootprintRecorder } {
+export function snapshotTools(snapshot: RepositorySnapshot, store: RunStore, activityId: string, maximumBytes = 128_000): { runtime: HarnessToolRuntime; footprints: FootprintRecorder; archive(content: string): Promise<string> } {
   const byPath = new Map(snapshot.files.map((file) => [file.path, file]));
   const selected = (scope?: string) => snapshot.files.filter(({ path }) => scope === undefined || scope === "." || path === scope || path.startsWith(`${scope.replace(/\/$/u, "")}/`));
   const read: ReadRepository["readFile"] = async (path) => {
@@ -43,20 +43,21 @@ export function snapshotTools(snapshot: RepositorySnapshot, store: RunStore, act
   };
   const footprints = new FootprintRecorder();
   const allowedArtifacts = new Set<string>();
+  const archive = async (content: string): Promise<string> => {
+    const digest = createHash("sha256").update(activityId).update("\0").update(content).digest("hex");
+    const artifact = await store.publish(`tool-output-${digest}`, { content }, activityId);
+    allowedArtifacts.add(artifact.artifactId);
+    return artifact.artifactId;
+  };
   const registry = new ToolRegistry({ repository, footprints, nodeBudgetBytes: maximumBytes, defaultCallBytes: Math.min(8_192, maximumBytes), artifacts: {
-    async put(content) {
-      const digest = createHash("sha256").update(activityId).update("\0").update(content).digest("hex");
-      const artifact = await store.publish(`tool-output-${digest}`, { content }, activityId);
-      allowedArtifacts.add(artifact.artifactId);
-      return artifact.artifactId;
-    },
+    put: archive,
     async read(ref) {
       if (!allowedArtifacts.has(ref)) throw new Error("ARTIFACT_OUTSIDE_ACTIVITY_CONTEXT");
       const value = JSON.parse((await store.readArtifact(ref)).content) as { content: string };
       return value.content;
     },
   } });
-  return { footprints, runtime: { async invoke(name, args, context) {
+  return { footprints, archive, runtime: { async invoke(name, args, context) {
     if (!Object.hasOwn(names, name)) return { ok: false, summary: "Tool unavailable", content: "Only declared snapshot tools are available.", artifact: null, truncated: false, trust: "untrusted", error: { code: "TOOL_NOT_ALLOWED", message: "Only declared snapshot tools are available." } };
     return registry.invoke(names[name as keyof typeof names], args, { nodeId: context.nodeId, protect: context.protect });
   } } };
