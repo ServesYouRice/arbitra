@@ -1,3 +1,4 @@
+import { requirementsDraftSchema, requirementsContractSchema } from "@arbitra/schemas/requirements.js";
 import type {
   RequirementAcceptance,
   RequirementAmbiguity,
@@ -35,6 +36,7 @@ export interface RequirementsSchema {
 
 export interface RequirementsArtifactStore {
   persist(kind: "requirements-contract", contract: RequirementsContract): Promise<{ readonly artifactId: string }>;
+  load?(artifactId: string): Promise<unknown>;
 }
 
 export interface RequirementsNodeConfig {
@@ -56,20 +58,44 @@ export function requirementsNode(config: RequirementsNodeConfig) {
   if (config.protocolVersion.trim() === "" || !/^[a-f0-9]{64}$/u.test(config.protocolHash)) {
     throw new Error("REQUIREMENTS_PROTOCOL_NOT_PINNED");
   }
+  const complete = async (contract: RequirementsContract, modelCalls: number) => {
+    requirementsContractSchema.parse(contract);
+    const artifact = await config.artifacts.persist("requirements-contract", contract);
+    const accepted = new Set(contract.decision.acceptedDefaults.map(({ ambiguityId }) => ambiguityId));
+    const checkpoint = contract.decision.mode === "interactive"
+      ? contract.ambiguities.filter(({ blastRadius, id }) => blastRadius === "high" && !accepted.has(id)) : [];
+    return Object.freeze({ contract, artifact, modelCalls, checkpoint: checkpoint.length === 0 ? null : Object.freeze({
+      kind: "high_impact_ambiguities" as const, ambiguityIds: Object.freeze(checkpoint.map(({ id }) => id)),
+    }) });
+  };
   return Object.freeze({
+    async resume(input: { readonly artifactId: string; readonly operatorAcceptedDefaults: readonly string[] }) {
+      if (config.mode !== "interactive") throw new Error("REQUIREMENTS_CHECKPOINT_NOT_INTERACTIVE");
+      if (config.artifacts.load === undefined) throw new Error("REQUIREMENTS_ARTIFACT_LOAD_REQUIRED");
+      const saved = requirementsContractSchema.parse(await config.artifacts.load(input.artifactId));
+      if (saved.decision.mode !== "interactive") throw new Error("REQUIREMENTS_CHECKPOINT_NOT_INTERACTIVE");
+      const accepted = new Set(input.operatorAcceptedDefaults);
+      if (accepted.size !== input.operatorAcceptedDefaults.length || [...accepted].some((id) => !saved.ambiguities.some((ambiguity) => ambiguity.id === id))) throw new Error("INVALID_OPERATOR_ACCEPTED_DEFAULTS");
+      for (const decision of saved.decision.acceptedDefaults) accepted.add(decision.ambiguityId);
+      const contract: RequirementsContract = Object.freeze({ ...saved,
+        assumptions: freezeEntries(saved.assumptions), ambiguities: freezeEntries(saved.ambiguities),
+        outOfScope: Object.freeze([...saved.outOfScope]), acceptance: freezeEntries(saved.acceptance),
+        decision: Object.freeze({ mode: "interactive" as const, acceptedDefaults: freezeEntries(saved.ambiguities.filter(({ id }) => accepted.has(id)).map(({ id, proposedDefault }) => ({ ambiguityId: id, value: proposedDefault, acceptedBy: "operator" as const }))) }),
+      });
+      return complete(contract, 0);
+    },
     async run(input: RequirementsNodeInput) {
       if (input.featureRequest.trim() === "") throw new Error("FEATURE_REQUEST_REQUIRED");
-      const draft = config.schema.parse(await config.runtime.generate(Object.freeze({
+      if ((input.operatorAcceptedDefaults?.length ?? 0) > 0) throw new Error("REQUIREMENTS_APPROVAL_REQUIRES_SAVED_CONTRACT");
+      const draft = requirementsDraftSchema.parse(config.schema.parse(await config.runtime.generate(Object.freeze({
         featureRequest: input.featureRequest,
         repositorySummary: input.repositorySummary,
         protocol: Object.freeze({ protocolId: "feature-requirements" as const, protocolVersion: config.protocolVersion, protocolHash: config.protocolHash }),
         capability: "balanced" as const,
         outputSchema: "RequirementsContractDraft" as const,
-      })));
-      validateDraft(draft);
-      const operatorAccepted = new Set(input.operatorAcceptedDefaults ?? []);
+      }))));
       const acceptedDefaults = draft.ambiguities
-        .filter((ambiguity) => config.mode === "automatic" || operatorAccepted.has(ambiguity.id))
+        .filter(() => config.mode === "automatic")
         .map((ambiguity) => Object.freeze({
           ambiguityId: ambiguity.id,
           value: ambiguity.proposedDefault,
@@ -84,31 +110,11 @@ export function requirementsNode(config: RequirementsNodeConfig) {
         acceptance: freezeEntries(draft.acceptance),
         decision: Object.freeze({ mode: config.mode, acceptedDefaults: Object.freeze(acceptedDefaults) }),
       });
-      const artifact = await config.artifacts.persist("requirements-contract", contract);
-      const checkpoint = config.mode === "interactive"
-        ? draft.ambiguities.filter(({ blastRadius, id }) => blastRadius === "high" && !operatorAccepted.has(id))
-        : [];
-      return Object.freeze({
-        contract,
-        artifact,
-        modelCalls: 1 as const,
-        checkpoint: checkpoint.length === 0 ? null : Object.freeze({
-          kind: "high_impact_ambiguities" as const,
-          ambiguityIds: Object.freeze(checkpoint.map(({ id }) => id)),
-        }),
-      });
+      return complete(contract, 1);
     },
   });
-}
-
-function validateDraft(draft: RequirementsModelOutput): void {
-  if (draft.assumptions.length === 0 || draft.acceptance.length === 0) throw new Error("INCOMPLETE_REQUIREMENTS_CONTRACT");
-  const ids = [...draft.assumptions, ...draft.ambiguities, ...draft.acceptance].map(({ id }) => id);
-  if (ids.some((id) => id.trim() === "") || new Set(ids).size !== ids.length) throw new Error("INVALID_REQUIREMENTS_IDENTIFIERS");
-  for (const ambiguity of draft.ambiguities) if (ambiguity.proposedDefault.trim() === "") throw new Error(`MISSING_PROPOSED_DEFAULT:${ambiguity.id}`);
 }
 
 function freezeEntries<T extends object>(entries: readonly T[]): readonly Readonly<T>[] {
   return Object.freeze(entries.map((entry) => Object.freeze({ ...entry })));
 }
-

@@ -14,9 +14,11 @@ import { canonicalise, converge, critique, discover, plan, preflight, readStage,
 import { snapshotRepository, type RepositorySnapshot } from "./repository.js";
 import { listRunIds, RunStore, type ArtifactDescriptor, type StoredRunContext } from "./run-store.js";
 import { ModelAuditPipeline, validateModelAudit } from "./model-pipeline.js";
+import type { TestSandbox } from "./test-sandbox.js";
 import type { TransportFactoryOptions } from "@arbitra/providers/registry.js";
 import type { PlanIR } from "@arbitra/schemas/plan.js";
 import { loadActivityTraces } from "@arbitra/persistence/trace.js";
+import { traceEntry, tracePage } from "./trace-browser.js";
 import { evaluationMetrics } from "./evaluation-metrics.js";
 
 export interface OrchestratorOptions {
@@ -25,6 +27,7 @@ export interface OrchestratorOptions {
   readonly repository?: string;
   readonly newRunId?: () => string;
   readonly providerOptions?: TransportFactoryOptions;
+  readonly testSandbox?: TestSandbox;
 }
 
 export interface RunResource {
@@ -51,6 +54,7 @@ export class Orchestrator {
   readonly #live = new Map<string, RunHandle>();
   readonly #resuming = new Set<string>();
   readonly #providerOptions: TransportFactoryOptions;
+  readonly #testSandbox: TestSandbox | undefined;
 
   constructor(options: OrchestratorOptions = {}) {
     this.repository = resolve(options.repository ?? process.cwd());
@@ -60,6 +64,7 @@ export class Orchestrator {
     // arbitra-determinism: allow -- run identity is minted at the composition boundary
     this.#newRunId = options.newRunId ?? ((): string => `run-${randomUUID()}`);
     this.#providerOptions = options.providerOptions ?? {};
+    this.#testSandbox = options.testSandbox;
   }
 
   validate(value: unknown): { readonly valid: boolean; readonly errors?: readonly string[] } {
@@ -258,8 +263,25 @@ export class Orchestrator {
   async runIds(): Promise<readonly string[]> { return listRunIds(this.#runsDirectory); }
 
   async modelTraces(runId: string) {
-    await new RunStore(this.#runsDirectory, runId).loadContext();
+    try { await new RunStore(this.#runsDirectory, runId).loadContext(); }
+    catch (error) {
+      if (error instanceof Error && error.message === `RUN_CONTEXT_ABSENT:${runId}`) throw Object.assign(error, { statusCode: 404 });
+      throw error;
+    }
     return loadActivityTraces(this.#runsDirectory, runId);
+  }
+
+  async traces(runId: string, query: unknown = {}) { return tracePage(await this.modelTraces(runId), query); }
+
+  async trace(runId: string, traceId: string) { return traceEntry(await this.modelTraces(runId), traceId); }
+
+  async traceArtifact(runId: string, traceId: string, slot: string) {
+    const { trace } = await this.trace(runId, traceId);
+    const input = /^input-(0|[1-9][0-9]*)$/u.exec(slot);
+    const reference = slot === "output" ? trace.outputArtifactRef : input === null ? undefined : trace.inputArtifactRefs[Number(input[1])];
+    if (reference == null) throw Object.assign(new Error("TRACE_ARTIFACT_ABSENT"), { statusCode: 404 });
+    const value = await new RunStore(this.#runsDirectory, runId).artifacts.getByRelativePath<unknown>(reference);
+    return { reference, content: JSON.stringify(value, null, 2), redacted: true as const };
   }
 
   async metrics(runId: string) {
@@ -296,6 +318,10 @@ export class Orchestrator {
     ];
     const store = new RunStore(this.#runsDirectory, runId);
     const artifacts = await store.listArtifacts();
+    if (artifacts.some(({ kind }) => kind === "plan-ir")) {
+      const plan = await readStage<{ unresolvedQuestions: readonly { blocking: boolean }[] }>(store, "plan-ir");
+      if (plan.unresolvedQuestions.some(({ blocking }) => blocking)) reasons.push("blocking_plan_questions");
+    }
     if (artifacts.some(({ kind }) => kind === "critic-feedback")) {
       const feedback = await readStage<{ items: readonly { blocking: boolean }[] }>(store, "critic-feedback");
       if (feedback.items.some(({ blocking }) => blocking)) reasons.push("blocking_critic_feedback");
@@ -308,7 +334,7 @@ export class Orchestrator {
   }
 
   #runner(store: RunStore, context: AuditContext, reusedFindings?: Readonly<Record<string, readonly AuditFinding[]>>, modelConfiguration?: RunConfig): WorkflowRunner {
-    const models = modelConfiguration === undefined ? undefined : new ModelAuditPipeline(context, this.configurations.validate(modelConfiguration), this.#providerOptions);
+    const models = modelConfiguration === undefined ? undefined : new ModelAuditPipeline(context, this.configurations.validate(modelConfiguration), this.#providerOptions, this.#testSandbox);
     // Stages hand off through the artifact store rather than through closure state, so a
     // resumed run can start at any node with every earlier stage's output still readable.
     return new WorkflowRunner({

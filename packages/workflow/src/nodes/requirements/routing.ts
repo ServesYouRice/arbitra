@@ -1,4 +1,5 @@
 import type { FeaturePreflight, IntensityRecommendation, RequirementsContract } from "./types.js";
+import { featurePreflightSchema } from "@arbitra/schemas/requirements.js";
 
 export function featureComplexityGate(requirements: RequirementsContract, preflight: FeaturePreflight): IntensityRecommendation {
   validatePreflight(preflight);
@@ -59,7 +60,5 @@ export function validateFeatureTaskTraceability(
 }
 
 function validatePreflight(preflight: FeaturePreflight): void {
-  for (const [key, value] of Object.entries(preflight)) {
-    if (typeof value === "number" && (!Number.isFinite(value) || value < 0)) throw new Error(`INVALID_FEATURE_PREFLIGHT:${key}`);
-  }
+  if (!featurePreflightSchema.safeParse(preflight).success) throw new Error("INVALID_FEATURE_PREFLIGHT");
 }

@@ -4,6 +4,11 @@ import { plannerNode, type PlannerInput, type PlannerRequest, type PlannerSchema
 import { validateTraceability, type TraceablePlan } from "../../src/nodes/planner/traceability.js";
 
 describe("single coherent Planner", () => {
+  it("reports staged logical model calls without equating them with provider attempts", async () => {
+    const node = plannerNode({ protocolVersion: "1.0.0", protocolHash: "a".repeat(64), schema: await planSchema(), runtime: { logicalModelCalls: 7, async plan() { return plan(); } } });
+    expect((await node.run(input())).modelCalls).toBe(7);
+  });
+
   it("receives only bounded inputs, preserves taint and emits unresolved questions before tasks", async () => {
     const requests: PlannerRequest[] = []; const raw = plan(); const node = plannerNode({ protocolVersion: "1.0.0", protocolHash: "a".repeat(64), schema: await planSchema(), runtime: { async plan(request) { requests.push(request); return raw; } } });
     const result = await node.run(input());

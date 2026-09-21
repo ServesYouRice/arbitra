@@ -4,28 +4,9 @@ import { join } from "node:path";
 import { canonicalJson } from "./canonical-json.js";
 import { DEFAULT_FSYNC_POLICY, fsync, type FsyncPolicy, type Fsyncable } from "./fsync.js";
 
-export type TraceOutcome = "success" | "refusal" | "error" | "cancelled";
-export interface ModelActivityTraceRecord {
-  readonly schemaVersion: 1;
-  readonly runId: string; readonly nodeId: string; readonly activityId: string; readonly attempt: number;
-  readonly modelId: string; readonly modelProfileVersion: string;
-  readonly transportId: string; readonly transportVersion: string;
-  readonly harnessId: string; readonly harnessVersion: string; readonly harnessPolicyHash: string;
-  readonly protocolId: string; readonly protocolVersion: string; readonly protocolHash: string;
-  readonly promptHash: string; readonly resolvedProviderConfigHash: string;
-  readonly capability: "frontier" | "balanced" | "fast";
-  readonly effortRequested: "low" | "medium" | "high" | "xhigh" | null;
-  readonly effortResolved: "low" | "medium" | "high" | "xhigh" | null;
-  readonly inputArtifactRefs: readonly string[]; readonly outputArtifactRef: string | null;
-  readonly durationMs: number;
-  readonly tokenUsage: { readonly inputTokens: number | null; readonly outputTokens: number | null;
-    readonly cacheReadTokens: number | null; readonly cacheWriteTokens: number | null } | null;
-  readonly costUsd: number | null; readonly cacheHitRate: number | null;
-  readonly toolCallCount: number; readonly toolCallErrors: number; readonly repairCount: number;
-  readonly refusal: string | null; readonly error: { readonly code: string; readonly message: string } | null;
-  readonly continuationState: { readonly hash: string; readonly byteLength: number; readonly scope: "session" } | null;
-  readonly advisorTokens: number | null; readonly outcome: TraceOutcome;
-}
+import type { ModelActivityTraceRecord } from "@arbitra/schemas/model-trace.js";
+export type { ModelActivityTraceRecord, TraceOutcome } from "@arbitra/schemas/model-trace.js";
+
 export interface ModelActivityTerminalEventLike { readonly type: "model_activity_terminal"; readonly trace: ModelActivityTraceRecord; }
 interface TraceHandle extends Fsyncable { write(data: Uint8Array): Promise<unknown>; close(): Promise<void>; }
 export interface TraceFileSystem {
@@ -76,7 +57,9 @@ export async function loadActivityTraces(runsDirectory: string, runId: string): 
   return Object.freeze(lines.map((line, index) => {
     let value: unknown;
     try { value = JSON.parse(line) as unknown; } catch (error) { throw new SyntaxError(`Invalid model trace JSON at line ${index + 1}`, { cause: error }); }
-    validateTrace(value); return Object.freeze(value);
+    validateTrace(value);
+    if (value.runId !== runId) throw new Error("TRACE_RUN_ID_MISMATCH");
+    return Object.freeze(value);
   }));
 }
 

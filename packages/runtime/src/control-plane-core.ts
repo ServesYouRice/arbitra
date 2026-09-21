@@ -59,6 +59,12 @@ export function controlPlaneCore(orchestrator: Orchestrator) {
       artifact: (id: string, artifactId: string) => orchestrator.artifact(id, artifactId),
     },
 
+    traces: {
+      list: (runId: string, query: unknown) => orchestrator.traces(runId, query),
+      detail: (runId: string, traceId: string) => orchestrator.trace(runId, traceId),
+      artifact: (runId: string, traceId: string, slot: string) => orchestrator.traceArtifact(runId, traceId, slot),
+    },
+
     evaluation: {
       metrics: (runId: string) => orchestrator.metrics(runId),
       compare: async (request: { readonly a: unknown; readonly b: unknown }) => {

@@ -88,6 +88,33 @@ rationale rather than an accident.
 
 ## Command policy
 
+The `packages/runtime/src/test-sandbox.ts` adapter prepares a disposable
+source snapshot and invokes a local Linux Docker engine with a digest-pinned image,
+no image pulls, no network, read-only mounts, an unprivileged user, dropped capabilities,
+and CPU, memory, process, time and output limits. Commands use structured executable
+and argument allowlists; host shell evaluation is disabled. An empty Docker CLI
+configuration and a restricted environment exclude operator Docker contexts and credentials.
+The restrictions use Docker's documented [container run options](https://docs.docker.com/reference/cli/docker/container/run/).
+
+Audit workflows opt in through `verification.execution`. The coordinator in
+`packages/runtime/src/verification-execution.ts` commits a reservation and resource
+identity before dispatch, enforces `maximumRuns` across candidates and resumes, and
+publishes redacted results for the verification ladder and model. Completed results
+are reused; interrupted reservations consume budget and are not retried. Testing
+workflows remain unavailable. The snapshot includes source files only,
+without repository manifests or installed dependencies. Check dependencies must already
+exist in the pinned image. An exit code is a process result, not proof of a finding.
+
+Normal completion, cancellation and timeout independently force-remove the container
+and its anonymous volumes before removing the staged files. Cleanup failure stops the
+adapter; persistent failure retains staged files. Abrupt host-process termination can
+leave a container and staging directory behind. On resume, the coordinator removes
+saved unfinished containers before dispatching another check. Recovery uses a fresh
+Docker configuration and validates the saved temporary directory before deletion.
+Failed recovery stops verification. Tests cover the process boundary with an injected
+Docker CLI and real bounded Node subprocesses; live Docker validation requires a
+running Linux engine.
+
 `packages/security/src/command-policy.ts` classifies every command a plan proposes
 (`classifyCommand`, `classifyPlannedCommand`) into `derived_repository_script`,
 `allowlisted` or `requires_approval`, and `assertCommandExecutable` throws

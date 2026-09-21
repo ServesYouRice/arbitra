@@ -4,6 +4,7 @@ import { redactSecrets } from "@arbitra/security/redaction";
 import { CheckpointRegistry } from "./checkpoints.js";
 import { registerControlPlaneRoutes, type ControlPlaneCore, type HttpSchemas, type RouteServer } from "./routes/control-plane.js";
 import { registerEvaluationRoutes, type EvaluationCore } from "./routes/evaluation.js";
+import { registerTraceRoutes, type TraceCore } from "./routes/traces.js";
 
 export const DEFAULT_SERVER_HOST = "127.0.0.1" as const;
 export const DEFAULT_SERVER_PORT = 4178 as const;
@@ -17,7 +18,7 @@ export function assertLoopbackHost(host: string): LoopbackHost {
 
 export interface ListeningRouteServer extends RouteServer { listen(options: { host: string; port: number }): Promise<unknown> }
 /** The control plane plus, when the run store exposes metrics, the evaluation surface over the same core. */
-export type ServerCore = ControlPlaneCore & { readonly evaluation?: EvaluationCore };
+export type ServerCore = ControlPlaneCore & { readonly evaluation?: EvaluationCore; readonly traces?: TraceCore };
 export function buildServer(core: ServerCore, schemas: HttpSchemas = HTTP_ROUTE_SCHEMAS): FastifyInstance {
   const app = Fastify({ logger: false });
   app.addHook("onRequest", async (request, reply) => {
@@ -44,6 +45,7 @@ export async function startServer(server: ListeningRouteServer, core: ServerCore
 function registerAll(server: RouteServer, core: ServerCore, schemas: HttpSchemas): void {
   registerControlPlaneRoutes(server, core, new CheckpointRegistry(), schemas);
   if (core.evaluation !== undefined) registerEvaluationRoutes(server, core.evaluation, schemas);
+  if (core.traces !== undefined) registerTraceRoutes(server, core.traces, schemas);
 }
 
 function localUrl(value: string): boolean {

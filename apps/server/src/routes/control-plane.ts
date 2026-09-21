@@ -3,7 +3,7 @@ import { redactSecrets } from "@arbitra/security/redaction";
 import type { CheckpointRegistry } from "../checkpoints.js";
 import { streamSse, type SseReply } from "../sse.js";
 
-type Handler = (request: { body?: unknown; params?: Record<string, string> }, reply: unknown) => Promise<unknown> | unknown;
+type Handler = (request: { body?: unknown; params?: Record<string, string>; query?: unknown }, reply: unknown) => Promise<unknown> | unknown;
 export interface RouteServer { route(options: { method: string; url: string; schema: unknown; handler: Handler }): void }
 export interface HttpSchemas { readonly [route: string]: unknown }
 export interface ControlPlaneCore {

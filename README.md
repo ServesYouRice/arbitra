@@ -50,7 +50,10 @@ pnpm --filter @arbitra/web dev              # UI on 127.0.0.1:4173, proxied to t
 ```
 
 With the control plane up, the UI is addressable: `?run=<id>` opens a recorded run and
-`?view=graph|issues|plan|evaluation` opens a column-two view directly.
+`?view=graph|issues|plan|evaluation|traces` opens a column-two view directly.
+The trace browser filters recorded model attempts by node, model, protocol, outcome
+and activity text. Select an attempt to inspect its identity, usage, failures, and
+immutable input/output artifacts. Missing usage and cost remain labelled unavailable.
 
 **With `models: {}`, the auditors are deterministic detectors.**
 They produce real, evidence-grounded findings — every one cites a repository path and line

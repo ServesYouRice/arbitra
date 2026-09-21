@@ -21,9 +21,10 @@ const GraphView = lazy(async () => ({ default: (await import("../columns/graph/G
 const IssueBoardView = lazy(async () => ({ default: (await import("../views/issue-board/IssueBoardView.js")).IssueBoardView }));
 const PlanView = lazy(async () => ({ default: (await import("../views/plan/PlanView.js")).PlanView }));
 const EvaluationView = lazy(async () => ({ default: (await import("../views/evaluation/EvaluationView.js")).EvaluationView }));
+const TraceView = lazy(async () => ({ default: (await import("../views/traces/TraceView.js")).TraceView }));
 export const INSPECTOR_OVERLAY_QUERY = "(max-width: 1180px)";
 /** Column two is the only fluid column, so the run-level views share it with the graph. */
-export const WORKSPACE_VIEWS = Object.freeze({ graph: "workflow graph", issues: "issue board", plan: "plan", evaluation: "evaluation" });
+export const WORKSPACE_VIEWS = Object.freeze({ graph: "workflow graph", issues: "issue board", plan: "plan", evaluation: "evaluation", traces: "traces" });
 export type WorkspaceView = keyof typeof WORKSPACE_VIEWS;
 export interface ArbitraWorkspaceProps { readonly api?: ConfigurationApi; readonly runApi?: RunApi; readonly artifactApi?: ArtifactApi; readonly evaluationApi?: EvaluationApi; readonly runId: string | null; readonly workflow: WorkflowJson; readonly models: readonly ModelCardData[]; readonly defaultConfiguration: Record<string, unknown>; readonly configurationId?: string | null; readonly repository?: string | null; readonly initialView?: WorkspaceView }
 export function ArbitraWorkspace({ api, runApi, artifactApi, evaluationApi, runId, workflow, models, defaultConfiguration, configurationId = null, repository = null, initialView = "graph" }: ArbitraWorkspaceProps): ReactElement {
@@ -57,6 +58,7 @@ export function ArbitraWorkspace({ api, runApi, artifactApi, evaluationApi, runI
       {view === "graph" ? <GraphView workflowJson={displayedWorkflow} runEvents={events} modelAliases={models.map(({ alias }) => alias)} assignments={assignments} onAssign={(nodeId, alias) => setAssignments((current) => ({ ...current, [nodeId]: alias }))} onSelect={setNode} />
         : view === "issues" ? <IssueBoardView api={artifactStore} runId={activeRunId} selectedFindingId={finding} onSelectFinding={setFinding} refreshKey={events.length} />
         : view === "plan" ? <PlanView api={artifactStore} runId={activeRunId} refreshKey={events.length} />
+        : view === "traces" ? <TraceView runId={activeRunId} refreshKey={events.length} />
         : <EvaluationView api={metricsApi} runId={activeRunId} />}
     </Suspense>
   </>;

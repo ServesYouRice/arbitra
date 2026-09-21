@@ -3,6 +3,7 @@ import { ActivityRuntime, type ActivityArtifactStorePort } from "../activity.js"
 import { RunCancellation } from "./cancellation.js";
 import type { RunEvent, RunnerJournalPort, RunnerJournalRecord, RunState } from "./events.js";
 import { projectRunState, projectRunner } from "./state-projection.js";
+import { RunCheckpointError } from "./suspension.js";
 
 export const DEFAULT_CONCURRENCY_LIMIT = 4;
 
@@ -144,7 +145,7 @@ export class WorkflowRunner {
           await append({ t: "run_transition", runId, state: "CANCELLED", reason: cancellation.reason ?? "Cancelled" }, "expensive");
           return "CANCELLED";
         }
-        const state = error instanceof Error && "state" in error && (error.state === "SUSPENDED_BUDGET" || error.state === "SUSPENDED_RATE_LIMIT") ? error.state : "FAILED";
+        const state = error instanceof RunCheckpointError ? "BLOCKED" : error instanceof Error && "state" in error && (error.state === "SUSPENDED_BUDGET" || error.state === "SUSPENDED_RATE_LIMIT") ? error.state : "FAILED";
         await append({ t: "run_transition", runId, state, reason: describeError(error) }, "expensive");
         return state;
       } finally {
