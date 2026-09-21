@@ -110,6 +110,15 @@ export class ArtifactStore {
     return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as T;
   }
 
+  /** Resolve a persisted trace reference without trusting it as a filesystem path. */
+  async getByRelativePath<T>(relativePath: string): Promise<T> {
+    const match = /^artifacts\/([a-f0-9]{64})\.([a-z0-9][a-z0-9_-]*)$/u.exec(relativePath);
+    if (match === null) throw new TypeError("INVALID_ARTIFACT_REFERENCE");
+    const bytes = await this.#fileSystem.readFile(join(this.#artifactDirectory, `${match[1]}.${match[2]}`));
+    if (sha256(bytes) !== match[1]) throw new Error("ARTIFACT_CONTENT_ADDRESS_MISMATCH");
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as T;
+  }
+
   async #assertExistingArtifact(path: string, expected: Uint8Array): Promise<void> {
     const existing = await this.#fileSystem.readFile(path);
     if (existing.byteLength !== expected.byteLength || sha256(existing) !== sha256(expected)) {

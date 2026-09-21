@@ -1,0 +1,54 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, expect, it } from "vitest";
+import { RunStore } from "../src/run-store.js";
+import { RequirementsCheckpoint } from "../src/requirements-checkpoint.js";
+
+const roots: string[] = [];
+afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+
+it("persists checkpoint versions, resumes without generation and rejects stale concurrent approval", async () => {
+  const root = await mkdtemp(join(tmpdir(), "requirements-checkpoint-test-")); roots.push(root);
+  let calls = 0;
+  const config = { mode: "interactive" as const, protocolVersion: "1.0.0", protocolHash: "a".repeat(64), runtime: { async generate() {
+    calls += 1;
+    return { assumptions: [{ id: "assumption", statement: "Keep compatibility", confidence: "high" }], ambiguities: ["one", "two"].map((id) => ({ id, question: "Migrate?", proposedDefault: `Keep ${id}`, blastRadius: "high" })), acceptance: [{ id: "acceptance", assertion: "Feature works" }], outOfScope: [] };
+  } } };
+  const store = new RunStore(root, "run");
+  const first = new RequirementsCheckpoint(store, config);
+  const original = await first.open({ featureRequest: "Feature", repositorySummary: {} });
+  await expect(first.requireResolved()).rejects.toMatchObject({ state: "BLOCKED", artifactId: original.artifactId });
+  const restarted = new RequirementsCheckpoint(new RunStore(root, "run"), config);
+  expect(await restarted.open({ featureRequest: "Feature", repositorySummary: {} })).toEqual(original);
+  const approvals = await Promise.allSettled([restarted.approve(original.artifactId, ["one"]), restarted.approve(original.artifactId, ["two"])]);
+  expect(approvals[0]?.status).toBe("fulfilled"); expect(approvals[1]).toMatchObject({ status: "rejected", reason: { message: "STALE_REQUIREMENTS_CHECKPOINT" } });
+  const partial = await restarted.current();
+  if (partial === null) throw new Error("CHECKPOINT_ABSENT");
+  expect(partial.pendingAmbiguityIds).toEqual(["two"]);
+  await restarted.approve(partial.artifactId, ["two"]);
+  expect((await restarted.requireResolved()).decision.acceptedDefaults).toHaveLength(2);
+  expect(JSON.parse((await store.readArtifact(original.artifactId)).content).decision.acceptedDefaults).toEqual([]);
+  expect(calls).toBe(1);
+  const approved = await restarted.current();
+  if (approved === null) throw new Error("CHECKPOINT_ABSENT");
+  const revisedDraft = { assumptions: approved.contract.assumptions, ambiguities: approved.contract.ambiguities.map((ambiguity) => ({ ...ambiguity, proposedDefault: `Revised ${ambiguity.id}` })), acceptance: approved.contract.acceptance, outOfScope: approved.contract.outOfScope };
+  const revised = await restarted.revise(approved.artifactId, revisedDraft);
+  expect(revised.contract.featureRequest).toBe("Feature");
+  expect(revised.contract.decision.acceptedDefaults).toEqual([]);
+  expect(revised.pendingAmbiguityIds).toEqual(["one", "two"]);
+  await expect(restarted.requireResolved()).rejects.toMatchObject({ state: "BLOCKED" });
+  await expect(restarted.approve(approved.artifactId, ["one", "two"])).rejects.toThrow("STALE_REQUIREMENTS_CHECKPOINT");
+  expect(await restarted.revise(revised.artifactId, revisedDraft)).toEqual(revised);
+  const originalDraft = { assumptions: original.contract.assumptions, ambiguities: original.contract.ambiguities, acceptance: original.contract.acceptance, outOfScope: original.contract.outOfScope };
+  const reverted = await restarted.revise(revised.artifactId, originalDraft);
+  expect(reverted.artifactId).not.toBe(original.artifactId);
+  await expect(restarted.approve(original.artifactId, ["one"])).rejects.toThrow("STALE_REQUIREMENTS_CHECKPOINT");
+  expect((await new RequirementsCheckpoint(new RunStore(root, "run"), config).current())?.artifactId).toBe(reverted.artifactId);
+  expect(JSON.parse((await store.readArtifact(approved.artifactId)).content).decision.acceptedDefaults).toHaveLength(2);
+  await expect(restarted.open({ featureRequest: "Different feature", repositorySummary: {} })).rejects.toThrow("REQUIREMENTS_CHECKPOINT_INPUT_CHANGED");
+  await expect(restarted.open({ featureRequest: "Feature", repositorySummary: { revision: "changed" } })).rejects.toThrow("REQUIREMENTS_CHECKPOINT_INPUT_CHANGED");
+  await expect(restarted.open({ featureRequest: "Feature", repositorySummary: {}, operatorAcceptedDefaults: ["one"] })).rejects.toThrow("REQUIREMENTS_APPROVAL_REQUIRES_SAVED_CONTRACT");
+  await expect(new RequirementsCheckpoint(store, { ...config, mode: "automatic" }).current()).rejects.toThrow("REQUIREMENTS_CHECKPOINT_MODE_CHANGED");
+  await expect(new RequirementsCheckpoint(store, { ...config, protocolHash: "b".repeat(64) }).current()).rejects.toThrow("REQUIREMENTS_CHECKPOINT_PROTOCOL_CHANGED");
+});

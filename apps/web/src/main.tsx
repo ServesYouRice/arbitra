@@ -16,13 +16,13 @@ const models: readonly ModelCardData[] = Object.freeze([
 ]);
 const defaultConfiguration = { schemaVersion: 1, mode: "audit", scope: { kind: "repository" }, auditDepth: "balanced", consensusPolicy: "risk_weighted", maxConsensusRounds: 2, verification: {}, models: {}, harness: { mode: "canonical" }, workflow: { preset: "audit-deep" }, budgets: {}, security: {}, protocols: {}, promptOverrides: {}, contextPolicies: {} };
 // The workspace is addressable: `?run=<id>` opens a recorded run and `?view=` opens one
-// of the four column-two views directly, so a finished run is a link someone can send.
+// of the column-two views directly, so a finished run is a link someone can send.
 const parameters = new URLSearchParams(window.location.search);
 const runId = parameters.get("run");
 const requestedView = parameters.get("view");
 const preset = parameters.get("preset") ?? "audit-deep";
 const workflow = PRESET_WORKFLOWS[preset as keyof typeof PRESET_WORKFLOWS] ?? PRESET_WORKFLOWS["audit-deep"];
-const initialView: WorkspaceView = requestedView !== null && requestedView in WORKSPACE_VIEWS ? requestedView as WorkspaceView : "graph";
+const initialView: WorkspaceView = requestedView !== null && Object.hasOwn(WORKSPACE_VIEWS, requestedView) ? requestedView as WorkspaceView : "graph";
 const root = document.getElementById("root");
 if (root === null) throw new Error("ROOT_ELEMENT_MISSING");
 createRoot(root).render(<StrictMode><ArbitraWorkspace initialView={initialView} runId={runId} workflow={workflow} models={models} defaultConfiguration={defaultConfiguration} /></StrictMode>);

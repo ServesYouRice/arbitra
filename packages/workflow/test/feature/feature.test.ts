@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { requirementsContractSchema, requirementsDraftSchema } from "@arbitra/schemas/requirements.js";
 
 import { featureComplexityGate, requirementsNode, validateFeatureTaskTraceability, type RequirementsContract } from "../../src/nodes/requirements/index.js";
 
@@ -11,6 +12,53 @@ const draft = {
 };
 
 describe("Feature Mode requirements and routing", () => {
+  it("resumes approval against the saved contract without another model call", async () => {
+    const saved: RequirementsContract[] = []; let calls = 0;
+    const risky = { ...draft, ambiguities: ["AMB-1", "AMB-2"].map((id) => ({ id, question: "Migrate?", proposedDefault: `Keep ${id}`, blastRadius: "high" as const })) };
+    const node = requirementsNode({
+      mode: "interactive", protocolVersion: "1.0.0", protocolHash: "a".repeat(64), schema: requirementsDraftSchema,
+      runtime: { async generate() { calls += 1; return risky; } },
+      artifacts: { async persist(_kind, contract) { saved.push(contract); return { artifactId: String(saved.length - 1) }; }, async load(id) { return saved[Number(id)]; } },
+    });
+    const initial = await node.run({ featureRequest: "Feature", repositorySummary: {} });
+    expect(initial.checkpoint?.ambiguityIds).toEqual(["AMB-1", "AMB-2"]);
+    const partial = await node.resume({ artifactId: initial.artifact.artifactId, operatorAcceptedDefaults: ["AMB-1"] });
+    expect(partial.modelCalls).toBe(0); expect(partial.checkpoint?.ambiguityIds).toEqual(["AMB-2"]);
+    const final = await node.resume({ artifactId: partial.artifact.artifactId, operatorAcceptedDefaults: ["AMB-2"] });
+    expect(final.checkpoint).toBeNull(); expect(calls).toBe(1);
+    expect(final.contract.decision.acceptedDefaults.map(({ value }) => value)).toEqual(["Keep AMB-1", "Keep AMB-2"]);
+    expect(initial.contract.decision.acceptedDefaults).toEqual([]);
+    for (const ids of [["missing"], ["AMB-1", "AMB-1"]]) await expect(node.resume({ artifactId: "0", operatorAcceptedDefaults: ids })).rejects.toThrow("INVALID_OPERATOR_ACCEPTED_DEFAULTS");
+    expect(saved).toHaveLength(3);
+  });
+  it.each([
+    { ...draft, assumptions: [{ ...draft.assumptions[0], statement: "  " }] },
+    { ...draft, acceptance: [{ id: "ASM-1", assertion: "Collision" }] },
+    { ...draft, ambiguities: [{ ...draft.ambiguities[0], blastRadius: "unknown" }] },
+    { ...draft, decision: { mode: "automatic" } },
+  ])("rejects malformed or authority-bearing model drafts", (value) => {
+    expect(requirementsDraftSchema.safeParse(value).success).toBe(false);
+  });
+
+  it.each([["unknown"], ["AMB-1", "AMB-1"]])("rejects invalid operator approvals before persistence: %j", async (...ids) => {
+    let persisted = false;
+    const node = requirementsNode({
+      mode: "interactive", protocolVersion: "1.0.0", protocolHash: "a".repeat(64),
+      schema: requirementsDraftSchema, runtime: { async generate() { return draft; } },
+      artifacts: { async persist() { persisted = true; return { artifactId: "unexpected" }; } },
+    });
+    await expect(node.run({ featureRequest: "Feature", repositorySummary: {}, operatorAcceptedDefaults: ids })).rejects.toThrow("REQUIREMENTS_APPROVAL_REQUIRES_SAVED_CONTRACT");
+    expect(persisted).toBe(false);
+  });
+
+  it("validates accepted-default identity, value and authority on persisted contracts", () => {
+    const contract = { ...contractFromDraft(), decision: { mode: "automatic" as const, acceptedDefaults: [{ ambiguityId: "AMB-1", value: "Keep old sessions valid.", acceptedBy: "automatic_mode" as const }] } };
+    expect(requirementsContractSchema.safeParse(contract).success).toBe(true);
+    for (const patch of [{ ambiguityId: "unknown" }, { value: "Delete old sessions" }, { acceptedBy: "operator" }]) {
+      expect(requirementsContractSchema.safeParse({ ...contract, decision: { ...contract.decision, acceptedDefaults: [{ ...contract.decision.acceptedDefaults[0], ...patch }] } }).success).toBe(false);
+    }
+    expect(requirementsContractSchema.safeParse({ ...contract, decision: { ...contract.decision, acceptedDefaults: [] } }).success).toBe(false);
+  });
   it("persists a trivial automatic contract, records defaults and skips review", async () => {
     const persisted: RequirementsContract[] = [];
     const node = requirementsNode({

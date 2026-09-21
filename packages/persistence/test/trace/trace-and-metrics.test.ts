@@ -18,6 +18,13 @@ afterEach(async () => {
 });
 
 describe("model activity traces and derived metrics", () => {
+  it("rejects a committed record belonging to another run", async () => {
+    const root = await temporaryRoot();
+    await new TraceRecorder(root).record(trace("a", "success"));
+    await appendFile(join(root, "run-1", "metrics", "model-activity.jsonl"), `${JSON.stringify({ ...trace("b", "success"), runId: "other-run" })}\n`);
+    await expect(loadActivityTraces(root, "run-1")).rejects.toThrow("TRACE_RUN_ID_MISMATCH");
+  });
+
   it("ignores an interrupted tail and repairs it before the next writer appends", async () => {
     const root = await temporaryRoot();
     await new TraceRecorder(root).record(trace("a", "success"));

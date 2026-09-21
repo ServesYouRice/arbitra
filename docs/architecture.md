@@ -124,6 +124,15 @@ input. Seventeen control-plane routes are listed in `apps/server/src/routes/inve
 two evaluation routes (`GET /runs/:id/metrics`, `POST /runs/compare`) register only when a
 metric store is wired, and return 404 otherwise.
 
+Three trace routes register when the trace store is wired: `GET /runs/:id/traces`,
+`GET /runs/:id/traces/:traceId`, and
+`GET /runs/:id/traces/:traceId/artifacts/:slot`. Lists support exact node/model/protocol/
+outcome filters, activity substring search, and offset pagination (25 by default,
+100 maximum). Trace IDs are positions in the committed append-only log; filtering
+does not change them. Artifact slots (`input-0`, `input-1`, or `output`) resolve only
+references attached to the selected attempt, with content-hash verification and the
+same secret-egress guard. Historical outputs do not need a current named artifact entry.
+
 There is no WebSocket surface. Run events stream over SSE (`apps/server/src/sse.ts`).
 Every response passes `assertNoSecretEgress`, which fails the request rather than emitting
 a credential.
@@ -138,7 +147,14 @@ is no canvas editor in v1.
 Column two is the only fluid column, so it carries the run-level views behind a tab strip
 (`WORKSPACE_VIEWS` in `apps/web/src/shell/ArbitraWorkspace.tsx`): the workflow graph, the
 Issue Board (`views/issue-board/`), the Plan view with its bidirectional traceability trail
-(`views/plan/`), and the Evaluation surface (`views/evaluation/`). The Model Pool, contract
+(`views/plan/`), the Evaluation surface (`views/evaluation/`), and the trace browser
+(`views/traces/`). The trace browser shows full model/harness/protocol identity,
+requested/resolved effort, measured usage, outcome, refusal/error details and redacted
+input/output artifacts. It refreshes on run events or explicit request, keeps unknown
+measurements distinct from zero, and treats artifact content as untrusted text.
+Trace list responses are paginated, but the current server reads the run's full trace
+log per query; a persistent query index for very large histories remains an optimization.
+The Model Pool, contract
 column and inspector stay in place across the switch, so run controls remain reachable from
 every view.
 
@@ -162,7 +178,6 @@ work is legible without re-deriving it.
 | Incremental / repeat audit execution | Snapshot identity, hotspots and inspection footprints are already recorded by preflight and `packages/tools/src/footprint` |
 | Provider batch API path | `modelProfileSchema.supports.batch` is recorded; `packages/providers/src/scheduler.ts` has no batch lane |
 | Drag-and-drop workflow canvas editor | `apps/web/src/columns/graph` renders from workflow JSON and is read-only by construction |
-| Polished trace-browser UI | Traces are complete in `packages/persistence/src/trace.ts`; only the inspector surfaces them |
 | Local embedding clustering | `packages/workflow/src/clustering/deterministic.ts` is the deterministic path; §25.4 metrics would have to justify replacing it |
 
 Data for these is recorded now, per §2.4: inspection and exposure footprints, immutable

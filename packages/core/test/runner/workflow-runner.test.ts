@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { ActivityArtifactRef } from "../../src/activity.js";
 import type { RunnerJournalRecord } from "../../src/runner/events.js";
 import { projectRunState, projectRunner } from "../../src/runner/state-projection.js";
+import { RunCheckpointError, RunSuspendedError } from "../../src/runner/suspension.js";
 import {
   WorkflowRunner,
   type NodeExecutor,
@@ -11,6 +12,27 @@ import {
 } from "../../src/runner/workflow-runner.js";
 
 describe("WorkflowRunner", () => {
+  it("blocks at a saved checkpoint and rechecks approval without replaying completed bodies", async () => {
+    const storage = new MemoryRuntimeStorage(); let approved = false; let entryCalls = 0;
+    const runner = () => createRunner(storage, async ({ node }) => {
+      if (node.id === "entry") { entryCalls += 1; return node.id; }
+      if (node.id === "a" && !approved) throw new RunCheckpointError("requirements-contract-saved");
+      return node.id;
+    });
+    expect(await runner().start(fiveNodeFanOut(), { runId: "checkpoint", concurrencyLimit: 1 }).result).toBe("BLOCKED");
+    expect(projectRunner(storage.records).completed.size).toBe(1);
+    expect(await runner().resume("checkpoint").result).toBe("BLOCKED");
+    approved = true;
+    expect(await runner().resume("checkpoint").result).toBe("COMPLETED");
+    expect(entryCalls).toBe(1);
+  });
+
+  it.each(["SUSPENDED_BUDGET", "SUSPENDED_RATE_LIMIT"] as const)("preserves shared suspension errors as %s", async (state) => {
+    const storage = new MemoryRuntimeStorage();
+    const runner = createRunner(storage, async () => { throw new RunSuspendedError({ state, reason: state === "SUSPENDED_BUDGET" ? "budget" : "rate_limit", detail: "Wait for capacity", completedActivityIds: [], resumableWithoutDecision: true }); });
+    expect(await runner.start(fiveNodeFanOut(), { runId: "suspension" }).result).toBe(state);
+    expect(projectRunState(storage.records)).toBe(state);
+  });
   it("resumes a five-node fan-out after three durable completions and runs only two bodies", async () => {
     const storage = new MemoryRuntimeStorage();
     const firstInvocations: string[] = [];

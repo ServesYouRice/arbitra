@@ -1,0 +1,15 @@
+.trace-browser { display: grid; gap: var(--s3); min-width: 0; font-family: var(--font-data); font-size: var(--t-micro); line-height: var(--lh-tight); }
+.trace-browser p { margin: 0; }
+.trace-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s2); }
+.trace-filters label { display: grid; gap: var(--s1); }
+.trace-filters input, .trace-filters select { width: 100%; min-width: 0; }
+.trace-table { overflow-x: auto; }
+.trace-browser table { border-collapse: collapse; width: 100%; }
+.trace-browser th, .trace-browser td { padding: var(--s2); border-block-end: var(--hairline) solid var(--line-soft); text-align: start; overflow-wrap: anywhere; }
+.trace-browser nav { display: flex; gap: var(--s2); flex-wrap: wrap; }
+.trace-detail { display: grid; gap: var(--s2); border-block-start: var(--hairline) solid var(--line); padding-block-start: var(--s3); overflow-wrap: anywhere; }
+.trace-detail dl > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); min-height: var(--row-h); border-block-end: var(--hairline) solid var(--line-soft); }
+.trace-detail dt { color: var(--mute); }
+.trace-detail dd { margin: 0; font-variant-numeric: tabular-nums; }
+.trace-detail pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 60vh; overflow: auto; }
+@media (forced-colors: active) { .trace-browser th, .trace-browser td, .trace-detail, .trace-detail dl > div { border-color: CanvasText; } }

@@ -60,6 +60,13 @@ describe("the shell mounts every run-level view", () => {
     expect(screen.getByText("run controls")).toBeTruthy();
     expect(screen.getByText("workflow inspector")).toBeTruthy();
   });
+
+  it("mounts the trace browser from its tab", async () => {
+    stub();
+    render(<Workspace />);
+    fireEvent.click(tab(screen.getByLabelText("workspace views"), "traces"));
+    expect(await screen.findByText("no recorded attempts match these filters")).toBeTruthy();
+  });
 });
 
 function Workspace(): ReactElement {
@@ -81,6 +88,7 @@ function stub(): void {
     if (path === "/configurations/cfg-1") return json({ id: "cfg-1", name: "Default", config: configuration });
     if (path === "/runs/run-1") return json({ runId: "run-1", state: "BLOCKED", resumable: true, checkpoints: [] });
     if (path === "/runs/run-1/metrics") return json(metrics);
+    if (path.startsWith("/runs/run-1/traces?")) return json({ entries: [], total: 0, offset: 0, nextOffset: null, facets: { nodeIds: [], modelIds: [], protocolIds: [] } });
     if (path === "/runs/run-1/artifacts") return json(Object.keys(ARTIFACT_CONTENT).map((kind) => ({ artifactId: `artifact:${kind}`, kind, mediaType: "application/json", bytes: 256, redacted: true })));
     const match = /^\/runs\/run-1\/artifacts\/artifact%3A(.+)$/u.exec(path);
     const kind = match?.[1];

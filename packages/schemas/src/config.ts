@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { modelProfileSchema } from "./model-profile.js";
 import { providerExecutionSchema } from "./provider-execution.js";
+import { verificationExecutionSchema } from "./verification-execution.js";
 
 export const RUN_CONFIG_SCHEMA_VERSION = 1 as const;
 
@@ -24,6 +25,10 @@ export const runConfigSchema = z.object({
   consensusPolicy: z.enum(["full", "risk_weighted", "minimal"]),
   maxConsensusRounds: z.number().int().min(0).max(3),
   verification: jsonObjectSchema.superRefine((verification, context) => {
+    if (verification["execution"] !== undefined) {
+      const result = verificationExecutionSchema.safeParse(verification["execution"]);
+      if (!result.success) for (const issue of result.error.issues) context.addIssue({ ...issue, path: ["execution", ...issue.path] });
+    }
     const maximum = verification["maxModelQuestionsPerRound"];
     if (maximum !== undefined && (typeof maximum !== "number" || !Number.isSafeInteger(maximum) || maximum < 0)) {
       context.addIssue({ code: "custom", path: ["maxModelQuestionsPerRound"], message: "Expected a nonnegative safe integer" });

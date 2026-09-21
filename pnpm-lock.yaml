@@ -107,7 +107,11 @@ importers:
 
   packages/harness: {}
 
-  packages/persistence: {}
+  packages/persistence:
+    dependencies:
+      '@arbitra/schemas':
+        specifier: workspace:*
+        version: link:../schemas
 
   packages/protocols: {}
 
@@ -155,7 +159,11 @@ importers:
 
   packages/tools: {}
 
-  packages/workflow: {}
+  packages/workflow:
+    dependencies:
+      '@arbitra/schemas':
+        specifier: workspace:*
+        version: link:../schemas
 
 packages:
 

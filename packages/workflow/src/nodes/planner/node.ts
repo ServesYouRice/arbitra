@@ -3,10 +3,10 @@ import { validateTraceability, type TraceablePlan, type TraceabilityDiagnostic }
 export interface PlannerCanonicalIssue { readonly candidateId: string; readonly disposition: string; readonly claim: { readonly trust: "untrusted_data"; readonly title: string; readonly description: string }; readonly sourceFindingIds: readonly string[] }
 export interface PlannerInput { readonly projectContext: unknown; readonly canonicalIssues: readonly PlannerCanonicalIssue[]; readonly repositoryContext: readonly { readonly ref: string; readonly trust: "repo" | "derived"; readonly content: string }[]; readonly constraints: readonly string[]; readonly workflowGoal: string; readonly premiseReport: { readonly status: "positive" | "null" | "negative" | "unavailable"; readonly interpretation: "smoke_test_only_not_proof"; readonly limitations: readonly string[] } }
 export interface PlannerRequest { readonly session: "single_coherent_planner"; readonly input: PlannerInput; readonly protocol: { readonly protocolId: "planner"; readonly protocolVersion: string; readonly protocolHash: string }; readonly outputSchema: "PlanIR"; readonly forbiddenInputs: readonly ["raw_audit_transcripts"] }
-export interface PlannerRuntime { plan(request: PlannerRequest): Promise<unknown> }
+export interface PlannerRuntime { plan(request: PlannerRequest): Promise<unknown>; readonly logicalModelCalls?: number }
 export interface PlannerSchema<TPlan extends TraceablePlan> { parse(value: unknown): TPlan }
 export interface PlannerNodeConfig<TPlan extends TraceablePlan> { readonly protocolVersion: string; readonly protocolHash: string; readonly runtime: PlannerRuntime; readonly schema: PlannerSchema<TPlan> }
-export interface PlannerNode<TPlan extends TraceablePlan> { run(input: PlannerInput): Promise<{ readonly plan: TPlan; readonly diagnostics: readonly TraceabilityDiagnostic[]; readonly modelCalls: 1 }> }
+export interface PlannerNode<TPlan extends TraceablePlan> { run(input: PlannerInput): Promise<{ readonly plan: TPlan; readonly diagnostics: readonly TraceabilityDiagnostic[]; readonly modelCalls: number }> }
 
 export function plannerNode<TPlan extends TraceablePlan>(config: PlannerNodeConfig<TPlan>): PlannerNode<TPlan> {
   if (!/^[a-f0-9]{64}$/u.test(config.protocolHash) || config.protocolVersion.trim() === "") throw new Error("PLANNER_PROTOCOL_NOT_PINNED");
@@ -15,7 +15,11 @@ export function plannerNode<TPlan extends TraceablePlan>(config: PlannerNodeConf
     const raw = await config.runtime.plan(Object.freeze({ session: "single_coherent_planner" as const, input: freezeInput(input), protocol, outputSchema: "PlanIR" as const, forbiddenInputs: Object.freeze(["raw_audit_transcripts"] as const) }));
     const plan = config.schema.parse(raw); const accepted = input.canonicalIssues.filter(({ disposition }) => disposition === "accepted").map(({ candidateId }) => candidateId).sort(); const diagnostics = validateTraceability(plan, accepted);
     if (diagnostics.length > 0) throw new PlannerTraceabilityError(diagnostics);
-    return Object.freeze({ plan, diagnostics, modelCalls: 1 as const });
+    // Logical planner requests can each contain tool turns or reuse durable output;
+    // provider attempts and spend remain authoritative in the activity trace log.
+    const modelCalls = config.runtime.logicalModelCalls ?? 1;
+    if (!Number.isSafeInteger(modelCalls) || modelCalls < 1) throw new Error("INVALID_PLANNER_MODEL_CALL_COUNT");
+    return Object.freeze({ plan, diagnostics, modelCalls });
   } });
 }
 export class PlannerTraceabilityError extends Error { constructor(readonly diagnostics: readonly TraceabilityDiagnostic[]) { super(diagnostics.map(({ code, message }) => `${code}: ${message}`).join("\n")); this.name = "PlannerTraceabilityError"; } }

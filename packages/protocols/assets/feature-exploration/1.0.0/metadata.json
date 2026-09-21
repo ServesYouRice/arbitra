@@ -1,0 +1,6 @@
+{
+  "author": "Arbitra",
+  "date": "2026-09-21",
+  "rationale": "Grounded exploration of recorded Feature requirements against an immutable source snapshot.",
+  "compatibilityNotes": ["Feature exploration schema version 1", "Requirements Contract version 1"]
+}

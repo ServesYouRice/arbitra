@@ -10,6 +10,31 @@ async function plan() {
 }
 
 describe("critic context partitioning", () => {
+  it.each(["missing", "unknown", "duplicate"])("rejects %s revision resolutions before allocating review context", async (mode) => {
+    const resolutions = mode === "missing" ? [] : mode === "unknown" ? [{ critiqueItemId: "unknown", resolution: "Claim" }] : [{ critiqueItemId: "feedback-1", resolution: "Claim" }, { critiqueItemId: "feedback-1", resolution: "Duplicate" }];
+    let allocations = 0;
+    await expect(criticContextParts(await plan(), [], [], async () => { allocations += 1; return true; }, {
+      priorCritique: { summary: "Prior review", items: [{ id: "feedback-1", category: "weak_verification", blocking: true, summary: "Missing regression", taskIds: ["TASK-001"], issueIds: [] }] }, proposedResolutions: resolutions,
+    })).rejects.toThrow("INVALID_CRITIC_REVISION_CONTEXT");
+    expect(allocations).toBe(0);
+  });
+
+  it("keeps each prior critique paired with its resolution and covers every current record", async () => {
+    const original = await plan();
+    const revisionContext = { priorCritique: { summary: "Initial critique", items: [{ id: "feedback-1", category: "weak_verification" as const, blocking: true, summary: "Missing regression", taskIds: ["TASK-001"], issueIds: [] }] }, proposedResolutions: [{ critiqueItemId: "feedback-1", resolution: "Added regression coverage" }] };
+    const parts = await criticContextParts(original, [], [], async ({ recordIds }) => recordIds.length <= 2, revisionContext);
+    const primary = parts.filter(({ kind }) => kind === "review").flatMap(({ recordIds }) => recordIds);
+    expect(primary).toContain("revision-summary"); expect(primary).toContain("revision:feedback-1");
+    for (const id of primary) expect(parts.some(({ recordIds }) => recordIds.includes(id) && recordIds.includes("revision:feedback-1"))).toBe(true);
+    for (const part of parts) {
+      const context = (part.input as { revisionContext: typeof revisionContext }).revisionContext;
+      if (part.recordIds.includes("revision:feedback-1")) {
+        expect(context.priorCritique.items).toEqual(revisionContext.priorCritique.items);
+        expect(context.proposedResolutions).toEqual(revisionContext.proposedResolutions);
+      } else { expect(context.priorCritique.items).toEqual([]); expect(context.proposedResolutions).toEqual([]); }
+    }
+  });
+
   it("keeps complete records and global relationships with exhaustive pair coverage", async () => {
     const original = await plan();
     const parts = await criticContextParts(original, [], [], async ({ recordIds }) => recordIds.length <= 2);

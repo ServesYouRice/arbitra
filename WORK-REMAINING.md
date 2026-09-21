@@ -1,5 +1,132 @@
 # Remaining work
 
+Feature plans now have an independent model-backed critic using the pinned plan-critic
+protocol and durable harness. Review is bound to the recorded planner profile, exact
+plan and current requirements/exploration. Planner and critic both enforce current
+requirements review. Rejected critique mappings, insufficient critic capability,
+blocking feedback and blocking plan questions prevent a passing result. Integration
+tests cover clean/blocked review, stale plans, independence and replay. Automatic plan
+revision/re-review, model-generated requirements revisions and public Feature graph/API
+composition remain open.
+
+Requirements checkpoints now accept strict draft revisions against the current artifact
+ID, retain parent-linked immutable versions, and clear interactive approvals whenever
+the reviewed draft changes. Reverting text cannot revive a stale approval. Feature
+exploration, review and planning identities now include contract/source context so a
+revised and reapproved contract runs new stages rather than colliding with old durable
+requests. Integration tests cover renewal, stale-review rejection and complete replanning.
+Model-driven revision proposal generation, final plan criticism and public Feature graph
+composition remain open.
+Full CI and production build pass for requirements revision and renewed-approval handling.
+
+Feature review now supports up to three bounded rounds. Follow-up reviewers receive
+peer decisions without author metadata or their own prior vote, and reconsider them
+against the unchanged approved contract. Each round has durable activity identity and
+persisted reviewer/consensus artifacts; unresolved or revision-required items remain
+blocking at the limit. Focused tests cover early agreement, reconsideration, exhaustion
+and provider-backed replay across two rounds. Applying proposed requirements changes,
+renewed approval, final plan criticism and public Feature graph wiring remain open.
+Full CI and production build pass with bounded review rounds included.
+
+Targeted Feature review now dispatches independent profiles through one shared durable
+harness and budget, using a pinned review protocol. Reviewer results and consensus are
+persisted. Planning requires matching review inputs when routing calls for review,
+recomputes consensus from recorded votes, and rejects stale, disputed or limited review
+coverage before model dispatch. The integration covers two reviewers and replay without
+repeat calls. Bounded follow-up review/resolution rounds, final plan criticism and full
+Feature graph/operator API composition remain open.
+Full CI and production build pass for targeted review dispatch and planner gating.
+
+Feature review now has a strict requirements-decision schema and grounded consensus
+validator. Every reviewer covers every recorded requirement; evidence must match the
+snapshot. At least two distinct reviewer IDs and independence groups are required.
+Only unanimous acceptance clears a requirement; differing proposals stay unresolved,
+and even agreed revisions remain blocking without mutating approved defaults. Four
+focused regressions, runtime typecheck and affected-file lint pass. Model dispatch,
+review rounds and Feature graph integration remain open.
+
+Targeted Feature exploration now runs through the durable model harness with its own
+pinned protocol. Strict preflight metrics, known requirement IDs, snapshot paths and
+exact source quotations are validated before publishing exploration and routing.
+Feature planning rejects ungrounded exploration before provider dispatch. Ten negative
+and positive grounding regressions pass; the injected-provider integration covers
+requirements, approval, exploration, routing, planning and replay in three provider
+calls. Targeted multi-model review, criticism and full public Feature graph remain open.
+Full CI and production build pass for the exploration integration.
+
+Feature planning now has a model-backed runtime stage using the pinned planner protocol,
+bounded repository context and durable canonical harness. It requires resolved approvals,
+validates requirement/task/validation coverage, preserves the unmeasured premise report,
+and publishes Plan IR only after validation. The injected-provider integration covers
+requirements through approval and planning, including replay without repeat provider
+calls. Full Feature graph, targeted exploration/review and public API composition remain
+open; Feature mode is still unavailable through the public orchestrator.
+Full CI and production build pass with the model-backed Feature planning stage included.
+
+The Feature planner node now forwards the recorded requirements contract, refuses to
+plan past unresolved high-impact approvals, and validates requirement/task/validation
+links in both directions. Every acceptance criterion needs implementation and validation;
+unknown requirements and detached validation links fail. Focused Feature planner and
+workflow regression suites, workflow typecheck and affected-file lint pass. Model-backed
+Feature planning and complete graph composition remain open.
+
+Model-backed Feature requirements now invoke the durable canonical harness with the
+pinned feature-requirements protocol, bounded source context, source tools, usage
+recording and strict draft parsing. The stage feeds durable operator checkpoints;
+an injected-provider integration test verifies restart and approval without a second
+provider call. Runtime typecheck and affected-file lint pass. This stage is not yet
+wired into a complete Feature graph, and the public runtime still rejects Feature mode.
+
+Feature requirements now have shared strict draft and contract schemas. The requirements
+node validates model drafts independently of its injected parser and rejects unknown or
+duplicate operator approval IDs before persistence. Accepted defaults must match their
+ambiguity, proposed value and decision authority; automatic mode records all defaults.
+Eleven focused Feature regressions pass. Full Feature runtime composition and multi-model
+requirements consensus remain open.
+Full CI and the production build pass with the shared requirements validation included.
+The requirements node now resumes interactive checkpoints from a selected saved
+contract without regenerating model output. Partial approvals preserve prior decisions
+and leave the original artifact unchanged; new approvals require a saved artifact.
+Twelve Feature regressions, workflow typecheck and affected-file lint pass. Connecting
+this checkpoint to the shared runtime/operator API remains part of Feature composition.
+The shared runner now supports a persisted operator checkpoint as BLOCKED and rechecks
+it on resume while retaining prior node completions. Also corrected shared budget/rate
+suspension errors being misclassified as FAILED by exposing their declared state.
+Runner regressions cover repeated blocking, approval resume, and both suspension types.
+Runtime requirements checkpoints now retain immutable contract versions with a durable
+current-version pointer. Restart loads the saved contract without generation; approvals
+against stale versions or changed protocols fail. Approval operations are serialized
+within the run's checkpoint instance. An integration regression verifies persisted
+history, partial approval, restart and stale concurrent approval. Feature graph and
+operator API wiring remain open.
+Full CI and production build pass with runtime checkpoint persistence and runner
+suspension handling included.
+Checkpoint reuse now checks a canonical fingerprint of the unredacted feature request,
+repository summary and mode. Changed context fails instead of silently reusing an old
+draft; queued inputs and approval IDs are copied. Resume rejects changed modes and
+cannot accept approvals through the draft-opening path. Checkpoint regression,
+runtime typecheck and affected-file lint pass.
+
+Executed Audit verification now includes a Docker adapter with pinned
+images, structured command allowlists, source-only read-only snapshots, no network or
+operator credentials, resource/output/time limits, and independent container cleanup.
+Optional `verification.execution` is connected to the verification ladder, with durable
+reservations, global run limits, cleanup on resume, cached completed checks and redacted
+evidence supplied to the verifier. Exit codes never determine claim verdicts directly.
+Deferred, interrupted and failed checks remain explicit coverage gaps. Docker-boundary tests use an injected
+process port; subprocess limit tests execute real Node processes. Live container
+validation is unavailable because the local Docker engine is not running.
+Focused regressions cover resource registration before dispatch, recovery with a fresh
+adapter, restart reuse, concurrency, zero budget and mixed-provider Audit integration.
+Full CI and production build passed for this integration. A subsequent focused
+regression also confirms that test exit zero cannot resolve a disputed claim when
+model verification is disabled.
+Follow-up hardening keeps decoded UTF-8 output within the configured byte cap even
+for malformed bytes or truncated multibyte characters. Sixteen sandbox and five
+execution-coordinator regressions pass, including failed recovery blocking all new
+dispatch and changed source bytes preventing reuse of old evidence. Runtime typecheck
+and affected-file lint pass.
+
 Scope confirmed by the user: fix existing bugs and implement the unfinished features
 documented in the repository. Support OpenAI, Anthropic, Gemini, and other providers
 together; provider selection is configuration, not a project-wide choice.
@@ -16,7 +143,7 @@ together; provider selection is configuration, not a project-wide choice.
 - [ ] Implement incremental/repeat audits.
 - [ ] Implement provider batch execution.
 - [ ] Implement workflow canvas editing and validation.
-- [ ] Implement the trace browser.
+- [x] Implement the trace browser (visual browser QA pending an available browser).
 - [ ] Evaluate local embedding clustering against the documented metrics before adopting it.
 - [ ] Run real-model premise evaluation when a configured environment is available.
 - [ ] Audit existing behavior for defects, add regression coverage, and run full CI/build.
@@ -168,8 +295,8 @@ Full CI and production build passed. A subsequent harness regression also passed
 confirming overflowing history is archived and identical turns are reused after restart;
 affected-file lint passed with that test included.
 
-Next integration work: large mandatory-context batching;
-executed verification where permitted. Continue the remaining Feature/Testing, native
+Next integration work: executed verification where permitted and remaining individually
+oversized model contexts. Continue the remaining Feature/Testing, native
 harness, advisor, incremental audit, batch, canvas and trace-browser queue above.
 
 Semantic clustering now runs through the durable model harness after validation, using
@@ -230,3 +357,62 @@ selections, reject cross-protocol comparison and distinguish absent matching act
 Verification resolution includes deferred items. Added a composed mixed-provider
 metrics/comparison regression. The full trace browser remains open.
 Validation: full CI (103 runtime tests), production build, and diff whitespace check passed for trace-backed operational evaluation and protocol comparison.
+
+The trace browser now exposes recorded attempts through the shared runtime and three
+schema-validated localhost routes. Lists filter by node, model, protocol, outcome and
+activity substring, with bounded pagination and stable append-log IDs. The new Traces
+tab (`?run=<id>&view=traces`) shows complete identity, requested/resolved effort, usage,
+refusals/errors and immutable input/output artifacts. Artifact lookup is limited to
+references on the selected trace, verifies the content hash, and uses the HTTP secret
+guard. Replacing a named artifact cannot change historical trace inputs. Unknown
+measurements remain unavailable; content renders as untrusted text. Run changes discard
+stale requests and selections, and run events or manual refresh reload the list.
+Trace reads also reject records belonging to a different run.
+
+Validation: full CI and production build passed; 31 focused runtime/server/web tests
+passed, including a mixed-provider run loaded through a fresh orchestrator, plus seven
+persistence trace regressions passed after adding the run-identity check. Visual browser
+QA remains pending: the browser runtime reported no connected browsers. The server still
+reads the full trace log for each paginated query; a persistent index for very large logs
+is a future optimization. The other execution-queue items remain open.
+
+Oversized initial planner inputs now use one selected planner across complete issue
+reading batches, a single global validation/task outline, and task expansion against
+the original assigned canonical records. The outline owns decomposition, scope, routing
+and the dependency graph; expansions cannot silently change those decisions. Missing or
+duplicate issue briefs, dropped questions, invalid traceability and changed task outlines
+fail validation. Newly raised blocking questions survive assembly and now fail the run
+gate independently of critic feedback, fixing the gate's previous omission. Logical
+planner request counts are recorded separately from provider attempts and spend.
+
+A mixed-provider regression exceeds the planner's context budget, fails the second task
+expansion, restarts, reuses completed briefs/outline/expansion, and completes all four
+tasks with global dependencies intact. Complete canonical records reach both reading
+and expansion. Individually oversized records/task assignments, oversized global
+metadata, and oversized planner revision inputs remain open; the broader execution
+queue is unchanged.
+
+Validation: full CI passed (118 runtime tests and 104 workflow tests), production build
+passed, and the diff whitespace check passed after staged planning and the plan-question
+gate fix. No live-provider behavior or premise measurement is claimed.
+
+Oversized planner revisions now use atomic patches within the same single revision
+pass. Each blocking critique receives complete selected task bodies, direct dependency/
+conflict neighbors and relevant canonical issues. Every patch validates the full global
+plan, leaves unselected task bodies unchanged, preserves unresolved questions, and
+records task lineage so subsequent critiques follow replacements or reintroduced work.
+Re-review batches keep every original critique paired with its resolution claim and
+cover all current task/issue/validation relationships. Original summary text is retained.
+Fixed a provenance comparison that incorrectly rejected persisted reports solely because
+JSON field order changed. Complete-plan revisions remain the path when their input fits.
+
+Regression coverage includes an interrupted second patch, restart reuse, full independent
+re-review with resolved and persistent blockers, task replacement with reciprocal
+dependencies, retirement/reintroduction, altered scope, lost questions, invalid lineage
+and unchanged-task preservation. Individual critique contexts, global metadata and
+required re-review pairs that still cannot fit remain explicit limits.
+
+Validation: full CI passed with 135 runtime tests, and production build passed. After
+adding negative resolution-mapping cases, all seven critic-context tests and their lint
+check passed. Resume and persistent-blocker regressions use injected mixed-provider HTTP
+responses; no live-provider correctness or premise measurement is claimed.

@@ -12,6 +12,17 @@ export interface SuspendedRun {
 
 export class RunSuspendedError extends Error {
   constructor(readonly suspension: SuspendedRun) { super(suspension.detail); this.name = "RunSuspendedError"; }
+  get state(): SuspendedRun["state"] { return this.suspension.state; }
+}
+
+/** The executor must persist the checkpoint before throwing, and recheck it on resume. */
+export class RunCheckpointError extends Error {
+  readonly state = "BLOCKED" as const;
+  constructor(readonly artifactId: string) {
+    super(`OPERATOR_CHECKPOINT:${artifactId}`);
+    if (artifactId.trim() === "" || /[\r\n\0]/u.test(artifactId)) throw new Error("INVALID_CHECKPOINT_ARTIFACT_ID");
+    this.name = "RunCheckpointError";
+  }
 }
 
 export function suspendForBudget(verdict: BudgetVerdict, completedActivityIds: readonly string[] = []): never {
@@ -36,5 +47,5 @@ export function planResumeAfterSuspension(
 }
 
 export function projectedState(error: unknown): RunState {
-  return error instanceof RunSuspendedError ? error.suspension.state : "FAILED";
+  return error instanceof RunCheckpointError ? "BLOCKED" : error instanceof RunSuspendedError ? error.suspension.state : "FAILED";
 }

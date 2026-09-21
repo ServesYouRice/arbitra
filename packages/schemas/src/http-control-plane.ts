@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { runConfigSchema } from "./config.js";
+import { traceQuerySchema } from "./trace-browser.js";
 
 const idParams = { type: "object", additionalProperties: false, required: ["id"], properties: { id: { type: "string", minLength: 1, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9._-]*$" } } } as const;
 const artifactParams = { type: "object", additionalProperties: false, required: ["id", "artifactId"], properties: { ...idParams.properties, artifactId: { type: "string", minLength: 1, maxLength: 256 } } } as const;
@@ -12,6 +13,9 @@ const runBody = { type: "object", additionalProperties: false, required: ["confi
 const comparisonSide = { type: "object", additionalProperties: false, required: ["protocolIdentity"], properties: { protocolIdentity: { type: "string", minLength: 1, maxLength: 512 }, runIds: { type: "array", items: { type: "string", minLength: 1, maxLength: 128 } } } } as const;
 
 export const HTTP_ROUTE_SCHEMAS = Object.freeze({
+  "GET /runs/:id/traces": { params: idParams, querystring: z.toJSONSchema(traceQuerySchema, { target: "draft-7" }), response: jsonResponse },
+  "GET /runs/:id/traces/:traceId": { params: { ...idParams, required: ["id", "traceId"], properties: { ...idParams.properties, traceId: { type: "string", pattern: "^(0|[1-9][0-9]*)$", maxLength: 16 } } }, response: jsonResponse },
+  "GET /runs/:id/traces/:traceId/artifacts/:slot": { params: { ...idParams, required: ["id", "traceId", "slot"], properties: { ...idParams.properties, traceId: { type: "string", pattern: "^(0|[1-9][0-9]*)$", maxLength: 16 }, slot: { type: "string", pattern: "^(output|input-(0|[1-9][0-9]*))$", maxLength: 32 } } }, response: jsonResponse },
   "GET /configurations": { response: { 200: { type: "array", items: { type: "object", required: ["id", "name"], properties: { id: { type: "string" }, name: { type: "string" } } } } } },
   "POST /configurations": { body: configurationBody, response: jsonResponse },
   "GET /configurations/:id": { params: idParams, response: jsonResponse },

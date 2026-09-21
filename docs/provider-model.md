@@ -192,8 +192,8 @@ per selected reviewer. Pairs separated by batching receive additional merge-only
 so batching does not silently remove duplicate-detection opportunities. These checks can
 grow quadratically and share the run token budget; exhaustion suspends the run. Complete
 candidates or pairs that cannot fit still fail explicitly. Batch manifests, namespaces
-and durable activities preserve coverage and restart reuse. Planning and unusually large
-single-candidate contexts still require further hierarchical composition.
+and durable activities preserve coverage and restart reuse. Unusually large individual
+records still fail explicitly; the staged planner path below handles oversized issue sets.
 
 Peer review also accepts merge/split, added evidence and counter-evidence, severity and
 blocker changes, remediation/verification supplements and missing findings. New evidence
@@ -216,7 +216,24 @@ Ambiguous finding pairs now use durable semantic classification through the veri
 Exact and structural matches still resolve without model calls. Unclassified pairs remain
 separate. The run persists classifications, rationales, operations, and unresolved pairs.
 Clustering aggregate token/cost metrics are null when model calls occur; individual
-provider turn traces retain available usage. Executed verification still requires runtime integration.
+provider turn traces retain available usage. Audit verification optionally executes
+operator-configured checks through the isolated Docker adapter described below.
+
+Set `verification.execution` to an object with `driver: "docker"`, a local Linux image
+reference pinned as `name@sha256:<64 hex digits>`, and `checks`. Each check has a unique
+`id`, snapshot-relative `sourcePaths`, an absolute container `executable`, and an
+`arguments` array. Checks run for unresolved candidates citing any configured path;
+all configured paths must exist in the snapshot. No shell command is inferred from
+model output. Defaults are five runs, 30 seconds per check and 65,536 output bytes;
+override these with `maximumRuns`, `timeoutMs` and `maximumOutputBytes`.
+
+The engine must already be running locally and the pinned image must already exist.
+Images are never pulled or built. Only source snapshot files are mounted, so the image
+must provide dependencies. Check reservations consume budget even if interrupted or
+unavailable. Resume cleans up unfinished containers and reuses completed results;
+interrupted checks are not automatically repeated. Results are redacted artifacts and
+untrusted verifier context, never automatic proof that a claimed defect exists. Missing
+engine support and unsuccessful checks remain visible as coverage gaps.
 
 - `packages/providers/src/runtime.ts` enforces an `InvocationBudget` and suspends with
   `ProviderBudgetSuspendedError` rather than overspending. Every invocation emits an
@@ -259,8 +276,25 @@ partial review scope so omitted batch records are not mistaken for missing plan 
 Feedback IDs are namespaced per durable batch and every item is preserved for validation.
 Rejected mappings or duplicate critique IDs mark review coverage degraded. The runtime
 records the actual number of critique batches and reuses completed batches on restart.
-Global metadata or individual records/pairs that exceed context still fail explicitly;
-large planner output composition remains unfinished.
+Global metadata or individual records/pairs that exceed context still fail explicitly.
+
+When accepted issues do not fit a single planner prompt, the same configured planner
+reads complete issue batches into explicitly intermediate briefs, produces one global
+outline, and expands its task outlines against the full original assigned issues. The
+global outline owns validation assertions, issue mappings, decomposition, scope, routing
+and dependencies. Expansion may add implementation detail and unresolved questions but
+cannot change that outline. Every accepted issue must reach an expanded task; missing
+briefs, changed issue IDs, invalid dependencies or dropped unresolved questions fail
+validation. New questions receive stable namespaces, and any blocking plan question
+fails the run gate even if the critic returns no blocking items.
+
+All phases use the canonical harness, compiled context estimates and shared durable
+budgets. Batch manifests, the global outline, composition metadata and logical call
+counts persist; provider attempts and spend remain in the trace log. Resume reuses
+completed phases. Individually oversized issues, a global outline/index that cannot
+fit, or a task assigned more complete issues than it can read still fail explicitly.
+The one-call path remains when the initial request fits; output capacity is still
+bounded by the configured provider output limit.
 
 The model audit runtime now performs at most one planner revision after a complete,
 non-degraded critic review reports blocking findings. The same planner profile returns
@@ -269,4 +303,19 @@ accepted issue coverage, audit mode and premise provenance are checked before a 
 independent critic review. That review receives the original feedback and proposed
 resolutions as untrusted claims. Remaining blocking feedback still fails the gate.
 Original plan/critique, revision output and final review remain durable; restart reuses
-completed work. Oversized revision inputs still need hierarchical planner composition.
+completed work. If a complete revision prompt does not fit, the planner applies one
+atomic patch per blocking critique item. Each patch receives complete current task
+bodies for that critique and their direct dependency/conflict neighbors, relevant
+canonical issues, full global plan metadata, and a compact index of other tasks.
+Only selected tasks may be replaced or retired; unchanged task bodies are preserved.
+Every patch must retain valid global traceability and dependencies. Explicit lineage
+keeps later critiques attached to replacement tasks, including reintroduced work after
+retirement. Existing unresolved questions cannot silently disappear from a patch.
+
+Re-review batches keep each prior critique together with its resolution claim and check
+those records against every current task, issue and validation record. Missing or
+duplicate resolution mappings fail validation. Prior summary text is also retained as
+a review record. Patch outputs and batch identities are durable, so interrupted work
+reuses completed patches and reviews. A single critique's necessary records, global
+metadata, or a required re-review pair that still exceeds context fails explicitly.
+All additional calls share the run's provider budgets; no extra revision loop is added.

@@ -7,13 +7,17 @@ import { planIRSchema } from "@arbitra/schemas/plan.js";
 import type { HttpRequest, HttpResponse } from "@arbitra/providers/transport-contract.js";
 import { Orchestrator } from "../src/orchestrator.js";
 import { controlPlaneCore } from "../src/control-plane-core.js";
+import { taskOutline } from "../src/planner-context.js";
+import type { PlannerBrief, PlannerTaskOutline } from "@arbitra/schemas/planner-composition.js";
+import type { TestSandbox } from "../src/test-sandbox.js";
 
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
-async function fixture(options: { revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largeCriticContext?: boolean; largePeerContext?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; conflictResolution?: "retain_original" | "proposal-1"; ambiguousClustering?: boolean; oversizedRepository?: boolean } = {}) {
+async function fixture(options: { revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; conflictResolution?: "retain_original" | "proposal-1"; ambiguousClustering?: boolean; oversizedRepository?: boolean } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "arbitra-model-run-")); directories.push(directory);
-  await writeFile(join(directory, "a.ts"), "const value = null;\n".repeat(options.largePeerContext === true ? 4 : options.ambiguousClustering === true ? 3 : 1), "utf8");
+  const manyIssues = options.largePeerContext === true || options.largePlannerContext === true;
+  await writeFile(join(directory, "a.ts"), "const value = null;\n".repeat(manyIssues ? 4 : options.ambiguousClustering === true ? 3 : 1), "utf8");
   if (options.oversizedRepository === true) await writeFile(join(directory, "large.ts"), "// unrelated source\n".repeat(12_000), "utf8");
   const example = runConfigSchema.parse(JSON.parse(await readFile(new URL("../../../examples/audit-balanced.json", import.meta.url), "utf8")));
   const template = example.models["auditor-a"];
@@ -32,13 +36,20 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
     workflow: { preset: "audit-deep", modelExecution: {
       endpoints: ids.map((id, index) => ({ id, providerId: providers[index], transport: transports[index], endpoint: `https://${id}.example/v1`, apiKeyEnvVar: "FIXTURE_KEY" })),
       modelEndpoints: Object.fromEntries(ids.map((id) => [id, id])), roles: { planner: "auditor-a", verifier: "auditor-b", critic: "auditor-c" },
-      maximumClusteringPairs: options.largePeerContext === true ? 0 : 20, maximumOutputTokens: 2_000, maximumTokens: options.largePeerContext === true ? 10_000_000 : 1_000_000, timeoutMs: 2_000, maximumRetries: 0,
+      maximumClusteringPairs: manyIssues ? 0 : 20, maximumOutputTokens: 2_000, maximumTokens: manyIssues || options.largeCriticContext === true && options.revision !== undefined ? 20_000_000 : 1_000_000, timeoutMs: 2_000, maximumRetries: 0,
       rateLimits: Object.fromEntries(providers.map((id) => [id, { rpm: 1000, tpm: 10_000_000, maxConcurrent: 4 }])),
     } },
   });
+  if (options.largePlannerContext === true) {
+    config.models["planner-model"] = { ...template, modelId: "planner-model", limits: { ...template.limits, contextTokens: 100_000 } };
+    const execution = config.workflow["modelExecution"] as { modelEndpoints: Record<string, string>; roles: { planner: string } };
+    execution.modelEndpoints["planner-model"] = "auditor-a"; execution.roles.planner = "planner-model";
+  }
   const requests: { stage: string; url: string }[] = [];
   let failVerification = false;
   let failCritic = false;
+  let failExpansion = false;
+  let failRevisionPatch = false;
   let blockDiscovery: (() => void) | undefined;
   const send = async (request: HttpRequest): Promise<HttpResponse> => {
     const body = request.body as { input?: { role: string; content: string }[]; system?: string; messages?: { content: string }[]; systemInstruction?: { parts: { text: string }[] }; contents?: { parts: { text: string }[] }[] };
@@ -60,10 +71,10 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
       output = { findings: [{ schemaVersion: 1, sourceFindingId: `${auditorId}/1`, category: "CORRECTNESS", title: "Null value", severity: options.lowRisk === true ? "low" : "high", status: "needs_verification", confidence: 0.5, productionBlocker: false,
         locations: [{ id: `${auditorId}-L1`, path: "a.ts", startLine: line, endLine: line }], evidence: [{ id: `${auditorId}-E1`, text: "const value = null;", locationIds: [`${auditorId}-L1`] }],
         problem: "Fixture null claim", recommendedFix: "Check null", productionImpact: "", trigger: "", verification: "", dependencies: [], relatedRisks: [] }], truncated: false, unexaminedDueToBudget: [], limitations: [] };
-      if (options.largePeerContext === true) {
+      if (manyIssues) {
         const envelope = output as { findings: Record<string, unknown>[] };
         const original = envelope.findings[0];
-        envelope.findings = Array.from({ length: 4 }, (_, index) => ({ ...original, sourceFindingId: `${auditorId}/${index + 1}`, title: `Null claim ${index}`, recommendedFix: `${index}: ` + "Check guard. ".repeat(750), locations: [{ id: `${auditorId}-L${index}`, path: "a.ts", startLine: index + 1, endLine: index + 1 }], evidence: [{ id: `${auditorId}-E${index}`, text: "const value = null;", locationIds: [`${auditorId}-L${index}`] }] }));
+        envelope.findings = Array.from({ length: 4 }, (_, index) => ({ ...original, sourceFindingId: `${auditorId}/${index + 1}`, title: `Null claim ${index}`, recommendedFix: `${index}: ` + "Check guard. ".repeat(options.largePeerContext === true ? 750 : 1), locations: [{ id: `${auditorId}-L${index}`, path: "a.ts", startLine: index + 1, endLine: index + 1 }], evidence: [{ id: `${auditorId}-E${index}`, text: "const value = null;", locationIds: [`${auditorId}-L${index}`] }] }));
       }
     } else if (system.startsWith("Compare the supplied candidate pair")) {
       requests.push({ stage: "merge-check", url: request.url });
@@ -83,6 +94,9 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
       const input = JSON.parse(user) as { round: number; candidates: Record<string, { candidateId: string; sources: { findingRef: string; evidence: { id: string }[] }[] }> };
       expect(user).not.toMatch(/auditor-[abc]/u);
       output = { operations: Object.values(input.candidates).map(({ candidateId, sources }, index) => ({ operationId: `new:vote-${index}`, candidateId, authorId: "self", round: input.round, type: request.url.includes("auditor-b") ? "reject" : "accept", citedEvidenceIds: sources.flatMap(({ evidence }) => evidence.map(({ id }) => id)), reason: "Fixture review of supplied evidence" })), locations: [], findings: [] };
+      if (options.largePlannerContext === true && input.round === 1 && request.url.includes("auditor-a")) {
+        (output as { operations: unknown[] }).operations.push(...Object.values(input.candidates).map(({ candidateId, sources }, index) => ({ operationId: `new:supplement-${index}`, candidateId, authorId: "self", round: 1, type: "supplement_remediation", citedEvidenceIds: sources.flatMap(({ evidence }) => evidence.map(({ id }) => id)), text: `Original detail ${candidateId}: ` + "Preserve guard. ".repeat(1200) })));
+      }
       if ((options.structuralReview === true || options.conflictingReview === true) && input.round === 1 && (request.url.includes("auditor-a") || options.conflictingReview === true && request.url.includes("auditor-b"))) {
         const candidate = Object.values(input.candidates)[0];
         if (candidate === undefined) throw new Error("FIXTURE_CANDIDATE_ABSENT");
@@ -98,12 +112,41 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
       if (failVerification) return { status: 503, headers: {}, body: {} };
       const input = JSON.parse(user) as { request: { context: { citedContext: { evidenceId: string }[] } } };
       output = { outcome: "CONFIRMED", evidenceIds: input.request.context.citedContext.map(({ evidenceId }) => evidenceId), confidence: 0.8 };
+    } else if (system.startsWith("Read the complete accepted issues")) {
+      requests.push({ stage: "planner-brief", url: request.url });
+      const input = JSON.parse(user) as { canonicalIssues: { candidateId: string; remediationSupplements: string[] }[] };
+      expect(input.canonicalIssues.every(({ remediationSupplements }) => remediationSupplements[0]?.includes("Original detail"))).toBe(true);
+      output = { issues: input.canonicalIssues.map(({ candidateId }) => ({ issueId: candidateId, summary: "Null source claim with detailed guard constraints", affectedPaths: ["a.ts"], behavioralAssertions: ["Guard null values"], integrationConstraints: ["Preserve existing behavior"], unresolvedQuestions: [] })) };
+    } else if (system.startsWith("Produce the single global plan outline")) {
+      requests.push({ stage: "planner-outline", url: request.url });
+      const input = JSON.parse(user) as { issueBriefs: PlannerBrief["issues"]; acceptedIssueIds: string[]; premiseReport: unknown };
+      const templateTask = planTemplate.tasks[0]; if (templateTask === undefined) throw new Error("FIXTURE_TASK_ABSENT");
+      const tasks = input.acceptedIssueIds.map((issueId, index) => ({ ...taskOutline(templateTask), id: `TASK-${index + 1}`, addresses: { ...templateTask.addresses, issues: [issueId] }, dependencies: { dependsOn: index === 0 ? [] : [`TASK-${index}`], blocks: [], conflictsWith: [] } }));
+      output = { ...planTemplate, acceptedIssueIds: input.acceptedIssueIds, premiseReport: input.premiseReport, tasks, taskGraph: tasks.slice(1).map(({ id }, index) => ({ from: tasks[index]?.id, to: id })),
+        traceability: { ...planTemplate.traceability, issueToValidation: input.acceptedIssueIds.map((issueId) => ({ issueId, validationIds: ["VAL-001"] })) },
+        routingRecommendations: tasks.map(({ id, routing }) => ({ taskId: id, capability: routing.capability, effort: routing.effort, reason: routing.reason })),
+        unresolvedQuestions: input.issueBriefs.flatMap(({ unresolvedQuestions }) => unresolvedQuestions),
+      };
+    } else if (system.startsWith("Expand the selected task")) {
+      requests.push({ stage: "planner-expand", url: request.url });
+      const input = JSON.parse(user) as { selectedTask: PlannerTaskOutline; canonicalIssues: { candidateId: string; remediationSupplements: string[] }[] };
+      if (failExpansion && input.selectedTask.id === "TASK-2") return { status: 503, headers: {}, body: {} };
+      expect(input.canonicalIssues).toHaveLength(1);
+      expect(input.canonicalIssues[0]?.remediationSupplements[0]).toContain("Original detail");
+      output = { task: { ...planTemplate.tasks[0], ...input.selectedTask }, unresolvedQuestions: input.selectedTask.id === "TASK-4" ? [{ id: "Q-1", question: "Integration needs operator decision", blocking: true, blastRadius: "high" }] : [] };
     } else if (system.startsWith("Produce a complete")) {
       requests.push({ stage: "planner", url: request.url });
       const input = JSON.parse(user) as { canonicalIssues: { candidateId: string }[]; premiseReport: unknown };
       const acceptedIssueIds = input.canonicalIssues.map(({ candidateId }) => candidateId);
       output = { ...planTemplate, acceptedIssueIds, tasks: planTemplate.tasks.map((task) => ({ ...task, addresses: { ...task.addresses, issues: acceptedIssueIds } })),
         traceability: { ...planTemplate.traceability, issueToValidation: acceptedIssueIds.map((issueId) => ({ issueId, validationIds: ["VAL-001"] })) }, premiseReport: input.premiseReport };
+    } else if (system.startsWith("Apply one atomic revision")) {
+      requests.push({ stage: "revision-patch", url: request.url });
+      if (failRevisionPatch && requests.filter(({ stage }) => stage === "revision-patch").length === 2) return { status: 503, headers: {}, body: {} };
+      const input = JSON.parse(user) as { globalPlan: Omit<ReturnType<typeof planIRSchema.parse>, "tasks">; selectedTasks: ReturnType<typeof planIRSchema.parse>["tasks"]; critique: { id: string } };
+      expect(input.selectedTasks.length).toBeGreaterThan(0);
+      expect(input.selectedTasks.every(({ implementationGuidance }) => implementationGuidance[0]?.startsWith("Review this implementation detail."))).toBe(true);
+      output = { critiqueItemId: input.critique.id, resolution: "Added the required acceptance assertion and retained original implementation detail", globalPlan: { ...input.globalPlan, title: "Revised plan" }, tasks: input.selectedTasks.map((task) => ({ ...task, acceptanceCriteria: [...task.acceptanceCriteria, `Resolved ${input.critique.id}`] })), retiredTaskIds: [], lineage: input.selectedTasks.map(({ id }) => ({ previousTaskId: id, nextTaskIds: [id], rationale: "Same behavioral task with improved acceptance" })) };
     } else if (system.startsWith("Revise the supplied")) {
       requests.push({ stage: "revision", url: request.url });
       const input = JSON.parse(user) as { originalPlan: ReturnType<typeof planIRSchema.parse>; blockingCritique: { id: string }[] };
@@ -122,11 +165,115 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
       : { output_text: text, usage: { input_tokens: 10, output_tokens: 20 } };
     return { status: 200, headers: {}, body: response };
   };
-  const create = () => new Orchestrator({ repository: directory, stateDirectory: join(directory, ".runs"), providerOptions: { client: { send }, credential: () => "fixture-credential" } });
-  return { create, config, requests, failCritic: (value: boolean) => { failCritic = value; }, failVerification: (value: boolean) => { failVerification = value; }, blockDiscovery: (callback: () => void) => { blockDiscovery = callback; } };
+  const create = (testSandbox?: TestSandbox) => new Orchestrator({ repository: directory, stateDirectory: join(directory, ".runs"), providerOptions: { client: { send }, credential: () => "fixture-credential" }, ...(testSandbox === undefined ? {} : { testSandbox }) });
+  return { create, config, requests, failRevisionPatch: (value: boolean) => { failRevisionPatch = value; }, failExpansion: (value: boolean) => { failExpansion = value; }, failCritic: (value: boolean) => { failCritic = value; }, failVerification: (value: boolean) => { failVerification = value; }, blockDiscovery: (callback: () => void) => { blockDiscovery = callback; } };
 }
 
 describe("composed model audits", () => {
+  it("does not resolve a disputed claim from a successful test exit alone", async () => {
+    const setup = await fixture(); let calls = 0;
+    const image = `local/node@sha256:${"a".repeat(64)}`;
+    setup.config.verification = { maxModelQuestionsPerRound: 0, execution: { driver: "docker", image, checks: [{ id: "guard", sourcePaths: ["a.ts"], executable: "/bin/node", arguments: ["a.ts"] }] } };
+    const sandbox: TestSandbox = { async recover() {}, async run() {
+      calls += 1;
+      return { driver: "docker", image, checkId: "guard", isolation: "read_only_snapshot_no_network", status: "exited", cleanupCompleted: true, exitCode: 0, stdout: "pass", stderr: "", stopped: null };
+    } };
+    const core = setup.create(sandbox); const run = await core.run(setup.config);
+    expect(calls).toBe(1);
+    const artifact = (await core.artifacts(run.runId)).find(({ kind }) => kind === "verification-metrics");
+    if (artifact === undefined) throw new Error("METRICS_ABSENT");
+    expect(JSON.parse((await core.artifact(run.runId, artifact.artifactId) as { content: string }).content)).toMatchObject({ modelCalls: 0, resolvedDisputes: 0 });
+  });
+  it("publishes executed checks and reuses them after a failed model verification", async () => {
+    const setup = await fixture(); let calls = 0;
+    const image = `local/node@sha256:${"a".repeat(64)}`;
+    setup.config.verification["execution"] = { driver: "docker", image, maximumRuns: 1, checks: [{ id: "guard", sourcePaths: ["a.ts"], executable: "/bin/node", arguments: ["a.ts"] }] };
+    const sandbox: TestSandbox = { async recover() { throw new Error("UNEXPECTED_RECOVERY"); }, async run() {
+      calls += 1;
+      return { driver: "docker", image, checkId: "guard", isolation: "read_only_snapshot_no_network", status: "exited", cleanupCompleted: true, exitCode: 0, stdout: "fixture test output", stderr: "", stopped: null };
+    } };
+    setup.failVerification(true);
+    const core = setup.create(sandbox); const run = await core.run(setup.config);
+    expect(run.state).toBe("FAILED"); expect(calls).toBe(1);
+    setup.failVerification(false);
+    const resumed = setup.create(sandbox); await resumed.resume(run.runId);
+    expect((await resumed.wait(run.runId)).state).toBe("COMPLETED"); expect(calls).toBe(1);
+    const artifacts = await resumed.artifacts(run.runId);
+    const checks = artifacts.find(({ kind }) => kind.startsWith("verification-checks-"));
+    if (checks === undefined) throw new Error("CHECKS_ABSENT");
+    expect(JSON.parse((await resumed.artifact(run.runId, checks.artifactId) as { content: string }).content)).toMatchObject({ records: [{ state: "completed", result: { stdout: "fixture test output" } }] });
+    const prompts = await Promise.all(artifacts.filter(({ kind }) => kind.startsWith("compiled-prompt-")).map(({ artifactId }) => resumed.artifact(run.runId, artifactId)));
+    expect(prompts.some((artifact) => (artifact as { content: string }).content.includes("fixture test output"))).toBe(true);
+  });
+  it.each(["resolved", "still_blocking"] as const)("resumes oversized planner revisions and rechecks every critique claim: %s", async (revision) => {
+    const { create, config, requests, failRevisionPatch } = await fixture({ largeCriticContext: true, revision });
+    failRevisionPatch(true);
+    const initial = create(); const run = await initial.run(config);
+    const events = []; for await (const event of initial.events(run.runId)) events.push(event);
+    expect(run.state, JSON.stringify(events.at(-1))).toBe("FAILED");
+    expect(requests.filter(({ stage }) => stage === "revision-patch"), JSON.stringify(events)).toHaveLength(2);
+    failRevisionPatch(false);
+    const resumed = create(); await resumed.resume(run.runId);
+    const result = await resumed.wait(run.runId);
+    const resumedEvents = []; for await (const event of resumed.events(run.runId)) resumedEvents.push(event);
+    expect(result.state, JSON.stringify(resumedEvents.at(-1))).toBe("COMPLETED");
+    const artifacts = await resumed.artifacts(run.runId);
+    const read = async (kind: string) => {
+      const descriptor = artifacts.find((artifact) => artifact.kind === kind); if (descriptor === undefined) throw new Error(`ARTIFACT_ABSENT:${kind}`);
+      return JSON.parse((await resumed.artifact(run.runId, descriptor.artifactId) as { content: string }).content);
+    };
+    const original = await read("critic-initial-feedback") as { items: { id: string }[] };
+    const revised = await read("plan-revision") as { revisionCalls: number; resolutions: { critiqueItemId: string }[]; plan: ReturnType<typeof planIRSchema.parse> };
+    expect(revised.revisionCalls).toBe(1);
+    expect(revised.resolutions.map(({ critiqueItemId }) => critiqueItemId)).toEqual(original.items.map(({ id }) => id));
+    expect(requests.filter(({ stage }) => stage === "revision-patch")).toHaveLength(original.items.length + 1);
+    expect(requests.filter(({ stage }) => stage === "revision")).toHaveLength(0);
+    expect(revised.plan.tasks).toHaveLength(4);
+    expect(revised.plan.tasks.every(({ implementationGuidance }) => implementationGuidance[0]?.startsWith("Review this implementation detail."))).toBe(true);
+    const batches = await read("critic-revision-context-batches") as { kind: string; recordIds: string[] }[];
+    const primary = batches.filter(({ kind }) => kind === "review").flatMap(({ recordIds }) => recordIds);
+    expect(primary.filter((id) => id.startsWith("revision:")).sort()).toEqual(original.items.map(({ id }) => `revision:${id}`).sort());
+    for (const { id } of original.items) for (const task of revised.plan.tasks) expect(batches.some(({ recordIds }) => recordIds.includes(`revision:${id}`) && recordIds.includes(`task:${task.id}`))).toBe(true);
+    expect((await resumed.gate(run.runId)).reasons.includes("blocking_critic_feedback")).toBe(revision === "still_blocking");
+  }, 60_000);
+
+  it("plans oversized accepted issues using one global outline and resumes completed expansions", async () => {
+    const { create, config, requests, failExpansion } = await fixture({ largePlannerContext: true });
+    failExpansion(true);
+    const initial = create(); const run = await initial.run(config);
+    const events = []; for await (const event of initial.events(run.runId)) events.push(event);
+    expect(run.state, JSON.stringify(events.at(-1))).toBe("FAILED");
+    expect(requests.filter(({ stage }) => stage === "planner-outline")).toHaveLength(1);
+    expect(requests.filter(({ stage }) => stage === "planner-expand")).toHaveLength(2);
+    const briefCount = requests.filter(({ stage }) => stage === "planner-brief").length;
+    expect(briefCount).toBeGreaterThan(1);
+    failExpansion(false);
+    const resumed = create(); await resumed.resume(run.runId);
+    const result = await resumed.wait(run.runId);
+    const resumedEvents = []; for await (const event of resumed.events(run.runId)) resumedEvents.push(event);
+    expect(result.state, JSON.stringify(resumedEvents.at(-1))).toBe("COMPLETED");
+    expect(requests.filter(({ stage }) => stage === "planner-brief")).toHaveLength(briefCount);
+    expect(requests.filter(({ stage }) => stage === "planner-outline")).toHaveLength(1);
+    expect(requests.filter(({ stage }) => stage === "planner-expand")).toHaveLength(5);
+    expect(requests.filter(({ stage }) => stage === "planner")).toHaveLength(0);
+    expect(requests.some(({ stage }) => stage === "critic")).toBe(true);
+    const descriptor = (await resumed.artifacts(run.runId)).find(({ kind }) => kind === "plan-ir");
+    if (descriptor === undefined) throw new Error("PLAN_ABSENT");
+    const plan = planIRSchema.parse(JSON.parse((await resumed.artifact(run.runId, descriptor.artifactId) as { content: string }).content));
+    expect(plan.acceptedIssueIds).toHaveLength(4); expect(plan.tasks).toHaveLength(4); expect(plan.taskGraph).toHaveLength(3);
+    expect(plan.unresolvedQuestions).toMatchObject([{ id: "expansion-TASK-4/Q-1", blocking: true }]);
+    expect((await resumed.gate(run.runId)).reasons).toContain("blocking_plan_questions");
+    expect((await resumed.modelTraces(run.runId)).filter(({ nodeId }) => nodeId === "planner").every(({ modelId }) => modelId === "planner-model")).toBe(true);
+    const artifacts = await resumed.artifacts(run.runId);
+    const countArtifact = artifacts.find(({ kind }) => kind === "planner-result");
+    if (countArtifact === undefined) throw new Error("PLANNER_RESULT_ABSENT");
+    expect(JSON.parse((await resumed.artifact(run.runId, countArtifact.artifactId) as { content: string }).content)).toEqual({ logicalModelCalls: briefCount + 5 });
+    for (const artifact of artifacts.filter(({ kind }) => kind.startsWith("model-context-"))) {
+      const context = JSON.parse((await resumed.artifact(run.runId, artifact.artifactId) as { content: string }).content) as { activityId: string; estimatedTokens: number; maximumEstimatedTokens: number };
+      expect(context.estimatedTokens).toBeLessThanOrEqual(context.maximumEstimatedTokens);
+    }
+  }, 60_000);
+
   it("reports recorded model activity without inventing ground-truth scores or cost", async () => {
     const { create, config, requests } = await fixture();
     const orchestrator = create(); const run = await orchestrator.run(config);
@@ -140,6 +287,17 @@ describe("composed model audits", () => {
     expect(metrics.inputTokens).toBe(requests.length * 10);
     expect(metrics.outputTokens).toBe(requests.length * 20);
     expect(metrics.verificationResolutionRate).toBe(1);
+    const browser = controlPlaneCore(create()).traces;
+    const traces = await browser.list(run.runId, { limit: 100 });
+    expect(traces.total).toBe(requests.length);
+    expect(traces.facets.modelIds).toEqual(["auditor-a", "auditor-b", "auditor-c"]);
+    for (const { traceId, trace } of traces.entries) {
+      expect(await browser.detail(run.runId, traceId)).toEqual({ traceId, trace });
+      const input = await browser.artifact(run.runId, traceId, "input-0");
+      expect(JSON.parse(input.content)).toMatchObject({ activityId: trace.activityId });
+      const output = await browser.artifact(run.runId, traceId, "output");
+      expect(JSON.parse(output.content)).toHaveProperty("value");
+    }
     const identity = metrics.rows[0]?.protocolIdentity;
     if (identity === undefined) throw new Error("MISSING_PROTOCOL_IDENTITY");
     expect(await core.evaluation.compare({ a: { protocolIdentity: identity, runIds: [run.runId] }, b: { protocolIdentity: identity, runIds: [run.runId] } })).toMatchObject({ comparable: true });
