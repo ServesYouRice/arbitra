@@ -17,9 +17,13 @@ export function featurePlannerNode<TPlan extends TraceablePlan>(config: PlannerN
 }
 
 export function validateFeaturePlanTraceability(requirements: RequirementsContract, plan: TraceablePlan): readonly TraceabilityDiagnostic[] {
+  return validateRequirementsPlanTraceability(requirements, plan, "feature");
+}
+
+export function validateRequirementsPlanTraceability(requirements: RequirementsContract, plan: TraceablePlan, mode: "feature" | "testing"): readonly TraceabilityDiagnostic[] {
   const diagnostics: TraceabilityDiagnostic[] = [];
   const invalid = (path: string, message: string) => diagnostics.push(Object.freeze({ code: "FEATURE_REQUIREMENT_LINK_INVALID" as const, path, message }));
-  if (plan.mode !== "feature") invalid("mode", "Feature requirements require a Feature plan.");
+  if (plan.mode !== mode) invalid("mode", `Requirements require a ${mode} plan.`);
   const known = new Set([...requirements.assumptions, ...requirements.acceptance].map(({ id }) => id));
   const links = new Map(plan.traceability.requirementLinks.links.map((link) => [link.requirementId, link]));
   const tasks = new Map(plan.tasks.map((task) => [task.id, task]));

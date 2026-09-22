@@ -132,7 +132,11 @@ settings and model profiles are supplied. Profile IDs for discovery match the se
 preset's `auditor-a`, `auditor-b` and, for deep audits, `auditor-c` nodes. Roles reference
 configured profile IDs; deep audits require a critic profile. Audit depth requests low,
 medium or high effort, with unsupported effort rejected unless an explicit collapse is
-configured. Feature/Testing and native harness composition remain unavailable.
+configured. Feature composition uses these same endpoint bindings and budgets, with
+separate role selections in `workflow.feature`; see [Feature mode](workflows.md#feature-mode).
+Testing composition uses `workflow.testing.roles` for its frontier analyst and planner,
+with the same endpoint bindings, budgets and durable harness. See
+[Testing mode](workflows.md#testing-mode). Native harness composition remains unavailable.
 
 `packages/runtime/src/model-activities.ts` durably records request fingerprints, parsed
 results, per-attempt provider traces and actual token usage. Completed calls are reused

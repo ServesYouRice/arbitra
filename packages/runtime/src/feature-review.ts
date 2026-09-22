@@ -9,8 +9,9 @@ import { canonicalJson } from "@arbitra/core/config/config-store.js";
 export interface FeatureReviewerResult { readonly reviewerId: string; readonly independenceGroup: string; readonly review: FeatureReview }
 
 export async function requireFeatureReview(store: RunStore, requirements: RequirementsContract, exploration: FeatureExploration, snapshot: RepositorySnapshot): Promise<void> {
-  const descriptor = (await store.listArtifacts()).find(({ kind }) => kind === "feature-review-consensus");
-  if (descriptor === undefined && !featureComplexityGate(requirements, exploration.preflight).stages.includes("targeted_review")) return;
+  const artifacts = await store.listArtifacts();
+  if (!featureComplexityGate(requirements, exploration.preflight).stages.includes("targeted_review") && !artifacts.some(({ kind }) => kind === "feature-requirements-revisions")) return;
+  const descriptor = artifacts.find(({ kind }) => kind === "feature-review-consensus");
   if (descriptor === undefined) throw new Error("FEATURE_PLAN_REVIEW_REQUIRED");
   const saved = await store.artifacts.get<{ inputFingerprint: string; reviewers: FeatureReviewerResult[] }>(descriptor.ref);
   if (saved.inputFingerprint !== featureReviewInputFingerprint(requirements, exploration, snapshot)) throw new Error("FEATURE_PLAN_REVIEW_STALE");

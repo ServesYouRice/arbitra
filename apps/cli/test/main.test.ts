@@ -83,11 +83,28 @@ function captureIo(): { io: { writeStdout(text: string): void; writeStderr(text:
 describe("CLI commands", () => {
   it("exposes the complete public command registry with estimate implemented", () => {
     expect([...IMPLEMENTED_COMMANDS].sort()).toEqual(
-      ["validate", "estimate", "run", "audit", "resume", "status", "replay", "diff", "trace", "export", "report"].sort(),
+      ["validate", "estimate", "run", "audit", "resume", "status", "replay", "diff", "trace", "export", "report", "requirements", "approve-requirements", "revise-requirements", "apply-requirements-revision"].sort(),
     );
     expect(RESERVED_COMMANDS).toEqual([]);
     expect(IMPLEMENTED_COMMANDS).toContain("estimate");
     expect(IMPLEMENTED_COMMANDS).toContain("audit");
+  });
+
+  it("dispatches versioned requirements operations and rejects incomplete approvals", async () => {
+    const calls: unknown[] = [];
+    const core = Object.assign(new FakeWorkflowCore(), {
+      async requirements(runId: string) { calls.push([runId]); return { disposition: "passed" as const, value: {} }; },
+      async approveRequirements(runId: string, artifactId: string, ids: readonly string[]) { calls.push([runId, artifactId, ids]); return { disposition: "passed" as const, value: {} }; },
+      async reviseRequirements(runId: string, artifactId: string, path: string) { calls.push([runId, artifactId, path]); return { disposition: "passed" as const, value: {} }; },
+      async applyRequirementsRevision(runId: string, artifactId: string) { calls.push([runId, artifactId]); return { disposition: "passed" as const, value: {} }; },
+    });
+    const io = captureIo().io;
+    expect((await runCli(["requirements", "run-1"], core, io)).exit).toBe(0);
+    expect((await runCli(["approve-requirements", "run-1", "version-1", "migration"], core, io)).exit).toBe(0);
+    expect((await runCli(["revise-requirements", "run-1", "version-2", "draft.json"], core, io)).exit).toBe(0);
+    expect((await runCli(["apply-requirements-revision", "run-1", "proposal-1"], core, io)).exit).toBe(0);
+    expect((await runCli(["approve-requirements", "run-1", "version-1"], core, io)).exit).not.toBe(0);
+    expect(calls).toEqual([["run-1"], ["run-1", "version-1", ["migration"]], ["run-1", "version-2", "draft.json"], ["run-1", "proposal-1"]]);
   });
 
   it.each([

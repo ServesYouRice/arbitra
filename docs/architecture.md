@@ -14,9 +14,15 @@ planner/verifier/critic roles in `workflow.modelExecution`; see
 [`provider-model.md`](provider-model.md). Model Audit includes independent discovery,
 bounded peer review, targeted verification, planning, critique and durable resume/replay.
 Model calls use the canonical tool loop, pinned trusted protocols, layered prompts and
-durable model traces. Requirements and Testing remain library implementations.
-Native harness, Feature mode and Testing mode produce
-an explicit `RUNTIME_*_NOT_AVAILABLE` error; an unknown preset produces `UNKNOWN_WORKFLOW_PRESET`.
+durable model traces. Feature runs also use the shared runner: a dynamic Feature subgraph
+owns durable requirements, exploration, risk-directed review, planning and bounded revision.
+Re-entering that subgraph after a checkpoint edit reuses only stages for the current
+contract. A deterministic renderer publishes the implementation tree as a run artifact.
+Testing runs compose deterministic inventory, grounded frontier risk analysis, complete
+gap selection and a traceable test plan through the same runner and shared model budget.
+Repository-derived commands are recorded without execution. Resume checks include test
+metadata; incomplete analysis withholds the handoff. Native harnesses produce an explicit
+`RUNTIME_NATIVE_HARNESS_NOT_AVAILABLE` error; unknown presets produce `UNKNOWN_WORKFLOW_PRESET`.
 Schema validation and saving a configuration do not imply that its execution mode is
 available. This boundary is distinct from the planned v1.1 extensions.
 
@@ -124,6 +130,11 @@ input. Seventeen control-plane routes are listed in `apps/server/src/routes/inve
 two evaluation routes (`GET /runs/:id/metrics`, `POST /runs/compare`) register only when a
 metric store is wired, and return 404 otherwise.
 
+Four requirements routes expose saved Feature contracts and versioned approval/revision
+operations. See [Feature mode](workflows.md#feature-mode) for their payloads and CLI
+equivalents. HTTP body validation preserves JSON types; pagination parameters are parsed
+explicitly from query text.
+
 Three trace routes register when the trace store is wired: `GET /runs/:id/traces`,
 `GET /runs/:id/traces/:traceId`, and
 `GET /runs/:id/traces/:traceId/artifacts/:slot`. Lists support exact node/model/protocol/
@@ -171,10 +182,10 @@ work is legible without re-deriving it.
 
 | Deferred feature | Extension point |
 |---|---|
-| Autonomous Testing execution (worktree, write scope, shell, egress sandbox) | `packages/workflow/src/nodes/test-inventory.ts` produces plan-only Task IR; execution would attach behind a new writable-scope tool surface in `packages/tools`, gated by `packages/security/src/command-policy.ts` |
+| Autonomous Testing execution (worktree, write scope, shell, egress sandbox) | Public Testing planning is composed. `testing-write-schedule.ts` preflights grants and scheduling; `security/write-partitions.ts` guards leases. `testing-worktree.ts` creates snapshot-seeded detached worktrees; `testing-workspace.ts` journals scoped writes and validates recovery. Model write tools, command/verification dispatch, promotion and public execution configuration remain unconnected |
 | Native harness adapters | `packages/harness/src/adapter.ts` defines the port; `canonical/adapter.ts` is the only implementation. `harness.mode: "native"` is accepted by the schema and has no adapter behind it |
 | Advisor runtime | `taskRouting.advisor` and `advisorMaxUses` exist in `packages/schemas/src/task-ir.ts`; `advisorTokens` is recorded in `packages/persistence/src/trace.ts`. Nothing consumes them |
-| Full Feature multi-model consensus | `packages/workflow/src/consensus/engine.ts` is mode-agnostic; the Feature branch currently routes single-model |
+| Feature workflow extensions | Bounded independent requirements review and model revision are composed; dedicated web checkpoints, expanded subgraph views and oversized contexts remain open |
 | Incremental / repeat audit execution | Snapshot identity, hotspots and inspection footprints are already recorded by preflight and `packages/tools/src/footprint` |
 | Provider batch API path | `modelProfileSchema.supports.batch` is recorded; `packages/providers/src/scheduler.ts` has no batch lane |
 | Drag-and-drop workflow canvas editor | `apps/web/src/columns/graph` renders from workflow JSON and is read-only by construction |

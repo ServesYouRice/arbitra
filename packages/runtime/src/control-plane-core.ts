@@ -65,6 +65,13 @@ export function controlPlaneCore(orchestrator: Orchestrator) {
       artifact: (runId: string, traceId: string, slot: string) => orchestrator.traceArtifact(runId, traceId, slot),
     },
 
+    requirements: {
+      current: (runId: string) => orchestrator.requirements(runId),
+      approve: (runId: string, body: unknown) => orchestrator.approveRequirements(runId, body),
+      revise: (runId: string, artifactId: string, draft: unknown) => orchestrator.reviseRequirements(runId, artifactId, draft),
+      applyRevision: (runId: string, artifactId: string) => orchestrator.applyRequirementsRevision(runId, artifactId),
+    },
+
     evaluation: {
       metrics: (runId: string) => orchestrator.metrics(runId),
       compare: async (request: { readonly a: unknown; readonly b: unknown }) => {

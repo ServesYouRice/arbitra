@@ -14,14 +14,14 @@ import type { RepositorySnapshot } from "./repository.js";
 import type { RunStore } from "./run-store.js";
 
 export async function modelFeatureExploration(store: RunStore, config: RunConfig, snapshot: RepositorySnapshot,
-  checkpoint: RequirementsCheckpoint, options: { readonly modelProfileId: string; readonly signal: AbortSignal; readonly transport?: TransportFactoryOptions }) {
+  checkpoint: RequirementsCheckpoint, options: { readonly modelProfileId: string; readonly signal: AbortSignal; readonly harness?: ModelHarness; readonly transport?: TransportFactoryOptions }) {
   if (config.mode !== "feature" || config.harness.mode !== "canonical") throw new Error("FEATURE_EXPLORATION_CONFIGURATION_REQUIRED");
   const requirements = await checkpoint.requireResolved();
   const profile = config.models[options.modelProfileId];
   if (profile === undefined) throw new Error("FEATURE_EXPLORATION_PROFILE_REQUIRED");
   const execution = providerExecutionSchema.parse(config.workflow["modelExecution"]);
   const protocol = await new ModelProtocols(store, config.protocols).resolve("feature-exploration");
-  const harness = new ModelHarness(new ModelActivities(store, config, options.transport), config, snapshot, store);
+  const harness = options.harness ?? new ModelHarness(new ModelActivities(store, config, options.transport), config, snapshot, store);
   const maximum = Math.floor(Math.min(execution.maximumContextTokens ?? 128_000, profile.limits.contextTokens ?? Number.POSITIVE_INFINITY) * 0.8);
   const identity = featureReviewInputFingerprint(requirements, {}, snapshot);
   const request = (payload: unknown): ModelActivityRequest<unknown> => ({ activityId: `feature/exploration/${identity}`, modelProfileId: options.modelProfileId, signal: options.signal, effort: "medium",

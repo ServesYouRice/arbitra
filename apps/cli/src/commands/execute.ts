@@ -27,6 +27,25 @@ export async function executeCommand(
     return { disposition: "system_failure", reasons: [`missing_argument:${command}`], value: null };
   }
   switch (command) {
+    case "apply-requirements-revision": {
+      const artifactId = positional[1];
+      if (core.applyRequirementsRevision === undefined || artifactId === undefined || positional.length !== 2) throw new Error("USAGE: apply-requirements-revision <run-id> <proposal-artifact-id>");
+      return core.applyRequirementsRevision(subject, artifactId);
+    }
+    case "requirements": {
+      if (core.requirements === undefined || positional.length !== 1) throw new Error("USAGE: requirements <run-id>");
+      return core.requirements(subject);
+    }
+    case "approve-requirements": {
+      const artifactId = positional[1];
+      if (core.approveRequirements === undefined || artifactId === undefined || positional.length < 3) throw new Error("USAGE: approve-requirements <run-id> <artifact-id> <ambiguity-id>...");
+      return core.approveRequirements(subject, artifactId, positional.slice(2));
+    }
+    case "revise-requirements": {
+      const artifactId = positional[1]; const draftPath = positional[2];
+      if (core.reviseRequirements === undefined || artifactId === undefined || draftPath === undefined || positional.length !== 3) throw new Error("USAGE: revise-requirements <run-id> <artifact-id> <draft.json>");
+      return core.reviseRequirements(subject, artifactId, draftPath);
+    }
     case "validate": return core.validate(subject);
     case "estimate": return executeEstimate(core, subject);
     case "run": return core.run(subject);

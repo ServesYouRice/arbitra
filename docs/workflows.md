@@ -107,28 +107,139 @@ when none qualifies — a skipped critic is a recorded degradation, not a silent
 
 ## Feature mode
 
-The following describes the library node. The CLI/server composition does not yet
-dispatch Feature mode and rejects it explicitly.
+The shared CLI/server runtime dispatches configured Feature runs. Use `mode: "feature"`,
+the `feature-simple` preset, provider bindings in `workflow.modelExecution`, and explicit
+Feature settings:
+
+```json
+{
+  "preset": "feature-simple",
+  "feature": {
+    "request": "Add session preferences while preserving existing sessions",
+    "mode": "interactive",
+    "maximumRequirementsRevisions": 1,
+    "roles": {
+      "requirements": "requirements-profile",
+      "exploration": "exploration-profile",
+      "planner": "planner-profile",
+      "reviewers": ["reviewer-a", "reviewer-b"],
+      "critic": "critic-profile"
+    }
+  }
+}
+```
+
+These profile IDs must exist in `models` and have endpoint bindings. Reviewers need
+distinct independence groups; the critic must be independent of the planner. Low-risk
+Features skip targeted review and criticism, so reviewers and critic may be omitted for
+that path. If exploration requires review, missing profiles fail explicitly.
+
+Interactive high-impact defaults pause the run in `BLOCKED`. Inspect, revise, approve
+and resume through the CLI:
+
+```text
+orchestrator run feature-config.json
+orchestrator requirements <run-id>
+orchestrator revise-requirements <run-id> <artifact-id> draft.json
+orchestrator approve-requirements <run-id> <current-artifact-id> <ambiguity-id>...
+orchestrator resume <run-id>
+```
+
+The localhost API exposes `GET /runs/:id/requirements`,
+`POST /runs/:id/requirements/approve` (`artifactId`, `ambiguityIds`) and
+`POST /runs/:id/requirements/revise` (`artifactId`, `draft`). Mutations require a
+blocked run and the current artifact ID; stale versions return HTTP 409. An edit clears
+interactive approvals. Approval does not resume execution automatically. Unresolved
+requirements review also blocks, allowing an operator draft revision followed by fresh
+exploration/review. Automatic mode records defaults without operator checkpoints but
+does not override disputed review.
+
+`maximumRequirementsRevisions` defaults to one proposal per run and accepts 0–3; zero
+keeps operator-only revision. A complete independent review with unresolved requirements
+can trigger a proposal from the configured requirements model. Proposals retain explicit
+lineage, acceptance responsibility, scope exclusions and high-impact ambiguity coverage.
+Review limitations block proposal generation. The durable reservation counts across
+restarts and checkpoint changes, so repeated resume cannot reset the limit.
+
+In automatic mode a validated proposal becomes a new contract, then fresh exploration
+and independent review check it. In interactive mode it remains separate from the approved
+contract. `requirements <run-id>` exposes `revisionProposal`; select it with
+`apply-requirements-revision <run-id> <proposal-artifact-id>` or
+`POST /runs/:id/requirements/apply-revision` with `artifactId`. Application clears prior
+approvals, so inspect and approve the new high-impact defaults before resuming. Re-review
+receives immutable original feedback and the model's resolution claims, and remains
+mandatory after model revision even if the new risk score is lower. Continuing disagreement
+at the revision limit remains `BLOCKED` and permits an operator draft revision.
+
+Successful plans publish an `implementation` artifact containing the rendered file tree,
+including `manifest.json`, requirements, tasks and validation. Export it through the
+existing artifact/JSON export interfaces. Source files are not modified; command policy
+and write authority still need resolution in the consuming executor. Blocking questions,
+critic feedback or exploration limitations fail the gate and withhold that handoff.
+All model stages share one harness, provider scheduler and durable budget within the run.
 
 Same engine. `packages/workflow/src/nodes/requirements/` produces a durable Requirements
 Contract and routes by ambiguity and repository risk (`routing.ts`), preserving assumption
 and acceptance traceability into planning.
 
-The **full multi-model Feature consensus branch is v1.1** and is not implemented. The
-consensus engine is mode-agnostic and will be reused unchanged when it lands; the Feature
-branch currently routes single-model.
+The runtime library has durable requirements checkpoints, grounded exploration and
+targeted independent requirements review with up to three rounds. Draft revisions
+invalidate operator approvals and downstream review identities. Dedicated requirements
+controls in the web UI remain unfinished. Feature uses the runner's subgraph primitive; stage detail is available in
+its artifacts and traces. Audit-policy replay is explicitly unsupported for Feature;
+ordinary durable resume is supported.
+
+`packages/runtime/src/model-feature-planning.ts` composes the selected planner with an
+independent critic and at most one revision/re-review. Only a complete, non-degraded
+critique with blocking items triggers revision. Revisions must preserve requirement
+traceability, premise provenance and existing unresolved questions, and provide exactly
+one resolution claim per blocking item. The independent re-review receives the original
+plan, critique and claims; remaining blockers, rejected mappings and blocking plan
+questions prevent a passing result. Completed model activities are reused on restart,
+including when the revised plan is unchanged. Oversized mandatory Feature revision
+contexts fail explicitly; hierarchical Feature revision is not yet implemented.
 
 ## Testing mode
 
-The following describes the library node. The CLI/server composition does not yet
-dispatch Testing mode and rejects it explicitly.
+The shared CLI/server runtime supports plan-only Testing. Configure `mode: "testing"`,
+the canonical harness, model endpoint bindings in `workflow.modelExecution`, and:
 
-Plan-only, by construction. `packages/workflow/src/nodes/test-inventory.ts` inventories the
-existing test architecture deterministically, selects gaps that cite production failure
-modes, and emits a Validation Contract and test Task IR.
+```json
+{
+  "preset": "testing-plan",
+  "testing": {
+    "mode": "plan",
+    "goal": "Protect authorization and session behavior against regressions",
+    "roles": { "analyst": "gap-analyst", "planner": "planner" },
+    "commands": []
+  }
+}
+```
 
-**It does not execute anything and cannot.** Routing decisions are recorded but not run,
-every command is repository-derived, and the working tree is unchanged.
+The analyst must have frontier capability. Deterministic inventory includes test files
+and supported manifests within the selected source scope. Risk surfaces require exact
+source evidence; every candidate must be selected or explicitly rejected with a reason.
+A test category elsewhere in the repository does not establish coverage of a surface.
+Unreviewed source/test paths and model-reported limitations fail the planning gate.
+
+Package `test` and `test:*` scripts provide command candidates. For other frameworks,
+`commands` accepts `{command, evidence: {path, startLine, endLine, text}}`; the exact
+repository line range must contain that command alone. Explicit evidence paths are
+included only within the selected scope. Custom commands retain `requires_approval`;
+derived package scripts record their origin without granting execution permission.
+Missing commands with selected gaps prevent planning. Resume rejects source or command
+metadata changes. Oversized mandatory selection/planning context fails explicitly.
+
+The planner links every selected gap to tasks and validation assertions. Concrete write
+paths must classify as tests or test configuration; production-file paths and invented
+commands are rejected. Successful nonempty plans publish the implementation tree under
+run artifacts. An analysis selecting no gaps publishes an explicit no-work outcome;
+it is not proof of test coverage. Blocking questions withhold the handoff.
+
+All stages share the durable model budget and resume machinery. Commands are never run,
+the source tree stays unchanged, and the result records `testsExecuted: false`.
+Audit-policy replay is unsupported for Testing. Dedicated web controls and expanded
+Testing subgraph views remain open.
 Autonomous Testing execution — worktree, write scope, shell, egress sandbox — is **v1.1**
 and not implemented.
 

@@ -12,8 +12,12 @@ misses — is treated as a hypothesis the system measures, not as a marketing cl
 The workspace contains the v1 building blocks, a **scripted Audit pipeline**, and a
 bounded **model Audit pipeline** over a selected source snapshot. Configured model
 execution requires endpoint bindings and explicit roles; see
-[`docs/provider-model.md`](docs/provider-model.md). Native harnesses, Feature workflows
-and Testing workflows still fail explicitly. Library implementations and composition limitations
+[`docs/provider-model.md`](docs/provider-model.md). Model Feature workflows now run through
+the shared CLI/server runtime with durable requirements checkpoints, risk-directed review,
+planning and an exportable implementation handoff; see [`docs/workflows.md`](docs/workflows.md#feature-mode).
+Testing workflows now compose grounded risk analysis, gap selection and a read-only test
+plan through the same runtime. Native harnesses and autonomous test execution remain
+unimplemented. Library implementations and composition limitations
 are distinguished in [`docs/architecture.md`](docs/architecture.md); the separately
 planned v1.1 extensions are also listed there.
 
