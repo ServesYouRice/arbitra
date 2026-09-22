@@ -13,14 +13,14 @@ import type { RunStore } from "./run-store.js";
 
 /** Model-backed requirements stage; Feature graph composition owns subsequent stages. */
 export async function modelRequirements(store: RunStore, config: RunConfig, snapshot: RepositorySnapshot,
-  options: { readonly modelProfileId: string; readonly mode: "automatic" | "interactive"; readonly signal: AbortSignal; readonly transport?: TransportFactoryOptions }) {
+  options: { readonly modelProfileId: string; readonly mode: "automatic" | "interactive"; readonly signal: AbortSignal; readonly harness?: ModelHarness; readonly transport?: TransportFactoryOptions }) {
   if (config.mode !== "feature" || config.harness.mode !== "canonical") throw new Error("FEATURE_REQUIREMENTS_CONFIGURATION_REQUIRED");
   const profile = config.models[options.modelProfileId];
   if (profile === undefined) throw new Error("REQUIREMENTS_MODEL_PROFILE_REQUIRED");
   const execution = providerExecutionSchema.parse(config.workflow["modelExecution"]);
   const protocols = new ModelProtocols(store, config.protocols);
   const protocol = await protocols.resolve("feature-requirements");
-  const harness = new ModelHarness(new ModelActivities(store, config, options.transport), config, snapshot, store);
+  const harness = options.harness ?? new ModelHarness(new ModelActivities(store, config, options.transport), config, snapshot, store);
   const maximum = Math.floor(Math.min(execution.maximumContextTokens ?? 128_000, profile.limits.contextTokens ?? Number.POSITIVE_INFINITY) * 0.8);
   const checkpoint = new RequirementsCheckpoint(store, {
     mode: options.mode, protocolVersion: protocol.protocolVersion, protocolHash: protocol.protocolHash,

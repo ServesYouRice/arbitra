@@ -16,16 +16,16 @@ import { validateFeatureExploration } from "./feature-exploration.js";
 import { requireFeatureReview, featureReviewInputFingerprint } from "./feature-review.js";
 
 export async function modelFeaturePlan(store: RunStore, config: RunConfig, snapshot: RepositorySnapshot,
-  checkpoint: RequirementsCheckpoint, options: { readonly modelProfileId: string; readonly signal: AbortSignal; readonly exploration: unknown; readonly transport?: TransportFactoryOptions }): Promise<PlanIR> {
+  checkpoint: RequirementsCheckpoint, options: { readonly modelProfileId: string; readonly signal: AbortSignal; readonly exploration: unknown; readonly harness?: ModelHarness; readonly transport?: TransportFactoryOptions }): Promise<PlanIR> {
   if (config.mode !== "feature" || config.harness.mode !== "canonical") throw new Error("FEATURE_PLANNER_CONFIGURATION_REQUIRED");
   const requirements = await checkpoint.requireResolved();
   const exploration = validateFeatureExploration(options.exploration, requirements, snapshot);
   await requireFeatureReview(store, requirements, exploration, snapshot);
-  const profile = config.models[options.modelProfileId];
+  const profile = Object.hasOwn(config.models, options.modelProfileId) ? config.models[options.modelProfileId] : undefined;
   if (profile === undefined) throw new Error("FEATURE_PLANNER_PROFILE_REQUIRED");
   const execution = providerExecutionSchema.parse(config.workflow["modelExecution"]);
   const protocol = await new ModelProtocols(store, config.protocols).resolve("planner");
-  const harness = new ModelHarness(new ModelActivities(store, config, options.transport), config, snapshot, store);
+  const harness = options.harness ?? new ModelHarness(new ModelActivities(store, config, options.transport), config, snapshot, store);
   const maximum = Math.floor(Math.min(execution.maximumContextTokens ?? 128_000, profile.limits.contextTokens ?? Number.POSITIVE_INFINITY) * 0.8);
   const premiseReport = { status: "unavailable" as const, interpretation: "smoke_test_only_not_proof" as const, limitations: ["real_model_premise_requires_ground_truth_evaluation"] };
   const identity = featureReviewInputFingerprint(requirements, exploration, snapshot);
@@ -43,7 +43,7 @@ export async function modelFeaturePlan(store: RunStore, config: RunConfig, snaps
     return harness.invoke(request(allocated.input));
   } } });
   const result = await planner.run({ requirements, projectContext: { exploration }, canonicalIssues: [], repositoryContext: [], constraints: requirements.outOfScope, workflowGoal: requirements.featureRequest, premiseReport });
-  if (JSON.stringify(result.plan.premiseReport) !== JSON.stringify(premiseReport)) throw new Error("FEATURE_PLAN_PREMISE_CHANGED");
+  if (canonicalJson(result.plan.premiseReport) !== canonicalJson(premiseReport)) throw new Error("FEATURE_PLAN_PREMISE_CHANGED");
   await store.publish("feature-planner-result", { modelCalls: result.modelCalls, diagnostics: result.diagnostics, modelProfileId: options.modelProfileId, inputFingerprint: identity, planFingerprint: createHash("sha256").update(canonicalJson(result.plan)).digest("hex") }, "planner");
   await store.publish("plan-ir", result.plan, "planner");
   return result.plan;

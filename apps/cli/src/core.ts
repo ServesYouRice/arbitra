@@ -12,6 +12,10 @@ export interface CoreCommandResult {
  * tests supply the same operations; command handlers contain no workflow execution.
  */
 export interface OrchestratorCore {
+  requirements?(runId: string): Promise<CoreCommandResult>;
+  applyRequirementsRevision?(runId: string, artifactId: string): Promise<CoreCommandResult>;
+  approveRequirements?(runId: string, artifactId: string, ambiguityIds: readonly string[]): Promise<CoreCommandResult>;
+  reviseRequirements?(runId: string, artifactId: string, draftPath: string): Promise<CoreCommandResult>;
   validate(configPath: string): Promise<CoreCommandResult>;
   estimate(configPath: string): Promise<CoreCommandResult>;
   run(configPath: string): Promise<CoreCommandResult>;

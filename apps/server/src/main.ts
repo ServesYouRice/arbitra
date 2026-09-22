@@ -5,6 +5,7 @@ import { CheckpointRegistry } from "./checkpoints.js";
 import { registerControlPlaneRoutes, type ControlPlaneCore, type HttpSchemas, type RouteServer } from "./routes/control-plane.js";
 import { registerEvaluationRoutes, type EvaluationCore } from "./routes/evaluation.js";
 import { registerTraceRoutes, type TraceCore } from "./routes/traces.js";
+import { registerRequirementsRoutes, type RequirementsCore } from "./routes/requirements.js";
 
 export const DEFAULT_SERVER_HOST = "127.0.0.1" as const;
 export const DEFAULT_SERVER_PORT = 4178 as const;
@@ -18,9 +19,11 @@ export function assertLoopbackHost(host: string): LoopbackHost {
 
 export interface ListeningRouteServer extends RouteServer { listen(options: { host: string; port: number }): Promise<unknown> }
 /** The control plane plus, when the run store exposes metrics, the evaluation surface over the same core. */
-export type ServerCore = ControlPlaneCore & { readonly evaluation?: EvaluationCore; readonly traces?: TraceCore };
+export type ServerCore = ControlPlaneCore & { readonly evaluation?: EvaluationCore; readonly traces?: TraceCore; readonly requirements?: RequirementsCore };
 export function buildServer(core: ServerCore, schemas: HttpSchemas = HTTP_ROUTE_SCHEMAS): FastifyInstance {
-  const app = Fastify({ logger: false });
+  // JSON unions must preserve their original types; coercion can turn model budgets
+  // into strings while trying the first branch of a recursive JSON schema.
+  const app = Fastify({ logger: false, ajv: { customOptions: { coerceTypes: false, removeAdditional: false } } });
   app.addHook("onRequest", async (request, reply) => {
     if (!localUrl(`http://${request.headers.host ?? ""}`) || request.headers.origin !== undefined && !localUrl(request.headers.origin)) {
       await reply.code(403).send({ error: "NON_LOCAL_CONTROL_PLANE_REQUEST" });
@@ -46,6 +49,7 @@ function registerAll(server: RouteServer, core: ServerCore, schemas: HttpSchemas
   registerControlPlaneRoutes(server, core, new CheckpointRegistry(), schemas);
   if (core.evaluation !== undefined) registerEvaluationRoutes(server, core.evaluation, schemas);
   if (core.traces !== undefined) registerTraceRoutes(server, core.traces, schemas);
+  if (core.requirements !== undefined) registerRequirementsRoutes(server, core.requirements, schemas);
 }
 
 function localUrl(value: string): boolean {

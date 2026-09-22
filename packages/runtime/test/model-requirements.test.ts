@@ -9,6 +9,7 @@ import { modelFeaturePlan } from "../src/model-feature-plan.js";
 import { modelFeatureExploration } from "../src/model-feature-exploration.js";
 import { modelFeatureReview } from "../src/model-feature-review.js";
 import { modelFeatureCritic } from "../src/model-feature-critic.js";
+import { modelFeaturePlanning } from "../src/model-feature-planning.js";
 import type { FeatureReviewerResult } from "../src/feature-review.js";
 import type { FeatureReview } from "@arbitra/schemas/feature-review.js";
 import { RunStore } from "../src/run-store.js";
@@ -16,7 +17,8 @@ import { RunStore } from "../src/run-store.js";
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 
-it.each([false, true])("generates and replays Feature stages with follow-up review: %s", async (followup) => {
+it.each(["clean", "resolved", "persistent", "missing", "unknown", "duplicate", "traceability", "premise", "question", "degraded", "restart", "unchanged"])("generates and replays Feature planning: %s", async (scenario) => {
+  const followup = scenario !== "clean";
   const root = await mkdtemp(join(tmpdir(), "model-requirements-test-")); roots.push(root);
   const example = runConfigSchema.parse(JSON.parse(await readFile(new URL("../../../examples/audit-balanced.json", import.meta.url), "utf8")));
   const profile = example.models["auditor-a"];
@@ -29,10 +31,18 @@ it.each([false, true])("generates and replays Feature stages with follow-up revi
   let calls = 0;
   const draft = { assumptions: [{ id: "assumption", statement: "Preserve existing sessions", confidence: "high" }], ambiguities: [{ id: "migration", question: "Migrate sessions?", proposedDefault: "Keep current sessions", blastRadius: "high" }], acceptance: [{ id: "acceptance", assertion: "New sessions work" }], outOfScope: [] };
   let output: unknown = draft;
+  const responses: unknown[] = [];
+  const requests: string[] = [];
   let reviewing = false; let reviewCalls = 0;
   const options = { modelProfileId: "requirements", mode: "interactive" as const, signal: new AbortController().signal, transport: {
-    credential: () => "fixture-credential", client: { async send() {
+    credential: () => "fixture-credential", client: { async send(request: { body?: unknown }) {
       calls += 1;
+      requests.push(JSON.stringify(request.body));
+      if (responses.length > 0) {
+        const response = responses.shift();
+        if (response instanceof Error) throw response;
+        return { status: 200, headers: {}, body: { output_text: JSON.stringify(response), usage: { input_tokens: 20, output_tokens: 30 } } };
+      }
       if (reviewing) reviewCalls += 1;
       const response = reviewing && followup && reviewCalls <= 2 ? { ...output as FeatureReview, decisions: (output as FeatureReview).decisions.map((decision) => ({ ...decision, disposition: "uncertain" })) } : output;
       return { status: 200, headers: {}, body: { output_text: JSON.stringify(response), usage: { input_tokens: 20, output_tokens: 30 } } };
@@ -83,6 +93,7 @@ it.each([false, true])("generates and replays Feature stages with follow-up revi
   plan.premiseReport = { status: "unavailable", interpretation: "smoke_test_only_not_proof", limitations: ["real_model_premise_requires_ground_truth_evaluation"] };
   for (const task of plan.tasks) { task.addresses.issues = []; task.addresses.requirements = ["acceptance"]; }
   plan.traceability.requirementLinks.links = [{ requirementId: "acceptance", taskIds: ["TASK-001"], validationIds: ["VAL-001"] }];
+  if (scenario === "question") plan.unresolvedQuestions.push({ id: "open", question: "Operator decision needed", blocking: true, blastRadius: "high" });
   output = plan;
   expect(await modelFeaturePlan(store, config, snapshot, restarted.checkpoint, plannerOptions)).toEqual(plan);
   expect(await modelFeaturePlan(new RunStore(root, "run"), config, snapshot, restarted.checkpoint, plannerOptions)).toEqual(plan);
@@ -105,9 +116,45 @@ it.each([false, true])("generates and replays Feature stages with follow-up revi
   const criticOptions = { ...options, plannerProfileId: "requirements", criticProfileId: "reviewer-a", exploration: explored.exploration };
   await expect(modelFeatureCritic(store, config, snapshot, restarted.checkpoint, { ...plan, title: "Changed plan" }, criticOptions)).rejects.toThrow("FEATURE_CRITIC_PLAN_STALE");
   await expect(modelFeatureCritic(store, config, snapshot, restarted.checkpoint, plan, { ...criticOptions, criticProfileId: "requirements" })).rejects.toThrow("FEATURE_CRITIC_INDEPENDENCE_REQUIRED");
-  output = { summary: "Feature plan critique", items: followup ? [{ id: "critique", category: "weak_verification", blocking: true, summary: "Add migration validation", taskIds: ["TASK-001"], issueIds: [] }] : [] };
+  output = { summary: "Feature plan critique", items: followup ? [{ id: "critique", category: "weak_verification", blocking: true, summary: "Add migration validation", taskIds: [scenario === "degraded" ? "unknown" : "TASK-001"], issueIds: [] }] : [] };
   const critique = await modelFeatureCritic(store, config, snapshot, restarted.checkpoint, plan, criticOptions);
   expect(critique.passed).toBe(!followup);
   expect(await modelFeatureCritic(new RunStore(root, "run"), config, snapshot, restarted.checkpoint, plan, criticOptions)).toEqual(critique);
   expect(calls).toBe(followup ? 12 : 10);
+  const before = calls;
+  const revisedPlan = structuredClone(plan);
+  if (scenario !== "unchanged") revisedPlan.title = "Revised Feature plan";
+  if (scenario === "traceability") revisedPlan.traceability.requirementLinks.links = [];
+  if (scenario === "premise") revisedPlan.premiseReport.status = "positive";
+  if (scenario === "question") revisedPlan.unresolvedQuestions = [];
+  const resolution = { critiqueItemId: scenario === "unknown" ? "unknown" : "critique", resolution: "Added migration validation" };
+  const revision = { plan: revisedPlan, resolutions: scenario === "missing" ? [] : scenario === "duplicate" ? [resolution, resolution] : [resolution] };
+  const finalCritique = scenario === "persistent" ? output : { summary: "Checked revision and original feedback", items: [] };
+  if (followup && scenario !== "degraded") responses.push(revision, scenario === "restart" ? new Error("fixture final review interrupted") : finalCritique);
+  const runPlanning = () => modelFeaturePlanning(new RunStore(root, "run"), config, snapshot, restarted.checkpoint, criticOptions);
+  const error = ({ missing: "REVISION_DID_NOT_RESOLVE_EVERY_BLOCKING_CRITIQUE_ITEM", unknown: "REVISION_DID_NOT_RESOLVE_EVERY_BLOCKING_CRITIQUE_ITEM", duplicate: "REVISION_DID_NOT_RESOLVE_EVERY_BLOCKING_CRITIQUE_ITEM", traceability: "FEATURE_REVISION_TRACEABILITY_INVALID", premise: "FEATURE_PLAN_PREMISE_CHANGED", question: "FEATURE_REVISION_QUESTION_DROPPED" } as Record<string, string>)[scenario];
+  if (error !== undefined) {
+    await expect(runPlanning()).rejects.toThrow(error);
+    expect(calls).toBe(before + 1);
+    expect((await store.listArtifacts()).some(({ kind }) => kind === "feature-plan-revision")).toBe(false);
+    return;
+  }
+  if (scenario === "restart") {
+    await expect(runPlanning()).rejects.toThrow();
+    expect(calls).toBe(before + 2);
+    responses.push(finalCritique);
+  }
+  const planned = await runPlanning();
+  const revises = followup && scenario !== "degraded";
+  expect(planned.revisionCalls).toBe(revises ? 1 : 0);
+  expect(planned.review.passed).toBe(scenario !== "persistent" && scenario !== "degraded");
+  expect(planned.plan).toEqual(revises ? revisedPlan : plan);
+  expect(calls).toBe(before + (scenario === "restart" ? 3 : revises ? 2 : 0));
+  if (revises) {
+    expect(requests.at(-1)).toContain("proposedResolutions");
+    expect(requests.at(-1)).toContain("Add migration validation");
+  }
+  const completedCalls = calls;
+  expect(await runPlanning()).toEqual(planned);
+  expect(calls).toBe(completedCalls);
 });

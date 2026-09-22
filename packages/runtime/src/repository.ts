@@ -20,6 +20,7 @@ export interface RepositorySnapshot {
 const SKIPPED_DIRECTORIES = new Set([".git", "node_modules", "dist", "build", "coverage", ".pnpm-store", ".runs", ".vite"]);
 const SCANNED_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".go", ".rs", ".java", ".kt", ".rb", ".cs", ".php", ".swift", ".scala", ".sql", ".css", ".scss", ".html", ".vue", ".svelte"]);
 const MAXIMUM_FILE_BYTES = 512 * 1024;
+const TEST_METADATA = new Set(["package.json", "pnpm-workspace.yaml", "pyproject.toml", "pytest.ini", "tox.ini", "setup.cfg", "Cargo.toml", "go.mod", "Makefile", "build.gradle", "pom.xml"]);
 const runGit = promisify(execFile);
 export interface RepositoryGit { run(root: string, args: readonly string[]): Promise<string> }
 const defaultGit: RepositoryGit = { async run(root, args) { return (await runGit("git", ["-C", root, ...args], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024, windowsHide: true })).stdout; } };
@@ -30,17 +31,19 @@ const defaultGit: RepositoryGit = { async run(root, args) { return (await runGit
  * Audit and Feature modes are read-only (spec §2.1), so this only ever reads. Line start
  * offsets are carried because finding validation checks every cited line against them.
  */
-export async function snapshotRepository(root: string, maximumFiles = 400, options: { readonly scope?: RunScope; readonly git?: RepositoryGit } = {}): Promise<RepositorySnapshot> {
+export async function snapshotRepository(root: string, maximumFiles = 400, options: { readonly scope?: RunScope; readonly git?: RepositoryGit; readonly includeTestMetadata?: boolean; readonly additionalPaths?: readonly string[] } = {}): Promise<RepositorySnapshot> {
   if (!Number.isSafeInteger(maximumFiles) || maximumFiles < 1) throw new RangeError("INVALID_MAXIMUM_FILES");
   const guard = await RepositoryPathGuard.create(root);
   const scope = options.scope ?? { kind: "repository" };
-  if (scope.kind === "diff") return snapshotDiff(guard, scope, maximumFiles, options.git ?? defaultGit);
+  const additional = new Set((options.additionalPaths ?? []).map((path) => relative(guard.root, guard.resolve(path)).split(sep).join("/")));
+  const eligible = (path: string): boolean => SCANNED_EXTENSIONS.has(path.slice(path.lastIndexOf(".")).toLowerCase()) || options.includeTestMetadata === true && (TEST_METADATA.has(path.split("/").at(-1) ?? "") || additional.has(path));
+  if (scope.kind === "diff") return snapshotDiff(guard, scope, maximumFiles, options.git ?? defaultGit, eligible);
   const modules = scope.kind === "module" ? scope.modules : undefined;
   if (scope.kind === "module" && (modules === undefined || modules.length === 0)) throw new Error("MODULE_SCOPE_REQUIRED");
   const modulePaths = modules?.map((path) => relative(guard.root, guard.resolve(path)).split(sep).join("/").replace(/\/$/u, ""));
   const included = (path: string): boolean => modulePaths === undefined || modulePaths.some((prefix) => prefix === "" || path === prefix || path.startsWith(`${prefix}/`));
   const paths: string[] = [];
-  await walk(root, root, paths, maximumFiles + 1, guard, included);
+  await walk(root, root, paths, maximumFiles + 1, guard, (path) => included(path) && eligible(path));
   if (paths.length > maximumFiles) throw new Error(`REPOSITORY_FILE_LIMIT_EXCEEDED:${maximumFiles}`);
   if (modulePaths !== undefined && paths.length === 0) throw new Error("MODULE_SCOPE_EMPTY");
   const files = await Promise.all(paths.sort().map(async (path): Promise<SourceFile> => sourceFile(path, await guard.readFile(path))));
@@ -62,8 +65,6 @@ async function walk(root: string, directory: string, into: string[], limit: numb
     // Dirent types are checked before extension and stat so file symlinks are never
     // followed into content outside the audited repository.
     if (!entry.isFile()) continue;
-    const extension = entry.name.slice(entry.name.lastIndexOf(".")).toLowerCase();
-    if (!SCANNED_EXTENSIONS.has(extension)) continue;
     const path = relative(root, full).split(sep).join("/");
     if (!included(path)) continue;
     const info = await guard.stat(path);
@@ -82,7 +83,7 @@ function sourceFile(path: string, text: string): SourceFile {
   return Object.freeze({ path, lines: Object.freeze(lines), byteLength, lineStartBytes: Object.freeze(lineStartBytes) });
 }
 
-async function snapshotDiff(guard: RepositoryPathGuard, scope: RunScope, maximumFiles: number, git: RepositoryGit): Promise<RepositorySnapshot> {
+async function snapshotDiff(guard: RepositoryPathGuard, scope: RunScope, maximumFiles: number, git: RepositoryGit, eligible: (path: string) => boolean): Promise<RepositorySnapshot> {
   const mode = scope.diffMode ?? "range";
   let target: string[];
   let revision: string | null;
@@ -103,7 +104,7 @@ async function snapshotDiff(guard: RepositoryPathGuard, scope: RunScope, maximum
     target = [scope.base, revision];
   }
   const names = await git.run(guard.root, ["diff", "--name-only", "--diff-filter=ACMR", "-z", ...target, "--"]);
-  const paths = [...new Set(names.split("\0").filter((path) => path !== "" && SCANNED_EXTENSIONS.has(path.slice(path.lastIndexOf(".")).toLowerCase())))].sort();
+  const paths = [...new Set(names.split("\0").filter((path) => path !== "" && eligible(path)))].sort();
   if (paths.length > maximumFiles) throw new Error(`REPOSITORY_FILE_LIMIT_EXCEEDED:${maximumFiles}`);
   const files = await Promise.all(paths.map(async (path) => {
     guard.resolve(path);

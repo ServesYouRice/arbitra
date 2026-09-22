@@ -115,7 +115,13 @@
     "mode": "canonical"
   },
   "workflow": {
-    "preset": "testing"
+    "preset": "testing-plan",
+    "testing": {
+      "mode": "plan",
+      "goal": "Identify production-risk test gaps and plan focused regression tests",
+      "roles": { "analyst": "gap-analyst", "planner": "planner" },
+      "commands": []
+    }
   },
   "budgets": {
     "maximumCostUsd": 6,
@@ -129,7 +135,8 @@
     "overlapBudget": 2
   },
   "protocols": {
-    "test-gap-analysis": "1.0.0",
+    "testing-risk": "1.0.0",
+    "testing-audit": "1.0.0",
     "planner": "1.0.0"
   },
   "promptOverrides": {},

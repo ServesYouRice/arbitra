@@ -1,5 +1,126 @@
 # Remaining work
 
+Testing execution now has an owned detached Git worktree and durable workspace journal.
+The worktree is seeded from the exact scoped snapshot in a fresh temporary repository;
+the source checkout, its Git metadata, credentials, remotes and hooks are not shared.
+Ownership is persisted before Git dispatch. File updates require live partition leases,
+matching before-hashes and bounded content. Parent junctions, symlinks and hard links are
+rejected. Atomic replacement and serialized filesystem updates preserve source files.
+
+The workspace records each write intent before mutation, then its completion. Recovery
+compares every worktree byte with baseline plus journal, adopts completed pending writes,
+retries unapplied writes and rejects unrecorded changes. Ambiguous publication failures
+invalidate in-memory readiness until durable recovery. Close intent precedes cleanup;
+ownership markers survive partial child cleanup so recovery can retry safely.
+
+These are execution components, not yet public autonomous execution. The coordinator
+must remain the sole host writer; model/native processes cannot receive direct host
+worktree write access. Model write-tool dispatch, command policy/sandbox execution,
+fresh verification, promotion and public execution configuration remain open.
+Real-Git and journal fault tests cover scoped writes, source preservation, links,
+interruption before/after mutation and failed close. Full CI passed (260 runtime tests),
+production build passed, and whitespace checks passed. No live-provider execution occurred.
+
+Guarded Testing execution now has a write-partition scheduling preflight. Trusted
+operator partitions are separate from planner proposals; all task grants are validated
+before any schedule is returned. Concrete portable paths reject traversal, wildcard,
+Windows device/stream aliases and control-plane writes. Live leases reject forged or
+stale owners, overlapping paths across partitions, and file/ancestor conflicts.
+Disjoint work can run together; shared fixtures, declared conflicts and dependencies
+are serialized, with exclusive preparatory tasks and bounded concurrency.
+
+This is the scheduling boundary, not filesystem enforcement. Autonomous execution remains
+unavailable until isolated worktrees, writable tools, durable executor recovery, command
+execution, fresh verification and capability promotion are connected. A replacement
+lease guard must not be created before recovering prior in-flight executors. Focused
+partition/schedule regressions passed (22 tests); full CI passed (248 runtime tests),
+production build passed, and whitespace checks passed. No live-provider execution occurred.
+
+Testing planning now runs through the shared CLI/server runner with a frontier risk
+analyst, complete candidate selection, coherent planner and deterministic handoff.
+Inventory no longer suppresses a category on every surface merely because an unrelated
+test uses that category. Common Python, Go and Ruby test names are recognized; framework
+metadata is separated from source. Testing snapshots opt into manifests and configured
+command evidence while retaining module/diff scope and binding resume to those bytes.
+
+Risk surfaces require exact source quotes. Unreviewed source/test paths, analysis
+limitations and missing repository-derived commands prevent a handoff. Every candidate
+must be selected or explicitly rejected. Plans preserve gap/task/validation links and
+premise uncertainty, reject production-file write paths and invented commands, and fail
+the gate on blocking questions. Zero selected gaps produce an explicit no-work outcome,
+not a coverage claim. Shared durable model activities recover from provider failure
+without repeating completed stages. Commands remain unexecuted and source stays unchanged.
+
+Focused coverage includes analysis replay, public CLI execution, metadata drift, empty
+results, invalid evidence/selection, traceability and unsafe plan rejection. Documentation
+and the Testing example now describe the public configuration. Guarded autonomous test
+execution, native harnesses, dedicated web controls and expanded subgraph views remain open.
+Validation: full CI passed (244 runtime tests), production build passed, and whitespace
+checks passed. No live-provider or premise evaluation was performed.
+
+Feature requirements review now supports bounded model-generated revisions through the
+public runtime. `maximumRequirementsRevisions` defaults to one and accepts 0–3. Durable
+reservations bind the exact checkpoint, model and immutable reviewer feedback; retries
+reuse the same reservation rather than resetting the run limit. Revision drafts carry
+explicit lineage, additions and a resolution claim for every blocking requirement.
+Validation preserves acceptance responsibility, scope exclusions and high-impact
+ambiguities. Limited review cannot generate a revision.
+
+Automatic runs apply valid proposals then repeat exploration and independent review.
+Interactive runs expose a separate proposal through requirements/status and require
+`apply-requirements-revision` or the corresponding HTTP route before changing the draft.
+Application revalidates recorded review and clears approvals; new high-impact defaults
+require renewed decisions. Re-review receives immutable original feedback and resolution
+claims. Continued disagreement stays blocked at the limit, including after restart.
+Tests cover lineage/approval bypass failures, automatic and interactive paths, interrupted
+generation and re-review, and repeated resume after exhaustion. Dedicated web checkpoints,
+expanded Feature visualization, oversized contexts, Testing/native execution and the rest
+of the execution queue remain open.
+Validation: full CI passed (221 runtime tests), production build passed, and whitespace
+checks passed. A subsequent regression confirms fresh review remains mandatory when an
+operator edit lowers risk after model revision; all 18 public Feature integration tests
+and their lint check passed. No live-provider or premise evaluation was performed.
+
+Public Feature execution now runs through the shared CLI/server runner. Its dynamic
+subgraph owns requirements checkpoints, grounded exploration, risk-directed independent
+review, planning and the bounded revision/critic loop. Blocking approvals or unresolved
+requirements review pause the subgraph; operator edits cause fresh stages for the new
+contract while completed matching model calls replay. All stages share one durable
+budget and provider scheduler. Successful plans publish a deterministic implementation
+tree as an exportable artifact; source files remain unchanged. Limited exploration,
+blocking plan questions and blocking/degraded criticism withhold the handoff and fail
+the public gate.
+
+Added strict `workflow.feature` settings, CLI requirements/approval/revision commands,
+three localhost requirements routes and versioned status checkpoints. Stale approvals
+return HTTP 409; edits require a blocked run. Public tests cover simple/high-risk mixed
+providers, operator revisions, disputed review renewal, provider failure/resume,
+budget suspension, cancellation and failed gates. The HTTP integration exposed and
+fixed AJV coercing numeric model settings to strings inside recursive JSON unions;
+body types now remain unchanged and trace pagination accepts explicit numeric text.
+Model-generated requirements revision proposals, dedicated web checkpoint controls,
+expanded Feature subgraph visualization, oversized Feature contexts and Feature-specific
+replay remain open. Testing, native harness, advisor and the rest of the queue remain open.
+Validation: full CI passed (201 runtime tests), production build passed. A subsequent
+checkpoint-read regression keeps status/contracts readable after source changes while
+still rejecting edits and resume; all 13 focused Feature runtime/HTTP tests, runtime
+build and affected-file lint passed with that fix. Provider behavior remains fixture-backed.
+
+Feature planning now composes the planner, independent critic, one bounded revision
+and independent re-review through `modelFeaturePlanning`. Degraded reviews cannot
+trigger revisions. Revised plans retain requirement/validation traceability, premise
+provenance and existing unresolved questions, with exactly one resolution claim per
+blocking item. Re-review receives the original plan, feedback and resolution claims;
+an unchanged plan still gets a distinct re-review activity. Original/revised artifacts
+remain durable, and restart reuses completed stages after final-review interruption.
+Also fixed Feature premise comparison to ignore JSON property order and guarded planner
+profile lookup against inherited keys. Public Feature graph/API composition,
+model-generated requirements revisions and oversized Feature revision contexts remain open.
+Validation: full CI passed (190 runtime tests) and production build passed. All 12
+Feature integration scenarios also passed after retaining the original critic activity
+identity for existing runs and strengthening the independent re-review instructions.
+The tests use an injected provider; no live-model correctness is claimed.
+
 Feature plans now have an independent model-backed critic using the pinned plan-critic
 protocol and durable harness. Review is bound to the recorded planner profile, exact
 plan and current requirements/exploration. Planner and critic both enforce current
@@ -137,7 +258,8 @@ together; provider selection is configuration, not a project-wide choice.
   endpoint bindings, independent discovery, peer review, verification, planning, critic,
   budgets, cancellation, durable replay/resume, and honest usage/provenance.
 - [ ] Compose Feature workflows and full multi-model requirements consensus.
-- [ ] Compose Testing planning and guarded autonomous test execution.
+- [x] Compose Testing planning through the shared CLI/server runtime.
+- [ ] Implement guarded autonomous test execution.
 - [ ] Implement native harness adapters.
 - [ ] Implement bounded advisor execution.
 - [ ] Implement incremental/repeat audits.

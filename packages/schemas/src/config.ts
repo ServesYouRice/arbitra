@@ -3,6 +3,8 @@ import { z } from "zod";
 import { modelProfileSchema } from "./model-profile.js";
 import { providerExecutionSchema } from "./provider-execution.js";
 import { verificationExecutionSchema } from "./verification-execution.js";
+import { featureExecutionSchema } from "./feature-execution.js";
+import { testingExecutionSchema } from "./testing.js";
 
 export const RUN_CONFIG_SCHEMA_VERSION = 1 as const;
 
@@ -40,6 +42,14 @@ export const runConfigSchema = z.object({
     profileId: z.string().min(1).optional(),
   }).strict(),
   workflow: jsonObjectSchema.superRefine((workflow, context) => {
+    if (workflow["testing"] !== undefined) {
+      const testing = testingExecutionSchema.safeParse(workflow["testing"]);
+      if (!testing.success) for (const issue of testing.error.issues) context.addIssue({ ...issue, path: ["testing", ...issue.path] });
+    }
+    if (workflow["feature"] !== undefined) {
+      const feature = featureExecutionSchema.safeParse(workflow["feature"]);
+      if (!feature.success) for (const issue of feature.error.issues) context.addIssue({ ...issue, path: ["feature", ...issue.path] });
+    }
     if (workflow["modelExecution"] === undefined) return;
     const result = providerExecutionSchema.safeParse(workflow["modelExecution"]);
     if (!result.success) for (const issue of result.error.issues) context.addIssue({ ...issue, path: ["modelExecution", ...issue.path] });
@@ -50,6 +60,18 @@ export const runConfigSchema = z.object({
   promptOverrides: jsonObjectSchema,
   contextPolicies: jsonObjectSchema,
 }).strict().superRefine((config, context) => {
+  if (config.workflow["testing"] !== undefined) {
+    const testing = testingExecutionSchema.safeParse(config.workflow["testing"]);
+    if (config.mode !== "testing") context.addIssue({ code: "custom", path: ["workflow", "testing"], message: "Testing settings require testing mode" });
+    if (testing.success) for (const id of Object.values(testing.data.roles)) if (!Object.hasOwn(config.models, id)) context.addIssue({ code: "custom", path: ["workflow", "testing", "roles"], message: `Unknown Testing model profile: ${id}` });
+  }
+  if (config.workflow["feature"] !== undefined) {
+    const feature = featureExecutionSchema.safeParse(config.workflow["feature"]);
+    if (config.mode !== "feature") context.addIssue({ code: "custom", path: ["workflow", "feature"], message: "Feature settings require feature mode" });
+    if (feature.success) for (const id of [feature.data.roles.requirements, feature.data.roles.exploration, feature.data.roles.planner, feature.data.roles.critic, ...feature.data.roles.reviewers]) {
+      if (id !== undefined && !Object.hasOwn(config.models, id)) context.addIssue({ code: "custom", path: ["workflow", "feature", "roles"], message: `Unknown Feature model profile: ${id}` });
+    }
+  }
   if (config.workflow["modelExecution"] === undefined) return;
   const result = providerExecutionSchema.safeParse(config.workflow["modelExecution"]);
   if (!result.success) return;

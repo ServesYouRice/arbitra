@@ -1,0 +1,6 @@
+{
+  "author": "Arbitra",
+  "date": "2026-09-22",
+  "rationale": "Bounded requirements revision proposals with explicit lineage and renewed independent review.",
+  "compatibilityNotes": ["Requirements revision schema version 1", "Requirements Contract version 1"]
+}

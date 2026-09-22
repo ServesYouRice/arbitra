@@ -4,6 +4,21 @@ import { describe, expect, it } from "vitest";
 import { prioritiseGaps, testInventory, testTasks } from "../../src/nodes/test-inventory.js";
 
 describe("plan-only Testing Mode", () => {
+  it("recognizes common test languages without mistaking framework-prefixed source for configuration", () => {
+    const report = testInventory(["test_auth.py", "auth_test.go", "auth_spec.rb", "jest-helper.ts", "Cargo.toml", "vitest.config.ts"].map((path) => ({ path, kind: "file" })));
+    expect(report.testFiles).toEqual(["auth_spec.rb", "auth_test.go", "test_auth.py"]);
+    expect(report.frameworkFiles).toEqual(["Cargo.toml", "vitest.config.ts"]);
+    expect(report.sourceFiles).toEqual(["jest-helper.ts"]);
+  });
+
+  it("does not treat an unrelated category as coverage and rejects malformed selections", async () => {
+    const report = testInventory([{ path: "tests/other.unit.test.ts", kind: "file" }]);
+    const risk = [{ id: "auth", paths: ["auth.ts"], categories: ["unit" as const, "unit" as const], severity: "high" as const, failureModes: ["authorization bypass"] }];
+    const gaps = await prioritiseGaps(report, risk, { async select({ candidates }) { return candidates.map(({ id }) => id); } });
+    expect(gaps.map(({ id }) => id)).toEqual(["GAP-auth-1"]);
+    for (const selected of [["unknown"], ["GAP-auth-1", "GAP-auth-1"]]) await expect(prioritiseGaps(report, risk, { async select() { return selected; } })).rejects.toThrow("INVALID_TEST_GAP_SELECTION");
+    await expect(prioritiseGaps(report, [...risk, ...risk], { async select() { return []; } })).rejects.toThrow("DUPLICATE_TEST_RISK_SURFACE");
+  });
   it("derives inventory deterministically and selects only production-risk-justified gaps", async () => {
     const snapshot = [{ path: "src/auth.ts", kind: "file" as const }, { path: "test/auth.unit.test.ts", kind: "file" as const }, { path: "vitest.config.ts", kind: "file" as const }];
     const report = testInventory(snapshot);
@@ -39,4 +54,3 @@ function hash(entries: readonly { path: string; bytes: string }[]): string {
   const included = entries.filter(({ path }) => !/^(?:implementation|\.runs)\//u.test(path)).sort((a, b) => a.path.localeCompare(b.path));
   return createHash("sha256").update(JSON.stringify(included)).digest("hex");
 }
-

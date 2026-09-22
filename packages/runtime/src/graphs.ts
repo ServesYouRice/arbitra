@@ -68,11 +68,23 @@ export const DIFF_FAST_GRAPH: RunnerGraph = Object.freeze({
   edges: Object.freeze(DIFF_REVIEW_GRAPH.edges.filter(({ from, to }) => from !== "auditor-b" && to !== "auditor-b")),
 });
 
+/** Dynamic Feature stages replay inside one subgraph when its requirements change. */
+export const FEATURE_GRAPH: RunnerGraph = Object.freeze({
+  schemaVersion: 1, id: "feature-simple", entryNodeId: "preflight",
+  nodes: Object.freeze([node("preflight", "deterministic", "Preflight"), node("feature", "subgraph", "Requirements, exploration and planning"), node("render", "deterministic", "Implementation handoff")]),
+  edges: Object.freeze([{ id: "preflight-feature", from: "preflight", to: "feature" }, { id: "feature-render", from: "feature", to: "render" }]),
+});
+
 export const PRESET_GRAPHS: Readonly<Record<string, RunnerGraph>> = Object.freeze({
   "audit-deep": AUDIT_DEEP_GRAPH,
   "audit-balanced": AUDIT_BALANCED_GRAPH,
   "diff-review": DIFF_REVIEW_GRAPH,
   "diff-fast": DIFF_FAST_GRAPH,
+  "feature-simple": FEATURE_GRAPH,
+  "testing-plan": Object.freeze({ schemaVersion: 1, id: "testing-plan", entryNodeId: "preflight",
+    nodes: Object.freeze([node("preflight", "deterministic", "Test inventory preflight"), node("testing", "subgraph", "Risk analysis and test planning"), node("render", "deterministic", "Test implementation handoff")]),
+    edges: Object.freeze([{ id: "preflight-testing", from: "preflight", to: "testing" }, { id: "testing-render", from: "testing", to: "render" }]),
+  }),
 });
 
 export function graphForPreset(preset: string | undefined): RunnerGraph {

@@ -91,8 +91,8 @@ describe("a run over the fixture repository", () => {
   });
   it("rejects uncomposed execution modes rather than silently substituting an audit", async () => {
     const core = orchestrator();
-    await expect(core.start(core.configurations.validate({ ...config, mode: "feature" }))).rejects.toThrow("RUNTIME_MODE_NOT_AVAILABLE:feature");
-    await expect(core.estimate(core.configurations.validate({ ...config, mode: "testing" }))).rejects.toThrow("RUNTIME_MODE_NOT_AVAILABLE:testing");
+    await expect(core.start(core.configurations.validate({ ...config, mode: "feature" }))).rejects.toThrow("FEATURE_EXECUTION_CONFIGURATION_REQUIRED");
+    await expect(core.estimate(core.configurations.validate({ ...config, mode: "testing" }))).rejects.toThrow("TESTING_EXECUTION_CONFIGURATION_REQUIRED");
     await expect(core.start(core.configurations.validate({ ...config, harness: { mode: "native" } }))).rejects.toThrow("RUNTIME_NATIVE_HARNESS_NOT_AVAILABLE");
   });
   it("runs the two-auditor graph without requesting nonexistent third-auditor artifacts", async () => {

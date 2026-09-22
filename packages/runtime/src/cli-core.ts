@@ -30,7 +30,7 @@ export function orchestratorCore(orchestrator: Orchestrator) {
   };
 
   const completed = async (runId: string, state: string): Promise<CoreCommandResult> => {
-    if (state !== "COMPLETED") return { disposition: ["CANCELLED", "SUSPENDED_BUDGET", "SUSPENDED_RATE_LIMIT"].includes(state) ? "suspended" : "system_failure", reasons: [`run_${state.toLowerCase()}`], value: { runId, state } };
+    if (state !== "COMPLETED") return { disposition: ["BLOCKED", "CANCELLED", "SUSPENDED_BUDGET", "SUSPENDED_RATE_LIMIT"].includes(state) ? "suspended" : "system_failure", reasons: [`run_${state.toLowerCase()}`], value: await orchestrator.status(runId) };
     const gate = await orchestrator.gate(runId);
     return {
       disposition: gate.gateStatus === "passed" ? "passed" : "failed",
@@ -40,6 +40,19 @@ export function orchestratorCore(orchestrator: Orchestrator) {
   };
 
   return {
+    async applyRequirementsRevision(runId: string, artifactId: string): Promise<CoreCommandResult> {
+      return { disposition: "passed", value: await orchestrator.applyRequirementsRevision(runId, artifactId) };
+    },
+    async requirements(runId: string): Promise<CoreCommandResult> {
+      return { disposition: "passed", value: await orchestrator.requirements(runId) };
+    },
+    async approveRequirements(runId: string, artifactId: string, ambiguityIds: readonly string[]): Promise<CoreCommandResult> {
+      return { disposition: "passed", value: await orchestrator.approveRequirements(runId, { artifactId, ambiguityIds }) };
+    },
+    async reviseRequirements(runId: string, artifactId: string, draftPath: string): Promise<CoreCommandResult> {
+      const draft: unknown = JSON.parse(await readFile(resolve(draftPath), "utf8"));
+      return { disposition: "passed", value: await orchestrator.reviseRequirements(runId, artifactId, draft) };
+    },
     async validate(configPath: string): Promise<CoreCommandResult> {
       try {
         const config = await load(configPath);

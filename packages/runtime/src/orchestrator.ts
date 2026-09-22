@@ -20,6 +20,14 @@ import type { PlanIR } from "@arbitra/schemas/plan.js";
 import { loadActivityTraces } from "@arbitra/persistence/trace.js";
 import { traceEntry, tracePage } from "./trace-browser.js";
 import { evaluationMetrics } from "./evaluation-metrics.js";
+import { FeaturePipeline, validateModelFeature, type FeatureOutcome } from "./feature-pipeline.js";
+import { TestingPipeline, validateModelTesting, type TestingOutcome } from "./testing-pipeline.js";
+import { testingExecutionSchema } from "@arbitra/schemas/testing.js";
+import { requirementsApprovalSchema } from "@arbitra/schemas/feature-execution.js";
+import { requirementsDraftSchema } from "@arbitra/schemas/requirements.js";
+import { RequirementsCheckpoint } from "./requirements-checkpoint.js";
+import { ModelProtocols } from "./model-protocols.js";
+import { readRequirementsProposal } from "./requirements-revision.js";
 
 export interface OrchestratorOptions {
   /** Where runs and saved configurations live. Defaults to `<repository>/.runs`. */
@@ -34,7 +42,7 @@ export interface RunResource {
   readonly runId: string;
   readonly state: string;
   readonly resumable: boolean;
-  readonly checkpoints: readonly never[];
+  readonly checkpoints: readonly { readonly artifactId: string; readonly kind: "requirements"; readonly pendingAmbiguityIds: readonly string[]; readonly revisionProposalArtifactId?: string }[];
   readonly preservedArtifacts: number;
   readonly workflow?: RunnerGraph;
 }
@@ -79,8 +87,8 @@ export class Orchestrator {
   async estimate(config: RunConfig, repository = this.repository): Promise<unknown> {
     const validated = this.configurations.validate(config);
     assertRuntimeConfiguration(validated);
-    const snapshot = await snapshotRepository(resolve(repository), 400, { scope: validated.scope });
-    const graph = graphForPreset(presetOf(validated));
+    const snapshot = await snapshotRepository(resolve(repository), 400, { scope: validated.scope, ...testingSnapshotOptions(validated) });
+    const graph = graphForConfiguration(validated);
     return Object.freeze({
       estimate: Object.freeze({
         files: snapshot.files.length,
@@ -103,8 +111,8 @@ export class Orchestrator {
     const runId = this.#newRunId();
     const store = new RunStore(this.#runsDirectory, runId);
     const selectedRepository = resolve(repository);
-    const snapshot = await snapshotRepository(selectedRepository, 400, { scope: validated.scope });
-    const graph = graphForPreset(presetOf(validated));
+    const snapshot = await snapshotRepository(selectedRepository, 400, { scope: validated.scope, ...testingSnapshotOptions(validated) });
+    const graph = graphForConfiguration(validated);
     const modelConfiguration = Object.keys(validated.models).length > 0 ? validated : undefined;
     const storedContext: StoredRunContext = Object.freeze({ repository: selectedRepository, repositoryDigest: snapshotDigest(snapshot), scope: validated.scope, consensusPolicy: validated.consensusPolicy, maximumRounds: validated.maxConsensusRounds, criticEnabled: graph.nodes.some(({ id }) => id === "critic"), ...(modelConfiguration === undefined ? {} : { modelConfiguration }) });
     await store.saveContext(storedContext);
@@ -143,6 +151,8 @@ export class Orchestrator {
     await this.status(sourceRunId);
     const source = new RunStore(this.#runsDirectory, sourceRunId);
     const original = await source.loadContext();
+    if (original.modelConfiguration?.mode === "feature") throw new Error("FEATURE_AUDIT_REPLAY_NOT_SUPPORTED");
+    if (original.modelConfiguration?.mode === "testing") throw new Error("TESTING_AUDIT_REPLAY_NOT_SUPPORTED");
     const snapshot = await snapshotRepository(original.repository, 400, { scope: original.scope });
     if (snapshotDigest(snapshot) !== original.repositoryDigest) throw new Error(`RUN_REPOSITORY_CHANGED:${sourceRunId}`);
     const definition = await source.definitions().load(sourceRunId);
@@ -190,7 +200,7 @@ export class Orchestrator {
     if (!previous.resumable) throw new Error(`RUN_NOT_RESUMABLE:${runId}`);
     const store = new RunStore(this.#runsDirectory, runId);
     const storedContext = await store.loadContext();
-    const snapshot = await snapshotRepository(storedContext.repository, 400, { scope: storedContext.scope });
+    const snapshot = await snapshotRepository(storedContext.repository, 400, { scope: storedContext.scope, ...testingSnapshotOptions(storedContext.modelConfiguration) });
     if (snapshotDigest(snapshot) !== storedContext.repositoryDigest) throw new Error(`RUN_REPOSITORY_CHANGED:${runId}`);
     const definition = await store.definitions().load(runId);
     const context: AuditContext = Object.freeze({
@@ -214,7 +224,68 @@ export class Orchestrator {
     const state = live?.state ?? last?.state ?? "CREATED";
     if (last === undefined && live === undefined) throw new Error(`RUN_ABSENT:${runId}`);
     const workflow = last === undefined ? undefined : (await store.definitions().load(runId)).graph;
-    return Object.freeze({ runId, state, resumable: state !== "COMPLETED", checkpoints: Object.freeze([]), preservedArtifacts: (await store.listArtifacts()).length, ...(workflow === undefined ? {} : { workflow }) });
+    const checkpoints: RunResource["checkpoints"][number][] = [];
+    if (state === "BLOCKED" && workflow?.id === "feature-simple") {
+      const current = await this.requirements(runId);
+      if (current !== null) checkpoints.push({ artifactId: current.artifactId, kind: "requirements", pendingAmbiguityIds: current.pendingAmbiguityIds,
+        ...(current.revisionProposal === undefined ? {} : { revisionProposalArtifactId: current.revisionProposal.artifactId }) });
+    }
+    return Object.freeze({ runId, state, resumable: state !== "COMPLETED", checkpoints: Object.freeze(checkpoints), preservedArtifacts: (await store.listArtifacts()).length, ...(workflow === undefined ? {} : { workflow }) });
+  }
+
+  async requirements(runId: string) {
+    const store = new RunStore(this.#runsDirectory, runId);
+    const { modelConfiguration: config } = await store.loadContext();
+    if (config?.mode !== "feature") throw new Error("FEATURE_RUN_REQUIRED");
+    const settings = validateModelFeature(config);
+    const protocol = await new ModelProtocols(store, config.protocols).resolve("feature-requirements");
+    // Reading the saved contract must work even when source has since changed.
+    // Only mutations and execution need the original repository snapshot.
+    const current = await new RequirementsCheckpoint(store, { mode: settings.mode, protocolVersion: protocol.protocolVersion, protocolHash: protocol.protocolHash,
+      runtime: { async generate() { throw new Error("REQUIREMENTS_READ_CANNOT_GENERATE"); } } }).current();
+    if (current === null) return null;
+    const pointer = (await store.listArtifacts()).find(({ kind }) => kind === "requirements-revision-proposal-current");
+    let revisionProposal;
+    if (pointer !== undefined) {
+      const saved = await store.artifacts.get<{ artifactId: string; baseArtifactId: string }>(pointer.ref);
+      if (saved.baseArtifactId === current.artifactId) revisionProposal = { artifactId: saved.artifactId, ...await readRequirementsProposal(store, saved.artifactId) };
+    }
+    return { ...current, ...(revisionProposal === undefined ? {} : { revisionProposal }) };
+  }
+
+  async applyRequirementsRevision(runId: string, artifactId: string) {
+    return this.#changeRequirements(runId, (pipeline) => pipeline.applyRequirementsRevision(artifactId));
+  }
+
+  async approveRequirements(runId: string, value: unknown) {
+    const approval = requirementsApprovalSchema.parse(value);
+    return this.#changeRequirements(runId, async (pipeline) => (await pipeline.requirements(new AbortController().signal)).checkpoint.approve(approval.artifactId, approval.ambiguityIds));
+  }
+
+  async reviseRequirements(runId: string, artifactId: string, draft: unknown) {
+    const parsed = requirementsDraftSchema.parse(draft);
+    return this.#changeRequirements(runId, async (pipeline) => (await pipeline.requirements(new AbortController().signal)).checkpoint.revise(artifactId, parsed));
+  }
+
+  async #changeRequirements<T>(runId: string, change: (pipeline: FeaturePipeline) => Promise<T>): Promise<T> {
+    if (this.#live.has(runId) || this.#resuming.has(runId)) throw Object.assign(new Error(`RUN_ALREADY_LIVE:${runId}`), { statusCode: 409 });
+    this.#resuming.add(runId);
+    try {
+      if ((await this.status(runId)).state !== "BLOCKED") throw Object.assign(new Error("REQUIREMENTS_EDIT_REQUIRES_BLOCKED_RUN"), { statusCode: 409 });
+      return await change(await this.#featurePipeline(runId));
+    } catch (error) {
+      if (error instanceof Error && error.message === "STALE_REQUIREMENTS_CHECKPOINT") throw Object.assign(error, { statusCode: 409 });
+      throw error;
+    } finally { this.#resuming.delete(runId); }
+  }
+
+  async #featurePipeline(runId: string): Promise<FeaturePipeline> {
+    const store = new RunStore(this.#runsDirectory, runId);
+    const context = await store.loadContext();
+    if (context.modelConfiguration?.mode !== "feature") throw new Error("FEATURE_RUN_REQUIRED");
+    const snapshot = await snapshotRepository(context.repository, 400, { scope: context.scope });
+    if (snapshotDigest(snapshot) !== context.repositoryDigest) throw new Error(`RUN_REPOSITORY_CHANGED:${runId}`);
+    return new FeaturePipeline(store, context.modelConfiguration, snapshot, this.#providerOptions);
   }
 
   async cancel(runId: string): Promise<RunResource> {
@@ -292,6 +363,14 @@ export class Orchestrator {
   async summary(runId: string): Promise<unknown> {
     const store = new RunStore(this.#runsDirectory, runId);
     const descriptors = await store.listArtifacts();
+    if ((await store.loadContext()).modelConfiguration?.mode === "testing") {
+      const outcome = descriptors.some(({ kind }) => kind === "testing-outcome") ? await readStage<TestingOutcome>(store, "testing-outcome") : null;
+      return { runId, mode: "testing", outcome, artifacts: descriptors.length };
+    }
+    if ((await store.loadContext()).modelConfiguration?.mode === "feature") {
+      const outcome = descriptors.some(({ kind }) => kind === "feature-outcome") ? await readStage<FeatureOutcome>(store, "feature-outcome") : null;
+      return { runId, mode: "feature", outcome, requirements: await this.requirements(runId), artifacts: descriptors.length };
+    }
     const issues = descriptors.find(({ kind }) => kind === "canonical-issues");
     if (issues === undefined) return Object.freeze({ runId, issues: null, artifacts: descriptors.length });
     const parsed = JSON.parse((await store.readArtifact(issues.artifactId)).content) as {
@@ -307,6 +386,24 @@ export class Orchestrator {
    * incomplete coverage is a failure, never a pass earned by running out of budget.
    */
   async gate(runId: string): Promise<{ readonly gateStatus: "passed" | "failed"; readonly reasons: readonly string[] }> {
+    const featureStore = new RunStore(this.#runsDirectory, runId);
+    if ((await featureStore.loadContext()).modelConfiguration?.mode === "testing") {
+      const artifacts = await featureStore.listArtifacts();
+      const outcome = artifacts.some(({ kind }) => kind === "testing-outcome") ? await readStage<TestingOutcome>(featureStore, "testing-outcome") : null;
+      const reasons = [...((await this.status(runId)).state === "COMPLETED" ? [] : ["run_not_completed"]), ...(outcome === null ? ["no_testing_plan_result"] : outcome.reasons),
+        ...(outcome !== null && outcome.selectedGaps > 0 && !artifacts.some(({ kind }) => kind === "implementation") ? ["no_implementation_handoff"] : [])];
+      if (outcome !== null && !outcome.passed && reasons.length === 0) reasons.push("testing_plan_failed");
+      return { gateStatus: reasons.length === 0 ? "passed" : "failed", reasons };
+    }
+    if ((await featureStore.loadContext()).modelConfiguration?.mode === "feature") {
+      const artifacts = await featureStore.listArtifacts();
+      const outcome = artifacts.some(({ kind }) => kind === "feature-outcome") ? await readStage<FeatureOutcome>(featureStore, "feature-outcome") : null;
+      const reasons = [...((await this.status(runId)).state === "COMPLETED" ? [] : ["run_not_completed"]),
+        ...(outcome === null ? ["no_feature_plan_result"] : outcome.reasons),
+        ...(!artifacts.some(({ kind }) => kind === "implementation") ? ["no_implementation_handoff"] : [])];
+      if (outcome !== null && !outcome.passed && reasons.length === 0) reasons.push("feature_plan_review_failed");
+      return { gateStatus: reasons.length === 0 ? "passed" : "failed", reasons };
+    }
     const summary = await this.summary(runId) as { issues?: null; unresolvedCount?: number; coverageComplete?: boolean };
     // A run that produced no canonical issue set established no trustworthy result, so it
     // fails rather than passing on the absence of anything to object to.
@@ -334,6 +431,27 @@ export class Orchestrator {
   }
 
   #runner(store: RunStore, context: AuditContext, reusedFindings?: Readonly<Record<string, readonly AuditFinding[]>>, modelConfiguration?: RunConfig): WorkflowRunner {
+    if (modelConfiguration?.mode === "testing") {
+      const testing = new TestingPipeline(store, this.configurations.validate(modelConfiguration), context.snapshot, this.#providerOptions);
+      return new WorkflowRunner({ journal: store.journalPort(), artifacts: store.artifacts, definitions: store.definitions(), loadRecords: () => store.loadRecords(), executors: {
+        deterministic: async ({ node }) => {
+          if (node.id === "render") return testing.render();
+          const result = { mode: "testing", fileCount: context.snapshot.files.length, readOnly: true, testsExecuted: false };
+          await store.publish("preflight", result, "preflight"); return result;
+        }, subgraph: ({ signal }) => testing.run(signal),
+      } });
+    }
+    if (modelConfiguration?.mode === "feature") {
+      const feature = new FeaturePipeline(store, this.configurations.validate(modelConfiguration), context.snapshot, this.#providerOptions);
+      return new WorkflowRunner({ journal: store.journalPort(), artifacts: store.artifacts, definitions: store.definitions(), loadRecords: () => store.loadRecords(), executors: {
+        deterministic: async ({ node }) => {
+          if (node.id === "render") return feature.render();
+          const result = { mode: "feature", fileCount: context.snapshot.files.length, sourceOnly: true };
+          await store.publish("preflight", result, "preflight"); return result;
+        },
+        subgraph: ({ signal }) => feature.run(signal),
+      } });
+    }
     const models = modelConfiguration === undefined ? undefined : new ModelAuditPipeline(context, this.configurations.validate(modelConfiguration), this.#providerOptions, this.#testSandbox);
     // Stages hand off through the artifact store rather than through closure state, so a
     // resumed run can start at any node with every earlier stage's output still readable.
@@ -408,19 +526,32 @@ function presetOf(config: RunConfig): string | undefined {
 
 /** Do not misrepresent a scripted audit as an uncomposed model/Feature/Testing run. */
 function assertRuntimeConfiguration(config: RunConfig): void {
-  if (config.mode !== "audit") throw new Error(`RUNTIME_MODE_NOT_AVAILABLE:${config.mode}`);
   if (config.harness.mode !== "canonical") throw new Error("RUNTIME_NATIVE_HARNESS_NOT_AVAILABLE");
+  if (config.mode === "testing") { validateModelTesting(config); graphForConfiguration(config); return; }
+  if (config.mode === "feature") { validateModelFeature(config); graphForConfiguration(config); return; }
   if (Object.keys(config.models).length > 0) {
     if (config.workflow["modelExecution"] === undefined) throw new Error("RUNTIME_MODEL_EXECUTION_CONFIGURATION_REQUIRED");
-    const graph = graphForPreset(presetOf(config));
+    const graph = graphForConfiguration(config);
     validateModelAudit(config, auditorIdsFor(graph), graph.nodes.some(({ id }) => id === "critic"));
   }
   if (config.workflow["preset"] !== undefined && typeof config.workflow["preset"] !== "string") throw new Error("INVALID_WORKFLOW_PRESET");
-  graphForPreset(presetOf(config));
+  graphForConfiguration(config);
+}
+
+function graphForConfiguration(config: RunConfig): RunnerGraph {
+  if (config.workflow["preset"] !== undefined && typeof config.workflow["preset"] !== "string") throw new Error("INVALID_WORKFLOW_PRESET");
+  const graph = graphForPreset(presetOf(config) ?? (config.mode === "feature" ? "feature-simple" : config.mode === "testing" ? "testing-plan" : undefined));
+  if ((graph.id === "feature-simple") !== (config.mode === "feature")) throw new Error("WORKFLOW_PRESET_MODE_MISMATCH");
+  if ((graph.id === "testing-plan") !== (config.mode === "testing")) throw new Error("WORKFLOW_PRESET_MODE_MISMATCH");
+  return graph;
 }
 
 function snapshotDigest(snapshot: RepositorySnapshot): string {
   return createHash("sha256").update(JSON.stringify(snapshot.files)).digest("hex");
+}
+
+function testingSnapshotOptions(config: RunConfig | undefined) {
+  return config?.mode === "testing" ? { includeTestMetadata: true, additionalPaths: testingExecutionSchema.parse(config.workflow["testing"]).commands.map(({ evidence }) => evidence.path) } : {};
 }
 
 function auditorsFor(graph: RunnerGraph, config?: RunConfig) {

@@ -4,6 +4,11 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./write-partitions": {
+      "types": "./src/write-partitions.ts",
+      "development": "./src/write-partitions.ts",
+      "default": "./dist/src/write-partitions.js"
+    },
     "./framing": {
       "types": "./src/framing.ts",
       "development": "./src/framing.ts",
