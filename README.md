@@ -15,9 +15,10 @@ execution requires endpoint bindings and explicit roles; see
 [`docs/provider-model.md`](docs/provider-model.md). Model Feature workflows now run through
 the shared CLI/server runtime with durable requirements checkpoints, risk-directed review,
 planning and an exportable implementation handoff; see [`docs/workflows.md`](docs/workflows.md#feature-mode).
-Testing workflows now compose grounded risk analysis, gap selection and a read-only test
-plan through the same runtime. Native harnesses and autonomous test execution remain
-unimplemented. Library implementations and composition limitations
+Testing workflows compose grounded risk analysis and gap selection, with either a read-only
+plan or opt-in guarded execution in an isolated worktree. Execution requires explicit
+write partitions and digest-pinned sandbox checks; it exports verified changes without
+modifying the source checkout. Native harnesses remain unimplemented. Composition limitations
 are distinguished in [`docs/architecture.md`](docs/architecture.md); the separately
 planned v1.1 extensions are also listed there.
 

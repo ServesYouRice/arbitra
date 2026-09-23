@@ -26,6 +26,11 @@ export const CANONICAL_HARNESS_PROFILE: HarnessProfile = Object.freeze({
   policy: ROUND_ZERO_POLICY,
 });
 
+export const CANONICAL_TESTING_HARNESS_PROFILE: HarnessProfile = Object.freeze({
+  ...CANONICAL_HARNESS_PROFILE, id: "arbitra-canonical-testing-writer",
+  capabilities: Object.freeze({ ...CANONICAL_HARNESS_PROFILE.capabilities, writeFiles: true }),
+});
+
 export function assertHarnessCompatible(profile: HarnessProfile, mode: HarnessMode, requirements: HarnessRequirements = {}): void {
   if (profile.id.trim() === "" || profile.version.trim() === "" || profile.kind.trim() === "") throw new Error("INVALID_HARNESS_PROFILE");
   for (const capability of ["structuredEvents", "enforcesExternalPolicy", "reportsUsage"] as const) {

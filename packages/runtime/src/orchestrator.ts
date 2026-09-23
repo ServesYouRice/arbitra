@@ -22,6 +22,7 @@ import { traceEntry, tracePage } from "./trace-browser.js";
 import { evaluationMetrics } from "./evaluation-metrics.js";
 import { FeaturePipeline, validateModelFeature, type FeatureOutcome } from "./feature-pipeline.js";
 import { TestingPipeline, validateModelTesting, type TestingOutcome } from "./testing-pipeline.js";
+import type { TestingPlanExecutionOutcome } from "./testing-plan-executor.js";
 import { testingExecutionSchema } from "@arbitra/schemas/testing.js";
 import { requirementsApprovalSchema } from "@arbitra/schemas/feature-execution.js";
 import { requirementsDraftSchema } from "@arbitra/schemas/requirements.js";
@@ -365,7 +366,8 @@ export class Orchestrator {
     const descriptors = await store.listArtifacts();
     if ((await store.loadContext()).modelConfiguration?.mode === "testing") {
       const outcome = descriptors.some(({ kind }) => kind === "testing-outcome") ? await readStage<TestingOutcome>(store, "testing-outcome") : null;
-      return { runId, mode: "testing", outcome, artifacts: descriptors.length };
+      const execution = descriptors.some(({ kind }) => kind === "testing-execution-outcome") ? await readStage<TestingPlanExecutionOutcome>(store, "testing-execution-outcome") : null;
+      return { runId, mode: "testing", outcome, execution, artifacts: descriptors.length };
     }
     if ((await store.loadContext()).modelConfiguration?.mode === "feature") {
       const outcome = descriptors.some(({ kind }) => kind === "feature-outcome") ? await readStage<FeatureOutcome>(store, "feature-outcome") : null;
@@ -393,6 +395,17 @@ export class Orchestrator {
       const reasons = [...((await this.status(runId)).state === "COMPLETED" ? [] : ["run_not_completed"]), ...(outcome === null ? ["no_testing_plan_result"] : outcome.reasons),
         ...(outcome !== null && outcome.selectedGaps > 0 && !artifacts.some(({ kind }) => kind === "implementation") ? ["no_implementation_handoff"] : [])];
       if (outcome !== null && !outcome.passed && reasons.length === 0) reasons.push("testing_plan_failed");
+      const config = (await featureStore.loadContext()).modelConfiguration;
+      if (config !== undefined && testingExecutionSchema.parse(config.workflow["testing"]).mode === "execute" && outcome?.selectedGaps !== 0) {
+        const execution = artifacts.some(({ kind }) => kind === "testing-execution-outcome") ? await readStage<TestingPlanExecutionOutcome>(featureStore, "testing-execution-outcome") : null;
+        if (execution === null) reasons.push("no_testing_execution_result");
+        else {
+          reasons.push(...execution.reasons);
+          if (!execution.passed && execution.reasons.length === 0) reasons.push("testing_execution_failed");
+          if (execution.planFingerprint !== outcome?.planFingerprint) reasons.push("testing_execution_plan_mismatch");
+        }
+        if (!artifacts.some(({ kind }) => kind === "testing-execution-completion")) reasons.push("no_verified_testing_handoff");
+      }
       return { gateStatus: reasons.length === 0 ? "passed" : "failed", reasons };
     }
     if ((await featureStore.loadContext()).modelConfiguration?.mode === "feature") {
@@ -432,13 +445,13 @@ export class Orchestrator {
 
   #runner(store: RunStore, context: AuditContext, reusedFindings?: Readonly<Record<string, readonly AuditFinding[]>>, modelConfiguration?: RunConfig): WorkflowRunner {
     if (modelConfiguration?.mode === "testing") {
-      const testing = new TestingPipeline(store, this.configurations.validate(modelConfiguration), context.snapshot, this.#providerOptions);
+      const testing = new TestingPipeline(store, this.configurations.validate(modelConfiguration), context.snapshot, this.#providerOptions, this.#testSandbox);
       return new WorkflowRunner({ journal: store.journalPort(), artifacts: store.artifacts, definitions: store.definitions(), loadRecords: () => store.loadRecords(), executors: {
         deterministic: async ({ node }) => {
           if (node.id === "render") return testing.render();
           const result = { mode: "testing", fileCount: context.snapshot.files.length, readOnly: true, testsExecuted: false };
           await store.publish("preflight", result, "preflight"); return result;
-        }, subgraph: ({ signal }) => testing.run(signal),
+        }, subgraph: ({ node, signal }) => node.id === "execute" ? testing.execute(signal) : testing.run(signal),
       } });
     }
     if (modelConfiguration?.mode === "feature") {
@@ -540,9 +553,10 @@ function assertRuntimeConfiguration(config: RunConfig): void {
 
 function graphForConfiguration(config: RunConfig): RunnerGraph {
   if (config.workflow["preset"] !== undefined && typeof config.workflow["preset"] !== "string") throw new Error("INVALID_WORKFLOW_PRESET");
-  const graph = graphForPreset(presetOf(config) ?? (config.mode === "feature" ? "feature-simple" : config.mode === "testing" ? "testing-plan" : undefined));
+  const testingPreset = config.mode === "testing" && testingExecutionSchema.parse(config.workflow["testing"]).mode === "execute" ? "testing-execute" : "testing-plan";
+  const graph = graphForPreset(presetOf(config) ?? (config.mode === "feature" ? "feature-simple" : config.mode === "testing" ? testingPreset : undefined));
   if ((graph.id === "feature-simple") !== (config.mode === "feature")) throw new Error("WORKFLOW_PRESET_MODE_MISMATCH");
-  if ((graph.id === "testing-plan") !== (config.mode === "testing")) throw new Error("WORKFLOW_PRESET_MODE_MISMATCH");
+  if ((graph.id === "testing-plan" || graph.id === "testing-execute") !== (config.mode === "testing") || config.mode === "testing" && graph.id !== testingPreset) throw new Error("WORKFLOW_PRESET_MODE_MISMATCH");
   return graph;
 }
 

@@ -19,6 +19,8 @@ import { isTestingWritePath } from "./testing-context.js";
 import { readStage } from "./pipeline.js";
 import type { RepositorySnapshot } from "./repository.js";
 import type { RunStore } from "./run-store.js";
+import { TestingPlanExecutor } from "./testing-plan-executor.js";
+import type { TestSandbox } from "./test-sandbox.js";
 
 export function validateModelTesting(config: RunConfig) {
   if (config.workflow["testing"] === undefined) throw new Error("TESTING_EXECUTION_CONFIGURATION_REQUIRED");
@@ -26,6 +28,14 @@ export function validateModelTesting(config: RunConfig) {
   providerExecutionSchema.parse(config.workflow["modelExecution"]);
   for (const id of Object.values(settings.roles)) if (!Object.hasOwn(config.models, id)) throw new Error(`TESTING_MODEL_PROFILE_REQUIRED:${id}`);
   if (config.models[settings.roles.analyst]?.capabilityTier !== "frontier") throw new Error("TESTING_FRONTIER_ANALYST_REQUIRED");
+  if (settings.mode === "execute") {
+    if (config.harness.mode !== "canonical") throw new Error("TESTING_EXECUTION_CANONICAL_REQUIRED");
+    const ranks = { fast: 0, balanced: 1, frontier: 2 };
+    for (const capability of ["fast", "balanced", "frontier"] as const) {
+      const profile = config.models[settings.execution.models[capability]];
+      if (profile === undefined || !profile.supports.tools || ranks[profile.capabilityTier] < ranks[capability]) throw new Error("TESTING_TASK_MODEL_CONFIGURATION_INVALID");
+    }
+  }
   return settings;
 }
 
@@ -34,9 +44,23 @@ export interface TestingOutcome { readonly passed: boolean; readonly reasons: re
 export class TestingPipeline {
   readonly settings;
   readonly harness: ModelHarness;
-  constructor(private readonly store: RunStore, private readonly config: RunConfig, private readonly snapshot: RepositorySnapshot, private readonly transport: TransportFactoryOptions) {
+  readonly activities: ModelActivities;
+  constructor(private readonly store: RunStore, private readonly config: RunConfig, private readonly snapshot: RepositorySnapshot, private readonly transport: TransportFactoryOptions, private readonly sandbox?: TestSandbox) {
     this.settings = validateModelTesting(config);
-    this.harness = new ModelHarness(new ModelActivities(store, config, transport), config, snapshot, store);
+    this.activities = new ModelActivities(store, config, transport);
+    this.harness = new ModelHarness(this.activities, config, snapshot, store);
+  }
+
+  async execute(signal: AbortSignal) {
+    if (this.settings.mode !== "execute") throw new Error("TESTING_EXECUTION_NOT_ENABLED");
+    const plan = await readStage<TestingOutcome>(this.store, "testing-outcome");
+    if (!plan.passed || plan.selectedGaps === 0) return { skipped: true, reason: plan.passed ? "no_selected_gaps" : "planning_failed" };
+    const executor = new TestingPlanExecutor(this.store, this.config, this.snapshot, this.activities, this.settings.execution, this.sandbox);
+    // Finalization can replay after cleanup without reopening the deleted worktree.
+    if ((await this.store.listArtifacts()).some(({ kind }) => kind === "testing-execution-completion")) return executor.finalize(signal);
+    const outcome = await executor.run(signal);
+    if (!outcome.passed) return outcome;
+    return executor.finalize(signal);
   }
 
   async run(signal: AbortSignal): Promise<TestingOutcome> {
@@ -67,7 +91,8 @@ export class TestingPipeline {
         await this.store.publish("testing-planner-context", { ...allocated.coverage, maximumEstimatedTokens: maximum }, "testing");
         return this.harness.invoke(request(allocated.input));
       } } });
-      const result = await planner.run({ projectContext: { requirements, analysis, routing: testTasks(analysis.gaps, analysis.commands[0]?.command ?? "") }, canonicalIssues: [], repositoryContext: [],
+      const result = await planner.run({ projectContext: { requirements, analysis, routing: testTasks(analysis.gaps, analysis.commands[0]?.command ?? ""),
+        ...(this.settings.mode === "execute" ? { trustedWriteAuthorization: this.settings.execution.authorization } : {}) }, canonicalIssues: [], repositoryContext: [],
         constraints: requirements.outOfScope, workflowGoal: this.settings.goal, premiseReport });
       plan = result.plan;
       const diagnostics = validateRequirementsPlanTraceability(requirements, plan, "testing");
@@ -94,7 +119,7 @@ export class TestingPipeline {
     const requirements = requirementsContractSchema.parse(await readStage(this.store, "testing-requirements"));
     const manifest: ImplementationManifest & { readonly planIR: PlanIR } = {
       manifestVersion: "1.0.0", run: { runId: this.store.runId, mode: "testing", repository: this.snapshot.root, scopeKind: this.config.scope.kind,
-        snapshot: { files: this.snapshot.files.map(({ path }) => path) }, metrics: { modelCalls: null, tokens: null, cost: null, note: "Actual provider activity is recorded in run traces. Tests have not been executed." } },
+        snapshot: { files: this.snapshot.files.map(({ path }) => path) }, metrics: { modelCalls: null, tokens: null, cost: null, note: this.settings.mode === "execute" ? "Provider activity and test execution evidence are recorded in run artifacts. Consult the execution gate and verified change set." : "Actual provider activity is recorded in run traces. Tests have not been executed." } },
       requirements, unresolvedQuestions: plan.unresolvedQuestions, validation: plan.validationContract.validation,
       tasks: plan.tasks.map(({ estimatedTurns, ...task }) => ({ ...task, phase: "implementation", ...(estimatedTurns === null ? {} : { estimatedTurns }) })), planIR: plan,
       progressSchema: { type: "object", additionalProperties: false, required: ["taskId", "status"], properties: { taskId: { type: "string", enum: plan.tasks.map(({ id }) => id) }, status: { type: "string", enum: ["pending", "in_progress", "completed", "blocked"] }, evidence: { type: "array", items: { type: "string" } } } },

@@ -25,9 +25,9 @@ export class CanonicalHarnessAdapter implements HarnessAdapter {
       }
       if (turn === node.maxToolTurns) throw new Error(`HARNESS_TOOL_LOOP_LIMIT:${node.maxToolTurns}`);
       messages.push({ role: "assistant", content: response.text ?? "", toolCalls: response.toolCalls });
-      for (const call of response.toolCalls) {
+      for (const [callIndex, call] of response.toolCalls.entries()) {
         yield Object.freeze({ type: "tool_call", nodeId: node.id, turn, call });
-        const result = await toolRuntime.invoke(call.name, call.arguments, { nodeId: node.id, ...policy.toolContext });
+        const result = await toolRuntime.invoke(call.name, call.arguments, { ...policy.toolContext, nodeId: node.id, callId: call.id, turn, callIndex });
         yield Object.freeze({ type: "tool_result", nodeId: node.id, turn, callId: call.id, result });
         messages.push({ role: "tool", content: JSON.stringify(result), toolCallId: call.id, toolName: call.name });
       }

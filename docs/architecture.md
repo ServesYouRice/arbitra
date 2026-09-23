@@ -182,7 +182,7 @@ work is legible without re-deriving it.
 
 | Deferred feature | Extension point |
 |---|---|
-| Autonomous Testing execution (worktree, write scope, shell, egress sandbox) | Public Testing planning is composed. `testing-write-schedule.ts` preflights grants and scheduling; `security/write-partitions.ts` guards leases. `testing-worktree.ts` creates snapshot-seeded detached worktrees; `testing-workspace.ts` journals scoped writes and validates recovery. Model write tools, command/verification dispatch, promotion and public execution configuration remain unconnected |
+| Autonomous Testing execution (worktree, write scope, shell, egress sandbox) | Opt-in `testing-execute` composes planning, authority preflight, bounded parallel writer batches, serial checks, final verification and durable change handoff. Every batch settles before checks or lease release; interrupted sibling work replays. Planning alone cannot pass its execution gate. Exact verified bytes survive cleanup; source checkout remains unchanged. Repair after final invalidation, richer web views and live-provider/Docker QA remain open |
 | Native harness adapters | `packages/harness/src/adapter.ts` defines the port; `canonical/adapter.ts` is the only implementation. `harness.mode: "native"` is accepted by the schema and has no adapter behind it |
 | Advisor runtime | `taskRouting.advisor` and `advisorMaxUses` exist in `packages/schemas/src/task-ir.ts`; `advisorTokens` is recorded in `packages/persistence/src/trace.ts`. Nothing consumes them |
 | Feature workflow extensions | Bounded independent requirements review and model revision are composed; dedicated web checkpoints, expanded subgraph views and oversized contexts remain open |

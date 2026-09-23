@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { canonicalJson } from "@arbitra/core/config/config-store.js";
 import { verificationExecutionSchema, type VerificationExecution } from "@arbitra/schemas/verification-execution.js";
 import type { RepositorySnapshot } from "./repository.js";
 import { RunStore } from "./run-store.js";
@@ -10,6 +11,9 @@ export interface VerificationExecutionRecord {
   readonly state: "reserved" | "prepared" | "completed" | "interrupted";
   readonly handle?: SandboxRecoveryHandle;
   readonly result?: SandboxTestResult;
+  readonly invocationId?: string;
+  readonly snapshotFingerprint?: string;
+  readonly executionFingerprint?: string;
 }
 
 /** One coordinator per run. Reservations commit before dispatch and never refund budget. */
@@ -46,7 +50,9 @@ export class VerificationExecutor {
       const previous = saved.find((record) => record.id === id);
       if (previous !== undefined) { records.push(previous); continue; }
       if (saved.length >= execution.maximumRuns) { deferredCheckIds.push(check.id); continue; }
-      let record: VerificationExecutionRecord = { id, checkId: check.id, state: "reserved" };
+      let record: VerificationExecutionRecord = { id, checkId: check.id, state: "reserved", ...(invocationId === undefined ? {} : {
+        invocationId, snapshotFingerprint: verificationSnapshotFingerprint(snapshot), executionFingerprint: createHash("sha256").update(canonicalJson(execution)).digest("hex"),
+      }) };
       await this.publish(record); saved.push(record);
       const result = await this.sandbox.run(snapshot, execution, check, signal, { prepared: async (handle) => {
         record = { ...record, state: "prepared", handle };
@@ -65,4 +71,8 @@ export class VerificationExecutor {
   private async publish(record: VerificationExecutionRecord): Promise<void> {
     await this.store.publish(`verification-execution-${record.id}`, record, "verification");
   }
+}
+
+export function verificationSnapshotFingerprint(snapshot: RepositorySnapshot): string {
+  return createHash("sha256").update(canonicalJson(snapshot.files.map(({ path, lines }) => ({ path, lines })).sort((a, b) => a.path.localeCompare(b.path)))).digest("hex");
 }

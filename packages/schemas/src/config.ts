@@ -64,6 +64,7 @@ export const runConfigSchema = z.object({
     const testing = testingExecutionSchema.safeParse(config.workflow["testing"]);
     if (config.mode !== "testing") context.addIssue({ code: "custom", path: ["workflow", "testing"], message: "Testing settings require testing mode" });
     if (testing.success) for (const id of Object.values(testing.data.roles)) if (!Object.hasOwn(config.models, id)) context.addIssue({ code: "custom", path: ["workflow", "testing", "roles"], message: `Unknown Testing model profile: ${id}` });
+    if (testing.success && testing.data.mode === "execute") for (const id of Object.values(testing.data.execution.models)) if (!Object.hasOwn(config.models, id)) context.addIssue({ code: "custom", path: ["workflow", "testing", "execution", "models"], message: `Unknown Testing writer profile: ${id}` });
   }
   if (config.workflow["feature"] !== undefined) {
     const feature = featureExecutionSchema.safeParse(config.workflow["feature"]);
