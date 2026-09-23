@@ -1,0 +1,8 @@
+{
+  "presetId": "testing-execute",
+  "mode": "testing",
+  "readOnly": false,
+  "graph": { "id": "canonical-testing-execute", "version": 1 },
+  "stages": ["test_inventory", "risk_gap_analysis", "validation_contract", "planner", "guarded_execution", "final_verification", "verified_handoff", "renderer"],
+  "capabilities": { "worktree": true, "writeScope": true, "shell": false, "sandbox": true, "advisorRuntime": false, "writeTools": ["testing_write_file"] }
+}

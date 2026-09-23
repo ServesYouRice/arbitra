@@ -236,12 +236,37 @@ commands are rejected. Successful nonempty plans publish the implementation tree
 run artifacts. An analysis selecting no gaps publishes an explicit no-work outcome;
 it is not proof of test coverage. Blocking questions withhold the handoff.
 
-All stages share the durable model budget and resume machinery. Commands are never run,
-the source tree stays unchanged, and the result records `testsExecuted: false`.
+All stages share the durable model budget and resume machinery. In plan mode commands
+are never run, the source tree stays unchanged, and the planning result records `testsExecuted: false`.
 Audit-policy replay is unsupported for Testing. Dedicated web controls and expanded
 Testing subgraph views remain open.
-Autonomous Testing execution — worktree, write scope, shell, egress sandbox — is **v1.1**
-and not implemented.
+Guarded execution is opt-in: use `workflow.preset: "testing-execute"` (or omit the preset),
+set `workflow.testing.mode: "execute"`, and supply `workflow.testing.execution` with:
+
+- `authorization`: concrete `partitions: [{id, paths}]`, exact `tasks: [{taskId, partitionId, exclusive}]`, and `maximumParallelTasks` from 1–16. Disjoint ready tasks can write concurrently; dependencies, shared files, declared conflicts and exclusive tasks constrain batches.
+- `models`: `fast`, `balanced`, and `frontier` profile IDs, each tool-capable and meeting its capability tier.
+- `maximumAttempts`: 1–10, preserved across restart.
+- `verification`: `execution` containing a local digest-pinned Docker image, a bounded `maximumRuns`, and `checks: [{id, executable, arguments, sourcePaths}]`; plus `bindings: [{command, checkId, expectedExitCode, authorization}]`. Binding authorization is `repository_script`, `allowlisted`, or `operator_approved` and must match each planned command's policy.
+
+Write grants are operator authority, not model output. Every planned task and path must
+match the grants before any worktree is created. Sandbox checks use a read-only copy of
+the current worktree with no network; provide an already available image containing its
+test dependencies. The runtime does not install dependencies or pull images. The model
+receives leased file tools, not shell access. Source checkout files remain unchanged.
+
+The summary keeps `outcome` for planning and adds `execution` for actual task/final-check
+results. Passing execution requires a `testing-execution-completion` artifact referencing
+an exact `testing-change-set-*` artifact. Retrieve it through the existing artifact API.
+Each changed file contains `expectedHash`, `contentHash` and UTF-8 `content`; an applying
+tool must compare the destination bytes with `expectedHash` before replacing them.
+Successful finalization cleans up its worktree and replays without new model/check calls.
+Failed checks, incomplete evidence or missing handoff fail the public gate. No selected
+gaps remains an explicit no-work result, not evidence that tests ran or coverage is complete.
+
+Each writer batch settles before serial verification begins. Interrupted batches preserve
+completed tool work and release leases only after every dispatched writer stops.
+Automatic repair after final verification invalidates an earlier task,
+native harness execution and live-provider/Docker acceptance QA remain open.
 
 ## Presets
 

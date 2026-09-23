@@ -1,5 +1,157 @@
 # Remaining work
 
+The public Testing executor now dispatches preflighted disjoint writer batches up to
+the configured concurrency bound. Dependencies, shared paths, declared conflicts and
+exclusive tasks remain serialized by the schedule. A batch acquires every lease before
+model dispatch and waits for all writer promises to settle before releasing any lease
+or starting serial verification. Failed batches preserve reserved attempt/tool history;
+restart reuses successful sibling output without repeating writes. Exhausted attempts
+stop the batch and prevent dependent dispatch. Whole-workspace final verification remains.
+
+Focused writer/coordinator tests passed (21 scenarios), including a two-writer barrier
+and interruption after one sibling had started. Public parallel dispatch is implemented;
+automatic repair after final invalidation and live-provider/Docker QA remain open.
+
+Full CI passed (311 runtime tests), production build passed, and whitespace checks passed.
+Provider and sandbox results remain injected; no live-provider or Docker execution was
+performed for this batch change.
+
+Guarded Testing execution is now opt-in through the shared public runner. Configure
+`workflow.testing.mode: "execute"` with strict execution authority and use the
+`testing-execute` preset (or let mode select it). The graph runs planning, guarded
+execution/finalization and rendering under the existing run lock and resume machinery.
+Planning and execution share one durable model budget. The public gate requires actual
+execution evidence and a verified completion/handoff; a passed plan alone cannot pass
+an execution run. Empty selection remains explicit no-work, with no sandbox calls.
+
+Public tests cover success, failed checks, interrupted writer resume and no-work results.
+The source checkout remains unchanged. Parallel writer batches, automatic repair after
+final invalidation, richer web execution views and live-provider/Docker acceptance QA
+remain open. Configuration and artifact retrieval are documented in `docs/workflows.md`.
+
+Full CI passed (308 runtime tests), production build passed, and all 15 public Testing
+scenarios passed after adding the explicit execute-mode no-work case. Affected-file lint
+and whitespace checks passed. Provider and sandbox results were injected; the Docker
+Linux engine was unavailable at the last readiness check, so live QA remains unverified.
+
+The following implementation notes record earlier milestones; their then-open public
+wiring work is superseded by the public composition described above.
+
+Trusted Testing execution options now have a shared strict schema consumed by the
+executor. Partition/task identity, partition references, model-role presence, concurrency
+and attempt bounds are validated before executor construction. Extra configuration keys
+are rejected; portable-path and plan-scope authority still pass through security preflight.
+All 18 schema/coordinator scenarios, runtime build, affected-file lint and whitespace
+checks passed. The public mode now accepts explicit execute settings as described above.
+
+Testing finalization now commits a durable completion reference before worktree cleanup.
+Restart validates configuration, plan and change-set identity, finishes interrupted
+cleanup, and returns the original handoff without creating another workspace or issuing
+new model/check calls. A lost close acknowledgement is covered by a real-worktree fault
+test. All 11 coordinator scenarios, runtime build, affected-file lint and whitespace
+checks passed. Finalization is now used by the public execute stage.
+
+Verified Testing changes now have an internal durable handoff. The coordinator rechecks
+the workspace journal and final verification before exporting sorted UTF-8 create/replace
+payloads with baseline and resulting content hashes. The handoff references final-check
+artifacts and the exact plan/workspace fingerprints. It never applies changes to the
+source checkout. Consumers must compare the destination bytes with each expected hash.
+
+Failed/incomplete or stale verification, empty changes and unsupported deletion are
+rejected. Content requiring secret redaction cannot be exported as if it were the exact
+verified bytes; persistence is read back and compared before returning the handoff.
+Successful handoffs remain readable after explicit worktree cleanup. Public execution
+and handoff wiring, parallel writers, repair after final invalidation and live sandbox
+QA remain open.
+
+Full CI passed (303 runtime tests), production build passed and whitespace checks passed.
+Handoff tests cover exact replacement bytes, baseline hashes, stale/failed evidence,
+redaction, deletion, empty output, replay and retrieval after cleanup. Docker CLI is
+installed, but its Linux engine pipe was unavailable during the readiness check; no
+live container or provider execution was performed.
+
+An internal whole-plan Testing coordinator now consumes the saved passed planning gate
+and requires its fingerprint to match the exact plan. It validates every task's write
+authorization, model routing and trusted command/check bindings before creating a
+worktree. Execution configuration is pinned across resumes. Tasks currently dispatch
+sequentially in dependency order; bounded parallel writer batches remain open.
+
+The coordinator recovers sandbox resources before workspace preparation and stops
+dispatch after an exhausted task. After all tasks complete, it verifies every task
+against the final whole-workspace snapshot under distinct durable final-check identities.
+Later changes that invalidate an earlier test, incomplete checks and exhausted verification
+budgets fail the execution gate. Resume preserves completed attempt and final-check
+evidence. Final failures currently block the run; automatic reopening of earlier tasks
+after later fixture changes remains open, alongside public execution/handoff wiring
+and end-to-end sandbox QA.
+
+Full CI passed (296 runtime tests), production build passed and whitespace checks passed.
+Nine coordinator scenarios cover dependencies, final invalidation, exhausted budgets,
+terminal replay, configuration drift and rejection before worktree/model creation.
+These tests use real Git worktrees with injected provider and sandbox results.
+
+Testing now has an internal sequential model task loop. Each attempt pins its original
+redacted repository context and prior verification feedback before model dispatch.
+Resume reuses those bytes even after tool writes; changed task/model/lease bindings fail
+closed. A bundled writer protocol and locked summary/limitations schema drive the
+canonical leased tools. Live leases are released before trusted sandbox verification.
+
+The loop recovers pending sandbox resources before writers, reserves durable attempts,
+feeds bounded saved check diagnostics into retries, and promotes to frontier after two
+deterministic failures. Passing, exhausted and incomplete terminal states replay without
+new model calls or checks. Writer limitations prevent passing or promotion even when
+commands exit successfully. The subsequent whole-plan coordinator is described above;
+public execution/handoff wiring and end-to-end sandbox QA remain open.
+
+Full CI passed (285 runtime tests) and the production build passed. Expanded retry-cap
+and limitations scenarios subsequently passed with all 27 focused writer/verification
+tests; affected-file lint and whitespace checks passed. Tests use real Git worktrees
+with injected provider and sandbox results. No live-provider or Docker run was performed.
+
+The canonical model harness now has a Testing-only writable extension. Its runtime
+receives a live trusted lease separately from model arguments, and exposes bounded
+current-file reads plus expected-hash file replacement through the workspace journal.
+Reads honor configured source scope and paginate long Unicode lines without dropping
+characters or separators. Audit, native and discovery contexts cannot enable the extension;
+shell and network tools remain unavailable.
+
+Tool-call identity includes activity, turn, position and provider call ID. Arguments and
+scope are bound to durable results, so resumed tool turns return the original observation
+without repeating writes. First execution returns the persisted/redacted representation.
+An injected-provider interruption test exposed a general replay bug in multi-field tool
+arguments: canonical serialization reordered schema-opaque argument keys between initial
+execution and resume. Model activity outputs now normalize those keys before first use.
+
+Full CI passed (282 runtime tests), and production build passed. Four new tool scenarios
+cover recovery, stale leases, source scopes, cancellation, mode restrictions and Unicode
+pagination; all passed after an additional native-mode guard. The subsequent internal
+writer/task-loop implementation is described above. No live-provider or Docker execution
+was performed.
+
+Testing task verification now consumes the fresh journal-validated workspace. Trusted
+command bindings select sandbox executable/arguments and expected exit codes; model
+policy labels cannot authorize dispatch. Changed package scripts invalidate their prior
+authorization. Every changed test path must have a configured check. No-change attempts,
+budget exhaustion, interrupted checks, unavailable sandboxes, cleanup failures and writes
+during verification produce incomplete evidence, not a passing result or promotion.
+
+Verification reservations now optionally bind a task-attempt identity. The same attempt
+replays after restart, while a new attempt can rerun identical source under the shared
+durable run budget. Execution evidence records snapshot, invocation and policy fingerprints.
+The bounded task-attempt ledger reserves before model dispatch, preserves pending IDs,
+validates saved verification and execution provenance, and promotes directly to frontier
+after two completed deterministic failures. Infrastructure failures consume the configured
+attempt limit without advancing promotion; restart cannot reset or expand that limit.
+
+These remain execution components. Public execution configuration, parallel writer dispatch,
+execution handoff and end-to-end sandbox QA remain open.
+Full CI passed (277 runtime tests) and production build passed. An existing handoff test
+timed out once, then passed both focused execution and the full rerun. A final retention
+fix preserves earlier incomplete observations when a workspace returns to identical bytes;
+all 23 focused verification/attempt checks, affected-file lint and runtime build passed
+after that change. Whitespace checks passed. Sandbox results in these tests are injected;
+no live-provider or Docker execution has been performed.
+
 Testing execution now has an owned detached Git worktree and durable workspace journal.
 The worktree is seeded from the exact scoped snapshot in a fresh temporary repository;
 the source checkout, its Git metadata, credentials, remotes and hooks are not shared.
@@ -15,8 +167,7 @@ ownership markers survive partial child cleanup so recovery can retry safely.
 
 These are execution components, not yet public autonomous execution. The coordinator
 must remain the sole host writer; model/native processes cannot receive direct host
-worktree write access. Model write-tool dispatch, command policy/sandbox execution,
-fresh verification, promotion and public execution configuration remain open.
+worktree write access. Public execution configuration and parallel writer dispatch remain open.
 Real-Git and journal fault tests cover scoped writes, source preservation, links,
 interruption before/after mutation and failed close. Full CI passed (260 runtime tests),
 production build passed, and whitespace checks passed. No live-provider execution occurred.
@@ -29,9 +180,8 @@ stale owners, overlapping paths across partitions, and file/ancestor conflicts.
 Disjoint work can run together; shared fixtures, declared conflicts and dependencies
 are serialized, with exclusive preparatory tasks and bounded concurrency.
 
-This is the scheduling boundary, not filesystem enforcement. Autonomous execution remains
-unavailable until isolated worktrees, writable tools, durable executor recovery, command
-execution, fresh verification and capability promotion are connected. A replacement
+This scheduling boundary is now used by the internal executor described above. Public
+autonomous execution and parallel writer dispatch remain unavailable. A replacement
 lease guard must not be created before recovering prior in-flight executors. Focused
 partition/schedule regressions passed (22 tests); full CI passed (248 runtime tests),
 production build passed, and whitespace checks passed. No live-provider execution occurred.

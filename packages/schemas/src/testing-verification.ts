@@ -16,3 +16,12 @@ export const testingVerificationPolicySchema = z.strictObject({
   for (const [index, binding] of value.bindings.entries()) if (!value.execution.checks.some(({ id }) => id === binding.checkId)) context.addIssue({ code: "custom", path: ["bindings", index, "checkId"], message: "Unknown configured sandbox check" });
 });
 export type TestingVerificationPolicy = z.infer<typeof testingVerificationPolicySchema>;
+
+export const testingTaskVerificationSchema = z.strictObject({
+  taskId: z.string().min(1), attemptId: z.string().min(1),
+  taskFingerprint: z.string().regex(/^[a-f0-9]{64}$/u), policyFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+  snapshotFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+  status: z.enum(["passed", "failed", "incomplete"]), deterministicFailure: z.boolean(), reasons: z.array(z.string()),
+  checks: z.array(z.strictObject({ command: z.string(), checkId: z.string(), executionId: z.string().nullable(), status: z.enum(["passed", "failed", "incomplete"]), expectedExitCode: z.number().int(), actualExitCode: z.number().int().nullable() })),
+});
+export type TestingTaskVerification = z.infer<typeof testingTaskVerificationSchema>;

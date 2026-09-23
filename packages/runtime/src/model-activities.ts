@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { canonicalJson } from "@arbitra/core/config/config-store.js";
 import { ModelPool, type ModelInvocationResult } from "@arbitra/providers/model-pool.js";
 import { ProviderRegistry, type TransportFactoryOptions } from "@arbitra/providers/registry.js";
 import { RateLimitScheduler } from "@arbitra/providers/scheduler.js";
@@ -124,7 +125,9 @@ export class ModelActivities {
       }
       // Always return the same redacted payload that a resumed call will receive.
       const safe = JSON.parse(JSON.stringify(parsed, (_key, value: unknown) => typeof value === "string" ? redactSecrets(value).text : value)) as unknown;
-      value = input.schema.parse(safe);
+      // Nested tool arguments are schema-opaque. Canonicalize them before first use
+      // so artifact serialization cannot change later model-history fingerprints.
+      value = input.schema.parse(JSON.parse(canonicalJson(safe)));
       outputValidated = true;
       outputArtifactRef = (await this.store.artifacts.put({ fingerprint, value }, "json", { durability: "expensive" })).relativePath;
     } catch (error) {

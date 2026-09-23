@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { compile } from "@arbitra/core/prompt/compiler.js";
 import { CanonicalHarnessAdapter } from "@arbitra/harness/canonical/adapter.js";
 import type { HarnessEvent } from "@arbitra/harness/adapter.js";
-import { CANONICAL_HARNESS_PROFILE } from "@arbitra/harness/profile.js";
+import { CANONICAL_HARNESS_PROFILE, CANONICAL_TESTING_HARNESS_PROFILE } from "@arbitra/harness/profile.js";
 import { modelTurnResultSchema } from "@arbitra/schemas/model-results.js";
 import { providerExecutionSchema } from "@arbitra/schemas/provider-execution.js";
 import type { RunConfig } from "@arbitra/schemas/config.js";
@@ -13,18 +13,20 @@ import { ModelActivities, type ModelActivityRequest } from "./model-activities.j
 import { snapshotTools, SNAPSHOT_TOOLS } from "./snapshot-tools.js";
 import type { RepositorySnapshot } from "./repository.js";
 import type { RunStore } from "./run-store.js";
+import type { TestingToolExtension } from "./testing-tools.js";
 
 /** Replays durable model turns through the canonical read-only tool loop. */
 export class ModelHarness {
-  constructor(private readonly activities: ModelActivities, private readonly config: RunConfig, private readonly snapshot: RepositorySnapshot, private readonly store: RunStore) {}
+  constructor(private readonly activities: ModelActivities, private readonly config: RunConfig, private readonly snapshot: RepositorySnapshot, private readonly store: RunStore, private readonly testing?: TestingToolExtension) {}
 
   estimateInitialTokens(input: ModelActivityRequest<unknown>): number {
-    const { initialMessages, tools, execution } = prepareModelInput(input, this.config);
+    const { initialMessages, tools, execution } = prepareModelInput(input, this.config, this.testing);
     return Buffer.byteLength(JSON.stringify({ messages: initialMessages, tools }), "utf8") + execution.maximumOutputTokens;
   }
 
   async invoke<T>(input: ModelActivityRequest<T>): Promise<T> {
-    const { profile, execution, tools, compiled, initialMessages, discovery } = prepareModelInput(input, this.config);
+    const { profile, execution, tools, compiled, initialMessages, discovery } = prepareModelInput(input, this.config, this.testing);
+    const harnessProfile = this.testing === undefined ? CANONICAL_HARNESS_PROFILE : CANONICAL_TESTING_HARNESS_PROFILE;
     const key = createHash("sha256").update(input.activityId).digest("hex");
     if (compiled !== undefined) await this.store.publish(`compiled-prompt-${key}`, { text: compiled.text, provenance: compiled.provenance, breakpoints: compiled.breakpoints }, input.activityId);
     const allowedPaths = input.sourcePaths === undefined ? null : new Set(input.sourcePaths);
@@ -37,11 +39,12 @@ export class ModelHarness {
       return this.activities.invoke({
         ...input, activityId: `${input.activityId}/turn-${context.turn}`, messages: bounded.messages,
         tools: request.tools, responseMode: "harness_turn", schema: modelTurnResultSchema,
-        harnessIdentity: { id: CANONICAL_HARNESS_PROFILE.id, version: CANONICAL_HARNESS_PROFILE.version, policyHash: createHash("sha256").update(JSON.stringify({ policy: CANONICAL_HARNESS_PROFILE.policy, sourcePaths: input.sourcePaths === undefined ? null : [...input.sourcePaths].sort(), historyPolicy: "archive-complete-exchanges-v1", maximumContext })).digest("hex") },
+        harnessIdentity: { id: harnessProfile.id, version: harnessProfile.version, policyHash: createHash("sha256").update(JSON.stringify({ policy: harnessProfile.policy, sourcePaths: input.sourcePaths === undefined ? null : [...input.sourcePaths].sort(), historyPolicy: "archive-complete-exchanges-v1", maximumContext, ...(this.testing === undefined ? {} : { testingWritePolicy: this.testing.policyIdentity }) })).digest("hex") },
       });
-    } });
+    } }, harnessProfile);
     const prompt = compiled ?? { text: JSON.stringify(initialMessages), hash: createHash("sha256").update(JSON.stringify(initialMessages)).digest("hex") };
-    const run = adapter.run({ id: input.activityId, modelId: profile.modelId, maximumOutputTokens: execution.maximumOutputTokens, maxToolTurns: profile.supports.tools ? profile.quirks.toolLoopLimit : 0 }, prompt, tools, toolSet.runtime, {
+    const runtime = this.testing?.createRuntime(toolSet.runtime, input.activityId, input.signal, input.sourcePaths) ?? toolSet.runtime;
+    const run = adapter.run({ id: input.activityId, modelId: profile.modelId, maximumOutputTokens: execution.maximumOutputTokens, maxToolTurns: profile.supports.tools ? profile.quirks.toolLoopLimit : 0 }, prompt, tools, runtime, {
       mode: this.config.mode, round: discovery ? 0 : 1,
       requirements: { structuredEvents: true, enforcesExternalPolicy: true, reportsUsage: true }, signal: input.signal,
       toolContext: { protect: (content, meta) => frameUntrusted(redactSecrets(content).text, meta) },
@@ -58,17 +61,19 @@ export class ModelHarness {
       }
       throw new Error("HARNESS_COMPLETION_ABSENT");
     } finally {
-      await this.store.publish(`harness-${key}`, { activityId: input.activityId, profile: CANONICAL_HARNESS_PROFILE, events,
+      await this.store.publish(`harness-${key}`, { activityId: input.activityId, profile: harnessProfile, events,
         inspection: toolSet.footprints.inspection(input.activityId), exposure: toolSet.footprints.exposure(input.activityId) }, input.activityId);
     }
   }
 }
 
-function prepareModelInput(input: ModelActivityRequest<unknown>, config: RunConfig) {
+function prepareModelInput(input: ModelActivityRequest<unknown>, config: RunConfig, testing?: TestingToolExtension) {
     const profile = Object.hasOwn(config.models, input.modelProfileId) ? config.models[input.modelProfileId] : undefined;
     if (profile === undefined) throw new Error(`UNKNOWN_MODEL_PROFILE:${input.modelProfileId}`);
     const execution = providerExecutionSchema.parse(config.workflow["modelExecution"]);
-    const tools = profile.supports.tools ? SNAPSHOT_TOOLS : [];
+    if (testing !== undefined && (config.mode !== "testing" || config.harness.mode !== "canonical" || input.activityId.endsWith("/discovery"))) throw new Error("TESTING_WRITE_HARNESS_MODE_REQUIRED");
+    if (testing !== undefined && !profile.supports.tools) throw new Error("TESTING_WRITER_TOOLS_REQUIRED");
+    const tools = profile.supports.tools ? [...SNAPSHOT_TOOLS, ...(testing?.definitions ?? [])] : [];
     const overrides = config.promptOverrides[input.protocolAsset?.protocolId ?? input.protocol];
     if (overrides !== undefined && (typeof overrides !== "object" || overrides === null || Array.isArray(overrides)
       || Object.entries(overrides).some(([key, value]) => !["before", "after"].includes(key) || typeof value !== "string"))) throw new Error("INVALID_PROTOCOL_PROMPT_OVERRIDE");

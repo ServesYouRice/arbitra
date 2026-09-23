@@ -85,6 +85,10 @@ export const PRESET_GRAPHS: Readonly<Record<string, RunnerGraph>> = Object.freez
     nodes: Object.freeze([node("preflight", "deterministic", "Test inventory preflight"), node("testing", "subgraph", "Risk analysis and test planning"), node("render", "deterministic", "Test implementation handoff")]),
     edges: Object.freeze([{ id: "preflight-testing", from: "preflight", to: "testing" }, { id: "testing-render", from: "testing", to: "render" }]),
   }),
+  "testing-execute": Object.freeze({ schemaVersion: 1, id: "testing-execute", entryNodeId: "preflight",
+    nodes: Object.freeze([node("preflight", "deterministic", "Test execution preflight"), node("testing", "subgraph", "Risk analysis and test planning"), node("execute", "subgraph", "Guarded test execution"), node("render", "deterministic", "Verified test handoff")]),
+    edges: Object.freeze([{ id: "preflight-testing", from: "preflight", to: "testing" }, { id: "testing-execute", from: "testing", to: "execute" }, { id: "execute-render", from: "execute", to: "render" }]),
+  }),
 });
 
 export function graphForPreset(preset: string | undefined): RunnerGraph {

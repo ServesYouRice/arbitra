@@ -5,6 +5,7 @@ export interface HarnessNode { readonly id: string; readonly modelId: string; re
 export interface HarnessToolDefinition { readonly name: string; readonly description: string; readonly inputSchema: Readonly<Record<string, unknown>> }
 export interface HarnessToolRuntime { invoke(name: string, args: unknown, context: HarnessToolContext): Promise<HarnessToolResult> }
 export interface HarnessToolContext {
+  readonly callId?: string; readonly turn?: number; readonly callIndex?: number;
   readonly nodeId: string; readonly responseFormat?: "text" | "json"; readonly maxCallBytes?: number;
   readonly protect: (content: string, meta: { readonly sourceId: string; readonly path?: string }) => string;
   readonly moduleForPath?: (path: string) => string | null;
