@@ -6,6 +6,7 @@ import { registerEvaluationRoutes, type EvaluationCore } from "./routes/evaluati
 import { registerTraceRoutes, type TraceCore } from "./routes/traces.js";
 import { registerRequirementsRoutes, type RequirementsCore } from "./routes/requirements.js";
 import { registerReplayRoutes, type ReplayCore } from "./routes/replay.js";
+import { registerTestingRoutes, type TestingCore } from "./routes/testing.js";
 
 export const DEFAULT_SERVER_HOST = "127.0.0.1" as const;
 export const DEFAULT_SERVER_PORT = 4178 as const;
@@ -19,7 +20,7 @@ export function assertLoopbackHost(host: string): LoopbackHost {
 
 export interface ListeningRouteServer extends RouteServer { listen(options: { host: string; port: number }): Promise<unknown> }
 /** The control plane plus, when the run store exposes metrics, the evaluation surface over the same core. */
-export type ServerCore = ControlPlaneCore & { readonly evaluation?: EvaluationCore; readonly traces?: TraceCore; readonly requirements?: RequirementsCore; readonly replay?: ReplayCore };
+export type ServerCore = ControlPlaneCore & { readonly evaluation?: EvaluationCore; readonly traces?: TraceCore; readonly requirements?: RequirementsCore; readonly replay?: ReplayCore; readonly testing?: TestingCore };
 export function buildServer(core: ServerCore, schemas: HttpSchemas = HTTP_ROUTE_SCHEMAS): FastifyInstance {
   // JSON unions must preserve their original types; coercion can turn model budgets
   // into strings while trying the first branch of a recursive JSON schema.
@@ -51,6 +52,7 @@ function registerAll(server: RouteServer, core: ServerCore, schemas: HttpSchemas
   if (core.traces !== undefined) registerTraceRoutes(server, core.traces, schemas);
   if (core.requirements !== undefined) registerRequirementsRoutes(server, core.requirements, schemas);
   if (core.replay !== undefined) registerReplayRoutes(server, core.replay, schemas);
+  if (core.testing !== undefined) registerTestingRoutes(server, core.testing, schemas);
 }
 
 function localUrl(value: string): boolean {

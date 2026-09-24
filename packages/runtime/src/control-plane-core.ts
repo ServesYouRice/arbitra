@@ -83,6 +83,11 @@ export function controlPlaneCore(orchestrator: Orchestrator) {
       applyRevision: (runId: string, artifactId: string) => orchestrator.applyRequirementsRevision(runId, artifactId),
     },
 
+    testing: {
+      view: (runId: string) => orchestrator.testing(runId),
+      changeSet: (runId: string) => orchestrator.testingChangeSet(runId),
+    },
+
     evaluation: {
       metrics: (runId: string) => orchestrator.metrics(runId),
       compare: async (request: { readonly a: unknown; readonly b: unknown }) => {
