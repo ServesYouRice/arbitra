@@ -1,10 +1,26 @@
 import type { CoreCommandResult } from "../core.js";
 
-export interface ReplayCommandPort { replay(runId: string, overrides: { readonly consensusPolicy: "full" | "risk_weighted" | "minimal"; readonly maximumRounds: 1 | 2 | 3; readonly criticEnabled: boolean }): Promise<CoreCommandResult> }
+export interface ReplayCommandPort {
+  replay(runId: string, overrides: { readonly consensusPolicy: "full" | "risk_weighted" | "minimal"; readonly maximumRounds: 1 | 2 | 3; readonly criticEnabled: boolean }): Promise<CoreCommandResult>;
+  /** A mode-specific replay request file; the same JSON body `POST /runs/:id/replay` accepts. */
+  replayRequest?(runId: string, requestPath: string): Promise<CoreCommandResult>;
+}
 
+/**
+ * `replay <run-id> [--consensus-policy P] [--max-rounds N] [--no-critic]` replays an Audit run.
+ * `replay <run-id> --request <file>` replays any mode from an explicit request; Feature and
+ * Testing replays require it, because Testing execution needs fresh write authority.
+ */
 export async function executeReplay(core: ReplayCommandPort, argv: readonly string[]): Promise<CoreCommandResult> {
   const [runId, ...options] = argv;
   if (runId === undefined || runId.startsWith("--")) return invalid("missing_argument:replay");
+  if (options[0] === "--request") {
+    const path = options[1];
+    if (path === undefined || path.startsWith("--")) return invalid("missing_value:--request");
+    if (options.length > 2) return invalid("invalid_arguments:replay");
+    if (core.replayRequest === undefined) return invalid("unsupported_command:replay_request");
+    return core.replayRequest(runId, path);
+  }
   let consensusPolicy: "full" | "risk_weighted" | "minimal" = "risk_weighted";
   let maximumRounds: 1 | 2 | 3 = 3;
   let criticEnabled = true;
