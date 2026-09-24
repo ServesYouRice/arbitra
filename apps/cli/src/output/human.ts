@@ -33,7 +33,33 @@ export function renderHuman(output: CliJsonOutput): string {
       ...surfaces,
     ].join("\n");
   }
+  if (isPreflightResult(output.result)) {
+    const report = output.result;
+    const header = [`${output.command}: ${output.policy.gateStatus} (reasons: ${reasons})`];
+    if (typeof report.valid === "boolean") {
+      header.push(`configuration: ${report.valid ? "valid" : "invalid"}; environment: ${report.ready === true ? "ready" : "not ready"}`);
+      if (report.modelBacked !== undefined && report.modelBacked !== null) header.push(`models: ${report.modelBacked ? "configured" : "none (scripted Audit)"}${typeof report.mode === "string" ? `; mode: ${report.mode}` : ""}${typeof report.preset === "string" ? `; preset: ${report.preset}` : ""}`);
+    }
+    const diagnostics = report.diagnostics.map(({ severity, scope, code, path, message }) => `  - [${severity}${scope === undefined ? "" : ` ${scope}`}] ${code} at ${path}: ${message}`);
+    return [...header, `diagnostics: ${report.diagnostics.length === 0 ? "none" : report.diagnostics.length}`, ...diagnostics].join("\n");
+  }
   return `${output.command}: ${output.policy.gateStatus} (reasons: ${reasons})`;
+}
+
+interface PreflightResult {
+  readonly valid?: boolean;
+  readonly ready?: boolean;
+  readonly modelBacked?: boolean | null;
+  readonly mode?: string | null;
+  readonly preset?: string | null;
+  readonly diagnostics: readonly { readonly severity: string; readonly scope?: string; readonly code: string; readonly path: string; readonly message: string }[];
+}
+
+function isPreflightResult(value: unknown): value is PreflightResult {
+  if (typeof value !== "object" || value === null) return false;
+  const diagnostics = (value as { diagnostics?: unknown }).diagnostics;
+  return Array.isArray(diagnostics) && diagnostics.every((item) => typeof item === "object" && item !== null
+    && ["severity", "code", "path", "message"].every((key) => typeof (item as Record<string, unknown>)[key] === "string"));
 }
 
 interface EstimateResult {

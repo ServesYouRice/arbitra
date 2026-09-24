@@ -42,6 +42,10 @@ pnpm install
 pnpm run ci # typecheck, lint, tests, example validation, design integrity
 ```
 
+**New here? Follow [Getting started](docs/setup.md).** It covers validating every
+configuration, running the credential-free smoke checks, and the explicit edits a live
+model run requires.
+
 ## Running it
 
 `packages/runtime` composes the workspace packages into one `Orchestrator`. Both
@@ -51,7 +55,7 @@ interfaces call it — the CLI through `orchestratorCore`, the control plane thr
 ```bash
 pnpm build                                  # both entrypoints run from dist/
 
-node apps/cli/dist/src/bin.js audit --preset audit-deep --full
+node apps/cli/dist/src/bin.js audit --preset audit-deep --module packages/tools  # --full: repositories up to 400 source files
 node apps/server/dist/src/serve.js          # control plane on 127.0.0.1:4178
 pnpm --filter @arbitra/web dev              # UI on 127.0.0.1:4173, proxied to the control plane
 ```
@@ -98,7 +102,7 @@ packages/security     taint, exclusions, redaction, scanner, command policy
 packages/tools        read-only repository tools and evidence bounds
 packages/testing      fake transports, scripted auditors, premise scoring
 docs/                 design language, brand assets, and this document set
-examples/             six example run configurations and their validation gate
+examples/             schema-only examples, model-backed templates and their validation gate
 tooling/              ESLint rules that enforce architecture invariants
 ```
 
@@ -106,6 +110,7 @@ tooling/              ESLint rules that enforce architecture invariants
 
 | Document | Covers |
 |---|---|
+| [`docs/setup.md`](docs/setup.md) | getting started: validation, smoke checks, live-run preparation, preflight codes, handoffs |
 | [`docs/project-status.md`](docs/project-status.md) | current capabilities, limitations and dated verification evidence |
 | [`docs/completion-plan.md`](docs/completion-plan.md) | remaining implementation and validation steps, dependencies and acceptance criteria |
 | [`docs/architecture.md`](docs/architecture.md) | package layout, layering, the core loop, v1.1 extension points |
@@ -126,7 +131,8 @@ verifies the implementation has not drifted from them.
 
 ```bash
 pnpm test                  # every workspace package's suite
-pnpm run validate:examples # the six example configurations against the shipped schema
+pnpm run validate:examples # schema-only examples and model-backed templates, with negative controls
+pnpm run smoke:examples    # model-backed templates through the public runtime, credential-free
 pnpm run design:check      # design token, shared-glyph and brand-asset integrity
 pnpm lint                  # ESLint, including the architecture rules in tooling/
 pnpm typecheck
@@ -137,32 +143,32 @@ The CLI's own commands are documented in [`docs/architecture.md`](docs/architect
 
 ## Example configurations
 
-Six schema-example configurations live in [`examples/`](examples):
+There are two kinds, and they are kept apart deliberately:
 
-```text
-examples/audit-balanced.json
-examples/audit-deep.json
-examples/diff-fast.json
-examples/diff-review.json
-examples/feature-simple.json
-examples/testing-plan.json
-```
+- **Schema-only examples** — six files in [`examples/`](examples)
+  (`audit-balanced`, `audit-deep`, `diff-fast`, `diff-review`, `feature-simple`,
+  `testing-plan`). They show every run-configuration field and preset. They carry no
+  `workflow.modelExecution`, so runtime preflight rejects them for model runs.
+- **Model-backed templates** — six files in [`examples/model-backed/`](examples/model-backed):
+  mixed-provider and compatible-endpoint Audit, interactive and automatic Feature,
+  Testing plan and Testing execute. Together they cover all four wire protocols. They
+  pass runtime configuration preflight, and `pnpm run smoke:examples` runs each one
+  unmodified through the public runtime with fixture transports, so no credential,
+  network or Docker engine is needed.
 
-The public runtime also supports `testing-execute`; its execution configuration is
-documented in [Testing mode](docs/workflows.md#testing-mode). The six examples do not
-cover every executable preset or supply complete live-provider settings.
+`pnpm run validate:examples` parses both sets with `runConfigSchema` from
+`packages/schemas/src/config.ts`, checks the templates against runtime preflight, and
+runs negative controls proving a stale example fails.
 
-Every one validates against `runConfigSchema` from
-`packages/schemas/src/config.ts` in `pnpm run validate:examples`, which also runs negative
-controls proving a stale example fails.
-
-**Model identity in the examples is a placeholder.** `modelId` and `family` read
+**Model identity is a placeholder in both sets.** `modelId` and `family` read
 `replace-with-your-model-id` / `replace-with-your-model-family`, and both context and
 output limits are `null`. arbitra does not ship a table of provider model names,
 capabilities or prices: those change, and inventing them would be exactly the fabrication
-the product refuses elsewhere. Fill them in from your provider's own documentation when
-using the provider libraries. These examples validate schema coverage; they are not
-model-backed CLI smoke tests. See [`docs/provider-model.md`](docs/provider-model.md).
+the product refuses elsewhere. A live run refuses placeholder identities
+(`MODEL_IDENTITY_PLACEHOLDER`) and missing credentials before any request is sent. The
+templates name dedicated `ARBITRA_*` credential variables, so nothing spends or writes
+implicitly. See [Getting started](docs/setup.md) and
+[`docs/provider-model.md`](docs/provider-model.md).
 
 No example carries a credential, and none can: `ConfigStore.validate`
 (`packages/core/src/config/config-store.ts`) rejects any key ending in `apiKey`, `secret`,

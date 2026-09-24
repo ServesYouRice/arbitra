@@ -155,6 +155,29 @@ describe("CLI commands", () => {
     ].join("\n"));
   });
 
+  it("renders preflight diagnostics with their scope, path and remedy", async () => {
+    const core = new FakeWorkflowCore();
+    core.validate = async () => ({ disposition: "passed", reasons: [], value: { valid: true, ready: false, mode: "testing", preset: "testing-execute", modelBacked: true, diagnostics: [
+      { code: "PROVIDER_CREDENTIAL_MISSING:openai", severity: "error", scope: "environment", path: "workflow.modelExecution.endpoints.0.apiKeyEnvVar", message: "Environment variable ARBITRA_OPENAI_API_KEY is not set." },
+    ] } });
+    const capture = captureIo();
+    const execution = await runCli(["validate", "execute.json"], core, capture.io);
+    expect(execution.exit).toBe(0);
+    expect(capture.stdout.join("")).toContain([
+      "validate: passed (reasons: none)",
+      "configuration: valid; environment: not ready",
+      "models: configured; mode: testing; preset: testing-execute",
+      "diagnostics: 1",
+      "  - [error environment] PROVIDER_CREDENTIAL_MISSING:openai at workflow.modelExecution.endpoints.0.apiKeyEnvVar: Environment variable ARBITRA_OPENAI_API_KEY is not set.",
+    ].join("\n"));
+    core.run = async () => ({ disposition: "system_failure", reasons: ["preflight_failed", "RUNTIME_NATIVE_HARNESS_NOT_AVAILABLE"], value: { diagnostics: [
+      { code: "RUNTIME_NATIVE_HARNESS_NOT_AVAILABLE", severity: "error", scope: "configuration", path: "harness.mode", message: "Set harness.mode to \"canonical\"." },
+    ] } });
+    const failed = captureIo();
+    expect((await runCli(["run", "native.json"], core, failed.io)).exit).toBe(2);
+    expect(failed.stderr.join("")).toContain("  - [error configuration] RUNTIME_NATIVE_HARNESS_NOT_AVAILABLE at harness.mode: Set harness.mode to \"canonical\".");
+  });
+
   it("renders security consensus sections in human and machine output", async () => {
     const core = new FakeWorkflowCore();
     core.run = async () => ({ disposition: "passed", value: {

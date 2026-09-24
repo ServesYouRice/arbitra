@@ -105,6 +105,9 @@ selects `canonical` or `native`.
 
 `harness.mode: "native"` is accepted by `runConfigSchema` and **there is no native adapter
 behind it**. No document in this set shows native mode as working. It is v1.1.
+Runtime preflight rejects it before a run exists with `RUNTIME_NATIVE_HARNESS_NOT_AVAILABLE`
+at `harness.mode` (CLI `validate`/`run`, HTTP `400`), directing the operator to
+`canonical`.
 
 The restrictions it would have to satisfy for independent discovery are specified now, so
 the deferred work is legible:

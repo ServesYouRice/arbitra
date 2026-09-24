@@ -15,6 +15,7 @@
     "lint": "eslint apps packages vitest.config.ts eslint.config.js --max-warnings 0",
     "test": "pnpm -r test",
     "validate:examples": "vitest run examples/validate.test.ts",
+    "smoke:examples": "pnpm --filter @arbitra/runtime exec vitest run test/example-smoke.test.ts test/preflight.test.ts",
     "test:lint-rules": "node --test tooling/eslint-rules/test/*.test.cjs",
     "test:watch": "vitest",
     "typecheck": "pnpm -r typecheck"

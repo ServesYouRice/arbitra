@@ -1,0 +1,232 @@
+{
+  "schemaVersion": 1,
+  "mode": "testing",
+  "scope": {
+    "kind": "repository"
+  },
+  "auditDepth": "balanced",
+  "consensusPolicy": "minimal",
+  "maxConsensusRounds": 1,
+  "verification": {
+    "deterministicFirst": true,
+    "maxModelQuestionsPerRound": 2
+  },
+  "models": {
+    "analyst": {
+      "schemaVersion": 1,
+      "provider": "openai",
+      "modelId": "replace-with-your-model-id",
+      "transport": "openai-responses",
+      "servedBy": null,
+      "family": "replace-with-your-model-family",
+      "independenceGroup": "openai",
+      "capabilityTier": "frontier",
+      "supports": {
+        "tools": true,
+        "parallelToolCalls": false,
+        "structuredOutput": true,
+        "reasoning": false,
+        "promptCaching": false,
+        "batch": false,
+        "vision": false
+      },
+      "limits": {
+        "contextTokens": null,
+        "maxOutputTokens": null
+      },
+      "effort": {
+        "supported": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "collapse": {
+          "xhigh": "high"
+        },
+        "params": {}
+      },
+      "quirks": {
+        "systemPromptSupport": "full",
+        "fewShotPolicy": "neutral",
+        "promptStyle": "markdown",
+        "documentPlacement": "leading",
+        "historyPolicy": "strip_reasoning",
+        "samplingDefaults": {
+          "temperature": null,
+          "topP": null,
+          "topK": null
+        },
+        "greedyDecodingSafe": true,
+        "toolLoopLimit": 8,
+        "prefillSupported": false
+      },
+      "structuredOutputDialect": "openai_strict"
+    },
+    "writer": {
+      "schemaVersion": 1,
+      "provider": "anthropic",
+      "modelId": "replace-with-your-model-id",
+      "transport": "anthropic-messages",
+      "servedBy": null,
+      "family": "replace-with-your-model-family",
+      "independenceGroup": "anthropic",
+      "capabilityTier": "balanced",
+      "supports": {
+        "tools": true,
+        "parallelToolCalls": false,
+        "structuredOutput": true,
+        "reasoning": false,
+        "promptCaching": false,
+        "batch": false,
+        "vision": false
+      },
+      "limits": {
+        "contextTokens": null,
+        "maxOutputTokens": null
+      },
+      "effort": {
+        "supported": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "collapse": {
+          "xhigh": "high"
+        },
+        "params": {}
+      },
+      "quirks": {
+        "systemPromptSupport": "full",
+        "fewShotPolicy": "neutral",
+        "promptStyle": "xml",
+        "documentPlacement": "leading",
+        "historyPolicy": "round_trip_opaque",
+        "samplingDefaults": {
+          "temperature": null,
+          "topP": null,
+          "topK": null
+        },
+        "greedyDecodingSafe": true,
+        "toolLoopLimit": 8,
+        "prefillSupported": true
+      },
+      "structuredOutputDialect": "anthropic_tool"
+    }
+  },
+  "harness": {
+    "mode": "canonical"
+  },
+  "workflow": {
+    "preset": "testing-execute",
+    "testing": {
+      "mode": "execute",
+      "goal": "Replace with the behavior the new tests must protect.",
+      "roles": {
+        "analyst": "analyst",
+        "planner": "analyst"
+      },
+      "commands": [],
+      "execution": {
+        "authorization": {
+          "maximumParallelTasks": 1,
+          "partitions": [
+            {
+              "id": "tests",
+              "paths": [
+                "test/session.test.ts"
+              ]
+            }
+          ],
+          "tasks": [
+            {
+              "taskId": "TASK-001",
+              "partitionId": "tests",
+              "exclusive": false
+            }
+          ]
+        },
+        "verification": {
+          "execution": {
+            "driver": "docker",
+            "image": "replace-with-your-local-test-image@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            "maximumRuns": 6,
+            "timeoutMs": 120000,
+            "maximumOutputBytes": 65536,
+            "checks": [
+              {
+                "id": "unit-tests",
+                "executable": "/usr/local/bin/npm",
+                "arguments": [
+                  "run",
+                  "test"
+                ],
+                "sourcePaths": [
+                  "package.json",
+                  "test/session.test.ts"
+                ]
+              }
+            ]
+          },
+          "bindings": [
+            {
+              "command": "npm run test",
+              "checkId": "unit-tests",
+              "expectedExitCode": 0,
+              "authorization": "repository_script"
+            }
+          ]
+        },
+        "models": {
+          "fast": "writer",
+          "balanced": "writer",
+          "frontier": "analyst"
+        },
+        "maximumAttempts": 2
+      }
+    },
+    "modelExecution": {
+      "endpoints": [
+        {
+          "id": "anthropic",
+          "providerId": "anthropic",
+          "transport": "anthropic-messages",
+          "endpoint": "https://api.anthropic.com/v1",
+          "apiKeyEnvVar": "ARBITRA_ANTHROPIC_API_KEY"
+        },
+        {
+          "id": "openai",
+          "providerId": "openai",
+          "transport": "openai-responses",
+          "endpoint": "https://api.openai.com/v1",
+          "apiKeyEnvVar": "ARBITRA_OPENAI_API_KEY"
+        }
+      ],
+      "modelEndpoints": {
+        "analyst": "openai",
+        "writer": "anthropic"
+      },
+      "maximumOutputTokens": 8000,
+      "maximumContextTokens": 128000,
+      "maximumTokens": 2000000,
+      "timeoutMs": 180000,
+      "maximumRetries": 1,
+      "rateLimits": {
+        "anthropic": {
+          "rpm": 30,
+          "tpm": 2000000,
+          "maxConcurrent": 2
+        },
+        "openai": {
+          "rpm": 30,
+          "tpm": 2000000,
+          "maxConcurrent": 2
+        }
+      }
+    }
+  },
+  "budgets": {},
+  "security": {},
+  "protocols": {},
+  "promptOverrides": {},
+  "contextPolicies": {}
+}
