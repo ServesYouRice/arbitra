@@ -5,7 +5,8 @@ import { ProviderRegistry, type TransportFactoryOptions } from "@arbitra/provide
 import { RateLimitScheduler } from "@arbitra/providers/scheduler.js";
 import { DurableTokenBudget } from "@arbitra/providers/token-budget.js";
 import { ContinuationStateStore } from "@arbitra/providers/continuation/store.js";
-import type { InvocationTrace } from "@arbitra/providers/runtime.js";
+import type { InvocationTrace, TraceSink } from "@arbitra/providers/runtime.js";
+import { BatchLane, type BatchSubmissionRecord } from "@arbitra/providers/batch/lane.js";
 import type { TransportMessage, TransportTool } from "@arbitra/providers/transport-contract.js";
 import { runConfigSchema, type RunConfig } from "@arbitra/schemas/config.js";
 import { providerExecutionSchema } from "@arbitra/schemas/provider-execution.js";
@@ -14,6 +15,7 @@ import type { RunStore } from "./run-store.js";
 import type { ProtocolIdentity } from "@arbitra/protocols/versioning.js";
 import type { PinnedProtocol } from "@arbitra/protocols/registry.js";
 import type { ModelActivityTraceRecord } from "@arbitra/persistence/trace.js";
+import { batchLaneFor, runStoreBatchBackend, validateBatchLanes } from "./model-batch-lane.js";
 
 export interface ModelActivityRequest<T> {
   readonly activityId: string;
@@ -40,31 +42,54 @@ export class ModelActivities {
   readonly #execution;
   readonly #traces = new Map<string, InvocationTrace[]>();
   readonly #inflight = new Map<string, { fingerprint: string; promise: Promise<unknown> }>();
+  /** Present only when `workflow.modelExecution.batch` explicitly configures a lane. */
+  readonly #batch: BatchLane | null;
 
   constructor(private readonly store: RunStore, config: RunConfig, options: TransportFactoryOptions = {}) {
     this.#config = runConfigSchema.parse(config);
     this.#execution = providerExecutionSchema.parse(this.#config.workflow["modelExecution"]);
     const execution = this.#execution;
     const registry = new ProviderRegistry(execution.endpoints, options);
+    const budget = new DurableTokenBudget(execution.maximumTokens, {
+      load: () => this.read("model-token-budget"),
+      save: async (state) => { await store.publish("model-token-budget", state); },
+    });
+    const traces: TraceSink = { record: (trace) => {
+      const traces = this.#traces.get(trace.activityId) ?? [];
+      traces.push(trace);
+      this.#traces.set(trace.activityId, traces);
+    } };
     this.#pool = new ModelPool(registry, Object.entries(this.#config.models).map(([id, profile]) => {
       const endpointId = execution.modelEndpoints[id];
       if (endpointId === undefined) throw new Error(`MODEL_ENDPOINT_ABSENT:${id}`);
       return { id, profile, endpointId };
     }), {
       scheduler: new RateLimitScheduler(execution.rateLimits),
-      budget: new DurableTokenBudget(execution.maximumTokens, {
-        load: () => this.read("model-token-budget"),
-        save: async (state) => { await store.publish("model-token-budget", state); },
-      }),
+      budget,
       // Each protocol call sends its entire explicit input. Replaying an interrupted
       // call must not silently append it to a provider-side conversation.
       continuation: new ContinuationStateStore({ async load() { return null; }, async save() {} }, { enabled: false, now: () => 0 }),
-      traces: { record: (trace) => {
-        const traces = this.#traces.get(trace.activityId) ?? [];
-        traces.push(trace);
-        this.#traces.set(trace.activityId, traces);
-      } },
+      traces,
     });
+    if (execution.batch === undefined) this.#batch = null;
+    else {
+      validateBatchLanes(this.#config);
+      for (const lane of execution.batch.lanes) this.#pool.assertBatchLane(lane.modelProfileId);
+      this.#batch = new BatchLane({ namespace: store.runId, driver: (endpointId) => registry.batchDriver(endpointId), budget,
+        backend: runStoreBatchBackend(store), traces, requestTimeoutMs: execution.timeoutMs });
+    }
+  }
+
+  /** Collects late results and retries reconciliation of uncertain submissions. Never resubmits. */
+  async reconcileBatches() { return this.#batchLane().reconcile(); }
+  async batchSubmissions(): Promise<readonly BatchSubmissionRecord[]> { return this.#batchLane().submissions(); }
+  /** Operator decision after checking the provider console for an uncertain submission. */
+  async resolveBatchSubmission(submissionId: string, resolution: { readonly providerJobId: string } | { readonly notSubmitted: true }, by: string) {
+    return this.#batchLane().resolveUncertain(submissionId, resolution, by);
+  }
+  #batchLane(): BatchLane {
+    if (this.#batch === null) throw new Error("BATCH_LANE_NOT_CONFIGURED");
+    return this.#batch;
   }
 
   async invoke<T>(input: ModelActivityRequest<T>): Promise<T> {
@@ -110,11 +135,17 @@ export class ModelActivities {
     let outputArtifactRef: string | null = null;
     const startedAt = Date.now();
     try {
-      result = await this.#pool.invoke({ messages, maximumOutputTokens, ...(input.tools === undefined ? {} : { tools: input.tools }) }, {
+      const invocation = {
         activityId: input.activityId, modelProfileId: input.modelProfileId, estimatedTokens,
         maximumRetries: this.#execution.maximumRetries, timeoutMs: this.#execution.timeoutMs,
         signal: input.signal, ...(input.effort === undefined ? {} : { effort: input.effort }),
-      });
+      };
+      const request = { messages, maximumOutputTokens, ...(input.tools === undefined ? {} : { tools: input.tools }) };
+      // Only explicitly configured (model, node) pairs use the batch lane; tool-bearing
+      // requests are interactive by definition and never move onto it.
+      const lane = this.#batch === null || (input.tools?.length ?? 0) > 0 ? undefined : batchLaneFor(this.#execution, input.modelProfileId, input.activityId);
+      result = this.#batch === null || lane === undefined ? await this.#pool.invoke(request, invocation)
+        : await this.#pool.invokeBatch(request, { ...invocation, lane: this.#batch, settings: lane, fingerprint, traceId: key });
       const harnessTurn = input.responseMode === "harness_turn";
       if (!harnessTurn && result.response.refusal !== null) throw new Error("MODEL_ACTIVITY_REFUSED");
       if (!harnessTurn && result.response.toolCalls.length > 0) throw new Error("MODEL_ACTIVITY_UNEXPECTED_TOOL_CALLS");
@@ -171,6 +202,7 @@ export class ModelActivities {
           endpointId: result.endpointId, providerId: result.providerId, transport: result.transport,
           modelId: result.modelId, effort: result.effort, usage: result.response.usage,
           structuredOutputTier: result.response.structuredOutputTier, providerRequestId: result.response.providerRequestId,
+          lane: result.batch === undefined ? "interactive" : "batch", ...(result.batch === undefined ? {} : { batch: result.batch }),
         },
       }, input.activityId);
     }
