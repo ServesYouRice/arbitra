@@ -120,8 +120,10 @@ the hash of the node definition and its inputs. Decisions are create-once record
 `records/checkpoints/<node>/<version>.json`. The record is fsynced under a temporary name and
 hard-linked into place, so a second response from any process fails instead of replacing
 the first. A response for a superseded version is rejected as stale. The run policy
-(`checkpointPolicy`) is saved in the run context. Restart, resume and replay use that saved
-policy and the stored graph definition, not the current configuration. The server keeps no
+(`checkpointPolicy`) is saved in the run context. Restart, resume and Audit replay use that saved
+policy and the stored graph definition, not the current configuration. A Feature or Testing
+replay is a new run whose policy comes from its own (possibly replaced) configuration and
+is then fixed in the same way. The server keeps no
 checkpoint state of its own; the previous in-memory registry was removed. See
 [Gates and human checkpoints](workflows.md#gates-and-human-checkpoints).
 
@@ -129,6 +131,28 @@ checkpoint state of its own; the previous in-memory registry was removed. See
 envelope's rule for when tainted writes or `requires_approval` commands need a checkpoint.
 Dedicated web requirements controls remain P10. The web inspector answers only pending
 generic human checkpoints.
+
+## Resume versus replay
+
+`resume` continues one run. It uses that run's journal, artifacts, stored definition,
+policy and source digest, and a completed activity is never paid for twice. Replay is a
+different operation: it creates a new run ID and only reads the source run. Tests assert
+that the source run directory stays byte-identical.
+
+A Feature or Testing replay records its decisions in an immutable `replay-contract`
+artifact before it starts: per-stage identities, reuse or regeneration, the execution
+authority and the requirements decision. A saved model output (`model-activity-<key>`)
+now also stores a `replayIdentity`, excluding run-local budget, retry, rate and lane
+settings. A reused output is published in the new run with `replayedFrom`. It is not
+re-charged to the new run's `model-token-budget` and produces no new trace. Regenerated
+outputs follow the normal activity path and are charged to the new run. An unreadable
+source artifact fails its content-hash check and is regenerated, never trusted.
+
+A crashed replay run resumes as itself. It first reuses its own completed activities, then
+consults the source under its stored contract; it never re-decides reuse from the current
+configuration. Testing execution is never reused. An execution replay allocates its own
+worktree and makes its own sandbox runs. See
+[Feature and Testing replay](workflows.md#feature-and-testing-replay).
 
 ## Traces and the rebuildable index
 
