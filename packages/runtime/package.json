@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
+    "bench:traces": "ARBITRA_TRACE_BENCH=1 NODE_OPTIONS=--expose-gc vitest run test/trace-index.bench.test.ts --silent=false",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
