@@ -28,6 +28,18 @@ describe("provider execution configuration", () => {
   it("accepts explicit operator limits and compatible endpoints without provider-name allowlists", () => {
     expect(providerExecutionSchema.parse(valid)).toEqual(valid);
   });
+  it("accepts an explicit opt-in batch lane and rejects lanes for unbound models or duplicates", () => {
+    const lane = { modelProfileId: "auditor", activityGroups: ["semantic-clustering"], pollIntervalMs: 60_000, maximumWaitMs: 86_400_000, maximumItemsPerSubmission: 100, collectWindowMs: 5_000 };
+    expect(providerExecutionSchema.parse({ ...valid, batch: { lanes: [lane] } }).batch?.lanes[0]).toEqual({ ...lane, maximumAttempts: 2 });
+    for (const invalid of [
+      { lanes: [] },
+      { lanes: [{ ...lane, modelProfileId: "unbound" }] },
+      { lanes: [lane, lane] },
+      { lanes: [{ ...lane, activityGroups: ["critic", "critic"] }] },
+      { lanes: [{ ...lane, pollIntervalMs: 10 }] },
+      { lanes: [{ ...lane, driver: "openai-batch" }] },
+    ]) expect(providerExecutionSchema.safeParse({ ...valid, batch: invalid }).success, JSON.stringify(invalid)).toBe(false);
+  });
   it.each([
     { modelEndpoints: { auditor: "missing" } },
     { rateLimits: {} },

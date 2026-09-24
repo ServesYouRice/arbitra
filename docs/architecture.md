@@ -204,7 +204,7 @@ now differs; all unfinished work is included in the completion plan.
 | Advisor runtime | `taskRouting.advisor` and `advisorMaxUses` exist in `packages/schemas/src/task-ir.ts`; `advisorTokens` is recorded in `packages/persistence/src/trace.ts`. Nothing consumes them |
 | Feature workflow extensions | Public requirements/review/planning/revision is implemented; web checkpoints, expanded subgraphs, oversized contexts and Feature-specific replay remain; P08/P10/P11 |
 | Incremental / repeat audit execution | Snapshot identity, hotspots and inspection footprints are already recorded by preflight and `packages/tools/src/footprint` |
-| Provider batch API path | `modelProfileSchema.supports.batch` is recorded; `packages/providers/src/scheduler.ts` has no batch lane |
+| Provider batch API path | Opt-in batch lane and OpenAI/Anthropic/Gemini drivers in `packages/providers/src/batch/`, tested against injected HTTP only; every driver is declared-unverified and live validation remains (P15). See [`provider-model.md`](provider-model.md#batch-lane) |
 | Drag-and-drop workflow canvas editor | `apps/web/src/columns/graph` renders from workflow JSON and is read-only by construction |
 | Local embedding clustering | `packages/workflow/src/clustering/deterministic.ts` is the deterministic path; §25.4 metrics would have to justify replacing it |
 

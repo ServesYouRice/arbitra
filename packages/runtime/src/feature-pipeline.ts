@@ -20,11 +20,13 @@ import { ModelHarness } from "./model-harness.js";
 import { ModelActivities } from "./model-activities.js";
 import { modelRequirementsRevision } from "./model-requirements-revision.js";
 import { applyRequirementsProposal, requirementsRevisionContext } from "./requirements-revision.js";
+import { validateBatchLanes } from "./model-batch-lane.js";
 
 export function validateModelFeature(config: RunConfig) {
   if (config.workflow["feature"] === undefined) throw new Error("FEATURE_EXECUTION_CONFIGURATION_REQUIRED");
   const feature = featureExecutionSchema.parse(config.workflow["feature"]);
   providerExecutionSchema.parse(config.workflow["modelExecution"]);
+  validateBatchLanes(config);
   for (const id of [feature.roles.requirements, feature.roles.exploration, feature.roles.planner, feature.roles.critic, ...feature.roles.reviewers]) {
     if (id !== undefined && !Object.hasOwn(config.models, id)) throw new Error(`FEATURE_MODEL_PROFILE_REQUIRED:${id}`);
   }

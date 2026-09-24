@@ -127,7 +127,7 @@ the same model name. Request model identity must also match the trace context.
 The run schema validates optional `workflow.modelExecution` settings: `endpoints`,
 `modelEndpoints`, `maximumOutputTokens`, optional `maximumDiscoveryTokens` and
 `maximumContextTokens`, `timeoutMs`, `maximumRetries`, `maximumTokens`,
-per-provider `rateLimits`, and `roles` (`planner`, `verifier`, optional `critic`). Endpoint credentials are named by `apiKeyEnvVar`; values
+per-provider `rateLimits`, optional `batch` lanes (see [Batch lane](#batch-lane)), and `roles` (`planner`, `verifier`, optional `critic`). Endpoint credentials are named by `apiKeyEnvVar`; values
 are resolved only at dispatch. Limits are supplied by the operator, not inferred from a
 provider-name table. The CLI/server executes a bounded source-snapshot Audit when these
 settings and model profiles are supplied. Profile IDs for discovery match the selected
@@ -269,12 +269,95 @@ provider config hash — is recorded on every trace. `MetricStore.query` refuses
 across differing model, harness or protocol identity unless that dimension is an explicit
 grouping key, throwing `IncomparableIdentityError`. See [`evaluation.md`](evaluation.md).
 
+## Batch lane
+
+Provider batch APIs are an explicit, opt-in lane (`packages/providers/src/batch/`).
+Nothing moves an interactive call onto it: a call uses the lane only when
+`workflow.modelExecution.batch.lanes` names its model profile *and* the first segment of
+its durable activity ID (for example `semantic-clustering` or `critic`). Everything else,
+including every tool loop, stays on the interactive path.
+
+```json
+"batch": { "lanes": [{
+  "modelProfileId": "cheap-classifier", "activityGroups": ["semantic-clustering"],
+  "pollIntervalMs": 60000, "maximumWaitMs": 86400000,
+  "maximumItemsPerSubmission": 100, "collectWindowMs": 5000, "maximumAttempts": 2
+}] }
+```
+
+**Drivers and provenance.** Drivers are keyed by wire transport behind the registry
+(`ProviderRegistry.batchDriver`):
+
+| Driver | Transport | Provider API | Uncertain-submission reconciliation |
+|---|---|---|---|
+| `openai-batch` | `openai-responses` | JSONL file upload, `/v1/batches` for `/v1/responses` | batch `metadata.arbitra_submission_key` via listing |
+| `anthropic-message-batches` | `anthropic-messages` | `/v1/messages/batches` | none available; operator only |
+| `gemini-batch` | `gemini-native` | `models/{model}:batchGenerateContent`, inline requests | batch `displayName` via listing |
+
+Each driver carries a `BatchCapabilityDeclaration`. **All three are
+`declared_unverified`, with `liveValidation: null`:** they were written against the
+provider documentation linked in each declaration and exercised only against injected
+HTTP fakes. No live batch submission has been made. The environment-gated conformance
+test requires a `batch:<driverId>` entry per driver, and live validation of every driver
+remains outstanding ([P15](completion-plan.md#p15--add-provider-batch-execution)). Every
+batch trace and submission records the declaration status, so an unverified driver is
+never presented as a verified capability. Gemini file-based output is not supported.
+
+**Preflight.** Run validation (`validateBatchLanes`) and `ModelActivities` reject a lane,
+before any spend, when the endpoint's transport has no driver
+(`BATCH_LANE_UNSUPPORTED_ENDPOINT`, including OpenAI Chat-compatible endpoints), the
+profile declares `supports.batch: false` (`BATCH_LANE_MODEL_UNSUPPORTED`) or
+`supports.tools: true` (`BATCH_LANE_INTERACTIVE_PROFILE`, because such activities run
+tool loops). Each message names the configuration to change. A registered transport is
+not proof that a compatible third-party service implements the same batch API.
+
+**Durable state.** Each item and each submission is a separate run artifact
+(`model-batch-item-*`, `model-batch-submission-*`). An item records its activity ID,
+trace ID, request fingerprint, and per attempt: provider `custom_id`, budget reservation,
+submission, state, raw result, error, usage and `late` flag. A submission records its
+client key, provider job ID and status, members, timings, cancellation, reconciliation
+attempts, operator resolution and anomalies (result lines that matched no member).
+Results are matched by `custom_id`, so out-of-order, partial and failed results keep their
+item and trace identity; a member without a result line becomes `missing` (or `errored`
+with the job failure when the provider failed the whole job).
+
+**No blind resubmission.** A submission is saved as `prepared`, then `sending` before any
+request leaves the process. After a crash, `prepared` is provably unsent and is
+abandoned; `sending` becomes uncertain. An acknowledgment lost to a network error,
+timeout or 5xx is also `uncertain`. The lane reconciles an uncertain submission with the
+driver's lookup. A match attaches it to the provider job; not-found (listings can lag),
+inconclusive or unsupported lookup keeps it uncertain and fails the waiting activity with
+`BATCH_SUBMISSION_UNCERTAIN`. It is never resubmitted automatically; only
+`ModelActivities.resolveBatchSubmission` (an operator-supplied provider job ID, or an
+explicit "not submitted" decision with an actor) moves it on. A definite rejection
+(4xx, 429, failed upload, encoding error) marks items `not_submitted`. A new attempt
+follows only provider-confirmed non-processing (`not_submitted`, `cancelled`, `expired`)
+and is bounded by `maximumAttempts`; `errored` and `missing` items are not resubmitted.
+There is no CLI or HTTP command for operator resolution yet; it is a runtime API.
+
+**Budget.** Every item reserves its worst-case estimate (input bytes plus output reserve)
+through the shared `DurableTokenBudget` before it can join a submission; a refusal
+suspends without submitting. Reported per-item usage is recorded against that
+reservation. Cancelled, expired, errored and missing items keep their estimate charged as
+unknown spend, never zero. The reservation of work that was never sent moves to the next
+attempt instead of being charged twice. Monetary cost, including batch discounts,
+remains unknown.
+
+**Polling, cancellation and late results.** Polling runs in the lane (an activity-level
+component with an injected clock and timer), never in workflow code. If
+`maximumWaitMs` passes, the lane requests provider cancellation and fails the waiting
+activity with retryable `BATCH_DEADLINE_EXCEEDED`; the job remains recorded. A cancelled
+activity marks its item; the provider job is cancelled once every unfinished member has
+been cancelled. `ModelActivities.reconcileBatches` collects results that arrive after
+cancellation or the deadline and records their usage. A resumed activity reuses a late
+result (`late: true` in provenance) instead of submitting again.
+
 ## Not implemented
 
-- **Provider batch API path.** `supports.batch` is recorded; the scheduler has no batch
-  lane. v1.1.
 - **Advisor runtime.** `advisor` and `advisorMaxUses` exist in Task IR and `advisorTokens`
   is recorded on traces, but nothing consumes them. v1.1.
+- **Live batch validation.** The batch lane and drivers are implemented and tested
+  against injected HTTP only. See [Batch lane](#batch-lane).
 
 Both are included in the [completion plan](completion-plan.md), along with live-provider
 conformance. The current environment-gated conformance test reads external report

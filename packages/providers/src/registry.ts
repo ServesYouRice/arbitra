@@ -1,3 +1,5 @@
+import { BUILTIN_BATCH_DRIVER_FACTORIES, unsupportedBatchEndpointMessage, type BatchDriverFactory } from "./batch/drivers.js";
+import type { BatchDriver } from "./batch/contract.js";
 import type { HttpClient, ProviderTransport, TransportConfiguration } from "./transport-contract.js";
 import { AnthropicMessagesTransport } from "./transports/anthropic-messages.js";
 import { GeminiNativeTransport } from "./transports/gemini-native.js";
@@ -31,10 +33,17 @@ export const BUILTIN_TRANSPORT_FACTORIES: Readonly<Record<string, TransportFacto
 export class ProviderRegistry {
   readonly #bindings = new Map<string, Readonly<ProviderEndpoint>>();
   readonly #transports: Readonly<Record<string, ProviderTransport>>;
+  readonly #batchFactories: Readonly<Record<string, BatchDriverFactory>>;
+  readonly #batchDrivers = new Map<string, BatchDriver>();
+  readonly #options: TransportFactoryOptions;
 
   constructor(endpoints: readonly ProviderEndpoint[], options: TransportFactoryOptions & {
     readonly factories?: Readonly<Record<string, TransportFactory>>;
+    /** Batch drivers are keyed by transport; custom protocols may add their own. */
+    readonly batchFactories?: Readonly<Record<string, BatchDriverFactory>>;
   } = {}) {
+    this.#batchFactories = { ...BUILTIN_BATCH_DRIVER_FACTORIES, ...options.batchFactories };
+    this.#options = { ...(options.client === undefined ? {} : { client: options.client }), ...(options.credential === undefined ? {} : { credential: options.credential }) };
     const factories = { ...BUILTIN_TRANSPORT_FACTORIES, ...options.factories };
     const entries: [string, ProviderTransport][] = [];
     for (const endpoint of endpoints) {
@@ -58,6 +67,23 @@ export class ProviderRegistry {
       throw new Error(`MODEL_ENDPOINT_MISMATCH:${endpointId}`);
     }
     return binding;
+  }
+
+  /** Whether a batch driver exists for this endpoint's transport. Does not claim live verification. */
+  supportsBatch(endpointId: string): boolean {
+    return Object.hasOwn(this.#batchFactories, this.binding(endpointId).transport);
+  }
+
+  /** The endpoint's batch driver, or an actionable preflight error for unsupported endpoints. */
+  batchDriver(endpointId: string): BatchDriver {
+    const existing = this.#batchDrivers.get(endpointId);
+    if (existing !== undefined) return existing;
+    const binding = this.binding(endpointId);
+    const factory = Object.hasOwn(this.#batchFactories, binding.transport) ? this.#batchFactories[binding.transport] : undefined;
+    if (factory === undefined) throw new Error(unsupportedBatchEndpointMessage(endpointId, binding.transport, Object.keys(this.#batchFactories)));
+    const driver = factory({ endpoint: binding.endpoint, apiKeyEnv: binding.apiKeyEnvVar, compatibleProviderName: binding.providerId }, this.#options);
+    this.#batchDrivers.set(endpointId, driver);
+    return driver;
   }
 }
 
