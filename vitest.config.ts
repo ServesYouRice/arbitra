@@ -18,6 +18,7 @@ export default defineConfig({
     // `pnpm build` emits compiled copies of every suite into dist/. Running those
     // alongside the sources double-runs each test against stale assertions, so a build
     // followed by a test run reports failures that do not exist in the source tree.
-    exclude: [...configDefaults.exclude, "**/dist/**"],
+    // Agent worktrees under .claude/ hold full checkout copies whose suites must not run here.
+    exclude: [...configDefaults.exclude, "**/dist/**", "**/.claude/**"],
   },
 });

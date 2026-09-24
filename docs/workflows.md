@@ -47,6 +47,60 @@ independent: an auditor in independent mode does not receive another auditor's f
 so agreement between them means something. Weakening a context policy to "help" a model is
 how a multi-auditor run quietly becomes a single-auditor run with extra cost.
 
+### Gates and human checkpoints
+
+`packages/core/src/runner/graph-checkpoints.ts` gives every graph the same `gate` and
+`human` executors, in Audit, Feature and Testing runs alike. Neither kind passes implicitly.
+The shipped presets do not contain these nodes. Graphs registered through the
+orchestrator's `graphs` option use them, and operator-authored graphs (P16) will too.
+
+A `gate` node names a deterministic policy in `config.policy`. The built-in `quality_gate`
+evaluates the public quality-gate reasons over the artifacts written so far, without the
+terminal-state requirement. A composition root can register more policies through
+`gatePolicies`; it cannot replace a built-in. A missing policy fails with
+`GATE_POLICY_REQUIRED:<node>`, and an unregistered one fails with `UNKNOWN_GATE_POLICY:<node>:<policy>`.
+Every evaluation is published as `gate-evaluation-<node>`. A failed evaluation fails
+the run before downstream nodes, and the public gate reports `gate_failed:<node>`.
+
+A `human` node needs the run policy `workflow.checkpoints`:
+
+```json
+{ "checkpoints": { "mode": "interactive" } }
+{ "checkpoints": { "mode": "automatic", "decisions": { "approval": "approve" } } }
+```
+
+- **Interactive.** The node persists a pending checkpoint and the run becomes `BLOCKED`.
+  The checkpoint's `version` is a hash of the node definition and its inputs. Changed
+  inputs create a new version, and earlier decisions no longer apply. The only
+  decisions are `approve` and `reject`. The prompt is `config.prompt` or the node label.
+- **Automatic.** The node never waits, and it never makes up an approval either. Every human node needs an
+  explicit operator-authored decision in `decisions`. Otherwise the run is refused with
+  `AUTOMATIC_CHECKPOINT_DECISION_REQUIRED:<node>`. Decisions are recorded as
+  `decidedBy: "run_policy"`. Interactive policies cannot preconfigure decisions.
+
+A human node without a policy fails with `CHECKPOINT_POLICY_REQUIRED:<node>`. An unknown mode fails
+configuration validation. The same checks run in `estimate` and `start`, and on
+resume/replay against the stored definition. They fail before a run is created. The policy is stored with the run
+context when the run is created. Later edits to the saved configuration cannot change how
+an existing run's checkpoints resolve.
+
+Run status lists each dispatched human node as a `kind: "human"` checkpoint with
+`checkpointId` (the node ID), `version`, `status` (`pending`, `approved` or `rejected`),
+`prompt`, `decisions`, `mode` and `decidedBy`, plus the run's `checkpointMode`. Respond to the
+current version through either interface:
+
+```text
+orchestrator respond-checkpoint <run-id> <checkpoint-id> <version> approve|reject
+POST /runs/:id/checkpoints/:checkpointId   {"version": "<64 hex>", "decision": "approve"}
+```
+
+A response requires a blocked, idle run and an interactive policy. An unknown checkpoint
+returns 404. A stale version, a second decision for the same version (from any process),
+automatic mode or a non-blocked run returns 409. Deciding does not resume the run; call `resume`.
+Approval completes the node. Rejection fails the run as a policy outcome: the public
+gate reports `checkpoint_rejected:<node>`, and the CLI exits `1`, not `2`. Until an operator decides,
+the public gate reports `checkpoint_pending:<node>`, and `run`/`resume`/`status` exit `3`.
+
 ## Audit mode
 
 ```text
@@ -246,6 +300,7 @@ set `workflow.testing.mode: "execute"`, and supply `workflow.testing.execution` 
 - `authorization`: concrete `partitions: [{id, paths}]`, exact `tasks: [{taskId, partitionId, exclusive}]`, and `maximumParallelTasks` from 1–16. Disjoint ready tasks can write concurrently; dependencies, shared files, declared conflicts and exclusive tasks constrain batches.
 - `models`: `fast`, `balanced`, and `frontier` profile IDs, each tool-capable and meeting its capability tier.
 - `maximumAttempts`: 1–10, preserved across restart.
+- `maximumRepairRounds` (optional): 0–5 repair rounds after final verification, default 3; `0` disables repair.
 - `verification`: `execution` containing a local digest-pinned Docker image, a bounded `maximumRuns`, and `checks: [{id, executable, arguments, sourcePaths}]`; plus `bindings: [{command, checkId, expectedExitCode, authorization}]`. Binding authorization is `repository_script`, `allowlisted`, or `operator_approved` and must match each planned command's policy.
 
 Write grants are operator authority, not model output. Every planned task and path must
@@ -265,8 +320,33 @@ gaps remains an explicit no-work result, not evidence that tests ran or coverage
 
 Each writer batch settles before serial verification begins. Interrupted batches preserve
 completed tool work and release leases only after every dispatched writer stops.
-Automatic repair after final verification invalidates an earlier task,
-native harness execution and live-provider/Docker acceptance QA remain open.
+
+A later task can break an earlier task's passing check. If final verification finds
+deterministic failures, the coordinator can reopen tasks for repair. It computes the
+dependency/conflict closure of the failing tasks. The failing tasks are reopened. Other
+tasks are reopened if they declared a conflict with a failing task or wrote a file in
+its write scope or check sources, such as a shared fixture. Downstream dependents and
+tasks sharing its scope are marked stale. The coordinator invalidates the reopened tasks'
+passing attempts before any new writer is dispatched. Then the normal schedule runs again.
+Reopened tasks receive the failing final evidence as feedback. They use their original write
+grant, lease, attempt ledger and task check. Completed tasks are not rerun. The workspace
+is then verified again in full. Repair never widens a write grant or adds scope.
+Stale per-task and final evidence cannot complete a task or be exported.
+
+Repair is bounded. Reopening consumes the task's `maximumAttempts`. Model tokens and
+sandbox `maximumRuns` remain shared by the whole run. `maximumRepairRounds` limits the number
+of reopen decisions. Each round is recorded in the durable `testing-repair-lineage` artifact
+with its invalidated snapshot, failures, and reopened and stale tasks. The execution outcome's
+`repair` field reports these rounds. Restart finishes a committed reopen and resumes an
+interrupted repair attempt without repeating completed writes. It returns the recorded
+terminal decision without new model or sandbox calls. The run blocks without a handoff for
+exhausted rounds (`repair_rounds_exhausted`) or exhausted attempts (`repair_attempts_exhausted`
+or `task_attempts_exhausted`). It also blocks when the workspace returns to invalidated bytes
+(`repair_oscillation`). Incomplete final checks, including exhausted sandbox budgets, also block;
+they are not repaired. Cancellation stops the run, and a later resume can continue it. Only
+the exact final bytes that pass fresh verification are exported. Repair is covered with
+injected sandbox/provider ports. Its real-Docker repetition is still outstanding.
+Native harness execution and live-provider/Docker acceptance QA remain open.
 The [completion plan](completion-plan.md) also tracks oversized contexts, web controls,
 mode-specific replay and the remaining extensions.
 

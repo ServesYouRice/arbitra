@@ -103,6 +103,7 @@ Everything that survives a crash lives in `packages/persistence`:
 | byte-stable serialisation | `canonical-json.ts` |
 | secret-bearing state kept out of the run directory | `private-store.ts` |
 | guarded metric aggregation | `metrics/query.ts`, `metrics/queries.ts` |
+| durable evaluation corpora, provenance and reports | `evaluation-corpus/` |
 
 See [`durability.md`](durability.md).
 
@@ -115,6 +116,7 @@ See [`durability.md`](durability.md).
 ```text
 validate  estimate  run  audit  status  resume  replay  diff  trace  export  report
 requirements  approve-requirements  revise-requirements  apply-requirements-revision
+respond-checkpoint
 ```
 
 `apps/cli/src/exit-policy.ts` is the sole mapping from outcome to process exit code:
@@ -142,6 +144,10 @@ no schema entry throws `MISSING_HTTP_SCHEMA` at registration rather than serving
 input. Seventeen control-plane routes are listed in `apps/server/src/routes/inventory.ts`;
 two evaluation routes (`GET /runs/:id/metrics`, `POST /runs/compare`) register only when a
 metric store is wired, and return 404 otherwise.
+
+`POST /runs/:id/checkpoints/:checkpointId` records one versioned decision for a generic
+`human` node through the orchestrator. The server holds no checkpoint state. See
+[Gates and human checkpoints](workflows.md#gates-and-human-checkpoints).
 
 Four requirements routes expose saved Feature contracts and versioned approval/revision
 operations. See [Feature mode](workflows.md#feature-mode) for their payloads and CLI
@@ -176,8 +182,11 @@ Issue Board (`views/issue-board/`), the Plan view with its bidirectional traceab
 requested/resolved effort, measured usage, outcome, refusal/error details and redacted
 input/output artifacts. It refreshes on run events or explicit request, keeps unknown
 measurements distinct from zero, and treats artifact content as untrusted text.
-Trace list responses are paginated, but the current server reads the run's full trace
-log per query; a persistent query index for very large histories remains an optimization.
+Trace list and detail responses are served from a persistent per-run index
+(`packages/persistence/src/trace-index.ts`) that catches up incrementally from the
+committed trace log and re-reads only the served records from it, so a page no longer
+scans the whole log; the log stays authoritative and the index is rebuilt when stale or
+corrupt. See [durability](durability.md#traces-and-the-rebuildable-index).
 The Model Pool, contract
 column and inspector stay in place across the switch, so run controls remain reachable from
 every view.
@@ -188,14 +197,17 @@ The [completion plan](completion-plan.md) records dependencies and acceptance cr
 
 - **Live-provider/Docker acceptance and real-model premise evaluation remain outstanding.**
   Injected-provider tests do not establish model quality. See [`evaluation.md`](evaluation.md).
-- Final Testing verification can invalidate earlier work and block the run; automatic
-  repair of that work is not implemented.
+- Final Testing verification can reopen invalidated earlier work for bounded, durable repair
+  under the original write grants (see [Testing mode](workflows.md#testing-mode)). The critical
+  repair cases have not yet been repeated against the real Docker sandbox.
 - Individually oversized records and mandatory global contexts can still fail explicitly
   across Audit, Feature and Testing.
-- Durable Feature requirements checkpoints work through CLI/HTTP. Generic graph
-  checkpoints/gates, dedicated web controls and Feature/Testing replay remain incomplete.
-- The trace browser is implemented; browser acceptance QA and a persistent large-log
-  query index remain outstanding. Longitudinal evaluation corpora are currently in-memory.
+- Durable Feature requirements checkpoints and generic gate/human checkpoints work through
+  CLI/HTTP. Generic checkpoints apply to registered graphs; the shipped presets do not
+  contain those nodes. Dedicated web controls and Feature/Testing replay remain incomplete.
+- The trace browser and its persistent large-history query index are implemented;
+  browser acceptance QA remains outstanding. Evaluation corpora are durable, but no
+  live evaluation driver feeds them yet.
 - The September 24 review found test-discovery and macOS reliability defects; see
   [verification evidence](project-status.md#verification-evidence).
 
@@ -206,12 +218,12 @@ now differs; all unfinished work is included in the completion plan.
 
 | Deferred feature | Extension point |
 |---|---|
-| Autonomous Testing execution | Implemented through opt-in `testing-execute`: planning, authority preflight, parallel writers, serial checks, final verification and durable handoff. Repair, richer web views and live-provider/Docker QA remain; plan items P04/P07/P10/P11 |
+| Autonomous Testing execution | Implemented through opt-in `testing-execute`: planning, authority preflight, parallel writers, serial checks, final verification, bounded repair and durable handoff. Real-sandbox repair QA, richer web views and live-provider/Docker QA remain; plan items P04/P07/P10/P11 |
 | Native harness adapters | `packages/harness/src/adapter.ts` defines the port; `canonical/adapter.ts` is the only implementation. `harness.mode: "native"` is accepted by the schema and has no adapter behind it |
 | Advisor runtime | `taskRouting.advisor` and `advisorMaxUses` exist in `packages/schemas/src/task-ir.ts`; `advisorTokens` is recorded in `packages/persistence/src/trace.ts`. Nothing consumes them |
 | Feature workflow extensions | Public requirements/review/planning/revision is implemented; web checkpoints, expanded subgraphs, oversized contexts and Feature-specific replay remain; P08/P10/P11 |
 | Incremental / repeat audit execution | Snapshot identity, hotspots and inspection footprints are already recorded by preflight and `packages/tools/src/footprint` |
-| Provider batch API path | `modelProfileSchema.supports.batch` is recorded; `packages/providers/src/scheduler.ts` has no batch lane |
+| Provider batch API path | Opt-in batch lane and OpenAI/Anthropic/Gemini drivers in `packages/providers/src/batch/`, tested against injected HTTP only; every driver is declared-unverified and live validation remains (P15). See [`provider-model.md`](provider-model.md#batch-lane) |
 | Drag-and-drop workflow canvas editor | `apps/web/src/columns/graph` renders from workflow JSON and is read-only by construction |
 | Local embedding clustering | `packages/workflow/src/clustering/deterministic.ts` is the deterministic path; §25.4 metrics would have to justify replacing it |
 

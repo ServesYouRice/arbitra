@@ -90,7 +90,9 @@ runtime, so a cancelled run stops paying rather than finishing quietly in the ba
 | After the response, before `activity_end` | The attempt is journalled as incomplete; the retry is bounded and visible. |
 | After `activity_end` | The result is replayed from the artifact store. Nothing is re-paid. |
 | Mid-write to the journal | The torn trailing record is truncated on load; the log stays consistent. |
+| Mid-write to the evaluation corpus journal | Records after the last `commit`, and any torn line, are truncated on load; the import is retried idempotently. |
 | `index.db` deleted | `packages/persistence/src/index-db/rebuild.ts` rebuilds it from the journal and traces, producing an identical query result. The index is a cache, never a source of truth. |
+| `model-activity.index.db` deleted, stale or corrupt | The next trace query re-derives it from the committed trace log; responses and trace IDs are unchanged. |
 
 ## Configuration drift
 
@@ -110,11 +112,23 @@ the current version. Stale versions are rejected, edits clear approvals, and res
 reuses only model stages matching the current contract. Interactive unresolved decisions
 keep the run `BLOCKED`. See [Feature mode](workflows.md#feature-mode).
 
-The generic policy helpers in `packages/core/src/checkpoints.ts` and the server's
-`CheckpointRegistry` are separate groundwork. That registry is in-memory and does not
-establish generic durable graph checkpoints. Dedicated web requirements controls and
-generic human/gate composition remain completion tasks P09/P10; the current UI should
-not be described as able to answer every durable checkpoint.
+Generic `human` and `gate` nodes are durable too
+(`packages/core/src/runner/graph-checkpoints.ts`, bound to the run directory by
+`packages/runtime/src/graph-checkpoint-store.ts`). Each checkpoint version is published as
+an immutable artifact. The current version is also named `checkpoint-<node>`. A version is
+the hash of the node definition and its inputs. Decisions are create-once records under
+`records/checkpoints/<node>/<version>.json`. The record is fsynced under a temporary name and
+hard-linked into place, so a second response from any process fails instead of replacing
+the first. A response for a superseded version is rejected as stale. The run policy
+(`checkpointPolicy`) is saved in the run context. Restart, resume and replay use that saved
+policy and the stored graph definition, not the current configuration. The server keeps no
+checkpoint state of its own; the previous in-memory registry was removed. See
+[Gates and human checkpoints](workflows.md#gates-and-human-checkpoints).
+
+`packages/core/src/checkpoints.ts` is unrelated to graph nodes. It is the security
+envelope's rule for when tainted writes or `requires_approval` commands need a checkpoint.
+Dedicated web requirements controls remain P10. The web inspector answers only pending
+generic human checkpoints.
 
 ## Traces and the rebuildable index
 
@@ -126,6 +140,77 @@ with refusals kept separate from errors.
 `index-db/rebuild.ts` builds the SQLite query index from those traces and the journal. It
 is disposable by design: delete it and it comes back identical.
 
+The trace browser uses a second, per-run derived index:
+`packages/persistence/src/trace-index.ts` keeps `metrics/model-activity.index.db` beside
+`metrics/model-activity.jsonl` (SQLite through the built-in `node:sqlite`, no native
+dependency). It stores only filter columns (node, model, protocol, outcome, activity) and
+the byte range of each **committed** — newline-terminated — non-empty line, so trace IDs
+remain the positions `loadActivityTraces` assigns. The log stays authoritative:
+
+- **Catch-up, not rescans.** Each query stats the log and indexes only bytes past the last
+  committed offset it recorded. Bytes after the final newline are a torn or in-flight tail
+  and are never indexed or served; once a writer completes or repairs that tail, the next
+  query indexes it.
+- **Staleness checks.** A log shorter than the indexed prefix, or a changed first/last
+  indexed line (SHA-256 anchors), discards the index and re-derives it from the log. An
+  unreadable database, a wrong format/run ID, or a row count that disagrees with its IDs
+  does the same.
+- **Every served record comes from the log.** Page and detail responses re-read each
+  record's byte range, require it to start and end on line boundaries, parse and validate
+  it, and compare it with its index row and the requested filter. A mismatch is treated as
+  index corruption: the index is rebuilt and the query retried once. Unserved rows are not
+  re-verified per query, so a silently altered row that is never served could skew a filtered
+  `total` until the next rebuild; `rebuildTraceIndex` re-derives everything on demand.
+- **Log errors are not masked.** An invalid committed line or a foreign run ID fails the
+  query with the same error the full-scan loader raises; rebuilding cannot fix the log.
+
+`packages/runtime/test/trace-index.test.ts` compares indexed and full-scan responses over
+filter and pagination combinations after append, writer restart, torn tails, explicit
+rebuild, index deletion or tampering, and log truncation/replacement.
+
+**Size target and budget.** `pnpm --filter @arbitra/runtime bench:traces` generates a
+100 000-trace run (about 91 MB of JSONL) and, per warm browser request, requires p95
+latency ≤ 50 ms, ≤ 256 KiB read from the log and ≤ 16 MiB transient heap growth. Observed
+on an Apple-silicon Mac (Node 22.23, commit base 391d3e4): cold index build 2.1 s
+(17 MB index); warm p95 2–10 ms for first, deep (offset 99 975), node-filtered, 100-row and
+detail requests, 17–19 ms for a three-filter composition and the activity-substring filter,
+reading 2.6–93 KB of log and allocating under 1 MB. The previous full-scan path took
+≈1.0–1.1 s per page, read all 91 MB and grew the heap by ≈490 MB. Filtered totals and the
+activity substring still scan index rows (not the log), so their cost grows with history
+length; the first query on a large, never-indexed run pays the cold build once.
+
+## Evaluation corpora
+
+`packages/persistence/src/evaluation-corpus/store.ts` (`EvaluationCorpusStore`) keeps
+real-world outcomes, independence observations, run provenance, versioned ground truth,
+adjudications and report exports in one corpus directory:
+
+```text
+<corpus>/corpus.jsonl                 append-only journal of canonical-JSON records
+<corpus>/artifacts/<sha256>.ground-truth    immutable ground-truth versions
+<corpus>/artifacts/<sha256>.corpus-report   exported, redacted reports
+```
+
+Every write is one batch: its records followed by `{t:"commit", batch, count}`, written in a
+single append and flushed as the `expensive` durability class. Ground-truth and report
+artifacts are written and flushed before the journal batch that references them, so an
+orphaned artifact is possible but a dangling reference is not. Records carry the SHA-256
+of their canonical content.
+
+On load the journal is replayed through the same rules that validate imports. A torn
+trailing line and complete records after the last commit are truncated, so a crash
+mid-import leaves exactly the committed batches (`open()` reports the bytes and records
+it rolled back). An invalid or conflicting record *before* the last commit, an
+out-of-sequence batch, or a missing or mismatched ground-truth artifact fails closed with
+`CorpusJournalCorruptError`; nothing is silently repaired. Imports are idempotent, so
+repeating an interrupted import completes it. A failed append invalidates the in-memory
+projection, and the next operation reloads and recovers.
+
+The store serialises its own operations but assumes **one writer per corpus directory**;
+it takes no cross-process lock. A second writer's conflicting records would make the
+journal fail to load rather than be merged. Queries read the journal projection directly;
+there is no SQLite projection for corpora yet.
+
 ## Recovery boundaries
 
 - **Composed canonical turns.** The runtime rebuilds the tool loop from durable model
@@ -136,8 +221,9 @@ is disposable by design: delete it and it comes back identical.
   A resumed attempt can issue another request, retaining the original budget reservation
   and unknown-usage accounting. The optional provider continuation store exists, but
   composed model activities currently disable provider-side continuation.
-- **Generic checkpoints.** Feature requirements decisions are durable; the separate
-  in-memory generic server checkpoint registry is not.
+- **Generic checkpoints.** Feature requirements decisions and generic human-node decisions
+  are durable. A decided checkpoint takes effect only when the operator resumes the run.
+  Resume reuses the recorded decision for the current version and never asks again.
 - **`.runs/` and `implementation/` are mandatory audit exclusions** — `MANDATORY_ROOTS` in
   `packages/security/src/exclusions.ts`, not a configurable default — so a run cannot read
   its own output or its own plan and mistake either for repository evidence.

@@ -9,8 +9,8 @@ import type { RunEvent, RunState } from "@arbitra/core/runner/events.js";
 import { runConfigSchema, type RunConfig } from "@arbitra/schemas/config.js";
 import { DEFAULT_AUDITORS, type AuditFinding } from "./auditors.js";
 import type { CanonicalIssueSet } from "@arbitra/workflow/nodes/canonical-issues.js";
-import { AUDIT_DEEP_GRAPH, auditorIdsFor, withCritic } from "./graphs.js";
-import { assertNoPreflightErrors, configurationDiagnostics, environmentDiagnostics, graphForConfiguration, PreflightError, type PreflightDiagnostic } from "./preflight.js";
+import { AUDIT_DEEP_GRAPH, auditorIdsFor, PRESET_GRAPHS, withCritic } from "./graphs.js";
+import { assertNoPreflightErrors, configurationDiagnostics, environmentDiagnostics, graphForConfiguration, PreflightError, type ConfigurationPreflightOptions, type PreflightDiagnostic } from "./preflight.js";
 import { DockerTestSandbox } from "./test-sandbox.js";
 import { canonicalise, converge, critique, discover, plan, preflight, readStage, verify, type AuditContext, type ConvergenceResult, type Plan } from "./pipeline.js";
 import { snapshotRepository, type RepositorySnapshot } from "./repository.js";
@@ -20,7 +20,7 @@ import type { TestSandbox } from "./test-sandbox.js";
 import type { TransportFactoryOptions } from "@arbitra/providers/registry.js";
 import type { PlanIR } from "@arbitra/schemas/plan.js";
 import { loadActivityTraces } from "@arbitra/persistence/trace.js";
-import { traceEntry, tracePage } from "./trace-browser.js";
+import { indexedTraceEntry, indexedTracePage } from "./trace-browser.js";
 import { evaluationMetrics } from "./evaluation-metrics.js";
 import { FeaturePipeline, validateModelFeature, type FeatureOutcome } from "./feature-pipeline.js";
 import { TestingPipeline, validateModelTesting, type TestingOutcome } from "./testing-pipeline.js";
@@ -31,6 +31,9 @@ import { requirementsDraftSchema } from "@arbitra/schemas/requirements.js";
 import { RequirementsCheckpoint } from "./requirements-checkpoint.js";
 import { ModelProtocols } from "./model-protocols.js";
 import { readRequirementsProposal } from "./requirements-revision.js";
+import { GraphCheckpoints, validateGraphCheckpoints, type CheckpointView, type GatePolicyRegistry } from "@arbitra/core/runner/graph-checkpoints.js";
+import { checkpointPolicySchema, checkpointResponseSchema, type CheckpointPolicy } from "@arbitra/schemas/checkpoint-policy.js";
+import { graphCheckpointStore } from "./graph-checkpoint-store.js";
 
 export interface OrchestratorOptions {
   /** Where runs and saved configurations live. Defaults to `<repository>/.runs`. */
@@ -39,6 +42,13 @@ export interface OrchestratorOptions {
   readonly newRunId?: () => string;
   readonly providerOptions?: TransportFactoryOptions;
   readonly testSandbox?: TestSandbox;
+  /**
+   * Additional audit-mode graphs dispatched by preset ID. They cannot replace a shipped
+   * preset. Their gate/human nodes use the generic checkpoint behavior below.
+   */
+  readonly graphs?: Readonly<Record<string, RunnerGraph>>;
+  /** Additional deterministic gate policies. Built-in policy IDs cannot be replaced. */
+  readonly gatePolicies?: GatePolicyRegistry;
 }
 
 export interface PreflightReport {
@@ -51,11 +61,16 @@ export interface PreflightReport {
   readonly diagnostics: readonly PreflightDiagnostic[];
 }
 
+export type RequirementsCheckpointResource = { readonly artifactId: string; readonly kind: "requirements"; readonly pendingAmbiguityIds: readonly string[]; readonly revisionProposalArtifactId?: string };
+export type RunCheckpointResource = RequirementsCheckpointResource | CheckpointView;
+
 export interface RunResource {
   readonly runId: string;
   readonly state: string;
   readonly resumable: boolean;
-  readonly checkpoints: readonly { readonly artifactId: string; readonly kind: "requirements"; readonly pendingAmbiguityIds: readonly string[]; readonly revisionProposalArtifactId?: string }[];
+  readonly checkpoints: readonly RunCheckpointResource[];
+  /** How generic human nodes resolve for this run; absent when the run has no such policy. */
+  readonly checkpointMode?: CheckpointPolicy["mode"];
   readonly preservedArtifacts: number;
   readonly workflow?: RunnerGraph;
 }
@@ -76,6 +91,8 @@ export class Orchestrator {
   readonly #resuming = new Set<string>();
   readonly #providerOptions: TransportFactoryOptions;
   readonly #testSandbox: TestSandbox | undefined;
+  readonly #graphs: Readonly<Record<string, RunnerGraph>>;
+  readonly #gatePolicies: GatePolicyRegistry;
 
   constructor(options: OrchestratorOptions = {}) {
     this.repository = resolve(options.repository ?? process.cwd());
@@ -86,6 +103,20 @@ export class Orchestrator {
     this.#newRunId = options.newRunId ?? ((): string => `run-${randomUUID()}`);
     this.#providerOptions = options.providerOptions ?? {};
     this.#testSandbox = options.testSandbox;
+    for (const id of Object.keys(options.graphs ?? {})) {
+      if (Object.hasOwn(PRESET_GRAPHS, id)) throw new Error(`DUPLICATE_WORKFLOW_PRESET:${id}`);
+      if (options.graphs?.[id]?.id !== id) throw new Error(`WORKFLOW_PRESET_ID_MISMATCH:${id}`);
+    }
+    this.#graphs = Object.freeze({ ...options.graphs });
+    const builtIn: GatePolicyRegistry = {
+      // The same reasons the public quality gate reports, over the artifacts written so far.
+      quality_gate: async ({ runId }) => {
+        const reasons = await this.#qualityReasons(runId, false);
+        return { passed: reasons.length === 0, reasons };
+      },
+    };
+    for (const id of Object.keys(options.gatePolicies ?? {})) if (Object.hasOwn(builtIn, id)) throw new Error(`DUPLICATE_GATE_POLICY:${id}`);
+    this.#gatePolicies = Object.freeze({ ...options.gatePolicies, ...builtIn });
   }
 
   validate(value: unknown): { readonly valid: boolean; readonly errors?: readonly string[] } {
@@ -99,9 +130,8 @@ export class Orchestrator {
    */
   async estimate(config: RunConfig, repository = this.repository): Promise<unknown> {
     const validated = this.configurations.validate(config);
-    assertRuntimeConfiguration(validated);
+    const graph = this.#assertRunnable(validated);
     const snapshot = await snapshotRepository(resolve(repository), 400, { scope: validated.scope, ...testingSnapshotOptions(validated) });
-    const graph = graphForConfiguration(validated);
     return Object.freeze({
       estimate: Object.freeze({
         files: snapshot.files.length,
@@ -128,12 +158,16 @@ export class Orchestrator {
     catch (failure) {
       return Object.freeze({ valid: false, ready: false, mode: null, preset: null, modelBacked: null, diagnostics: Object.freeze(schemaDiagnostics(failure)) });
     }
-    const configuration = configurationDiagnostics(config);
+    const configuration = configurationDiagnostics(config, this.#preflightOptions(config));
     const environment = await environmentDiagnostics(config, this.#environmentOptions());
     const valid = !configuration.some(({ severity }) => severity === "error");
-    const preset = presetOf(config) ?? (valid ? graphForConfiguration(config).id : null);
+    const preset = presetOf(config) ?? (valid ? graphForConfiguration(config, this.#graphs).id : null);
     return Object.freeze({ valid, ready: valid && !environment.some(({ severity }) => severity === "error"), mode: config.mode, preset,
       modelBacked: config.mode !== "audit" || Object.keys(config.models).length > 0, diagnostics: Object.freeze([...configuration, ...environment]) });
+  }
+
+  #preflightOptions(config: RunConfig): ConfigurationPreflightOptions {
+    return { graphs: this.#graphs, checkpoints: (graph) => validateGraphCheckpoints(graph, checkpointPolicyOf(config), this.#gatePolicies) };
   }
 
   #environmentOptions() {
@@ -143,7 +177,7 @@ export class Orchestrator {
   /** Start a run and return as soon as it is created; it continues in the background. */
   async start(config: RunConfig, repository = this.repository): Promise<RunResource> {
     const validated = this.configurations.validate(config);
-    assertRuntimeConfiguration(validated);
+    const graph = this.#assertRunnable(validated);
     // Fail before a run, snapshot or provider call exists rather than at first dispatch.
     const environment = await environmentDiagnostics(validated, { ...this.#environmentOptions(), includeWarnings: false });
     if (environment.some(({ severity }) => severity === "error")) throw new PreflightError(environment);
@@ -151,9 +185,9 @@ export class Orchestrator {
     const store = new RunStore(this.#runsDirectory, runId);
     const selectedRepository = resolve(repository);
     const snapshot = await snapshotRepository(selectedRepository, 400, { scope: validated.scope, ...testingSnapshotOptions(validated) });
-    const graph = graphForConfiguration(validated);
     const modelConfiguration = Object.keys(validated.models).length > 0 ? validated : undefined;
-    const storedContext: StoredRunContext = Object.freeze({ repository: selectedRepository, repositoryDigest: snapshotDigest(snapshot), scope: validated.scope, consensusPolicy: validated.consensusPolicy, maximumRounds: validated.maxConsensusRounds, criticEnabled: graph.nodes.some(({ id }) => id === "critic"), ...(modelConfiguration === undefined ? {} : { modelConfiguration }) });
+    const checkpointPolicy = checkpointPolicyOf(validated);
+    const storedContext: StoredRunContext = Object.freeze({ repository: selectedRepository, repositoryDigest: snapshotDigest(snapshot), scope: validated.scope, consensusPolicy: validated.consensusPolicy, maximumRounds: validated.maxConsensusRounds, criticEnabled: graph.nodes.some(({ id }) => id === "critic"), ...(modelConfiguration === undefined ? {} : { modelConfiguration }), ...(checkpointPolicy === undefined ? {} : { checkpointPolicy }) });
     await store.saveContext(storedContext);
     const context: AuditContext = Object.freeze({
       snapshot,
@@ -164,7 +198,7 @@ export class Orchestrator {
       maximumRounds: storedContext.maximumRounds,
       criticEnabled: storedContext.criticEnabled,
     });
-    const handle = this.#runner(store, context, undefined, modelConfiguration).start(graph, { runId });
+    const handle = this.#runner(store, context, undefined, modelConfiguration, checkpointPolicy).start(graph, { runId });
     this.#track(runId, handle);
     return Object.freeze({ runId, state: handle.state, resumable: true, checkpoints: Object.freeze([]), preservedArtifacts: 0 });
   }
@@ -196,6 +230,7 @@ export class Orchestrator {
     if (snapshotDigest(snapshot) !== original.repositoryDigest) throw new Error(`RUN_REPOSITORY_CHANGED:${sourceRunId}`);
     const definition = await source.definitions().load(sourceRunId);
     const replayGraph = withCritic(definition.graph, overrides.criticEnabled);
+    validateGraphCheckpoints(replayGraph, original.checkpointPolicy, this.#gatePolicies);
     if (original.modelConfiguration !== undefined) validateModelAudit(original.modelConfiguration, auditorIdsFor(replayGraph), overrides.criticEnabled);
     const auditors = auditorsFor(definition.graph, original.modelConfiguration);
     const findings = Object.fromEntries(await Promise.all(auditors.map(async ({ auditorId }) => [auditorId, await readStage<readonly AuditFinding[]>(source, `findings-${auditorId}`)] as const)));
@@ -211,7 +246,7 @@ export class Orchestrator {
       for (const { auditorId } of auditors) await store.publish(`discovery-validation-${auditorId}`, await readStage(source, `discovery-validation-${auditorId}`), auditorId);
     }
     const context: AuditContext = Object.freeze({ snapshot, store, auditors, auditorKind: original.modelConfiguration === undefined ? "scripted_auditors" : "model_auditors", policy: Object.freeze({ name: overrides.consensusPolicy, quorum: 2, minimumIndependentGroupsForHighRisk: 2 }), maximumRounds: overrides.maximumRounds, criticEnabled: overrides.criticEnabled });
-    const handle = this.#runner(store, context, findings, original.modelConfiguration).start(replayGraph, { ...definition.config, runId });
+    const handle = this.#runner(store, context, findings, original.modelConfiguration, original.checkpointPolicy).start(replayGraph, { ...definition.config, runId });
     this.#track(runId, handle);
     return Object.freeze({ runId, state: await handle.result });
   }
@@ -242,6 +277,9 @@ export class Orchestrator {
     const snapshot = await snapshotRepository(storedContext.repository, 400, { scope: storedContext.scope, ...testingSnapshotOptions(storedContext.modelConfiguration) });
     if (snapshotDigest(snapshot) !== storedContext.repositoryDigest) throw new Error(`RUN_REPOSITORY_CHANGED:${runId}`);
     const definition = await store.definitions().load(runId);
+    // The stored definition and stored policy are authoritative; a later configuration
+    // edit cannot turn an unresolved checkpoint into an approval.
+    validateGraphCheckpoints(definition.graph, storedContext.checkpointPolicy, this.#gatePolicies);
     const context: AuditContext = Object.freeze({
       snapshot, store, auditors: auditorsFor(definition.graph, storedContext.modelConfiguration),
       auditorKind: storedContext.modelConfiguration === undefined ? "scripted_auditors" : "model_auditors",
@@ -250,7 +288,7 @@ export class Orchestrator {
     });
     const sourceStore = storedContext.replaySourceRunId === undefined ? undefined : new RunStore(this.#runsDirectory, storedContext.replaySourceRunId);
     const reused = sourceStore === undefined ? undefined : Object.fromEntries(await Promise.all(context.auditors.map(async ({ auditorId }) => [auditorId, await readStage<readonly AuditFinding[]>(sourceStore, `findings-${auditorId}`)] as const)));
-    const handle = this.#runner(store, context, reused, storedContext.modelConfiguration).resume(runId);
+    const handle = this.#runner(store, context, reused, storedContext.modelConfiguration, storedContext.checkpointPolicy).resume(runId);
     this.#track(runId, handle);
     return Object.freeze({ runId, state: handle.state, resumable: true, checkpoints: Object.freeze([]), preservedArtifacts: (await store.listArtifacts()).length });
   }
@@ -263,13 +301,50 @@ export class Orchestrator {
     const state = live?.state ?? last?.state ?? "CREATED";
     if (last === undefined && live === undefined) throw new Error(`RUN_ABSENT:${runId}`);
     const workflow = last === undefined ? undefined : (await store.definitions().load(runId)).graph;
-    const checkpoints: RunResource["checkpoints"][number][] = [];
+    const checkpoints: RunCheckpointResource[] = [];
     if (state === "BLOCKED" && workflow?.id === "feature-simple") {
       const current = await this.requirements(runId);
       if (current !== null) checkpoints.push({ artifactId: current.artifactId, kind: "requirements", pendingAmbiguityIds: current.pendingAmbiguityIds,
         ...(current.revisionProposal === undefined ? {} : { revisionProposalArtifactId: current.revisionProposal.artifactId }) });
     }
-    return Object.freeze({ runId, state, resumable: state !== "COMPLETED", checkpoints: Object.freeze(checkpoints), preservedArtifacts: (await store.listArtifacts()).length, ...(workflow === undefined ? {} : { workflow }) });
+    const policy = last === undefined ? undefined : (await store.loadContext()).checkpointPolicy;
+    if (workflow !== undefined) checkpoints.push(...await this.#checkpoints(store, policy).list(workflow));
+    return Object.freeze({ runId, state, resumable: state !== "COMPLETED", checkpoints: Object.freeze(checkpoints), ...(policy === undefined ? {} : { checkpointMode: policy.mode }), preservedArtifacts: (await store.listArtifacts()).length, ...(workflow === undefined ? {} : { workflow }) });
+  }
+
+  /**
+   * Record an operator decision for a generic human checkpoint. The run must be blocked
+   * and idle, the version must be current, and each version accepts one decision. The
+   * decision is durable; execution continues only through an explicit resume.
+   */
+  async respondCheckpoint(runId: string, checkpointId: string, value: unknown): Promise<{ readonly accepted: true; readonly runId: string; readonly state: RunState; readonly checkpoint: CheckpointView }> {
+    const response = checkpointResponseSchema.parse(value);
+    if (this.#live.has(runId) || this.#resuming.has(runId)) throw Object.assign(new Error(`RUN_ALREADY_LIVE:${runId}`), { statusCode: 409 });
+    this.#resuming.add(runId);
+    try {
+      const status = await this.status(runId);
+      if (status.state !== "BLOCKED") throw Object.assign(new Error("CHECKPOINT_RESPONSE_REQUIRES_BLOCKED_RUN"), { statusCode: 409 });
+      const store = new RunStore(this.#runsDirectory, runId);
+      const checkpoints = this.#checkpoints(store, (await store.loadContext()).checkpointPolicy);
+      await checkpoints.respond(checkpointId, response.version, response.decision);
+      const workflow = (await store.definitions().load(runId)).graph;
+      const checkpoint = (await checkpoints.list(workflow)).find((view) => view.checkpointId === checkpointId);
+      if (checkpoint === undefined) throw new Error(`CHECKPOINT_NOT_FOUND:${checkpointId}`);
+      return Object.freeze({ accepted: true as const, runId, state: status.state as RunState, checkpoint });
+    } finally { this.#resuming.delete(runId); }
+  }
+
+  #checkpoints(store: RunStore, policy: CheckpointPolicy | undefined): GraphCheckpoints {
+    return new GraphCheckpoints(graphCheckpointStore(store), policy, this.#gatePolicies);
+  }
+
+  #assertRunnable(config: RunConfig): RunnerGraph {
+    assertNoPreflightErrors(configurationDiagnostics(config, this.#preflightOptions(config)));
+    // The composed stages re-check their own settings; keep those checks authoritative.
+    assertRuntimeConfiguration(config, this.#graphs);
+    const graph = graphForConfiguration(config, this.#graphs);
+    validateGraphCheckpoints(graph, checkpointPolicyOf(config), this.#gatePolicies);
+    return graph;
   }
 
   async requirements(runId: string) {
@@ -373,17 +448,28 @@ export class Orchestrator {
   async runIds(): Promise<readonly string[]> { return listRunIds(this.#runsDirectory); }
 
   async modelTraces(runId: string) {
+    await this.#requireRun(runId);
+    return loadActivityTraces(this.#runsDirectory, runId);
+  }
+
+  async #requireRun(runId: string): Promise<void> {
     try { await new RunStore(this.#runsDirectory, runId).loadContext(); }
     catch (error) {
       if (error instanceof Error && error.message === `RUN_CONTEXT_ABSENT:${runId}`) throw Object.assign(error, { statusCode: 404 });
       throw error;
     }
-    return loadActivityTraces(this.#runsDirectory, runId);
   }
 
-  async traces(runId: string, query: unknown = {}) { return tracePage(await this.modelTraces(runId), query); }
+  /** Served from the persistent per-run trace index; the committed JSONL log stays authoritative. */
+  async traces(runId: string, query: unknown = {}) {
+    await this.#requireRun(runId);
+    return indexedTracePage(this.#runsDirectory, runId, query);
+  }
 
-  async trace(runId: string, traceId: string) { return traceEntry(await this.modelTraces(runId), traceId); }
+  async trace(runId: string, traceId: string) {
+    await this.#requireRun(runId);
+    return indexedTraceEntry(this.#runsDirectory, runId, traceId);
+  }
 
   async traceArtifact(runId: string, traceId: string, slot: string) {
     const { trace } = await this.trace(runId, traceId);
@@ -426,11 +512,25 @@ export class Orchestrator {
    * incomplete coverage is a failure, never a pass earned by running out of budget.
    */
   async gate(runId: string): Promise<{ readonly gateStatus: "passed" | "failed"; readonly reasons: readonly string[] }> {
+    const store = new RunStore(this.#runsDirectory, runId);
+    const reasons = [...await this.#qualityReasons(runId, true)];
+    // Generic gate/human outcomes are part of the public gate in every mode, so a pending,
+    // rejected or failed checkpoint can never be reported as a pass.
+    if ((await store.loadEvents()).length > 0) {
+      const workflow = (await store.definitions().load(runId)).graph;
+      for (const reason of await this.#checkpoints(store, (await store.loadContext()).checkpointPolicy).gateReasons(workflow)) if (!reasons.includes(reason)) reasons.push(reason);
+    }
+    return Object.freeze({ gateStatus: reasons.length === 0 ? "passed" : "failed", reasons: Object.freeze(reasons) });
+  }
+
+  /** Artifact-derived quality reasons; `completion` adds the terminal-state requirement. */
+  async #qualityReasons(runId: string, completion: boolean): Promise<readonly string[]> {
+    const completed = async (): Promise<readonly string[]> => !completion || (await this.status(runId)).state === "COMPLETED" ? [] : ["run_not_completed"];
     const featureStore = new RunStore(this.#runsDirectory, runId);
     if ((await featureStore.loadContext()).modelConfiguration?.mode === "testing") {
       const artifacts = await featureStore.listArtifacts();
       const outcome = artifacts.some(({ kind }) => kind === "testing-outcome") ? await readStage<TestingOutcome>(featureStore, "testing-outcome") : null;
-      const reasons = [...((await this.status(runId)).state === "COMPLETED" ? [] : ["run_not_completed"]), ...(outcome === null ? ["no_testing_plan_result"] : outcome.reasons),
+      const reasons = [...(await completed()), ...(outcome === null ? ["no_testing_plan_result"] : outcome.reasons),
         ...(outcome !== null && outcome.selectedGaps > 0 && !artifacts.some(({ kind }) => kind === "implementation") ? ["no_implementation_handoff"] : [])];
       if (outcome !== null && !outcome.passed && reasons.length === 0) reasons.push("testing_plan_failed");
       const config = (await featureStore.loadContext()).modelConfiguration;
@@ -444,23 +544,23 @@ export class Orchestrator {
         }
         if (!artifacts.some(({ kind }) => kind === "testing-execution-completion")) reasons.push("no_verified_testing_handoff");
       }
-      return { gateStatus: reasons.length === 0 ? "passed" : "failed", reasons };
+      return reasons;
     }
     if ((await featureStore.loadContext()).modelConfiguration?.mode === "feature") {
       const artifacts = await featureStore.listArtifacts();
       const outcome = artifacts.some(({ kind }) => kind === "feature-outcome") ? await readStage<FeatureOutcome>(featureStore, "feature-outcome") : null;
-      const reasons = [...((await this.status(runId)).state === "COMPLETED" ? [] : ["run_not_completed"]),
+      const reasons = [...(await completed()),
         ...(outcome === null ? ["no_feature_plan_result"] : outcome.reasons),
         ...(!artifacts.some(({ kind }) => kind === "implementation") ? ["no_implementation_handoff"] : [])];
       if (outcome !== null && !outcome.passed && reasons.length === 0) reasons.push("feature_plan_review_failed");
-      return { gateStatus: reasons.length === 0 ? "passed" : "failed", reasons };
+      return reasons;
     }
     const summary = await this.summary(runId) as { issues?: null; unresolvedCount?: number; coverageComplete?: boolean };
     // A run that produced no canonical issue set established no trustworthy result, so it
     // fails rather than passing on the absence of anything to object to.
-    if (summary.issues === null) return Object.freeze({ gateStatus: "failed", reasons: Object.freeze(["no_canonical_issue_set"]) });
+    if (summary.issues === null) return ["no_canonical_issue_set"];
     const reasons = [
-      ...((await this.status(runId)).state !== "COMPLETED" ? ["run_not_completed"] : []),
+      ...(await completed()),
       ...(summary.unresolvedCount !== undefined && summary.unresolvedCount > 0 ? ["unresolved_issues"] : []),
       ...(summary.coverageComplete === false ? ["degraded_coverage"] : []),
     ];
@@ -478,10 +578,12 @@ export class Orchestrator {
       const review = await readStage<{ degradedReviewCoverage: boolean }>(store, "critic-result");
       if (review.degradedReviewCoverage) reasons.push("degraded_critic_coverage");
     }
-    return Object.freeze({ gateStatus: reasons.length === 0 ? "passed" : "failed", reasons: Object.freeze(reasons) });
+    return reasons;
   }
 
-  #runner(store: RunStore, context: AuditContext, reusedFindings?: Readonly<Record<string, readonly AuditFinding[]>>, modelConfiguration?: RunConfig): WorkflowRunner {
+  #runner(store: RunStore, context: AuditContext, reusedFindings: Readonly<Record<string, readonly AuditFinding[]>> | undefined, modelConfiguration: RunConfig | undefined, checkpointPolicy: CheckpointPolicy | undefined): WorkflowRunner {
+    // Every mode gets the same generic gate/human executors; none has an implicit pass.
+    const checkpoints = this.#checkpoints(store, checkpointPolicy).executors();
     if (modelConfiguration?.mode === "testing") {
       const testing = new TestingPipeline(store, this.configurations.validate(modelConfiguration), context.snapshot, this.#providerOptions, this.#testSandbox);
       return new WorkflowRunner({ journal: store.journalPort(), artifacts: store.artifacts, definitions: store.definitions(), loadRecords: () => store.loadRecords(), executors: {
@@ -490,6 +592,7 @@ export class Orchestrator {
           const result = { mode: "testing", fileCount: context.snapshot.files.length, readOnly: true, testsExecuted: false };
           await store.publish("preflight", result, "preflight"); return result;
         }, subgraph: ({ node, signal }) => node.id === "execute" ? testing.execute(signal) : testing.run(signal),
+        ...checkpoints,
       } });
     }
     if (modelConfiguration?.mode === "feature") {
@@ -501,6 +604,7 @@ export class Orchestrator {
           await store.publish("preflight", result, "preflight"); return result;
         },
         subgraph: ({ signal }) => feature.run(signal),
+        ...checkpoints,
       } });
     }
     const models = modelConfiguration === undefined ? undefined : new ModelAuditPipeline(context, this.configurations.validate(modelConfiguration), this.#providerOptions, this.#testSandbox);
@@ -544,8 +648,7 @@ export class Orchestrator {
           const issues = await canonicalise(context, convergence, verification);
           return { verified: verification.length, issues: issues.issues.length };
         },
-        gate: async () => ({ passed: true }),
-        human: async () => ({ acknowledged: true }),
+        ...checkpoints,
       },
     });
   }
@@ -576,16 +679,22 @@ function presetOf(config: RunConfig): string | undefined {
 }
 
 /** Do not misrepresent a scripted audit as an uncomposed model/Feature/Testing run. */
-function assertRuntimeConfiguration(config: RunConfig): void {
-  assertNoPreflightErrors(configurationDiagnostics(config));
-  // The composed stages re-check their own settings; keep those checks authoritative.
-  if (config.mode === "testing") { validateModelTesting(config); graphForConfiguration(config); return; }
-  if (config.mode === "feature") { validateModelFeature(config); graphForConfiguration(config); return; }
+function assertRuntimeConfiguration(config: RunConfig, registered: Readonly<Record<string, RunnerGraph>>): void {
+  if (config.harness.mode !== "canonical") throw new Error("RUNTIME_NATIVE_HARNESS_NOT_AVAILABLE");
+  if (config.mode === "testing") { validateModelTesting(config); graphForConfiguration(config, registered); return; }
+  if (config.mode === "feature") { validateModelFeature(config); graphForConfiguration(config, registered); return; }
   if (Object.keys(config.models).length > 0) {
-    const graph = graphForConfiguration(config);
+    if (config.workflow["modelExecution"] === undefined) throw new Error("RUNTIME_MODEL_EXECUTION_CONFIGURATION_REQUIRED");
+    const graph = graphForConfiguration(config, registered);
     validateModelAudit(config, auditorIdsFor(graph), graph.nodes.some(({ id }) => id === "critic"));
   }
-  graphForConfiguration(config);
+  if (config.workflow["preset"] !== undefined && typeof config.workflow["preset"] !== "string") throw new Error("INVALID_WORKFLOW_PRESET");
+  graphForConfiguration(config, registered);
+}
+
+function checkpointPolicyOf(config: RunConfig): CheckpointPolicy | undefined {
+  const value = config.workflow["checkpoints"];
+  return value === undefined ? undefined : checkpointPolicySchema.parse(value);
 }
 
 function schemaDiagnostics(failure: unknown): PreflightDiagnostic[] {

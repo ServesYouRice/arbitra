@@ -22,7 +22,7 @@ it.each(["complete", "limited", "restart", "invalid-selection", "fabricated-evid
   const config = runConfigSchema.parse({ ...example, mode: "testing", scope: { kind: "repository" }, models: { analyst: { ...profile, capabilityTier: scenario === "non-frontier" ? "fast" : "frontier" } }, workflow: {
     testing: { mode: "plan", goal: "Prevent auth failures", roles: { analyst: "analyst", planner: "analyst" } },
     modelExecution: { endpoints: [{ id: "primary", providerId: profile.provider, transport: profile.transport, endpoint: "https://fixture.example/v1", apiKeyEnvVar: "FIXTURE_KEY" }],
-      modelEndpoints: { analyst: "primary" }, maximumOutputTokens: 2000, maximumTokens: 1000000, maximumRetries: 0, timeoutMs: 1000,
+      modelEndpoints: { analyst: "primary" }, maximumOutputTokens: 2000, maximumTokens: 1000000, maximumRetries: 0, timeoutMs: 30_000,
       rateLimits: { [profile.provider]: { rpm: 100, tpm: 1000000, maxConcurrent: 4 } } },
   } });
   const risk = { summary: "Auth tests need assertions", surfaces: scenario === "empty" ? [] : [{ id: "auth", paths: ["auth.ts"], categories: ["unit"], severity: "high", failureModes: ["unauthorized access"], evidence: [{ path: "auth.ts", startLine: 1, endLine: 1, text: scenario === "fabricated-evidence" ? "invented" : "export const authorized = false;" }] }],

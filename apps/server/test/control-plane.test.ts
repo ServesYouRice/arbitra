@@ -2,7 +2,6 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { CheckpointRegistry } from "../src/checkpoints.js";
 import { assertLoopbackHost, buildServer, DEFAULT_SERVER_HOST, startServer } from "../src/main.js";
 import { registerControlPlaneRoutes, type ControlPlaneCore } from "../src/routes/control-plane.js";
 import { EVALUATION_ROUTE_INVENTORY } from "../src/routes/evaluation.js";
@@ -40,20 +39,19 @@ describe("localhost control plane contracts", () => {
     } finally { await rm(directory, { recursive: true, force: true }); }
   });
 
-  it("supports lifecycle, SSE, cancellation, artifacts and interactive checkpoints", async () => {
-    const calls: string[] = []; const service = core(calls); const server = fakeServer(); const schemas = Object.fromEntries(ROUTE_INVENTORY.map(([method, url]) => [`${method} ${url}`, {}])); const checkpoints = new CheckpointRegistry();
-    registerControlPlaneRoutes(server, service, checkpoints, schemas);
+  it("supports lifecycle, SSE, cancellation, artifacts and durable checkpoint responses", async () => {
+    const calls: string[] = []; const service = core(calls); const server = fakeServer(); const schemas = Object.fromEntries(ROUTE_INVENTORY.map(([method, url]) => [`${method} ${url}`, {}]));
+    registerControlPlaneRoutes(server, service, schemas);
     await invoke(server, "POST", "/repositories/select", { body: { path: "fixture" } }); await invoke(server, "POST", "/estimate", { body: {} }); await invoke(server, "POST", "/runs", { body: {} }); await invoke(server, "GET", "/runs/:id", { params: { id: "run-1" } }); await invoke(server, "POST", "/runs/:id/resume", { params: { id: "run-1" } }); await invoke(server, "GET", "/runs/:id/artifacts", { params: { id: "run-1" } }); await invoke(server, "GET", "/runs/:id/artifacts/:artifactId", { params: { id: "run-1", artifactId: "a-1" } }); await invoke(server, "POST", "/runs/:id/cancel", { params: { id: "run-1" } });
     expect(calls).toEqual(["select", "estimate", "start", "status", "resume", "artifacts", "artifact", "cancel"]);
-    const waiting = checkpoints.wait("run-1", "interactive", { id: "cp-1", stage: "before_planning", prompt: "Proceed?" }); expect(checkpoints.list("run-1")).toHaveLength(1); checkpoints.respond("run-1", "cp-1", "continue"); expect(await waiting).toBe("continue"); expect(await checkpoints.wait("run-2", "automatic", { id: "cp-2", stage: "before_planning", prompt: "Proceed?" })).toBeNull();
-    const duplicate = checkpoints.wait("run-3", "interactive", { id: "cp-3", stage: "before_planning", prompt: "Proceed?" });
-    await expect(checkpoints.wait("run-3", "interactive", { id: "cp-3", stage: "before_planning", prompt: "Again?" })).rejects.toThrow("DUPLICATE_CHECKPOINT");
-    checkpoints.respond("run-3", "cp-3", "continue"); await expect(duplicate).resolves.toBe("continue");
+    // The route holds no checkpoint state: it forwards the versioned body to the shared core.
+    expect(await invoke(server, "POST", "/runs/:id/checkpoints/:checkpointId", { params: { id: "run-1", checkpointId: "approval" }, body: { version: "a".repeat(64), decision: "approve" } })).toEqual({ accepted: true });
+    expect(calls.at(-1)).toBe(`respond:run-1:approval:${JSON.stringify({ version: "a".repeat(64), decision: "approve" })}`);
     const reply = sseReply(); await invoke(server, "GET", "/runs/:id/events", { params: { id: "run-1" } }, reply); expect(reply.chunks.join("")).toContain('data: {"t":"run_transition","runId":"run-1","state":"COMPLETED"}');
   });
 
   it("fails closed when core output contains a credential", async () => {
-    const server = fakeServer(); const schemas = Object.fromEntries(ROUTE_INVENTORY.map(([method, url]) => [`${method} ${url}`, {}])); const service = core(); service.configurations.list = async () => [{ apiKey: "sk-abcdefghijklmnop" }]; registerControlPlaneRoutes(server, service, new CheckpointRegistry(), schemas);
+    const server = fakeServer(); const schemas = Object.fromEntries(ROUTE_INVENTORY.map(([method, url]) => [`${method} ${url}`, {}])); const service = core(); service.configurations.list = async () => [{ apiKey: "sk-abcdefghijklmnop" }]; registerControlPlaneRoutes(server, service, schemas);
     await expect(invoke(server, "GET", "/configurations", {})).rejects.toThrow("HTTP_SECRET_EGRESS_BLOCKED");
     for (const secret of ["github_pat_abcdefghijklmnopqrstuvwxyz", "password=abcdefghijklmnop", "-----BEGIN PRIVATE KEY-----\nabcdefghijklmnop\n-----END PRIVATE KEY-----"]) {
       service.configurations.list = async () => [{ value: secret }];
@@ -63,7 +61,7 @@ describe("localhost control plane contracts", () => {
 
   it("applies the outbound secret guard to SSE frames", async () => {
     const service = core(); service.runs.events = async function* events() { yield { token: "github_pat_abcdefghijklmnopqrstuvwxyz" }; };
-    const server = fakeServer(); registerControlPlaneRoutes(server, service, new CheckpointRegistry(), HTTP_ROUTE_SCHEMAS);
+    const server = fakeServer(); registerControlPlaneRoutes(server, service, HTTP_ROUTE_SCHEMAS);
     const reply = sseReply();
     await expect(invoke(server, "GET", "/runs/:id/events", { params: { id: "run-secret" } }, reply)).rejects.toThrow("HTTP_SECRET_EGRESS_BLOCKED");
     expect(reply.chunks.join("")).not.toContain("github_pat_");
@@ -94,7 +92,7 @@ describe("localhost control plane contracts", () => {
 
   it("keeps the event loop responsive while a large SSE stream is active", async () => {
     const service = core(); service.runs.events = async function* events(id) { for (let index = 0; index < 500; index += 1) yield { t: "node_completed", runId: id, nodeId: `node-${index}` }; };
-    const server = fakeServer(); registerControlPlaneRoutes(server, service, new CheckpointRegistry(), HTTP_ROUTE_SCHEMAS);
+    const server = fakeServer(); registerControlPlaneRoutes(server, service, HTTP_ROUTE_SCHEMAS);
     let timerRan = false; setImmediate(() => { timerRan = true; });
     const reply = sseReply(); await invoke(server, "GET", "/runs/:id/events", { params: { id: "run-heavy" } }, reply);
     expect(timerRan).toBe(true); expect(reply.chunks.filter((chunk) => chunk.startsWith("data:"))).toHaveLength(500);
@@ -102,7 +100,7 @@ describe("localhost control plane contracts", () => {
   });
 });
 
-function core(calls: string[] = []): ControlPlaneCore { return { configurations: { async list() { return []; }, async save() { return {}; }, async load() { return {}; }, async update() { return {}; }, async duplicate() { return {}; }, validate() { return {}; }, async export() { return {}; } }, repositories: { async select() { calls.push("select"); return {}; } }, runs: { async estimate() { calls.push("estimate"); return {}; }, async start() { calls.push("start"); return {}; }, async status() { calls.push("status"); return {}; }, async resume() { calls.push("resume"); return {}; }, async *events(id) { yield { t: "run_transition", runId: id, state: "COMPLETED" }; }, async cancel() { calls.push("cancel"); return {}; }, async artifacts() { calls.push("artifacts"); return []; }, async artifact() { calls.push("artifact"); return {}; } } }; }
+function core(calls: string[] = []): ControlPlaneCore { return { configurations: { async list() { return []; }, async save() { return {}; }, async load() { return {}; }, async update() { return {}; }, async duplicate() { return {}; }, validate() { return {}; }, async export() { return {}; } }, repositories: { async select() { calls.push("select"); return {}; } }, runs: { async estimate() { calls.push("estimate"); return {}; }, async start() { calls.push("start"); return {}; }, async status() { calls.push("status"); return {}; }, async resume() { calls.push("resume"); return {}; }, async *events(id) { yield { t: "run_transition", runId: id, state: "COMPLETED" }; }, async cancel() { calls.push("cancel"); return {}; }, async respondCheckpoint(id, checkpointId, body) { calls.push(`respond:${id}:${checkpointId}:${JSON.stringify(body)}`); return { accepted: true }; }, async artifacts() { calls.push("artifacts"); return []; }, async artifact() { calls.push("artifact"); return {}; } } }; }
 function fakeServer() { const server = { routes: [] as Array<{ method: string; url: string; schema: unknown; handler: (request: never, reply: never) => unknown }>, listenOptions: null as null | { host: string; port: number }, route(options: never) { server.routes.push(options); }, async listen(options: { host: string; port: number }) { server.listenOptions = options; } }; return server; }
 async function invoke(server: ReturnType<typeof fakeServer>, method: string, url: string, request: object, reply: unknown = {}): Promise<unknown> { const route = server.routes.find((candidate) => candidate.method === method && candidate.url === url); if (route === undefined) throw new Error("route missing"); return route.handler(request as never, reply as never); }
 function sseReply() { const chunks: string[] = []; return { chunks, header() {}, raw: { write(chunk: string) { chunks.push(chunk); return true; }, end() {}, on() {} } }; }

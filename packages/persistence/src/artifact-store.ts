@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, open, readFile } from "node:fs/promises";
+import { link, mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { join } from "node:path";
 
 import { canonicalJson } from "./canonical-json.js";
@@ -30,6 +30,10 @@ export interface ArtifactFileSystem {
   mkdir(path: string, options: { recursive: true }): Promise<unknown>;
   open(path: string, flags: "wx"): Promise<ArtifactFileHandle>;
   readFile(path: string): Promise<Uint8Array>;
+  /** Publish a complete file under a new name; fails with EEXIST if the name is taken. */
+  link(existingPath: string, newPath: string): Promise<void>;
+  rename(oldPath: string, newPath: string): Promise<void>;
+  unlink(path: string): Promise<void>;
 }
 
 export interface ArtifactStoreOptions {
@@ -41,7 +45,11 @@ export interface PutArtifactOptions {
   readonly durability?: DurabilityClass;
 }
 
-const nodeFileSystem: ArtifactFileSystem = { mkdir, open, readFile };
+const nodeFileSystem: ArtifactFileSystem = { mkdir, open, readFile, link, rename, unlink };
+
+// Distinguishes concurrent writers' staging files; the pid separates processes and the
+// counter separates puts within one. Staging names never reach an artifact reference.
+let stagingSequence = 0;
 
 export class ArtifactStore {
   readonly fsyncPolicy: FsyncPolicy;
@@ -60,37 +68,47 @@ export class ArtifactStore {
     extension: Extension,
     options: PutArtifactOptions = {},
   ): Promise<ArtifactRef<Extension>> {
-    validateExtension(extension);
-    const bytes = new TextEncoder().encode(canonicalJson(value));
-    const hash = sha256(bytes);
-    const fileName = `${hash}.${extension}`;
-    const path = join(this.#artifactDirectory, fileName);
-    const ref = Object.freeze({
-      hash,
-      byteLength: bytes.byteLength,
-      extension,
-      relativePath: `artifacts/${fileName}`,
-    });
+    const { ref, bytes } = encodeArtifact(value, extension);
+    const path = join(this.#artifactDirectory, `${ref.hash}.${extension}`);
 
     await this.#fileSystem.mkdir(this.#artifactDirectory, { recursive: true });
 
-    let handle: ArtifactFileHandle;
+    const existing = await this.#readExisting(path);
+    if (existing !== undefined && matches(existing, bytes)) return ref;
+
+    // Stage the complete, flushed bytes and only then publish them under the content address.
+    // Creating the final name first let a concurrent put (or a later run after a crash
+    // mid-write) find an empty or partial file there and fail the content check.
+    stagingSequence += 1;
+    const staging = `${path}.${process.pid}-${stagingSequence}.tmp`;
+    const handle = await this.#fileSystem.open(staging, "wx");
     try {
-      handle = await this.#fileSystem.open(path, "wx");
-    } catch (error) {
-      if (!hasErrorCode(error, "EEXIST")) throw error;
-      await this.#assertExistingArtifact(path, bytes);
+      try {
+        await handle.writeFile(bytes);
+        await fsync(handle, this.fsyncPolicy, options.durability ?? "expensive");
+      } finally {
+        await handle.close();
+      }
+      if (existing === undefined) {
+        try {
+          await this.#fileSystem.link(staging, path);
+          return ref;
+        } catch (error) {
+          if (!hasErrorCode(error, "EEXIST")) throw error;
+        }
+        // Another writer published first. Its file is complete by construction.
+        const published = await this.#readExisting(path);
+        if (published !== undefined && matches(published, bytes)) return ref;
+      }
+      // A file that fails its own content address (torn by a crash before staging existed)
+      // can only be replaced by the bytes it names, so the atomic swap is safe.
+      await this.#fileSystem.rename(staging, path);
       return ref;
-    }
-
-    try {
-      await handle.writeFile(bytes);
-      await fsync(handle, this.fsyncPolicy, options.durability ?? "expensive");
     } finally {
-      await handle.close();
+      await this.#fileSystem.unlink(staging).catch((error: unknown) => {
+        if (!hasErrorCode(error, "ENOENT")) throw error;
+      });
     }
-
-    return ref;
   }
 
   async get<T>(ref: ArtifactRef): Promise<T> {
@@ -119,12 +137,31 @@ export class ArtifactStore {
     return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as T;
   }
 
-  async #assertExistingArtifact(path: string, expected: Uint8Array): Promise<void> {
-    const existing = await this.#fileSystem.readFile(path);
-    if (existing.byteLength !== expected.byteLength || sha256(existing) !== sha256(expected)) {
-      throw new Error("Existing content-addressed artifact does not contain the expected bytes");
+  async #readExisting(path: string): Promise<Uint8Array | undefined> {
+    try {
+      return await this.#fileSystem.readFile(path);
+    } catch (error) {
+      if (hasErrorCode(error, "ENOENT")) return undefined;
+      throw error;
     }
   }
+}
+
+function matches(existing: Uint8Array, expected: Uint8Array): boolean {
+  return existing.byteLength === expected.byteLength && sha256(existing) === sha256(expected);
+}
+
+/** The reference `put` would return for a value, computed without touching the filesystem. */
+export function contentAddress<Extension extends string>(value: unknown, extension: Extension): ArtifactRef<Extension> {
+  return encodeArtifact(value, extension).ref;
+}
+
+function encodeArtifact<Extension extends string>(value: unknown, extension: Extension): { readonly ref: ArtifactRef<Extension>; readonly bytes: Uint8Array } {
+  validateExtension(extension);
+  const bytes = new TextEncoder().encode(canonicalJson(value));
+  const hash = sha256(bytes);
+  const ref = Object.freeze({ hash, byteLength: bytes.byteLength, extension, relativePath: `artifacts/${hash}.${extension}` });
+  return { ref, bytes };
 }
 
 function sha256(bytes: Uint8Array): string {

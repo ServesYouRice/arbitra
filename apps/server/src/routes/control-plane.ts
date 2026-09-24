@@ -1,6 +1,5 @@
 import { ROUTE_INVENTORY } from "./inventory.js";
 import { redactSecrets } from "@arbitra/security/redaction";
-import type { CheckpointRegistry } from "../checkpoints.js";
 import { streamSse, type SseReply } from "../sse.js";
 
 type Handler = (request: { body?: unknown; params?: Record<string, string>; query?: unknown }, reply: unknown) => Promise<unknown> | unknown;
@@ -9,10 +8,10 @@ export interface HttpSchemas { readonly [route: string]: unknown }
 export interface ControlPlaneCore {
   configurations: { list(): Promise<unknown>; save(body: unknown): Promise<unknown>; load(id: string): Promise<unknown>; update(id: string, body: unknown): Promise<unknown>; duplicate(id: string, body: unknown): Promise<unknown>; validate(body: unknown): unknown; export(id: string): Promise<unknown> };
   repositories: { select(body: unknown): Promise<unknown> };
-  runs: { estimate(body: unknown): Promise<unknown>; start(body: unknown): Promise<unknown>; status(id: string): Promise<unknown>; resume(id: string): Promise<unknown>; events(id: string): AsyncIterable<unknown>; cancel(id: string): Promise<unknown>; artifacts(id: string): Promise<unknown>; artifact(id: string, artifactId: string): Promise<unknown> };
+  runs: { estimate(body: unknown): Promise<unknown>; start(body: unknown): Promise<unknown>; status(id: string): Promise<unknown>; resume(id: string): Promise<unknown>; events(id: string): AsyncIterable<unknown>; cancel(id: string): Promise<unknown>; respondCheckpoint(id: string, checkpointId: string, body: unknown): Promise<unknown>; artifacts(id: string): Promise<unknown>; artifact(id: string, artifactId: string): Promise<unknown> };
 }
 
-export function registerControlPlaneRoutes(server: RouteServer, core: ControlPlaneCore, checkpoints: CheckpointRegistry, schemas: HttpSchemas): void {
+export function registerControlPlaneRoutes(server: RouteServer, core: ControlPlaneCore, schemas: HttpSchemas): void {
   const route = (method: string, url: string, handler: Handler): void => { const schema = schemas[`${method} ${url}`]; if (schema === undefined) throw new Error(`MISSING_HTTP_SCHEMA:${method} ${url}`); server.route({ method, url, schema, handler: redactHandler(handler) }); };
   route("GET", "/configurations", () => core.configurations.list());
   route("POST", "/configurations", ({ body }) => core.configurations.save(body));
@@ -28,7 +27,9 @@ export function registerControlPlaneRoutes(server: RouteServer, core: ControlPla
   route("POST", "/runs/:id/resume", ({ params }) => core.runs.resume(required(params, "id")));
   route("GET", "/runs/:id/events", async ({ params }, reply) => streamSse(reply as SseReply, guardedEvents(core.runs.events(required(params, "id")))));
   route("POST", "/runs/:id/cancel", ({ params }) => core.runs.cancel(required(params, "id")));
-  route("POST", "/runs/:id/checkpoints/:checkpointId", ({ params, body }) => { const id = required(params, "id"); const checkpointId = required(params, "checkpointId"); const decision = (body as { decision?: unknown } | undefined)?.decision; if (typeof decision !== "string") throw new Error("CHECKPOINT_DECISION_REQUIRED"); checkpoints.respond(id, checkpointId, decision); return { accepted: true }; });
+  // Generic human checkpoints are durable run state owned by the orchestrator; the route
+  // forwards the versioned decision and keeps no checkpoint state of its own.
+  route("POST", "/runs/:id/checkpoints/:checkpointId", ({ params, body }) => core.runs.respondCheckpoint(required(params, "id"), required(params, "checkpointId"), body));
   route("GET", "/runs/:id/artifacts", ({ params }) => core.runs.artifacts(required(params, "id")));
   route("GET", "/runs/:id/artifacts/:artifactId", ({ params }) => core.runs.artifact(required(params, "id"), required(params, "artifactId")));
   if (ROUTE_INVENTORY.length !== 17) throw new Error("ROUTE_INVENTORY_INCOMPLETE");

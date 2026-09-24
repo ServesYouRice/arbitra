@@ -12,7 +12,7 @@ function outcome(current: RepositorySnapshot): TestingPlanExecutionOutcome {
   const snapshotFingerprint = verificationSnapshotFingerprint(current);
   return { passed: true, reasons: [], planFingerprint: "a".repeat(64), snapshotFingerprint, tasks: [{ taskId: "TASK-001", state: "completed" }],
     finalVerification: [{ taskId: "TASK-001", attemptId: "final", artifactId: "verified", taskFingerprint: "b".repeat(64), policyFingerprint: "c".repeat(64), snapshotFingerprint,
-      status: "passed", deterministicFailure: false, reasons: [], checks: [{ command: "test", checkId: "tests", executionId: "execution", status: "passed", expectedExitCode: 0, actualExitCode: 0 }] }] };
+      status: "passed", deterministicFailure: false, reasons: [], checks: [{ command: "test", checkId: "tests", executionId: "execution", status: "passed", expectedExitCode: 0, actualExitCode: 0 }] }], repair: [] };
 }
 
 it("exports exact replacement bytes and a baseline compare-and-swap hash", () => {

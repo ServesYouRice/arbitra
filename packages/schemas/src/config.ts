@@ -5,6 +5,7 @@ import { providerExecutionSchema } from "./provider-execution.js";
 import { verificationExecutionSchema } from "./verification-execution.js";
 import { featureExecutionSchema } from "./feature-execution.js";
 import { testingExecutionSchema } from "./testing.js";
+import { checkpointPolicySchema } from "./checkpoint-policy.js";
 
 export const RUN_CONFIG_SCHEMA_VERSION = 1 as const;
 
@@ -49,6 +50,10 @@ export const runConfigSchema = z.object({
     if (workflow["feature"] !== undefined) {
       const feature = featureExecutionSchema.safeParse(workflow["feature"]);
       if (!feature.success) for (const issue of feature.error.issues) context.addIssue({ ...issue, path: ["feature", ...issue.path] });
+    }
+    if (workflow["checkpoints"] !== undefined) {
+      const checkpoints = checkpointPolicySchema.safeParse(workflow["checkpoints"]);
+      if (!checkpoints.success) for (const issue of checkpoints.error.issues) context.addIssue({ ...issue, path: ["checkpoints", ...issue.path] });
     }
     if (workflow["modelExecution"] === undefined) return;
     const result = providerExecutionSchema.safeParse(workflow["modelExecution"]);

@@ -297,6 +297,8 @@ See [Feature mode](workflows.md#feature-mode) for revision and the equivalent HT
 | `TESTING_TASK_MODEL_CONFIGURATION_INVALID` | configuration | Writer must exist, declare `supports.tools`, and meet its tier |
 | `MODEL_EFFORT_UNSUPPORTED:<id>` | configuration | Add the level to `effort.supported` or an explicit `effort.collapse` (warning for writer routing levels) |
 | `TESTING_WRITE_PATH_INVALID`, `TESTING_WRITE_WITHOUT_VERIFICATION_CHECK` | configuration | Grant exact test file paths that a bound check covers |
+| `CHECKPOINT_POLICY_REQUIRED`, `GATE_POLICY_REQUIRED`, `UNKNOWN_GATE_POLICY`, `UNKNOWN_CHECKPOINT_NODE`, … | configuration | For graphs with gate/human nodes (including operator-registered graphs): set `workflow.checkpoints` and give every gate a known policy |
+| `BATCH_LANE_MODEL_PROFILE_REQUIRED`, other batch-lane codes | configuration | A `workflow.modelExecution.batch` lane must name a bound profile that declares `supports.batch`, on a transport with a batch driver |
 | `MODEL_IDENTITY_PLACEHOLDER:<id>` | environment (live runs) | Set real `modelId`/`family` |
 | `PROVIDER_CREDENTIAL_MISSING:<endpoint>` | environment | Export the named variable |
 | `SANDBOX_ENGINE_UNAVAILABLE`, `SANDBOX_IMAGE_UNAVAILABLE:<image>` | environment | Start a Linux Docker engine; make the pinned image present locally |

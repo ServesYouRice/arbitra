@@ -36,7 +36,7 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
     workflow: { preset: "audit-deep", modelExecution: {
       endpoints: ids.map((id, index) => ({ id, providerId: providers[index], transport: transports[index], endpoint: `https://${id}.example/v1`, apiKeyEnvVar: "FIXTURE_KEY" })),
       modelEndpoints: Object.fromEntries(ids.map((id) => [id, id])), roles: { planner: "auditor-a", verifier: "auditor-b", critic: "auditor-c" },
-      maximumClusteringPairs: manyIssues ? 0 : 20, maximumOutputTokens: 2_000, maximumTokens: manyIssues || options.largeCriticContext === true && options.revision !== undefined ? 20_000_000 : 1_000_000, timeoutMs: 2_000, maximumRetries: 0,
+      maximumClusteringPairs: manyIssues ? 0 : 20, maximumOutputTokens: 2_000, maximumTokens: manyIssues || options.largeCriticContext === true && options.revision !== undefined ? 20_000_000 : 1_000_000, timeoutMs: 30_000, maximumRetries: 0,
       rateLimits: Object.fromEntries(providers.map((id) => [id, { rpm: 1000, tpm: 10_000_000, maxConcurrent: 4 }])),
     } },
   });
@@ -235,7 +235,7 @@ describe("composed model audits", () => {
     expect(primary.filter((id) => id.startsWith("revision:")).sort()).toEqual(original.items.map(({ id }) => `revision:${id}`).sort());
     for (const { id } of original.items) for (const task of revised.plan.tasks) expect(batches.some(({ recordIds }) => recordIds.includes(`revision:${id}`) && recordIds.includes(`task:${task.id}`))).toBe(true);
     expect((await resumed.gate(run.runId)).reasons.includes("blocking_critic_feedback")).toBe(revision === "still_blocking");
-  }, 60_000);
+  }, 120_000); // ~32 s per case alone (beta and this branch); exceeded 60 s under full-suite contention
 
   it("plans oversized accepted issues using one global outline and resumes completed expansions", async () => {
     const { create, config, requests, failExpansion } = await fixture({ largePlannerContext: true });
