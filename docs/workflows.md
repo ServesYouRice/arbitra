@@ -240,8 +240,9 @@ The runtime library has durable requirements checkpoints, grounded exploration a
 targeted independent requirements review with up to three rounds. Draft revisions
 invalidate operator approvals and downstream review identities. Dedicated requirements
 controls in the web UI remain unfinished. Feature uses the runner's subgraph primitive; stage detail is available in
-its artifacts and traces. Audit-policy replay is explicitly unsupported for Feature;
-ordinary durable resume is supported.
+its artifacts and traces. Audit-policy replay is rejected for Feature runs; Feature
+replay has its own contract (see [Feature and Testing replay](#feature-and-testing-replay)).
+Ordinary durable resume is supported.
 
 `packages/runtime/src/model-feature-planning.ts` composes the selected planner with an
 independent critic and at most one revision/re-review. Only a complete, non-degraded
@@ -292,7 +293,8 @@ it is not proof of test coverage. Blocking questions withhold the handoff.
 
 All stages share the durable model budget and resume machinery. In plan mode commands
 are never run, the source tree stays unchanged, and the planning result records `testsExecuted: false`.
-Audit-policy replay is unsupported for Testing. Dedicated web controls and expanded
+Audit-policy replay is rejected for Testing runs; Testing replay has its own contract (see
+[Feature and Testing replay](#feature-and-testing-replay)). Dedicated web controls and expanded
 Testing subgraph views remain open.
 Guarded execution is opt-in: use `workflow.preset: "testing-execute"` (or omit the preset),
 set `workflow.testing.mode: "execute"`, and supply `workflow.testing.execution` with:
@@ -347,8 +349,109 @@ they are not repaired. Cancellation stops the run, and a later resume can contin
 the exact final bytes that pass fresh verification are exported. Repair is covered with
 injected sandbox/provider ports. Its real-Docker repetition is still outstanding.
 Native harness execution and live-provider/Docker acceptance QA remain open.
-The [completion plan](completion-plan.md) also tracks oversized contexts, web controls,
-mode-specific replay and the remaining extensions.
+The [completion plan](completion-plan.md) also tracks oversized contexts, web controls
+and the remaining extensions.
+
+## Feature and Testing replay
+
+Replay creates a **new run** from a saved source run; it never continues or modifies the
+source. Continuing an interrupted run is `resume`, which keeps the run's own identity,
+journal and contract. Each mode has its own replay contract
+([`replay-contracts.ts`](../packages/runtime/src/replay-contracts.ts)). Audit replay keeps
+its existing meaning: reuse round-zero discovery under new consensus policy
+(`replay <run-id> --consensus-policy …`). Audit policy overrides are rejected for Feature
+and Testing runs.
+
+A Feature or Testing replay request names its mode and may replace the saved
+configuration with one of the same mode:
+
+```json
+{ "mode": "feature", "configuration": { "...": "optional, same mode" },
+  "requirements": { "decision": "reuse_approved", "artifactId": "requirements-contract-version-…" } }
+{ "mode": "testing", "execution": { "mode": "plan" } }
+{ "mode": "testing", "execution": { "mode": "execute", "authorization": { "maximumParallelTasks": 1,
+  "partitions": [{ "id": "tests", "paths": ["test/session.test.ts"] }], "tasks": [{ "taskId": "TASK-001", "partitionId": "tests", "exclusive": false }] } } }
+```
+
+Submit it with `replay <run-id> --request <file.json>` or `POST /runs/:id/replay`. Both
+call the same orchestrator. The route returns once the new run exists, with its stage
+decisions, and the run then streams on its own events. `GET /runs/:id/replay` and the
+run summary's `replay` field report provenance. A request whose mode differs from the
+source run fails with `REPLAY_MODE_MISMATCH` (HTTP 409). Malformed requests fail with
+`INVALID_REPLAY_REQUEST` (400). No run is created for either.
+
+**Stages.** Feature has five stages: `requirements`, `exploration`, `review`,
+`requirements-revision` and `planning`. Testing has three: `analysis`, `planning` and,
+in execute mode, `execution`. Each stage owns the model activities whose IDs it matches.
+Its identity binds several components:
+
+- the repository snapshot digest and scope;
+- the harness;
+- its own settings: the Feature request and requirements mode, the complete Testing
+  settings for analysis, and the write authorization for planning;
+- the model profiles and endpoints of its roles, plus the output limit;
+- the pinned protocol versions and hashes, and prompt overrides;
+- the identity of the preceding stage.
+
+The replay computes both runs' identities before creating the new run. It stores the
+decisions in the new run's immutable `replay-contract` artifact. A stage is reused only
+when every component is equal; otherwise the decision names each changed component
+(`changed:models`, `changed:upstream`, and so on). Protocol bytes are pinned into the new
+run before it starts. A protocol the source never pinned cannot have produced a source
+output, so it does not invalidate the stage; the decision lists it as
+`sourceUnpinnedProtocols`.
+
+Within a reused stage each activity is also checked on its own. Its saved output must
+carry a replay identity equal to the new request's. That identity covers the full
+messages, the model profile and endpoint, the protocol, the harness policy, tools and
+source paths; budgets, retries, rate limits and the batch lane are excluded. Reused
+outputs are published in the new run with `replayedFrom` provenance naming the source
+artifact. They make no provider call and consume none of the new run's token budget.
+Every other activity is regenerated and charged to the new run. Each lookup is recorded
+as `replay-activity-<key>` with `reused` or a reason:
+
+- `stage_invalidated`
+- `source_activity_absent`
+- `source_artifact_unreadable` (missing or corrupt, detected by content hash)
+- `source_activity_identity_unavailable` (saved before replay identities existed)
+- `activity_identity_changed`
+- `source_output_invalid`
+
+Missing or corrupt source artifacts are never trusted. They force regeneration.
+
+**Requirements.** By default (`reapprove`) a Feature replay derives its requirements
+again. It reuses a compatible saved draft, but interactive high-impact defaults need a
+fresh approval in the new run. `reuse_approved` must name the source's *current*,
+fully approved contract. The replay then copies that contract, its lineage and any
+revision ledger into the new run and verifies that the copy resolves to the same version.
+The request fails with HTTP 409 in these cases:
+
+- `REPLAY_REQUIREMENTS_CONTRACT_STALE`: a superseded version is named;
+- `REPLAY_REQUIREMENTS_NOT_APPROVED`: approvals are pending;
+- `REPLAY_REQUIREMENTS_CONTRACT_INCOMPATIBLE`: the requirements stage, request, source or
+  model changed;
+- `REPLAY_REQUIREMENTS_ARTIFACT_MISSING`: a contract artifact is missing.
+
+**Testing execution.** A Testing replay must choose its execution. A `plan` replay drops
+the execution settings. Its graph has no execute node, and it holds no sandbox, so it
+cannot dispatch writers or checks. An `execute` replay is a new, explicitly authorized
+execution. Its write grant comes only from the request, never from the source run or a
+supplied configuration. The contract records the grant's digest with authority
+`replay_request`. Execution is never reused. The run gets its own worktree, and writers
+and checks run again, so its change set and completion rest on fresh evidence. A source
+run in plan mode has no execution settings to reuse. An `execute` replay of it needs a
+`configuration` that supplies them; otherwise it fails with
+`REPLAY_EXECUTION_CONFIGURATION_REQUIRED`. Testing analysis activities are keyed by the
+complete Testing settings, so changing the write grant also regenerates analysis and
+planning.
+
+Resuming a replay run uses its stored contract and never re-decides reuse from the
+current configuration. Coverage uses injected fake providers and sandboxes. It includes
+full reuse, changed models, requests and grants, changed protocols and scope (at the
+contract level), stale and unapproved
+contracts, missing and corrupt artifacts, a failed replay resumed as the same run,
+byte-level source immutability and CLI/HTTP parity. Replay under live providers and real
+Docker has not been exercised.
 
 ## Presets
 

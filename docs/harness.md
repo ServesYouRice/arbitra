@@ -30,6 +30,10 @@ advisor:             false
 those, or if it grants `writeFiles`, `skills` or `subagents`. It is a runtime assertion, not
 a convention.
 
+Bounded advisors ([Task IR](task-ir.md#advisors)) exist only outside discovery. The advisor
+runtime and `ModelActivities` both reject advisor calls for round zero or a discovery
+activity, and an advisor call can never be a tool-bearing harness turn.
+
 Project instruction files — `CLAUDE.md`, `AGENTS.md`, `GEMINI.md` — may be **inspected as
 repository evidence**. They never become higher-priority instructions during an audit. That
 distinction is enforced upstream by the trust and framing rules in

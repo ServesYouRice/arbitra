@@ -17,7 +17,7 @@ import { readStage } from "./pipeline.js";
 import type { RunStore } from "./run-store.js";
 import type { RepositorySnapshot } from "./repository.js";
 import { ModelHarness } from "./model-harness.js";
-import { ModelActivities } from "./model-activities.js";
+import { ModelActivities, type ActivityReplaySource } from "./model-activities.js";
 import { modelRequirementsRevision } from "./model-requirements-revision.js";
 import { applyRequirementsProposal, requirementsRevisionContext } from "./requirements-revision.js";
 import { validateBatchLanes } from "./model-batch-lane.js";
@@ -49,9 +49,9 @@ export interface FeatureOutcome {
 export class FeaturePipeline {
   readonly settings;
   readonly harness: ModelHarness;
-  constructor(private readonly store: RunStore, private readonly config: RunConfig, private readonly snapshot: RepositorySnapshot, private readonly transport: TransportFactoryOptions) {
+  constructor(private readonly store: RunStore, private readonly config: RunConfig, private readonly snapshot: RepositorySnapshot, private readonly transport: TransportFactoryOptions, replay?: ActivityReplaySource) {
     this.settings = validateModelFeature(config);
-    this.harness = new ModelHarness(new ModelActivities(store, config, transport), config, snapshot, store);
+    this.harness = new ModelHarness(new ModelActivities(store, config, transport, replay), config, snapshot, store);
   }
 
   async requirements(signal: AbortSignal) {

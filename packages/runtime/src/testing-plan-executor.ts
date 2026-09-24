@@ -147,7 +147,8 @@ export class TestingPlanExecutor {
           if (task === undefined) throw new Error("TESTING_SCHEDULE_TASK_ABSENT");
           return { store: this.store, config: this.#config, activities: this.activities, task,
             policy: this.#options.verification, request, partitions: this.#partitions, workspace: this.#workspace, verifier: this.#verifier,
-            models: this.#options.models, maximumAttempts: this.#options.maximumAttempts, signal };
+            models: this.#options.models, maximumAttempts: this.#options.maximumAttempts, signal,
+            ...(this.#options.advisors === undefined ? {} : { advisors: this.#options.advisors }) };
         });
         const results = await runTestingBatch(inputs);
         for (const [index, result] of results.entries()) {
