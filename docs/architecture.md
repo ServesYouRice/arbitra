@@ -115,6 +115,7 @@ See [`durability.md`](durability.md).
 ```text
 validate  estimate  run  audit  status  resume  replay  diff  trace  export  report
 requirements  approve-requirements  revise-requirements  apply-requirements-revision
+respond-checkpoint
 ```
 
 `apps/cli/src/exit-policy.ts` is the sole mapping from outcome to process exit code:
@@ -134,6 +135,10 @@ no schema entry throws `MISSING_HTTP_SCHEMA` at registration rather than serving
 input. Seventeen control-plane routes are listed in `apps/server/src/routes/inventory.ts`;
 two evaluation routes (`GET /runs/:id/metrics`, `POST /runs/compare`) register only when a
 metric store is wired, and return 404 otherwise.
+
+`POST /runs/:id/checkpoints/:checkpointId` records one versioned decision for a generic
+`human` node through the orchestrator. The server holds no checkpoint state. See
+[Gates and human checkpoints](workflows.md#gates-and-human-checkpoints).
 
 Four requirements routes expose saved Feature contracts and versioned approval/revision
 operations. See [Feature mode](workflows.md#feature-mode) for their payloads and CLI
@@ -185,8 +190,9 @@ The [completion plan](completion-plan.md) records dependencies and acceptance cr
   repair cases have not yet been repeated against the real Docker sandbox.
 - Individually oversized records and mandatory global contexts can still fail explicitly
   across Audit, Feature and Testing.
-- Durable Feature requirements checkpoints work through CLI/HTTP. Generic graph
-  checkpoints/gates, dedicated web controls and Feature/Testing replay remain incomplete.
+- Durable Feature requirements checkpoints and generic gate/human checkpoints work through
+  CLI/HTTP. Generic checkpoints apply to registered graphs; the shipped presets do not
+  contain those nodes. Dedicated web controls and Feature/Testing replay remain incomplete.
 - The trace browser is implemented; browser acceptance QA and a persistent large-log
   query index remain outstanding. Longitudinal evaluation corpora are currently in-memory.
 - The September 24 review found test-discovery and macOS reliability defects; see

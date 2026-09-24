@@ -55,6 +55,7 @@ export function controlPlaneCore(orchestrator: Orchestrator) {
       resume: (id: string) => orchestrator.resume(id),
       events: (id: string) => orchestrator.events(id),
       cancel: async (id: string) => orchestrator.cancel(id),
+      respondCheckpoint: (id: string, checkpointId: string, body: unknown) => orchestrator.respondCheckpoint(id, checkpointId, body),
       artifacts: (id: string) => orchestrator.artifacts(id),
       artifact: (id: string, artifactId: string) => orchestrator.artifact(id, artifactId),
     },
