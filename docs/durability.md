@@ -92,6 +92,7 @@ runtime, so a cancelled run stops paying rather than finishing quietly in the ba
 | Mid-write to the journal | The torn trailing record is truncated on load; the log stays consistent. |
 | Mid-write to the evaluation corpus journal | Records after the last `commit`, and any torn line, are truncated on load; the import is retried idempotently. |
 | `index.db` deleted | `packages/persistence/src/index-db/rebuild.ts` rebuilds it from the journal and traces, producing an identical query result. The index is a cache, never a source of truth. |
+| `model-activity.index.db` deleted, stale or corrupt | The next trace query re-derives it from the committed trace log; responses and trace IDs are unchanged. |
 
 ## Configuration drift
 
@@ -138,6 +139,45 @@ with refusals kept separate from errors.
 
 `index-db/rebuild.ts` builds the SQLite query index from those traces and the journal. It
 is disposable by design: delete it and it comes back identical.
+
+The trace browser uses a second, per-run derived index:
+`packages/persistence/src/trace-index.ts` keeps `metrics/model-activity.index.db` beside
+`metrics/model-activity.jsonl` (SQLite through the built-in `node:sqlite`, no native
+dependency). It stores only filter columns (node, model, protocol, outcome, activity) and
+the byte range of each **committed** — newline-terminated — non-empty line, so trace IDs
+remain the positions `loadActivityTraces` assigns. The log stays authoritative:
+
+- **Catch-up, not rescans.** Each query stats the log and indexes only bytes past the last
+  committed offset it recorded. Bytes after the final newline are a torn or in-flight tail
+  and are never indexed or served; once a writer completes or repairs that tail, the next
+  query indexes it.
+- **Staleness checks.** A log shorter than the indexed prefix, or a changed first/last
+  indexed line (SHA-256 anchors), discards the index and re-derives it from the log. An
+  unreadable database, a wrong format/run ID, or a row count that disagrees with its IDs
+  does the same.
+- **Every served record comes from the log.** Page and detail responses re-read each
+  record's byte range, require it to start and end on line boundaries, parse and validate
+  it, and compare it with its index row and the requested filter. A mismatch is treated as
+  index corruption: the index is rebuilt and the query retried once. Unserved rows are not
+  re-verified per query, so a silently altered row that is never served could skew a filtered
+  `total` until the next rebuild; `rebuildTraceIndex` re-derives everything on demand.
+- **Log errors are not masked.** An invalid committed line or a foreign run ID fails the
+  query with the same error the full-scan loader raises; rebuilding cannot fix the log.
+
+`packages/runtime/test/trace-index.test.ts` compares indexed and full-scan responses over
+filter and pagination combinations after append, writer restart, torn tails, explicit
+rebuild, index deletion or tampering, and log truncation/replacement.
+
+**Size target and budget.** `pnpm --filter @arbitra/runtime bench:traces` generates a
+100 000-trace run (about 91 MB of JSONL) and, per warm browser request, requires p95
+latency ≤ 50 ms, ≤ 256 KiB read from the log and ≤ 16 MiB transient heap growth. Observed
+on an Apple-silicon Mac (Node 22.23, commit base 391d3e4): cold index build 2.1 s
+(17 MB index); warm p95 2–10 ms for first, deep (offset 99 975), node-filtered, 100-row and
+detail requests, 17–19 ms for a three-filter composition and the activity-substring filter,
+reading 2.6–93 KB of log and allocating under 1 MB. The previous full-scan path took
+≈1.0–1.1 s per page, read all 91 MB and grew the heap by ≈490 MB. Filtered totals and the
+activity substring still scan index rows (not the log), so their cost grows with history
+length; the first query on a large, never-indexed run pays the cold build once.
 
 ## Evaluation corpora
 
