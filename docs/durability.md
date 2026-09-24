@@ -90,6 +90,7 @@ runtime, so a cancelled run stops paying rather than finishing quietly in the ba
 | After the response, before `activity_end` | The attempt is journalled as incomplete; the retry is bounded and visible. |
 | After `activity_end` | The result is replayed from the artifact store. Nothing is re-paid. |
 | Mid-write to the journal | The torn trailing record is truncated on load; the log stays consistent. |
+| Mid-write to the evaluation corpus journal | Records after the last `commit`, and any torn line, are truncated on load; the import is retried idempotently. |
 | `index.db` deleted | `packages/persistence/src/index-db/rebuild.ts` rebuilds it from the journal and traces, producing an identical query result. The index is a cache, never a source of truth. |
 
 ## Configuration drift
@@ -137,6 +138,38 @@ with refusals kept separate from errors.
 
 `index-db/rebuild.ts` builds the SQLite query index from those traces and the journal. It
 is disposable by design: delete it and it comes back identical.
+
+## Evaluation corpora
+
+`packages/persistence/src/evaluation-corpus/store.ts` (`EvaluationCorpusStore`) keeps
+real-world outcomes, independence observations, run provenance, versioned ground truth,
+adjudications and report exports in one corpus directory:
+
+```text
+<corpus>/corpus.jsonl                 append-only journal of canonical-JSON records
+<corpus>/artifacts/<sha256>.ground-truth    immutable ground-truth versions
+<corpus>/artifacts/<sha256>.corpus-report   exported, redacted reports
+```
+
+Every write is one batch: its records followed by `{t:"commit", batch, count}`, written in a
+single append and flushed as the `expensive` durability class. Ground-truth and report
+artifacts are written and flushed before the journal batch that references them, so an
+orphaned artifact is possible but a dangling reference is not. Records carry the SHA-256
+of their canonical content.
+
+On load the journal is replayed through the same rules that validate imports. A torn
+trailing line and complete records after the last commit are truncated, so a crash
+mid-import leaves exactly the committed batches (`open()` reports the bytes and records
+it rolled back). An invalid or conflicting record *before* the last commit, an
+out-of-sequence batch, or a missing or mismatched ground-truth artifact fails closed with
+`CorpusJournalCorruptError`; nothing is silently repaired. Imports are idempotent, so
+repeating an interrupted import completes it. A failed append invalidates the in-memory
+projection, and the next operation reloads and recovers.
+
+The store serialises its own operations but assumes **one writer per corpus directory**;
+it takes no cross-process lock. A second writer's conflicting records would make the
+journal fail to load rather than be merged. Queries read the journal projection directly;
+there is no SQLite projection for corpora yet.
 
 ## Recovery boundaries
 
