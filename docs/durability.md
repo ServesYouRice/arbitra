@@ -110,11 +110,23 @@ the current version. Stale versions are rejected, edits clear approvals, and res
 reuses only model stages matching the current contract. Interactive unresolved decisions
 keep the run `BLOCKED`. See [Feature mode](workflows.md#feature-mode).
 
-The generic policy helpers in `packages/core/src/checkpoints.ts` and the server's
-`CheckpointRegistry` are separate groundwork. That registry is in-memory and does not
-establish generic durable graph checkpoints. Dedicated web requirements controls and
-generic human/gate composition remain completion tasks P09/P10; the current UI should
-not be described as able to answer every durable checkpoint.
+Generic `human` and `gate` nodes are durable too
+(`packages/core/src/runner/graph-checkpoints.ts`, bound to the run directory by
+`packages/runtime/src/graph-checkpoint-store.ts`). Each checkpoint version is published as
+an immutable artifact. The current version is also named `checkpoint-<node>`. A version is
+the hash of the node definition and its inputs. Decisions are create-once records under
+`records/checkpoints/<node>/<version>.json`. The record is fsynced under a temporary name and
+hard-linked into place, so a second response from any process fails instead of replacing
+the first. A response for a superseded version is rejected as stale. The run policy
+(`checkpointPolicy`) is saved in the run context. Restart, resume and replay use that saved
+policy and the stored graph definition, not the current configuration. The server keeps no
+checkpoint state of its own; the previous in-memory registry was removed. See
+[Gates and human checkpoints](workflows.md#gates-and-human-checkpoints).
+
+`packages/core/src/checkpoints.ts` is unrelated to graph nodes. It is the security
+envelope's rule for when tainted writes or `requires_approval` commands need a checkpoint.
+Dedicated web requirements controls remain P10. The web inspector answers only pending
+generic human checkpoints.
 
 ## Traces and the rebuildable index
 
@@ -136,8 +148,9 @@ is disposable by design: delete it and it comes back identical.
   A resumed attempt can issue another request, retaining the original budget reservation
   and unknown-usage accounting. The optional provider continuation store exists, but
   composed model activities currently disable provider-side continuation.
-- **Generic checkpoints.** Feature requirements decisions are durable; the separate
-  in-memory generic server checkpoint registry is not.
+- **Generic checkpoints.** Feature requirements decisions and generic human-node decisions
+  are durable. A decided checkpoint takes effect only when the operator resumes the run.
+  Resume reuses the recorded decision for the current version and never asks again.
 - **`.runs/` and `implementation/` are mandatory audit exclusions** — `MANDATORY_ROOTS` in
   `packages/security/src/exclusions.ts`, not a configurable default — so a run cannot read
   its own output or its own plan and mistake either for repository evidence.

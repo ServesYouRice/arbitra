@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
-import { RunApi, type RunResource } from "../api/runs.js";
+import { RunApi, type HumanCheckpointResource, type RunResource } from "../api/runs.js";
 export function RunControls({ api, configurationId, initialRunId = null, initialRepository = "", currentRun, onRunStarted }: { readonly api: RunApi; readonly configurationId: string; readonly initialRunId?: string | null; readonly initialRepository?: string; readonly currentRun?: RunResource | null; readonly onRunStarted?: (run: RunResource) => void }): ReactElement {
   const [repository, setRepository] = useState(initialRepository);
   const [run, setRun] = useState<RunResource | null>(null);
@@ -18,11 +18,11 @@ export function RunControls({ api, configurationId, initialRunId = null, initial
     return () => { active = false; };
   }, [api, initialRunId]);
   useEffect(() => { if (currentRun !== undefined && currentRun !== null) setRun(currentRun); }, [currentRun]);
-  const checkpoint = run?.checkpoints[0];
+  const checkpoint = run?.checkpoints.find((item): item is HumanCheckpointResource => item.kind === "human" && item.status === "pending");
   const activeRunId = run?.runId ?? null;
-  const respond = async (runId: string, checkpointId: string, decision: string): Promise<void> => {
+  const respond = async (runId: string, target: HumanCheckpointResource, decision: "approve" | "reject"): Promise<void> => {
     try {
-      await api.respondCheckpoint(runId, checkpointId, decision);
+      await api.respondCheckpoint(runId, target.checkpointId, target.version, decision);
       await invoke(() => api.status(runId));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -44,9 +44,9 @@ export function RunControls({ api, configurationId, initialRunId = null, initial
     {estimate === null ? null : <pre aria-label="run estimate">{JSON.stringify(estimate, null, 2)}</pre>}
     {run === null ? <p className="state" data-state="unexamined">run unavailable</p> : <p>run {run.runId} · {run.state} · {run.resumable ? "resumable" : "not resumable"}</p>}
     {checkpoint === undefined || activeRunId === null ? null : <div className="checkpoint" role="alert">
-      <p>{checkpoint.stage} · {checkpoint.prompt}</p>
-      <button type="button" onClick={() => { void respond(activeRunId, checkpoint.id, "continue"); }}>continue</button>
-      <button type="button" onClick={() => { void respond(activeRunId, checkpoint.id, "cancel"); }}>cancel at checkpoint</button>
+      <p>{checkpoint.checkpointId} · {checkpoint.prompt}</p>
+      <button type="button" onClick={() => { void respond(activeRunId, checkpoint, "approve"); }}>approve</button>
+      <button type="button" onClick={() => { void respond(activeRunId, checkpoint, "reject"); }}>reject</button>
     </div>}
     {error === null ? null : <p className="state" data-state="degraded" role="alert">{error}</p>}
   </section>;

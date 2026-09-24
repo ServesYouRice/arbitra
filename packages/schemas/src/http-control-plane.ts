@@ -3,10 +3,11 @@ import { runConfigSchema } from "./config.js";
 import { traceQuerySchema } from "./trace-browser.js";
 import { requirementsApprovalSchema } from "./feature-execution.js";
 import { requirementsDraftSchema } from "./requirements.js";
+import { CHECKPOINT_ID_PATTERN, checkpointResponseSchema } from "./checkpoint-policy.js";
 
 const idParams = { type: "object", additionalProperties: false, required: ["id"], properties: { id: { type: "string", minLength: 1, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9._-]*$" } } } as const;
 const artifactParams = { type: "object", additionalProperties: false, required: ["id", "artifactId"], properties: { ...idParams.properties, artifactId: { type: "string", minLength: 1, maxLength: 256 } } } as const;
-const checkpointParams = { type: "object", additionalProperties: false, required: ["id", "checkpointId"], properties: { ...idParams.properties, checkpointId: { type: "string", minLength: 1, maxLength: 128 } } } as const;
+const checkpointParams = { type: "object", additionalProperties: false, required: ["id", "checkpointId"], properties: { ...idParams.properties, checkpointId: { type: "string", minLength: 1, maxLength: 128, pattern: CHECKPOINT_ID_PATTERN.source } } } as const;
 const runConfigJsonSchema = z.toJSONSchema(runConfigSchema, { target: "draft-7", unrepresentable: "any" });
 const { definitions: runConfigDefinitions, ...nestedRunConfigJsonSchema } = runConfigJsonSchema as typeof runConfigJsonSchema & { definitions?: unknown };
 const configurationBody = { type: "object", additionalProperties: false, required: ["name", "config"], properties: { name: { type: "string", minLength: 1, maxLength: 200 }, config: nestedRunConfigJsonSchema }, ...(runConfigDefinitions === undefined ? {} : { definitions: runConfigDefinitions }) } as const;
@@ -42,7 +43,7 @@ export const HTTP_ROUTE_SCHEMAS = Object.freeze({
   "POST /runs/:id/resume": { params: idParams, response: jsonResponse },
   "GET /runs/:id/events": { params: idParams },
   "POST /runs/:id/cancel": { params: idParams, response: jsonResponse },
-  "POST /runs/:id/checkpoints/:checkpointId": { params: checkpointParams, body: { type: "object", additionalProperties: false, required: ["decision"], properties: { decision: { type: "string", minLength: 1 } } }, response: jsonResponse },
+  "POST /runs/:id/checkpoints/:checkpointId": { params: checkpointParams, body: z.toJSONSchema(checkpointResponseSchema, { target: "draft-7" }), response: jsonResponse },
   "GET /runs/:id/artifacts": { params: idParams, response: jsonResponse },
   "GET /runs/:id/artifacts/:artifactId": { params: artifactParams, response: jsonResponse },
   "GET /runs/:id/metrics": { params: idParams, response: jsonResponse },

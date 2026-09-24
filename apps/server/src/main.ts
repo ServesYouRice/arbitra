@@ -1,7 +1,6 @@
 import Fastify, { type FastifyInstance, type RouteOptions } from "fastify";
 import { HTTP_ROUTE_SCHEMAS } from "@arbitra/schemas/http-control-plane";
 import { redactSecrets } from "@arbitra/security/redaction";
-import { CheckpointRegistry } from "./checkpoints.js";
 import { registerControlPlaneRoutes, type ControlPlaneCore, type HttpSchemas, type RouteServer } from "./routes/control-plane.js";
 import { registerEvaluationRoutes, type EvaluationCore } from "./routes/evaluation.js";
 import { registerTraceRoutes, type TraceCore } from "./routes/traces.js";
@@ -46,7 +45,7 @@ export async function startServer(server: ListeningRouteServer, core: ServerCore
   await server.listen({ host: assertLoopbackHost(options.host ?? DEFAULT_SERVER_HOST), port: options.port ?? DEFAULT_SERVER_PORT });
 }
 function registerAll(server: RouteServer, core: ServerCore, schemas: HttpSchemas): void {
-  registerControlPlaneRoutes(server, core, new CheckpointRegistry(), schemas);
+  registerControlPlaneRoutes(server, core, schemas);
   if (core.evaluation !== undefined) registerEvaluationRoutes(server, core.evaluation, schemas);
   if (core.traces !== undefined) registerTraceRoutes(server, core.traces, schemas);
   if (core.requirements !== undefined) registerRequirementsRoutes(server, core.requirements, schemas);

@@ -2,7 +2,10 @@ import { useEffect, useState } from "react";
 import type { RunEvent } from "./sse.js";
 import type { WorkflowJson } from "../columns/graph/layout.js";
 
-export interface CheckpointResource { readonly id: string; readonly stage: string; readonly status: "pending"; readonly prompt: string }
+/** A generic human checkpoint; answer its current `version`, then resume the run. */
+export interface HumanCheckpointResource { readonly kind: "human"; readonly checkpointId: string; readonly version: string; readonly mode: "interactive" | "automatic"; readonly status: "pending" | "approved" | "rejected"; readonly prompt: string; readonly decisions: readonly ("approve" | "reject")[] }
+export interface RequirementsCheckpointResource { readonly kind: "requirements"; readonly artifactId: string; readonly pendingAmbiguityIds: readonly string[] }
+export type CheckpointResource = HumanCheckpointResource | RequirementsCheckpointResource;
 export interface RunResource { readonly runId: string; readonly state: string; readonly resumable: boolean; readonly checkpoints: readonly CheckpointResource[]; readonly eventsCursor?: string; readonly preservedArtifacts?: number; readonly workflow?: WorkflowJson }
 export interface EstimateResource { readonly estimate: unknown; readonly gate: string }
 export class RunApi {
@@ -13,7 +16,7 @@ export class RunApi {
   status(runId: string): Promise<RunResource> { return this.request(`/runs/${encodeURIComponent(runId)}`); }
   resume(runId: string): Promise<RunResource> { return this.request(`/runs/${encodeURIComponent(runId)}/resume`, { method: "POST" }); }
   cancel(runId: string): Promise<RunResource> { return this.request(`/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" }); }
-  respondCheckpoint(runId: string, checkpointId: string, decision: string): Promise<{ readonly accepted: true }> { return this.request(`/runs/${encodeURIComponent(runId)}/checkpoints/${encodeURIComponent(checkpointId)}`, { method: "POST", body: JSON.stringify({ decision }) }); }
+  respondCheckpoint(runId: string, checkpointId: string, version: string, decision: "approve" | "reject"): Promise<{ readonly accepted: true }> { return this.request(`/runs/${encodeURIComponent(runId)}/checkpoints/${encodeURIComponent(checkpointId)}`, { method: "POST", body: JSON.stringify({ version, decision }) }); }
   eventsUrl(runId: string): string { return `${this.baseUrl}/runs/${encodeURIComponent(runId)}/events`; }
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> { const response = await fetch(`${this.baseUrl}${path}`, { ...init, headers: { "content-type": "application/json", ...init.headers } }); if (!response.ok) throw new Error(`RUN_API_${response.status}`); return await response.json() as T; }
 }
