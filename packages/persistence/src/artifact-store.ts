@@ -60,17 +60,8 @@ export class ArtifactStore {
     extension: Extension,
     options: PutArtifactOptions = {},
   ): Promise<ArtifactRef<Extension>> {
-    validateExtension(extension);
-    const bytes = new TextEncoder().encode(canonicalJson(value));
-    const hash = sha256(bytes);
-    const fileName = `${hash}.${extension}`;
-    const path = join(this.#artifactDirectory, fileName);
-    const ref = Object.freeze({
-      hash,
-      byteLength: bytes.byteLength,
-      extension,
-      relativePath: `artifacts/${fileName}`,
-    });
+    const { ref, bytes } = encodeArtifact(value, extension);
+    const path = join(this.#artifactDirectory, `${ref.hash}.${extension}`);
 
     await this.#fileSystem.mkdir(this.#artifactDirectory, { recursive: true });
 
@@ -125,6 +116,19 @@ export class ArtifactStore {
       throw new Error("Existing content-addressed artifact does not contain the expected bytes");
     }
   }
+}
+
+/** The reference `put` would return for a value, computed without touching the filesystem. */
+export function contentAddress<Extension extends string>(value: unknown, extension: Extension): ArtifactRef<Extension> {
+  return encodeArtifact(value, extension).ref;
+}
+
+function encodeArtifact<Extension extends string>(value: unknown, extension: Extension): { readonly ref: ArtifactRef<Extension>; readonly bytes: Uint8Array } {
+  validateExtension(extension);
+  const bytes = new TextEncoder().encode(canonicalJson(value));
+  const hash = sha256(bytes);
+  const ref = Object.freeze({ hash, byteLength: bytes.byteLength, extension, relativePath: `artifacts/${hash}.${extension}` });
+  return { ref, bytes };
 }
 
 function sha256(bytes: Uint8Array): string {

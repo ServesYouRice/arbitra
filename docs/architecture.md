@@ -103,6 +103,7 @@ Everything that survives a crash lives in `packages/persistence`:
 | byte-stable serialisation | `canonical-json.ts` |
 | secret-bearing state kept out of the run directory | `private-store.ts` |
 | guarded metric aggregation | `metrics/query.ts`, `metrics/queries.ts` |
+| durable evaluation corpora, provenance and reports | `evaluation-corpus/` |
 
 See [`durability.md`](durability.md).
 
