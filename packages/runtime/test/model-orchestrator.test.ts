@@ -272,7 +272,7 @@ describe("composed model audits", () => {
       const context = JSON.parse((await resumed.artifact(run.runId, artifact.artifactId) as { content: string }).content) as { activityId: string; estimatedTokens: number; maximumEstimatedTokens: number };
       expect(context.estimatedTokens).toBeLessThanOrEqual(context.maximumEstimatedTokens);
     }
-  }, 60_000);
+  });
 
   it("reports recorded model activity without inventing ground-truth scores or cost", async () => {
     const { create, config, requests } = await fixture();
