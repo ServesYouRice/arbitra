@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { RunConfig } from "@arbitra/schemas/config.js";
 import type { ReplayOverrides } from "@arbitra/core/replay/index.js";
+import type { ReplayRequest } from "@arbitra/schemas/replay.js";
 import type { Orchestrator } from "./orchestrator.js";
 
 export interface CoreCommandResult {
@@ -30,6 +31,14 @@ export function orchestratorCore(orchestrator: Orchestrator) {
   };
 
   const completed = async (runId: string, state: string): Promise<CoreCommandResult> => {
+    if (state === "FAILED") {
+      // An operator rejection or a failed gate policy stops the graph, but it is a policy
+      // outcome rather than a system failure; report it exactly as the public gate does.
+      const gate = await orchestrator.gate(runId);
+      if (gate.reasons.some((reason) => reason.startsWith("checkpoint_rejected:") || reason.startsWith("gate_failed:"))) {
+        return { disposition: "failed", reasons: gate.reasons, value: { ...await orchestrator.status(runId), gateStatus: gate.gateStatus } };
+      }
+    }
     if (state !== "COMPLETED") return { disposition: ["BLOCKED", "CANCELLED", "SUSPENDED_BUDGET", "SUSPENDED_RATE_LIMIT"].includes(state) ? "suspended" : "system_failure", reasons: [`run_${state.toLowerCase()}`], value: await orchestrator.status(runId) };
     const gate = await orchestrator.gate(runId);
     return {
@@ -42,6 +51,10 @@ export function orchestratorCore(orchestrator: Orchestrator) {
   return {
     async applyRequirementsRevision(runId: string, artifactId: string): Promise<CoreCommandResult> {
       return { disposition: "passed", value: await orchestrator.applyRequirementsRevision(runId, artifactId) };
+    },
+    /** Record one decision for the current version of a generic human checkpoint. */
+    async respondCheckpoint(runId: string, checkpointId: string, version: string, decision: string): Promise<CoreCommandResult> {
+      return { disposition: "passed", value: await orchestrator.respondCheckpoint(runId, checkpointId, { version, decision }) };
     },
     async requirements(runId: string): Promise<CoreCommandResult> {
       return { disposition: "passed", value: await orchestrator.requirements(runId) };
@@ -102,6 +115,13 @@ export function orchestratorCore(orchestrator: Orchestrator) {
 
     async replay(runId: string, overrides: ReplayOverrides): Promise<CoreCommandResult> {
       const replayed = await orchestrator.replay(runId, overrides);
+      return completed(replayed.runId, replayed.state);
+    },
+
+    /** A mode-specific replay request read from a JSON file; the same request the HTTP route accepts. */
+    async replayRequest(runId: string, requestPath: string): Promise<CoreCommandResult> {
+      const request: unknown = JSON.parse(await readFile(resolve(requestPath), "utf8"));
+      const replayed = await orchestrator.replay(runId, request as ReplayRequest);
       return completed(replayed.runId, replayed.state);
     },
 

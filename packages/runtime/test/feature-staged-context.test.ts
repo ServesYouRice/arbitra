@@ -44,7 +44,7 @@ async function fixture(failExpansion: boolean) {
       roles: { requirements: "analyst", exploration: "analyst", planner: "planner", reviewers: ["reviewer", "critic"], critic: "plan-critic" } },
     modelExecution: {
       endpoints: [{ id: "primary", providerId: profile.provider, transport: profile.transport, endpoint: "https://fixture.example/v1", apiKeyEnvVar: "FIXTURE_KEY" }, { id: "anthropic", providerId: "anthropic", transport: "anthropic-messages", endpoint: "https://anthropic.fixture.example/v1", apiKeyEnvVar: "FIXTURE_KEY" }],
-      modelEndpoints: { analyst: "primary", planner: "primary", critic: "primary", "plan-critic": "primary", reviewer: "anthropic" }, maximumOutputTokens: 2000, maximumTokens: 100_000_000, maximumRetries: 0, timeoutMs: 5000,
+      modelEndpoints: { analyst: "primary", planner: "primary", critic: "primary", "plan-critic": "primary", reviewer: "anthropic" }, maximumOutputTokens: 2000, maximumTokens: 100_000_000, maximumRetries: 0, timeoutMs: 30_000,
       rateLimits: { [profile.provider]: { rpm: 10_000, tpm: 100_000_000, maxConcurrent: 4 }, anthropic: { rpm: 10_000, tpm: 100_000_000, maxConcurrent: 4 } },
     },
   } });
@@ -148,4 +148,4 @@ it.each([false, true])("plans, critiques and revises oversized Feature requireme
   expect(final.traceability.requirementLinks.links.map(({ requirementId }) => requirementId)).toEqual(ACCEPTANCE.map(({ id }) => id));
   expect(final.tasks.find(({ id }) => id === "TASK-001")?.acceptanceCriteria).toContain("Renewal keeps preferences.");
   expect(await core.gate(result.runId)).toEqual({ gateStatus: "passed", reasons: [] });
-}, 120_000);
+});

@@ -1,23 +1,13 @@
-export type OutcomeState = "verified" | "rejected" | "fixed" | "ignored" | "recurred";
+import type { IndependenceObservation, RealWorldOutcomeObservation } from "@arbitra/schemas/evaluation-corpus.js";
 
-export interface RealWorldOutcomeObservation {
-  readonly corpus: "real_world_outcomes";
-  readonly runId: string;
-  readonly findingId: string;
-  readonly outcome: OutcomeState;
-  readonly costUsd: number | null;
-  readonly latencyMs: number | null;
-}
+export type { IndependenceObservation, OutcomeState, RealWorldOutcomeObservation } from "@arbitra/schemas/evaluation-corpus.js";
 
-export interface IndependenceObservation {
-  readonly corpus: "independence";
-  readonly runId: string;
-  readonly findingId: string;
-  readonly auditorIds: readonly string[];
-  readonly independentlyFoundBy: readonly string[];
-  readonly accepted: boolean;
-}
-
+/**
+ * Corpus store contracts. The in-memory implementations below serve tests and ephemeral
+ * callers; the durable implementations (`DurableRealWorldOutcomeStore`,
+ * `DurableIndependenceCorpusStore`) live in `packages/persistence/src/evaluation-corpus/`
+ * and satisfy these interfaces structurally, because persistence sits below core.
+ */
 export interface RealWorldOutcomeStore {
   append(observation: RealWorldOutcomeObservation): Promise<void>;
   query(runIds?: readonly string[]): Promise<readonly RealWorldOutcomeObservation[]>;

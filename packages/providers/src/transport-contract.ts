@@ -65,6 +65,16 @@ export interface HttpRequest {
   readonly headers: Readonly<Record<string, string>>;
   readonly body: unknown;
   readonly signal: AbortSignal;
+  /** Defaults to POST. GET requests carry no body. */
+  readonly method?: "GET" | "POST";
+  /** Defaults to JSON. Multipart bodies must be {@link MultipartBody}. */
+  readonly bodyEncoding?: "json" | "multipart";
+  /** Defaults to JSON. Text responses (for example JSONL result files) return the raw string. */
+  readonly responseEncoding?: "json" | "text";
+}
+export interface MultipartBody {
+  readonly fields: Readonly<Record<string, string>>;
+  readonly file: { readonly field: string; readonly filename: string; readonly contentType: string; readonly content: string };
 }
 export interface HttpResponse {
   readonly status: number;
@@ -76,17 +86,27 @@ export interface HttpClient { send(request: HttpRequest): Promise<HttpResponse>;
 export class FetchHttpClient implements HttpClient {
   async send(request: HttpRequest): Promise<HttpResponse> {
     let response: Response;
+    const method = request.method ?? "POST";
+    let body: string | FormData | undefined;
+    let headers: Record<string, string> = { ...request.headers };
+    if (method === "POST" && request.bodyEncoding === "multipart") {
+      const multipart = request.body as MultipartBody;
+      const form = new FormData();
+      for (const [name, value] of Object.entries(multipart.fields)) form.append(name, value);
+      form.append(multipart.file.field, new Blob([multipart.file.content], { type: multipart.file.contentType }), multipart.file.filename);
+      body = form;
+    } else if (method === "POST") {
+      headers = { "content-type": "application/json", ...headers };
+      body = JSON.stringify(request.body);
+    }
     try {
-      response = await fetch(request.url, {
-        method: "POST", headers: { "content-type": "application/json", ...request.headers },
-        body: JSON.stringify(request.body), signal: request.signal,
-      });
+      response = await fetch(request.url, { method, headers, ...(body === undefined ? {} : { body }), signal: request.signal });
     } catch (error) {
       if (request.signal.aborted) throw new TransportError("CANCELLED", "Provider request cancelled", false);
       if (error instanceof DOMException && error.name === "TimeoutError") throw new TransportError("TIMEOUT", "Provider request timed out", true);
       throw error;
     }
-    const body: unknown = await response.json().catch(() => null);
-    return { status: response.status, headers: Object.fromEntries(response.headers.entries()), body };
+    const parsed: unknown = request.responseEncoding === "text" ? await response.text().catch(() => null) : await response.json().catch(() => null);
+    return { status: response.status, headers: Object.fromEntries(response.headers.entries()), body: parsed };
   }
 }

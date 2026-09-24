@@ -10,7 +10,7 @@ import type { TransportFactoryOptions } from "@arbitra/providers/registry.js";
 import { plannerNode, PlannerTraceabilityError } from "@arbitra/workflow/nodes/planner/node.js";
 import { validateRequirementsPlanTraceability } from "@arbitra/workflow/nodes/requirements/planner.js";
 import { testTasks } from "@arbitra/workflow/nodes/test-inventory.js";
-import { ModelActivities } from "./model-activities.js";
+import { ModelActivities, type ActivityReplaySource } from "./model-activities.js";
 import { ModelHarness } from "./model-harness.js";
 import { ModelProtocols } from "./model-protocols.js";
 import { OUTPUT_TOKENS_PER_RECORD, outputRecordLimit, replanOnOutputLimit, stageBudget } from "./context-budget.js";
@@ -24,11 +24,14 @@ import type { RepositorySnapshot } from "./repository.js";
 import type { RunStore } from "./run-store.js";
 import { TestingPlanExecutor } from "./testing-plan-executor.js";
 import type { TestSandbox } from "./test-sandbox.js";
+import { validateBatchLanes } from "./model-batch-lane.js";
+import { validateAdvisorPolicy } from "./model-advisors.js";
 
 export function validateModelTesting(config: RunConfig) {
   if (config.workflow["testing"] === undefined) throw new Error("TESTING_EXECUTION_CONFIGURATION_REQUIRED");
   const settings = testingExecutionSchema.parse(config.workflow["testing"]);
   providerExecutionSchema.parse(config.workflow["modelExecution"]);
+  validateBatchLanes(config);
   for (const id of Object.values(settings.roles)) if (!Object.hasOwn(config.models, id)) throw new Error(`TESTING_MODEL_PROFILE_REQUIRED:${id}`);
   if (config.models[settings.roles.analyst]?.capabilityTier !== "frontier") throw new Error("TESTING_FRONTIER_ANALYST_REQUIRED");
   if (settings.mode === "execute") {
@@ -38,6 +41,9 @@ export function validateModelTesting(config: RunConfig) {
       const profile = config.models[settings.execution.models[capability]];
       if (profile === undefined || !profile.supports.tools || ranks[profile.capabilityTier] < ranks[capability]) throw new Error("TESTING_TASK_MODEL_CONFIGURATION_INVALID");
     }
+    validateAdvisorPolicy(config, settings.execution.advisors);
+    const execution = providerExecutionSchema.parse(config.workflow["modelExecution"]);
+    for (const id of Object.values(settings.execution.advisors?.models ?? {})) if (id !== undefined && !Object.hasOwn(execution.modelEndpoints, id)) throw new Error(`ADVISOR_MODEL_ENDPOINT_ABSENT:${id}`);
   }
   return settings;
 }
@@ -48,9 +54,9 @@ export class TestingPipeline {
   readonly settings;
   readonly harness: ModelHarness;
   readonly activities: ModelActivities;
-  constructor(private readonly store: RunStore, private readonly config: RunConfig, private readonly snapshot: RepositorySnapshot, private readonly transport: TransportFactoryOptions, private readonly sandbox?: TestSandbox) {
+  constructor(private readonly store: RunStore, private readonly config: RunConfig, private readonly snapshot: RepositorySnapshot, private readonly transport: TransportFactoryOptions, private readonly sandbox?: TestSandbox, replay?: ActivityReplaySource) {
     this.settings = validateModelTesting(config);
-    this.activities = new ModelActivities(store, config, transport);
+    this.activities = new ModelActivities(store, config, transport, replay);
     this.harness = new ModelHarness(this.activities, config, snapshot, store);
   }
 

@@ -12,6 +12,7 @@ export interface CoreCommandResult {
  * tests supply the same operations; command handlers contain no workflow execution.
  */
 export interface OrchestratorCore {
+  respondCheckpoint?(runId: string, checkpointId: string, version: string, decision: string): Promise<CoreCommandResult>;
   requirements?(runId: string): Promise<CoreCommandResult>;
   applyRequirementsRevision?(runId: string, artifactId: string): Promise<CoreCommandResult>;
   approveRequirements?(runId: string, artifactId: string, ambiguityIds: readonly string[]): Promise<CoreCommandResult>;
@@ -23,6 +24,7 @@ export interface OrchestratorCore {
   status(runId: string): Promise<CoreCommandResult>;
   resume(runId: string): Promise<CoreCommandResult>;
   replay(runId: string, overrides: { readonly consensusPolicy: "full" | "risk_weighted" | "minimal"; readonly maximumRounds: 1 | 2 | 3; readonly criticEnabled: boolean }): Promise<CoreCommandResult>;
+  replayRequest?(runId: string, requestPath: string): Promise<CoreCommandResult>;
   diff(runA: string, runB: string): Promise<CoreCommandResult>;
   trace(runId: string): Promise<CoreCommandResult>;
   exportRun(runId: string, format: "json"): Promise<CoreCommandResult>;

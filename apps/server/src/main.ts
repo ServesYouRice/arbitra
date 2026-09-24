@@ -1,11 +1,11 @@
 import Fastify, { type FastifyInstance, type RouteOptions } from "fastify";
 import { HTTP_ROUTE_SCHEMAS } from "@arbitra/schemas/http-control-plane";
 import { redactSecrets } from "@arbitra/security/redaction";
-import { CheckpointRegistry } from "./checkpoints.js";
 import { registerControlPlaneRoutes, type ControlPlaneCore, type HttpSchemas, type RouteServer } from "./routes/control-plane.js";
 import { registerEvaluationRoutes, type EvaluationCore } from "./routes/evaluation.js";
 import { registerTraceRoutes, type TraceCore } from "./routes/traces.js";
 import { registerRequirementsRoutes, type RequirementsCore } from "./routes/requirements.js";
+import { registerReplayRoutes, type ReplayCore } from "./routes/replay.js";
 
 export const DEFAULT_SERVER_HOST = "127.0.0.1" as const;
 export const DEFAULT_SERVER_PORT = 4178 as const;
@@ -19,7 +19,7 @@ export function assertLoopbackHost(host: string): LoopbackHost {
 
 export interface ListeningRouteServer extends RouteServer { listen(options: { host: string; port: number }): Promise<unknown> }
 /** The control plane plus, when the run store exposes metrics, the evaluation surface over the same core. */
-export type ServerCore = ControlPlaneCore & { readonly evaluation?: EvaluationCore; readonly traces?: TraceCore; readonly requirements?: RequirementsCore };
+export type ServerCore = ControlPlaneCore & { readonly evaluation?: EvaluationCore; readonly traces?: TraceCore; readonly requirements?: RequirementsCore; readonly replay?: ReplayCore };
 export function buildServer(core: ServerCore, schemas: HttpSchemas = HTTP_ROUTE_SCHEMAS): FastifyInstance {
   // JSON unions must preserve their original types; coercion can turn model budgets
   // into strings while trying the first branch of a recursive JSON schema.
@@ -46,10 +46,11 @@ export async function startServer(server: ListeningRouteServer, core: ServerCore
   await server.listen({ host: assertLoopbackHost(options.host ?? DEFAULT_SERVER_HOST), port: options.port ?? DEFAULT_SERVER_PORT });
 }
 function registerAll(server: RouteServer, core: ServerCore, schemas: HttpSchemas): void {
-  registerControlPlaneRoutes(server, core, new CheckpointRegistry(), schemas);
+  registerControlPlaneRoutes(server, core, schemas);
   if (core.evaluation !== undefined) registerEvaluationRoutes(server, core.evaluation, schemas);
   if (core.traces !== undefined) registerTraceRoutes(server, core.traces, schemas);
   if (core.requirements !== undefined) registerRequirementsRoutes(server, core.requirements, schemas);
+  if (core.replay !== undefined) registerReplayRoutes(server, core.replay, schemas);
 }
 
 function localUrl(value: string): boolean {
