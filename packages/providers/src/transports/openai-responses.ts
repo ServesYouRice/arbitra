@@ -1,5 +1,5 @@
 import type { HttpClient, TransportConfiguration } from "../transport-contract.js";
-import { JsonProtocolTransport, array, number, object, response, string, type ProtocolCodec } from "./json-transport.js";
+import { JsonProtocolTransport, assertOutputComplete, array, number, object, response, string, type ProtocolCodec } from "./json-transport.js";
 
 const codec: ProtocolCodec = {
   id: "openai-responses", path: "responses", authHeaders: (key) => ({ authorization: `Bearer ${key}` }),
@@ -16,6 +16,7 @@ const codec: ProtocolCodec = {
     reasoning: request.effortParams, previous_response_id: request.continuation }),
   parse(body, request, headers) {
     const root = object(body, "openai-responses response");
+    assertOutputComplete(root["status"] === "incomplete" && object(root["incomplete_details"] ?? {}, "incomplete details")["reason"] === "max_output_tokens");
     if (!Array.isArray(root["output"]) && typeof root["output_text"] !== "string" && typeof root["refusal"] !== "string") {
       throw new Error("openai-responses response has no output");
     }

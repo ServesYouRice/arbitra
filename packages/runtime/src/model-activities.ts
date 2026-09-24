@@ -5,7 +5,8 @@ import { ProviderRegistry, type TransportFactoryOptions } from "@arbitra/provide
 import { RateLimitScheduler } from "@arbitra/providers/scheduler.js";
 import { DurableTokenBudget } from "@arbitra/providers/token-budget.js";
 import { ContinuationStateStore } from "@arbitra/providers/continuation/store.js";
-import type { InvocationTrace } from "@arbitra/providers/runtime.js";
+import { ProviderInvocationFailure, type InvocationTrace } from "@arbitra/providers/runtime.js";
+import { ModelOutputLimitError } from "./context-budget.js";
 import type { TransportMessage, TransportTool } from "@arbitra/providers/transport-contract.js";
 import { runConfigSchema, type RunConfig } from "@arbitra/schemas/config.js";
 import { providerExecutionSchema } from "@arbitra/schemas/provider-execution.js";
@@ -132,6 +133,8 @@ export class ModelActivities {
       outputArtifactRef = (await this.store.artifacts.put({ fingerprint, value }, "json", { durability: "expensive" })).relativePath;
     } catch (error) {
       failure = error;
+      // A response cut at the output ceiling is incomplete, not merely malformed.
+      if (error instanceof ProviderInvocationFailure && error.causeCode === "OUTPUT_LIMIT") throw new ModelOutputLimitError(input.activityId);
       throw error;
     } finally {
       const traces = this.#traces.get(input.activityId) ?? [];

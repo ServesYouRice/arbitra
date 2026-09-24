@@ -40,6 +40,19 @@ const request = () => ({ activityId: "auditor-a/discovery", modelProfileId: "aud
 });
 
 describe("durable canonical model harness", () => {
+  it("records output-ceiling truncation durably and never repeats that spend after restart", async () => {
+    const { create, send, store } = await setup();
+    send.mockImplementation(async () => ({ status: 200, headers: {}, body: { status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, output_text: '{"answer":', usage: { input_tokens: 10, output_tokens: 500 } } }));
+    await expect(create().invoke(request())).rejects.toMatchObject({ name: "ModelOutputLimitError", activityId: "auditor-a/discovery", message: "MODEL_OUTPUT_LIMIT_REACHED:auditor-a/discovery" });
+    expect(send).toHaveBeenCalledTimes(1);
+    const restarted = create();
+    expect(await restarted.outputLimited("auditor-a/discovery")).toBe(true);
+    await expect(restarted.invoke(request())).rejects.toThrow("MODEL_OUTPUT_LIMIT_REACHED:auditor-a/discovery");
+    expect(send).toHaveBeenCalledTimes(1);
+    const marker = (await store.listArtifacts()).find(({ kind }) => kind.startsWith("model-output-limit-"));
+    expect(JSON.parse((await store.readArtifact(marker?.artifactId ?? "")).content)).toMatchObject({ activityId: "auditor-a/discovery", turnActivityId: "auditor-a/discovery/turn-0", maximumOutputTokens: 500 });
+  });
+
   it("archives overflowing tool history and reuses the same bounded turns after restart", async () => {
     const { create, requests, store } = await setup(2, 3_000);
     expect(await create().invoke(request())).toEqual({ answer: "ok" });

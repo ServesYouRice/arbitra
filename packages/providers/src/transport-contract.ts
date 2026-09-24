@@ -44,7 +44,7 @@ export interface ProviderTransport {
   readonly id: TransportId;
   send(request: TransportRequest, signal: AbortSignal): Promise<TransportResponse>;
 }
-export type TransportErrorCode = "AUTH" | "INVALID_REQUEST" | "MALFORMED_RESPONSE" | "RATE_LIMIT" | "TIMEOUT" | "CANCELLED" | "HTTP";
+export type TransportErrorCode = "AUTH" | "INVALID_REQUEST" | "MALFORMED_RESPONSE" | "RATE_LIMIT" | "TIMEOUT" | "CANCELLED" | "HTTP" | "OUTPUT_LIMIT";
 export class TransportError extends Error {
   constructor(
     readonly code: TransportErrorCode,

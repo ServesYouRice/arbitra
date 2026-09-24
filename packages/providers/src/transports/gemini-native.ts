@@ -1,5 +1,5 @@
 import type { HttpClient, TransportConfiguration } from "../transport-contract.js";
-import { JsonProtocolTransport, array, number, object, response, string, type ProtocolCodec } from "./json-transport.js";
+import { JsonProtocolTransport, assertOutputComplete, array, number, object, response, string, type ProtocolCodec } from "./json-transport.js";
 
 const codec: ProtocolCodec = {
   id: "gemini-native", path: (request) => {
@@ -29,6 +29,7 @@ const codec: ProtocolCodec = {
     const blocked = blockReason !== null && blockReason !== "BLOCK_REASON_UNSPECIFIED";
     const candidate = object(array(root["candidates"])[0] ?? (blocked ? {} : undefined), "candidate");
     const finishReason = string(candidate["finishReason"]);
+    assertOutputComplete(finishReason === "MAX_TOKENS");
     const refusal = blocked ? blockReason : ["SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "IMAGE_SAFETY"].includes(finishReason ?? "") ? string(candidate["finishMessage"]) ?? finishReason : null;
     const content = object(candidate["content"] ?? (refusal === null ? undefined : {}), "candidate content"); let text: string | null = null; const calls = [];
     for (const item of array(content["parts"])) {
