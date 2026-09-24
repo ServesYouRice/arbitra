@@ -74,6 +74,8 @@ export function configurationDiagnostics(config: RunConfig, options: Configurati
   if (config.harness.mode !== "canonical") {
     diagnostics.push(error("RUNTIME_NATIVE_HARNESS_NOT_AVAILABLE", "harness.mode", "Native harness adapters are not implemented. Set harness.mode to \"canonical\"; no native tool loop is ever substituted silently."));
   }
+  const modelBacked = config.mode !== "audit" || Object.keys(config.models).length > 0;
+  unenforcedSectionDiagnostics(config, modelBacked, diagnostics);
   const graph = presetDiagnostics(config, options.graphs ?? {}, diagnostics);
   if (graph !== undefined && options.checkpoints !== undefined) {
     try { options.checkpoints(graph); }
@@ -82,7 +84,6 @@ export function configurationDiagnostics(config: RunConfig, options: Configurati
       diagnostics.push(error(codeOf(message, "CHECKPOINT_POLICY_INVALID"), "workflow.checkpoints", `${message}. Every gate node needs a known deterministic gate policy and every human node a decision policy in workflow.checkpoints; decisions may name only human nodes of graph ${graph.id}.`));
     }
   }
-  const modelBacked = config.mode !== "audit" || Object.keys(config.models).length > 0;
   if (!modelBacked) return Object.freeze(diagnostics);
   const execution = executionOf(config, diagnostics);
   if (execution?.batch !== undefined) {
@@ -96,6 +97,24 @@ export function configurationDiagnostics(config: RunConfig, options: Configurati
   if (config.mode === "feature") featureDiagnostics(config, diagnostics);
   if (config.mode === "testing") testingDiagnostics(config, diagnostics);
   return Object.freeze(diagnostics);
+}
+
+/**
+ * The schema accepts these sections as free-form JSON, but no runtime stage reads them. A
+ * cost cap or exclusion list that silently does nothing is worse than none, so they are
+ * reported: a spend limit the runtime would ignore blocks a model-backed run outright.
+ */
+function unenforcedSectionDiagnostics(config: RunConfig, modelBacked: boolean, diagnostics: PreflightDiagnostic[]): void {
+  if (Object.keys(config.budgets).length > 0) {
+    const message = "budgets is not enforced: no stage reads maximumCostUsd, maximumModelCalls or any other key here. The enforced spend limits are workflow.modelExecution.maximumTokens (the run token budget), maximumOutputTokens and maximumRetries; a cost cap in currency is not implemented. Set budgets to {}.";
+    diagnostics.push(modelBacked ? error("BUDGETS_NOT_ENFORCED", "budgets", message) : warning("BUDGETS_NOT_ENFORCED", "budgets", `${message} This scripted run makes no model calls.`));
+  }
+  if (Object.keys(config.security).length > 0) {
+    diagnostics.push(warning("SECURITY_SETTINGS_NOT_ENFORCED", "security", "security is not enforced: excludeGlobs and the other keys here do not remove files from the snapshot. Narrow the source with scope (module or diff scope) and keep secrets out of the repository; secret redaction applies regardless. Set security to {}."));
+  }
+  if (Object.keys(config.contextPolicies).length > 0) {
+    diagnostics.push(warning("CONTEXT_POLICIES_NOT_ENFORCED", "contextPolicies", "contextPolicies is not read: each stage's context is fixed by its workflow (discovery is always independent). Set contextPolicies to {}."));
+  }
 }
 
 /** Stable code prefix of a runtime error message such as `CODE:detail`. */

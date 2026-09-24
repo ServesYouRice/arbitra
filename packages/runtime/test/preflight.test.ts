@@ -44,6 +44,24 @@ describe("configuration preflight", () => {
     expect(codes(configurationDiagnostics(balanced as unknown as RunConfig))).toEqual(["RUNTIME_MODEL_EXECUTION_CONFIGURATION_REQUIRED"]);
   });
 
+  it("refuses a spend limit the runtime would ignore and flags other unenforced sections", async () => {
+    const config = mutable(await template("audit-mixed-providers"));
+    config["budgets"] = { maximumCostUsd: 5 };
+    config["security"] = { excludeGlobs: ["secrets/**"] };
+    config["contextPolicies"] = { discovery: "independent" };
+    const diagnostics = configurationDiagnostics(config as unknown as RunConfig);
+    expect(codes(diagnostics)).toEqual(["BUDGETS_NOT_ENFORCED"]);
+    expect(diagnostics.find(({ code }) => code === "BUDGETS_NOT_ENFORCED")?.message).toContain("workflow.modelExecution.maximumTokens");
+    expect(diagnostics.filter(({ severity }) => severity === "warning").map(({ code, path }) => [code, path])).toEqual(expect.arrayContaining([
+      ["SECURITY_SETTINGS_NOT_ENFORCED", "security"], ["CONTEXT_POLICIES_NOT_ENFORCED", "contextPolicies"],
+    ]));
+    // A scripted Audit makes no model calls, so an ignored cap there is a warning, not a refusal.
+    const scripted = runConfigSchema.parse(JSON.parse(await readFile(new URL("../../../examples/audit-balanced.json", import.meta.url), "utf8")));
+    const warned = configurationDiagnostics({ ...scripted, models: {}, budgets: { maximumCostUsd: 5 } });
+    expect(codes(warned)).toEqual([]);
+    expect(warned.map(({ code }) => code)).toContain("BUDGETS_NOT_ENFORCED");
+  });
+
   it("rejects native harness mode with the canonical alternative", async () => {
     const config = mutable(await template("feature-automatic"));
     config["harness"] = { mode: "native" };

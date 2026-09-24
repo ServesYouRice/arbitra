@@ -119,24 +119,12 @@
   "workflow": {
     "preset": "feature-simple"
   },
-  "budgets": {
-    "maximumCostUsd": 6,
-    "maximumModelCalls": 20
-  },
-  "security": {
-    "excludeGlobs": [
-      ".runs/**",
-      "node_modules/**"
-    ],
-    "overlapBudget": 4
-  },
+  "budgets": {},
+  "security": {},
   "protocols": {
     "requirements": "1.0.0",
     "planner": "1.0.0"
   },
   "promptOverrides": {},
-  "contextPolicies": {
-    "requirements": "repository_summary",
-    "planning": "accepted_issues_only"
-  }
+  "contextPolicies": {}
 }
