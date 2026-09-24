@@ -1,5 +1,5 @@
 import type { HttpClient, TransportConfiguration } from "../transport-contract.js";
-import { JsonProtocolTransport, array, number, object, response, string, type ProtocolCodec } from "./json-transport.js";
+import { JsonProtocolTransport, assertOutputComplete, array, number, object, response, string, type ProtocolCodec } from "./json-transport.js";
 
 const codec: ProtocolCodec = {
   id: "openai-chat", path: "chat/completions",
@@ -16,6 +16,7 @@ const codec: ProtocolCodec = {
   parse(body, request, headers) {
     const root = object(body, "openai-chat response");
     const choice = object(array(root["choices"])[0], "choice");
+    assertOutputComplete(choice["finish_reason"] === "length");
     const message = object(choice["message"], "message");
     const text = string(message["content"]);
     const calls = array(message["tool_calls"]).map((item) => {
