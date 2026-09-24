@@ -1,7 +1,7 @@
 import type { HttpClient, TransportConfiguration } from "../transport-contract.js";
 import { JsonProtocolTransport, array, number, object, response, string, type ProtocolCodec } from "./json-transport.js";
 
-const codec: ProtocolCodec = {
+export const openAiResponsesCodec: ProtocolCodec = {
   id: "openai-responses", path: "responses", authHeaders: (key) => ({ authorization: `Bearer ${key}` }),
   encode: (request) => ({ model: request.modelId, input: request.messages.flatMap((message): readonly unknown[] => {
     if (message.role === "tool") {
@@ -42,5 +42,5 @@ const codec: ProtocolCodec = {
   },
 };
 export class OpenAiResponsesTransport extends JsonProtocolTransport {
-  constructor(config: TransportConfiguration, client?: HttpClient, credential?: (name: string) => string | undefined) { super(config, codec, client, credential); }
+  constructor(config: TransportConfiguration, client?: HttpClient, credential?: (name: string) => string | undefined) { super(config, openAiResponsesCodec, client, credential); }
 }

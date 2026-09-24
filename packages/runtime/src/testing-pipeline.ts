@@ -21,11 +21,13 @@ import type { RepositorySnapshot } from "./repository.js";
 import type { RunStore } from "./run-store.js";
 import { TestingPlanExecutor } from "./testing-plan-executor.js";
 import type { TestSandbox } from "./test-sandbox.js";
+import { validateBatchLanes } from "./model-batch-lane.js";
 
 export function validateModelTesting(config: RunConfig) {
   if (config.workflow["testing"] === undefined) throw new Error("TESTING_EXECUTION_CONFIGURATION_REQUIRED");
   const settings = testingExecutionSchema.parse(config.workflow["testing"]);
   providerExecutionSchema.parse(config.workflow["modelExecution"]);
+  validateBatchLanes(config);
   for (const id of Object.values(settings.roles)) if (!Object.hasOwn(config.models, id)) throw new Error(`TESTING_MODEL_PROFILE_REQUIRED:${id}`);
   if (config.models[settings.roles.analyst]?.capabilityTier !== "frontier") throw new Error("TESTING_FRONTIER_ANALYST_REQUIRED");
   if (settings.mode === "execute") {

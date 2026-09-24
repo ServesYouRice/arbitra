@@ -3,6 +3,8 @@ import type { ModelProfile } from "./profiles/model-profile.js";
 import { ProviderRegistry } from "./registry.js";
 import { ProviderInvocationRuntime, type ProviderRuntimeOptions } from "./runtime.js";
 import type { TransportRequest, TransportResponse } from "./transport-contract.js";
+import { assertBatchLaneSupported } from "./batch/preflight.js";
+import type { BatchItemProvenance, BatchLane, BatchLaneSettings } from "./batch/lane.js";
 
 export interface PoolModel {
   readonly id: string;
@@ -29,6 +31,16 @@ export interface ModelInvocationResult {
   readonly transport: string;
   readonly modelId: string;
   readonly effort: EffortResolution | null;
+  /** Present only for calls that went through the explicit batch lane. */
+  readonly batch?: BatchItemProvenance;
+}
+
+export interface BatchInvocation extends ModelInvocation {
+  readonly lane: BatchLane;
+  readonly settings: BatchLaneSettings;
+  /** Request identity, so a restarted activity cannot attach to a different item. */
+  readonly fingerprint: string;
+  readonly traceId: string;
 }
 
 /** A single invocation path for heterogeneous models, including compatible endpoints. */
@@ -47,18 +59,8 @@ export class ModelPool {
   }
 
   async invoke(request: Omit<TransportRequest, "modelId" | "effortParams" | "continuation">, invocation: ModelInvocation): Promise<ModelInvocationResult> {
-    const model = this.#models.get(invocation.modelProfileId);
-    if (model === undefined) throw new Error(`UNKNOWN_MODEL_PROFILE:${invocation.modelProfileId}`);
-    const profile = model.profile;
-    if (!Number.isSafeInteger(request.maximumOutputTokens) || request.maximumOutputTokens < 1) throw new Error("INVALID_MAXIMUM_OUTPUT_TOKENS");
-    if (profile.limits.maxOutputTokens !== null && request.maximumOutputTokens > profile.limits.maxOutputTokens) throw new Error("MODEL_OUTPUT_LIMIT_EXCEEDED");
-    if (invocation.estimatedTokens < request.maximumOutputTokens) throw new Error("OUTPUT_RESERVE_MISSING_FROM_ESTIMATE");
-    if (profile.limits.contextTokens !== null && invocation.estimatedTokens > profile.limits.contextTokens) throw new Error("MODEL_CONTEXT_LIMIT_EXCEEDED");
-    if ((request.tools?.length ?? 0) > 0 && !profile.supports.tools) throw new Error("MODEL_TOOLS_NOT_SUPPORTED");
-    if (request.responseSchema !== undefined && !profile.supports.structuredOutput) throw new Error("MODEL_STRUCTURED_OUTPUT_NOT_SUPPORTED");
-    const effort = invocation.effort === undefined ? null : resolveEffort(profile, invocation.effort);
-    const binding = this.registry.binding(model.endpointId);
-    const response = await this.#runtime.invoke({ ...request, modelId: profile.modelId, ...(effort === null ? {} : { effortParams: effort.params }) }, {
+    const { model, profile, effort, binding, prepared } = this.#prepare(request, invocation);
+    const response = await this.#runtime.invoke(prepared, {
       activityId: invocation.activityId,
       providerId: binding.providerId,
       // Continuation identity must bind to the actual service, not merely a shared codec.
@@ -71,5 +73,44 @@ export class ModelPool {
     });
     return Object.freeze({ response, modelProfileId: model.id, endpointId: binding.id,
       providerId: binding.providerId, transport: binding.transport, modelId: profile.modelId, effort });
+  }
+
+  /**
+   * The explicit batch lane. Only single-shot requests to models that declare batch support
+   * on endpoints with a batch driver are accepted; interactive calls never arrive here.
+   */
+  async invokeBatch(request: Omit<TransportRequest, "modelId" | "effortParams" | "continuation">, invocation: BatchInvocation): Promise<ModelInvocationResult> {
+    const { model, profile, effort, binding, prepared } = this.#prepare(request, invocation);
+    this.assertBatchLane(model.id);
+    const { response, provenance } = await invocation.lane.execute({
+      activityId: invocation.activityId, traceId: invocation.traceId, fingerprint: invocation.fingerprint,
+      endpointId: binding.id, providerId: binding.providerId, modelId: profile.modelId, request: prepared,
+      estimatedTokens: invocation.estimatedTokens, settings: invocation.settings, signal: invocation.signal,
+    });
+    return Object.freeze({ response, modelProfileId: model.id, endpointId: binding.id,
+      providerId: binding.providerId, transport: binding.transport, modelId: profile.modelId, effort, batch: provenance });
+  }
+
+  /** Preflight for a configured batch lane. Throws an actionable error before any spend. */
+  assertBatchLane(modelProfileId: string): void {
+    const model = this.#models.get(modelProfileId);
+    if (model === undefined) throw new Error(`UNKNOWN_MODEL_PROFILE:${modelProfileId}`);
+    assertBatchLaneSupported(this.registry, modelProfileId, model.endpointId, model.profile);
+  }
+
+  #prepare(request: Omit<TransportRequest, "modelId" | "effortParams" | "continuation">, invocation: ModelInvocation) {
+    const model = this.#models.get(invocation.modelProfileId);
+    if (model === undefined) throw new Error(`UNKNOWN_MODEL_PROFILE:${invocation.modelProfileId}`);
+    const profile = model.profile;
+    if (!Number.isSafeInteger(request.maximumOutputTokens) || request.maximumOutputTokens < 1) throw new Error("INVALID_MAXIMUM_OUTPUT_TOKENS");
+    if (profile.limits.maxOutputTokens !== null && request.maximumOutputTokens > profile.limits.maxOutputTokens) throw new Error("MODEL_OUTPUT_LIMIT_EXCEEDED");
+    if (invocation.estimatedTokens < request.maximumOutputTokens) throw new Error("OUTPUT_RESERVE_MISSING_FROM_ESTIMATE");
+    if (profile.limits.contextTokens !== null && invocation.estimatedTokens > profile.limits.contextTokens) throw new Error("MODEL_CONTEXT_LIMIT_EXCEEDED");
+    if ((request.tools?.length ?? 0) > 0 && !profile.supports.tools) throw new Error("MODEL_TOOLS_NOT_SUPPORTED");
+    if (request.responseSchema !== undefined && !profile.supports.structuredOutput) throw new Error("MODEL_STRUCTURED_OUTPUT_NOT_SUPPORTED");
+    const effort = invocation.effort === undefined ? null : resolveEffort(profile, invocation.effort);
+    const binding = this.registry.binding(model.endpointId);
+    const prepared: TransportRequest = { ...request, modelId: profile.modelId, ...(effort === null ? {} : { effortParams: effort.params }) };
+    return { model, profile, effort, binding, prepared };
   }
 }
