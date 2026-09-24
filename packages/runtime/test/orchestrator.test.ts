@@ -1,6 +1,6 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { orchestratorCore } from "../src/cli-core.js";
@@ -230,7 +230,8 @@ describe("the control-plane port", () => {
       for await (const event of core.runs.events(started.runId)) events.push(event);
       expect(events.at(-1)).toMatchObject({ t: "run_transition", state: "COMPLETED" });
       const stored = await new RunStore(join(state, "runs"), started.runId).loadContext();
-      expect(stored.repository).toBe(resolve(alternate));
+      // The runtime stores the canonical path (on macOS, /var is a symlink to /private/var).
+      expect(stored.repository).toBe(realpathSync(alternate));
       expect(stored.maximumRounds).toBe(config.maxConsensusRounds);
     } finally { rmSync(alternate, { recursive: true, force: true }); }
   });
