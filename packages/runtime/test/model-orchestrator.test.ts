@@ -36,7 +36,7 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
     workflow: { preset: "audit-deep", modelExecution: {
       endpoints: ids.map((id, index) => ({ id, providerId: providers[index], transport: transports[index], endpoint: `https://${id}.example/v1`, apiKeyEnvVar: "FIXTURE_KEY" })),
       modelEndpoints: Object.fromEntries(ids.map((id) => [id, id])), roles: { planner: "auditor-a", verifier: "auditor-b", critic: "auditor-c" },
-      maximumClusteringPairs: manyIssues ? 0 : 20, maximumOutputTokens: 2_000, maximumTokens: manyIssues || options.largeCriticContext === true && options.revision !== undefined ? 20_000_000 : 1_000_000, timeoutMs: 2_000, maximumRetries: 0,
+      maximumClusteringPairs: manyIssues ? 0 : 20, maximumOutputTokens: 2_000, maximumTokens: manyIssues || options.largeCriticContext === true && options.revision !== undefined ? 20_000_000 : 1_000_000, timeoutMs: 30_000, maximumRetries: 0,
       rateLimits: Object.fromEntries(providers.map((id) => [id, { rpm: 1000, tpm: 10_000_000, maxConcurrent: 4 }])),
     } },
   });

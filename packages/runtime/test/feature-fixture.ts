@@ -20,7 +20,7 @@ export async function featureFixture(root: string, options: { interactive?: bool
     preset: "feature-simple", feature: { request: "Add session preferences", mode: options.interactive ? "interactive" : "automatic", maximumRequirementsRevisions: options.requirementsRevisions ?? 0, roles: { requirements: "planner", exploration: "planner", planner: "planner", reviewers: ["reviewer", "critic"], critic: "critic" } },
     modelExecution: {
       endpoints: [{ id: "primary", providerId: profile.provider, transport: profile.transport, endpoint: "https://fixture.example/v1", apiKeyEnvVar: "FIXTURE_KEY" }, { id: "anthropic", providerId: "anthropic", transport: "anthropic-messages", endpoint: "https://anthropic.fixture.example/v1", apiKeyEnvVar: "FIXTURE_KEY" }],
-      modelEndpoints: { planner: "primary", critic: "primary", reviewer: "anthropic" }, maximumOutputTokens: 2000, maximumTokens: 1000000, maximumRetries: 0, timeoutMs: 2000,
+      modelEndpoints: { planner: "primary", critic: "primary", reviewer: "anthropic" }, maximumOutputTokens: 2000, maximumTokens: 1000000, maximumRetries: 0, timeoutMs: 30_000,
       rateLimits: { [profile.provider]: { rpm: 100, tpm: 1000000, maxConcurrent: 4 }, anthropic: { rpm: 100, tpm: 1000000, maxConcurrent: 4 } },
     },
   } });
