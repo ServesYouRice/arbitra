@@ -49,6 +49,17 @@ export interface AdvisorActivityIdentity {
 
 export const ADVISOR_HARNESS_ID = "advisor-direct";
 
+/**
+ * A replay run's view of its immutable source run. It answers whether one activity may
+ * reuse the source output: only when the activity's stage is compatible under the mode's
+ * replay contract and the saved output was produced under the same replay identity.
+ */
+export interface ActivityReplaySource {
+  lookup(request: { readonly activityId: string; readonly key: string; readonly replayIdentity: string }): Promise<{ readonly value: unknown; readonly sourceRunId: string; readonly sourceArtifactId: string } | null>;
+  /** Record that a looked-up output could not be used after all, e.g. it fails its schema. */
+  reject(request: { readonly activityId: string; readonly key: string }, reason: string): Promise<void>;
+}
+
 /** Durable, stateless JSON model calls shared by workflow stages. No tool execution. */
 export class ModelActivities {
   readonly #pool: ModelPool;
@@ -58,8 +69,10 @@ export class ModelActivities {
   readonly #inflight = new Map<string, { fingerprint: string; promise: Promise<unknown> }>();
   /** Present only when `workflow.modelExecution.batch` explicitly configures a lane. */
   readonly #batch: BatchLane | null;
+  readonly #replay: ActivityReplaySource | undefined;
 
-  constructor(private readonly store: RunStore, config: RunConfig, options: TransportFactoryOptions = {}) {
+  constructor(private readonly store: RunStore, config: RunConfig, options: TransportFactoryOptions = {}, replay?: ActivityReplaySource) {
+    this.#replay = replay;
     this.#config = runConfigSchema.parse(config);
     this.#execution = providerExecutionSchema.parse(this.#config.workflow["modelExecution"]);
     const execution = this.#execution;
@@ -121,19 +134,33 @@ export class ModelActivities {
     const messages = profile.quirks.systemPromptSupport === "full" ? redacted : redacted.map((message) => message.role === "system" ? { ...message, role: "user" as const } : message);
     const fingerprint = hash({ protocol: input.protocol, protocolIdentity: input.protocolIdentity ?? null, modelProfileId: input.modelProfileId, profile, execution: this.#execution, messages, effort: input.effort ?? null, responseMode: input.responseMode ?? "json", tools: input.tools ?? [], harnessIdentity: input.harnessIdentity ?? null, sourcePaths: input.sourcePaths === undefined ? null : [...input.sourcePaths].sort(),
       ...(input.maximumOutputTokens === undefined ? {} : { maximumOutputTokens: input.maximumOutputTokens }), ...(input.advisor === undefined ? {} : { advisor: input.advisor }) });
+    const replayIdentity = this.#replayIdentity(input, profile, messages);
     const key = `model-activity-${hash(input.activityId)}`;
     const inflight = this.#inflight.get(key);
     if (inflight !== undefined) {
       if (inflight.fingerprint !== fingerprint) throw new Error("MODEL_ACTIVITY_INPUT_CHANGED");
       return input.schema.parse(await inflight.promise);
     }
-    const promise = this.execute(input, messages, fingerprint, key);
+    const promise = this.execute(input, messages, fingerprint, key, replayIdentity);
     this.#inflight.set(key, { fingerprint, promise });
     try { return await promise; }
     finally { this.#inflight.delete(key); }
   }
 
-  private async execute<T>(input: ModelActivityRequest<T>, messages: readonly TransportMessage[], fingerprint: string, key: string): Promise<T> {
+  /**
+   * The identity a replay compares: the complete request and the model/endpoint that
+   * answers it, but not run-local budget, retry, rate or lane settings, which cannot change
+   * the meaning of a saved output.
+   */
+  #replayIdentity(input: ModelActivityRequest<unknown>, profile: unknown, messages: readonly TransportMessage[]): string {
+    const endpointId = this.#execution.modelEndpoints[input.modelProfileId];
+    return hash({ protocol: input.protocol, protocolIdentity: input.protocolIdentity ?? null, modelProfileId: input.modelProfileId, profile,
+      endpoint: this.#execution.endpoints.find(({ id }) => id === endpointId) ?? null, maximumOutputTokens: this.#execution.maximumOutputTokens,
+      messages, effort: input.effort ?? null, responseMode: input.responseMode ?? "json", tools: input.tools ?? [], harnessIdentity: input.harnessIdentity ?? null,
+      sourcePaths: input.sourcePaths === undefined ? null : [...input.sourcePaths].sort() });
+  }
+
+  private async execute<T>(input: ModelActivityRequest<T>, messages: readonly TransportMessage[], fingerprint: string, key: string, replayIdentity: string): Promise<T> {
     const profile = this.#config.models[input.modelProfileId];
     if (profile === undefined) throw new Error("TRACE_PROFILE_ABSENT");
     const existing = await this.read(key) as { fingerprint?: unknown; value?: unknown } | null;
@@ -142,6 +169,21 @@ export class ModelActivities {
       return input.schema.parse(existing.value);
     }
     if (input.replayOnly === true) throw new Error("MODEL_ACTIVITY_NOT_COMPLETED");
+    // A replay run consults its source only for activities it has not started itself.
+    if (this.#replay !== undefined && await this.read(`${key}-input`) === null) {
+      const reused = await this.#replay.lookup({ activityId: input.activityId, key, replayIdentity });
+      if (reused !== null) {
+        let value: T | undefined;
+        try { value = input.schema.parse(reused.value); }
+        catch { await this.#replay.reject({ activityId: input.activityId, key }, "source_output_invalid"); }
+        if (value !== undefined) {
+          // Reuse makes no provider call and charges no budget in this run. Provenance names
+          // the immutable source artifact the output came from.
+          await this.store.publish(key, { fingerprint, value, replayIdentity, replayedFrom: { runId: reused.sourceRunId, artifactId: reused.sourceArtifactId } }, input.activityId);
+          return value;
+        }
+      }
+    }
     // Record identity before spend so a failed or interrupted activity cannot be
     // resumed with a different prompt/profile under the same durable activity ID.
     const identity = await this.read(`${key}-input`) as { fingerprint?: unknown } | null;
@@ -230,7 +272,7 @@ export class ModelActivities {
         },
       }, input.activityId);
     }
-    await this.store.publish(key, { fingerprint, value }, input.activityId);
+    await this.store.publish(key, { fingerprint, value, replayIdentity }, input.activityId);
     return value;
   }
 

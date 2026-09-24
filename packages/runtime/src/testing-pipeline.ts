@@ -10,7 +10,7 @@ import type { TransportFactoryOptions } from "@arbitra/providers/registry.js";
 import { plannerNode, PlannerTraceabilityError } from "@arbitra/workflow/nodes/planner/node.js";
 import { validateRequirementsPlanTraceability } from "@arbitra/workflow/nodes/requirements/planner.js";
 import { testTasks } from "@arbitra/workflow/nodes/test-inventory.js";
-import { ModelActivities, type ModelActivityRequest } from "./model-activities.js";
+import { ModelActivities, type ActivityReplaySource, type ModelActivityRequest } from "./model-activities.js";
 import { ModelHarness } from "./model-harness.js";
 import { ModelProtocols } from "./model-protocols.js";
 import { allocateModelContext, withinStringBudget } from "./model-context.js";
@@ -51,9 +51,9 @@ export class TestingPipeline {
   readonly settings;
   readonly harness: ModelHarness;
   readonly activities: ModelActivities;
-  constructor(private readonly store: RunStore, private readonly config: RunConfig, private readonly snapshot: RepositorySnapshot, private readonly transport: TransportFactoryOptions, private readonly sandbox?: TestSandbox) {
+  constructor(private readonly store: RunStore, private readonly config: RunConfig, private readonly snapshot: RepositorySnapshot, private readonly transport: TransportFactoryOptions, private readonly sandbox?: TestSandbox, replay?: ActivityReplaySource) {
     this.settings = validateModelTesting(config);
-    this.activities = new ModelActivities(store, config, transport);
+    this.activities = new ModelActivities(store, config, transport, replay);
     this.harness = new ModelHarness(this.activities, config, snapshot, store);
   }
 
