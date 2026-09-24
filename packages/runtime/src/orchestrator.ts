@@ -18,7 +18,7 @@ import type { TestSandbox } from "./test-sandbox.js";
 import type { TransportFactoryOptions } from "@arbitra/providers/registry.js";
 import type { PlanIR } from "@arbitra/schemas/plan.js";
 import { loadActivityTraces } from "@arbitra/persistence/trace.js";
-import { traceEntry, tracePage } from "./trace-browser.js";
+import { indexedTraceEntry, indexedTracePage } from "./trace-browser.js";
 import { evaluationMetrics } from "./evaluation-metrics.js";
 import { FeaturePipeline, validateModelFeature, type FeatureOutcome } from "./feature-pipeline.js";
 import { TestingPipeline, validateModelTesting, type TestingOutcome } from "./testing-pipeline.js";
@@ -335,17 +335,28 @@ export class Orchestrator {
   async runIds(): Promise<readonly string[]> { return listRunIds(this.#runsDirectory); }
 
   async modelTraces(runId: string) {
+    await this.#requireRun(runId);
+    return loadActivityTraces(this.#runsDirectory, runId);
+  }
+
+  async #requireRun(runId: string): Promise<void> {
     try { await new RunStore(this.#runsDirectory, runId).loadContext(); }
     catch (error) {
       if (error instanceof Error && error.message === `RUN_CONTEXT_ABSENT:${runId}`) throw Object.assign(error, { statusCode: 404 });
       throw error;
     }
-    return loadActivityTraces(this.#runsDirectory, runId);
   }
 
-  async traces(runId: string, query: unknown = {}) { return tracePage(await this.modelTraces(runId), query); }
+  /** Served from the persistent per-run trace index; the committed JSONL log stays authoritative. */
+  async traces(runId: string, query: unknown = {}) {
+    await this.#requireRun(runId);
+    return indexedTracePage(this.#runsDirectory, runId, query);
+  }
 
-  async trace(runId: string, traceId: string) { return traceEntry(await this.modelTraces(runId), traceId); }
+  async trace(runId: string, traceId: string) {
+    await this.#requireRun(runId);
+    return indexedTraceEntry(this.#runsDirectory, runId, traceId);
+  }
 
   async traceArtifact(runId: string, traceId: string, slot: string) {
     const { trace } = await this.trace(runId, traceId);
