@@ -18,7 +18,9 @@ export class RunApi {
   cancel(runId: string): Promise<RunResource> { return this.request(`/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" }); }
   respondCheckpoint(runId: string, checkpointId: string, version: string, decision: "approve" | "reject"): Promise<{ readonly accepted: true }> { return this.request(`/runs/${encodeURIComponent(runId)}/checkpoints/${encodeURIComponent(checkpointId)}`, { method: "POST", body: JSON.stringify({ version, decision }) }); }
   eventsUrl(runId: string): string { return `${this.baseUrl}/runs/${encodeURIComponent(runId)}/events`; }
-  private async request<T>(path: string, init: RequestInit = {}): Promise<T> { const response = await fetch(`${this.baseUrl}${path}`, { ...init, headers: { "content-type": "application/json", ...init.headers } }); if (!response.ok) throw new Error(`RUN_API_${response.status}`); return await response.json() as T; }
+  // Bodiless POSTs (resume, cancel) must not declare a JSON body: the server rejects an empty
+  // `application/json` body with 400, which the browser QA found silently broke both controls.
+  private async request<T>(path: string, init: RequestInit = {}): Promise<T> { const response = await fetch(`${this.baseUrl}${path}`, { ...init, headers: { ...(init.body === undefined ? {} : { "content-type": "application/json" }), ...init.headers } }); if (!response.ok) throw new Error(`RUN_API_${response.status}`); return await response.json() as T; }
 }
 export function useRehydratedRun(api: RunApi, runId: string | null, refreshKey: unknown = null): { readonly resource: RunResource | null; readonly events: readonly RunEvent[]; readonly error: string | null } {
   const [resource, setResource] = useState<RunResource | null>(null);

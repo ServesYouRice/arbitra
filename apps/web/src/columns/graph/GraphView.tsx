@@ -5,9 +5,15 @@ import { Background, Controls, ReactFlow, type Edge, type Node, type ReactFlowIn
 import { useEffect, useMemo, useState, type ReactElement } from "react";
 import type { RunEvent } from "../../api/sse.js";
 import { layoutWorkflow, type WorkflowJson } from "./layout.js";
-interface GraphViewProps { readonly workflowJson: WorkflowJson; readonly runEvents: readonly RunEvent[]; readonly modelAliases: readonly string[]; readonly assignments: Readonly<Record<string, string>>; readonly onAssign: (nodeId: string, alias: string) => void; readonly onSelect?: (node: WorkflowJson["nodes"][number] | null) => void }
-interface GraphNodeData extends Record<string, unknown> { readonly label: string; readonly kind: NodeKind; readonly semanticState: RunState | null; readonly runtimeStatus: "not_started" | "running" | "completed" | "failed" | "replayed"; readonly activity: string; readonly assignment: string | null; readonly retries: number }
-export function GraphView({ workflowJson, runEvents, modelAliases, assignments, onAssign, onSelect }: GraphViewProps): ReactElement {
+import { expandWorkflow, isRecordedStage, recordedStages } from "./recorded-stages.js";
+const NO_ARTIFACTS: readonly { readonly kind: string }[] = Object.freeze([]);
+interface GraphViewProps { readonly workflowJson: WorkflowJson; readonly runEvents: readonly RunEvent[]; readonly modelAliases: readonly string[]; readonly assignments: Readonly<Record<string, string>>; readonly onAssign: (nodeId: string, alias: string) => void; readonly onSelect?: (node: WorkflowJson["nodes"][number] | null) => void; /** Recorded run artifacts; Feature/Testing subgraphs expand into the stages these record. */ readonly artifacts?: readonly { readonly kind: string }[] }
+interface GraphNodeData extends Record<string, unknown> { readonly label: string; readonly kind: NodeKind; readonly semanticState: RunState | null; readonly runtimeStatus: "not_started" | "running" | "completed" | "failed" | "replayed" | "recorded"; readonly activity: string; readonly assignment: string | null; readonly retries: number }
+export function GraphView({ workflowJson: sourceWorkflow, runEvents, modelAliases, assignments, onAssign, onSelect, artifacts = NO_ARTIFACTS }: GraphViewProps): ReactElement {
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const stages = useMemo(() => recordedStages(sourceWorkflow, artifacts), [sourceWorkflow, artifacts]);
+  const workflowJson = useMemo(() => expandWorkflow(sourceWorkflow, stages, expanded), [sourceWorkflow, stages, expanded]);
+  const toggle = (id: string): void => setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const [positions, setPositions] = useState<ReadonlyMap<string, { x: number; y: number }>>(new Map()); const [selected, setSelected] = useState<string | null>(null); const [flow, setFlow] = useState<ReactFlowInstance<Node<GraphNodeData>, Edge> | null>(null);
   useEffect(() => { let active = true; void layoutWorkflow(workflowJson).then((layout) => { if (active) setPositions(new Map(layout.map(({ id, x, y }) => [id, { x, y }]))); }); return () => { active = false; }; }, [workflowJson]);
   // `fitView` on the ReactFlow element only fits the graph present on the first render, and
@@ -17,17 +23,35 @@ export function GraphView({ workflowJson, runEvents, modelAliases, assignments, 
   // Re-fit when the real positions arrive, a frame later so React Flow has measured them.
   useEffect(() => { if (flow === null || positions.size === 0) return; const frame = requestAnimationFrame(() => { void flow.fitView({ padding: 0.12 }); }); return () => { cancelAnimationFrame(frame); }; }, [flow, positions]);
   const live = useMemo(() => projectLiveState(workflowJson, runEvents, assignments), [workflowJson, runEvents, assignments]);
-  const nodes: Node<GraphNodeData>[] = workflowJson.nodes.map((item) => ({ id: item.id, position: positions.get(item.id) ?? { x: 0, y: 0 }, data: requiredNodeData(live, item.id), type: "default", draggable: false, selectable: true }));
+  const nodes: Node<GraphNodeData>[] = workflowJson.nodes.map((item) => ({ id: item.id, position: positions.get(item.id) ?? { x: 0, y: 0 }, data: requiredNodeData(live, item.id), type: "default", draggable: false, selectable: true, ariaLabel: `${item.kind} node ${item.label}` }));
+  // The canvas label carries the node's glyph: the six-kind taxonomy is the icon set.
+  const canvasNodes: Node<GraphNodeData>[] = nodes.map((node) => ({ ...node, data: { ...node.data, label: `${NODE_GLYPHS[node.data.kind].glyph} ${node.data.label}` } }));
   const edges: Edge[] = workflowJson.edges.map(({ id, from, to }) => ({ id, source: from, target: to, animated: live.get(from)?.runtimeStatus === "running" }));
   const selectedNode = workflowJson.nodes.find(({ id }) => id === selected);
-  return <section className="graph-region" aria-labelledby="graph-title"><h2 className="panel-title" id="graph-title">workflow graph · read only</h2><div className="graph-canvas"><ReactFlow nodes={nodes} edges={edges} fitView minZoom={0.1} nodesDraggable={false} nodesConnectable={false} onInit={setFlow} onNodeClick={(_, item) => { setSelected(item.id); onSelect?.(workflowJson.nodes.find(({ id }) => id === item.id) ?? null); }}><Background /><Controls showInteractive={false} /></ReactFlow></div>
-    <ol aria-label="live run stages" className="run-stages">{nodes.map(({ id, data }) => <li className={data.semanticState === null ? "run-stage" : "run-stage state"} data-state={data.semanticState ?? undefined} data-runtime={data.runtimeStatus} key={id}><span style={{ color: `var(${NODE_GLYPHS[data.kind].token})` }}>{NODE_GLYPHS[data.kind].glyph}</span> {data.label} · {data.semanticState === null ? data.runtimeStatus.replace("_", " ") : STATE_LABELS[data.semanticState]} · {data.activity}{data.assignment === null ? "" : ` · ${data.assignment}`}{data.retries === 0 ? "" : ` · retry ${data.retries}`}</li>)}</ol>
-    {selectedNode?.kind !== "model" ? null : <label>model assignment<select aria-label="model assignment" value={assignments[selectedNode.id] ?? ""} onChange={(event) => onAssign(selectedNode.id, event.target.value)}><option value="">unassigned</option>{modelAliases.map((alias) => <option key={alias}>{alias}</option>)}</select></label>}
+  const select = (id: string): void => { setSelected(id); onSelect?.(workflowJson.nodes.find((item) => item.id === id) ?? null); };
+  return <section className="graph-region" aria-labelledby="graph-title"><h2 className="panel-title" id="graph-title">workflow graph · read only</h2><div className="graph-canvas"><ReactFlow nodes={canvasNodes} edges={edges} fitView minZoom={0.1} nodesDraggable={false} nodesConnectable={false} onInit={setFlow} onNodeClick={(_, item) => select(item.id)}><Background /><Controls showInteractive={false} /></ReactFlow></div>
+    <ol aria-label="live run stages" className="run-stages">{nodes.map(({ id, data }) => {
+      const recorded = stages.get(id);
+      const parent = workflowJson.nodes.find((item) => item.id === id)?.config?.["parentId"];
+      const firstOfParent = typeof parent === "string" && stages.get(parent)?.[0]?.id === id;
+      return <li className={data.semanticState === null ? "run-stage" : "run-stage state"} data-state={data.semanticState ?? undefined} data-runtime={data.runtimeStatus} data-stage-of={typeof parent === "string" ? parent : undefined} key={id}>
+        <button aria-pressed={selected === id} className="run-stage__select" type="button" onClick={() => select(id)}><span aria-hidden="true" style={{ color: `var(${NODE_GLYPHS[data.kind].token})` }}>{NODE_GLYPHS[data.kind].glyph}</span> <span className="visually-hidden">{data.kind} · </span>{data.label}</button> · {data.semanticState === null ? data.runtimeStatus.replace("_", " ") : STATE_LABELS[data.semanticState]} · {data.activity}{data.assignment === null ? "" : ` · ${data.assignment}`}{data.retries === 0 ? "" : ` · retry ${data.retries}`}
+        {recorded === undefined ? null : <> · <button aria-expanded={false} type="button" onClick={() => toggle(id)}>expand {data.label} · {recorded.length} recorded stages</button></>}
+        {firstOfParent ? <> · <button aria-expanded={true} type="button" onClick={() => toggle(parent)}>collapse {parent} stages</button></> : null}
+      </li>;
+    })}</ol>
+    {selectedNode?.kind !== "model" || isRecordedStage(selectedNode) ? null : <label>model assignment<select aria-label="model assignment" value={assignments[selectedNode.id] ?? ""} onChange={(event) => onAssign(selectedNode.id, event.target.value)}><option value="">unassigned</option>{modelAliases.map((alias) => <option key={alias}>{alias}</option>)}</select></label>}
   </section>;
 }
 export function projectLiveState(workflow: WorkflowJson, events: readonly RunEvent[], assignments: Readonly<Record<string, string>>): ReadonlyMap<string, GraphNodeData> {
   const result = new Map<string, GraphNodeData>();
-  for (const node of workflow.nodes) result.set(node.id, { label: node.label, kind: node.kind, semanticState: "unexamined", runtimeStatus: "not_started", activity: "not started", assignment: assignments[node.id] ?? null, retries: 0 });
+  for (const node of workflow.nodes) {
+    const artifactKinds = node.config?.["artifactKinds"];
+    result.set(node.id, isRecordedStage(node)
+      // A recorded stage is known only by the artifacts it wrote; runtime events belong to its subgraph.
+      ? { label: node.label, kind: node.kind, semanticState: null, runtimeStatus: "recorded", activity: `${Array.isArray(artifactKinds) ? artifactKinds.length : 0} recorded artifact kinds`, assignment: null, retries: 0 }
+      : { label: node.label, kind: node.kind, semanticState: "unexamined", runtimeStatus: "not_started", activity: "not started", assignment: assignments[node.id] ?? null, retries: 0 });
+  }
   for (const event of events) {
     if (event.nodeId === undefined) continue;
     const current = result.get(event.nodeId);

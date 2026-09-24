@@ -57,7 +57,7 @@ pnpm --filter @arbitra/web dev              # UI on 127.0.0.1:4173, proxied to t
 ```
 
 With the control plane up, the UI is addressable: `?run=<id>` opens a recorded run and
-`?view=graph|issues|plan|evaluation|traces` opens a column-two view directly.
+`?view=graph|issues|plan|feature|testing|evaluation|traces` opens a column-two view directly.
 The trace browser filters recorded model attempts by node, model, protocol, outcome
 and activity text. Select an attempt to inspect its identity, usage, failures, and
 immutable input/output artifacts. Missing usage and cost remain labelled unavailable.
@@ -128,6 +128,7 @@ verifies the implementation has not drifted from them.
 pnpm test                  # every workspace package's suite
 pnpm run validate:examples # the six example configurations against the shipped schema
 pnpm run design:check      # design token, shared-glyph and brand-asset integrity
+pnpm --filter @arbitra/web e2e  # browser scenarios (Chromium, Firefox, WebKit); see docs/qa/p10
 pnpm lint                  # ESLint, including the architecture rules in tooling/
 pnpm typecheck
 pnpm build
