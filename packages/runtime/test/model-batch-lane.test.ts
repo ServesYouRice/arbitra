@@ -13,7 +13,7 @@ afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm
 
 const BASE = "https://fixture.example/v1/";
 
-async function fixture(options: { transport?: string; batch?: boolean; tools?: boolean } = {}) {
+async function fixture(options: { transport?: string; batch?: boolean; tools?: boolean; itemsPerSubmission?: number; collectWindowMs?: number } = {}) {
   const root = await mkdtemp(join(tmpdir(), "arbitra-model-batch-"));
   directories.push(root);
   const example = JSON.parse(await readFile(new URL("../../../examples/audit-balanced.json", import.meta.url), "utf8")) as Record<string, unknown>;
@@ -26,7 +26,7 @@ async function fixture(options: { transport?: string; batch?: boolean; tools?: b
       endpoints: [{ id: "primary", providerId: cheap.provider, transport: cheap.transport, endpoint: "https://fixture.example/v1", apiKeyEnvVar: "FIXTURE_KEY" }],
       modelEndpoints: { cheap: "primary" }, maximumOutputTokens: 10, maximumTokens: 100_000,
       maximumRetries: 0, timeoutMs: 1_000, rateLimits: { [cheap.provider]: { rpm: 100, tpm: 100_000, maxConcurrent: 4 } },
-      batch: { lanes: [{ modelProfileId: "cheap", activityGroups: ["semantic-clustering"], pollIntervalMs: 1_000, maximumWaitMs: 60_000, maximumItemsPerSubmission: 10, collectWindowMs: 250 }] },
+      batch: { lanes: [{ modelProfileId: "cheap", activityGroups: ["semantic-clustering"], pollIntervalMs: 1_000, maximumWaitMs: 60_000, maximumItemsPerSubmission: options.itemsPerSubmission ?? 10, collectWindowMs: options.collectWindowMs ?? 250 }] },
     },
   } });
   const store = new RunStore(root, "run-1");
@@ -83,7 +83,9 @@ async function artifact(store: RunStore, kind: (value: string) => boolean): Prom
 
 describe("model activities on an explicit batch lane", () => {
   it("batches only configured activity groups, keeps others interactive, records provenance and reuses results after restart", async () => {
-    const { create, openai, store } = await fixture();
+    // The lane flushes as soon as a group is full, so two items form exactly one submission
+    // however slowly they arrive; a timing window alone split them on a loaded machine.
+    const { create, openai, store } = await fixture({ itemsPerSubmission: 2, collectWindowMs: 60_000 });
     const activities = create();
     const [first, second, interactive] = await Promise.all([
       activities.invoke(request("semantic-clustering/pair-1")), activities.invoke(request("semantic-clustering/pair-2")), activities.invoke(request("critic/review")),
