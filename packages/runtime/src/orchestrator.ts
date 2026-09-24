@@ -32,6 +32,7 @@ import { readRequirementsProposal } from "./requirements-revision.js";
 import { GraphCheckpoints, validateGraphCheckpoints, type CheckpointView, type GatePolicyRegistry } from "@arbitra/core/runner/graph-checkpoints.js";
 import { checkpointPolicySchema, checkpointResponseSchema, type CheckpointPolicy } from "@arbitra/schemas/checkpoint-policy.js";
 import { graphCheckpointStore } from "./graph-checkpoint-store.js";
+import { testingOperatorView, testingVerifiedChangeSet } from "./testing-operator-view.js";
 
 export interface OrchestratorOptions {
   /** Where runs and saved configurations live. Defaults to `<repository>/.runs`. */
@@ -321,6 +322,22 @@ export class Orchestrator {
       if (saved.baseArtifactId === current.artifactId) revisionProposal = { artifactId: saved.artifactId, ...await readRequirementsProposal(store, saved.artifactId) };
     }
     return { ...current, ...(revisionProposal === undefined ? {} : { revisionProposal }) };
+  }
+
+  /** The read-only Testing operator view: stored authority, plan versus execution, repair and handoff. */
+  async testing(runId: string) {
+    const status = await this.status(runId);
+    const { modelConfiguration: config } = await new RunStore(this.#runsDirectory, runId).loadContext();
+    if (config?.mode !== "testing") throw Object.assign(new Error("TESTING_RUN_REQUIRED"), { statusCode: 409 });
+    return testingOperatorView(new RunStore(this.#runsDirectory, runId), runId, status.state, config);
+  }
+
+  /** The exact verified Testing change set, rechecked against its completion record. */
+  async testingChangeSet(runId: string) {
+    await this.status(runId);
+    const store = new RunStore(this.#runsDirectory, runId);
+    if ((await store.loadContext()).modelConfiguration?.mode !== "testing") throw Object.assign(new Error("TESTING_RUN_REQUIRED"), { statusCode: 409 });
+    return testingVerifiedChangeSet(store, runId);
   }
 
   async applyRequirementsRevision(runId: string, artifactId: string) {

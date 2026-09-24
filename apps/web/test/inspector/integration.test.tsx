@@ -37,7 +37,8 @@ describe("integrated workspace selection, prompts and run controls", () => {
     stubEnvironment(); stubFetch();
     render(<ArbitraWorkspace runId="run-1" workflow={PRESET_WORKFLOWS["audit-deep"]} models={[model]} defaultConfiguration={configuration} />);
     expect(await screen.findByText("workflow inspector")).toBeTruthy();
-    await waitFor(() => expect(screen.getByText(/BLOCKED/)).toBeTruthy());
+    // The inspector and the run controls both report the rehydrated state.
+    await waitFor(() => expect(screen.getAllByText(/BLOCKED/).length).toBeGreaterThan(0));
     expect(await screen.findByText("run controls")).toBeTruthy();
     fireEvent.click(await screen.findByText(/compiled-prompt · artifact:prompt-a/));
     expect(await screen.findByText(/persisted redacted content · 512 bytes/)).toBeTruthy();

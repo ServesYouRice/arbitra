@@ -26,6 +26,8 @@ export const HTTP_ROUTE_SCHEMAS = Object.freeze({
   "POST /runs/:id/requirements/apply-revision": { params: idParams, body: z.toJSONSchema(z.strictObject({ artifactId: z.string().min(1) }), { target: "draft-7" }), response: jsonResponse },
   "POST /runs/:id/requirements/approve": { params: idParams, body: z.toJSONSchema(requirementsApprovalSchema, { target: "draft-7" }), response: jsonResponse },
   "POST /runs/:id/requirements/revise": { params: idParams, body: z.toJSONSchema(z.strictObject({ artifactId: z.string().min(1), draft: requirementsDraftSchema }), { target: "draft-7" }), response: jsonResponse },
+  "GET /runs/:id/testing": { params: idParams, response: jsonResponse },
+  "GET /runs/:id/testing/change-set": { params: idParams, response: jsonResponse },
   "GET /runs/:id/traces": { params: idParams, querystring: z.toJSONSchema(traceHttpQuerySchema, { target: "draft-7" }), response: jsonResponse },
   "GET /runs/:id/traces/:traceId": { params: { ...idParams, required: ["id", "traceId"], properties: { ...idParams.properties, traceId: { type: "string", pattern: "^(0|[1-9][0-9]*)$", maxLength: 16 } } }, response: jsonResponse },
   "GET /runs/:id/traces/:traceId/artifacts/:slot": { params: { ...idParams, required: ["id", "traceId", "slot"], properties: { ...idParams.properties, traceId: { type: "string", pattern: "^(0|[1-9][0-9]*)$", maxLength: 16 }, slot: { type: "string", pattern: "^(output|input-(0|[1-9][0-9]*))$", maxLength: 32 } } }, response: jsonResponse },

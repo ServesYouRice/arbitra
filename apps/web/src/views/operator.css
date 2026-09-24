@@ -1,0 +1,30 @@
+/* Feature contract and Testing execution views. Tokens only; hairlines, square corners. */
+.operator-view { display: grid; gap: var(--s3); min-width: 0; font-family: var(--font-data); font-size: var(--t-micro); line-height: var(--lh-tight); }
+.operator-view p { margin: 0; }
+.operator-run { color: var(--ink); font-variant-numeric: tabular-nums; }
+.operator-section { display: grid; gap: var(--s2); border-block-start: var(--hairline) solid var(--line); padding-block-start: var(--s3); min-width: 0; overflow-wrap: anywhere; }
+.operator-section h3, .operator-section h4 { margin: 0; }
+.operator-facts { display: grid; gap: var(--s1); margin: 0; }
+.operator-facts > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); min-height: var(--row-h); border-block-end: var(--hairline) solid var(--line-soft); align-items: center; }
+.operator-facts dt { color: var(--mute); }
+.operator-facts dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.operator-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s1); }
+.operator-list > li { min-height: var(--row-h); overflow-wrap: anywhere; }
+.operator-ambiguity { display: grid; gap: var(--s1); padding-block: var(--s2); border-block-end: var(--hairline) solid var(--line-soft); }
+.operator-check { display: flex; gap: var(--s2); align-items: center; min-height: var(--row-h); }
+.operator-actions { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.operator-actions button, .operator-section > button { min-height: var(--row-h); }
+.operator-note { color: var(--mute); max-width: var(--measure); }
+.operator-form { display: grid; gap: var(--s2); }
+.operator-form label { display: grid; gap: var(--s1); color: var(--mute); }
+.operator-form textarea { width: 100%; min-height: var(--s7); font: 400 var(--t-micro)/var(--lh-body) var(--font-data); }
+.operator-proposal { display: grid; gap: var(--s2); border-inline-start: var(--stripe) solid var(--brass); padding-inline-start: var(--s3); }
+.operator-table { overflow-x: auto; }
+.operator-table table { border-collapse: collapse; width: 100%; }
+.operator-table th, .operator-table td { padding: var(--s2); border-block-end: var(--hairline) solid var(--line-soft); text-align: start; vertical-align: top; overflow-wrap: anywhere; }
+.operator-table th { color: var(--mute); font-weight: 600; overflow-wrap: normal; }
+.operator-table td { overflow-wrap: break-word; }
+.operator-task { border-block-end: var(--hairline) solid var(--line-soft); padding-block: var(--s2); }
+.operator-task summary { min-height: var(--row-h); cursor: pointer; }
+.operator-view pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 40vh; overflow: auto; border: var(--hairline) solid var(--line); padding: var(--s2); background: var(--sunken); }
+@media (forced-colors: active) { .operator-section, .operator-facts > div, .operator-ambiguity, .operator-proposal, .operator-table th, .operator-table td, .operator-task, .operator-view pre { border-color: CanvasText; } }

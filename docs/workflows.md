@@ -238,9 +238,11 @@ and acceptance traceability into planning.
 
 The runtime library has durable requirements checkpoints, grounded exploration and
 targeted independent requirements review with up to three rounds. Draft revisions
-invalidate operator approvals and downstream review identities. Dedicated requirements
-controls in the web UI remain unfinished. Feature uses the runner's subgraph primitive; stage detail is available in
-its artifacts and traces. Audit-policy replay is explicitly unsupported for Feature;
+invalidate operator approvals and downstream review identities. The web Feature contract
+view offers the same inspect, approve, revise, apply-proposal and resume operations through
+these routes (see [Web](architecture.md#web)). Feature uses the runner's subgraph primitive.
+The graph view expands it into the stages its artifacts record; full stage detail stays in
+artifacts and traces. Audit-policy replay is explicitly unsupported for Feature;
 ordinary durable resume is supported.
 
 `packages/runtime/src/model-feature-planning.ts` composes the selected planner with an
@@ -292,8 +294,10 @@ it is not proof of test coverage. Blocking questions withhold the handoff.
 
 All stages share the durable model budget and resume machinery. In plan mode commands
 are never run, the source tree stays unchanged, and the planning result records `testsExecuted: false`.
-Audit-policy replay is unsupported for Testing. Dedicated web controls and expanded
-Testing subgraph views remain open.
+Audit-policy replay is unsupported for Testing. The web Testing execution view reviews the
+stored authority, plan versus execution, attempts, checks, repair and the verified change set
+through `GET /runs/:id/testing` and `GET /runs/:id/testing/change-set`. The graph view
+expands both Testing subgraphs into their recorded stages.
 Guarded execution is opt-in: use `workflow.preset: "testing-execute"` (or omit the preset),
 set `workflow.testing.mode: "execute"`, and supply `workflow.testing.execution` with:
 
@@ -311,7 +315,7 @@ receives leased file tools, not shell access. Source checkout files remain uncha
 
 The summary keeps `outcome` for planning and adds `execution` for actual task/final-check
 results. Passing execution requires a `testing-execution-completion` artifact referencing
-an exact `testing-change-set-*` artifact. Retrieve it through the existing artifact API.
+an exact `testing-change-set-*` artifact. Retrieve it through the existing artifact API, or from `GET /runs/:id/testing/change-set`, which rechecks the completion and content hashes first.
 Each changed file contains `expectedHash`, `contentHash` and UTF-8 `content`; an applying
 tool must compare the destination bytes with `expectedHash` before replacing them.
 Successful finalization cleans up its worktree and replays without new model/check calls.
@@ -347,7 +351,7 @@ they are not repaired. Cancellation stops the run, and a later resume can contin
 the exact final bytes that pass fresh verification are exported. Repair is covered with
 injected sandbox/provider ports. Its real-Docker repetition is still outstanding.
 Native harness execution and live-provider/Docker acceptance QA remain open.
-The [completion plan](completion-plan.md) also tracks oversized contexts, web controls,
+The [completion plan](completion-plan.md) also tracks oversized contexts,
 mode-specific replay and the remaining extensions.
 
 ## Presets

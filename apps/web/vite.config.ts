@@ -1,7 +1,7 @@
-/// <reference types="vitest/config" />
 import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
+import { configDefaults } from "vitest/config";
 
 export default defineConfig({
   plugins: [react()],
@@ -14,7 +14,8 @@ export default defineConfig({
   // chunk above the 500 kB default is elkjs, a single 1.4 MB vendor module that cannot be
   // split further and is already loaded on demand behind the graph view, so the limit is
   // raised past it rather than left to warn on every build.
-  test: { setupFiles: ["./test/setup.ts"] },
+  // Browser scenarios under e2e/ run through Playwright (`pnpm e2e`), never through vitest.
+  test: { setupFiles: ["./test/setup.ts"], exclude: [...configDefaults.exclude, "e2e/**"] },
   build: { outDir: "dist", sourcemap: true, chunkSizeWarningLimit: 1500 },
   // The UI addresses the control plane with root-relative paths, so the dev server
   // forwards exactly the control-plane and evaluation route prefixes to it and serves
