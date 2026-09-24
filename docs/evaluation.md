@@ -139,15 +139,78 @@ in its own `limitations`:
 
 ## Corpora
 
-`packages/core/src/eval/corpora.ts` holds the longitudinal stores —
+`packages/core/src/eval/corpora.ts` defines the longitudinal store contracts —
 `RealWorldOutcomeStore` for whether an accepted issue turned out to matter, and
-`IndependenceCorpusStore` for independence observations. The shipped implementations are
-in-memory (`InMemoryRealWorldOutcomeStore`, `InMemoryIndependenceCorpusStore`): the
-interfaces and the recorded data are real, the durable backend is not built.
+`IndependenceCorpusStore` for independence observations. The observation types live in
+`packages/schemas/src/evaluation-corpus.ts`. `InMemoryRealWorldOutcomeStore` and
+`InMemoryIndependenceCorpusStore` remain for tests and ephemeral callers.
 `packages/core/src/independence/report.ts` produces the independence report from that data.
 
-Durable corpus storage and a production-runtime evaluation driver are tracked in
-[P05](completion-plan.md#p05--persist-evaluation-data-and-its-provenance) and
+### Durable corpus store
+
+`packages/persistence/src/evaluation-corpus/` is the durable backend.
+`EvaluationCorpusStore` owns one corpus directory; `DurableRealWorldOutcomeStore` and
+`DurableIndependenceCorpusStore` implement the core interfaces over it (structurally,
+because persistence sits below core). Besides observations it records:
+
+```text
+ground truth    GroundTruthVersion {groundTruthId, version, items[defect|decoy]}
+                immutable per version, stored as a content-addressed artifact
+run provenance  runId · mode (scripted|real_models) · snapshot {repository, sourceDigest, commit}
+                protocol {id, version, hash} · harness {id, version, policyHash}
+                models[] {auditorId, modelId, modelProfileVersion, transportId, transportVersion}
+                groundTruth {groundTruthId, version} | null
+adjudication    versioned ruling on one observation: judgment, adjudicator, rationale,
+                adjudicatedAt, optional ground-truth item citation
+```
+
+The rules:
+
+- **Idempotent import.** `import(bundle)` applies ground truth, runs, observations and
+  adjudications as one atomic batch. A record whose identity already exists with identical
+  content is counted `unchanged` and not rewritten; re-importing the same bundle writes
+  nothing.
+- **Conflicting identity fails.** The same run id with different provenance, a changed
+  ground-truth version, a changed observation, an auditor that is not in the run's model
+  identity, or an adjudication citing ground truth other than the run's raises
+  `CorpusIdentityConflictError` (`CORPUS_IDENTITY_CONFLICT:<kind>:<key>`). The whole batch
+  is rejected before anything is written. An observation needs registered provenance
+  (`CORPUS_RUN_PROVENANCE_MISSING`).
+- **Judgments are append-only.** The imported observation is judgment version 0.
+  Adjudication `n` must follow `n-1` (`CORPUS_ADJUDICATION_VERSION_GAP` otherwise);
+  resubmitting a recorded version with different content is a conflict, not an overwrite.
+  `query()` returns the latest judgment; `history()` returns every version.
+- **Unknown stays null.** `costUsd` and `latencyMs` are a non-negative number or `null`.
+  Inputs are strictly shaped: unknown fields, such as an endpoint or key, are rejected.
+
+`summarizeOutcomes` and `summarizeIndependence` carry a denominator (`runCount`,
+`observationCount`, `runsWithGroundTruth`, `adjudicatedCount`, and requested
+`unmatchedRunIds`), and every row keeps its own counts. Cost totals are `null` if any cost is
+unknown and report `knownCount`/`unknownCount`; latency means cover known values only.
+They refuse to mix model, harness, protocol, ground-truth version or execution mode
+unless that dimension is in `groupBy`, raising `IncomparableCorpusAggregationError` with
+the same `INCOMPARABLE_IDENTITY_MIX:<dimension>` message as the trace metrics.
+
+### Reports
+
+`exportReport(query, redactor)` builds a report as of the latest committed data batch. It
+includes the query, summary, run provenance, ground-truth digests, each observation's imported
+value, the judgment version used, and a digest of the journal prefix it was computed from.
+Every string passes through the injected `CorpusRedactor` (the composition layer supplies
+`redactSecrets` from `packages/security`, which persistence cannot import), and the report is
+refused if a second redaction pass still finds anything. It is saved as a content-addressed
+`corpus-report` artifact and journalled; exporting unchanged data again returns the same
+artifact.
+
+`reconstructReport(ref, redactor)` rebuilds the report from the journal prefix and
+ground-truth artifacts, then requires byte equality with the saved artifact. If the history
+changed, the rebuilt report differs, the redactor version differs or the artifact holds an
+unredacted secret, it fails with `CorpusReportMismatchError`. Adjudications recorded after the
+export do not alter the rebuilt report; they are returned as `supersededJudgments`
+(`reportedVersion` → `currentVersion`), so a changed historical judgment is always explicit.
+
+Nothing in the CLI, server or runtime constructed the in-memory corpora, so there is no
+composition wiring to replace yet; a production evaluation driver that feeds these stores is
 [P06](completion-plan.md#p06--measure-the-real-model-premise). The existing real-handoff
 script uses scripted Audit responses to construct its plan before invoking an external
 coding agent; it does not establish live multi-model Audit quality. Completion requires
