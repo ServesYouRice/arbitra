@@ -102,11 +102,19 @@ first half.
 
 ## Checkpoints
 
-`packages/core/src/checkpoints.ts` (`requiresCheckpoint`, `checkpointDecision`) decides
-where a human decision is required; `apps/server/src/checkpoints.ts` holds the waiting
-registry. A run blocked on a checkpoint is durable: reloading the UI rehydrates the same
-pending checkpoint through `GET /runs/:id` and can answer it. Automatic mode resolves
-without a human; interactive mode waits.
+Feature requirements checkpoints are composed through
+`packages/runtime/src/requirements-checkpoint.ts` and immutable run artifacts.
+The current contract, approvals, revisions and proposals survive restart. Status exposes
+pending ambiguity IDs; CLI and requirements HTTP routes inspect, revise and approve
+the current version. Stale versions are rejected, edits clear approvals, and resuming
+reuses only model stages matching the current contract. Interactive unresolved decisions
+keep the run `BLOCKED`. See [Feature mode](workflows.md#feature-mode).
+
+The generic policy helpers in `packages/core/src/checkpoints.ts` and the server's
+`CheckpointRegistry` are separate groundwork. That registry is in-memory and does not
+establish generic durable graph checkpoints. Dedicated web requirements controls and
+generic human/gate composition remain completion tasks P09/P10; the current UI should
+not be described as able to answer every durable checkpoint.
 
 ## Traces and the rebuildable index
 
@@ -118,13 +126,18 @@ with refusals kept separate from errors.
 `index-db/rebuild.ts` builds the SQLite query index from those traces and the journal. It
 is disposable by design: delete it and it comes back identical.
 
-## What is not durable, and is not pretended to be
+## Recovery boundaries
 
-- **In-flight harness tool loop state.** A crash mid-loop restarts the activity's attempt;
-  it does not resume the loop mid-turn.
-- **Provider continuation state** is persisted (`packages/providers/src/continuation/store.ts`)
-  but only where the provider exposes a continuation handle. Where it does not, a long
-  generation restarts.
+- **Composed canonical turns.** The runtime rebuilds the tool loop from durable model
+  activities and reuses completed recorded turns. Testing write tools bind each call to
+  saved arguments/results and recover pending mutations through the workspace journal;
+  restart must not repeat a completed write.
+- **An interrupted provider request.** There is no mid-response recovery guarantee.
+  A resumed attempt can issue another request, retaining the original budget reservation
+  and unknown-usage accounting. The optional provider continuation store exists, but
+  composed model activities currently disable provider-side continuation.
+- **Generic checkpoints.** Feature requirements decisions are durable; the separate
+  in-memory generic server checkpoint registry is not.
 - **`.runs/` and `implementation/` are mandatory audit exclusions** — `MANDATORY_ROOTS` in
   `packages/security/src/exclusions.ts`, not a configurable default — so a run cannot read
   its own output or its own plan and mistake either for repository evidence.

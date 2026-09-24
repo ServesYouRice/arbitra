@@ -9,23 +9,25 @@ misses — is treated as a hypothesis the system measures, not as a marketing cl
 
 ## Status
 
-The workspace contains the v1 building blocks, a **scripted Audit pipeline**, and a
-bounded **model Audit pipeline** over a selected source snapshot. Configured model
-execution requires endpoint bindings and explicit roles; see
+The workspace implements an alpha runtime for **model-backed Audit, Feature planning,
+Testing planning and guarded Testing execution**, alongside scripted Audit. Configured
+model execution requires endpoint bindings and explicit roles; see
 [`docs/provider-model.md`](docs/provider-model.md). Model Feature workflows now run through
 the shared CLI/server runtime with durable requirements checkpoints, risk-directed review,
 planning and an exportable implementation handoff; see [`docs/workflows.md`](docs/workflows.md#feature-mode).
 Testing workflows compose grounded risk analysis and gap selection, with either a read-only
 plan or opt-in guarded execution in an isolated worktree. Execution requires explicit
 write partitions and digest-pinned sandbox checks; it exports verified changes without
-modifying the source checkout. Native harnesses remain unimplemented. Composition limitations
-are distinguished in [`docs/architecture.md`](docs/architecture.md); the separately
-planned v1.1 extensions are also listed there.
+modifying the source checkout. Native harnesses remain unimplemented. Live-provider and
+Docker acceptance validation, final-invalidation repair, larger-context handling and
+operator UI work remain. See [project status](docs/project-status.md) for implemented
+capabilities and measured verification, and the [completion plan](docs/completion-plan.md)
+for all remaining steps, dependencies and acceptance criteria.
 
 One thing is worth knowing before reading further: **the premise is unmeasured on real
 models.** `packages/testing/src/metrics/premise.ts` scores a run against a ground-truth
-fixture, but the default suites run scripted auditors. Real-model measurement is
-environment-gated and skipped by default, and every premise report the system produces
+fixture, but the default suites run scripted auditors. A live evaluation runner and
+recorded real-model measurements remain part of the completion plan. Every premise report
 carries `interpretation: "smoke_test_only_not_proof"`. See
 [`docs/evaluation.md`](docs/evaluation.md).
 
@@ -83,7 +85,7 @@ unchanged.
 ```text
 apps/cli          command-line interface and CI exit codes
 apps/server       localhost Fastify control plane (127.0.0.1:4178)
-apps/web          four-column read-only UI
+apps/web          four-column UI with a read-only workflow graph
 packages/runtime  composition root: the one core the CLI and the server both call
 packages/core     workflow runner, prompt compiler, preflight, renderer, replay
 packages/workflow audit/feature/testing nodes, clustering, consensus, verification
@@ -104,6 +106,8 @@ tooling/              ESLint rules that enforce architecture invariants
 
 | Document | Covers |
 |---|---|
+| [`docs/project-status.md`](docs/project-status.md) | current capabilities, limitations and dated verification evidence |
+| [`docs/completion-plan.md`](docs/completion-plan.md) | remaining implementation and validation steps, dependencies and acceptance criteria |
 | [`docs/architecture.md`](docs/architecture.md) | package layout, layering, the core loop, v1.1 extension points |
 | [`docs/security.md`](docs/security.md) | trust, taint, control plane, suppression, command policy |
 | [`docs/workflows.md`](docs/workflows.md) | the graph model, node kinds, the three modes, presets |
@@ -133,7 +137,7 @@ The CLI's own commands are documented in [`docs/architecture.md`](docs/architect
 
 ## Example configurations
 
-Six configurations live in [`examples/`](examples), one per shipped workflow preset:
+Six schema-example configurations live in [`examples/`](examples):
 
 ```text
 examples/audit-balanced.json
@@ -143,6 +147,10 @@ examples/diff-review.json
 examples/feature-simple.json
 examples/testing-plan.json
 ```
+
+The public runtime also supports `testing-execute`; its execution configuration is
+documented in [Testing mode](docs/workflows.md#testing-mode). The six examples do not
+cover every executable preset or supply complete live-provider settings.
 
 Every one validates against `runConfigSchema` from
 `packages/schemas/src/config.ts` in `pnpm run validate:examples`, which also runs negative

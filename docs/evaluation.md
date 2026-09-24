@@ -121,10 +121,11 @@ finding no earlier auditor found; `negative` when later auditors contributed onl
 positives; `null` otherwise. `interpretation` is the literal
 `"smoke_test_only_not_proof"` and cannot be set to anything else by the type.
 
-### It has not been run against real models
+### Live evaluation is still outstanding
 
 `realPremiseMeasurementEnabled` requires `ARBITRA_PREMISE_REAL_MODELS=1` **and** a provider
-key. Neither is set in the default suites, which run scripted auditors
+key. This helper is an eligibility check, not a live evaluation runner.
+The default suites run scripted auditors
 (`packages/testing/src/scripted-auditor.ts`) over `packages/testing/src/fake-transport.ts`.
 
 So the shipped premise measurement demonstrates that the **measurement** is deterministic
@@ -144,6 +145,13 @@ in its own `limitations`:
 in-memory (`InMemoryRealWorldOutcomeStore`, `InMemoryIndependenceCorpusStore`): the
 interfaces and the recorded data are real, the durable backend is not built.
 `packages/core/src/independence/report.ts` produces the independence report from that data.
+
+Durable corpus storage and a production-runtime evaluation driver are tracked in
+[P05](completion-plan.md#p05--persist-evaluation-data-and-its-provenance) and
+[P06](completion-plan.md#p06--measure-the-real-model-premise). The existing real-handoff
+script uses scripted Audit responses to construct its plan before invoking an external
+coding agent; it does not establish live multi-model Audit quality. Completion requires
+saved real-run evidence and reproducible scoring, and does not require a positive result.
 
 ## Replay
 
@@ -183,5 +191,7 @@ includes deferred items in its denominator.
 These operational measurements do not establish ground truth: precision, recall,
 contribution, and measured independence remain unavailable without an evaluation corpus.
 Protocol comparisons accept exact identities and optional runIds, refuse different
-protocol identities, and report missing matching activity explicitly. The full trace
-browser remains unfinished.
+protocol identities, and report missing matching activity explicitly. The trace browser
+is implemented through the runtime, HTTP routes and web Traces view; it exposes attempt
+identity, usage, failures and immutable redacted artifacts. Browser acceptance QA and
+indexing very large histories remain in the [completion plan](completion-plan.md).
