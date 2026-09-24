@@ -180,8 +180,9 @@ The [completion plan](completion-plan.md) records dependencies and acceptance cr
 
 - **Live-provider/Docker acceptance and real-model premise evaluation remain outstanding.**
   Injected-provider tests do not establish model quality. See [`evaluation.md`](evaluation.md).
-- Final Testing verification can invalidate earlier work and block the run; automatic
-  repair of that work is not implemented.
+- Final Testing verification can reopen invalidated earlier work for bounded, durable repair
+  under the original write grants (see [Testing mode](workflows.md#testing-mode)). The critical
+  repair cases have not yet been repeated against the real Docker sandbox.
 - Individually oversized records and mandatory global contexts can still fail explicitly
   across Audit, Feature and Testing.
 - Durable Feature requirements checkpoints work through CLI/HTTP. Generic graph
@@ -198,7 +199,7 @@ now differs; all unfinished work is included in the completion plan.
 
 | Deferred feature | Extension point |
 |---|---|
-| Autonomous Testing execution | Implemented through opt-in `testing-execute`: planning, authority preflight, parallel writers, serial checks, final verification and durable handoff. Repair, richer web views and live-provider/Docker QA remain; plan items P04/P07/P10/P11 |
+| Autonomous Testing execution | Implemented through opt-in `testing-execute`: planning, authority preflight, parallel writers, serial checks, final verification, bounded repair and durable handoff. Real-sandbox repair QA, richer web views and live-provider/Docker QA remain; plan items P04/P07/P10/P11 |
 | Native harness adapters | `packages/harness/src/adapter.ts` defines the port; `canonical/adapter.ts` is the only implementation. `harness.mode: "native"` is accepted by the schema and has no adapter behind it |
 | Advisor runtime | `taskRouting.advisor` and `advisorMaxUses` exist in `packages/schemas/src/task-ir.ts`; `advisorTokens` is recorded in `packages/persistence/src/trace.ts`. Nothing consumes them |
 | Feature workflow extensions | Public requirements/review/planning/revision is implemented; web checkpoints, expanded subgraphs, oversized contexts and Feature-specific replay remain; P08/P10/P11 |

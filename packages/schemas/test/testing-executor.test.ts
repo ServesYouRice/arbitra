@@ -15,6 +15,12 @@ it("accepts explicit execution authority and returns an isolated validated confi
   expect(parsed.models.frontier).toBe("reviewer");
 });
 
+it("bounds optional repair rounds without changing configurations that omit them", () => {
+  expect(testingPlanExecutionOptionsSchema.parse(options())).not.toHaveProperty("maximumRepairRounds");
+  expect(testingPlanExecutionOptionsSchema.parse({ ...options(), maximumRepairRounds: 0 }).maximumRepairRounds).toBe(0);
+  for (const value of [-1, 6, 1.5]) expect(() => testingPlanExecutionOptionsSchema.parse({ ...options(), maximumRepairRounds: value })).toThrow();
+});
+
 it.each(["partition", "duplicate-partition", "duplicate-task", "unknown-field", "cap", "missing-frontier"])("rejects invalid trusted execution configuration: %s", (scenario) => {
   const input = options();
   if (scenario === "partition") input.authorization.tasks = [{ taskId: "TASK-001", partitionId: "unknown", exclusive: false }];

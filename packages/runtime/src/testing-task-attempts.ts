@@ -60,6 +60,29 @@ export class TestingTaskAttempts {
         || verification.snapshotFingerprint !== snapshotFingerprint || !verification.attemptId.startsWith("final/") || verification.status !== "failed") throw new Error("TESTING_FINAL_INVALIDATION_INVALID");
       await this.validateEvidence(verification);
       if (last?.state !== "verified" || last.result !== "passed") throw new Error("TESTING_FINAL_INVALIDATION_REQUIRES_COMPLETED_TASK");
+      // Evidence that already reopened an earlier attempt is stale for its repair.
+      if (ledger.invalidations?.some((entry) => entry.artifactId === artifactId && entry.attemptId !== last.id)) throw new Error("TESTING_FINAL_INVALIDATION_STALE");
+      const previous = ledger.invalidations?.find(({ attemptId }) => attemptId === last.id);
+      if (previous !== undefined && previous.artifactId !== artifactId) throw new Error("TESTING_FINAL_INVALIDATION_CHANGED");
+      if (previous === undefined) await this.save({ ...ledger, invalidations: [...ledger.invalidations ?? [], { attemptId: last.id, artifactId }] });
+      return ledger.attempts.length < this.maximumAttempts;
+    });
+  }
+
+  /** Reopen this completed task because another task's final check failed and this
+   * task's recorded writes are in that check's dependency/conflict closure. The cause
+   * must already have been accepted by the failing task's own ledger. */
+  invalidateForRelated(artifactId: string, snapshotFingerprint: string): Promise<boolean> {
+    return this.serial(async () => {
+      const ledger = await this.load(); const last = ledger.attempts.at(-1);
+      const descriptor = (await this.store.listArtifacts()).find((entry) => entry.artifactId === artifactId && entry.kind.startsWith("testing-task-verification-"));
+      if (descriptor === undefined) throw new Error("TESTING_VERIFICATION_ARTIFACT_REQUIRED");
+      const verification = testingTaskVerificationSchema.parse(await this.store.artifacts.get(descriptor.ref));
+      if (verification.taskId === this.#task.id || verification.snapshotFingerprint !== snapshotFingerprint || !verification.attemptId.startsWith("final/")
+        || verification.status !== "failed" || !verification.deterministicFailure) throw new Error("TESTING_FINAL_INVALIDATION_INVALID");
+      if (last?.state !== "verified" || last.result !== "passed") throw new Error("TESTING_FINAL_INVALIDATION_REQUIRES_COMPLETED_TASK");
+      // Evidence that already reopened an earlier attempt is stale for its repair.
+      if (ledger.invalidations?.some((entry) => entry.artifactId === artifactId && entry.attemptId !== last.id)) throw new Error("TESTING_FINAL_INVALIDATION_STALE");
       const previous = ledger.invalidations?.find(({ attemptId }) => attemptId === last.id);
       if (previous !== undefined && previous.artifactId !== artifactId) throw new Error("TESTING_FINAL_INVALIDATION_CHANGED");
       if (previous === undefined) await this.save({ ...ledger, invalidations: [...ledger.invalidations ?? [], { attemptId: last.id, artifactId }] });

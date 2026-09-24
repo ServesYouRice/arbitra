@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { canonicalJson } from "@arbitra/core/config/config-store.js";
 import { runConfigSchema, type RunConfig } from "@arbitra/schemas/config.js";
-import { planIRSchema } from "@arbitra/schemas/plan.js";
+import { planIRSchema, type PlanIR } from "@arbitra/schemas/plan.js";
 import { testingExecutionSchema } from "@arbitra/schemas/testing.js";
 import { testingPlanExecutionOptionsSchema } from "@arbitra/schemas/testing-executor.js";
 import { WritePartitions } from "@arbitra/security/write-partitions";
@@ -12,6 +12,8 @@ import type { RepositorySnapshot } from "./repository.js";
 import type { RunStore } from "./run-store.js";
 import type { TestSandbox } from "./test-sandbox.js";
 import type { TestingOutcome } from "./testing-pipeline.js";
+import { DEFAULT_TESTING_REPAIR_ROUNDS, TestingRepairLineage, testingRepairClosure, type TestingRepairRound } from "./testing-repair.js";
+import { TestingTaskAttempts } from "./testing-task-attempts.js";
 import { runTestingBatch } from "./testing-task-runner.js";
 import { TestingTaskVerifier, type TestingTaskVerificationResult } from "./testing-task-verifier.js";
 import { testingWriteSchedule } from "./testing-write-schedule.js";
@@ -28,6 +30,8 @@ export interface TestingPlanExecutionOutcome {
   readonly snapshotFingerprint: string;
   readonly tasks: readonly { taskId: string; state: "completed" | "blocked" }[];
   readonly finalVerification: readonly TestingTaskVerificationResult[];
+  /** Durable repair lineage: each invalidated snapshot, its failures and reopened/stale closure. */
+  readonly repair: readonly { round: number; snapshotFingerprint: string; failedTaskIds: readonly string[]; reopenedTaskIds: readonly string[]; staleTaskIds: readonly string[] }[];
 }
 
 /** Own one executor per run under the public run lock. Disjoint writer batches
@@ -128,39 +132,109 @@ export class TestingPlanExecutor {
     else if ((await this.store.artifacts.get<{ fingerprint: string }>(binding.ref)).fingerprint !== fingerprint) throw new Error("TESTING_EXECUTION_CONFIGURATION_CHANGED");
     await this.#verifier.recover(signal);
     await this.#workspace.prepare(this.#snapshot, signal);
-    const tasks: { taskId: string; state: "completed" | "blocked" }[] = [];
-    const reasons: string[] = [];
-    for (const batch of schedule.batches) {
-      const inputs = batch.map((request) => {
-        const task = plan.tasks.find(({ id }) => id === request.taskId);
-        if (task === undefined) throw new Error("TESTING_SCHEDULE_TASK_ABSENT");
-        return { store: this.store, config: this.#config, activities: this.activities, task,
-          policy: this.#options.verification, request, partitions: this.#partitions, workspace: this.#workspace, verifier: this.#verifier,
-          models: this.#options.models, maximumAttempts: this.#options.maximumAttempts, signal };
-      });
-      const results = await runTestingBatch(inputs);
-      for (const [index, result] of results.entries()) {
-        const task = inputs[index]?.task; if (task === undefined) throw new Error("TESTING_BATCH_TASK_ABSENT");
-        const state = result.state === "completed" ? "completed" : "blocked";
-        tasks.push({ taskId: task.id, state });
-        if (state === "blocked") reasons.push(`${result.state === "blocked" ? "task_attempts_exhausted" : "batch_blocked"}:${task.id}`);
+    const lineage = new TestingRepairLineage(this.store, fingerprint, this.#options.maximumRepairRounds ?? DEFAULT_TESTING_REPAIR_ROUNDS);
+    // Each pass runs the whole schedule through the shared writer/lease/check path.
+    // Completed tasks are no-ops; reopened tasks receive one new bounded attempt in
+    // dependency order. Restart therefore resumes an interrupted repair unchanged.
+    while (true) {
+      if (signal.aborted) throw new Error("TESTING_EXECUTION_CANCELLED");
+      await this.completeReopening(lineage, plan);
+      const tasks: { taskId: string; state: "completed" | "blocked" }[] = [];
+      const reasons: string[] = [];
+      for (const batch of schedule.batches) {
+        const inputs = batch.map((request) => {
+          const task = plan.tasks.find(({ id }) => id === request.taskId);
+          if (task === undefined) throw new Error("TESTING_SCHEDULE_TASK_ABSENT");
+          return { store: this.store, config: this.#config, activities: this.activities, task,
+            policy: this.#options.verification, request, partitions: this.#partitions, workspace: this.#workspace, verifier: this.#verifier,
+            models: this.#options.models, maximumAttempts: this.#options.maximumAttempts, signal };
+        });
+        const results = await runTestingBatch(inputs);
+        for (const [index, result] of results.entries()) {
+          const task = inputs[index]?.task; if (task === undefined) throw new Error("TESTING_BATCH_TASK_ABSENT");
+          const state = result.state === "completed" ? "completed" : "blocked";
+          tasks.push({ taskId: task.id, state });
+          if (state === "blocked") reasons.push(`${result.state === "blocked" ? "task_attempts_exhausted" : "batch_blocked"}:${task.id}`);
+        }
+        if (reasons.length > 0) break;
       }
-      if (reasons.length > 0) break;
-    }
-    const snapshotFingerprint = verificationSnapshotFingerprint(await this.#workspace.snapshot());
-    const finalVerification: TestingTaskVerificationResult[] = [];
-    if (reasons.length === 0) {
-      for (const task of plan.tasks) {
-        const result = await this.#verifier.verify(task, `final/${hash({ task: task.id, snapshotFingerprint })}`, this.#workspace, signal);
-        finalVerification.push(result);
-        if (result.snapshotFingerprint !== snapshotFingerprint) reasons.push(`final_verification_stale:${task.id}`);
-        else if (result.status !== "passed") reasons.push(`final_verification_${result.status}:${task.id}`);
+      const snapshotFingerprint = verificationSnapshotFingerprint(await this.#workspace.snapshot());
+      const finalVerification: TestingTaskVerificationResult[] = [];
+      if (reasons.length === 0) {
+        for (const task of plan.tasks) {
+          const result = await this.#verifier.verify(task, `final/${hash({ task: task.id, snapshotFingerprint })}`, this.#workspace, signal);
+          finalVerification.push(result);
+          if (result.snapshotFingerprint !== snapshotFingerprint) reasons.push(`final_verification_stale:${task.id}`);
+          else if (result.status !== "passed") reasons.push(`final_verification_${result.status}:${task.id}`);
+        }
       }
+      if (verificationSnapshotFingerprint(await this.#workspace.snapshot()) !== snapshotFingerprint) reasons.push("workspace_changed_during_final_verification");
+      // Only deterministic failures of fresh evidence for the exact final bytes are repairable.
+      const repairable = reasons.length > 0 && tasks.length === plan.tasks.length && reasons.every((reason) => reason.startsWith("final_verification_failed:"));
+      if (repairable) {
+        const decision = await this.reopen(lineage, plan, snapshotFingerprint, finalVerification, signal);
+        if (decision === null) continue;
+        reasons.push(decision);
+      }
+      const repair = (await lineage.load()).rounds.map(({ round, snapshotFingerprint: invalidated, failedTaskIds, reopened, staleTaskIds }) =>
+        ({ round, snapshotFingerprint: invalidated, failedTaskIds, reopenedTaskIds: reopened.map(({ taskId }) => taskId), staleTaskIds }));
+      const outcome: TestingPlanExecutionOutcome = { passed: reasons.length === 0, reasons, planFingerprint: schedule.planFingerprint, snapshotFingerprint, tasks, finalVerification, repair };
+      await this.store.publish("testing-execution-outcome", outcome, "testing-execution");
+      return outcome;
     }
-    if (verificationSnapshotFingerprint(await this.#workspace.snapshot()) !== snapshotFingerprint) reasons.push("workspace_changed_during_final_verification");
-    const outcome: TestingPlanExecutionOutcome = { passed: reasons.length === 0, reasons, planFingerprint: schedule.planFingerprint, snapshotFingerprint, tasks, finalVerification };
-    await this.store.publish("testing-execution-outcome", outcome, "testing-execution");
-    return outcome;
+  }
+
+  /** Decide one repair round for an exact invalidated snapshot. Returns null when the
+   * affected tasks were reopened, or a durable terminal reason. Nothing is invalidated
+   * unless every reopened task still has attempt budget under its original grant. */
+  private async reopen(lineage: TestingRepairLineage, plan: PlanIR, snapshotFingerprint: string, finalVerification: readonly TestingTaskVerificationResult[], signal: AbortSignal): Promise<string | null> {
+    const state = await lineage.load();
+    if (state.terminal !== undefined) {
+      if (state.terminal.snapshotFingerprint !== snapshotFingerprint) throw new Error("TESTING_REPAIR_TERMINAL_CHANGED");
+      return state.terminal.reason;
+    }
+    const terminal = async (reason: string) => { await lineage.save({ ...state, terminal: { snapshotFingerprint, reason } }); return reason; };
+    // Returning to any invalidated bytes (including a repair that changed nothing) is oscillation.
+    if (state.rounds.some((round) => round.snapshotFingerprint === snapshotFingerprint)) return terminal("repair_oscillation");
+    if (state.rounds.length >= lineage.maximumRounds) return terminal("repair_rounds_exhausted");
+    const failures = finalVerification.filter(({ status, deterministicFailure }) => status === "failed" && deterministicFailure).map(({ taskId, artifactId }) => ({ taskId, artifactId }));
+    const written = new Map<string, readonly string[]>();
+    for (const task of plan.tasks) written.set(task.id, (await this.#workspace.verificationInput(task.id)).writes.map(({ path }) => path));
+    const closure = testingRepairClosure(plan, this.#options.verification, failures, written);
+    for (const { taskId } of closure.reopened) {
+      const status = await this.ledger(plan, taskId).status();
+      if (status.state !== "completed") throw new Error("TESTING_REPAIR_REQUIRES_COMPLETED_TASK");
+      if (status.attempts.length >= this.#options.maximumAttempts) return terminal(`repair_attempts_exhausted:${taskId}`);
+    }
+    if (signal.aborted) throw new Error("TESTING_EXECUTION_CANCELLED");
+    const round: TestingRepairRound = { round: state.rounds.length + 1, snapshotFingerprint, failedTaskIds: failures.map(({ taskId }) => taskId).sort(),
+      reopened: closure.reopened, staleTaskIds: closure.staleTaskIds, state: "reopening" };
+    // Commit reopen intent before touching attempt ledgers, so restart completes it.
+    await lineage.save({ ...state, rounds: [...state.rounds, round] });
+    await this.completeReopening(lineage, plan);
+    return null;
+  }
+
+  /** Idempotently finish a committed reopen before any writer is dispatched. */
+  private async completeReopening(lineage: TestingRepairLineage, plan: PlanIR): Promise<void> {
+    const state = await lineage.load(); const round = state.rounds.at(-1);
+    if (round?.state !== "reopening") return;
+    // Failing tasks first: their own ledger validates the full execution evidence.
+    const ordered = [...round.reopened].sort((a, b) => Number(b.taskId === b.causeTaskId) - Number(a.taskId === a.causeTaskId) || a.taskId.localeCompare(b.taskId));
+    for (const { taskId, causeTaskId, verificationArtifactId } of ordered) {
+      const ledger = this.ledger(plan, taskId);
+      const status = await ledger.status();
+      if (status.state === "pending") continue;
+      if (taskId === causeTaskId) await ledger.invalidateFinal(verificationArtifactId, round.snapshotFingerprint);
+      else await ledger.invalidateForRelated(verificationArtifactId, round.snapshotFingerprint);
+    }
+    await lineage.save({ ...state, rounds: [...state.rounds.slice(0, -1), { ...round, state: "reopened" }] });
+  }
+
+  private ledger(plan: PlanIR, taskId: string): TestingTaskAttempts {
+    const task = plan.tasks.find(({ id }) => id === taskId);
+    if (task === undefined) throw new Error("TESTING_REPAIR_TASK_ABSENT");
+    return new TestingTaskAttempts(this.store, task, this.#options.verification, this.#options.maximumAttempts);
   }
 }
 function hash(value: unknown): string { return createHash("sha256").update(canonicalJson(value)).digest("hex"); }
