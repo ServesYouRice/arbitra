@@ -9,6 +9,7 @@ import { verificationExecutionSchema, type VerificationExecution } from "@arbitr
 import { concreteWritePath } from "@arbitra/security/write-partitions";
 import { auditorIdsFor, graphForPreset } from "./graphs.js";
 import type { TestSandbox } from "./test-sandbox.js";
+import { validateBatchLanes } from "./model-batch-lane.js";
 
 /**
  * Runtime preflight: everything that can be established about a configuration before
@@ -48,39 +49,66 @@ export function assertNoPreflightErrors(diagnostics: readonly PreflightDiagnosti
 const error = (code: string, path: string, message: string): PreflightDiagnostic => Object.freeze({ code, severity: "error", scope: "configuration", path, message });
 const warning = (code: string, path: string, message: string): PreflightDiagnostic => Object.freeze({ code, severity: "warning", scope: "configuration", path, message });
 
-/** The graph a configuration executes. Mode and preset must agree. */
-export function graphForConfiguration(config: RunConfig): RunnerGraph {
+/** The graph a configuration executes, including operator-registered presets. Mode and preset must agree. */
+export function graphForConfiguration(config: RunConfig, registered: Readonly<Record<string, RunnerGraph>> = {}): RunnerGraph {
   if (config.workflow["preset"] !== undefined && typeof config.workflow["preset"] !== "string") throw new Error("INVALID_WORKFLOW_PRESET");
   const testingPreset = config.mode === "testing" && testingExecutionSchema.parse(config.workflow["testing"]).mode === "execute" ? "testing-execute" : "testing-plan";
   const preset = typeof config.workflow["preset"] === "string" ? config.workflow["preset"] : undefined;
-  const graph = graphForPreset(preset ?? (config.mode === "feature" ? "feature-simple" : config.mode === "testing" ? testingPreset : undefined));
+  const graph = preset !== undefined && Object.hasOwn(registered, preset) ? registered[preset] as RunnerGraph : graphForPreset(preset ?? (config.mode === "feature" ? "feature-simple" : config.mode === "testing" ? testingPreset : undefined));
   if ((graph.id === "feature-simple") !== (config.mode === "feature")) throw new Error("WORKFLOW_PRESET_MODE_MISMATCH");
   if ((graph.id === "testing-plan" || graph.id === "testing-execute") !== (config.mode === "testing") || config.mode === "testing" && graph.id !== testingPreset) throw new Error("WORKFLOW_PRESET_MODE_MISMATCH");
   return graph;
 }
 
+export interface ConfigurationPreflightOptions {
+  /** Operator-registered graphs dispatched by preset ID. */
+  readonly graphs?: Readonly<Record<string, RunnerGraph>>;
+  /** Validates the graph's gate/human checkpoints against `workflow.checkpoints`; throws on failure. */
+  readonly checkpoints?: (graph: RunnerGraph) => void;
+}
+
 /** Collects every configuration problem the runtime would otherwise report one at a time. */
-export function configurationDiagnostics(config: RunConfig): readonly PreflightDiagnostic[] {
+export function configurationDiagnostics(config: RunConfig, options: ConfigurationPreflightOptions = {}): readonly PreflightDiagnostic[] {
   const diagnostics: PreflightDiagnostic[] = [];
   if (config.harness.mode !== "canonical") {
     diagnostics.push(error("RUNTIME_NATIVE_HARNESS_NOT_AVAILABLE", "harness.mode", "Native harness adapters are not implemented. Set harness.mode to \"canonical\"; no native tool loop is ever substituted silently."));
   }
-  const graph = presetDiagnostics(config, diagnostics);
+  const graph = presetDiagnostics(config, options.graphs ?? {}, diagnostics);
+  if (graph !== undefined && options.checkpoints !== undefined) {
+    try { options.checkpoints(graph); }
+    catch (failure) {
+      const message = failure instanceof Error ? failure.message : String(failure);
+      diagnostics.push(error(codeOf(message, "CHECKPOINT_POLICY_INVALID"), "workflow.checkpoints", `${message}. Every gate node needs a known deterministic gate policy and every human node a decision policy in workflow.checkpoints; decisions may name only human nodes of graph ${graph.id}.`));
+    }
+  }
   const modelBacked = config.mode !== "audit" || Object.keys(config.models).length > 0;
   if (!modelBacked) return Object.freeze(diagnostics);
   const execution = executionOf(config, diagnostics);
+  if (execution?.batch !== undefined) {
+    try { validateBatchLanes(config); }
+    catch (failure) {
+      const message = failure instanceof Error ? failure.message : String(failure);
+      diagnostics.push(error(codeOf(message, "BATCH_LANE_INVALID"), "workflow.modelExecution.batch", `${message}. A batch lane must name a configured, endpoint-bound profile that declares supports.batch, on a transport with a batch driver.`));
+    }
+  }
   if (config.mode === "audit") auditDiagnostics(config, graph, execution, diagnostics);
   if (config.mode === "feature") featureDiagnostics(config, diagnostics);
   if (config.mode === "testing") testingDiagnostics(config, diagnostics);
   return Object.freeze(diagnostics);
 }
 
-function presetDiagnostics(config: RunConfig, diagnostics: PreflightDiagnostic[]): RunnerGraph | undefined {
+/** Stable code prefix of a runtime error message such as `CODE:detail`. */
+function codeOf(message: string, fallback: string): string {
+  const code = message.split(":")[0] ?? "";
+  return /^[A-Z][A-Z0-9_]+$/u.test(code) ? code : fallback;
+}
+
+function presetDiagnostics(config: RunConfig, registered: Readonly<Record<string, RunnerGraph>>, diagnostics: PreflightDiagnostic[]): RunnerGraph | undefined {
   if (config.mode === "testing" && config.workflow["testing"] === undefined) return undefined;
-  try { return graphForConfiguration(config); }
+  try { return graphForConfiguration(config, registered); }
   catch (failure) {
     const message = failure instanceof Error ? failure.message : String(failure);
-    if (message.startsWith("UNKNOWN_WORKFLOW_PRESET:")) diagnostics.push(error("UNKNOWN_WORKFLOW_PRESET", "workflow.preset", `${message.slice("UNKNOWN_WORKFLOW_PRESET:".length)} is not an executable preset. Use audit-balanced, audit-deep, diff-fast, diff-review, feature-simple, testing-plan or testing-execute.`));
+    if (message.startsWith("UNKNOWN_WORKFLOW_PRESET:")) diagnostics.push(error("UNKNOWN_WORKFLOW_PRESET", "workflow.preset", `${message.slice("UNKNOWN_WORKFLOW_PRESET:".length)} is not an executable preset. Use audit-balanced, audit-deep, diff-fast, diff-review, feature-simple, testing-plan, testing-execute or a graph registered with the orchestrator.`));
     else if (message === "WORKFLOW_PRESET_MODE_MISMATCH") diagnostics.push(error("WORKFLOW_PRESET_MODE_MISMATCH", "workflow.preset", `Preset ${String(config.workflow["preset"])} does not execute mode ${config.mode}. Audit uses an audit or diff preset, Feature uses feature-simple, Testing uses testing-plan with testing.mode "plan" or testing-execute with testing.mode "execute".`));
     else if (message === "INVALID_WORKFLOW_PRESET") diagnostics.push(error("INVALID_WORKFLOW_PRESET", "workflow.preset", "workflow.preset must be a preset name string."));
     else diagnostics.push(error("INVALID_WORKFLOW_CONFIGURATION", "workflow", message));

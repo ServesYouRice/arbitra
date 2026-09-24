@@ -25,7 +25,7 @@ it.each(["clean", "resolved", "persistent", "missing", "unknown", "duplicate", "
   if (profile === undefined) throw new Error("MODEL_ABSENT");
   const config = runConfigSchema.parse({ ...example, mode: "feature", models: { requirements: profile, "reviewer-a": { ...profile, independenceGroup: "reviewer-a" }, "reviewer-b": { ...profile, independenceGroup: "reviewer-b" } }, workflow: { modelExecution: {
     endpoints: [{ id: "primary", providerId: profile.provider, transport: profile.transport, endpoint: "https://fixture.example/v1", apiKeyEnvVar: "FIXTURE_KEY" }],
-    modelEndpoints: { requirements: "primary", "reviewer-a": "primary", "reviewer-b": "primary" }, maximumOutputTokens: 2000, maximumTokens: 1000000, maximumRetries: 0, timeoutMs: 1000,
+    modelEndpoints: { requirements: "primary", "reviewer-a": "primary", "reviewer-b": "primary" }, maximumOutputTokens: 2000, maximumTokens: 1000000, maximumRetries: 0, timeoutMs: 30_000,
     rateLimits: { [profile.provider]: { rpm: 100, tpm: 1000000, maxConcurrent: 4 } },
   } } });
   let calls = 0;

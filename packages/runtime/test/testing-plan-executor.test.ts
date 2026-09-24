@@ -94,7 +94,7 @@ it.each(["pass", "invalidated", "budget", "blocked"])("coordinates whole-plan ex
   expect(result.tasks.map(({ state }) => state)).toEqual(scenario === "blocked" ? ["blocked"] : ["completed", "completed"]);
   expect(f.checks[0]?.paths).not.toContain("tests/002.ts");
   if (scenario !== "blocked") expect(f.checks[1]?.paths).toContain("tests/002.ts");
-  if (scenario === "invalidated") expect(result.reasons).toEqual(["final_verification_failed:TASK-001"]);
+  if (scenario === "invalidated") expect(result.reasons).toEqual(["final_verification_failed:TASK-001", "repair_attempts_exhausted:TASK-001"]);
   if (scenario === "budget") expect(result.finalVerification.every(({ status }) => status === "incomplete")).toBe(true);
   expect(result.finalVerification).toHaveLength(scenario === "blocked" ? 0 : 2);
   expect(f.calls()).toBe(scenario === "blocked" ? 2 : 4);

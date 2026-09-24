@@ -32,6 +32,11 @@ export async function executeCommand(
       if (core.applyRequirementsRevision === undefined || artifactId === undefined || positional.length !== 2) throw new Error("USAGE: apply-requirements-revision <run-id> <proposal-artifact-id>");
       return core.applyRequirementsRevision(subject, artifactId);
     }
+    case "respond-checkpoint": {
+      const [checkpointId, version, decision] = positional.slice(1);
+      if (core.respondCheckpoint === undefined || checkpointId === undefined || version === undefined || decision === undefined || positional.length !== 4) throw new Error("USAGE: respond-checkpoint <run-id> <checkpoint-id> <version> <approve|reject>");
+      return core.respondCheckpoint(subject, checkpointId, version, decision);
+    }
     case "requirements": {
       if (core.requirements === undefined || positional.length !== 1) throw new Error("USAGE: requirements <run-id>");
       return core.requirements(subject);
