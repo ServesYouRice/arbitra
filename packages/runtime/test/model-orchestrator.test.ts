@@ -235,7 +235,7 @@ describe("composed model audits", () => {
     expect(primary.filter((id) => id.startsWith("revision:")).sort()).toEqual(original.items.map(({ id }) => `revision:${id}`).sort());
     for (const { id } of original.items) for (const task of revised.plan.tasks) expect(batches.some(({ recordIds }) => recordIds.includes(`revision:${id}`) && recordIds.includes(`task:${task.id}`))).toBe(true);
     expect((await resumed.gate(run.runId)).reasons.includes("blocking_critic_feedback")).toBe(revision === "still_blocking");
-  }, 60_000);
+  }); // package limit (90 s): ~32 s per case alone, over 60 s under full-suite load
 
   it("plans oversized accepted issues using one global outline and resumes completed expansions", async () => {
     const { create, config, requests, failExpansion } = await fixture({ largePlannerContext: true });
