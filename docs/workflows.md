@@ -196,8 +196,10 @@ traceability, premise provenance and existing unresolved questions, and provide 
 one resolution claim per blocking item. The independent re-review receives the original
 plan, critique and claims; remaining blockers, rejected mappings and blocking plan
 questions prevent a passing result. Completed model activities are reused on restart,
-including when the revised plan is unchanged. Oversized mandatory Feature revision
-contexts fail explicitly; hierarchical Feature revision is not yet implemented.
+including when the revised plan is unchanged. Oversized mandatory review, planning,
+critique and revision contexts use staged composition over complete requirement records;
+see [context and output capacity](harness.md#context-and-output-capacity) for the
+remaining explicit limits.
 
 ## Testing mode
 
@@ -228,7 +230,8 @@ repository line range must contain that command alone. Explicit evidence paths a
 included only within the selected scope. Custom commands retain `requires_approval`;
 derived package scripts record their origin without granting execution permission.
 Missing commands with selected gaps prevent planning. Resume rejects source or command
-metadata changes. Oversized mandatory selection/planning context fails explicitly.
+metadata changes. Oversized gap selection and planning contexts are composed in bounded
+durable stages; see [context and output capacity](harness.md#context-and-output-capacity).
 
 The planner links every selected gap to tasks and validation assertions. Concrete write
 paths must classify as tests or test configuration; production-file paths and invented

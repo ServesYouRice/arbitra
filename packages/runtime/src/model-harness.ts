@@ -9,6 +9,7 @@ import type { RunConfig } from "@arbitra/schemas/config.js";
 import { frameUntrusted } from "@arbitra/security/framing";
 import { redactSecrets } from "@arbitra/security/redaction";
 import { boundModelHistory } from "./model-history.js";
+import { ModelOutputLimitError, outputLimitKind } from "./context-budget.js";
 import { ModelActivities, type ModelActivityRequest } from "./model-activities.js";
 import { snapshotTools, SNAPSHOT_TOOLS } from "./snapshot-tools.js";
 import type { RepositorySnapshot } from "./repository.js";
@@ -17,7 +18,14 @@ import type { TestingToolExtension } from "./testing-tools.js";
 
 /** Replays durable model turns through the canonical read-only tool loop. */
 export class ModelHarness {
+  #outputLimited: Promise<Set<string>> | undefined;
   constructor(private readonly activities: ModelActivities, private readonly config: RunConfig, private readonly snapshot: RepositorySnapshot, private readonly store: RunStore, private readonly testing?: TestingToolExtension) {}
+
+  /** Whether this durable activity previously stopped at the output ceiling. */
+  async outputLimited(activityId: string): Promise<boolean> {
+    this.#outputLimited ??= this.store.listArtifacts().then((artifacts) => new Set(artifacts.map(({ kind }) => kind).filter((kind) => kind.startsWith("model-output-limit-"))));
+    return (await this.#outputLimited).has(outputLimitKind(activityId));
+  }
 
   estimateInitialTokens(input: ModelActivityRequest<unknown>): number {
     const { initialMessages, tools, execution } = prepareModelInput(input, this.config, this.testing);
@@ -25,6 +33,19 @@ export class ModelHarness {
   }
 
   async invoke<T>(input: ModelActivityRequest<T>): Promise<T> {
+    // Never repeat spend on an activity already known to exceed the output ceiling.
+    if (await this.outputLimited(input.activityId)) throw new ModelOutputLimitError(input.activityId);
+    try { return await this.invokeTurns(input); }
+    catch (error) {
+      if (!(error instanceof ModelOutputLimitError)) throw error;
+      const execution = providerExecutionSchema.parse(this.config.workflow["modelExecution"]);
+      await this.store.publish(outputLimitKind(input.activityId), { activityId: input.activityId, turnActivityId: error.activityId, maximumOutputTokens: execution.maximumOutputTokens }, input.activityId);
+      (await (this.#outputLimited ?? Promise.resolve(new Set<string>()))).add(outputLimitKind(input.activityId));
+      throw new ModelOutputLimitError(input.activityId);
+    }
+  }
+
+  private async invokeTurns<T>(input: ModelActivityRequest<T>): Promise<T> {
     const { profile, execution, tools, compiled, initialMessages, discovery } = prepareModelInput(input, this.config, this.testing);
     const harnessProfile = this.testing === undefined ? CANONICAL_HARNESS_PROFILE : CANONICAL_TESTING_HARNESS_PROFILE;
     const key = createHash("sha256").update(input.activityId).digest("hex");

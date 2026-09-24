@@ -182,8 +182,9 @@ The [completion plan](completion-plan.md) records dependencies and acceptance cr
   Injected-provider tests do not establish model quality. See [`evaluation.md`](evaluation.md).
 - Final Testing verification can invalidate earlier work and block the run; automatic
   repair of that work is not implemented.
-- Individually oversized records and mandatory global contexts can still fail explicitly
-  across Audit, Feature and Testing.
+- Individually oversized records, the single global planner outline and several one-call
+  stages (Feature requirements/exploration, Testing risk analysis) can still fail explicitly;
+  see [context and output capacity](harness.md#context-and-output-capacity).
 - Durable Feature requirements checkpoints work through CLI/HTTP. Generic graph
   checkpoints/gates, dedicated web controls and Feature/Testing replay remain incomplete.
 - The trace browser is implemented; browser acceptance QA and a persistent large-log
@@ -201,7 +202,7 @@ now differs; all unfinished work is included in the completion plan.
 | Autonomous Testing execution | Implemented through opt-in `testing-execute`: planning, authority preflight, parallel writers, serial checks, final verification and durable handoff. Repair, richer web views and live-provider/Docker QA remain; plan items P04/P07/P10/P11 |
 | Native harness adapters | `packages/harness/src/adapter.ts` defines the port; `canonical/adapter.ts` is the only implementation. `harness.mode: "native"` is accepted by the schema and has no adapter behind it |
 | Advisor runtime | `taskRouting.advisor` and `advisorMaxUses` exist in `packages/schemas/src/task-ir.ts`; `advisorTokens` is recorded in `packages/persistence/src/trace.ts`. Nothing consumes them |
-| Feature workflow extensions | Public requirements/review/planning/revision is implemented; web checkpoints, expanded subgraphs, oversized contexts and Feature-specific replay remain; P08/P10/P11 |
+| Feature workflow extensions | Public requirements/review/planning/revision is implemented; web checkpoints, expanded subgraphs, oversized requirements/exploration contexts and Feature-specific replay remain; P08/P10/P11 |
 | Incremental / repeat audit execution | Snapshot identity, hotspots and inspection footprints are already recorded by preflight and `packages/tools/src/footprint` |
 | Provider batch API path | `modelProfileSchema.supports.batch` is recorded; `packages/providers/src/scheduler.ts` has no batch lane |
 | Drag-and-drop workflow canvas editor | `apps/web/src/columns/graph` renders from workflow JSON and is read-only by construction |
