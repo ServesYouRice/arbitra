@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { RunApi, type HumanCheckpointResource, type RunResource } from "../api/runs.js";
-export function RunControls({ api, configurationId, initialRunId = null, initialRepository = "", currentRun, onRunStarted }: { readonly api: RunApi; readonly configurationId: string; readonly initialRunId?: string | null; readonly initialRepository?: string; readonly currentRun?: RunResource | null; readonly onRunStarted?: (run: RunResource) => void }): ReactElement {
+export function RunControls({ api, configurationId, initialRunId = null, initialRepository = "", currentRun, onRunStarted }: { readonly api: RunApi; /** Null when no configuration is saved: an opened run can still be inspected, resumed and cancelled. */ readonly configurationId: string | null; readonly initialRunId?: string | null; readonly initialRepository?: string; readonly currentRun?: RunResource | null; readonly onRunStarted?: (run: RunResource) => void }): ReactElement {
   const [repository, setRepository] = useState(initialRepository);
   const [run, setRun] = useState<RunResource | null>(null);
   const [estimate, setEstimate] = useState<unknown>(null);
@@ -33,14 +33,15 @@ export function RunControls({ api, configurationId, initialRunId = null, initial
     <label>repository<input value={repository} onChange={(event) => setRepository(event.target.value)} /></label>
     <div className="run-actions">
       <button type="button" onClick={async () => { try { await api.selectRepository(repository); setError(null); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } }}>select</button>
-      <button type="button" onClick={async () => { try { setEstimate(await api.estimate(configurationId, repository)); setError(null); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } }}>estimate</button>
-      <button type="button" onClick={() => { void invoke(() => api.start(configurationId, repository), true); }}>start</button>
+      <button type="button" disabled={configurationId === null} onClick={async () => { if (configurationId === null) return; try { setEstimate(await api.estimate(configurationId, repository)); setError(null); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } }}>estimate</button>
+      <button type="button" disabled={configurationId === null} onClick={() => { if (configurationId !== null) void invoke(() => api.start(configurationId, repository), true); }}>start</button>
       {run === null ? null : <>
         <button type="button" onClick={() => { void invoke(() => api.status(run.runId)); }}>status</button>
         <button type="button" disabled={!run.resumable} onClick={() => { void invoke(() => api.resume(run.runId), true); }}>resume</button>
         <button type="button" onClick={() => { void invoke(() => api.cancel(run.runId)); }}>cancel</button>
       </>}
     </div>
+    {configurationId === null ? <p className="state" data-state="unexamined">estimate and start unavailable · no saved configuration</p> : null}
     {estimate === null ? null : <pre aria-label="run estimate">{JSON.stringify(estimate, null, 2)}</pre>}
     {run === null ? <p className="state" data-state="unexamined">run unavailable</p> : <p>run {run.runId} · {run.state} · {run.resumable ? "resumable" : "not resumable"}</p>}
     {checkpoint === undefined || activeRunId === null ? null : <div className="checkpoint" role="alert">

@@ -1,1 +1,5 @@
 docs/** text eol=lf
+# Screenshots and other images are binary evidence, never line-normalised.
+*.jpg binary
+*.jpeg binary
+*.png binary
