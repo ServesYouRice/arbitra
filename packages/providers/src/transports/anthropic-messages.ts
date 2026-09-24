@@ -1,5 +1,5 @@
 import type { HttpClient, TransportConfiguration } from "../transport-contract.js";
-import { JsonProtocolTransport, array, number, object, response, string, type ProtocolCodec } from "./json-transport.js";
+import { JsonProtocolTransport, assertOutputComplete, array, number, object, response, string, type ProtocolCodec } from "./json-transport.js";
 
 export const anthropicMessagesCodec: ProtocolCodec = {
   id: "anthropic-messages", path: "messages",
@@ -22,6 +22,7 @@ export const anthropicMessagesCodec: ProtocolCodec = {
   },
   parse(body, request, headers) {
     const root = object(body, "anthropic response");
+    assertOutputComplete(root["stop_reason"] === "max_tokens");
     if (!Array.isArray(root["content"])) throw new Error("anthropic response content must be an array");
     let text: string | null = null; const calls = [];
     for (const item of array(root["content"])) {

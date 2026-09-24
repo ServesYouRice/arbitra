@@ -51,6 +51,24 @@ describe("critic context partitioning", () => {
     }
   });
 
+  it("reviews supplemental requirement records and segments a pair of records that cannot share a context", async () => {
+    const original = await plan();
+    const requirements = [{ id: "acc-1", assertion: "A".repeat(1_800) }, { id: "acc-2", assertion: "B".repeat(1_800) }];
+    const size = (part: { input: unknown }) => JSON.stringify(part.input).length;
+    const base = size({ input: (await criticContextParts(original, [], [], async () => true, null, 1, {}))[0]?.input });
+    const parts = await criticContextParts(original, [], [], async (part) => part.kind !== "full" && size(part) <= base + 2_000, null, 20, { requirements });
+    const reviewed = parts.filter(({ kind }) => kind === "review").flatMap(({ recordIds }) => recordIds);
+    expect(reviewed).toEqual(expect.arrayContaining(["requirements:acc-1", "requirements:acc-2"]));
+    for (const left of reviewed) for (const right of reviewed) expect(parts.some(({ recordIds }) => recordIds.includes(left) && recordIds.includes(right))).toBe(true);
+    const segments = parts.filter(({ segment, recordIds }) => segment !== undefined && recordIds.includes("requirements:acc-1") && recordIds.includes("requirements:acc-2"));
+    expect(segments.length).toBeGreaterThan(1);
+    const record = segments[0]?.segment?.candidateId;
+    const other = record === "requirements:acc-1" ? requirements[1] : requirements[0];
+    const text = segments.map(({ input }) => (input as { segmentedRecord: { exactJsonText: string } }).segmentedRecord.exactJsonText).join("");
+    expect(text).toBe(JSON.stringify(requirements.find(({ id }) => `requirements:${id}` === record)));
+    for (const { input } of segments) expect((input as { requirements: unknown[] }).requirements).toEqual([other]);
+  });
+
   it("retains the one-call path when the plan fits", async () => {
     const original = await plan();
     const parts = await criticContextParts(original, [], [], async () => true);

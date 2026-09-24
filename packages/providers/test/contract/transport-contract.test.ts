@@ -46,6 +46,16 @@ describe.each(adapters)("$name transport contract", ({ name, create, body }) => 
     await expect(transport.send(request(), signal())).resolves.toMatchObject({ text: "hello" });
   });
 
+  it("fails explicitly instead of returning output truncated at the output ceiling", async () => {
+    const truncated = { "anthropic-messages": { content: [{ type: "text", text: "{\"ok\":" }], stop_reason: "max_tokens", usage: {} },
+      "openai-responses": { status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, output_text: "{\"ok\":", usage: {} },
+      "openai-chat": { choices: [{ message: { content: "{\"ok\":" }, finish_reason: "length" }], usage: {} },
+      "gemini-native": { candidates: [{ content: { parts: [{ text: "{\"ok\":" }] }, finishReason: "MAX_TOKENS" }], usageMetadata: {} } }[name];
+    const transport = create(new ScriptedHttpClient([http(200, truncated), http(200, truncated)]));
+    await expect(transport.send({ ...request(), responseSchema: { type: "object" } }, signal())).rejects.toMatchObject({ code: "OUTPUT_LIMIT", retryable: false });
+    await expect(transport.send(request(), signal())).rejects.toThrow("MODEL_OUTPUT_LIMIT_REACHED");
+  });
+
   it("propagates cancellation to the in-flight client", async () => {
     const client = new WaitingHttpClient();
     const transport = create(client);
