@@ -273,8 +273,10 @@ mode-specific replay and the remaining extensions.
 ## Presets
 
 Seven presets are executable through the shared runtime's
-[`PRESET_GRAPHS`](../packages/runtime/src/graphs.ts). Six schema-example configurations
-live in [`../examples`](../examples); `testing-execute` is configured as described above.
+[`PRESET_GRAPHS`](../packages/runtime/src/graphs.ts). Six schema-only examples live in
+[`../examples`](../examples); runnable model-backed templates for Audit, both Feature
+modes, `testing-plan` and `testing-execute` live in
+[`../examples/model-backed`](../examples/model-backed). See [Getting started](setup.md).
 
 | Preset | Mode | Runtime shape |
 |---|---|---|
@@ -286,7 +288,9 @@ live in [`../examples`](../examples); `testing-execute` is configured as describ
 | `testing-plan` | testing | Inventory, grounded risk/gap selection, planner and handoff; no execution |
 | `testing-execute` | testing | Planning, guarded writer/check/finalization stages and verified change handoff |
 
-`pnpm run validate:examples` parses all six examples with `runConfigSchema` and runs
-negative controls proving a stale example fails. These are schema examples, not complete
-live-provider configurations. Other preset assets in packages/workflow are not automatically
+`pnpm run validate:examples` parses the schema-only examples and model-backed templates
+with `runConfigSchema`, checks the templates against runtime preflight, and runs negative
+controls proving a stale example fails. `pnpm run smoke:examples` runs every template
+through the public runtime with fixture transports. It proves wiring, not live-provider
+behavior. Other preset assets in packages/workflow are not automatically
 available through CLI/server; unknown public preset IDs fail explicitly.

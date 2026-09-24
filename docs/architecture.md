@@ -122,6 +122,14 @@ requirements  approve-requirements  revise-requirements  apply-requirements-revi
 unrecognised disposition fails closed at `2`. Every command can emit JSON with `--json`
 (`apps/cli/src/output/json.ts`).
 
+`validate` runs `Orchestrator.preflight` (`packages/runtime/src/preflight.ts`). It
+reports configuration diagnostics, which fail validation with exit `1`, separately from
+environment diagnostics: credential variables, placeholder model identities, and the local
+Docker engine and image. `run`, `start` and `estimate` apply the same configuration checks.
+`run`/`start` also refuse environment errors before a run directory, snapshot or provider
+request exists (exit `2`, reason `preflight_failed`; HTTP `400`). See the
+[preflight reference](setup.md#preflight-reference).
+
 `report` renders the evaluation surface and redacts its output through
 `redactSecrets` from `packages/security/src/redaction.ts`, failing closed with
 `report_redaction_failed` if anything secret-shaped survives.

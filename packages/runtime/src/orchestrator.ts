@@ -9,7 +9,9 @@ import type { RunEvent, RunState } from "@arbitra/core/runner/events.js";
 import { runConfigSchema, type RunConfig } from "@arbitra/schemas/config.js";
 import { DEFAULT_AUDITORS, type AuditFinding } from "./auditors.js";
 import type { CanonicalIssueSet } from "@arbitra/workflow/nodes/canonical-issues.js";
-import { AUDIT_DEEP_GRAPH, auditorIdsFor, graphForPreset, withCritic } from "./graphs.js";
+import { AUDIT_DEEP_GRAPH, auditorIdsFor, withCritic } from "./graphs.js";
+import { assertNoPreflightErrors, configurationDiagnostics, environmentDiagnostics, graphForConfiguration, PreflightError, type PreflightDiagnostic } from "./preflight.js";
+import { DockerTestSandbox } from "./test-sandbox.js";
 import { canonicalise, converge, critique, discover, plan, preflight, readStage, verify, type AuditContext, type ConvergenceResult, type Plan } from "./pipeline.js";
 import { snapshotRepository, type RepositorySnapshot } from "./repository.js";
 import { listRunIds, RunStore, type ArtifactDescriptor, type StoredRunContext } from "./run-store.js";
@@ -37,6 +39,16 @@ export interface OrchestratorOptions {
   readonly newRunId?: () => string;
   readonly providerOptions?: TransportFactoryOptions;
   readonly testSandbox?: TestSandbox;
+}
+
+export interface PreflightReport {
+  readonly valid: boolean;
+  readonly ready: boolean;
+  readonly mode: RunConfig["mode"] | null;
+  readonly preset: string | null;
+  /** False for a scripted Audit (no model profiles); null when the schema is invalid. */
+  readonly modelBacked: boolean | null;
+  readonly diagnostics: readonly PreflightDiagnostic[];
 }
 
 export interface RunResource {
@@ -105,10 +117,36 @@ export class Orchestrator {
     });
   }
 
+  /**
+   * Everything checkable before a run exists: schema, roles, capabilities, effort,
+   * write authority, credentials (presence only) and local sandbox prerequisites.
+   * `valid` covers the configuration; `ready` additionally covers the environment.
+   */
+  async preflight(value: unknown): Promise<PreflightReport> {
+    let config: RunConfig;
+    try { config = this.configurations.validate(value); }
+    catch (failure) {
+      return Object.freeze({ valid: false, ready: false, mode: null, preset: null, modelBacked: null, diagnostics: Object.freeze(schemaDiagnostics(failure)) });
+    }
+    const configuration = configurationDiagnostics(config);
+    const environment = await environmentDiagnostics(config, this.#environmentOptions());
+    const valid = !configuration.some(({ severity }) => severity === "error");
+    const preset = presetOf(config) ?? (valid ? graphForConfiguration(config).id : null);
+    return Object.freeze({ valid, ready: valid && !environment.some(({ severity }) => severity === "error"), mode: config.mode, preset,
+      modelBacked: config.mode !== "audit" || Object.keys(config.models).length > 0, diagnostics: Object.freeze([...configuration, ...environment]) });
+  }
+
+  #environmentOptions() {
+    return { credential: this.#providerOptions.credential ?? ((name: string) => process.env[name]), sandbox: this.#testSandbox ?? new DockerTestSandbox(), liveDispatch: this.#providerOptions.client === undefined };
+  }
+
   /** Start a run and return as soon as it is created; it continues in the background. */
   async start(config: RunConfig, repository = this.repository): Promise<RunResource> {
     const validated = this.configurations.validate(config);
     assertRuntimeConfiguration(validated);
+    // Fail before a run, snapshot or provider call exists rather than at first dispatch.
+    const environment = await environmentDiagnostics(validated, { ...this.#environmentOptions(), includeWarnings: false });
+    if (environment.some(({ severity }) => severity === "error")) throw new PreflightError(environment);
     const runId = this.#newRunId();
     const store = new RunStore(this.#runsDirectory, runId);
     const selectedRepository = resolve(repository);
@@ -539,25 +577,25 @@ function presetOf(config: RunConfig): string | undefined {
 
 /** Do not misrepresent a scripted audit as an uncomposed model/Feature/Testing run. */
 function assertRuntimeConfiguration(config: RunConfig): void {
-  if (config.harness.mode !== "canonical") throw new Error("RUNTIME_NATIVE_HARNESS_NOT_AVAILABLE");
+  assertNoPreflightErrors(configurationDiagnostics(config));
+  // The composed stages re-check their own settings; keep those checks authoritative.
   if (config.mode === "testing") { validateModelTesting(config); graphForConfiguration(config); return; }
   if (config.mode === "feature") { validateModelFeature(config); graphForConfiguration(config); return; }
   if (Object.keys(config.models).length > 0) {
-    if (config.workflow["modelExecution"] === undefined) throw new Error("RUNTIME_MODEL_EXECUTION_CONFIGURATION_REQUIRED");
     const graph = graphForConfiguration(config);
     validateModelAudit(config, auditorIdsFor(graph), graph.nodes.some(({ id }) => id === "critic"));
   }
-  if (config.workflow["preset"] !== undefined && typeof config.workflow["preset"] !== "string") throw new Error("INVALID_WORKFLOW_PRESET");
   graphForConfiguration(config);
 }
 
-function graphForConfiguration(config: RunConfig): RunnerGraph {
-  if (config.workflow["preset"] !== undefined && typeof config.workflow["preset"] !== "string") throw new Error("INVALID_WORKFLOW_PRESET");
-  const testingPreset = config.mode === "testing" && testingExecutionSchema.parse(config.workflow["testing"]).mode === "execute" ? "testing-execute" : "testing-plan";
-  const graph = graphForPreset(presetOf(config) ?? (config.mode === "feature" ? "feature-simple" : config.mode === "testing" ? testingPreset : undefined));
-  if ((graph.id === "feature-simple") !== (config.mode === "feature")) throw new Error("WORKFLOW_PRESET_MODE_MISMATCH");
-  if ((graph.id === "testing-plan" || graph.id === "testing-execute") !== (config.mode === "testing") || config.mode === "testing" && graph.id !== testingPreset) throw new Error("WORKFLOW_PRESET_MODE_MISMATCH");
-  return graph;
+function schemaDiagnostics(failure: unknown): PreflightDiagnostic[] {
+  const issues = (failure as { issues?: unknown }).issues;
+  if (Array.isArray(issues)) return issues.map((issue: { path?: readonly PropertyKey[]; message?: string }) => Object.freeze({ code: "CONFIG_SCHEMA_INVALID", severity: "error" as const, scope: "configuration" as const, path: (issue.path ?? []).map(String).join(".") || "$", message: issue.message ?? "Invalid value" }));
+  const message = failure instanceof Error ? failure.message : String(failure);
+  const [code, path] = message.split(":", 2);
+  if (code === "RESOLVED_CREDENTIAL_FORBIDDEN") return [Object.freeze({ code, severity: "error" as const, scope: "configuration" as const, path: path?.replace(/^\$\.?/u, "") || "$", message: "A credential value is present in the configuration. Remove it and name an environment variable in an …EnvVar field (for example apiKeyEnvVar) instead." })];
+  if (code === "INVALID_CREDENTIAL_ENVIRONMENT_REFERENCE") return [Object.freeze({ code, severity: "error" as const, scope: "configuration" as const, path: path?.replace(/^\$\.?/u, "") || "$", message: "Environment-variable references must be uppercase names such as PROVIDER_API_KEY, never the secret itself." })];
+  return [Object.freeze({ code: "CONFIG_INVALID", severity: "error" as const, scope: "configuration" as const, path: "$", message })];
 }
 
 function snapshotDigest(snapshot: RepositorySnapshot): string {

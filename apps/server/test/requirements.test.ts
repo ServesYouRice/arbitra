@@ -62,3 +62,20 @@ it("edits durable requirements through strict HTTP routes and rejects stale appr
     } finally { await restarted.close(); }
   } finally { await app.close(); await rm(root, { recursive: true, force: true }); }
 });
+
+it("returns actionable preflight failures as 400 before creating a run", async () => {
+  const root = await mkdtemp(join(tmpdir(), "preflight-http-"));
+  let calls = 0;
+  const orchestrator = new Orchestrator({ repository: root, providerOptions: { credential: () => undefined, client: { async send() { calls += 1; throw new Error("UNEXPECTED_PROVIDER_CALL"); } } } });
+  const app = buildServer(controlPlaneCore(orchestrator));
+  try {
+    await writeFile(join(root, "session.ts"), "export const version = 1;\n");
+    const config = runConfigSchema.parse(JSON.parse(await readFile(new URL("../../../examples/model-backed/feature-automatic.json", import.meta.url), "utf8")));
+    const saved = await app.inject({ method: "POST", url: "/configurations", payload: { name: "Feature", config } });
+    expect(saved.statusCode, saved.body).toBe(200);
+    const started = await app.inject({ method: "POST", url: "/runs", payload: { configurationId: saved.json<{ id: string }>().id } });
+    expect(started.statusCode).toBe(400);
+    expect(started.json<{ message: string }>().message).toContain("PROVIDER_CREDENTIAL_MISSING:anthropic at workflow.modelExecution.endpoints.0.apiKeyEnvVar: Environment variable ARBITRA_ANTHROPIC_API_KEY is not set");
+    expect(calls).toBe(0);
+  } finally { await app.close(); await rm(root, { recursive: true, force: true }); }
+});
