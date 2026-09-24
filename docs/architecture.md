@@ -146,6 +146,16 @@ operations. See [Feature mode](workflows.md#feature-mode) for their payloads and
 equivalents. HTTP body validation preserves JSON types; pagination parameters are parsed
 explicitly from query text.
 
+Two read-only Testing routes expose the operator view of a Testing run.
+`GET /runs/:id/testing` returns the run's stored configuration and write authority,
+the plan next to the attempt ledgers, check results, final verification, repair lineage and
+handoff availability. `GET /runs/:id/testing/change-set` returns the exact verified change set
+named by `testing-execution-completion`. The completion hash and every file's content hash are
+rechecked first. It returns 404 when no verified handoff exists and 409 for a non-Testing run
+or changed evidence. Both schemas are in `testingOperatorViewSchema` and
+`testingVerifiedChangeSetSchema` (`packages/schemas/src/testing-operator.ts`). Neither route
+writes, dispatches or applies anything.
+
 Three trace routes register when the trace store is wired: `GET /runs/:id/traces`,
 `GET /runs/:id/traces/:traceId`, and
 `GET /runs/:id/traces/:traceId/artifacts/:slot`. Lists support exact node/model/protocol/
@@ -174,6 +184,27 @@ Issue Board (`views/issue-board/`), the Plan view with its bidirectional traceab
 requested/resolved effort, measured usage, outcome, refusal/error details and redacted
 input/output artifacts. It refreshes on run events or explicit request, keeps unknown
 measurements distinct from zero, and treats artifact content as untrusted text.
+
+Two more views cover Feature and Testing runs. The Feature contract view (`views/feature/`)
+shows the requirements contract and pending high-impact defaults. The operator can approve,
+revise the draft, apply a model revision proposal and resume. It uses only the existing
+requirements routes and `POST /runs/:id/resume`. Every mutation names the contract artifact
+it was made against. A stale artifact returns 409, and the view says so and offers a reload.
+Approval never resumes the run. The Testing execution view (`views/testing/`) reads the
+Testing routes above. It shows authority, the plan beside execution, attempts, check results
+and repair rounds. A no-work result is labelled as no work, not as coverage. The operator
+can download the verified change set or plan handoff as JSON. The graph expands Feature and
+Testing subgraph nodes into the stages their run recorded (`columns/graph/recorded-stages.ts`).
+Stages are drawn with the same six node kinds, and unrecorded stages are omitted rather than
+guessed. Run controls also appear for a run opened by link without a saved configuration.
+Estimate and start stay disabled in that case.
+
+Browser acceptance runs through `pnpm --filter @arbitra/web e2e` (Playwright, Chromium, Firefox
+and WebKit). It is not part of `pnpm test`. The scenarios start the real control plane from
+`apps/server/fixtures/e2e-server.ts` over a temporary state directory. Runs come from the real
+orchestrator with scripted provider and sandbox ports (`apps/server/fixtures/scripted-runs.ts`).
+Results and screenshots are recorded in [`qa/p10/`](qa/p10/README.md).
+
 Trace list and detail responses are served from a persistent per-run index
 (`packages/persistence/src/trace-index.ts`) that catches up incrementally from the
 committed trace log and re-reads only the served records from it, so a page no longer
@@ -196,12 +227,12 @@ The [completion plan](completion-plan.md) records dependencies and acceptance cr
   stages (Feature requirements/exploration, Testing risk analysis) can still fail explicitly;
   see [context and output capacity](harness.md#context-and-output-capacity).
 - Durable Feature requirements checkpoints and generic gate/human checkpoints work through
-  CLI/HTTP. Generic checkpoints apply to registered graphs; the shipped presets do not
-  contain those nodes. Dedicated web controls remain incomplete. Feature/Testing replay has
+  CLI/HTTP and the web Feature contract view. Generic checkpoints apply to registered graphs;
+  the shipped presets do not contain those nodes. Feature/Testing replay has
   mode-specific contracts through CLI/HTTP ([workflows](workflows.md#feature-and-testing-replay)).
-- The trace browser and its persistent large-history query index are implemented;
-  browser acceptance QA remains outstanding. Evaluation corpora are durable, but no
-  live evaluation driver feeds them yet.
+- The trace browser and its persistent large-history query index are implemented, and the
+  trace browser is covered by browser acceptance (see [`qa/p10/`](qa/p10/README.md)).
+  Evaluation corpora are durable, but no live evaluation driver feeds them yet.
 - The September 24 review found test-discovery and macOS reliability defects; see
   [verification evidence](project-status.md#verification-evidence).
 
