@@ -22,6 +22,7 @@ import type { RunStore } from "./run-store.js";
 import { TestingPlanExecutor } from "./testing-plan-executor.js";
 import type { TestSandbox } from "./test-sandbox.js";
 import { validateBatchLanes } from "./model-batch-lane.js";
+import { validateAdvisorPolicy } from "./model-advisors.js";
 
 export function validateModelTesting(config: RunConfig) {
   if (config.workflow["testing"] === undefined) throw new Error("TESTING_EXECUTION_CONFIGURATION_REQUIRED");
@@ -37,6 +38,9 @@ export function validateModelTesting(config: RunConfig) {
       const profile = config.models[settings.execution.models[capability]];
       if (profile === undefined || !profile.supports.tools || ranks[profile.capabilityTier] < ranks[capability]) throw new Error("TESTING_TASK_MODEL_CONFIGURATION_INVALID");
     }
+    validateAdvisorPolicy(config, settings.execution.advisors);
+    const execution = providerExecutionSchema.parse(config.workflow["modelExecution"]);
+    for (const id of Object.values(settings.execution.advisors?.models ?? {})) if (id !== undefined && !Object.hasOwn(execution.modelEndpoints, id)) throw new Error(`ADVISOR_MODEL_ENDPOINT_ABSENT:${id}`);
   }
   return settings;
 }

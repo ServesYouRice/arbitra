@@ -33,7 +33,21 @@ export interface ModelActivityRequest<T> {
   readonly outputSchema?: unknown;
   readonly sourcePaths?: readonly string[];
   readonly harnessIdentity?: { readonly id: string; readonly version: string; readonly policyHash: string };
+  /** Per-request output reserve; defaults to the run's configured reserve. Part of the identity. */
+  readonly maximumOutputTokens?: number;
+  /** Marks a bounded advisor call. It is traced under the advisor's own identity. */
+  readonly advisor?: AdvisorActivityIdentity;
+  /** Return a completed durable result or fail; never dispatch a provider request. */
+  readonly replayOnly?: boolean;
 }
+
+export interface AdvisorActivityIdentity {
+  readonly executorActivityId: string;
+  readonly taskId: string;
+  readonly useOrdinal: number;
+}
+
+export const ADVISOR_HARNESS_ID = "advisor-direct";
 
 /** Durable, stateless JSON model calls shared by workflow stages. No tool execution. */
 export class ModelActivities {
@@ -95,11 +109,18 @@ export class ModelActivities {
   async invoke<T>(input: ModelActivityRequest<T>): Promise<T> {
     if (!input.activityId.trim() || !input.protocol.trim()) throw new Error("INVALID_MODEL_ACTIVITY_IDENTITY");
     if (input.signal.aborted) throw new Error("MODEL_ACTIVITY_CANCELLED");
+    if (input.maximumOutputTokens !== undefined && (!Number.isSafeInteger(input.maximumOutputTokens) || input.maximumOutputTokens < 1)) throw new Error("INVALID_MAXIMUM_OUTPUT_TOKENS");
+    if (input.advisor !== undefined) {
+      // Round-zero discovery is independent: an advisor is structurally unavailable there.
+      if (isDiscoveryActivity(input.activityId) || isDiscoveryActivity(input.advisor.executorActivityId)) throw new Error("ADVISOR_DISABLED_IN_DISCOVERY");
+      if ((input.tools?.length ?? 0) > 0 || input.responseMode === "harness_turn") throw new Error("ADVISOR_TOOLS_FORBIDDEN");
+    }
     const profile = Object.hasOwn(this.#config.models, input.modelProfileId) ? this.#config.models[input.modelProfileId] : undefined;
     if (profile === undefined) throw new Error(`UNKNOWN_MODEL_PROFILE:${input.modelProfileId}`);
     const redacted = structuredClone(input.messages).map((message) => ({ ...message, content: redactSecrets(message.content).text }));
     const messages = profile.quirks.systemPromptSupport === "full" ? redacted : redacted.map((message) => message.role === "system" ? { ...message, role: "user" as const } : message);
-    const fingerprint = hash({ protocol: input.protocol, protocolIdentity: input.protocolIdentity ?? null, modelProfileId: input.modelProfileId, profile, execution: this.#execution, messages, effort: input.effort ?? null, responseMode: input.responseMode ?? "json", tools: input.tools ?? [], harnessIdentity: input.harnessIdentity ?? null, sourcePaths: input.sourcePaths === undefined ? null : [...input.sourcePaths].sort() });
+    const fingerprint = hash({ protocol: input.protocol, protocolIdentity: input.protocolIdentity ?? null, modelProfileId: input.modelProfileId, profile, execution: this.#execution, messages, effort: input.effort ?? null, responseMode: input.responseMode ?? "json", tools: input.tools ?? [], harnessIdentity: input.harnessIdentity ?? null, sourcePaths: input.sourcePaths === undefined ? null : [...input.sourcePaths].sort(),
+      ...(input.maximumOutputTokens === undefined ? {} : { maximumOutputTokens: input.maximumOutputTokens }), ...(input.advisor === undefined ? {} : { advisor: input.advisor }) });
     const key = `model-activity-${hash(input.activityId)}`;
     const inflight = this.#inflight.get(key);
     if (inflight !== undefined) {
@@ -120,12 +141,13 @@ export class ModelActivities {
       if (existing.fingerprint !== fingerprint) throw new Error("MODEL_ACTIVITY_INPUT_CHANGED");
       return input.schema.parse(existing.value);
     }
+    if (input.replayOnly === true) throw new Error("MODEL_ACTIVITY_NOT_COMPLETED");
     // Record identity before spend so a failed or interrupted activity cannot be
     // resumed with a different prompt/profile under the same durable activity ID.
     const identity = await this.read(`${key}-input`) as { fingerprint?: unknown } | null;
     if (identity !== null && identity.fingerprint !== fingerprint) throw new Error("MODEL_ACTIVITY_INPUT_CHANGED");
     const requestArtifact = await this.store.publish(`${key}-input`, { activityId: input.activityId, fingerprint, protocol: input.protocol, modelProfileId: input.modelProfileId, messages, tools: input.tools ?? [] });
-    const maximumOutputTokens = this.#execution.maximumOutputTokens;
+    const maximumOutputTokens = input.maximumOutputTokens ?? this.#execution.maximumOutputTokens;
     // UTF-8 bytes provide a conservative admission estimate, not actual token usage.
     const estimatedTokens = Buffer.byteLength(JSON.stringify({ messages, tools: input.tools ?? [] }), "utf8") + maximumOutputTokens;
     let result: ModelInvocationResult | undefined;
@@ -143,7 +165,7 @@ export class ModelActivities {
       const request = { messages, maximumOutputTokens, ...(input.tools === undefined ? {} : { tools: input.tools }) };
       // Only explicitly configured (model, node) pairs use the batch lane; tool-bearing
       // requests are interactive by definition and never move onto it.
-      const lane = this.#batch === null || (input.tools?.length ?? 0) > 0 ? undefined : batchLaneFor(this.#execution, input.modelProfileId, input.activityId);
+      const lane = this.#batch === null || (input.tools?.length ?? 0) > 0 || input.advisor !== undefined ? undefined : batchLaneFor(this.#execution, input.modelProfileId, input.activityId);
       result = this.#batch === null || lane === undefined ? await this.#pool.invoke(request, invocation)
         : await this.#pool.invokeBatch(request, { ...invocation, lane: this.#batch, settings: lane, fingerprint, traceId: key });
       const harnessTurn = input.responseMode === "harness_turn";
@@ -177,7 +199,7 @@ export class ModelActivities {
       const fullTrace: ModelActivityTraceRecord = {
         schemaVersion: 1, runId: this.store.runId, nodeId: input.activityId.split("/")[0] ?? input.activityId, activityId: input.activityId, attempt: executions,
         modelId: profile.modelId, modelProfileVersion: hash(profile), transportId: profile.transport, transportVersion: "1.0.0",
-        harnessId: input.harnessIdentity?.id ?? "direct-json", harnessVersion: input.harnessIdentity?.version ?? "1.0.0", harnessPolicyHash: input.harnessIdentity?.policyHash ?? hash({ tools: input.tools ?? [] }),
+        harnessId: input.advisor !== undefined ? ADVISOR_HARNESS_ID : input.harnessIdentity?.id ?? "direct-json", harnessVersion: input.harnessIdentity?.version ?? "1.0.0", harnessPolicyHash: input.harnessIdentity?.policyHash ?? hash({ tools: input.tools ?? [] }),
         protocolId: input.protocolIdentity?.protocolId ?? input.protocol.split("@")[0] ?? input.protocol,
         protocolVersion: input.protocolIdentity?.protocolVersion ?? input.protocol.split("@")[1] ?? "unversioned",
         protocolHash: input.protocolIdentity?.protocolHash ?? hash(input.protocol), promptHash: hash({ messages, tools: input.tools ?? [] }), resolvedProviderConfigHash: hash({ endpoint, modelId: profile.modelId, effort: result?.effort ?? null }),
@@ -188,7 +210,9 @@ export class ModelActivities {
         toolCallCount: result?.response.toolCalls.length ?? 0, toolCallErrors: 0, repairCount: 0,
         refusal: outcome === "refusal" ? refusal : null,
         error: outcome === "error" || outcome === "cancelled" ? { code: outcome === "cancelled" ? "CANCELLED" : failure instanceof Error ? failure.name : "UNKNOWN", message: failure instanceof Error ? failure.message : outcome } : null,
-        continuationState: null, advisorTokens: null, outcome,
+        continuationState: null, outcome,
+        // Advisor calls are separate traces; their total is null whenever either side is unreported.
+        advisorTokens: input.advisor === undefined || usage?.inputTokens == null || usage.outputTokens == null ? null : usage.inputTokens + usage.outputTokens,
       };
       await this.store.recordModelTrace(fullTrace);
       await this.store.publish(`${key}-trace`, {
@@ -210,10 +234,18 @@ export class ModelActivities {
     return value;
   }
 
+  /** Measured usage of a finished activity: null means unknown, never zero. Absent trace → undefined. */
+  async activityUsage(activityId: string): Promise<{ readonly usage: InvocationTrace["usage"] | null; readonly outcome: string } | undefined> {
+    const trace = await this.read(`model-activity-${hash(activityId)}-trace`) as { terminal?: ModelActivityTraceRecord } | null;
+    if (trace?.terminal === undefined) return undefined;
+    return { usage: trace.terminal.tokenUsage, outcome: trace.terminal.outcome };
+  }
+
   private async read(kind: string): Promise<unknown> {
     const artifact = (await this.store.listArtifacts()).find((item) => item.kind === kind);
     return artifact === undefined ? null : JSON.parse((await this.store.readArtifact(artifact.artifactId)).content) as unknown;
   }
 }
 
+function isDiscoveryActivity(activityId: string): boolean { return activityId.endsWith("/discovery") || activityId.split("/").includes("discovery"); }
 function hash(value: unknown): string { return createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
