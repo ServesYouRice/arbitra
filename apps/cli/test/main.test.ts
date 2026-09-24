@@ -49,6 +49,11 @@ class FakeWorkflowCore implements OrchestratorCore {
     return { disposition: "passed", value: { runId: `${runId}-replay`, sourceRunId: runId, overrides } };
   }
 
+  async replayRequest(runId: string, requestPath: string): Promise<CoreCommandResult> {
+    this.calls.push(`replayRequest:${runId}:${requestPath}`);
+    return { disposition: "passed", value: { runId: `${runId}-replay`, sourceRunId: runId } };
+  }
+
   async diff(runA: string, runB: string): Promise<CoreCommandResult> {
     this.calls.push(`diff:${runA}:${runB}`);
     return { disposition: "passed", value: { runA, runB, addedIssueIds: [], removedIssueIds: [] } };
@@ -248,6 +253,7 @@ describe("CLI commands", () => {
 
   it.each([
     ["replay", ["run-a", "--consensus-policy", "full", "--max-rounds", "2", "--no-critic"], "replay:run-a:{\"consensusPolicy\":\"full\",\"maximumRounds\":2,\"criticEnabled\":false}"],
+    ["replay", ["run-a", "--request", "replay.json"], "replayRequest:run-a:replay.json"],
     ["diff", ["run-a", "run-b"], "diff:run-a:run-b"],
     ["trace", ["run-a"], "trace:run-a"],
     ["export", ["run-a", "--format", "json"], "export:run-a:json"],
@@ -267,6 +273,8 @@ describe("CLI commands", () => {
     [["replay", "run-a", "--max-rounds", "4"], "invalid_max_rounds"],
     [["replay", "run-a", "--max-rounds"], "missing_value:--max-rounds"],
     [["replay", "run-a", "--unknown", "value"], "invalid_arguments:replay"],
+    [["replay", "run-a", "--request"], "missing_value:--request"],
+    [["replay", "run-a", "--request", "replay.json", "--no-critic"], "invalid_arguments:replay"],
     [["diff", "run-a"], "invalid_arguments:diff"],
     [["trace", "run-a", "extra"], "invalid_arguments:trace"],
     [["export", "run-a", "--format", "html"], "invalid_export_format"],

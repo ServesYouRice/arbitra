@@ -66,6 +66,16 @@ export function controlPlaneCore(orchestrator: Orchestrator) {
       artifact: (runId: string, traceId: string, slot: string) => orchestrator.traceArtifact(runId, traceId, slot),
     },
 
+    replay: {
+      // Returns once the new run exists, like `runs.start`; progress streams from its own events.
+      start: (sourceRunId: string, body: unknown) => orchestrator.startReplay(sourceRunId, body),
+      report: async (runId: string) => {
+        const report = await orchestrator.replayReport(runId);
+        if (report === null) throw Object.assign(new Error(`REPLAY_CONTRACT_ABSENT:${runId}`), { statusCode: 404 });
+        return report;
+      },
+    },
+
     requirements: {
       current: (runId: string) => orchestrator.requirements(runId),
       approve: (runId: string, body: unknown) => orchestrator.approveRequirements(runId, body),

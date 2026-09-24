@@ -62,8 +62,8 @@ addresses:
 routing:
   capability:     frontier | balanced | fast
   effort:         low | medium | high | xhigh
-  advisor:        frontier | balanced | fast | null    # schema only in v1
-  advisorMaxUses: number | null                        # runtime is v1.1
+  advisor:        frontier | balanced | fast | null    # requested advisor tier
+  advisorMaxUses: number | null                        # may only lower the operator cap
   reason:         []
 
 dependencies:
@@ -137,8 +137,56 @@ be emitted claiming the multi-model premise was proved. See [`evaluation.md`](ev
 recording why. `planIR.routingRecommendations` carries the same decision at plan level, so
 a reviewer can see where the router and the task disagree.
 
-`advisor` and `advisorMaxUses` are **schema only in v1**. The advisor runtime is v1.1 and
-not implemented; `advisorTokens` is recorded on traces so the data exists when it lands.
+## Advisors
+
+`routing.advisor` and `routing.advisorMaxUses` are consumed by the Testing writer through
+`packages/runtime/src/model-advisors.ts`. An advisor is an activity inside the existing
+node that executes the task, not a node kind, and its advice is input to that authorized
+executor only.
+
+**Operator policy decides; the task can only lower.** `workflow.testing.execution.advisors`
+(`packages/schemas/src/advisor.ts`) maps each tier to a model profile and sets
+`maximumUsesPerTask`, `maximumContextTokens` (admission estimate of one request, including
+its output reserve), `maximumOutputTokens` and `maximumTokensPerTask`. The effective use
+limit is `min(advisorMaxUses ?? cap, cap)`. No policy, an unmapped tier or a zero limit
+disables the advisor (`not_configured`, `tier_not_configured`, `zero_uses`) and the writer
+proceeds without advice. Preflight rejects advisor profiles that are absent, below their
+tier, without an endpoint, or whose context/output limits cannot hold the policy.
+
+**Durable uses.** Each use is journaled in `advisor-ledger-<task>` (state `dispatched`)
+with its pinned request artifact *before* the provider request, then settled as
+`completed`, `failed` or `cancelled`. A question is identified by the executor's request
+ID (the writer uses its attempt ID): asking again replays the recorded outcome. Completed
+advice replays from the durable model activity without a new request. A dispatch that
+was interrupted by a crash is resolved replay-only and becomes `ADVISOR_USE_INTERRUPTED`;
+it is never sent twice. Failed and cancelled uses stay consumed. Changing the task or the
+policy after uses are journaled fails with `ADVISOR_CONFIGURATION_CHANGED` instead of
+resetting the allowance. Exhaustion (`uses` or `tokens`) and a context that cannot fit
+(`skipped: context_limit`) consume nothing and dispatch nothing.
+
+**Usage.** Advisor calls go through the shared provider registry, rate scheduler and run
+token budget. They are traced separately under `harnessId: "advisor-direct"`, the
+advisor's model and a `<node>/advisor/<task>/use-<n>` activity ID, with `advisorTokens` set
+from measured usage. Unknown usage stays `null`, is charged to both the run budget and the
+per-task advisor cap at its admission estimate, and therefore still bounds later uses.
+
+**No authority.** Advisors receive no tools and no peer, discovery or other executors'
+output: their input is the task contract, the attempt, the executor's own previous
+verification feedback and its pinned repository snapshot. The writer receives advice as
+`advisory` data marked `untrusted_advisory_data` and `authority: "none"`, with precedence
+task contract/write lease > verification evidence > advice. Recommendations naming paths
+outside the write lease are flagged `outsideWriteAuthority`; contradictory advice on the
+same path (`avoid` versus `add_test`/`modify_test`) is reported in `conflicts` and not
+resolved by recency. The writer's tools, lease, commands and budgets are identical with
+and without advice.
+
+**Disabled in round-zero discovery.** `TaskAdvisor.consult` rejects round 0 and any
+discovery activity with `ADVISOR_DISABLED_IN_DISCOVERY` before journaling anything, and
+`ModelActivities` independently rejects advisor-marked requests for discovery activities,
+tool-bearing advisor requests and harness turns.
+
+Coverage is fixture-based (`packages/runtime/test/model-advisors.test.ts`); a live-provider
+advisor exercise remains outstanding.
 
 ## Rendering
 

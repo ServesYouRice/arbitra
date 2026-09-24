@@ -365,8 +365,9 @@ result (`late: true` in provenance) instead of submitting again.
 
 ## Not implemented
 
-- **Advisor runtime.** `advisor` and `advisorMaxUses` exist in Task IR and `advisorTokens`
-  is recorded on traces, but nothing consumes them. v1.1.
+- **Live advisor validation.** The bounded advisor runtime ([Task IR](task-ir.md#advisors))
+  calls advisors through the normal registry and durable activities, but has been
+  exercised against injected HTTP only.
 - **Live batch validation.** The batch lane and drivers are implemented and tested
   against injected HTTP only. See [Batch lane](#batch-lane).
 
