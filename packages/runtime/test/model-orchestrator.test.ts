@@ -359,7 +359,7 @@ describe("composed model audits", () => {
     const resultDescriptor = artifacts.find(({ kind }) => kind === "critic-result");
     if (resultDescriptor === undefined) throw new Error("CRITIC_RESULT_ABSENT");
     expect(JSON.parse((await resumed.artifact(result.runId, resultDescriptor.artifactId) as { content: string }).content)).toMatchObject({ criticCalls: batches.length, degradedReviewCoverage: false });
-  }, 30_000);
+  });
 
   it("batches oversized peer context without losing candidate or cross-batch pair coverage", async () => {
     const { create, config, requests, failVerification } = await fixture({ largePeerContext: true });
@@ -381,7 +381,7 @@ describe("composed model audits", () => {
       expect(reviewed).toHaveLength(4); expect(new Set(reviewed).size).toBe(4);
       for (const left of reviewed) for (const right of reviewed) if (left !== right) expect(parts.some(({ candidateIds }) => candidateIds.includes(left) && candidateIds.includes(right))).toBe(true);
     }
-  }, 30_000);
+  });
 
   it.each(["retain_original", "proposal-1"] as const)("resolves deferred peer operations with evidence-backed agreement: %s", async (conflictResolution) => {
     const { create, config, requests } = await fixture({ conflictingReview: true, conflictResolution });
