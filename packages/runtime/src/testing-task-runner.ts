@@ -11,6 +11,8 @@ import { TestingTaskAttempts } from "./testing-task-attempts.js";
 import type { TestingTaskVerifier } from "./testing-task-verifier.js";
 import type { TestingWorkspace } from "./testing-workspace.js";
 import type { VerificationExecutionRecord } from "./verification-execution.js";
+import type { AdvisorPolicy } from "@arbitra/schemas/advisor.js";
+import { validateAdvisorPolicy } from "./model-advisors.js";
 
 /** Shared task-loop input. The run coordinator must preflight the complete
  * plan, prepare the workspace and prevent other writers during verification.
@@ -21,6 +23,8 @@ export interface TestingTaskRunInput {
   readonly partitions: WritePartitions; readonly workspace: TestingWorkspace; readonly verifier: TestingTaskVerifier;
   readonly models: Readonly<Record<"fast" | "balanced" | "frontier", string>>;
   readonly maximumAttempts?: number; readonly signal: AbortSignal;
+  /** Operator advisor policy; absent means task advisor requests are not served. */
+  readonly advisors?: AdvisorPolicy;
 }
 
 export async function runTestingTask(input: TestingTaskRunInput) {
@@ -39,10 +43,11 @@ async function prepareTask(input: TestingTaskRunInput) {
     const profile = Object.hasOwn(config.models, profileId) ? config.models[profileId] : undefined;
     if (profile === undefined || !profile.supports.tools || ranks[profile.capabilityTier] < ranks[capability]) throw new Error("TESTING_TASK_MODEL_CONFIGURATION_INVALID");
   }
+  validateAdvisorPolicy(config, input.advisors);
   const maximumAttempts = input.maximumAttempts ?? 4;
   const identity = createHash("sha256").update(task.id).digest("hex");
   const kind = `testing-task-runner-${identity}`;
-  const fingerprint = createHash("sha256").update(canonicalJson({ config, task, policy, request, models, maximumAttempts })).digest("hex");
+  const fingerprint = createHash("sha256").update(canonicalJson({ config, task, policy, request, models, maximumAttempts, ...(input.advisors === undefined ? {} : { advisors: input.advisors }) })).digest("hex");
   const prior = (await store.listArtifacts()).find((entry) => entry.kind === kind);
   if (prior === undefined) await store.publish(kind, { fingerprint }, "testing-execution");
   else if ((await store.artifacts.get<{ fingerprint: string }>(prior.ref)).fingerprint !== fingerprint) throw new Error("TESTING_TASK_RUNNER_CONFIGURATION_CHANGED");
@@ -78,7 +83,7 @@ export async function runTestingBatch(inputs: readonly TestingTaskRunInput[]) {
       results = await Promise.allSettled(jobs.map(({ input, attempt, feedback }, index) => {
         const lease = leases[index]; if (lease === undefined) throw new Error("TESTING_BATCH_LEASE_ABSENT");
         return modelTestingWriter(input.store, input.config, input.activities, input.task, attempt, input.workspace, input.partitions, lease,
-          { modelProfileId: input.models[attempt.capability], feedback, signal: input.signal });
+          { modelProfileId: input.models[attempt.capability], feedback, signal: input.signal, ...(input.advisors === undefined ? {} : { advisors: input.advisors }) });
       }));
     } finally { for (const lease of leases) first.partitions.release(lease); }
     const failure = results.find((result) => result.status === "rejected");
