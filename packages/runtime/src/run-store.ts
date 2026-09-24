@@ -1,5 +1,5 @@
-import { mkdir, open, readFile, readdir, rename, truncate, writeFile } from "node:fs/promises";
-import { isAbsolute, join } from "node:path";
+import { link, mkdir, open, readFile, readdir, rename, truncate, unlink, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { ActivityJournal, type JournalRecord } from "@arbitra/persistence/journal.js";
 import { ArtifactStore } from "@arbitra/persistence/artifact-store.js";
@@ -11,6 +11,7 @@ import type { RunDefinitionStore, StoredRunDefinition } from "@arbitra/core/runn
 import { runScopeSchema, runConfigSchema, type RunScope, type RunConfig } from "@arbitra/schemas/config.js";
 import { redactSecrets } from "@arbitra/security/redaction";
 import { TraceRecorder, loadActivityTraces, type ModelActivityTraceRecord } from "@arbitra/persistence/trace.js";
+import { checkpointPolicySchema, type CheckpointPolicy } from "@arbitra/schemas/checkpoint-policy.js";
 
 const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 
@@ -41,7 +42,12 @@ export interface StoredRunContext {
   readonly maximumRounds: number;
   readonly criticEnabled: boolean;
   readonly modelConfiguration?: RunConfig;
+  /** The authoritative generic checkpoint policy, fixed when the run is created. */
+  readonly checkpointPolicy?: CheckpointPolicy;
 }
+
+const ONCE_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
+let onceSequence = 0;
 
 export class RunStore {
   readonly runId: string;
@@ -197,6 +203,36 @@ export class RunStore {
     return descriptor;
   }
 
+  /**
+   * Write a record that may exist at most once, even across processes. The content is
+   * fsynced under a temporary name and then hard-linked into place, so a reader never
+   * sees a torn record and a second writer fails instead of replacing the first.
+   */
+  async createOnce(segments: readonly string[], value: unknown): Promise<boolean> {
+    const path = this.#oncePath(segments);
+    await mkdir(dirname(path), { recursive: true });
+    onceSequence += 1;
+    const temporary = `${path}.${process.pid}.${onceSequence}.tmp`;
+    const file = await open(temporary, "wx");
+    try { await file.writeFile(JSON.stringify(value), "utf8"); await file.sync(); }
+    finally { await file.close(); }
+    try { await link(temporary, path); return true; }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+      throw error;
+    } finally { await unlink(temporary).catch(() => undefined); }
+  }
+
+  async readOnce<T>(segments: readonly string[]): Promise<T | null> {
+    const text = await readOptional(this.#oncePath(segments));
+    return text === null ? null : JSON.parse(text) as T;
+  }
+
+  #oncePath(segments: readonly string[]): string {
+    if (segments.length === 0 || segments.some((segment) => !ONCE_SEGMENT.test(segment))) throw new Error("INVALID_RUN_RECORD_PATH");
+    return `${join(this.directory, "records", ...segments)}.json`;
+  }
+
   async listArtifacts(): Promise<readonly ArtifactDescriptor[]> {
     const text = await readOptional(this.#index);
     return text === null ? [] : JSON.parse(text) as readonly ArtifactDescriptor[];
@@ -236,6 +272,7 @@ function validateContext(value: unknown): asserts value is StoredRunContext {
   if (typeof context["repositoryDigest"] !== "string" || !/^[a-f0-9]{64}$/u.test(context["repositoryDigest"])) throw new Error("INVALID_RUN_CONTEXT_DIGEST");
   runScopeSchema.parse(context["scope"]);
   if (context["modelConfiguration"] !== undefined) runConfigSchema.parse(context["modelConfiguration"]);
+  if (context["checkpointPolicy"] !== undefined) checkpointPolicySchema.parse(context["checkpointPolicy"]);
   if (context["replaySourceRunId"] !== undefined && (typeof context["replaySourceRunId"] !== "string" || !RUN_ID_PATTERN.test(context["replaySourceRunId"]))) throw new Error("INVALID_REPLAY_SOURCE_RUN_ID");
   if (context["consensusPolicy"] !== "full" && context["consensusPolicy"] !== "risk_weighted" && context["consensusPolicy"] !== "minimal") throw new Error("INVALID_RUN_CONTEXT_POLICY");
   if (!Number.isSafeInteger(context["maximumRounds"]) || (context["maximumRounds"] as number) < 0 || (context["maximumRounds"] as number) > 3) throw new Error("INVALID_RUN_CONTEXT_ROUNDS");
