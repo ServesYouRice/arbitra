@@ -1,7 +1,7 @@
 import type { HttpClient, TransportConfiguration } from "../transport-contract.js";
 import { JsonProtocolTransport, assertOutputComplete, array, number, object, response, string, type ProtocolCodec } from "./json-transport.js";
 
-const codec: ProtocolCodec = {
+export const geminiNativeCodec: ProtocolCodec = {
   id: "gemini-native", path: (request) => {
     const model = request.modelId.replace(/^models\//u, "");
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(model)) throw new Error("INVALID_GEMINI_MODEL_ID");
@@ -45,5 +45,5 @@ const codec: ProtocolCodec = {
   },
 };
 export class GeminiNativeTransport extends JsonProtocolTransport {
-  constructor(config: TransportConfiguration, client?: HttpClient, credential?: (name: string) => string | undefined) { super(config, codec, client, credential); }
+  constructor(config: TransportConfiguration, client?: HttpClient, credential?: (name: string) => string | undefined) { super(config, geminiNativeCodec, client, credential); }
 }

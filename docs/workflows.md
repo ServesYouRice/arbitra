@@ -47,6 +47,60 @@ independent: an auditor in independent mode does not receive another auditor's f
 so agreement between them means something. Weakening a context policy to "help" a model is
 how a multi-auditor run quietly becomes a single-auditor run with extra cost.
 
+### Gates and human checkpoints
+
+`packages/core/src/runner/graph-checkpoints.ts` gives every graph the same `gate` and
+`human` executors, in Audit, Feature and Testing runs alike. Neither kind passes implicitly.
+The shipped presets do not contain these nodes. Graphs registered through the
+orchestrator's `graphs` option use them, and operator-authored graphs (P16) will too.
+
+A `gate` node names a deterministic policy in `config.policy`. The built-in `quality_gate`
+evaluates the public quality-gate reasons over the artifacts written so far, without the
+terminal-state requirement. A composition root can register more policies through
+`gatePolicies`; it cannot replace a built-in. A missing policy fails with
+`GATE_POLICY_REQUIRED:<node>`, and an unregistered one fails with `UNKNOWN_GATE_POLICY:<node>:<policy>`.
+Every evaluation is published as `gate-evaluation-<node>`. A failed evaluation fails
+the run before downstream nodes, and the public gate reports `gate_failed:<node>`.
+
+A `human` node needs the run policy `workflow.checkpoints`:
+
+```json
+{ "checkpoints": { "mode": "interactive" } }
+{ "checkpoints": { "mode": "automatic", "decisions": { "approval": "approve" } } }
+```
+
+- **Interactive.** The node persists a pending checkpoint and the run becomes `BLOCKED`.
+  The checkpoint's `version` is a hash of the node definition and its inputs. Changed
+  inputs create a new version, and earlier decisions no longer apply. The only
+  decisions are `approve` and `reject`. The prompt is `config.prompt` or the node label.
+- **Automatic.** The node never waits, and it never makes up an approval either. Every human node needs an
+  explicit operator-authored decision in `decisions`. Otherwise the run is refused with
+  `AUTOMATIC_CHECKPOINT_DECISION_REQUIRED:<node>`. Decisions are recorded as
+  `decidedBy: "run_policy"`. Interactive policies cannot preconfigure decisions.
+
+A human node without a policy fails with `CHECKPOINT_POLICY_REQUIRED:<node>`. An unknown mode fails
+configuration validation. The same checks run in `estimate` and `start`, and on
+resume/replay against the stored definition. They fail before a run is created. The policy is stored with the run
+context when the run is created. Later edits to the saved configuration cannot change how
+an existing run's checkpoints resolve.
+
+Run status lists each dispatched human node as a `kind: "human"` checkpoint with
+`checkpointId` (the node ID), `version`, `status` (`pending`, `approved` or `rejected`),
+`prompt`, `decisions`, `mode` and `decidedBy`, plus the run's `checkpointMode`. Respond to the
+current version through either interface:
+
+```text
+orchestrator respond-checkpoint <run-id> <checkpoint-id> <version> approve|reject
+POST /runs/:id/checkpoints/:checkpointId   {"version": "<64 hex>", "decision": "approve"}
+```
+
+A response requires a blocked, idle run and an interactive policy. An unknown checkpoint
+returns 404. A stale version, a second decision for the same version (from any process),
+automatic mode or a non-blocked run returns 409. Deciding does not resume the run; call `resume`.
+Approval completes the node. Rejection fails the run as a policy outcome: the public
+gate reports `checkpoint_rejected:<node>`, and the CLI exits `1`, not `2`. Until an operator decides,
+the public gate reports `checkpoint_pending:<node>`, and `run`/`resume`/`status` exit `3`.
+
 ## Audit mode
 
 ```text
@@ -186,8 +240,9 @@ The runtime library has durable requirements checkpoints, grounded exploration a
 targeted independent requirements review with up to three rounds. Draft revisions
 invalidate operator approvals and downstream review identities. Dedicated requirements
 controls in the web UI remain unfinished. Feature uses the runner's subgraph primitive; stage detail is available in
-its artifacts and traces. Audit-policy replay is explicitly unsupported for Feature;
-ordinary durable resume is supported.
+its artifacts and traces. Audit-policy replay is rejected for Feature runs; Feature
+replay has its own contract (see [Feature and Testing replay](#feature-and-testing-replay)).
+Ordinary durable resume is supported.
 
 `packages/runtime/src/model-feature-planning.ts` composes the selected planner with an
 independent critic and at most one revision/re-review. Only a complete, non-degraded
@@ -241,7 +296,8 @@ it is not proof of test coverage. Blocking questions withhold the handoff.
 
 All stages share the durable model budget and resume machinery. In plan mode commands
 are never run, the source tree stays unchanged, and the planning result records `testsExecuted: false`.
-Audit-policy replay is unsupported for Testing. Dedicated web controls and expanded
+Audit-policy replay is rejected for Testing runs; Testing replay has its own contract (see
+[Feature and Testing replay](#feature-and-testing-replay)). Dedicated web controls and expanded
 Testing subgraph views remain open.
 Guarded execution is opt-in: use `workflow.preset: "testing-execute"` (or omit the preset),
 set `workflow.testing.mode: "execute"`, and supply `workflow.testing.execution` with:
@@ -249,6 +305,7 @@ set `workflow.testing.mode: "execute"`, and supply `workflow.testing.execution` 
 - `authorization`: concrete `partitions: [{id, paths}]`, exact `tasks: [{taskId, partitionId, exclusive}]`, and `maximumParallelTasks` from 1–16. Disjoint ready tasks can write concurrently; dependencies, shared files, declared conflicts and exclusive tasks constrain batches.
 - `models`: `fast`, `balanced`, and `frontier` profile IDs, each tool-capable and meeting its capability tier.
 - `maximumAttempts`: 1–10, preserved across restart.
+- `maximumRepairRounds` (optional): 0–5 repair rounds after final verification, default 3; `0` disables repair.
 - `verification`: `execution` containing a local digest-pinned Docker image, a bounded `maximumRuns`, and `checks: [{id, executable, arguments, sourcePaths}]`; plus `bindings: [{command, checkId, expectedExitCode, authorization}]`. Binding authorization is `repository_script`, `allowlisted`, or `operator_approved` and must match each planned command's policy.
 
 Write grants are operator authority, not model output. Every planned task and path must
@@ -268,10 +325,136 @@ gaps remains an explicit no-work result, not evidence that tests ran or coverage
 
 Each writer batch settles before serial verification begins. Interrupted batches preserve
 completed tool work and release leases only after every dispatched writer stops.
-Automatic repair after final verification invalidates an earlier task,
-native harness execution and live-provider/Docker acceptance QA remain open.
-The [completion plan](completion-plan.md) also tracks oversized contexts, web controls,
-mode-specific replay and the remaining extensions.
+
+A later task can break an earlier task's passing check. If final verification finds
+deterministic failures, the coordinator can reopen tasks for repair. It computes the
+dependency/conflict closure of the failing tasks. The failing tasks are reopened. Other
+tasks are reopened if they declared a conflict with a failing task or wrote a file in
+its write scope or check sources, such as a shared fixture. Downstream dependents and
+tasks sharing its scope are marked stale. The coordinator invalidates the reopened tasks'
+passing attempts before any new writer is dispatched. Then the normal schedule runs again.
+Reopened tasks receive the failing final evidence as feedback. They use their original write
+grant, lease, attempt ledger and task check. Completed tasks are not rerun. The workspace
+is then verified again in full. Repair never widens a write grant or adds scope.
+Stale per-task and final evidence cannot complete a task or be exported.
+
+Repair is bounded. Reopening consumes the task's `maximumAttempts`. Model tokens and
+sandbox `maximumRuns` remain shared by the whole run. `maximumRepairRounds` limits the number
+of reopen decisions. Each round is recorded in the durable `testing-repair-lineage` artifact
+with its invalidated snapshot, failures, and reopened and stale tasks. The execution outcome's
+`repair` field reports these rounds. Restart finishes a committed reopen and resumes an
+interrupted repair attempt without repeating completed writes. It returns the recorded
+terminal decision without new model or sandbox calls. The run blocks without a handoff for
+exhausted rounds (`repair_rounds_exhausted`) or exhausted attempts (`repair_attempts_exhausted`
+or `task_attempts_exhausted`). It also blocks when the workspace returns to invalidated bytes
+(`repair_oscillation`). Incomplete final checks, including exhausted sandbox budgets, also block;
+they are not repaired. Cancellation stops the run, and a later resume can continue it. Only
+the exact final bytes that pass fresh verification are exported. Repair is covered with
+injected sandbox/provider ports. Its real-Docker repetition is still outstanding.
+Native harness execution and live-provider/Docker acceptance QA remain open.
+The [completion plan](completion-plan.md) also tracks oversized contexts, web controls
+and the remaining extensions.
+
+## Feature and Testing replay
+
+Replay creates a **new run** from a saved source run; it never continues or modifies the
+source. Continuing an interrupted run is `resume`, which keeps the run's own identity,
+journal and contract. Each mode has its own replay contract
+([`replay-contracts.ts`](../packages/runtime/src/replay-contracts.ts)). Audit replay keeps
+its existing meaning: reuse round-zero discovery under new consensus policy
+(`replay <run-id> --consensus-policy …`). Audit policy overrides are rejected for Feature
+and Testing runs.
+
+A Feature or Testing replay request names its mode and may replace the saved
+configuration with one of the same mode:
+
+```json
+{ "mode": "feature", "configuration": { "...": "optional, same mode" },
+  "requirements": { "decision": "reuse_approved", "artifactId": "requirements-contract-version-…" } }
+{ "mode": "testing", "execution": { "mode": "plan" } }
+{ "mode": "testing", "execution": { "mode": "execute", "authorization": { "maximumParallelTasks": 1,
+  "partitions": [{ "id": "tests", "paths": ["test/session.test.ts"] }], "tasks": [{ "taskId": "TASK-001", "partitionId": "tests", "exclusive": false }] } } }
+```
+
+Submit it with `replay <run-id> --request <file.json>` or `POST /runs/:id/replay`. Both
+call the same orchestrator. The route returns once the new run exists, with its stage
+decisions, and the run then streams on its own events. `GET /runs/:id/replay` and the
+run summary's `replay` field report provenance. A request whose mode differs from the
+source run fails with `REPLAY_MODE_MISMATCH` (HTTP 409). Malformed requests fail with
+`INVALID_REPLAY_REQUEST` (400). No run is created for either.
+
+**Stages.** Feature has five stages: `requirements`, `exploration`, `review`,
+`requirements-revision` and `planning`. Testing has three: `analysis`, `planning` and,
+in execute mode, `execution`. Each stage owns the model activities whose IDs it matches.
+Its identity binds several components:
+
+- the repository snapshot digest and scope;
+- the harness;
+- its own settings: the Feature request and requirements mode, the complete Testing
+  settings for analysis, and the write authorization for planning;
+- the model profiles and endpoints of its roles, plus the output limit;
+- the pinned protocol versions and hashes, and prompt overrides;
+- the identity of the preceding stage.
+
+The replay computes both runs' identities before creating the new run. It stores the
+decisions in the new run's immutable `replay-contract` artifact. A stage is reused only
+when every component is equal; otherwise the decision names each changed component
+(`changed:models`, `changed:upstream`, and so on). Protocol bytes are pinned into the new
+run before it starts. A protocol the source never pinned cannot have produced a source
+output, so it does not invalidate the stage; the decision lists it as
+`sourceUnpinnedProtocols`.
+
+Within a reused stage each activity is also checked on its own. Its saved output must
+carry a replay identity equal to the new request's. That identity covers the full
+messages, the model profile and endpoint, the protocol, the harness policy, tools and
+source paths; budgets, retries, rate limits and the batch lane are excluded. Reused
+outputs are published in the new run with `replayedFrom` provenance naming the source
+artifact. They make no provider call and consume none of the new run's token budget.
+Every other activity is regenerated and charged to the new run. Each lookup is recorded
+as `replay-activity-<key>` with `reused` or a reason:
+
+- `stage_invalidated`
+- `source_activity_absent`
+- `source_artifact_unreadable` (missing or corrupt, detected by content hash)
+- `source_activity_identity_unavailable` (saved before replay identities existed)
+- `activity_identity_changed`
+- `source_output_invalid`
+
+Missing or corrupt source artifacts are never trusted. They force regeneration.
+
+**Requirements.** By default (`reapprove`) a Feature replay derives its requirements
+again. It reuses a compatible saved draft, but interactive high-impact defaults need a
+fresh approval in the new run. `reuse_approved` must name the source's *current*,
+fully approved contract. The replay then copies that contract, its lineage and any
+revision ledger into the new run and verifies that the copy resolves to the same version.
+The request fails with HTTP 409 in these cases:
+
+- `REPLAY_REQUIREMENTS_CONTRACT_STALE`: a superseded version is named;
+- `REPLAY_REQUIREMENTS_NOT_APPROVED`: approvals are pending;
+- `REPLAY_REQUIREMENTS_CONTRACT_INCOMPATIBLE`: the requirements stage, request, source or
+  model changed;
+- `REPLAY_REQUIREMENTS_ARTIFACT_MISSING`: a contract artifact is missing.
+
+**Testing execution.** A Testing replay must choose its execution. A `plan` replay drops
+the execution settings. Its graph has no execute node, and it holds no sandbox, so it
+cannot dispatch writers or checks. An `execute` replay is a new, explicitly authorized
+execution. Its write grant comes only from the request, never from the source run or a
+supplied configuration. The contract records the grant's digest with authority
+`replay_request`. Execution is never reused. The run gets its own worktree, and writers
+and checks run again, so its change set and completion rest on fresh evidence. A source
+run in plan mode has no execution settings to reuse. An `execute` replay of it needs a
+`configuration` that supplies them; otherwise it fails with
+`REPLAY_EXECUTION_CONFIGURATION_REQUIRED`. Testing analysis activities are keyed by the
+complete Testing settings, so changing the write grant also regenerates analysis and
+planning.
+
+Resuming a replay run uses its stored contract and never re-decides reuse from the
+current configuration. Coverage uses injected fake providers and sandboxes. It includes
+full reuse, changed models, requests and grants, changed protocols and scope (at the
+contract level), stale and unapproved
+contracts, missing and corrupt artifacts, a failed replay resumed as the same run,
+byte-level source immutability and CLI/HTTP parity. Replay under live providers and real
+Docker has not been exercised.
 
 ## Presets
 

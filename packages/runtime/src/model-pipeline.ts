@@ -33,6 +33,7 @@ import { createHash } from "node:crypto";
 import type { ModelActivityRequest } from "./model-activities.js";
 import { isCapacityError, ModelOutputLimitError, OUTPUT_TOKENS_PER_RECORD, outputRecordLimit, replanOnOutputLimit, stageBudget } from "./context-budget.js";
 import { agreedConflictResolution, conflictId, conflictResolutionView, type ConflictResolutionVote } from "./model-conflict-resolution.js";
+import { validateBatchLanes } from "./model-batch-lane.js";
 
 interface ModelStageInput<T> { activityId: string; modelProfileId: string; signal: AbortSignal; protocol: string; instruction: string; input: unknown; schema: { parse(value: unknown): T }; jsonSchema: unknown; preferredPaths?: readonly string[] }
 
@@ -41,6 +42,7 @@ const premiseReport = { status: "unavailable" as const, interpretation: "smoke_t
 export function validateModelAudit(config: RunConfig, auditorIds: readonly string[], criticEnabled: boolean): void {
   const execution = providerExecutionSchema.parse(config.workflow["modelExecution"]);
   if (execution.roles === undefined) throw new Error("MODEL_EXECUTION_ROLES_REQUIRED");
+  validateBatchLanes(config);
   if (criticEnabled && execution.roles.critic === undefined) throw new Error("MODEL_CRITIC_PROFILE_REQUIRED");
   for (const id of [...auditorIds, ...Object.values(execution.roles)]) {
     if (id !== undefined && !Object.hasOwn(config.models, id)) throw new Error(`MODEL_PROFILE_REQUIRED:${id}`);

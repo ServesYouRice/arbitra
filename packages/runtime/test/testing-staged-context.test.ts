@@ -38,7 +38,7 @@ it.each(["complete", "interrupted", "output-limited"] as const)("selects an over
   const config = runConfigSchema.parse({ ...example, mode: "testing", scope: { kind: "repository" }, models: { analyst: { ...profile, capabilityTier: "frontier" } }, workflow: {
     testing: { mode: "plan", goal: "Prevent production failures", roles: { analyst: "analyst", planner: "analyst" } },
     modelExecution: { endpoints: [{ id: "primary", providerId: profile.provider, transport: profile.transport, endpoint: "https://fixture.example/v1", apiKeyEnvVar: "FIXTURE_KEY" }],
-      modelEndpoints: { analyst: "primary" }, maximumOutputTokens: 2000, maximumContextTokens: 36_000, maximumTokens: 10_000_000, maximumRetries: 0, timeoutMs: 1000,
+      modelEndpoints: { analyst: "primary" }, maximumOutputTokens: 2000, maximumContextTokens: 36_000, maximumTokens: 10_000_000, maximumRetries: 0, timeoutMs: 30_000,
       rateLimits: { [profile.provider]: { rpm: 1000, tpm: 10_000_000, maxConcurrent: 4 } } },
   } });
   // Each grounded surface is individually large; the complete candidate set cannot fit one selection request.
@@ -104,7 +104,7 @@ it.each([false, true])("plans an oversized selected-gap set through one staged d
     models: { analyst: { ...profile, capabilityTier: "frontier" }, planner: { ...profile, independenceGroup: "planner", limits: { ...profile.limits, contextTokens: 70_000 } } }, workflow: {
       testing: { mode: "plan", goal: "Prevent production failures", roles: { analyst: "analyst", planner: "planner" } },
       modelExecution: { endpoints: [{ id: "primary", providerId: profile.provider, transport: profile.transport, endpoint: "https://fixture.example/v1", apiKeyEnvVar: "FIXTURE_KEY" }],
-        modelEndpoints: { analyst: "primary", planner: "primary" }, maximumOutputTokens: 2000, maximumTokens: 10_000_000, maximumRetries: 0, timeoutMs: 1000,
+        modelEndpoints: { analyst: "primary", planner: "primary" }, maximumOutputTokens: 2000, maximumTokens: 10_000_000, maximumRetries: 0, timeoutMs: 30_000,
         rateLimits: { [profile.provider]: { rpm: 1000, tpm: 10_000_000, maxConcurrent: 4 } } },
     } });
   const risk = { summary: "Independent production surfaces", reviewedSourcePaths: ["app.ts"], reviewedTestPaths: ["app.unit.test.ts"], limitations: [],

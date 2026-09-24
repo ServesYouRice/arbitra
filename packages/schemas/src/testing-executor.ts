@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { testingVerificationPolicySchema } from "./testing-verification.js";
+import { advisorPolicySchema } from "./advisor.js";
 
 const text = z.string().refine((value) => value.trim().length > 0, "Expected nonempty text");
 /** Operator-supplied authority, never inferred from a model's proposed plan. The
@@ -20,5 +21,10 @@ export const testingPlanExecutionOptionsSchema = z.strictObject({
   verification: testingVerificationPolicySchema,
   models: z.strictObject({ fast: text, balanced: text, frontier: text }),
   maximumAttempts: z.number().int().min(1).max(10),
+  /** Bounded repair rounds after final verification invalidates completed tasks.
+   * Omitted means the runtime default; 0 disables repair. Shares all run budgets. */
+  maximumRepairRounds: z.number().int().min(0).max(5).optional(),
+  /** Omitted disables advisors even when a task's routing requests one. */
+  advisors: advisorPolicySchema.optional(),
 });
 export type TestingPlanExecutionOptions = z.infer<typeof testingPlanExecutionOptionsSchema>;

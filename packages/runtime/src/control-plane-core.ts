@@ -55,6 +55,7 @@ export function controlPlaneCore(orchestrator: Orchestrator) {
       resume: (id: string) => orchestrator.resume(id),
       events: (id: string) => orchestrator.events(id),
       cancel: async (id: string) => orchestrator.cancel(id),
+      respondCheckpoint: (id: string, checkpointId: string, body: unknown) => orchestrator.respondCheckpoint(id, checkpointId, body),
       artifacts: (id: string) => orchestrator.artifacts(id),
       artifact: (id: string, artifactId: string) => orchestrator.artifact(id, artifactId),
     },
@@ -63,6 +64,16 @@ export function controlPlaneCore(orchestrator: Orchestrator) {
       list: (runId: string, query: unknown) => orchestrator.traces(runId, query),
       detail: (runId: string, traceId: string) => orchestrator.trace(runId, traceId),
       artifact: (runId: string, traceId: string, slot: string) => orchestrator.traceArtifact(runId, traceId, slot),
+    },
+
+    replay: {
+      // Returns once the new run exists, like `runs.start`; progress streams from its own events.
+      start: (sourceRunId: string, body: unknown) => orchestrator.startReplay(sourceRunId, body),
+      report: async (runId: string) => {
+        const report = await orchestrator.replayReport(runId);
+        if (report === null) throw Object.assign(new Error(`REPLAY_CONTRACT_ABSENT:${runId}`), { statusCode: 404 });
+        return report;
+      },
     },
 
     requirements: {

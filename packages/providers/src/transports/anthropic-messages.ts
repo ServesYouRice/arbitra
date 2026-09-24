@@ -1,7 +1,7 @@
 import type { HttpClient, TransportConfiguration } from "../transport-contract.js";
 import { JsonProtocolTransport, assertOutputComplete, array, number, object, response, string, type ProtocolCodec } from "./json-transport.js";
 
-const codec: ProtocolCodec = {
+export const anthropicMessagesCodec: ProtocolCodec = {
   id: "anthropic-messages", path: "messages",
   authHeaders: (key) => ({ "x-api-key": key, "anthropic-version": "2023-06-01" }),
   encode(request) {
@@ -46,5 +46,5 @@ const codec: ProtocolCodec = {
   },
 };
 export class AnthropicMessagesTransport extends JsonProtocolTransport {
-  constructor(config: TransportConfiguration, client?: HttpClient, credential?: (name: string) => string | undefined) { super(config, codec, client, credential); }
+  constructor(config: TransportConfiguration, client?: HttpClient, credential?: (name: string) => string | undefined) { super(config, anthropicMessagesCodec, client, credential); }
 }

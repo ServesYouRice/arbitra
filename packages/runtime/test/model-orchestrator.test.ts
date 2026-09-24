@@ -36,7 +36,7 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
     workflow: { preset: "audit-deep", modelExecution: {
       endpoints: ids.map((id, index) => ({ id, providerId: providers[index], transport: transports[index], endpoint: `https://${id}.example/v1`, apiKeyEnvVar: "FIXTURE_KEY" })),
       modelEndpoints: Object.fromEntries(ids.map((id) => [id, id])), roles: { planner: "auditor-a", verifier: "auditor-b", critic: "auditor-c" },
-      maximumClusteringPairs: manyIssues ? 0 : 20, maximumOutputTokens: 2_000, maximumTokens: manyIssues || options.largeCriticContext === true && options.revision !== undefined ? 20_000_000 : 1_000_000, timeoutMs: 2_000, maximumRetries: 0,
+      maximumClusteringPairs: manyIssues ? 0 : 20, maximumOutputTokens: 2_000, maximumTokens: manyIssues || options.largeCriticContext === true && options.revision !== undefined ? 20_000_000 : 1_000_000, timeoutMs: 30_000, maximumRetries: 0,
       rateLimits: Object.fromEntries(providers.map((id) => [id, { rpm: 1000, tpm: 10_000_000, maxConcurrent: 4 }])),
     } },
   });
@@ -359,7 +359,7 @@ describe("composed model audits", () => {
     const resultDescriptor = artifacts.find(({ kind }) => kind === "critic-result");
     if (resultDescriptor === undefined) throw new Error("CRITIC_RESULT_ABSENT");
     expect(JSON.parse((await resumed.artifact(result.runId, resultDescriptor.artifactId) as { content: string }).content)).toMatchObject({ criticCalls: batches.length, degradedReviewCoverage: false });
-  }, 30_000);
+  });
 
   it("batches oversized peer context without losing candidate or cross-batch pair coverage", async () => {
     const { create, config, requests, failVerification } = await fixture({ largePeerContext: true });
@@ -381,7 +381,7 @@ describe("composed model audits", () => {
       expect(reviewed).toHaveLength(4); expect(new Set(reviewed).size).toBe(4);
       for (const left of reviewed) for (const right of reviewed) if (left !== right) expect(parts.some(({ candidateIds }) => candidateIds.includes(left) && candidateIds.includes(right))).toBe(true);
     }
-  }, 30_000);
+  });
 
   it.each(["retain_original", "proposal-1"] as const)("resolves deferred peer operations with evidence-backed agreement: %s", async (conflictResolution) => {
     const { create, config, requests } = await fixture({ conflictingReview: true, conflictResolution });
