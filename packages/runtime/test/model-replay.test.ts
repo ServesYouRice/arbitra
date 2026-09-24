@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -8,7 +8,7 @@ import { runDigest, testingReplayFixture } from "./replay-fixture.js";
 import { orchestratorCore } from "../src/cli-core.js";
 import { RunStore } from "../src/run-store.js";
 import { TestingWorktree, type TestingWorktreeHandle } from "../src/testing-worktree.js";
-import type { Orchestrator } from "../src/orchestrator.js";
+import { Orchestrator } from "../src/orchestrator.js";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
@@ -268,3 +268,14 @@ async function cleanup(core: Orchestrator, runId: string): Promise<void> {
   const record = JSON.parse((await core.artifact(runId, artifact.artifactId) as { content: string }).content) as { handle?: TestingWorktreeHandle };
   if (record.handle !== undefined) await TestingWorktree.recover(record.handle);
 }
+
+it("refuses a model replay through preflight before creating a run when a credential is missing", async () => {
+  const path = await root("replay-preflight-");
+  const f = await featureFixture(path);
+  const source = await f.orchestrator().run(f.config); expect(source.state).toBe("COMPLETED");
+  const runs = () => readdir(join(path, ".runs", "runs"));
+  const before = await runs();
+  const missing = new Orchestrator({ repository: path, providerOptions: { ...f.providerOptions, credential: () => undefined } });
+  await expect(missing.replay(source.runId, { mode: "feature" })).rejects.toThrow("PROVIDER_CREDENTIAL_MISSING:primary at workflow.modelExecution.endpoints.0.apiKeyEnvVar");
+  expect(await runs()).toEqual(before);
+});

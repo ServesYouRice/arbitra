@@ -10,6 +10,7 @@ import { concreteWritePath } from "@arbitra/security/write-partitions";
 import { auditorIdsFor, graphForPreset } from "./graphs.js";
 import type { TestSandbox } from "./test-sandbox.js";
 import { validateBatchLanes } from "./model-batch-lane.js";
+import { validateAdvisorPolicy } from "./model-advisors.js";
 
 /**
  * Runtime preflight: everything that can be established about a configuration before
@@ -202,6 +203,18 @@ function testingDiagnostics(config: RunConfig, diagnostics: PreflightDiagnostic[
     if (capability === "frontier") effortDiagnostic(config, id, ["high"], "Testing frontier tasks", diagnostics);
     // Other writers receive the planned task's routing effort, which is unknown until planning.
     else effortDiagnostic(config, id, ["low", "medium", "high", "xhigh"], `Testing ${capability} tasks (planned routing effort)`, diagnostics, "warning");
+  }
+  const advisors = settings.execution.advisors;
+  if (advisors !== undefined) {
+    try { validateAdvisorPolicy(config, advisors); }
+    catch (failure) {
+      const message = failure instanceof Error ? failure.message : String(failure);
+      diagnostics.push(error(codeOf(message, "ADVISOR_MODEL_CONFIGURATION_INVALID"), "workflow.testing.execution.advisors", `${message}. Each advisor tier must name a configured profile at or above that tier whose declared limits admit the advisor's maximumOutputTokens and maximumContextTokens.`));
+    }
+    const bindings = config.workflow["modelExecution"] === undefined ? undefined : providerExecutionSchema.safeParse(config.workflow["modelExecution"]);
+    for (const [tier, id] of Object.entries(advisors.models)) {
+      if (id !== undefined && bindings?.success === true && !Object.hasOwn(bindings.data.modelEndpoints, id)) diagnostics.push(error(`ADVISOR_MODEL_ENDPOINT_ABSENT:${id}`, `workflow.testing.execution.advisors.models.${tier}`, `Advisor profile ${id} has no endpoint in workflow.modelExecution.modelEndpoints.`));
+    }
   }
   const { verification } = settings.execution;
   const boundChecks = verification.execution.checks.filter(({ id }) => verification.bindings.some(({ checkId }) => checkId === id));

@@ -283,6 +283,9 @@ export class Orchestrator {
       execution = request.execution.mode === "plan" ? { mode: "plan" } : { mode: "execute", authority: "replay_request", authorizationDigest: createHash("sha256").update(canonicalJson(request.execution.authorization)).digest("hex") };
     }
     const graph = this.#assertRunnable(config);
+    // Regenerated stages dispatch models and may run checks: same environment gate as `start`.
+    const environment = await environmentDiagnostics(config, { ...this.#environmentOptions(), includeWarnings: false });
+    if (environment.some(({ severity }) => severity === "error")) throw new PreflightError(environment);
     const checkpointPolicy = checkpointPolicyOf(config);
     const snapshot = await snapshotRepository(original.repository, 400, { scope: config.scope, ...testingSnapshotOptions(config) });
     const repositoryDigest = snapshotDigest(snapshot);
