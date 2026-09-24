@@ -32,6 +32,23 @@ import { readRequirementsProposal } from "./requirements-revision.js";
 import { GraphCheckpoints, validateGraphCheckpoints, type CheckpointView, type GatePolicyRegistry } from "@arbitra/core/runner/graph-checkpoints.js";
 import { checkpointPolicySchema, checkpointResponseSchema, type CheckpointPolicy } from "@arbitra/schemas/checkpoint-policy.js";
 import { graphCheckpointStore } from "./graph-checkpoint-store.js";
+import { canonicalJson } from "@arbitra/core/config/config-store.js";
+import { replayRequestSchema, type FeatureReplayRequest, type ReplayRequest, type TestingReplayRequest } from "@arbitra/schemas/replay.js";
+import { featureExecutionSchema } from "@arbitra/schemas/feature-execution.js";
+import { ProtocolRegistry } from "@arbitra/protocols/registry.js";
+import { bundledProtocolControlPlane } from "@arbitra/protocols/bundled.js";
+import { hashProtocolBytes } from "@arbitra/protocols/versioning.js";
+import { decideStages, REPLAY_CONTRACT_KIND, ReplaySeed, replayReport, stageIdentities, type ProtocolPin, type ReplayContract, type StageDecision } from "./replay-contracts.js";
+
+/** A replay's new run, with the per-stage reuse decisions for Feature and Testing. */
+export interface ReplayResource {
+  readonly runId: string;
+  readonly sourceRunId: string;
+  readonly mode: "audit" | "feature" | "testing";
+  readonly state: RunState;
+  readonly stages?: readonly StageDecision[];
+  readonly execution?: ReplayContract["execution"];
+}
 
 export interface OrchestratorOptions {
   /** Where runs and saved configurations live. Defaults to `<repository>/.runs`. */
@@ -176,14 +193,91 @@ export class Orchestrator {
     return this.status(runId);
   }
 
-  /** Reuse durable discovery findings, then rerun the downstream workflow under new policy. */
-  async replay(sourceRunId: string, overrides: ReplayOverrides): Promise<{ readonly runId: string; readonly state: RunState }> {
-    if (this.#live.has(sourceRunId) || this.#resuming.has(sourceRunId)) throw new Error(`REPLAY_SOURCE_RUNNING:${sourceRunId}`);
-    await this.status(sourceRunId);
-    const source = new RunStore(this.#runsDirectory, sourceRunId);
-    const original = await source.loadContext();
-    if (original.modelConfiguration?.mode === "feature") throw new Error("FEATURE_AUDIT_REPLAY_NOT_SUPPORTED");
-    if (original.modelConfiguration?.mode === "testing") throw new Error("TESTING_AUDIT_REPLAY_NOT_SUPPORTED");
+  /**
+   * Create a new run from a saved one and wait for it. Each mode has its own replay
+   * contract (see `startReplay`); the source run is only read.
+   */
+  async replay(sourceRunId: string, request: ReplayOverrides | ReplayRequest): Promise<{ readonly runId: string; readonly state: RunState }> {
+    const started = await this.startReplay(sourceRunId, request);
+    const handle = this.#live.get(started.runId);
+    return Object.freeze({ runId: started.runId, state: handle === undefined ? (await this.status(started.runId)).state as RunState : await handle.result });
+  }
+
+  /**
+   * Start a replay and return once the new run exists. Audit reuses round-zero discovery
+   * under new consensus policy. Feature and Testing reuse each saved stage only while its
+   * recorded identity (source, scope, requirements, models, protocols, harness,
+   * authorization and verification) still matches; everything else is regenerated and
+   * charged to the new run. Replay never resumes the source: that is `resume`.
+   */
+  async startReplay(sourceRunId: string, value: unknown): Promise<ReplayResource> {
+    const request = parseReplayRequest(value);
+    if (this.#live.has(sourceRunId) || this.#resuming.has(sourceRunId)) throw Object.assign(new Error(`REPLAY_SOURCE_RUNNING:${sourceRunId}`), { statusCode: 409 });
+    this.#resuming.add(sourceRunId);
+    try {
+      await this.status(sourceRunId);
+      const source = new RunStore(this.#runsDirectory, sourceRunId);
+      const original = await source.loadContext();
+      const sourceMode = original.modelConfiguration?.mode ?? "audit";
+      if (request.mode === "audit") {
+        if (sourceMode === "feature") throw Object.assign(new Error("FEATURE_AUDIT_REPLAY_NOT_SUPPORTED"), { statusCode: 409 });
+        if (sourceMode === "testing") throw Object.assign(new Error("TESTING_AUDIT_REPLAY_NOT_SUPPORTED"), { statusCode: 409 });
+        const { consensusPolicy, maximumRounds, criticEnabled } = request;
+        return await this.#startAuditReplay(sourceRunId, source, original, { consensusPolicy, maximumRounds, criticEnabled });
+      }
+      if (request.mode !== sourceMode) throw Object.assign(new Error(`REPLAY_MODE_MISMATCH:${sourceMode}:${request.mode}`), { statusCode: 409 });
+      return await this.#startModelReplay(sourceRunId, source, original, request);
+    } finally { this.#resuming.delete(sourceRunId); }
+  }
+
+  async #startModelReplay(sourceRunId: string, source: RunStore, original: StoredRunContext, request: FeatureReplayRequest | TestingReplayRequest): Promise<ReplayResource> {
+    const sourceConfig = original.modelConfiguration;
+    if (sourceConfig === undefined) throw new Error("REPLAY_SOURCE_CONFIGURATION_ABSENT");
+    let config = this.configurations.validate(request.configuration ?? sourceConfig);
+    if (config.mode !== request.mode) throw Object.assign(new Error(`REPLAY_CONFIGURATION_MODE_MISMATCH:${config.mode}`), { statusCode: 400 });
+    let execution: ReplayContract["execution"] = { mode: "none" };
+    if (request.mode === "testing") {
+      config = testingReplayConfiguration(config, request.execution);
+      execution = request.execution.mode === "plan" ? { mode: "plan" } : { mode: "execute", authority: "replay_request", authorizationDigest: createHash("sha256").update(canonicalJson(request.execution.authorization)).digest("hex") };
+    }
+    const graph = this.#assertRunnable(config);
+    const checkpointPolicy = checkpointPolicyOf(config);
+    const snapshot = await snapshotRepository(original.repository, 400, { scope: config.scope, ...testingSnapshotOptions(config) });
+    const repositoryDigest = snapshotDigest(snapshot);
+    const mode = request.mode;
+    const targetPins = new Map<string, ProtocolPin>();
+    const target = await stageIdentities(mode, config, { repositoryDigest, scope: config.scope, protocol: async (id) => {
+      const pin = await registryProtocolPin(config.protocols, id); targetPins.set(id, pin); return pin;
+    } });
+    const sourceIdentities = await stageIdentities(mode, sourceConfig, { repositoryDigest: original.repositoryDigest, scope: original.scope,
+      protocol: (id) => storedProtocolPin(source, id), unpinned: async (id) => targetPins.get(id) ?? registryProtocolPin(config.protocols, id) });
+    const stages = decideStages(mode, sourceIdentities, target);
+    const requirements: ReplayContract["requirements"] = request.mode === "feature" && request.requirements?.decision === "reuse_approved"
+      ? { decision: "reuse_approved", artifactId: request.requirements.artifactId } : { decision: "reapprove" };
+    const approved = requirements.decision === "reuse_approved" ? await approvedRequirements(source, sourceConfig, config, snapshot, stages, requirements.artifactId) : undefined;
+
+    const runId = this.#newRunId();
+    if (runId === sourceRunId) throw new Error("REPLAY_MUST_CREATE_NEW_RUN");
+    const store = new RunStore(this.#runsDirectory, runId);
+    await store.saveContext({ repository: original.repository, repositoryDigest, scope: config.scope, replaySourceRunId: sourceRunId, consensusPolicy: config.consensusPolicy,
+      maximumRounds: config.maxConsensusRounds, criticEnabled: graph.nodes.some(({ id }) => id === "critic"), modelConfiguration: config, ...(checkpointPolicy === undefined ? {} : { checkpointPolicy }) });
+    // Pin the exact protocol bytes the decisions were made against into the new run.
+    const protocols = new ModelProtocols(store, config.protocols);
+    for (const [id, pin] of targetPins) {
+      const pinned = await protocols.resolve(id);
+      if (pinned.protocolVersion !== pin.protocolVersion || pinned.protocolHash !== pin.protocolHash) throw new Error(`REPLAY_PROTOCOL_PIN_CHANGED:${id}`);
+    }
+    const contract: ReplayContract = Object.freeze({ schemaVersion: 1, sourceRunId, mode, sourceRepositoryDigest: original.repositoryDigest, repositoryDigest, stages, execution, requirements });
+    await store.publish(REPLAY_CONTRACT_KIND, contract);
+    if (approved !== undefined) await approved.copyTo(store);
+    const seed = new ReplaySeed(source, store, contract);
+    const context: AuditContext = Object.freeze({ snapshot, store, auditors: [], auditorKind: "model_auditors", policy: Object.freeze({ name: config.consensusPolicy, quorum: 2, minimumIndependentGroupsForHighRisk: 2 }), maximumRounds: config.maxConsensusRounds, criticEnabled: false });
+    const handle = this.#runner(store, context, undefined, config, checkpointPolicy, seed).start(graph, { runId });
+    this.#track(runId, handle);
+    return Object.freeze({ runId, sourceRunId, mode, state: handle.state, stages, execution });
+  }
+
+  async #startAuditReplay(sourceRunId: string, source: RunStore, original: StoredRunContext, overrides: ReplayOverrides): Promise<ReplayResource> {
     const snapshot = await snapshotRepository(original.repository, 400, { scope: original.scope });
     if (snapshotDigest(snapshot) !== original.repositoryDigest) throw new Error(`RUN_REPOSITORY_CHANGED:${sourceRunId}`);
     const definition = await source.definitions().load(sourceRunId);
@@ -206,7 +300,12 @@ export class Orchestrator {
     const context: AuditContext = Object.freeze({ snapshot, store, auditors, auditorKind: original.modelConfiguration === undefined ? "scripted_auditors" : "model_auditors", policy: Object.freeze({ name: overrides.consensusPolicy, quorum: 2, minimumIndependentGroupsForHighRisk: 2 }), maximumRounds: overrides.maximumRounds, criticEnabled: overrides.criticEnabled });
     const handle = this.#runner(store, context, findings, original.modelConfiguration, original.checkpointPolicy).start(replayGraph, { ...definition.config, runId });
     this.#track(runId, handle);
-    return Object.freeze({ runId, state: await handle.result });
+    return Object.freeze({ runId, sourceRunId, mode: "audit" as const, state: handle.state });
+  }
+
+  /** The inspectable reuse/regeneration provenance of a Feature or Testing replay run. */
+  async replayReport(runId: string) {
+    return replayReport(new RunStore(this.#runsDirectory, runId));
   }
 
   async diff(runA: string, runB: string) {
@@ -245,8 +344,12 @@ export class Orchestrator {
       maximumRounds: storedContext.maximumRounds, criticEnabled: storedContext.criticEnabled,
     });
     const sourceStore = storedContext.replaySourceRunId === undefined ? undefined : new RunStore(this.#runsDirectory, storedContext.replaySourceRunId);
-    const reused = sourceStore === undefined ? undefined : Object.fromEntries(await Promise.all(context.auditors.map(async ({ auditorId }) => [auditorId, await readStage<readonly AuditFinding[]>(sourceStore, `findings-${auditorId}`)] as const)));
-    const handle = this.#runner(store, context, reused, storedContext.modelConfiguration, storedContext.checkpointPolicy).resume(runId);
+    const modelReplay = sourceStore !== undefined && (storedContext.modelConfiguration?.mode === "feature" || storedContext.modelConfiguration?.mode === "testing");
+    const reused = sourceStore === undefined || modelReplay ? undefined : Object.fromEntries(await Promise.all(context.auditors.map(async ({ auditorId }) => [auditorId, await readStage<readonly AuditFinding[]>(sourceStore, `findings-${auditorId}`)] as const)));
+    // Resuming a replay run continues that run under the contract it was created with; it
+    // never re-decides reuse from the current configuration.
+    const seed = modelReplay && sourceStore !== undefined ? new ReplaySeed(sourceStore, store, await readStage<ReplayContract>(store, REPLAY_CONTRACT_KIND)) : undefined;
+    const handle = this.#runner(store, context, reused, storedContext.modelConfiguration, storedContext.checkpointPolicy, seed).resume(runId);
     this.#track(runId, handle);
     return Object.freeze({ runId, state: handle.state, resumable: true, checkpoints: Object.freeze([]), preservedArtifacts: (await store.listArtifacts()).length });
   }
@@ -436,11 +539,11 @@ export class Orchestrator {
     if ((await store.loadContext()).modelConfiguration?.mode === "testing") {
       const outcome = descriptors.some(({ kind }) => kind === "testing-outcome") ? await readStage<TestingOutcome>(store, "testing-outcome") : null;
       const execution = descriptors.some(({ kind }) => kind === "testing-execution-outcome") ? await readStage<TestingPlanExecutionOutcome>(store, "testing-execution-outcome") : null;
-      return { runId, mode: "testing", outcome, execution, artifacts: descriptors.length };
+      return { runId, mode: "testing", outcome, execution, artifacts: descriptors.length, ...await replaySummary(store) };
     }
     if ((await store.loadContext()).modelConfiguration?.mode === "feature") {
       const outcome = descriptors.some(({ kind }) => kind === "feature-outcome") ? await readStage<FeatureOutcome>(store, "feature-outcome") : null;
-      return { runId, mode: "feature", outcome, requirements: await this.requirements(runId), artifacts: descriptors.length };
+      return { runId, mode: "feature", outcome, requirements: await this.requirements(runId), artifacts: descriptors.length, ...await replaySummary(store) };
     }
     const issues = descriptors.find(({ kind }) => kind === "canonical-issues");
     if (issues === undefined) return Object.freeze({ runId, issues: null, artifacts: descriptors.length });
@@ -526,22 +629,28 @@ export class Orchestrator {
     return reasons;
   }
 
-  #runner(store: RunStore, context: AuditContext, reusedFindings: Readonly<Record<string, readonly AuditFinding[]>> | undefined, modelConfiguration: RunConfig | undefined, checkpointPolicy: CheckpointPolicy | undefined): WorkflowRunner {
+  #runner(store: RunStore, context: AuditContext, reusedFindings: Readonly<Record<string, readonly AuditFinding[]>> | undefined, modelConfiguration: RunConfig | undefined, checkpointPolicy: CheckpointPolicy | undefined, replay?: ReplaySeed): WorkflowRunner {
     // Every mode gets the same generic gate/human executors; none has an implicit pass.
     const checkpoints = this.#checkpoints(store, checkpointPolicy).executors();
     if (modelConfiguration?.mode === "testing") {
-      const testing = new TestingPipeline(store, this.configurations.validate(modelConfiguration), context.snapshot, this.#providerOptions, this.#testSandbox);
+      // A planning replay holds no sandbox at all, so it cannot dispatch checks.
+      const planReplay = replay !== undefined && replay.contract.execution.mode !== "execute";
+      const testing = new TestingPipeline(store, this.configurations.validate(modelConfiguration), context.snapshot, this.#providerOptions, planReplay ? undefined : this.#testSandbox, replay);
       return new WorkflowRunner({ journal: store.journalPort(), artifacts: store.artifacts, definitions: store.definitions(), loadRecords: () => store.loadRecords(), executors: {
         deterministic: async ({ node }) => {
           if (node.id === "render") return testing.render();
           const result = { mode: "testing", fileCount: context.snapshot.files.length, readOnly: true, testsExecuted: false };
           await store.publish("preflight", result, "preflight"); return result;
-        }, subgraph: ({ node, signal }) => node.id === "execute" ? testing.execute(signal) : testing.run(signal),
+        }, subgraph: ({ node, signal }) => {
+          if (node.id !== "execute") return testing.run(signal);
+          if (planReplay) throw new Error("REPLAY_PLAN_CANNOT_EXECUTE");
+          return testing.execute(signal);
+        },
         ...checkpoints,
       } });
     }
     if (modelConfiguration?.mode === "feature") {
-      const feature = new FeaturePipeline(store, this.configurations.validate(modelConfiguration), context.snapshot, this.#providerOptions);
+      const feature = new FeaturePipeline(store, this.configurations.validate(modelConfiguration), context.snapshot, this.#providerOptions, replay);
       return new WorkflowRunner({ journal: store.journalPort(), artifacts: store.artifacts, definitions: store.definitions(), loadRecords: () => store.loadRecords(), executors: {
         deterministic: async ({ node }) => {
           if (node.id === "render") return feature.render();
@@ -668,4 +777,110 @@ function auditorsFor(graph: RunnerGraph, config?: RunConfig) {
     return { auditorId, independenceGroup: profile.independenceGroup, ruleIds: [] };
   });
   return DEFAULT_AUDITORS.filter(({ auditorId }) => ids.includes(auditorId));
+}
+
+async function replaySummary(store: RunStore): Promise<{ readonly replay?: unknown }> {
+  const report = await replayReport(store);
+  return report === null ? {} : { replay: report };
+}
+
+/** Legacy Audit overrides carry no `mode`; every other request names its replay contract. */
+function parseReplayRequest(value: unknown): ReplayRequest {
+  const candidate = typeof value === "object" && value !== null && !Array.isArray(value) && !Object.hasOwn(value, "mode") ? { mode: "audit", ...value } : value;
+  const parsed = replayRequestSchema.safeParse(candidate);
+  if (!parsed.success) throw Object.assign(new Error(`INVALID_REPLAY_REQUEST:${parsed.error.issues.map(({ path, message }) => `${path.join(".") || "$"}: ${message}`).join("; ")}`), { statusCode: 400 });
+  return parsed.data;
+}
+
+/**
+ * Testing replay chooses execution explicitly. A planning replay drops execution settings,
+ * so its graph has no execute node. An execution replay takes its write authority only from
+ * the replay request, never from the source run or a supplied configuration.
+ */
+function testingReplayConfiguration(config: RunConfig, execution: TestingReplayRequest["execution"]): RunConfig {
+  const settings = testingExecutionSchema.parse(config.workflow["testing"]);
+  const preset = presetOf(config);
+  if (execution.mode === "plan") {
+    const { goal, roles, commands } = settings;
+    return runConfigSchema.parse({ ...config, workflow: { ...config.workflow, testing: { mode: "plan", goal, roles, commands }, ...(preset === undefined ? {} : { preset: "testing-plan" }) } });
+  }
+  if (settings.mode !== "execute") throw Object.assign(new Error("REPLAY_EXECUTION_CONFIGURATION_REQUIRED"), { statusCode: 400 });
+  return runConfigSchema.parse({ ...config, workflow: { ...config.workflow, testing: { ...settings, execution: { ...settings.execution, authorization: execution.authorization } }, ...(preset === undefined ? {} : { preset: "testing-execute" }) } });
+}
+
+/** The protocol a new run would pin, resolved without writing anything. */
+async function registryProtocolPin(selections: Readonly<Record<string, unknown>>, id: string): Promise<ProtocolPin> {
+  const selected = Object.hasOwn(selections, id) ? selections[id] : "1.0.0";
+  if (typeof selected !== "string") throw new Error(`INVALID_PROTOCOL_SELECTION:${id}`);
+  const protocol = await new ProtocolRegistry(bundledProtocolControlPlane()).resolve(id, selected);
+  return { protocolVersion: protocol.protocolVersion, protocolHash: protocol.protocolHash };
+}
+
+/** The protocol a source run pinned, or null when it has no intact pinned copy. */
+async function storedProtocolPin(store: RunStore, id: string): Promise<ProtocolPin | null> {
+  const descriptor = (await store.listArtifacts()).find(({ kind }) => kind === `model-protocol-${id}`);
+  if (descriptor === undefined) return null;
+  try {
+    const stored = await store.artifacts.get<{ protocolId?: unknown; protocolVersion?: unknown; protocolHash?: unknown; content?: unknown }>(descriptor.ref);
+    if (stored.protocolId !== id || typeof stored.protocolVersion !== "string" || typeof stored.protocolHash !== "string" || typeof stored.content !== "string"
+      || hashProtocolBytes(new TextEncoder().encode(stored.content)) !== stored.protocolHash) return null;
+    return { protocolVersion: stored.protocolVersion, protocolHash: stored.protocolHash };
+  } catch { return null; }
+}
+
+/**
+ * Validate an explicit request to reuse the source run's approved requirements contract.
+ * It must name the source's current contract, be fully approved, and be compatible with
+ * the new run; otherwise the replay fails rather than silently re-deriving requirements.
+ */
+async function approvedRequirements(source: RunStore, sourceConfig: RunConfig, config: RunConfig, snapshot: RepositorySnapshot, stages: readonly StageDecision[], artifactId: string) {
+  const conflict = (message: string) => Object.assign(new Error(message), { statusCode: 409 });
+  const decision = stages.find(({ stage }) => stage === "requirements");
+  if (decision?.decision !== "reuse") throw conflict(`REPLAY_REQUIREMENTS_CONTRACT_INCOMPATIBLE:${decision?.reasons.join(",") ?? "stage_absent"}`);
+  const pin = await storedProtocolPin(source, "feature-requirements");
+  if (pin === null) throw conflict("REPLAY_REQUIREMENTS_ARTIFACT_MISSING:protocol");
+  const sourceSettings = featureExecutionSchema.parse(sourceConfig.workflow["feature"]);
+  const settings = featureExecutionSchema.parse(config.workflow["feature"]);
+  const readOnly = { async generate(): Promise<never> { throw new Error("REQUIREMENTS_READ_CANNOT_GENERATE"); } };
+  let current;
+  try { current = await new RequirementsCheckpoint(source, { mode: sourceSettings.mode, protocolVersion: pin.protocolVersion, protocolHash: pin.protocolHash, runtime: readOnly }).current(); }
+  catch { throw conflict("REPLAY_REQUIREMENTS_ARTIFACT_MISSING:contract"); }
+  if (current === null) throw conflict("REPLAY_REQUIREMENTS_CONTRACT_ABSENT");
+  if (current.artifactId !== artifactId) throw conflict("REPLAY_REQUIREMENTS_CONTRACT_STALE");
+  if (current.pendingAmbiguityIds.length > 0) throw conflict("REPLAY_REQUIREMENTS_NOT_APPROVED");
+  // The same input identity the checkpoint itself enforces when it is opened.
+  const repositorySummary = { fileCount: snapshot.files.length, snapshotDigest: snapshotDigest(snapshot), modelProfileId: settings.roles.requirements };
+  const inputFingerprint = createHash("sha256").update(canonicalJson({ featureRequest: settings.request, repositorySummary, mode: settings.mode })).digest("hex");
+  if (inputFingerprint !== current.inputFingerprint) throw conflict("REPLAY_REQUIREMENTS_CONTRACT_INCOMPATIBLE:input_changed");
+  const artifacts = await source.listArtifacts();
+  const read = async (kind: string): Promise<unknown> => {
+    const descriptor = artifacts.find((item) => item.kind === kind);
+    if (descriptor === undefined) throw conflict(`REPLAY_REQUIREMENTS_ARTIFACT_MISSING:${kind}`);
+    try { return await source.artifacts.get<unknown>(descriptor.ref); }
+    catch { throw conflict(`REPLAY_REQUIREMENTS_ARTIFACT_MISSING:${kind}`); }
+  };
+  const copies: { kind: string; value: unknown }[] = [];
+  let next: string | null = current.artifactId;
+  for (let depth = 0; next !== null; depth += 1) {
+    const id: string = next;
+    const version = artifacts.find((item) => item.artifactId === id);
+    if (depth > 64 || version === undefined || !version.kind.startsWith("requirements-contract-version-")) throw conflict("REPLAY_REQUIREMENTS_LINEAGE_INVALID");
+    const lineageKind = version.kind.replace("requirements-contract-version-", "requirements-contract-lineage-");
+    const lineage = await read(lineageKind) as { artifactId?: unknown; parentArtifactId?: unknown };
+    if (lineage.artifactId !== id || (lineage.parentArtifactId !== null && typeof lineage.parentArtifactId !== "string")) throw conflict("REPLAY_REQUIREMENTS_LINEAGE_INVALID");
+    copies.unshift({ kind: version.kind, value: await read(version.kind) }, { kind: lineageKind, value: lineage });
+    next = lineage.parentArtifactId as string | null;
+  }
+  const ledger = artifacts.some(({ kind }) => kind === "feature-requirements-revisions") ? await read("feature-requirements-revisions") : undefined;
+  const approvedArtifactId = current.artifactId;
+  return {
+    async copyTo(store: RunStore): Promise<void> {
+      for (const { kind, value } of copies) await store.publish(kind, value, "requirements");
+      if (ledger !== undefined) await store.publish("feature-requirements-revisions", ledger, "feature");
+      await store.publish("requirements-checkpoint-head", { artifactId: approvedArtifactId, inputFingerprint, protocolVersion: pin.protocolVersion, protocolHash: pin.protocolHash }, "requirements");
+      const head = await new RequirementsCheckpoint(store, { mode: settings.mode, protocolVersion: pin.protocolVersion, protocolHash: pin.protocolHash, runtime: readOnly }).current();
+      if (head?.artifactId !== approvedArtifactId || head.pendingAmbiguityIds.length > 0) throw new Error("REPLAY_REQUIREMENTS_COPY_MISMATCH");
+      await store.publish("replay-requirements", { sourceRunId: source.runId, artifactId: approvedArtifactId, copiedArtifactKinds: copies.map(({ kind }) => kind) }, "requirements");
+    },
+  };
 }

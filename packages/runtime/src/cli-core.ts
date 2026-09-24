@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { RunConfig } from "@arbitra/schemas/config.js";
 import type { ReplayOverrides } from "@arbitra/core/replay/index.js";
+import type { ReplayRequest } from "@arbitra/schemas/replay.js";
 import type { Orchestrator } from "./orchestrator.js";
 
 export interface CoreCommandResult {
@@ -114,6 +115,13 @@ export function orchestratorCore(orchestrator: Orchestrator) {
 
     async replay(runId: string, overrides: ReplayOverrides): Promise<CoreCommandResult> {
       const replayed = await orchestrator.replay(runId, overrides);
+      return completed(replayed.runId, replayed.state);
+    },
+
+    /** A mode-specific replay request read from a JSON file; the same request the HTTP route accepts. */
+    async replayRequest(runId: string, requestPath: string): Promise<CoreCommandResult> {
+      const request: unknown = JSON.parse(await readFile(resolve(requestPath), "utf8"));
+      const replayed = await orchestrator.replay(runId, request as ReplayRequest);
       return completed(replayed.runId, replayed.state);
     },
 

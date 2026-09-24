@@ -4,6 +4,7 @@ import { traceQuerySchema } from "./trace-browser.js";
 import { requirementsApprovalSchema } from "./feature-execution.js";
 import { requirementsDraftSchema } from "./requirements.js";
 import { CHECKPOINT_ID_PATTERN, checkpointResponseSchema } from "./checkpoint-policy.js";
+import { replayRequestSchema } from "./replay.js";
 
 const idParams = { type: "object", additionalProperties: false, required: ["id"], properties: { id: { type: "string", minLength: 1, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9._-]*$" } } } as const;
 const artifactParams = { type: "object", additionalProperties: false, required: ["id", "artifactId"], properties: { ...idParams.properties, artifactId: { type: "string", minLength: 1, maxLength: 256 } } } as const;
@@ -22,6 +23,8 @@ const traceHttpQuerySchema = traceQuerySchema.omit({ offset: true, limit: true }
 });
 
 export const HTTP_ROUTE_SCHEMAS = Object.freeze({
+  "POST /runs/:id/replay": { params: idParams, body: z.toJSONSchema(replayRequestSchema, { target: "draft-7", unrepresentable: "any" }), response: jsonResponse },
+  "GET /runs/:id/replay": { params: idParams, response: jsonResponse },
   "GET /runs/:id/requirements": { params: idParams, response: jsonResponse },
   "POST /runs/:id/requirements/apply-revision": { params: idParams, body: z.toJSONSchema(z.strictObject({ artifactId: z.string().min(1) }), { target: "draft-7" }), response: jsonResponse },
   "POST /runs/:id/requirements/approve": { params: idParams, body: z.toJSONSchema(requirementsApprovalSchema, { target: "draft-7" }), response: jsonResponse },

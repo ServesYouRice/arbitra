@@ -192,7 +192,8 @@ The [completion plan](completion-plan.md) records dependencies and acceptance cr
   across Audit, Feature and Testing.
 - Durable Feature requirements checkpoints and generic gate/human checkpoints work through
   CLI/HTTP. Generic checkpoints apply to registered graphs; the shipped presets do not
-  contain those nodes. Dedicated web controls and Feature/Testing replay remain incomplete.
+  contain those nodes. Dedicated web controls remain incomplete. Feature/Testing replay has
+  mode-specific contracts through CLI/HTTP ([workflows](workflows.md#feature-and-testing-replay)).
 - The trace browser is implemented; browser acceptance QA and a persistent large-log
   query index remain outstanding. Longitudinal evaluation corpora are currently in-memory.
 - The September 24 review found test-discovery and macOS reliability defects; see
@@ -208,7 +209,7 @@ now differs; all unfinished work is included in the completion plan.
 | Autonomous Testing execution | Implemented through opt-in `testing-execute`: planning, authority preflight, parallel writers, serial checks, final verification, bounded repair and durable handoff. Real-sandbox repair QA, richer web views and live-provider/Docker QA remain; plan items P04/P07/P10/P11 |
 | Native harness adapters | `packages/harness/src/adapter.ts` defines the port; `canonical/adapter.ts` is the only implementation. `harness.mode: "native"` is accepted by the schema and has no adapter behind it |
 | Advisor runtime | `taskRouting.advisor` and `advisorMaxUses` exist in `packages/schemas/src/task-ir.ts`; `advisorTokens` is recorded in `packages/persistence/src/trace.ts`. Nothing consumes them |
-| Feature workflow extensions | Public requirements/review/planning/revision is implemented; web checkpoints, expanded subgraphs, oversized contexts and Feature-specific replay remain; P08/P10/P11 |
+| Feature workflow extensions | Public requirements/review/planning/revision is implemented; web checkpoints, expanded subgraphs and oversized contexts remain; mode-specific replay is implemented without live-provider evidence; P08/P10/P11 |
 | Incremental / repeat audit execution | Snapshot identity, hotspots and inspection footprints are already recorded by preflight and `packages/tools/src/footprint` |
 | Provider batch API path | Opt-in batch lane and OpenAI/Anthropic/Gemini drivers in `packages/providers/src/batch/`, tested against injected HTTP only; every driver is declared-unverified and live validation remains (P15). See [`provider-model.md`](provider-model.md#batch-lane) |
 | Drag-and-drop workflow canvas editor | `apps/web/src/columns/graph` renders from workflow JSON and is read-only by construction |
