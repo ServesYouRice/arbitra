@@ -13,6 +13,10 @@ body { margin: 0; background: var(--ground); color: var(--body); font-family: va
 .state { border-inline-start: var(--stripe) solid var(--state-token, var(--faint)); padding-inline-start: var(--s2); font-family: var(--font-data); font-size: var(--t-micro); }
 .state[data-state="verified"] { --state-token: var(--verified); } .state[data-state="dissent"] { --state-token: var(--brass); } .state[data-state="refuted"] { --state-token: var(--refuted); } .state[data-state="tainted"] { --state-token: var(--tainted); }
 button, input, select, textarea { border: var(--hairline) solid var(--line); border-radius: var(--radius); box-shadow: none; background: var(--surface); color: var(--ink); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); padding: var(--s2); }
+/* Keyboard focus is always visible: one hairline in ink, offset so it never hides a state stripe. */
+:focus-visible { outline: var(--hairline) solid var(--ink); outline-offset: var(--s1); }
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+button:disabled { color: var(--mute); cursor: not-allowed; }
 @media (max-width: 1180px) { .shell { grid-template-columns: 280px minmax(420px, 1fr) 360px; } .shell__column--inspector { position: fixed; inset: 0 0 0 auto; width: 320px; z-index: 2; border-inline-start: var(--hairline) solid var(--line); } }
 @media (max-width: 900px) { .shell { grid-template-columns: minmax(0, 1fr); } .shell__column--models, .shell__column--contract { display: none; } .shell[data-tab="models"] .shell__column--models, .shell[data-tab="contract"] .shell__column--contract { display: block; } }
 
