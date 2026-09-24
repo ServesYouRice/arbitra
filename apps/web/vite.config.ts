@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
@@ -13,6 +14,7 @@ export default defineConfig({
   // chunk above the 500 kB default is elkjs, a single 1.4 MB vendor module that cannot be
   // split further and is already loaded on demand behind the graph view, so the limit is
   // raised past it rather than left to warn on every build.
+  test: { setupFiles: ["./test/setup.ts"] },
   build: { outDir: "dist", sourcemap: true, chunkSizeWarningLimit: 1500 },
   // The UI addresses the control plane with root-relative paths, so the dev server
   // forwards exactly the control-plane and evaluation route prefixes to it and serves

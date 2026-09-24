@@ -12,7 +12,9 @@ export default defineConfig({
     { find: /^@arbitra\/([^/]+)\/(.+)$/u, replacement: `${packages}$1/src/$2.ts` },
   ] },
   test: {
-    passWithNoTests: true,
+    // Every workspace package has required suites. A run that discovers none (a broken
+    // glob, a moved directory) must fail rather than report success.
+    passWithNoTests: false,
     // `pnpm build` emits compiled copies of every suite into dist/. Running those
     // alongside the sources double-runs each test against stale assertions, so a build
     // followed by a test run reports failures that do not exist in the source tree.

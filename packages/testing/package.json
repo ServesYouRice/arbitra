@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "handoff:real": "pnpm --filter @arbitra/schemas build && pnpm --filter @arbitra/core build && pnpm --filter @arbitra/providers build && pnpm --filter @arbitra/workflow build && node --experimental-strip-types scripts/run-real-handoff.ts",
-    "test": "vitest run --exclude fixtures/** --passWithNoTests",
+    "test": "vitest run --exclude 'fixtures/**'",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   }
 }
