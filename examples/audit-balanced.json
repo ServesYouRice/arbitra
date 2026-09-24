@@ -164,25 +164,13 @@
   "workflow": {
     "preset": "audit-balanced"
   },
-  "budgets": {
-    "maximumCostUsd": 10,
-    "maximumModelCalls": 40
-  },
-  "security": {
-    "excludeGlobs": [
-      ".runs/**",
-      "node_modules/**"
-    ],
-    "overlapBudget": 4
-  },
+  "budgets": {},
+  "security": {},
   "protocols": {
     "audit": "1.0.0",
     "peer-review": "1.0.0",
     "planner": "1.0.0"
   },
   "promptOverrides": {},
-  "contextPolicies": {
-    "discovery": "independent",
-    "peerReview": "peer_findings_only"
-  }
+  "contextPolicies": {}
 }

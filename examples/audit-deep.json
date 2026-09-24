@@ -264,17 +264,8 @@
   "workflow": {
     "preset": "audit-deep"
   },
-  "budgets": {
-    "maximumCostUsd": 60,
-    "maximumModelCalls": 200
-  },
-  "security": {
-    "excludeGlobs": [
-      ".runs/**",
-      "node_modules/**"
-    ],
-    "overlapBudget": 8
-  },
+  "budgets": {},
+  "security": {},
   "protocols": {
     "audit": "1.0.0",
     "peer-review": "1.0.0",
@@ -283,8 +274,5 @@
     "plan-critic": "1.0.0"
   },
   "promptOverrides": {},
-  "contextPolicies": {
-    "discovery": "independent",
-    "peerReview": "peer_findings_only"
-  }
+  "contextPolicies": {}
 }

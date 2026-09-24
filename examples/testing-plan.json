@@ -123,25 +123,13 @@
       "commands": []
     }
   },
-  "budgets": {
-    "maximumCostUsd": 6,
-    "maximumModelCalls": 20
-  },
-  "security": {
-    "excludeGlobs": [
-      ".runs/**",
-      "node_modules/**"
-    ],
-    "overlapBudget": 2
-  },
+  "budgets": {},
+  "security": {},
   "protocols": {
     "testing-risk": "1.0.0",
     "testing-audit": "1.0.0",
     "planner": "1.0.0"
   },
   "promptOverrides": {},
-  "contextPolicies": {
-    "inventory": "repository_summary",
-    "planning": "prioritised_gaps_only"
-  }
+  "contextPolicies": {}
 }

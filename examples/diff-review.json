@@ -117,25 +117,13 @@
   "workflow": {
     "preset": "diff-review"
   },
-  "budgets": {
-    "maximumCostUsd": 8,
-    "maximumModelCalls": 30
-  },
-  "security": {
-    "excludeGlobs": [
-      ".runs/**",
-      "node_modules/**"
-    ],
-    "overlapBudget": 4
-  },
+  "budgets": {},
+  "security": {},
   "protocols": {
     "audit": "1.0.0",
     "peer-review": "1.0.0",
     "verification": "1.0.0"
   },
   "promptOverrides": {},
-  "contextPolicies": {
-    "discovery": "independent",
-    "peerReview": "peer_findings_only"
-  }
+  "contextPolicies": {}
 }
