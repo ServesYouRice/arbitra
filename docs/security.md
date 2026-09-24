@@ -100,10 +100,18 @@ Audit workflows opt in through `verification.execution`. The coordinator in
 `packages/runtime/src/verification-execution.ts` commits a reservation and resource
 identity before dispatch, enforces `maximumRuns` across candidates and resumes, and
 publishes redacted results for the verification ladder and model. Completed results
-are reused; interrupted reservations consume budget and are not retried. Testing
-workflows remain unavailable. The snapshot includes source files only,
-without repository manifests or installed dependencies. Check dependencies must already
-exist in the pinned image. An exit code is a process result, not proof of a finding.
+are reused; interrupted reservations consume budget and are not retried. Audit snapshots
+include source files only, without repository manifests or installed dependencies.
+Check dependencies must already exist in the pinned image. An exit code is a process
+result, not proof of a finding.
+
+Testing planning records command candidates without execution. Opt-in Testing execution
+uses the same sandbox with a fresh snapshot of its isolated worktree, including scoped
+test metadata. Trusted task/path grants and command/check bindings are validated before
+dispatch. The model receives lease-mediated file tools, not shell access; changed scripts
+invalidate their previous authorization. Final verification checks the whole workspace
+before exact verified changes are exported. Planning success alone cannot pass an execution
+gate. See [Testing mode](workflows.md#testing-mode) for the execution configuration.
 
 Normal completion, cancellation and timeout independently force-remove the container
 and its anonymous volumes before removing the staged files. Cleanup failure stops the
@@ -113,7 +121,8 @@ saved unfinished containers before dispatching another check. Recovery uses a fr
 Docker configuration and validates the saved temporary directory before deletion.
 Failed recovery stops verification. Tests cover the process boundary with an injected
 Docker CLI and real bounded Node subprocesses; live Docker validation requires a
-running Linux engine.
+running Linux engine and remains an outstanding acceptance task in the
+[completion plan](completion-plan.md#p04--validate-the-actual-docker-boundary).
 
 `packages/security/src/command-policy.ts` classifies every command a plan proposes
 (`classifyCommand`, `classifyPlannedCommand`) into `derived_repository_script`,

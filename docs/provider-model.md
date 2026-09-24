@@ -70,7 +70,9 @@ Effort parameters are transport-specific: Responses uses `{ "effort": "high" }`,
 Chat Completions uses `{ "reasoning_effort": "high" }` (or the `effort` alias),
 Anthropic uses native thinking fields, and Gemini uses native `thinkingConfig` fields.
 Only supply fields supported by the selected model. Mock contract tests do not establish
-live model capabilities; the composed CLI/server still uses scripted auditors only.
+live model capabilities. Configured CLI/server workflows invoke these transports through
+the canonical harness; Audit with no configured models uses scripted auditors.
+Live conformance remains an explicit [completion task](completion-plan.md#p03--build-and-run-live-provider-acceptance).
 
 ## Effort
 
@@ -246,9 +248,10 @@ engine support and unsuccessful checks remain visible as coverage gaps.
   calls under a `RateLimitPolicy` and records scheduler metrics.
 - `packages/providers/src/cache-handle.ts` tracks prompt-cache handles so cache hit rate is
   measured per node rather than estimated.
-- `packages/providers/src/continuation/store.ts` persists continuation state
-  (`ContinuationStateStore`, `continuationTrace`) so a long generation can resume without
-  re-paying for what was already produced.
+- `packages/providers/src/continuation/store.ts` provides optional persistence for
+  provider continuation handles. Composed model activities currently disable that store
+  and send explicit durable context on each call. Completed recorded turns are reused;
+  an interrupted provider request has no guarantee of avoiding additional billed work.
 
 ## Refusals are not errors
 
@@ -272,6 +275,12 @@ grouping key, throwing `IncomparableIdentityError`. See [`evaluation.md`](evalua
   lane. v1.1.
 - **Advisor runtime.** `advisor` and `advisorMaxUses` exist in Task IR and `advisorTokens`
   is recorded on traces, but nothing consumes them. v1.1.
+
+Both are included in the [completion plan](completion-plan.md), along with live-provider
+conformance. The current environment-gated conformance test reads external report
+booleans; it neither issues live requests nor verifies the report's provenance.
+
+## Large planning and critic contexts
 
 Large critic inputs are partitioned into complete task, canonical issue, and validation
 records. Every batch retains the global dependency, routing, traceability, and scope

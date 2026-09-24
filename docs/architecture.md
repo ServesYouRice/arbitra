@@ -1,8 +1,9 @@
 # Architecture
 
-This describes the system as built. The normative specification is
-[`MASTER-BUILD-PROMPT.md`](MASTER-BUILD-PROMPT.md); where this document and the code
-disagree, the code is the defect or this document is, and the review should say which.
+This describes the system as built. [Project status](project-status.md) records dated
+verification evidence; the [completion plan](completion-plan.md) tracks unfinished
+implementation and validation. The original build specification is a locally retained
+working input and is not required to read this public documentation set.
 
 ## Layering
 
@@ -20,8 +21,11 @@ Re-entering that subgraph after a checkpoint edit reuses only stages for the cur
 contract. A deterministic renderer publishes the implementation tree as a run artifact.
 Testing runs compose deterministic inventory, grounded frontier risk analysis, complete
 gap selection and a traceable test plan through the same runner and shared model budget.
-Repository-derived commands are recorded without execution. Resume checks include test
-metadata; incomplete analysis withholds the handoff. Native harnesses produce an explicit
+Planning records repository-derived commands without executing them. Opt-in Testing
+execution adds operator-authorized write partitions, isolated worktrees, bounded parallel
+model writers, sandbox checks, final verification and durable change export. It leaves
+the source checkout unchanged. Resume checks include test metadata; incomplete analysis
+or execution evidence withholds the relevant handoff. Native harnesses produce an explicit
 `RUNTIME_NATIVE_HARNESS_NOT_AVAILABLE` error; unknown presets produce `UNKNOWN_WORKFLOW_PRESET`.
 Schema validation and saving a configuration do not imply that its execution mode is
 available. This boundary is distinct from the planned v1.1 extensions.
@@ -110,6 +114,7 @@ See [`durability.md`](durability.md).
 
 ```text
 validate  estimate  run  audit  status  resume  replay  diff  trace  export  report
+requirements  approve-requirements  revise-requirements  apply-requirements-revision
 ```
 
 `apps/cli/src/exit-policy.ts` is the sole mapping from outcome to process exit code:
@@ -171,21 +176,32 @@ every view.
 
 ## Known gaps
 
-Recorded rather than hidden, per §32.1:
+The [completion plan](completion-plan.md) records dependencies and acceptance criteria:
 
-- **The premise is unmeasured on real models.** See [`evaluation.md`](evaluation.md).
+- **Live-provider/Docker acceptance and real-model premise evaluation remain outstanding.**
+  Injected-provider tests do not establish model quality. See [`evaluation.md`](evaluation.md).
+- Final Testing verification can invalidate earlier work and block the run; automatic
+  repair of that work is not implemented.
+- Individually oversized records and mandatory global contexts can still fail explicitly
+  across Audit, Feature and Testing.
+- Durable Feature requirements checkpoints work through CLI/HTTP. Generic graph
+  checkpoints/gates, dedicated web controls and Feature/Testing replay remain incomplete.
+- The trace browser is implemented; browser acceptance QA and a persistent large-log
+  query index remain outstanding. Longitudinal evaluation corpora are currently in-memory.
+- The September 24 review found test-discovery and macOS reliability defects; see
+  [verification evidence](project-status.md#verification-evidence).
 
 ## v1.1 extension points
 
-None of the following is implemented. Each names where it would attach, so the deferred
-work is legible without re-deriving it.
+These areas were originally grouped as v1.1 extensions. Their implementation status
+now differs; all unfinished work is included in the completion plan.
 
 | Deferred feature | Extension point |
 |---|---|
-| Autonomous Testing execution (worktree, write scope, shell, egress sandbox) | Opt-in `testing-execute` composes planning, authority preflight, bounded parallel writer batches, serial checks, final verification and durable change handoff. Every batch settles before checks or lease release; interrupted sibling work replays. Planning alone cannot pass its execution gate. Exact verified bytes survive cleanup; source checkout remains unchanged. Repair after final invalidation, richer web views and live-provider/Docker QA remain open |
+| Autonomous Testing execution | Implemented through opt-in `testing-execute`: planning, authority preflight, parallel writers, serial checks, final verification and durable handoff. Repair, richer web views and live-provider/Docker QA remain; plan items P04/P07/P10/P11 |
 | Native harness adapters | `packages/harness/src/adapter.ts` defines the port; `canonical/adapter.ts` is the only implementation. `harness.mode: "native"` is accepted by the schema and has no adapter behind it |
 | Advisor runtime | `taskRouting.advisor` and `advisorMaxUses` exist in `packages/schemas/src/task-ir.ts`; `advisorTokens` is recorded in `packages/persistence/src/trace.ts`. Nothing consumes them |
-| Feature workflow extensions | Bounded independent requirements review and model revision are composed; dedicated web checkpoints, expanded subgraph views and oversized contexts remain open |
+| Feature workflow extensions | Public requirements/review/planning/revision is implemented; web checkpoints, expanded subgraphs, oversized contexts and Feature-specific replay remain; P08/P10/P11 |
 | Incremental / repeat audit execution | Snapshot identity, hotspots and inspection footprints are already recorded by preflight and `packages/tools/src/footprint` |
 | Provider batch API path | `modelProfileSchema.supports.batch` is recorded; `packages/providers/src/scheduler.ts` has no batch lane |
 | Drag-and-drop workflow canvas editor | `apps/web/src/columns/graph` renders from workflow JSON and is read-only by construction |

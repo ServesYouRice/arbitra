@@ -120,8 +120,11 @@ writeAccess          false
 peerAccess           false
 ```
 
-Native mode is permitted in principle for Testing execution and whole-ecosystem
-benchmarking — both also v1.1.
+Guarded Testing execution already works through the canonical Testing harness.
+Native Testing adapters and separate harness comparisons remain future work; no native
+mode can bypass write authority or be silently mixed into canonical independence
+measurements. Adapter implementation and live conformance are tracked in
+[P12](completion-plan.md#p12--implement-native-harness-adapters).
 
 Nesting orchestrators is a non-goal either way: the intended shape is
 `arbitra → vendor CLI harness → model`, never `arbitra → another orchestration graph →

@@ -267,19 +267,26 @@ Each writer batch settles before serial verification begins. Interrupted batches
 completed tool work and release leases only after every dispatched writer stops.
 Automatic repair after final verification invalidates an earlier task,
 native harness execution and live-provider/Docker acceptance QA remain open.
+The [completion plan](completion-plan.md) also tracks oversized contexts, web controls,
+mode-specific replay and the remaining extensions.
 
 ## Presets
 
-Six configurations in [`../examples`](../examples), one per shipped preset:
+Seven presets are executable through the shared runtime's
+[`PRESET_GRAPHS`](../packages/runtime/src/graphs.ts). Six schema-example configurations
+live in [`../examples`](../examples); `testing-execute` is configured as described above.
 
-| Preset | Mode | Scope | Consensus | Shape |
-|---|---|---|---|---|
-| `audit-balanced` | audit | repository | `risk_weighted`, 2 rounds | two auditors and a planner |
-| `audit-deep` | audit | repository | `full`, 3 rounds | three frontier auditors, verification, planner, critic |
-| `diff-fast` | audit | diff | `minimal`, 0 rounds | one fast auditor, deterministic verification only |
-| `diff-review` | audit | diff | `risk_weighted`, 2 rounds | two auditors and verification |
-| `feature-simple` | feature | module | `minimal`, 1 round | requirements and planner |
-| `testing-plan` | testing | repository | `minimal`, 1 round | gap analyst and planner, plan-only |
+| Preset | Mode | Runtime shape |
+|---|---|---|
+| `audit-balanced` | audit | Two auditors, bounded consensus, verification and planner |
+| `audit-deep` | audit | Three auditors, bounded consensus, verification, planner and critic |
+| `diff-fast` | audit | One auditor, deterministic verification and planner; no peer review |
+| `diff-review` | audit | Two auditors, bounded review, verification and planner |
+| `feature-simple` | feature | Requirements, exploration, risk-directed review, planning/revision and handoff |
+| `testing-plan` | testing | Inventory, grounded risk/gap selection, planner and handoff; no execution |
+| `testing-execute` | testing | Planning, guarded writer/check/finalization stages and verified change handoff |
 
-`pnpm run validate:examples` parses all six with `runConfigSchema` and runs negative
-controls proving a stale example fails.
+`pnpm run validate:examples` parses all six examples with `runConfigSchema` and runs
+negative controls proving a stale example fails. These are schema examples, not complete
+live-provider configurations. Other preset assets in packages/workflow are not automatically
+available through CLI/server; unknown public preset IDs fail explicitly.
