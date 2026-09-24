@@ -54,14 +54,19 @@ export async function loadActivityTraces(runsDirectory: string, runId: string): 
   try { text = await readFile(join(traceDirectory(runsDirectory, runId), "model-activity.jsonl"), "utf8"); }
   catch (error) { if (hasCode(error, "ENOENT")) return []; throw error; }
   const lines = text.slice(0, text.lastIndexOf("\n") + 1).split("\n").filter(Boolean);
-  return Object.freeze(lines.map((line, index) => {
-    let value: unknown;
-    try { value = JSON.parse(line) as unknown; } catch (error) { throw new SyntaxError(`Invalid model trace JSON at line ${index + 1}`, { cause: error }); }
-    validateTrace(value);
-    if (value.runId !== runId) throw new Error("TRACE_RUN_ID_MISMATCH");
-    return Object.freeze(value);
-  }));
+  return Object.freeze(lines.map((line, index) => parseTraceLine(line, runId, index)));
 }
+
+/** Parses one committed, non-empty log line; `position` is its stable zero-based trace ID. */
+export function parseTraceLine(line: string, runId: string, position: number): ModelActivityTraceRecord {
+  let value: unknown;
+  try { value = JSON.parse(line) as unknown; } catch (error) { throw new SyntaxError(`Invalid model trace JSON at line ${position + 1}`, { cause: error }); }
+  validateTrace(value);
+  if (value.runId !== runId) throw new Error("TRACE_RUN_ID_MISMATCH");
+  return Object.freeze(value);
+}
+
+export const TRACE_LOG_FILE = "model-activity.jsonl";
 
 export function traceDirectory(runsDirectory: string, runId: string): string {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/u.test(runId)) throw new Error("INVALID_TRACE_RUN_ID");

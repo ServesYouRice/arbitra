@@ -174,8 +174,11 @@ Issue Board (`views/issue-board/`), the Plan view with its bidirectional traceab
 requested/resolved effort, measured usage, outcome, refusal/error details and redacted
 input/output artifacts. It refreshes on run events or explicit request, keeps unknown
 measurements distinct from zero, and treats artifact content as untrusted text.
-Trace list responses are paginated, but the current server reads the run's full trace
-log per query; a persistent query index for very large histories remains an optimization.
+Trace list and detail responses are served from a persistent per-run index
+(`packages/persistence/src/trace-index.ts`) that catches up incrementally from the
+committed trace log and re-reads only the served records from it, so a page no longer
+scans the whole log; the log stays authoritative and the index is rebuilt when stale or
+corrupt. See [durability](durability.md#traces-and-the-rebuildable-index).
 The Model Pool, contract
 column and inspector stay in place across the switch, so run controls remain reachable from
 every view.
@@ -194,8 +197,9 @@ The [completion plan](completion-plan.md) records dependencies and acceptance cr
 - Durable Feature requirements checkpoints and generic gate/human checkpoints work through
   CLI/HTTP. Generic checkpoints apply to registered graphs; the shipped presets do not
   contain those nodes. Dedicated web controls and Feature/Testing replay remain incomplete.
-- The trace browser is implemented; browser acceptance QA and a persistent large-log
-  query index remain outstanding. Longitudinal evaluation corpora are currently in-memory.
+- The trace browser and its persistent large-history query index are implemented;
+  browser acceptance QA remains outstanding. Evaluation corpora are durable, but no
+  live evaluation driver feeds them yet.
 - The September 24 review found test-discovery and macOS reliability defects; see
   [verification evidence](project-status.md#verification-evidence).
 
