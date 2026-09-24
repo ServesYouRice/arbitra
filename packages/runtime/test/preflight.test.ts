@@ -205,3 +205,20 @@ describe("public runtime preflight", () => {
     expect(scripted).toMatchObject({ valid: true, ready: true, modelBacked: false, diagnostics: [] });
   });
 });
+
+describe("advisor preflight", () => {
+  it("reports advisor tiers that name under-tier or unbound profiles", async () => {
+    const config = mutable(await template("testing-execute"));
+    const execute = config.workflow["testing"] as { execution: Record<string, unknown> };
+    const policy = { maximumUsesPerTask: 1, maximumContextTokens: 4000, maximumOutputTokens: 500, maximumTokensPerTask: 8000 };
+    execute.execution["advisors"] = { ...policy, models: { frontier: "writer" } };
+    expect(configurationDiagnostics(config as unknown as RunConfig)).toContainEqual(expect.objectContaining({ code: "ADVISOR_MODEL_CONFIGURATION_INVALID", path: "workflow.testing.execution.advisors" }));
+    const analyst = config.models["analyst"]; if (analyst === undefined) throw new Error("TEMPLATE_PROFILE_ABSENT");
+    config.models["advisor"] = { ...analyst };
+    execute.execution["advisors"] = { ...policy, models: { frontier: "advisor" } };
+    expect(configurationDiagnostics(config as unknown as RunConfig)).toContainEqual(expect.objectContaining({ code: "ADVISOR_MODEL_ENDPOINT_ABSENT:advisor", path: "workflow.testing.execution.advisors.models.frontier" }));
+    delete config.models["advisor"];
+    execute.execution["advisors"] = { ...policy, models: { frontier: "analyst" } };
+    expect(codes(configurationDiagnostics(runConfigSchema.parse(config)))).toEqual([]);
+  });
+});
