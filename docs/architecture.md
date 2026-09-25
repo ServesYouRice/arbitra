@@ -186,9 +186,10 @@ a credential.
 ### Web
 
 `apps/web` renders the four-column shell from `docs/DESIGN-LANGUAGE.md`: Model Pool,
-read-only workflow graph, prompt/context/contract, and inspector with run controls. The
-graph is a live run view built with ELK layout and React Flow, and it is read-only — there
-is no canvas editor in v1.
+workflow graph, prompt/context/contract, and inspector with run controls. The graph is a
+live run view built with ELK layout and React Flow. An edit mode (`GraphEditor.tsx`) edits
+operator-authored graphs and saves immutable versions that the server validates; see
+[Operator-authored graphs](workflows.md#operator-authored-graphs).
 
 Column two is the only fluid column, so it carries the run-level views behind a tab strip
 (`WORKSPACE_VIEWS` in `apps/web/src/shell/ArbitraWorkspace.tsx`): the workflow graph, the
@@ -247,7 +248,7 @@ The [completion plan](completion-plan.md) records dependencies and acceptance cr
 - The trace browser and its persistent large-history query index are implemented, and the
   trace browser is covered by browser acceptance (see [`qa/p10/`](qa/p10/README.md)).
   Evaluation corpora are durable, but no live evaluation driver feeds them yet.
-- The September 24 review found test-discovery and macOS reliability defects; see
+- Browser acceptance and CI have run on macOS only so far; see
   [verification evidence](project-status.md#verification-evidence).
 
 ## v1.1 extension points
@@ -257,13 +258,13 @@ now differs; all unfinished work is included in the completion plan.
 
 | Deferred feature | Extension point |
 |---|---|
-| Autonomous Testing execution | Implemented through opt-in `testing-execute`: planning, authority preflight, parallel writers, serial checks, final verification, bounded repair and durable handoff. Real-sandbox repair QA, richer web views and live-provider/Docker QA remain; plan items P04/P07/P10/P11 |
+| Autonomous Testing execution | Implemented through opt-in `testing-execute`: planning, authority preflight, parallel writers, serial checks, final verification, bounded repair and durable handoff. The web Testing view covers authority, attempts, checks and repair. Real-sandbox repair and live-provider/Docker QA remain; plan items P04/P07 |
 | Native harness adapters | Claude Code headless adapter (`packages/harness/src/native/`) for the Testing writer only, status `declared_unverified`: tested against a scripted stand-in process; conformance against the actual CLI remains (P12). See [harness.md](harness.md#native-harness-adapters) |
 | Advisor runtime | Implemented for Testing writers in `packages/runtime/src/model-advisors.ts`: operator-capped, durably journaled advisor uses with no tools, traced under the advisor identity. Tested with injected transports only; live-provider exercise remains (P13). See [`task-ir.md`](task-ir.md#advisors) |
-| Feature workflow extensions | Public requirements/review/planning/revision is implemented; web checkpoints, expanded subgraphs and oversized requirements/exploration contexts remain; mode-specific replay is implemented without live-provider evidence; P08/P10/P11 |
+| Feature workflow extensions | Requirements/review/planning/revision, web contract view, expanded subgraphs and mode-specific replay are implemented without live-provider evidence; oversized requirements generation and exploration still fail explicitly (P08) |
 | Incremental / repeat audit execution | Opt-in incremental Audit in `packages/runtime/src/incremental-audit.ts`. It reuses byte-identical discovery units and identity-matched downstream stages from a completed base, with fallback, provenance and saved-work/coverage reporting. Tested with injected fake providers only; live-provider exercise remains. See [Incremental Audit](workflows.md#incremental-audit) |
 | Provider batch API path | Opt-in batch lane and OpenAI/Anthropic/Gemini drivers in `packages/providers/src/batch/`, tested against injected HTTP only; every driver is declared-unverified and live validation remains (P15). See [`provider-model.md`](provider-model.md#batch-lane) |
-| Drag-and-drop workflow canvas editor | `apps/web/src/columns/graph` renders from workflow JSON and is read-only by construction |
+| Drag-and-drop workflow canvas editor | Implemented: `apps/web/src/columns/graph/GraphEditor.tsx` edits operator-authored graphs; versions are content-addressed and validated server-side, and runs execute and resume the saved version. Audit mode only (P16) |
 | Local embedding clustering | `packages/workflow/src/clustering/deterministic.ts` is the deterministic path; §25.4 metrics would have to justify replacing it |
 
 Data for these is recorded now, per §2.4: inspection and exposure footprints, immutable

@@ -1,6 +1,7 @@
 # Completion plan
 
-Updated September 24, 2026. Baseline: 77149ef. Status of every P01–P19 item: pending.
+Updated September 25, 2026 against commit 64f887e (branch `beta`). Original baseline: 77149ef.
+See [status](#status-september-25-2026) for each item.
 
 This plan covers every unfinished implementation, validation and usability step identified
 in the project review and the previous execution queue. The
@@ -53,6 +54,35 @@ previously deferred extensions and evaluation; P19 closes the whole queue.
 | P18 | Local embedding clustering evaluation and adoption decision | P05, P06 |
 | P19 | Final defect review and completion evidence | P01–P18 |
 
+## Status, September 25, 2026
+
+Measured on macOS 26 (arm64), Node 22.23.2, pnpm 10.24.0, commit 64f887e: `pnpm run ci`
+and `pnpm build` exit 0 (runtime 441 passed / 2 skipped, providers 79 / 7 skipped, harness
+28, web 81, CLI 54, server 37, all other suites passing). No provider credentials, Docker
+engine or native harness binary were available, so every live check below is outstanding.
+
+| ID | Status | Evidence here | Outstanding before the checkbox |
+|---|---|---|---|
+| P01 | Implemented | Zero-discovery now fails; testing suites run (5 files, 22 tests at the fix); measured runtime/web limits; macOS CI green | Linux CI run of the same commit |
+| P02 | **Complete** | Six model-backed templates over all four protocols; `docs/setup.md`; preflight diagnostics; credential-free smoke run of every template | — |
+| P03 | Pending | — | Credentials and bounded spend for every protocol |
+| P04 | Pending | Sandbox preflight checks `docker info`/image inspection | A local Linux Docker engine and pinned image |
+| P05 | **Complete** | Durable corpus journal/artifacts; restart, idempotent import, torn tails, conflicts, denominators, incomparable aggregation, redacted reconstruction | — (no driver feeds it until P06) |
+| P06 | Pending | — | P03 plus a prespecified live evaluation |
+| P07 | Implemented | Bounded durable repair; 10 regression tests with the injected sandbox | Critical cases repeated with the real sandbox (P04) |
+| P08 | Implemented | Nine size failures replaced by staged composition; output-limit detection on all transports; inventory in `docs/harness.md` | Global planner outline, Feature requirements/exploration and Testing risk analysis still fail explicitly; live context limits (P03) |
+| P09 | **Complete** | Generic gate/human checkpoints, persisted versioned decisions, CLI/HTTP/graph agreement, restart and double-response tests | — |
+| P10 | Implemented | Feature/Testing views; 14 Playwright scenarios passing on Chromium, Firefox and WebKit (42 runs) ([`qa/p10`](qa/p10/README.md)) | Browser runs on a non-macOS platform |
+| P11 | Implemented | Mode-specific replay contracts; CLI/HTTP parity; source immutability | Changed protocol/scope exercised end to end (currently contract-level) |
+| P12 | Implemented | Claude Code adapter for the Testing writer, `declared_unverified`; stand-in process tests; opt-in conformance test | Conformance against a real `claude` binary (assumptions A1–A8 in `translation.ts`) |
+| P13 | Implemented | Durable, capped advisors for Testing writers; injected-transport tests | One live-provider path (P03) |
+| P14 | **Complete** | Opt-in incremental Audit; identical rerun 0 calls; full vs incremental fixture 25 → 21 calls with identical issues | — (live measurement belongs to P03/P06) |
+| P15 | Implemented | Opt-in batch lane; OpenAI/Anthropic/Gemini drivers against injected HTTP, all `declared_unverified` | Live validation of each driver; operator CLI/HTTP for uncertain submissions |
+| P16 | **Complete** | Versioned saved graphs, server validation, runtime dispatch/resume of the saved version, editor with undo/redo and dirty guard; 3 editor scenarios × 3 browsers plus the P10 suite, 51/51 runs ([`qa/p16`](qa/p16/README.md)) | — (Audit mode only; documented) |
+| P17 | **Complete** | Persistent per-run trace index; differential tests; 100k-trace benchmark (warm p95 2–19 ms vs ≈1 s full scan) | — |
+| P18 | Pending | — | P06 data; no adoption without it |
+| P19 | Pending | Cross-cutting fixes found during this work (artifact-store publish race, silently ignored `budgets`) | Final review after live acceptance |
+
 ## P01 — Repair test discovery and platform reliability
 
 - [ ] Complete P01.
@@ -70,7 +100,7 @@ and build pass; a missing-suite negative control fails. Record the resulting tes
 
 ## P02 — Make model and workflow setup reproducible
 
-- [ ] Complete P02.
+- [x] Complete P02.
 
 **Implementation.** Provide validated, runnable configuration templates for model Audit,
 interactive/automatic Feature, Testing plan and Testing execute. Cover all four existing
@@ -125,7 +155,7 @@ Actual container runs and injected process-port tests are reported separately.
 
 ## P05 — Persist evaluation data and its provenance
 
-- [ ] Complete P05.
+- [x] Complete P05.
 
 **Implementation.** Implement durable stores behind [the corpus interfaces](../packages/core/src/eval/corpora.ts)
 for real-world outcomes and independence observations. Persist versioned ground truth,
@@ -190,7 +220,7 @@ explicit failures; retaining the current size error alone does not complete this
 
 ## P09 — Unify gates and generic durable checkpoints
 
-- [ ] Complete P09.
+- [x] Complete P09.
 
 **Implementation.** Preserve working Feature requirements checkpoints while connecting
 generic human/gate nodes to persisted decisions and the authoritative run policy.
@@ -267,7 +297,7 @@ Exercise one supported live-provider path.
 
 ## P14 — Implement incremental and repeat audits
 
-- [ ] Complete P14.
+- [x] Complete P14.
 
 **Implementation.** Use snapshot identities, Git changes, dependency/inspection footprints,
 hotspots and persisted outcomes to select reusable work and affected surfaces. Bind reuse
@@ -295,7 +325,7 @@ unknown spend and unsupported endpoints. Validate each declared batch driver liv
 
 ## P16 — Implement workflow canvas editing and execution
 
-- [ ] Complete P16.
+- [x] Complete P16.
 
 **Implementation.** Add editing, validation, save/versioning and execution for operator-authored
 graphs. The current runtime dispatches registered presets; extend validated runtime
@@ -309,7 +339,7 @@ Model-generated dynamic workflows remain outside the product scope.
 
 ## P17 — Index large trace histories
 
-- [ ] Complete P17.
+- [x] Complete P17.
 
 **Implementation.** Replace full-log reads on each trace query with a persistent,
 rebuildable index while keeping the committed trace journal authoritative. Preserve
