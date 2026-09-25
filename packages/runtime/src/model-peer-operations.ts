@@ -78,7 +78,7 @@ export function translatePeerOperations(value: unknown, view: View, snapshot: Re
   }) });
   const seen = new Set<string>();
   const operations: IssueOperation[] = parsed.operations.map((operation): IssueOperation => {
-    if (operation.authorId !== "self" || operation.round !== round || "verification" in operation || operation.type === "add_candidate") throw new Error("INVALID_MODEL_OPERATION_AUTHORITY");
+    if (operation.authorId !== "self" || operation.round !== round || "verification" in operation || operation.type === "add_candidate") throw new Error(`INVALID_MODEL_OPERATION_AUTHORITY: every operation must use authorId "self" and round ${round}, must not carry a verification record and must not add candidates`);
     const operationId = local(operation.operationId);
     if (seen.has(operationId)) throw new Error("DUPLICATE_PEER_OPERATION");
     seen.add(operationId);

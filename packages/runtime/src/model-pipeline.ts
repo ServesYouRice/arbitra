@@ -55,6 +55,22 @@ import { VerificationExecutor } from "./verification-execution.js";
 import type { TestSandbox } from "./test-sandbox.js";
 import { DiscoveryUnits, type IncrementalSeed, type SnapshotIdentity } from "./incremental-audit.js";
 
+/**
+ * The schema peers answer against. Board votes may carry a `verification` record, but only the
+ * verifier writes one; a peer that sets it is refused as authority spoofing. Real models fill
+ * every advertised optional field (observed live), so the peer-facing schema omits it.
+ */
+export const PEER_OPERATIONS_OUTPUT_SCHEMA = withoutProperty(peerOperationsResultSchema.toJSONSchema(), "verification");
+function withoutProperty(schema: unknown, name: string): unknown {
+  if (Array.isArray(schema)) return schema.map((item) => withoutProperty(item, name));
+  if (schema === null || typeof schema !== "object") return schema;
+  return Object.fromEntries(Object.entries(schema).flatMap(([key, value]): [string, unknown][] => {
+    if (key === "properties" && value !== null && typeof value === "object") return [[key, withoutProperty(Object.fromEntries(Object.entries(value).filter(([property]) => property !== name)), name)]];
+    if (key === "required" && Array.isArray(value)) return [[key, value.filter((property) => property !== name)]];
+    return [[key, withoutProperty(value, name)]];
+  }));
+}
+
 /** Every model Audit records its discovery units; an incremental one also consults its base. */
 export interface AuditUnitOptions { readonly identity: SnapshotIdentity; readonly seed?: IncrementalSeed }
 
@@ -138,7 +154,7 @@ export class ModelAuditPipeline {
             if (part.kind === "merge_check" && (parsed.operations.length > 1 || parsed.operations.some(({ type }) => type !== "merge") || parsed.findings.length > 0 || parsed.locations.length > 0)) throw new Error("INVALID_PEER_PAIR_OPERATIONS");
             translatePeerOperations(parsed, scopedView, context.snapshot, auditorId, round, scopeId);
             return parsed;
-          } }, jsonSchema: peerOperationsResultSchema.toJSONSchema(),
+          } }, jsonSchema: PEER_OPERATIONS_OUTPUT_SCHEMA,
           };
           return { input, scopedView, scopeId };
         };

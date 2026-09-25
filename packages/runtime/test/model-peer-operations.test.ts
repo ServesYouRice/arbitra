@@ -89,3 +89,11 @@ describe("model board operations", () => {
     expect(merged?.evidence.map(({ text }) => text).sort()).toEqual(["different source", "return null;"]);
   });
 });
+
+describe("peer-facing output schema", () => {
+  it("does not advertise the verifier-only verification record", async () => {
+    const { PEER_OPERATIONS_OUTPUT_SCHEMA } = await import("../src/model-pipeline.js");
+    expect(JSON.stringify(PEER_OPERATIONS_OUTPUT_SCHEMA)).not.toContain('"verification"');
+    expect(JSON.stringify(PEER_OPERATIONS_OUTPUT_SCHEMA)).toContain('"needs_verification"');
+  });
+});

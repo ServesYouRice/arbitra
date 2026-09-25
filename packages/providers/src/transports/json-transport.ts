@@ -110,11 +110,10 @@ function assertHttpSuccess(value: HttpResponse): void {
   // Observed live: OpenAI answers exhausted credit with 429 insufficient_quota and Anthropic
   // with 400 "credit balance is too low". Neither is a rate limit or a malformed request,
   // and retrying only repeats the refusal.
-  const quota = googleQuotaWindow(value.body);
   // Google reports per-minute throttles and exhausted daily or zero allowances with the same
   // 429 RESOURCE_EXHAUSTED "exceeded your current quota" text; only its QuotaFailure details
   // tell them apart (observed live on a free-tier key). A windowed throttle is a rate limit.
-  if (quota === "exhausted" || quota === null && (value.status === 429 || value.status === 400 || value.status === 402) && detail !== null && /insufficient_quota|credit_balance|credit balance|billing|payment required/iu.test(detail)) throw new TransportError("QUOTA", `Provider account has no usable credit or quota${suffix}`, false);
+  if (isQuotaRefusal(value.status, value.body)) throw new TransportError("QUOTA", `Provider account has no usable credit or quota${suffix}`, false);
   if (value.status === 429) {
     const header = Object.entries(value.headers).find(([name]) => name.toLowerCase() === "retry-after")?.[1];
     throw new TransportError("RATE_LIMIT", `Provider rate limit${suffix}`, true, retryAfterMilliseconds(header) ?? googleRetryDelay(value.body));
@@ -122,6 +121,19 @@ function assertHttpSuccess(value: HttpResponse): void {
   if (value.status === 408 || value.status === 504) throw new TransportError("TIMEOUT", "Provider request timed out", true);
   if (value.status === 401 || value.status === 403) throw new TransportError("AUTH", `Provider rejected credentials${suffix}`, false);
   throw new TransportError("HTTP", `Provider HTTP ${value.status}${suffix}`, value.status >= 500);
+}
+
+/**
+ * Exhausted credit or allowance, shared by the interactive transports and batch drivers:
+ * OpenAI 429 insufficient_quota / 400 billing_hard_limit_reached, Anthropic 400 credit
+ * balance, and Google QuotaFailure details naming a daily, monthly or zero allowance.
+ * Not the bare word "billing": Google puts it in ordinary per-minute 429s.
+ */
+export function isQuotaRefusal(status: number, body: unknown): boolean {
+  const quota = googleQuotaWindow(body);
+  if (quota !== null) return quota === "exhausted";
+  const detail = providerErrorDetail(body);
+  return [400, 402, 429].includes(status) && detail !== null && /insufficient_quota|billing_hard_limit|credit_balance|credit balance|payment required/iu.test(detail);
 }
 
 function googleDetails(body: unknown): readonly Record<string, unknown>[] {
