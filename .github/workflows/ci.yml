@@ -2,9 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, beta]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -16,8 +17,13 @@ concurrency:
 
 jobs:
   ci:
-    name: typecheck · lint · test · examples · design
-    runs-on: ubuntu-latest
+    name: typecheck · lint · test · examples · design (${{ matrix.os }})
+    # P01 requires the same commit to pass on Linux and macOS.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
 
     steps:
