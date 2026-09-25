@@ -7,7 +7,7 @@ The maintained execution queue is the [completion plan](docs/completion-plan.md)
 - **Complete:** P01, P02, P04, P05, P07, P09–P11, P13, P14, P16 and P17.
 - **Implemented, evidence still outstanding:** P08, P12 and P15.
 - **Partially accepted live:** P03.
-- **In progress:** P06.
+- **Interim result (insufficient evidence; resumable plan in [docs/qa/p06](docs/qa/p06/README.md)):** P06.
 - **Decided provisionally (reject), to be rerun on P06 data:** P18.
 - **Pending:** P19.
 
