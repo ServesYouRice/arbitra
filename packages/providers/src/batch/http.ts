@@ -1,4 +1,5 @@
 import { FetchHttpClient, type HttpClient, type HttpResponse, type TransportConfiguration, type TransportResponse, type TransportUsage } from "../transport-contract.js";
+import { providerErrorDetail } from "../transports/json-transport.js";
 import { BatchRequestError } from "./contract.js";
 
 export interface BatchHttpOptions {
@@ -69,15 +70,25 @@ export class BatchHttp {
       throw new BatchRequestError(signal.aborted ? "CANCELLED" : "NETWORK", message, billable ? "unknown" : "no", true);
     }
     if (response.status >= 200 && response.status < 300) return response.body;
-    if (response.status === 429) throw new BatchRequestError("RATE_LIMIT", "Provider rate limit", "no", true);
-    if (response.status === 401 || response.status === 403) throw new BatchRequestError("AUTH", "Provider rejected credentials", "no", false);
-    if (response.status === 404) throw new BatchRequestError("NOT_FOUND", `Provider HTTP 404 for ${call.method ?? "POST"} ${call.path}`, "no", false);
-    if (response.status === 408 || response.status === 504 || response.status >= 500) {
-      throw new BatchRequestError("HTTP", `Provider HTTP ${response.status}`, billable ? "unknown" : "no", true);
+    // The provider's own error class (bounded, redacted), so a schema rejection is distinguishable from an outage.
+    const detail = providerErrorDetail(response.body);
+    const suffix = detail === null ? "" : `: ${detail}`;
+    // Same classification as the interactive transports: an unfunded account is refused, not rate limited.
+    if ([400, 402, 429].includes(response.status) && detail !== null && QUOTA_REFUSAL.test(detail)) {
+      throw new BatchRequestError("QUOTA", `Provider account has no usable credit or quota${suffix}`, "no", false);
     }
-    throw new BatchRequestError("INVALID_REQUEST", `Provider HTTP ${response.status}`, "no", false);
+    if (response.status === 429) throw new BatchRequestError("RATE_LIMIT", `Provider rate limit${suffix}`, "no", true);
+    if (response.status === 401 || response.status === 403) throw new BatchRequestError("AUTH", `Provider rejected credentials${suffix}`, "no", false);
+    if (response.status === 404) throw new BatchRequestError("NOT_FOUND", `Provider HTTP 404 for ${call.method ?? "POST"} ${call.path}${suffix}`, "no", false);
+    if (response.status === 408 || response.status === 504 || response.status >= 500) {
+      throw new BatchRequestError("HTTP", `Provider HTTP ${response.status}${suffix}`, billable ? "unknown" : "no", true);
+    }
+    throw new BatchRequestError("INVALID_REQUEST", `Provider HTTP ${response.status}${suffix}`, "no", false);
   }
 }
+
+/** Exhausted credit or quota, as OpenAI (429 insufficient_quota) and Anthropic (400 credit balance) report it. */
+const QUOTA_REFUSAL = /insufficient_quota|credit_balance|credit balance|billing|payment required/iu;
 
 export function record(value: unknown, label: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) throw new BatchRequestError("MALFORMED_RESPONSE", `${label} must be an object`, "no", false);

@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { delimiter, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { BATCH_DRIVER_DECLARATIONS } from "../../src/batch/drivers.js";
 
@@ -9,7 +9,7 @@ import { BATCH_DRIVER_DECLARATIONS } from "../../src/batch/drivers.js";
  * batch runner) and requires, per capability, at least one `passed` live observation that
  * names its endpoint, protocol and model and carries measured usage or a provider request ID.
  *
- *   ARBITRA_REAL_PROVIDER_CONFORMANCE=1 ARBITRA_LIVE_EVIDENCE=.runs/live/transport-conformance.json
+ *   ARBITRA_REAL_PROVIDER_CONFORMANCE=1 ARBITRA_LIVE_EVIDENCE=.runs/live/transport-conformance.json:.runs/live/batch-conformance.json
  */
 const enabled = process.env["ARBITRA_REAL_PROVIDER_CONFORMANCE"] === "1";
 
@@ -17,11 +17,12 @@ interface Observation {
   readonly endpointId: string; readonly transport: string; readonly modelId: string; readonly case: string; readonly status: string; readonly source: string;
   readonly providerRequestIds: readonly string[]; readonly usage: readonly { inputTokens: number | null }[];
 }
+/** ARBITRA_LIVE_EVIDENCE may list several files (path-delimiter separated), e.g. transport and batch evidence. */
 async function evidence(): Promise<readonly Observation[]> {
-  const path = process.env["ARBITRA_LIVE_EVIDENCE"];
-  expect(path, "Set ARBITRA_LIVE_EVIDENCE to the evidence file written by the live conformance runner").toBeTruthy();
-  const report = JSON.parse(await readFile(resolve(path ?? ""), "utf8")) as { observations?: Observation[] };
-  return report.observations ?? [];
+  const paths = (process.env["ARBITRA_LIVE_EVIDENCE"] ?? "").split(delimiter).filter((path) => path !== "");
+  expect(paths.length, "Set ARBITRA_LIVE_EVIDENCE to the evidence file(s) written by the live conformance runners").toBeGreaterThan(0);
+  const reports = await Promise.all(paths.map(async (path) => JSON.parse(await readFile(resolve(path), "utf8")) as { observations?: Observation[] }));
+  return reports.flatMap((report) => report.observations ?? []);
 }
 const provenanced = (observation: Observation) => observation.source === "live" && observation.endpointId !== "" && observation.transport !== "" && observation.modelId !== ""
   && (observation.providerRequestIds.length > 0 || observation.usage.some(({ inputTokens }) => (inputTokens ?? 0) > 0));
