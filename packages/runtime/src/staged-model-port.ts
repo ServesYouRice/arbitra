@@ -15,6 +15,7 @@ export interface HarnessStagePortOptions {
   readonly protocol: PinnedProtocol;
   readonly modelProfileId: string;
   readonly signal: AbortSignal;
+  readonly effort?: "low" | "medium" | "high";
   readonly maximumInputTokens: number;
   /** Durable identity prefix for staged activities, e.g. `feature/planner/<fingerprint>`. */
   readonly stagePrefix: string;
@@ -33,7 +34,7 @@ export function harnessStagePort(options: HarnessStagePortOptions): PlannerCompo
   const isFull = (stage: PlannerStage) => stage.activityId === options.full.stageActivityId;
   const activityId = (stage: PlannerStage) => isFull(stage) ? options.full.activityId : `${options.stagePrefix}/${stage.activityId}`;
   const request = (stage: PlannerStage, payload: unknown): ModelActivityRequest<unknown> => ({
-    activityId: activityId(stage), modelProfileId: options.modelProfileId, signal: options.signal, effort: "high",
+    activityId: activityId(stage), modelProfileId: options.modelProfileId, signal: options.signal, effort: options.effort ?? "high",
     protocol: `${protocol.protocolId}@${protocol.protocolVersion}`, protocolAsset: protocol,
     protocolIdentity: { protocolId: protocol.protocolId, protocolVersion: protocol.protocolVersion, protocolHash: protocol.protocolHash },
     schema: isFull(stage) ? options.full.schema : stage.schema, outputSchema: isFull(stage) ? options.full.outputSchema : stage.jsonSchema, messages: [

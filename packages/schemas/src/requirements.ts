@@ -23,6 +23,17 @@ function uniqueIdentifiers(value: { assumptions: { id: string }[]; ambiguities: 
 
 export const requirementsDraftSchema = z.strictObject(draftShape).superRefine(uniqueIdentifiers);
 
+/** Staged drafting when one draft exceeds a response: a compact index owns identities and
+ * scope exclusions; fragments carry the complete records for one batch of indexed IDs. */
+export const requirementsIndexSchema = z.strictObject({
+  requirements: z.array(z.strictObject({ id: text, kind: z.enum(["assumption", "ambiguity", "acceptance"]), title: z.string().min(1).max(300) })).min(1),
+  outOfScope: z.array(text),
+}).superRefine((value, context) => {
+  if (new Set(value.requirements.map(({ id }) => id)).size !== value.requirements.length) context.addIssue({ code: "custom", path: ["requirements"], message: "Duplicate requirements identifier" });
+});
+export const requirementsFragmentSchema = z.strictObject({ assumptions: z.array(assumption), ambiguities: z.array(ambiguity), acceptance: z.array(acceptance) }).superRefine(uniqueIdentifiers);
+export type RequirementsIndex = z.infer<typeof requirementsIndexSchema>;
+
 export const requirementsContractSchema = z.strictObject({
   schemaVersion: z.literal(1), featureRequest: text, ...draftShape,
   decision: z.strictObject({
