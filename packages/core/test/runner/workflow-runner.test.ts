@@ -7,6 +7,7 @@ import { RunCheckpointError, RunSuspendedError } from "../../src/runner/suspensi
 import {
   WorkflowRunner,
   type NodeExecutor,
+  type RunHandle,
   type RunnerGraph,
   type StoredRunDefinition,
 } from "../../src/runner/workflow-runner.js";
@@ -82,6 +83,26 @@ describe("WorkflowRunner", () => {
     expect(events.filter((event) => event.t === "run_transition").map((event) => event.state))
       .toEqual(["CREATED", "COMPLETED"]);
     expect(projectRunState(storage.records)).toBe(handle.state);
+  });
+
+  it("never reports an older live state than a transition already readable from the journal", async () => {
+    // A durable append makes the record readable before it resolves (the write is synced
+    // after it lands). A status reader in that window must not see the previous state.
+    const storage = new MemoryRuntimeStorage();
+    const observed: [string, string][] = [];
+    const live: { handle?: RunHandle } = {};
+    const append = storage.append.bind(storage);
+    storage.append = async (record) => {
+      await append(record);
+      if (record.t === "run_transition") observed.push([record.state, live.handle?.state ?? "CREATED"]);
+      await Promise.resolve();
+    };
+    live.handle = createRunner(storage, async ({ node }) => {
+      if (node.id === "a") throw new RunCheckpointError("requirements-contract-saved");
+      return node.id;
+    }).start(fiveNodeFanOut(), { runId: "state-order", concurrencyLimit: 1 });
+    expect(await live.handle.result).toBe("BLOCKED");
+    expect(observed).toEqual([["CREATED", "CREATED"], ["BLOCKED", "BLOCKED"]]);
   });
 
   it("broadcasts the complete live event sequence to every subscriber", async () => {
