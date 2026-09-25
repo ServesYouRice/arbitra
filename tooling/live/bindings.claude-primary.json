@@ -1,0 +1,215 @@
+{
+  "//": "Default live-testing policy: Claude carries most roles; OpenAI (Codex) and Gemini take secondary roles only, because their limits are lower. Requires Anthropic API credit (ARBITRA_ANTHROPIC_API_KEY).",
+  "endpoints": [
+    {
+      "id": "claude",
+      "providerId": "anthropic",
+      "transport": "anthropic-messages",
+      "endpoint": "https://api.anthropic.com/v1",
+      "apiKeyEnvVar": "ARBITRA_ANTHROPIC_API_KEY"
+    },
+    {
+      "id": "claude-b",
+      "providerId": "anthropic",
+      "transport": "anthropic-messages",
+      "endpoint": "https://api.anthropic.com/v1",
+      "apiKeyEnvVar": "ARBITRA_ANTHROPIC_API_KEY"
+    },
+    {
+      "id": "openai",
+      "providerId": "openai",
+      "transport": "openai-responses",
+      "endpoint": "https://api.openai.com/v1",
+      "apiKeyEnvVar": "ARBITRA_OPENAI_API_KEY"
+    },
+    {
+      "id": "gemini-native",
+      "providerId": "google",
+      "transport": "gemini-native",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta",
+      "apiKeyEnvVar": "ARBITRA_GEMINI_API_KEY"
+    }
+  ],
+  "profiles": {
+    "claude": {
+      "modelId": "claude-haiku-4-5-20251001",
+      "family": "claude",
+      "independenceGroup": "anthropic",
+      "limits": {
+        "contextTokens": 200000,
+        "maxOutputTokens": 64000
+      }
+    },
+    "claude-b": {
+      "modelId": "claude-sonnet-5",
+      "family": "claude",
+      "independenceGroup": "anthropic-sonnet",
+      "limits": {
+        "contextTokens": 200000,
+        "maxOutputTokens": 64000
+      }
+    },
+    "openai": {
+      "modelId": "gpt-5.4-nano",
+      "family": "gpt",
+      "independenceGroup": "openai",
+      "limits": {
+        "contextTokens": 400000,
+        "maxOutputTokens": 128000
+      }
+    },
+    "gemini-native": {
+      "modelId": "gemini-3.1-flash-lite",
+      "family": "gemini",
+      "independenceGroup": "google",
+      "limits": {
+        "contextTokens": 1000000,
+        "maxOutputTokens": 65536
+      }
+    }
+  },
+  "rateLimit": {
+    "rpm": 30,
+    "tpm": 1000000,
+    "maxConcurrent": 2
+  },
+  "providerRateLimits": {
+    "google": {
+      "rpm": 8,
+      "tpm": 250000,
+      "maxConcurrent": 1
+    },
+    "openai": {
+      "rpm": 10,
+      "tpm": 250000,
+      "maxConcurrent": 1
+    }
+  },
+  "assign": {
+    "audit-mixed-providers": {
+      "auditor-a": "claude",
+      "auditor-b": "openai",
+      "auditor-c": "gemini-native"
+    },
+    "feature-automatic": {
+      "planner": "claude",
+      "reviewer-compatible": "claude-b",
+      "reviewer-gemini": "gemini-native"
+    },
+    "feature-interactive": {
+      "planner": "claude",
+      "reviewer-anthropic": "claude-b",
+      "reviewer-gemini": "gemini-native"
+    },
+    "testing-plan": {
+      "analyst": "claude",
+      "planner": "claude"
+    },
+    "testing-execute": {
+      "analyst": "claude",
+      "writer": "claude"
+    }
+  },
+  "overrides": {
+    "audit-mixed-providers": {
+      "workflow": {
+        "modelExecution": {
+          "maximumTokens": 1500000,
+          "maximumRetries": 5,
+          "maximumOutputRepairs": 2
+        }
+      }
+    },
+    "feature-automatic": {
+      "workflow": {
+        "feature": {
+          "request": "Add a removeLine(lines, sku) function to src/cart.js that removes every cart line with the given sku and returns a new array. Keep subtotal behaviour unchanged. Acceptance: removing an absent sku returns an equal array; the input array is not mutated."
+        },
+        "modelExecution": {
+          "maximumRetries": 5,
+          "maximumOutputRepairs": 2
+        }
+      }
+    },
+    "feature-interactive": {
+      "workflow": {
+        "feature": {
+          "request": "Let customers keep their session alive while they are active: refresh should extend a session only if it is not expired, and expiry must be enforced exactly at expiresAt. Decide how clock skew is handled."
+        },
+        "modelExecution": {
+          "maximumRetries": 5,
+          "maximumOutputRepairs": 2
+        }
+      }
+    },
+    "testing-plan": {
+      "workflow": {
+        "testing": {
+          "goal": "Protect session expiry and refresh behaviour in src/session.js."
+        },
+        "modelExecution": {
+          "maximumRetries": 5,
+          "maximumOutputRepairs": 2
+        }
+      },
+      "scope": {
+        "kind": "module",
+        "modules": [
+          "src/session.js",
+          "test/session.test.js",
+          "package.json"
+        ]
+      }
+    },
+    "testing-execute": {
+      "workflow": {
+        "testing": {
+          "goal": "Protect session expiry and refresh behaviour in src/session.js.",
+          "execution": {
+            "authorization": {
+              "partitions": [
+                {
+                  "id": "tests",
+                  "paths": [
+                    "test/session.test.js"
+                  ]
+                }
+              ]
+            },
+            "verification": {
+              "execution": {
+                "image": "arbitra-sandbox-node@sha256:6403e233eb1ba30ae3529f48940dd1134f9f31cba556a8bac3cf08b396be5873",
+                "checks": [
+                  {
+                    "id": "unit-tests",
+                    "executable": "/usr/local/bin/npm",
+                    "arguments": [
+                      "run",
+                      "test"
+                    ],
+                    "sourcePaths": [
+                      "package.json",
+                      "test/session.test.js"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "modelExecution": {
+          "maximumRetries": 5,
+          "maximumOutputRepairs": 2
+        }
+      },
+      "scope": {
+        "kind": "module",
+        "modules": [
+          "src/session.js",
+          "test/session.test.js",
+          "package.json"
+        ]
+      }
+    }
+  }
+}

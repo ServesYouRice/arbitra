@@ -20,5 +20,50 @@ The maintained execution queue is the [completion plan](docs/completion-plan.md)
 2. **The next Gemini quota window**, for the remaining live Audit/Feature runs and P06 conditions, if no paid key is added.
 3. **After live data:** rerun P18 on P06 findings, then the P19 final review.
 
+## Live-testing policy
+
+Claude carries most of the live API testing. OpenAI (Codex) and Gemini have lower limits,
+so they take only secondary roles: one auditor or reviewer each, never the bulk of the calls.
+[tooling/live/bindings.claude-primary.json](tooling/live/bindings.claude-primary.json)
+encodes this: Claude Haiku 4.5 for most roles, Sonnet 5 as the second Claude reviewer, and
+GPT-5.4 nano and Gemini 3.1 flash-lite as one auditor or reviewer each.
+
+The live runs so far used Gemini only. That was forced, because the Anthropic and OpenAI
+accounts had no API credit, and it does not reflect the policy.
+[bindings.gemini.json](tooling/live/bindings.gemini.json) records that setup.
+
+## How to pick this up again
+
+1. **Credentials.** They live in the repository's gitignored `.env`:
+   - `ARBITRA_ANTHROPIC_API_KEY`
+   - `ARBITRA_OPENAI_API_KEY`
+   - `ARBITRA_GEMINI_API_KEY`
+
+   To use Claude, the Anthropic account needs API credit. For the native Claude Code writer only (P12), a subscription token also works:
+   1. Run `claude setup-token`.
+   2. Put the token in the variable `apiKeyEnvVar` names.
+   3. Set `harness.native.credentialKind: "oauth_token"`.
+2. **Transport conformance (P03).** Run
+   `ARBITRA_LIVE_CONFORMANCE=1 ARBITRA_LIVE_ENDPOINTS=tooling/live/endpoints.json pnpm --filter @arbitra/providers exec vitest run test/conformance/live-transport.conformance.test.ts`.
+   Then gate the evidence with `ARBITRA_REAL_PROVIDER_CONFORMANCE=1`.
+3. **Workflows (P03).** Steps:
+   1. Run `pnpm build`.
+   2. Run `node tooling/live/configure.mjs tooling/live/bindings.claude-primary.json .runs/live/configs`.
+   3. Run `tooling/live/run.sh .runs/live/configs <audit-mixed-providers|feature-automatic|feature-interactive|testing-plan|testing-execute>`.
+   4. If a run fails for a provider reason, resume it from a fresh process with `tooling/live/resume.sh <name> <run-id>`.
+
+   `testing-execute` needs Docker and the pinned image; see [qa/p04](docs/qa/p04/README.md).
+4. **Batch (P15).** Run the command in [qa/p15-live](docs/qa/p15-live/README.md). Mark a driver `verified_live` only when its `batch:<driver>` observation passed.
+5. **Premise evaluation (P06).** The saved run state is **local only**, in `.claude/worktrees/agent-a6beaf6fd1302766f/.runs/p06`. Keep that folder. The resume commands are in [qa/p06](docs/qa/p06/README.md). The P06 protocol is prespecified with Gemini models. Moving it to Claude-primary auditors needs a new protocol version, committed before any run.
+6. **Then:** rerun P18 on the P06 findings, then the P19 review.
+
+## Open findings to fix or decide
+
+- **Generated tests are only checked to pass, not to be right.** A live Testing writer pinned the seeded `isExpired` defect as correct behaviour. A reviewer or critic step that checks tests against the documented contract would catch this.
+- **Failed requests drain the budget.** A request that fails with no usage (a 503) is charged its full admission estimate, about 59k tokens each in P06.
+- **Single-auditor plans never address a finding.** With the `diff-fast` preset, every issue stays `single_source`, so the plan addresses nothing.
+- **All auditors missed a hard-coded admin bypass.** The bypass sat under a planted "this file is safe" comment (P06).
+- **Gemini free tier:** 500 requests/day per flash-lite model, 20 on flash, no Pro, no Batch, frequent 503s.
+
 See [project status](docs/project-status.md) for implemented capabilities and measured evidence.
 Evidence per item is in [docs/qa](docs/qa/). Update task status only in the completion plan.
