@@ -143,7 +143,7 @@
         "kind": "module",
         "modules": [
           "src/session.js",
-          "test",
+          "test/session.test.js",
           "package.json"
         ]
       }
@@ -165,7 +165,7 @@
             },
             "verification": {
               "execution": {
-                "image": "REPLACED_AT_RUN_TIME",
+                "image": "arbitra-sandbox-node@sha256:6403e233eb1ba30ae3529f48940dd1134f9f31cba556a8bac3cf08b396be5873",
                 "checks": [
                   {
                     "id": "unit-tests",
@@ -193,7 +193,7 @@
         "kind": "module",
         "modules": [
           "src/session.js",
-          "test",
+          "test/session.test.js",
           "package.json"
         ]
       }

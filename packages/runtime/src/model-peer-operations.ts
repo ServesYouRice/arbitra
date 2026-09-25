@@ -16,7 +16,7 @@ export function translatePeerOperations(value: unknown, view: View, snapshot: Re
   if (scopeId !== undefined && !/^[a-z0-9-]+$/u.test(scopeId)) throw new Error("INVALID_PEER_SCOPE_ID");
   const prefix = `${reviewerId}/review-${round}/${scopeId === undefined ? "" : `${scopeId}/`}`;
   const local = (id: string): string => {
-    if (!/^new:[A-Za-z0-9_-]+$/u.test(id)) throw new Error("INVALID_PEER_LOCAL_ID: new identifiers must look like new:<letters, digits, _ or ->");
+    if (!/^new:[A-Za-z0-9_-]+$/u.test(id)) throw new Error(`INVALID_PEER_LOCAL_ID: "${id.slice(0, 80)}" is used where a new identifier is required; operation IDs, added evidence and location IDs, and the candidateId of every candidate created by merge, split or add_missing_finding must be new:<letters, digits, _ or -> and never a presented ID`);
     return `${prefix}${id.slice(4)}`;
   };
   const newCandidate = (id: string): string => `C-${createHash("sha256").update(local(id)).digest("hex").slice(0, 24)}`;
@@ -104,7 +104,7 @@ export function translatePeerOperations(value: unknown, view: View, snapshot: Re
     if (result.type === "add_missing_finding") {
       const sourceEvidence = new Set(findings.filter(({ sourceFindingId }) => result.candidate.sourceFindingIds.includes(sourceFindingId)).flatMap(({ evidence }) => evidence.map(({ id }) => id)));
       const addedEvidence = new Set(result.evidence.map(({ id }) => id));
-      if (sourceEvidence.size !== addedEvidence.size || [...sourceEvidence].some((id) => !addedEvidence.has(id))) throw new Error("PEER_MISSING_FINDING_EVIDENCE_MISMATCH: an add_missing_finding operation must carry exactly the evidence of the findings it introduces");
+      if (sourceEvidence.size !== addedEvidence.size || [...sourceEvidence].some((id) => !addedEvidence.has(id))) throw new Error(`PEER_MISSING_FINDING_EVIDENCE_MISMATCH: an add_missing_finding operation introduces findings from this reply's findings array: its candidate.sourceFindingIds must list their self/<name> sourceFindingIds (here: ${parsed.findings.map(({ sourceFindingId }) => sourceFindingId).join(", ") || "none"}), never a presented source, and its evidence must be exactly those findings' evidence`);
     }
     // Existing aliases must belong to the referenced candidate(s), not another
     // candidate that happened to be present in the same request.

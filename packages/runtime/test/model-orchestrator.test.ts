@@ -14,7 +14,7 @@ import type { TestSandbox } from "../src/test-sandbox.js";
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
-async function fixture(options: { revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; conflictResolution?: "retain_original" | "proposal-1"; ambiguousClustering?: boolean; oversizedRepository?: boolean } = {}) {
+async function fixture(options: { revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; conflictResolution?: "retain_original" | "proposal-1"; ambiguousClustering?: boolean; oversizedRepository?: boolean } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "arbitra-model-run-")); directories.push(directory);
   const manyIssues = options.largePeerContext === true || options.largePlannerContext === true;
   await writeFile(join(directory, "a.ts"), "const value = null;\n".repeat(manyIssues ? 4 : options.ambiguousClustering === true ? 3 : 1), "utf8");
@@ -97,6 +97,8 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
       if (options.largePlannerContext === true && input.round === 1 && request.url.includes("auditor-a")) {
         (output as { operations: unknown[] }).operations.push(...Object.values(input.candidates).map(({ candidateId, sources }, index) => ({ operationId: `new:supplement-${index}`, candidateId, authorId: "self", round: 1, type: "supplement_remediation", citedEvidenceIds: sources.flatMap(({ evidence }) => evidence.map(({ id }) => id)), text: `Original detail ${candidateId}: ` + "Preserve guard. ".repeat(1200) })));
       }
+      // A reviewer whose reply always claims another author's authority.
+      if (options.invalidReview === true && request.url.includes("auditor-c")) output = { ...(output as object), operations: (output as { operations: { authorId: string }[] }).operations.map((operation) => ({ ...operation, authorId: "auditor-a" })) };
       if ((options.structuralReview === true || options.conflictingReview === true) && input.round === 1 && (request.url.includes("auditor-a") || options.conflictingReview === true && request.url.includes("auditor-b"))) {
         const candidate = Object.values(input.candidates)[0];
         if (candidate === undefined) throw new Error("FIXTURE_CANDIDATE_ABSENT");
@@ -473,6 +475,21 @@ describe("composed model audits", () => {
     expect(value.limitations).toContain("unresolved_peer_operation_conflicts:1");
     expect(value.coverage.complete).toBe(false);
     expect((await core.gate(result.runId)).gateStatus).toBe("failed");
+  });
+
+  it("drops a reviewer's reply that stays invalid after its repair and reports degraded review coverage", async () => {
+    const { create, config, requests } = await fixture({ invalidReview: true });
+    (config.workflow["modelExecution"] as { maximumOutputRepairs: number }).maximumOutputRepairs = 1;
+    const core = create(); const result = await core.run(config);
+    expect(result.state).toBe("COMPLETED");
+    // The invalid reviewer was asked once more per round, then its reply was set aside.
+    expect(requests.filter(({ stage, url }) => stage === "review" && url.includes("auditor-c")).length).toBe(2 * requests.filter(({ stage, url }) => stage === "review" && url.includes("auditor-a")).length);
+    const artifacts = await core.artifacts(result.runId);
+    expect(artifacts.some(({ kind }) => kind.startsWith("peer-review-rejected-"))).toBe(true);
+    const canonical = artifacts.find(({ kind }) => kind === "canonical-issues");
+    const value = JSON.parse((await core.artifact(result.runId, canonical?.artifactId ?? "") as { content: string }).content) as { limitations: string[]; coverage: { complete: boolean } };
+    expect(value.limitations.some((limitation) => limitation.startsWith("peer_review_output_rejected:"))).toBe(true);
+    expect(value.coverage.complete).toBe(false);
   });
 
   it("carries typed structural edits and counter-evidence through verification and planning", async () => {
