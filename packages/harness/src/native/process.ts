@@ -88,12 +88,19 @@ export function runNativeProcess(request: NativeProcessRequest): Promise<NativeP
 
 function killTree(pid: number): void {
   if (process.platform === "win32") { spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" }); return; }
-  try { process.kill(-pid, "SIGKILL"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+  // macOS reports EPERM for a group whose remaining members are zombies awaiting
+  // reaping. This runs from process event handlers, so it must not throw; whether
+  // the tree is really gone is established separately by `waitForTree`.
+  try { process.kill(-pid, "SIGKILL"); } catch (error) { const code = (error as NodeJS.ErrnoException).code; if (code !== "ESRCH" && code !== "EPERM") throw error; }
 }
 
 async function waitForTree(pid: number | null): Promise<boolean> {
   if (pid === null || process.platform === "win32") return true;
-  for (let attempt = 0; attempt < 50; attempt += 1) {
+  // Time-bounded rather than attempt-bounded: on a loaded host (CI running every suite
+  // in parallel) group members can take well over a second to be reaped. EPERM is not
+  // treated as gone, because a live setuid descendant also reports it.
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
     try { process.kill(-pid, 0); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ESRCH") return true; }
     killTree(pid);
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 20));
