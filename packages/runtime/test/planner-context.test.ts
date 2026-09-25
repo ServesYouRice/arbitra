@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { planIRSchema, type PlanIR } from "@arbitra/schemas/plan.js";
-import type { PlannerBrief, PlannerOutline } from "@arbitra/schemas/planner-composition.js";
+import type { PlannerBrief, PlannerOutline, PlannerOutlineLinks, PlannerTaskOutline } from "@arbitra/schemas/planner-composition.js";
 import type { PlannerInput } from "@arbitra/workflow/nodes/planner/node.js";
 import { planWithContext, taskOutline, type PlannerStage } from "../src/planner-context.js";
 
@@ -110,5 +110,112 @@ describe("one global planner with bounded issue reading and task expansion", () 
     const { input, port, calls } = await fixture();
     await expect(planWithContext(input, { ...port, fits: async (stage) => !stage.activityId.startsWith(`planner/${phase}`) && await port.fits(stage) })).rejects.toThrow("CONTEXT_LIMIT_EXCEEDED");
     expect(calls.some(({ activityId }) => activityId.startsWith(`planner/${phase}`))).toBe(false);
+  });
+});
+
+describe("hierarchical global outline when all briefs cannot share one outline", () => {
+  async function sectioned(options: { readonly linksFit?: boolean } = {}) {
+    const f = await fixture();
+    const template = f.plan.tasks[0]; if (template === undefined) throw new Error("FIXTURE_TASK_ABSENT");
+    const sectionIds = (stage: PlannerStage) => (stage.input as { outlineScope: { recordIds: string[] } }).outlineScope.recordIds;
+    const port = { ...f.port,
+      async fits(stage: PlannerStage) {
+        if (stage.activityId === "planner/plan" || stage.activityId === "planner/outline") return false;
+        if (stage.activityId.startsWith("planner/outline/section/")) return sectionIds(stage).length <= 1;
+        if (stage.activityId.startsWith("planner/outline/links/")) return options.linksFit === true || (stage.input as { sections: unknown[] }).sections.length <= 2;
+        if (stage.activityId.startsWith("planner/expand/")) return stage.activityId.endsWith("/scoped");
+        return f.port.fits(stage);
+      },
+      async call(stage: PlannerStage): Promise<unknown> {
+        if (stage.activityId.startsWith("planner/outline/section/")) {
+          f.calls.push(stage);
+          const [issueId = ""] = sectionIds(stage); const briefs = (stage.input as { issueBriefs: PlannerBrief["issues"] }).issueBriefs;
+          const task = { ...taskOutline(template), id: "TASK-001", addresses: { ...template.addresses, issues: [issueId], validation: ["VAL-001"] }, dependencies: { dependsOn: [], blocks: [], conflictsWith: [] } };
+          return { ...f.plan, id: `section-${issueId}`, acceptedIssueIds: [issueId], tasks: [task], taskGraph: [], rolloutConcerns: [`Rollout ${issueId}`],
+            validationContract: { schemaVersion: 1, validation: [{ id: "VAL-001", assertion: `${issueId} is closed`, evidence: ["regression test"] }] },
+            traceability: { issueToValidation: [{ issueId, validationIds: ["VAL-001"] }], requirementLinks: { schemaVersion: 1, links: [] } },
+            routingRecommendations: [{ taskId: "TASK-001", capability: "frontier", effort: "high", reason: ["security"] }],
+            unresolvedQuestions: [...briefs.flatMap(({ unresolvedQuestions }) => unresolvedQuestions), { id: "Q-1", question: `Section question ${issueId}`, blocking: false, blastRadius: "low" }] };
+        }
+        if (stage.activityId.startsWith("planner/outline/header/")) { f.calls.push(stage); return { id: "plan-global", title: "Global plan", reasoningOutcome: "Merged", implementationStrategy: ["Repair each boundary"], dependencies: [], rolloutConcerns: [], migrationConcerns: [] }; }
+        if (stage.activityId.startsWith("planner/outline/links/")) {
+          f.calls.push(stage);
+          const tasks = (stage.input as { sections: { tasks: { id: string }[] }[] }).sections.flatMap(({ tasks: entries }) => entries.map(({ id }) => id));
+          return { dependencies: tasks.includes("TASK-001") && tasks.includes("TASK-002") ? [{ from: "TASK-001", to: "TASK-002", reason: "Shared authorization boundary" }] : [] };
+        }
+        if (stage.activityId.startsWith("planner/expand/")) {
+          f.calls.push(stage);
+          const selected = (stage.input as { selectedTask: PlannerTaskOutline }).selectedTask;
+          return { task: { ...template, ...selected }, unresolvedQuestions: [] };
+        }
+        return f.port.call(stage);
+      } };
+    return { ...f, port };
+  }
+
+  it("outlines disjoint sections, links every section pair and expands against scoped outlines", async () => {
+    const { input, calls, artifacts, port } = await sectioned();
+    const result = await planWithContext(input, port);
+    const kinds = calls.map(({ activityId }) => activityId.split("/").slice(0, 3).join("/"));
+    expect(kinds.filter((kind) => kind === "planner/outline/section")).toHaveLength(3);
+    expect(kinds.filter((kind) => kind === "planner/outline/header")).toHaveLength(1);
+    // The complete section set could not share one link context; every pair was linked.
+    expect(kinds.filter((kind) => kind === "planner/outline/links")).toHaveLength(3);
+    expect(calls.some(({ activityId }) => activityId === "planner/outline")).toBe(false);
+    expect(result.tasks.map(({ id }) => id)).toEqual(["TASK-001", "TASK-002", "TASK-003"]);
+    expect(result.tasks.map(({ addresses }) => addresses.issues)).toEqual([["C-1"], ["C-2"], ["C-3"]]);
+    expect(result.validationContract.validation.map(({ id }) => id)).toEqual(["VAL-001", "VAL-002", "VAL-003"]);
+    expect(result.traceability.issueToValidation).toEqual([1, 2, 3].map((index) => ({ issueId: `C-${index}`, validationIds: [`VAL-00${index}`] })));
+    expect(result.tasks[1]?.dependencies.dependsOn).toEqual(["TASK-001"]);
+    expect(result.taskGraph).toEqual([{ from: "TASK-001", to: "TASK-002" }]);
+    expect(result).toMatchObject({ id: "plan-global", acceptedIssueIds: ["C-1", "C-2", "C-3"], rolloutConcerns: ["Rollout C-1", "Rollout C-2", "Rollout C-3"] });
+    // Brief questions survive verbatim; section-local questions are namespaced, never merged away.
+    expect(result.unresolvedQuestions).toHaveLength(6);
+    expect(new Set(result.unresolvedQuestions.map(({ id }) => id)).size).toBe(6);
+    // Every expansion re-read its complete original issue against a scoped outline and task index.
+    const expansions = calls.filter(({ activityId }) => activityId.startsWith("planner/expand/"));
+    expect(expansions.map(({ activityId }) => activityId)).toEqual(["TASK-001", "TASK-002", "TASK-003"].map((id) => `planner/expand/${id}/scoped`));
+    for (const [index, issue] of input.canonicalIssues.entries()) {
+      const supplied = expansions[index]?.input as { canonicalIssues: unknown[]; planOutline: { outlineScope: { taskIndex: unknown[] } } };
+      expect(supplied.canonicalIssues).toEqual([issue]);
+      expect(supplied.planOutline.outlineScope.taskIndex).toHaveLength(3);
+    }
+    expect(artifacts.get("planner-composition")).toMatchObject({ issueBatches: 3, outlineSections: 3, outlineCalls: 7, taskExpansions: 3, logicalModelCalls: 13 });
+    expect(artifacts.get("planner-outline-sections")).toHaveLength(3);
+  });
+
+  it("links the complete section set in one pass when it fits", async () => {
+    const { input, calls, port } = await sectioned({ linksFit: true });
+    const result = await planWithContext(input, port);
+    expect(calls.filter(({ activityId }) => activityId.startsWith("planner/outline/links/"))).toHaveLength(1);
+    expect(result.taskGraph).toEqual([{ from: "TASK-001", to: "TASK-002" }]);
+  });
+
+  it.each(["scope", "question", "reference", "link", "cycle"] as const)("rejects an invalid %s in a hierarchical outline before expansion", async (mode) => {
+    const { input, calls, port } = await sectioned();
+    const cycle = (stage: PlannerStage) => (stage.input as { sections: { tasks: { id: string }[] }[] }).sections.flatMap(({ tasks }) => tasks.map(({ id }) => id)).includes("TASK-001")
+      ? [{ from: "TASK-003", to: "TASK-001", reason: "cycle" }] : [{ from: "TASK-002", to: "TASK-003", reason: "cycle" }];
+    await expect(planWithContext(input, { ...port, call: async (stage) => {
+      const output = await port.call(stage);
+      if (stage.activityId.startsWith("planner/outline/section/")) {
+        const section = output as PlannerOutline;
+        if (mode === "scope" && section.tasks[0]) section.tasks[0].addresses.issues = ["C-9"];
+        if (mode === "question") section.unresolvedQuestions = section.unresolvedQuestions.slice(1);
+        if (mode === "reference" && section.tasks[0]) section.tasks[0].dependencies.dependsOn = ["TASK-404"];
+      }
+      if (stage.activityId.startsWith("planner/outline/links/")) {
+        const links = output as PlannerOutlineLinks;
+        if (mode === "link") links.dependencies = [{ from: "TASK-001", to: "TASK-001", reason: "self" }];
+        if (mode === "cycle" && links.dependencies.length === 0) links.dependencies = cycle(stage);
+      }
+      return output;
+    } })).rejects.toThrow({ scope: "PLANNER_OUTLINE_SECTION_SCOPE_INVALID", question: "PLANNER_OUTLINE_QUESTION_DROPPED", reference: "PLANNER_OUTLINE_SECTION_REFERENCE_INVALID", link: "PLANNER_OUTLINE_LINK_INVALID", cycle: "PLANNER_OUTLINE_TRACEABILITY_INVALID" }[mode]);
+    expect(calls.some(({ activityId }) => activityId.startsWith("planner/expand/"))).toBe(false);
+  });
+
+  it("fails explicitly only when one record cannot fit a section outline", async () => {
+    const { input, port, calls } = await sectioned();
+    await expect(planWithContext(input, { ...port, fits: async (stage) => !stage.activityId.startsWith("planner/outline/section/") && await port.fits(stage) })).rejects.toThrow("PLANNER_OUTLINE_RECORD_CONTEXT_LIMIT_EXCEEDED:C-1");
+    expect(calls.some(({ activityId }) => activityId.startsWith("planner/outline"))).toBe(false);
   });
 });

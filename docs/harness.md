@@ -133,7 +133,8 @@ truncated. When they do not fit, the stage is recomposed:
 
 Output capacity is handled twice. Before spend, stages that emit one decision per record cap
 batch sizes with `OUTPUT_TOKENS_PER_RECORD` (peer review 160, critic 60, planner brief 400,
-Testing selection 120, Feature review 150 tokens per record). After spend, every transport
+Testing selection 120, Feature review 150, Testing risk 250 per path, requirements record 200,
+Feature exploration 300 tokens per record). After spend, every transport
 maps a provider stop at the output ceiling (`max_tokens`, `incomplete/max_output_tokens`,
 `length`, `MAX_TOKENS`) to a non-retryable `OUTPUT_LIMIT` error rather than accepting or
 repairing a truncated prefix. `ModelHarness` records a durable `model-output-limit-*` marker
@@ -159,6 +160,45 @@ activity ID, prompt and context artifact are unchanged.
 | Feature plan revision | Single call; `MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED` | Atomic per-critique patches with scoped requirement records |
 | Testing gap selection | `TESTING_SELECTION_CONTEXT_EXCEEDED` | Candidate batches with global candidate/surface indexes |
 | Testing planner | Single call; `MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED` | Staged brief/outline/expansion over selected-gap records |
+| Global planner outline (all modes) | `PLANNER_GLOBAL_CONTEXT_LIMIT_EXCEEDED` | Hierarchical outline: section outlines, one header pass, cross-section link passes, scoped expansions |
+| Feature requirements draft output | `MODEL_OUTPUT_LIMIT_REACHED:feature/requirements` | Durable requirement index, then complete record batches |
+| Feature exploration | Single call; `MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED` | Requirement-record batches merged by surface identity |
+| Testing risk analysis | Single call; `MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED` | Path partitions with complete files, merged verbatim |
+
+How the four newer paths compose:
+
+- **Hierarchical outline.** When `planner/outline` cannot fit (input or output), briefs are
+  grouped into `planner/outline/section/<ids>` requests over disjoint record groups. Each section
+  is a `plannerOutlineSchema` outline with local `TASK`/`VAL` IDs that addresses, validates and
+  links only its own records and keeps each supplied brief question verbatim. Sections that break
+  scope, references or questions are rejected. The merge renumbers IDs globally and scopes new
+  question IDs to their section. One `planner/outline/header` pass writes the plan header; section
+  strategies and concerns are kept alongside it. `planner/outline/links` passes add cross-section
+  dependencies: one pass over all sections when they fit, otherwise one pass per section pair so
+  every pair is checked. The merged outline then goes through the usual traceability, cycle and
+  question checks. If the full outline does not fit a task expansion, that expansion reads a
+  scoped outline: the task's dependency neighbourhood, its validation and links, its section's
+  questions, and a complete task index (`planner/expand/<task>/scoped`).
+- **Requirements drafting.** If the one-call draft is output-limited, `requirements/index`
+  records every requirement ID, kind and scope exclusion. `requirements/records/<ids>` batches,
+  sized by `OUTPUT_TOKENS_PER_RECORD.requirementsRecord` (200), then write complete records for
+  exactly their indexed IDs. The kinds must match and every ID must be answered exactly once. The
+  merged draft follows index order.
+- **Exploration.** Assumptions, ambiguities and acceptance records are explored in batches
+  (`exploration/batch/<ids>`, 300 output tokens per record). Every batch keeps the request, scope
+  exclusions and a complete requirement index. Surfaces with the same ID merge by union of paths,
+  risk categories and requirement links. Exact evidence is deduplicated, never dropped, and
+  re-validated against the snapshot. Batch metrics merge as upper bounds so routing never
+  under-reports risk: migration is OR, breadth and testing complexity are summed, and the
+  sensitive-surface count is summed and capped at the surface count.
+- **Risk analysis.** Source and test paths are partitioned in path order, 250 output tokens per
+  path (`testing/risk/<fingerprint>/batch-<paths>`). A multi-path partition must carry every
+  assigned file whole. A single path larger than the budget is admitted alone with excerpted
+  source and read-only tools. Each partition sees its scoped inventory and global counts, and may
+  claim only its own paths as reviewed. Surfaces, evidence, reviewed paths and limitations merge
+  verbatim. A surface ID repeated in another partition gets a `<id>@<partition digest>` suffix
+  instead of being merged. Gap-selection batches now scope source-path lists to their own
+  surfaces, so a large inventory no longer blocks selection.
 
 ### Remaining explicit limits
 
@@ -175,6 +215,20 @@ Irreducible with the current record model (a single mandatory unit exceeds the b
   for one atomic revision patch.
 - `TESTING_SELECTION_CANDIDATE_CONTEXT_EXCEEDED:<gap>`, `FEATURE_REVIEW_REQUIREMENT_CONTEXT_EXCEEDED:<id>`:
   one candidate or requirement with its grounded context does not fit.
+- `PLANNER_OUTLINE_RECORD_CONTEXT_LIMIT_EXCEEDED:<id>`: one brief plus the outline context does
+  not fit a section. `PLANNER_OUTLINE_SECTION_PAIR_CONTEXT_LIMIT_EXCEEDED:<a>:<b>`: the task
+  outlines of two sections cannot share one link pass. `PLANNER_OUTLINE_HEADER_CONTEXT_LIMIT_EXCEEDED`:
+  the compact section headers (titles, strategies, concerns and task titles) do not fit one
+  header pass.
+- `FEATURE_REQUIREMENTS_RECORD_CONTEXT_EXCEEDED:<id>`, `FEATURE_EXPLORATION_REQUIREMENT_CONTEXT_EXCEEDED:<id>`
+  and `TESTING_RISK_PATH_CONTEXT_EXCEEDED:<path>`: one requirement record or path does not fit
+  with the stage's global context (request, index or scoped inventory).
+- `FEATURE_REQUEST_CONTEXT_LIMIT_EXCEEDED`: the feature request itself does not fit one context.
+  The request is mandatory global context in every Feature stage (requirements, review,
+  exploration, planning, criticism), so splitting it for drafting alone would not let the run
+  finish. If the requirements index itself is output-limited
+  (`MODEL_OUTPUT_LIMIT_REACHED:feature/requirements/requirements/index`), the IDs and titles of
+  all requirements do not fit one response. Both fail explicitly.
 - `MODEL_OUTPUT_CAPACITY_INSUFFICIENT:<stage>`: output capacity is below the reserve for one
   record. `MODEL_OUTPUT_LIMIT_REACHED:<activityId>`: one record's output exceeded the ceiling.
 - Discovery lines longer than the whole budget are reported as `unexaminedDueToBudget:
@@ -182,13 +236,9 @@ Irreducible with the current record model (a single mandatory unit exceeds the b
 
 Not yet staged (single mandatory global context):
 
-- `PLANNER_GLOBAL_CONTEXT_LIMIT_EXCEEDED`: all record briefs plus the outline context must
-  fit one outline request; a hierarchical outline is not implemented.
-- Feature requirements generation, requirements revision and exploration, and Testing risk
-  analysis each make one call whose mandatory input (request/contract/inventory) must fit and
-  whose structured output must fit one response. They fail with
-  `MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED` or `MODEL_OUTPUT_LIMIT_REACHED:<activityId>`.
-  Merging independently explored surfaces and risk metrics is not yet defined.
+- Feature requirements revision still makes one call. Its mandatory input (contract, blocking
+  decisions and exploration) must fit, and its structured output must fit one response. It fails
+  with `MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED` or `MODEL_OUTPUT_LIMIT_REACHED:<activityId>`.
 - Audit semantic clustering, targeted verification and conflict resolution make one call per
   pair, candidate or conflict; their mandatory records must fit.
 - Tool-history archival (`MODEL_HISTORY_REFERENCE_LIMIT_EXCEEDED`) requires the initial
@@ -200,7 +250,8 @@ Not yet staged (single mandatory global context):
 - Guarded Testing execution writers keep their own bounded tool contexts.
 
 Actions: raise `maximumContextTokens` or the profile's `contextTokens` when a single record
-or global outline does not fit, raise `maximumOutputTokens` for output-capacity failures, or
+or outline index (section, header or section pair) does not fit, raise `maximumOutputTokens`
+for output-capacity failures, or
 narrow the source scope. Overlapping discovery windows may report one defect twice;
 deterministic clustering merges findings with the same path, overlapping lines and matching
 category, and any other duplicate remains visible rather than being dropped. Output reserves
