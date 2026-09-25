@@ -147,9 +147,10 @@ only from a Testing configuration's own execution authorization.
 
 `workflow.graph` requires audit mode and cannot be combined with `workflow.preset`. It never
 means "latest". `estimate` and `start` load the version and validate it again against the
-run's configuration, before any run exists. A missing version fails with
-`WORKFLOW_GRAPH_VERSION_ABSENT` (HTTP 404). An invalid one fails with
-`WORKFLOW_GRAPH_INVALID:<id>:<codes>` (422). The run context records `workflowGraph`
+run's configuration, before any run exists. Failures are preflight configuration
+diagnostics (HTTP 400, also listed by `preflight`): `WORKFLOW_GRAPH_VERSION_ABSENT` or
+`WORKFLOW_GRAPH_ID_MISMATCH` at `workflow.graph`, or each validator code at
+`workflow.graph(<id>).<path>`. The run context records `workflowGraph`
 (`id`, `version`). The runner's stored definition is the saved graph itself. Resume and Audit
 replay re-check that the definition's content address equals the recorded version and that
 the version still exists (`RUN_WORKFLOW_GRAPH_MISMATCH`, `WORKFLOW_GRAPH_VERSION_ABSENT`).
@@ -335,8 +336,10 @@ traceability, premise provenance and existing unresolved questions, and provide 
 one resolution claim per blocking item. The independent re-review receives the original
 plan, critique and claims; remaining blockers, rejected mappings and blocking plan
 questions prevent a passing result. Completed model activities are reused on restart,
-including when the revised plan is unchanged. Oversized mandatory Feature revision
-contexts fail explicitly; hierarchical Feature revision is not yet implemented.
+including when the revised plan is unchanged. Oversized mandatory review, planning,
+critique and revision contexts use staged composition over complete requirement records;
+see [context and output capacity](harness.md#context-and-output-capacity) for the
+remaining explicit limits.
 
 ## Testing mode
 
@@ -367,7 +370,8 @@ repository line range must contain that command alone. Explicit evidence paths a
 included only within the selected scope. Custom commands retain `requires_approval`;
 derived package scripts record their origin without granting execution permission.
 Missing commands with selected gaps prevent planning. Resume rejects source or command
-metadata changes. Oversized mandatory selection/planning context fails explicitly.
+metadata changes. Oversized gap selection and planning contexts are composed in bounded
+durable stages; see [context and output capacity](harness.md#context-and-output-capacity).
 
 The planner links every selected gap to tasks and validation assertions. Concrete write
 paths must classify as tests or test configuration; production-file paths and invented
@@ -541,8 +545,10 @@ Docker has not been exercised.
 ## Presets
 
 Seven presets are executable through the shared runtime's
-[`PRESET_GRAPHS`](../packages/runtime/src/graphs.ts). Six schema-example configurations
-live in [`../examples`](../examples); `testing-execute` is configured as described above.
+[`PRESET_GRAPHS`](../packages/runtime/src/graphs.ts). Six schema-only examples live in
+[`../examples`](../examples); runnable model-backed templates for Audit, both Feature
+modes, `testing-plan` and `testing-execute` live in
+[`../examples/model-backed`](../examples/model-backed). See [Getting started](setup.md).
 
 | Preset | Mode | Runtime shape |
 |---|---|---|
@@ -554,7 +560,9 @@ live in [`../examples`](../examples); `testing-execute` is configured as describ
 | `testing-plan` | testing | Inventory, grounded risk/gap selection, planner and handoff; no execution |
 | `testing-execute` | testing | Planning, guarded writer/check/finalization stages and verified change handoff |
 
-`pnpm run validate:examples` parses all six examples with `runConfigSchema` and runs
-negative controls proving a stale example fails. These are schema examples, not complete
-live-provider configurations. Other preset assets in packages/workflow are not automatically
+`pnpm run validate:examples` parses the schema-only examples and model-backed templates
+with `runConfigSchema`, checks the templates against runtime preflight, and runs negative
+controls proving a stale example fails. `pnpm run smoke:examples` runs every template
+through the public runtime with fixture transports. It proves wiring, not live-provider
+behavior. Other preset assets in packages/workflow are not automatically
 available through CLI/server; unknown public preset IDs fail explicitly.

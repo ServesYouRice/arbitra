@@ -27,7 +27,10 @@ export function testingWriteSchedule(value: unknown, inventory: TestSystemReport
   if (!Number.isSafeInteger(authorization.maximumParallelTasks) || authorization.maximumParallelTasks < 1 || authorization.maximumParallelTasks > 16) throw new Error("INVALID_WRITABLE_CONCURRENCY");
   const tasks = new Map(plan.tasks.map((task) => [task.id, task]));
   const grants = new Map(authorization.tasks.map((task) => [task.taskId, task]));
-  if (grants.size !== authorization.tasks.length || grants.size !== tasks.size || [...grants.keys()].some((id) => !tasks.has(id))) throw new Error("TESTING_WRITE_AUTHORIZATION_INCOMPLETE");
+  if (grants.size !== authorization.tasks.length || grants.size !== tasks.size || [...grants.keys()].some((id) => !tasks.has(id))) {
+    const ungranted = [...tasks.keys()].filter((id) => !grants.has(id)); const unknown = [...grants.keys()].filter((id) => !tasks.has(id));
+    throw new Error(`TESTING_WRITE_AUTHORIZATION_INCOMPLETE: planned tasks without a write grant [${ungranted.join(", ")}]; grants naming no planned task [${unknown.join(", ")}]. Grant exactly the planned task IDs in workflow.testing.execution.authorization.tasks; no worktree was created.`);
+  }
   const guard = new WritePartitions(authorization.partitions);
   const requests = new Map<string, WriteRequest>();
   for (const task of plan.tasks) {

@@ -4,6 +4,7 @@ import type { RunConfig } from "@arbitra/schemas/config.js";
 import type { ReplayOverrides } from "@arbitra/core/replay/index.js";
 import type { ReplayRequest } from "@arbitra/schemas/replay.js";
 import type { Orchestrator } from "./orchestrator.js";
+import { PreflightError } from "./preflight.js";
 
 export interface CoreCommandResult {
   readonly disposition: "passed" | "failed" | "system_failure" | "suspended" | "unknown";
@@ -82,13 +83,16 @@ export function orchestratorCore(orchestrator: Orchestrator) {
       const draft: unknown = JSON.parse(await readFile(resolve(draftPath), "utf8"));
       return { disposition: "passed", value: await orchestrator.reviseRequirements(runId, artifactId, draft) };
     },
+    /** Configuration errors fail validation; environment readiness is reported alongside. */
     async validate(configPath: string): Promise<CoreCommandResult> {
-      try {
-        const config = await load(configPath);
-        return { disposition: "passed", reasons: [], value: { valid: true, mode: config.mode } };
-      } catch (error) {
+      let parsed: unknown;
+      try { parsed = JSON.parse(await readFile(resolve(configPath), "utf8")) as unknown; }
+      catch (error) {
         return { disposition: "failed", reasons: ["invalid_configuration"], value: { valid: false, message: describe(error) } };
       }
+      const report = await orchestrator.preflight(parsed);
+      const codes = report.diagnostics.filter(({ severity, scope }) => severity === "error" && scope === "configuration").map(({ code }) => code);
+      return { disposition: report.valid ? "passed" : "failed", reasons: report.valid ? [] : ["invalid_configuration", ...codes], value: report };
     },
 
     async estimate(configPath: string): Promise<CoreCommandResult> {
@@ -96,8 +100,13 @@ export function orchestratorCore(orchestrator: Orchestrator) {
     },
 
     async run(configPath: string): Promise<CoreCommandResult> {
-      const { runId, state } = await orchestrator.run(await load(configPath));
-      return completed(runId, state);
+      try {
+        const { runId, state } = await orchestrator.run(await load(configPath));
+        return completed(runId, state);
+      } catch (error) {
+        if (!(error instanceof PreflightError)) throw error;
+        return { disposition: "system_failure", reasons: ["preflight_failed", ...error.diagnostics.filter(({ severity }) => severity === "error").map(({ code }) => code)], value: { diagnostics: error.diagnostics } };
+      }
     },
 
     /** `audit --preset ... --full` runs the preset without a saved configuration file. */

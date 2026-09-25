@@ -1,0 +1,173 @@
+{
+  "schemaVersion": 1,
+  "mode": "audit",
+  "scope": {
+    "kind": "module",
+    "modules": [
+      "src"
+    ]
+  },
+  "auditDepth": "balanced",
+  "consensusPolicy": "risk_weighted",
+  "maxConsensusRounds": 2,
+  "verification": {
+    "deterministicFirst": true,
+    "maxModelQuestionsPerRound": 2
+  },
+  "models": {
+    "auditor-a": {
+      "schemaVersion": 1,
+      "provider": "compatible",
+      "modelId": "replace-with-your-model-id",
+      "transport": "openai-chat",
+      "servedBy": null,
+      "family": "replace-with-your-model-family",
+      "independenceGroup": "compatible-a",
+      "capabilityTier": "balanced",
+      "supports": {
+        "tools": true,
+        "parallelToolCalls": false,
+        "structuredOutput": true,
+        "reasoning": false,
+        "promptCaching": false,
+        "batch": false,
+        "vision": false
+      },
+      "limits": {
+        "contextTokens": null,
+        "maxOutputTokens": null
+      },
+      "effort": {
+        "supported": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "collapse": {
+          "xhigh": "high"
+        },
+        "params": {}
+      },
+      "quirks": {
+        "systemPromptSupport": "full",
+        "fewShotPolicy": "neutral",
+        "promptStyle": "markdown",
+        "documentPlacement": "leading",
+        "historyPolicy": "strip_reasoning",
+        "samplingDefaults": {
+          "temperature": null,
+          "topP": null,
+          "topK": null
+        },
+        "greedyDecodingSafe": true,
+        "toolLoopLimit": 8,
+        "prefillSupported": false
+      },
+      "structuredOutputDialect": "json_mode"
+    },
+    "auditor-b": {
+      "schemaVersion": 1,
+      "provider": "compatible-b",
+      "modelId": "replace-with-your-model-id",
+      "transport": "openai-chat",
+      "servedBy": null,
+      "family": "replace-with-your-model-family",
+      "independenceGroup": "compatible-b",
+      "capabilityTier": "balanced",
+      "supports": {
+        "tools": true,
+        "parallelToolCalls": false,
+        "structuredOutput": true,
+        "reasoning": false,
+        "promptCaching": false,
+        "batch": false,
+        "vision": false
+      },
+      "limits": {
+        "contextTokens": null,
+        "maxOutputTokens": null
+      },
+      "effort": {
+        "supported": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "collapse": {
+          "xhigh": "high"
+        },
+        "params": {}
+      },
+      "quirks": {
+        "systemPromptSupport": "full",
+        "fewShotPolicy": "neutral",
+        "promptStyle": "markdown",
+        "documentPlacement": "leading",
+        "historyPolicy": "strip_reasoning",
+        "samplingDefaults": {
+          "temperature": null,
+          "topP": null,
+          "topK": null
+        },
+        "greedyDecodingSafe": true,
+        "toolLoopLimit": 8,
+        "prefillSupported": false
+      },
+      "structuredOutputDialect": "json_mode"
+    }
+  },
+  "harness": {
+    "mode": "canonical"
+  },
+  "workflow": {
+    "preset": "audit-balanced",
+    "modelExecution": {
+      "endpoints": [
+        {
+          "id": "compatible",
+          "providerId": "compatible",
+          "transport": "openai-chat",
+          "endpoint": "http://127.0.0.1:8000/v1",
+          "apiKeyEnvVar": "ARBITRA_COMPATIBLE_API_KEY"
+        },
+        {
+          "id": "compatible-b",
+          "providerId": "compatible-b",
+          "transport": "openai-chat",
+          "endpoint": "http://127.0.0.1:8001/v1",
+          "apiKeyEnvVar": "ARBITRA_COMPATIBLE_B_API_KEY"
+        }
+      ],
+      "modelEndpoints": {
+        "auditor-a": "compatible",
+        "auditor-b": "compatible-b"
+      },
+      "roles": {
+        "planner": "auditor-a",
+        "verifier": "auditor-b"
+      },
+      "maximumOutputTokens": 8000,
+      "maximumContextTokens": 128000,
+      "maximumTokens": 2000000,
+      "timeoutMs": 180000,
+      "maximumRetries": 1,
+      "rateLimits": {
+        "compatible": {
+          "rpm": 30,
+          "tpm": 2000000,
+          "maxConcurrent": 2
+        },
+        "compatible-b": {
+          "rpm": 30,
+          "tpm": 2000000,
+          "maxConcurrent": 2
+        }
+      }
+    }
+  },
+  "budgets": {},
+  "security": {},
+  "protocols": {},
+  "promptOverrides": {},
+  "contextPolicies": {}
+}

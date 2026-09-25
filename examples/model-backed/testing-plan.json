@@ -1,0 +1,175 @@
+{
+  "schemaVersion": 1,
+  "mode": "testing",
+  "scope": {
+    "kind": "repository"
+  },
+  "auditDepth": "balanced",
+  "consensusPolicy": "minimal",
+  "maxConsensusRounds": 1,
+  "verification": {
+    "deterministicFirst": true,
+    "maxModelQuestionsPerRound": 2
+  },
+  "models": {
+    "analyst": {
+      "schemaVersion": 1,
+      "provider": "google",
+      "modelId": "replace-with-your-model-id",
+      "transport": "gemini-native",
+      "servedBy": null,
+      "family": "replace-with-your-model-family",
+      "independenceGroup": "google",
+      "capabilityTier": "frontier",
+      "supports": {
+        "tools": true,
+        "parallelToolCalls": false,
+        "structuredOutput": true,
+        "reasoning": false,
+        "promptCaching": false,
+        "batch": false,
+        "vision": false
+      },
+      "limits": {
+        "contextTokens": null,
+        "maxOutputTokens": null
+      },
+      "effort": {
+        "supported": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "collapse": {
+          "xhigh": "high"
+        },
+        "params": {}
+      },
+      "quirks": {
+        "systemPromptSupport": "full",
+        "fewShotPolicy": "neutral",
+        "promptStyle": "markdown",
+        "documentPlacement": "leading",
+        "historyPolicy": "round_trip_opaque",
+        "samplingDefaults": {
+          "temperature": null,
+          "topP": null,
+          "topK": null
+        },
+        "greedyDecodingSafe": true,
+        "toolLoopLimit": 8,
+        "prefillSupported": false
+      },
+      "structuredOutputDialect": "gemini"
+    },
+    "planner": {
+      "schemaVersion": 1,
+      "provider": "compatible",
+      "modelId": "replace-with-your-model-id",
+      "transport": "openai-chat",
+      "servedBy": null,
+      "family": "replace-with-your-model-family",
+      "independenceGroup": "compatible",
+      "capabilityTier": "frontier",
+      "supports": {
+        "tools": true,
+        "parallelToolCalls": false,
+        "structuredOutput": true,
+        "reasoning": false,
+        "promptCaching": false,
+        "batch": false,
+        "vision": false
+      },
+      "limits": {
+        "contextTokens": null,
+        "maxOutputTokens": null
+      },
+      "effort": {
+        "supported": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "collapse": {
+          "xhigh": "high"
+        },
+        "params": {}
+      },
+      "quirks": {
+        "systemPromptSupport": "full",
+        "fewShotPolicy": "neutral",
+        "promptStyle": "markdown",
+        "documentPlacement": "leading",
+        "historyPolicy": "strip_reasoning",
+        "samplingDefaults": {
+          "temperature": null,
+          "topP": null,
+          "topK": null
+        },
+        "greedyDecodingSafe": true,
+        "toolLoopLimit": 8,
+        "prefillSupported": false
+      },
+      "structuredOutputDialect": "json_mode"
+    }
+  },
+  "harness": {
+    "mode": "canonical"
+  },
+  "workflow": {
+    "preset": "testing-plan",
+    "testing": {
+      "mode": "plan",
+      "goal": "Replace with the behavior the new tests must protect.",
+      "roles": {
+        "analyst": "analyst",
+        "planner": "planner"
+      },
+      "commands": []
+    },
+    "modelExecution": {
+      "endpoints": [
+        {
+          "id": "compatible",
+          "providerId": "compatible",
+          "transport": "openai-chat",
+          "endpoint": "http://127.0.0.1:8000/v1",
+          "apiKeyEnvVar": "ARBITRA_COMPATIBLE_API_KEY"
+        },
+        {
+          "id": "gemini",
+          "providerId": "google",
+          "transport": "gemini-native",
+          "endpoint": "https://generativelanguage.googleapis.com/v1beta",
+          "apiKeyEnvVar": "ARBITRA_GEMINI_API_KEY"
+        }
+      ],
+      "modelEndpoints": {
+        "analyst": "gemini",
+        "planner": "compatible"
+      },
+      "maximumOutputTokens": 8000,
+      "maximumContextTokens": 128000,
+      "maximumTokens": 1000000,
+      "timeoutMs": 180000,
+      "maximumRetries": 1,
+      "rateLimits": {
+        "compatible": {
+          "rpm": 30,
+          "tpm": 2000000,
+          "maxConcurrent": 2
+        },
+        "google": {
+          "rpm": 30,
+          "tpm": 2000000,
+          "maxConcurrent": 2
+        }
+      }
+    }
+  },
+  "budgets": {},
+  "security": {},
+  "protocols": {},
+  "promptOverrides": {},
+  "contextPolicies": {}
+}

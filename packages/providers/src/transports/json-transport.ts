@@ -65,6 +65,13 @@ export class JsonProtocolTransport implements ProviderTransport {
   }
 }
 
+/** A response stopped by the requested output ceiling is incomplete, even when its
+ * prefix happens to parse. Fail explicitly so callers can split the stage rather than
+ * treating a truncated structured result as malformed or complete. */
+export function assertOutputComplete(stopped: boolean): void {
+  if (stopped) throw new TransportError("OUTPUT_LIMIT", "MODEL_OUTPUT_LIMIT_REACHED: provider stopped at maximumOutputTokens", false);
+}
+
 export function response(
   request: TransportRequest,
   values: {

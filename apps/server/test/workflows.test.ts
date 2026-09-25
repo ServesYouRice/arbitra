@@ -66,8 +66,8 @@ describe("workflow graph routes", () => {
 
       const missing = await app.inject({ method: "POST", url: "/configurations", payload: { name: "Missing", config: { ...config, workflow: { graph: { id: "http-reviewed", version: "0".repeat(64) }, checkpoints: { mode: "interactive" } } } } });
       const refused = await app.inject({ method: "POST", url: "/runs", payload: { configurationId: missing.json<{ id: string }>().id } });
-      expect(refused.statusCode).toBe(404);
-      expect(refused.json()).toMatchObject({ message: `WORKFLOW_GRAPH_VERSION_ABSENT:http-reviewed:${"0".repeat(64)}` });
+      expect(refused.statusCode).toBe(400);
+      expect(refused.json<{ message: string }>().message).toMatch(/^WORKFLOW_GRAPH_VERSION_ABSENT at workflow.graph: Saved graph http-reviewed has no version 0{64}/u);
 
       const runnable = await app.inject({ method: "POST", url: "/configurations", payload: { name: "Reviewed", config: { ...config, workflow: { graph: { id: "http-reviewed", version: record.version }, checkpoints: { mode: "interactive" } } } } });
       const started = await app.inject({ method: "POST", url: "/runs", payload: { configurationId: runnable.json<{ id: string }>().id } });

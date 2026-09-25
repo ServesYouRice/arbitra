@@ -71,22 +71,11 @@
   "workflow": {
     "preset": "diff-fast"
   },
-  "budgets": {
-    "maximumCostUsd": 2,
-    "maximumModelCalls": 6
-  },
-  "security": {
-    "excludeGlobs": [
-      ".runs/**",
-      "node_modules/**"
-    ],
-    "overlapBudget": 1
-  },
+  "budgets": {},
+  "security": {},
   "protocols": {
     "audit": "1.0.0"
   },
   "promptOverrides": {},
-  "contextPolicies": {
-    "discovery": "independent"
-  }
+  "contextPolicies": {}
 }

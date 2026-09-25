@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -55,6 +55,21 @@ async function blockedRun(preset = "gated-audit"): Promise<{ runId: string; vers
 }
 
 describe("unknown or unconfigured checkpoint policies", () => {
+  it("are reported as preflight configuration diagnostics for registered graphs", async () => {
+    const subject = orchestrator();
+    expect(await subject.preflight(configFor("gated-audit", interactive))).toMatchObject({ valid: true, ready: true, preset: "gated-audit", diagnostics: [] });
+    const cases: [string, unknown, string][] = [["gated-audit", undefined, "CHECKPOINT_POLICY_REQUIRED"], ["unconfigured-gate", interactive, "GATE_POLICY_REQUIRED"], ["unknown-gate", interactive, "UNKNOWN_GATE_POLICY"]];
+    for (const [preset, checkpoints, code] of cases) {
+      const report = await subject.preflight(configFor(preset, checkpoints));
+      expect(report).toMatchObject({ valid: false, diagnostics: [{ code, severity: "error", scope: "configuration", path: "workflow.checkpoints" }] });
+    }
+    const cli = orchestratorCore(subject);
+    const path = join(repository, "unknown-gate.json");
+    await writeFile(path, JSON.stringify(configFor("unknown-gate", interactive)));
+    expect(await cli.validate(path)).toMatchObject({ disposition: "failed", reasons: ["invalid_configuration", "UNKNOWN_GATE_POLICY"] });
+    await rm(path);
+  });
+
   it("fail before any run is created", async () => {
     const subject = orchestrator();
     await expect(subject.start(configFor("gated-audit") as never)).rejects.toThrow("CHECKPOINT_POLICY_REQUIRED:approval");
