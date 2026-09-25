@@ -66,6 +66,15 @@ async function scratchDirectories(): Promise<string[]> { return (await readdir(t
 async function exists(path: string): Promise<boolean> { try { await access(path); return true; } catch { return false; } }
 
 describe("native Testing writer", () => {
+  it("passes a subscription token only as CLAUDE_CODE_OAUTH_TOKEN when credentialKind is oauth_token", async () => {
+    const f = await fixture({ steps: [{ write: "session.test.ts", content: written }] });
+    const config = runConfigSchema.parse({ ...f.config, harness: { mode: "native", native: { ...native, credentialKind: "oauth_token" } } });
+    await f.invoke(f, { config });
+    const report = JSON.parse(await readFile(f.report, "utf8")) as { envKeys: string[]; env: Record<string, string> };
+    expect(report.env["CLAUDE_CODE_OAUTH_TOKEN"]).toBe("native-credential");
+    expect(report.envKeys).not.toContain("ANTHROPIC_API_KEY");
+  });
+
   it("runs isolated, admits leased writes through the lease and records harness identity and usage", async () => {
     const before = await scratchDirectories();
     const f = await fixture({ steps: [{ tool: "Read", input: { file_path: "session.ts" } }, { write: "session.test.ts", content: written }] });

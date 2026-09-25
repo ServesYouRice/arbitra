@@ -15,6 +15,8 @@ export const nativeHarnessConfigSchema = z.strictObject({
   stages: z.array(text).min(1),
   /** Host environment variable whose value is passed to the native process as its only credential. */
   apiKeyEnvVar: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/u),
+  /** What that credential is: a provider API key, or a subscription token (Claude Code: `claude setup-token`). */
+  credentialKind: z.enum(["api_key", "oauth_token"]).default("api_key"),
   /** Native tool names the writer is granted; omitted means the matrix default. */
   tools: z.array(text).min(1).optional(),
   timeoutMs: z.number().int().min(1_000).max(3_600_000),
