@@ -69,4 +69,20 @@ export const providerExecutionSchema = z.object({
   if (value.maximumContextTokens !== undefined && value.maximumContextTokens <= value.maximumOutputTokens) context.addIssue({ code: "custom", path: ["maximumContextTokens"], message: "Context budget must leave room beyond the output reserve" });
 });
 
+/** Batch submission IDs are 32 hex characters and appear in URLs and artifact kinds. */
+export const BATCH_SUBMISSION_ID_PATTERN = /^[a-f0-9]{32}$/u;
+const batchResolutionBase = { version: z.string().regex(/^[a-f0-9]{64}$/u), by: z.string().min(1).max(200).regex(/\S/u) };
+/**
+ * Operator decision for one uncertain batch submission, made against the version the
+ * operator inspected. `provider_job` binds the job found in the provider console;
+ * `not_submitted` declares it never accepted, so its items may be sent again;
+ * `abandon` fails its items with their spend left unknown.
+ */
+export const batchResolutionRequestSchema = z.discriminatedUnion("decision", [
+  z.strictObject({ ...batchResolutionBase, decision: z.literal("provider_job"), providerJobId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/u) }),
+  z.strictObject({ ...batchResolutionBase, decision: z.literal("not_submitted") }),
+  z.strictObject({ ...batchResolutionBase, decision: z.literal("abandon") }),
+]);
+export type BatchResolutionRequest = z.infer<typeof batchResolutionRequestSchema>;
+
 export type ProviderExecution = z.infer<typeof providerExecutionSchema>;

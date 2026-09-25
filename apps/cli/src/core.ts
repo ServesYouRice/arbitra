@@ -13,6 +13,9 @@ export interface CoreCommandResult {
  */
 export interface OrchestratorCore {
   respondCheckpoint?(runId: string, checkpointId: string, version: string, decision: string): Promise<CoreCommandResult>;
+  /** Provider batch submissions of a run, with uncertain ones and their recorded evidence. */
+  batches?(runId: string): Promise<CoreCommandResult>;
+  resolveBatch?(runId: string, submissionId: string, request: BatchResolutionCommand): Promise<CoreCommandResult>;
   requirements?(runId: string): Promise<CoreCommandResult>;
   /** Operator-authored graphs: list, show one version, validate or save a graph file. */
   workflow?(request: WorkflowCommand): Promise<CoreCommandResult>;
@@ -36,6 +39,10 @@ export interface OrchestratorCore {
   exportRun(runId: string, format: "json"): Promise<CoreCommandResult>;
   report(runId: string): Promise<CoreCommandResult>;
 }
+
+export type BatchResolutionCommand = { readonly version: string; readonly by: string } & (
+  | { readonly decision: "provider_job"; readonly providerJobId: string }
+  | { readonly decision: "not_submitted" | "abandon" });
 
 export type WorkflowCommand =
   | { readonly action: "list" }

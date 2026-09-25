@@ -117,7 +117,7 @@ See [`durability.md`](durability.md).
 ```text
 validate  estimate  run  audit  status  resume  replay  diff  trace  export  report
 requirements  approve-requirements  revise-requirements  apply-requirements-revision
-respond-checkpoint  workflow  incremental  apply-changes
+respond-checkpoint  batches  resolve-batch  workflow  incremental  apply-changes
 ```
 
 `apps/cli/src/exit-policy.ts` is the sole mapping from outcome to process exit code:
@@ -154,6 +154,12 @@ validate and save operator-authored graphs as immutable content-addressed versio
 `POST /runs/:id/checkpoints/:checkpointId` records one versioned decision for a generic
 `human` node through the orchestrator. The server holds no checkpoint state. See
 [Gates and human checkpoints](workflows.md#gates-and-human-checkpoints).
+
+`GET /runs/:id/batches` lists a run's provider batch submissions, including uncertain ones
+and their recorded evidence. `POST /runs/:id/batches/:submissionId/resolve` records one
+versioned operator decision (`provider_job`, `not_submitted` or `abandon`) through the
+orchestrator. The CLI equivalents are `batches` and `resolve-batch`. See
+[Batch lane](provider-model.md#batch-lane).
 
 Four requirements routes expose saved Feature contracts and versioned approval/revision
 operations. See [Feature mode](workflows.md#feature-mode) for their payloads and CLI

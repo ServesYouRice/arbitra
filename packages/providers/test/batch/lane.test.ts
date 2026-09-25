@@ -108,8 +108,12 @@ describe("batch lane", () => {
     const error = await env.lane().execute(item("audit/a")).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(BatchSubmissionUncertainError);
     const submissionId = (error as BatchSubmissionUncertainError).submissionId;
-    await expect(env.lane().resolveUncertain(submissionId, { notSubmitted: true }, "")).rejects.toThrow("BATCH_RESOLUTION_ACTOR_REQUIRED");
-    await env.lane().resolveUncertain(submissionId, { notSubmitted: true }, "operator@example");
+    const [view] = await env.lane().view();
+    expect(view).toMatchObject({ id: submissionId, state: "uncertain", resolvable: true, reconciliationSupport: "metadata_listing", error: { code: "HTTP" },
+      reconciliation: { lastResult: "unsupported:no client key" }, items: [{ activityId: "audit/a", traceId: "trace-audit/a", attempt: 1, state: "queued", estimatedTokens: 100, usage: null }] });
+    await expect(env.lane().resolveUncertain(submissionId, view?.version ?? "", { decision: "not_submitted" }, "")).rejects.toThrow("BATCH_RESOLUTION_ACTOR_REQUIRED");
+    await env.lane().resolveUncertain(submissionId, view?.version ?? "", { decision: "not_submitted" }, "operator@example");
+    await expect(env.lane().resolveUncertain(submissionId, view?.version ?? "", { decision: "not_submitted" }, "operator@example")).rejects.toThrow(`BATCH_SUBMISSION_NOT_UNCERTAIN:${submissionId}:abandoned`);
     env.driver.onSubmit = async () => ({ providerJobId: "job-2" });
     env.driver.onResults = async () => env.driver.succeedAll(1);
     await expect(env.lane().execute(item("audit/a"))).resolves.toMatchObject({ provenance: { attempt: 2, providerJobId: "job-2" } });
@@ -122,6 +126,49 @@ describe("batch lane", () => {
     ]);
     const submissions = await env.lane().submissions();
     expect(submissions.find(({ id }) => id === submissionId)).toMatchObject({ state: "abandoned", resolution: { kind: "not_submitted", by: "operator@example" } });
+  });
+
+  it("binds an operator-found job only against the current version after checking it exists, and never twice", async () => {
+    const env = environment();
+    env.driver.onSubmit = async (input) => { if (input.items.some(({ customId }) => customId.includes(BatchLane.itemIdFor("audit/a")))) throw new BatchRequestError("TIMEOUT", "timed out", "unknown", true); return { providerJobId: "job-other" }; };
+    const error = await env.lane().execute(item("audit/a")).catch((caught: unknown) => caught) as BatchSubmissionUncertainError;
+    await env.lane().execute(item("audit/b"));
+    const view = (await env.lane().view()).find(({ id }) => id === error.submissionId);
+    const version = view?.version ?? "";
+    expect(view).toMatchObject({ resolvable: true, providerJobId: null, resolution: null });
+    // The operator inspected an older version: a later reconciliation attempt makes the decision stale.
+    await env.lane().reconcile();
+    await expect(env.lane().resolveUncertain(error.submissionId, version, { decision: "provider_job", providerJobId: "job-found" }, "operator")).rejects.toThrow(`BATCH_SUBMISSION_VERSION_STALE:${error.submissionId}`);
+    const current = (await env.lane().view()).find(({ id }) => id === error.submissionId)?.version ?? "";
+    await expect(env.lane().resolveUncertain(error.submissionId, current, { decision: "provider_job", providerJobId: "job-other" }, "operator")).rejects.toThrow(/^BATCH_PROVIDER_JOB_ALREADY_BOUND:job-other:/u);
+    await expect(env.lane().resolveUncertain(error.submissionId, current, { decision: "provider_job", providerJobId: "bad id" }, "operator")).rejects.toThrow("INVALID_PROVIDER_JOB_ID");
+    env.driver.onStatus = async (jobId) => { if (jobId === "job-typo") throw new BatchRequestError("HTTP", "Provider HTTP 404", "no", false); return { ended: false, providerStatus: "in_progress", jobFailure: null }; };
+    await expect(env.lane().resolveUncertain(error.submissionId, current, { decision: "provider_job", providerJobId: "job-typo" }, "operator")).rejects.toThrow(/^BATCH_PROVIDER_JOB_UNVERIFIED:job-typo: /u);
+    const bound = await env.lane().resolveUncertain(error.submissionId, current, { decision: "provider_job", providerJobId: "job-found" }, "operator");
+    expect(bound).toMatchObject({ state: "submitted", providerJobId: "job-found", providerStatus: "in_progress", resolution: { kind: "provider_job", by: "operator", version: current, providerJobId: "job-found" } });
+    await expect(env.lane().resolveUncertain(error.submissionId, BatchLane.versionOf(bound), { decision: "abandon" }, "operator")).rejects.toThrow("BATCH_SUBMISSION_NOT_UNCERTAIN");
+
+    // Collected normally on the next execution; the item keeps its identity and is never resubmitted.
+    env.driver.onStatus = async () => ({ ended: true, providerStatus: "ended", jobFailure: null });
+    env.driver.onResults = async (jobId) => jobId === "job-found" ? [{ customId: `a1-${BatchLane.itemIdFor("audit/a")}`, outcome: "succeeded", body: { text: "found" }, error: null }] : [];
+    await expect(env.lane().execute(item("audit/a"))).resolves.toMatchObject({ response: { text: "found" }, provenance: { traceId: "trace-audit/a", attempt: 1, providerJobId: "job-found" } });
+    expect(env.driver.submits).toHaveLength(2);
+  });
+
+  it("abandons an uncertain submission's items as failed with their spend left unknown", async () => {
+    const env = environment();
+    env.driver.onSubmit = async () => { throw new BatchRequestError("HTTP", "Provider HTTP 503", "unknown", true); };
+    const error = await env.lane().execute(item("audit/a")).catch((caught: unknown) => caught) as BatchSubmissionUncertainError;
+    const before = charged(await env.budget());
+    const [view] = await env.lane().view();
+    await env.lane().resolveUncertain(error.submissionId, view?.version ?? "", { decision: "abandon" }, "operator");
+    expect(charged(await env.budget())).toEqual(before);
+    expect(before).toEqual([{ activityId: "audit/a", estimated: 100, usage: null }]);
+    env.driver.onSubmit = async () => ({ providerJobId: "never" });
+    await expect(env.lane().execute(item("audit/a"))).rejects.toMatchObject({ code: "BATCH_ABANDONED_BY_OPERATOR", retryable: false });
+    expect(env.driver.submits).toHaveLength(1);
+    expect(await env.lane().view()).toMatchObject([{ state: "abandoned", resolvable: false, resolution: { kind: "abandoned", by: "operator" }, items: [{ state: "errored", usage: null, error: { code: "BATCH_ABANDONED_BY_OPERATOR" } }] }]);
+    expect(charged(await env.budget())).toEqual(before);
   });
 
   it("treats a crash while sending as uncertain and a crash while prepared as provably unsent", async () => {
