@@ -169,6 +169,33 @@ describe("Gemini batch driver", () => {
     await expect(driver.status("../files/x", signal)).rejects.toBeInstanceOf(BatchRequestError);
   });
 
+  it("encodes batch items with the interactive codec, so structured output keeps standard JSON Schema", async () => {
+    // Live P03: Gemini's OpenAPI-subset `responseSchema` rejects `additionalProperties`; the batch
+    // driver must share the transport's `responseJsonSchema` encoding rather than duplicate the old one.
+    const schema = { type: "object", properties: { capital: { type: "string" } }, required: ["capital"], additionalProperties: false };
+    const { client, requests } = fakeClient({ [`POST ${base}models/configured-model:batchGenerateContent`]: () => ok({ name: "batches/s" }) });
+    await new GeminiBatchDriver(configuration(base), options(client)).submit({ submissionKey: "k", modelId: "configured-model", items: [{ customId: "a1-s", request: { ...request, responseSchema: schema } }] }, signal);
+    const item = (requests[0]?.body as { batch: { inputConfig: { requests: { requests: { request: { generationConfig: Record<string, unknown> } }[] } } } }).batch.inputConfig.requests.requests[0];
+    expect(item?.request.generationConfig).toMatchObject({ responseMimeType: "application/json", responseJsonSchema: schema });
+    expect(item?.request.generationConfig["responseSchema"]).toBeUndefined();
+  });
+
+  it("classifies a tier or credit refusal as a definite, non-retryable QUOTA non-submission with the provider's detail", async () => {
+    const refusal = (status: number, error: Record<string, unknown>) => fakeClient({ [`POST ${base}models/configured-model:batchGenerateContent`]: () => ({ status, headers: {}, body: { error } }) });
+    const submit = (client: HttpClient) => new GeminiBatchDriver(configuration(base), options(client)).submit({ submissionKey: "k", modelId: "configured-model", items: [{ customId: "a1-a", request }] }, signal);
+    await expect(submit(refusal(429, { type: "invalid_request_error", code: "insufficient_quota", message: "You exceeded your current quota" }).client))
+      .rejects.toMatchObject({ code: "QUOTA", accepted: "no", retryable: false, message: expect.stringContaining("insufficient_quota") });
+    await expect(submit(refusal(400, { type: "invalid_request_error", message: "Your credit balance is too low (key=abc123)" }).client))
+      .rejects.toMatchObject({ code: "QUOTA", message: expect.not.stringContaining("abc123") });
+    // A generic precondition refusal stays an invalid request, but now names the provider's status.
+    await expect(submit(refusal(400, { code: 400, status: "FAILED_PRECONDITION", message: "Precondition check failed." }).client))
+      .rejects.toMatchObject({ code: "INVALID_REQUEST", accepted: "no", message: "Provider HTTP 400: 400/FAILED_PRECONDITION Precondition check failed." });
+    await expect(submit(refusal(400, { type: "invalid_request_error", code: "billing_hard_limit_reached", message: "Billing hard limit has been reached" }).client)).rejects.toMatchObject({ code: "QUOTA" });
+    // Google words its per-minute 429 with "plan and billing details"; that is still a retryable rate limit.
+    await expect(submit(refusal(429, { code: 429, status: "RESOURCE_EXHAUSTED", message: "You exceeded your current quota, please check your plan and billing details." }).client))
+      .rejects.toMatchObject({ code: "RATE_LIMIT", retryable: true });
+  });
+
   it("marks cancelled and expired jobs per item", async () => {
     const { client } = fakeClient({
       [`GET ${base}batches/c`]: () => ok({ name: "batches/c", metadata: { state: "BATCH_STATE_CANCELLED", output: { inlinedResponses: { inlinedResponses: [{ metadata: { key: "a1-a" }, error: { code: 1, message: "cancelled" } }] } } } }),
