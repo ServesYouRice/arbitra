@@ -121,8 +121,9 @@ test.describe("workflow canvas editing", () => {
     await expect(validation(editor)).toContainText("valid · version");
 
     // Tab order reaches the add-node controls from the graph ID, through the canvas. WebKit on
-    // macOS moves focus to buttons only with Option+Tab (the platform's full keyboard access).
-    const next = project === "webkit" ? "Alt+Tab" : "Tab";
+    // macOS moves focus to buttons only with Option+Tab (the platform's full keyboard access);
+    // elsewhere plain Tab reaches every control.
+    const next = project === "webkit" && process.platform === "darwin" ? "Alt+Tab" : "Tab";
     let reached = false;
     for (let step = 0; step < 80 && !reached; step += 1) {
       await page.keyboard.press(next);
