@@ -89,6 +89,15 @@ export function controlPlaneCore(orchestrator: Orchestrator) {
       applyRevision: (runId: string, artifactId: string) => orchestrator.applyRequirementsRevision(runId, artifactId),
     },
 
+    // Operator-authored graphs; the orchestrator validates, versions and later dispatches them.
+    workflows: {
+      list: () => orchestrator.listWorkflowGraphs(),
+      versions: (graphId: string) => orchestrator.workflowGraphVersions(graphId),
+      version: (graphId: string, version: string) => orchestrator.workflowGraph(graphId, version),
+      validate: (body: unknown) => orchestrator.validateWorkflowGraph(body),
+      save: (body: unknown) => orchestrator.saveWorkflowGraph(body),
+    },
+
     testing: {
       view: (runId: string) => orchestrator.testing(runId),
       changeSet: (runId: string) => orchestrator.testingChangeSet(runId),

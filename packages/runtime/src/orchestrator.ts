@@ -53,6 +53,13 @@ export interface ReplayResource {
   readonly execution?: ReplayContract["execution"];
 }
 import { testingOperatorView, testingVerifiedChangeSet } from "./testing-operator-view.js";
+import { WorkflowGraphStore, type WorkflowGraphVersionRecord } from "@arbitra/persistence/workflow-graph-store.js";
+import { workflowGraphReferenceSchema, workflowGraphSaveRequestSchema, workflowGraphValidateRequestSchema, type WorkflowGraphAuthorization, type WorkflowGraphReference } from "@arbitra/schemas/workflow-graphs.js";
+import { authoredTemplates, boundedRounds, runnerGraphOf, validateAuthoredGraph, type AuthoredGraphValidation } from "./authored-graphs.js";
+import type { WorkflowGraph } from "@arbitra/workflow/graph-schema.js";
+
+/** A run's executed graph identity: the saved version it references and the version of what actually ran. */
+export interface RunWorkflowGraphIdentity extends WorkflowGraphReference { readonly executedVersion: string }
 
 export interface OrchestratorOptions {
   /** Where runs and saved configurations live. Defaults to `<repository>/.runs`. */
@@ -68,6 +75,8 @@ export interface OrchestratorOptions {
   readonly graphs?: Readonly<Record<string, RunnerGraph>>;
   /** Additional deterministic gate policies. Built-in policy IDs cannot be replaced. */
   readonly gatePolicies?: GatePolicyRegistry;
+  /** The clock recorded on saved workflow graph versions (ISO-8601). */
+  readonly now?: () => string;
 }
 
 export interface PreflightReport {
@@ -92,6 +101,8 @@ export interface RunResource {
   readonly checkpointMode?: CheckpointPolicy["mode"];
   readonly preservedArtifacts: number;
   readonly workflow?: RunnerGraph;
+  /** Present when the run executes a saved operator-authored graph. */
+  readonly workflowGraph?: RunWorkflowGraphIdentity;
 }
 
 /**
@@ -103,6 +114,8 @@ export interface RunResource {
 export class Orchestrator {
   readonly repository: string;
   readonly configurations: ConfigStore<RunConfig>;
+  /** Operator-authored graphs: content-addressed, immutable per version. */
+  readonly workflowGraphs: WorkflowGraphStore;
 
   readonly #runsDirectory: string;
   readonly #newRunId: () => string;
@@ -118,6 +131,8 @@ export class Orchestrator {
     const state = resolve(options.stateDirectory ?? resolve(this.repository, ".runs"));
     this.#runsDirectory = resolve(state, "runs");
     this.configurations = new ConfigStore<RunConfig>(resolve(state, "configurations"), runConfigSchema);
+    // arbitra-determinism: allow -- wall-clock save time is read only at the composition boundary
+    this.workflowGraphs = new WorkflowGraphStore(resolve(state, "workflows"), { now: options.now ?? ((): string => new Date().toISOString()) });
     // arbitra-determinism: allow -- run identity is minted at the composition boundary
     this.#newRunId = options.newRunId ?? ((): string => `run-${randomUUID()}`);
     this.#providerOptions = options.providerOptions ?? {};
@@ -149,7 +164,7 @@ export class Orchestrator {
    */
   async estimate(config: RunConfig, repository = this.repository): Promise<unknown> {
     const validated = this.configurations.validate(config);
-    const graph = this.#assertRunnable(validated);
+    const { graph } = await this.#assertRunnable(validated);
     const snapshot = await snapshotRepository(resolve(repository), 400, { scope: validated.scope, ...testingSnapshotOptions(validated) });
     return Object.freeze({
       estimate: Object.freeze({
@@ -177,16 +192,17 @@ export class Orchestrator {
     catch (failure) {
       return Object.freeze({ valid: false, ready: false, mode: null, preset: null, modelBacked: null, diagnostics: Object.freeze(schemaDiagnostics(failure)) });
     }
-    const configuration = configurationDiagnostics(config, this.#preflightOptions(config));
+    const saved = await this.#savedGraph(config);
+    const configuration = [...saved.diagnostics, ...configurationDiagnostics(config, this.#preflightOptions(config, saved.graph))];
     const environment = await environmentDiagnostics(config, this.#environmentOptions());
     const valid = !configuration.some(({ severity }) => severity === "error");
-    const preset = presetOf(config) ?? (valid ? graphForConfiguration(config, this.#graphs).id : null);
+    const preset = presetOf(config) ?? (valid ? (saved.graph ?? graphForConfiguration(config, this.#graphs)).id : null);
     return Object.freeze({ valid, ready: valid && !environment.some(({ severity }) => severity === "error"), mode: config.mode, preset,
       modelBacked: config.mode !== "audit" || Object.keys(config.models).length > 0, diagnostics: Object.freeze([...configuration, ...environment]) });
   }
 
-  #preflightOptions(config: RunConfig): ConfigurationPreflightOptions {
-    return { graphs: this.#graphs, checkpoints: (graph) => validateGraphCheckpoints(graph, checkpointPolicyOf(config), this.#gatePolicies) };
+  #preflightOptions(config: RunConfig, savedGraph?: RunnerGraph): ConfigurationPreflightOptions {
+    return { graphs: this.#graphs, ...(savedGraph === undefined ? {} : { savedGraph }), checkpoints: (graph) => validateGraphCheckpoints(graph, checkpointPolicyOf(config), this.#gatePolicies) };
   }
 
   #environmentOptions() {
@@ -196,7 +212,7 @@ export class Orchestrator {
   /** Start a run and return as soon as it is created; it continues in the background. */
   async start(config: RunConfig, repository = this.repository): Promise<RunResource> {
     const validated = this.configurations.validate(config);
-    const graph = this.#assertRunnable(validated);
+    const { graph, authored } = await this.#assertRunnable(validated);
     // Fail before a run, snapshot or provider call exists rather than at first dispatch.
     const environment = await environmentDiagnostics(validated, { ...this.#environmentOptions(), includeWarnings: false });
     if (environment.some(({ severity }) => severity === "error")) throw new PreflightError(environment);
@@ -208,12 +224,19 @@ export class Orchestrator {
     const snapshot = await snapshotRepository(selectedRepository, 400, { scope: validated.scope, ...testingSnapshotOptions(validated) });
     const modelConfiguration = Object.keys(validated.models).length > 0 ? validated : undefined;
     const checkpointPolicy = checkpointPolicyOf(validated);
-    const storedContext: StoredRunContext = Object.freeze({ repository: selectedRepository, repositoryDigest: snapshotDigest(snapshot), scope: validated.scope, consensusPolicy: validated.consensusPolicy, maximumRounds: validated.maxConsensusRounds, criticEnabled: graph.nodes.some(({ id }) => id === "critic"), ...(modelConfiguration === undefined ? {} : { modelConfiguration }), ...(checkpointPolicy === undefined ? {} : { checkpointPolicy }) });
+    // A saved graph's identity is fixed in the run context, and its loop's explicit
+    // maximum caps the consensus rounds the configuration allows.
+    const storedContext: StoredRunContext = Object.freeze({ repository: selectedRepository, repositoryDigest: snapshotDigest(snapshot), scope: validated.scope, consensusPolicy: validated.consensusPolicy,
+      maximumRounds: authored === undefined ? validated.maxConsensusRounds : boundedRounds(graph, validated.maxConsensusRounds), criticEnabled: graph.nodes.some(({ id }) => id === "critic"),
+      ...(modelConfiguration === undefined ? {} : { modelConfiguration }), ...(checkpointPolicy === undefined ? {} : { checkpointPolicy }), ...(authored === undefined ? {} : { workflowGraph: authored }) });
     const identity = modelConfiguration?.mode === "audit" ? await captureSnapshotIdentity(snapshot, storedContext.repositoryDigest, defaultGit) : undefined;
     // Reuse is decided against the base before the run exists; the run then only reads it.
     const contract = base === undefined || identity === undefined || modelConfiguration === undefined ? undefined : await planIncrementalAudit({
       base: base.store, baseState: base.state, baseContext: base.context, repository: selectedRepository, config: modelConfiguration, criticEnabled: storedContext.criticEnabled, snapshot, identity, git: defaultGit,
-      targetPin: (id) => registryProtocolPin(modelConfiguration.protocols, id), // A protocol the base never pinned produced no base output, so assuming the new pin cannot enable reuse.
+      // Reuse is bound to the executed graph: a saved graph reuses only from a base that ran the same graph.
+      graph: { reference: authored ?? null, version: WorkflowGraphStore.versionOf(graph) }, baseGraph: await this.#executedGraphIdentity(base.store, base.context),
+      targetPin: (id) => registryProtocolPin(modelConfiguration.protocols, id),
+      // A protocol the base never pinned produced no base output, so assuming the new pin cannot enable reuse.
       basePin: async (id) => await storedProtocolPin(base.store, id) ?? registryProtocolPin(modelConfiguration.protocols, id),
     });
     if (runId === contract?.baseRunId) throw new Error("INCREMENTAL_MUST_CREATE_NEW_RUN");
@@ -233,6 +256,12 @@ export class Orchestrator {
     const handle = this.#runner(store, context, undefined, modelConfiguration, checkpointPolicy, undefined, units).start(graph, { runId });
     this.#track(runId, handle);
     return Object.freeze({ runId, state: handle.state, resumable: true, checkpoints: Object.freeze([]), preservedArtifacts: 0 });
+  }
+
+  /** The graph a base run executed, or null when its stored definition is unavailable. */
+  async #executedGraphIdentity(store: RunStore, context: StoredRunContext): Promise<{ readonly reference: WorkflowGraphReference | null; readonly version: string } | null> {
+    try { return { reference: context.workflowGraph ?? null, version: WorkflowGraphStore.versionOf((await store.definitions().load(store.runId)).graph) }; }
+    catch { return null; }
   }
 
   /**
@@ -316,7 +345,7 @@ export class Orchestrator {
       config = testingReplayConfiguration(config, request.execution);
       execution = request.execution.mode === "plan" ? { mode: "plan" } : { mode: "execute", authority: "replay_request", authorizationDigest: createHash("sha256").update(canonicalJson(request.execution.authorization)).digest("hex") };
     }
-    const graph = this.#assertRunnable(config);
+    const { graph } = await this.#assertRunnable(config);
     // Regenerated stages dispatch models and may run checks: same environment gate as `start`.
     const environment = await environmentDiagnostics(config, { ...this.#environmentOptions(), includeWarnings: false });
     if (environment.some(({ severity }) => severity === "error")) throw new PreflightError(environment);
@@ -361,6 +390,11 @@ export class Orchestrator {
     if (snapshotDigest(snapshot) !== original.repositoryDigest) throw new Error(`RUN_REPOSITORY_CHANGED:${sourceRunId}`);
     const definition = await source.definitions().load(sourceRunId);
     const replayGraph = withCritic(definition.graph, overrides.criticEnabled);
+    if (original.workflowGraph !== undefined) {
+      // A replay of a saved graph executes that exact version; it cannot edit it.
+      await this.#verifyExecutedGraph(original.workflowGraph, definition.graph);
+      if (replayGraph !== definition.graph) throw Object.assign(new Error("REPLAY_SAVED_GRAPH_IMMUTABLE:criticEnabled"), { statusCode: 409 });
+    }
     validateGraphCheckpoints(replayGraph, original.checkpointPolicy, this.#gatePolicies);
     if (original.modelConfiguration !== undefined) validateModelAudit(original.modelConfiguration, auditorIdsFor(replayGraph), overrides.criticEnabled);
     const auditors = auditorsFor(definition.graph, original.modelConfiguration);
@@ -413,6 +447,8 @@ export class Orchestrator {
     const snapshot = await snapshotRepository(storedContext.repository, 400, { scope: storedContext.scope, ...testingSnapshotOptions(storedContext.modelConfiguration) });
     if (snapshotDigest(snapshot) !== storedContext.repositoryDigest) throw new Error(`RUN_REPOSITORY_CHANGED:${runId}`);
     const definition = await store.definitions().load(runId);
+    // A saved graph resumes as the exact version the run started with, never a later one.
+    if (storedContext.workflowGraph !== undefined) await this.#verifyExecutedGraph(storedContext.workflowGraph, definition.graph);
     // The stored definition and stored policy are authoritative; a later configuration
     // edit cannot turn an unresolved checkpoint into an approval.
     validateGraphCheckpoints(definition.graph, storedContext.checkpointPolicy, this.#gatePolicies);
@@ -459,14 +495,17 @@ export class Orchestrator {
     if (last === undefined && live === undefined) throw new Error(`RUN_ABSENT:${runId}`);
     const workflow = last === undefined ? undefined : (await store.definitions().load(runId)).graph;
     const checkpoints: RunCheckpointResource[] = [];
-    if (state === "BLOCKED" && workflow?.id === "feature-simple") {
+    const stored = last === undefined ? undefined : await store.loadContext();
+    // Mode, not graph ID: an authorized saved Audit graph may reuse a preset's ID.
+    if (state === "BLOCKED" && workflow?.id === "feature-simple" && stored?.modelConfiguration?.mode === "feature") {
       const current = await this.requirements(runId);
       if (current !== null) checkpoints.push({ artifactId: current.artifactId, kind: "requirements", pendingAmbiguityIds: current.pendingAmbiguityIds,
         ...(current.revisionProposal === undefined ? {} : { revisionProposalArtifactId: current.revisionProposal.artifactId }) });
     }
-    const policy = last === undefined ? undefined : (await store.loadContext()).checkpointPolicy;
+    const policy = stored?.checkpointPolicy;
     if (workflow !== undefined) checkpoints.push(...await this.#checkpoints(store, policy).list(workflow));
-    return Object.freeze({ runId, state, resumable: state !== "COMPLETED", checkpoints: Object.freeze(checkpoints), ...(policy === undefined ? {} : { checkpointMode: policy.mode }), preservedArtifacts: (await store.listArtifacts()).length, ...(workflow === undefined ? {} : { workflow }) });
+    const workflowGraph = stored?.workflowGraph === undefined || workflow === undefined ? undefined : Object.freeze({ ...stored.workflowGraph, executedVersion: WorkflowGraphStore.versionOf(workflow) });
+    return Object.freeze({ runId, state, resumable: state !== "COMPLETED", checkpoints: Object.freeze(checkpoints), ...(policy === undefined ? {} : { checkpointMode: policy.mode }), preservedArtifacts: (await store.listArtifacts()).length, ...(workflow === undefined ? {} : { workflow }), ...(workflowGraph === undefined ? {} : { workflowGraph }) });
   }
 
   /**
@@ -495,13 +534,83 @@ export class Orchestrator {
     return new GraphCheckpoints(graphCheckpointStore(store), policy, this.#gatePolicies);
   }
 
-  #assertRunnable(config: RunConfig): RunnerGraph {
-    assertNoPreflightErrors(configurationDiagnostics(config, this.#preflightOptions(config)));
+  async #assertRunnable(config: RunConfig): Promise<{ readonly graph: RunnerGraph; readonly authored?: WorkflowGraphReference }> {
+    const saved = await this.#savedGraph(config);
+    assertNoPreflightErrors([...saved.diagnostics, ...configurationDiagnostics(config, this.#preflightOptions(config, saved.graph))]);
     // The composed stages re-check their own settings; keep those checks authoritative.
-    assertRuntimeConfiguration(config, this.#graphs);
-    const graph = graphForConfiguration(config, this.#graphs);
+    assertRuntimeConfiguration(config, this.#graphs, saved.graph);
+    const graph = saved.graph ?? graphForConfiguration(config, this.#graphs);
     validateGraphCheckpoints(graph, checkpointPolicyOf(config), this.#gatePolicies);
-    return graph;
+    return saved.reference === undefined ? { graph } : { graph, authored: saved.reference };
+  }
+
+  /**
+   * Resolve `workflow.graph` to its saved version and re-validate it against this run's
+   * configuration. A missing or invalid version becomes preflight configuration
+   * diagnostics at `workflow.graph`, so it is refused before any run exists.
+   */
+  async #savedGraph(config: RunConfig): Promise<{ readonly graph?: RunnerGraph; readonly reference?: WorkflowGraphReference; readonly diagnostics: readonly PreflightDiagnostic[] }> {
+    if (config.workflow["graph"] === undefined) return { diagnostics: [] };
+    const failed = (code: string, path: string, message: string) => ({ diagnostics: [Object.freeze({ code, severity: "error" as const, scope: "configuration" as const, path, message })] });
+    const reference = workflowGraphReferenceSchema.parse(config.workflow["graph"]);
+    const record = await this.workflowGraphs.get(reference.id, reference.version);
+    if (record === null) return failed("WORKFLOW_GRAPH_VERSION_ABSENT", "workflow.graph", `Saved graph ${reference.id} has no version ${reference.version}. Save the graph first and reference the exact version the save returned.`);
+    if ((record.graph as { id?: unknown }).id !== reference.id) return failed("WORKFLOW_GRAPH_ID_MISMATCH", "workflow.graph.id", `Version ${reference.version} is not a version of graph ${reference.id}.`);
+    const validation = this.#validateGraph(record.graph, record.authorizations as readonly WorkflowGraphAuthorization[], config);
+    if (!validation.valid) {
+      return { diagnostics: validation.diagnostics.map(({ code, path, message }) => Object.freeze({ code, severity: "error" as const, scope: "configuration" as const, path: `workflow.graph(${reference.id}).${path}`, message })) };
+    }
+    return { graph: runnerGraphOf(record.graph as WorkflowGraph), reference: Object.freeze({ ...reference }), diagnostics: [] };
+  }
+
+  /** The graph a run executed must be byte-for-byte the saved version it references. */
+  async #verifyExecutedGraph(reference: WorkflowGraphReference, executed: RunnerGraph): Promise<void> {
+    const record = await this.workflowGraphs.get(reference.id, reference.version);
+    if (record === null) throw Object.assign(new Error(`WORKFLOW_GRAPH_VERSION_ABSENT:${reference.id}:${reference.version}`), { statusCode: 409 });
+    if (WorkflowGraphStore.versionOf(executed) !== reference.version) throw Object.assign(new Error(`RUN_WORKFLOW_GRAPH_MISMATCH:${reference.id}:${reference.version}`), { statusCode: 409 });
+  }
+
+  #validateGraph(graph: unknown, authorize: readonly WorkflowGraphAuthorization[], configuration?: RunConfig): AuthoredGraphValidation {
+    return validateAuthoredGraph(graph, { gatePolicies: this.#gatePolicies, authorize, reservedIds: [...Object.keys(PRESET_GRAPHS), ...Object.keys(this.#graphs)], ...(configuration === undefined ? {} : { configuration }) });
+  }
+
+  /** Saved graphs by ID with their versions, and an editable template of each Audit preset. */
+  async listWorkflowGraphs() {
+    return Object.freeze({ graphs: await this.workflowGraphs.list(), templates: authoredTemplates() });
+  }
+
+  async workflowGraphVersions(graphId: string) {
+    const versions = await this.workflowGraphs.versions(graphId);
+    if (versions.length === 0) throw Object.assign(new Error(`WORKFLOW_GRAPH_ABSENT:${graphId}`), { statusCode: 404 });
+    return Object.freeze({ graphId, versions });
+  }
+
+  async workflowGraph(graphId: string, version: string): Promise<WorkflowGraphVersionRecord> {
+    const record = await this.workflowGraphs.get(graphId, version);
+    if (record === null) throw Object.assign(new Error(`WORKFLOW_GRAPH_VERSION_ABSENT:${graphId}:${version}`), { statusCode: 404 });
+    return record;
+  }
+
+  /** The server-side validator the editor and CLI call; nothing is written. */
+  async validateWorkflowGraph(value: unknown): Promise<AuthoredGraphValidation> {
+    const request = parseRequest(workflowGraphValidateRequestSchema, value);
+    const configuration = request.configurationId === undefined ? undefined : (await this.configurations.load(request.configurationId)).config;
+    return this.#validateGraph(request.graph, request.authorize, configuration);
+  }
+
+  /**
+   * Save a validated graph as an immutable version. An invalid graph is refused with its
+   * diagnostic codes. Only authorizations the graph actually needs are recorded.
+   */
+  async saveWorkflowGraph(value: unknown): Promise<{ readonly record: WorkflowGraphVersionRecord; readonly created: boolean; readonly validation: AuthoredGraphValidation }> {
+    const request = parseRequest(workflowGraphSaveRequestSchema, value);
+    const configuration = request.configurationId === undefined ? undefined : (await this.configurations.load(request.configurationId)).config;
+    const validation = this.#validateGraph(request.graph, request.authorize, configuration);
+    if (!validation.valid) throw Object.assign(new Error(`WORKFLOW_GRAPH_INVALID:${[...new Set(validation.diagnostics.map(({ code }) => code))].join(",")}`), { statusCode: 422 });
+    const graph = request.graph as unknown as WorkflowGraph;
+    const needed = new Set(validation.privileged.map(({ category }) => category));
+    const saved = await this.workflowGraphs.save({ graphId: graph.id, graph, parentVersion: request.parentVersion, authorizations: request.authorize.filter((category) => needed.has(category)) });
+    return Object.freeze({ ...saved, validation });
   }
 
   async requirements(runId: string) {
@@ -860,17 +969,24 @@ function presetOf(config: RunConfig): string | undefined {
 }
 
 /** Do not misrepresent a scripted audit as an uncomposed model/Feature/Testing run. */
-function assertRuntimeConfiguration(config: RunConfig, registered: Readonly<Record<string, RunnerGraph>>): void {
+function assertRuntimeConfiguration(config: RunConfig, registered: Readonly<Record<string, RunnerGraph>>, saved?: RunnerGraph): void {
+  const resolveGraph = (): RunnerGraph => saved ?? graphForConfiguration(config, registered);
   if (config.harness.mode !== "canonical") throw new Error("RUNTIME_NATIVE_HARNESS_NOT_AVAILABLE");
-  if (config.mode === "testing") { validateModelTesting(config); graphForConfiguration(config, registered); return; }
-  if (config.mode === "feature") { validateModelFeature(config); graphForConfiguration(config, registered); return; }
+  if (config.mode === "testing") { validateModelTesting(config); resolveGraph(); return; }
+  if (config.mode === "feature") { validateModelFeature(config); resolveGraph(); return; }
   if (Object.keys(config.models).length > 0) {
     if (config.workflow["modelExecution"] === undefined) throw new Error("RUNTIME_MODEL_EXECUTION_CONFIGURATION_REQUIRED");
-    const graph = graphForConfiguration(config, registered);
+    const graph = resolveGraph();
     validateModelAudit(config, auditorIdsFor(graph), graph.nodes.some(({ id }) => id === "critic"));
   }
   if (config.workflow["preset"] !== undefined && typeof config.workflow["preset"] !== "string") throw new Error("INVALID_WORKFLOW_PRESET");
-  graphForConfiguration(config, registered);
+  resolveGraph();
+}
+
+function parseRequest<T>(schema: { safeParse(value: unknown): { success: true; data: T } | { success: false; error: { issues: readonly { path: readonly PropertyKey[]; message: string }[] } } }, value: unknown): T {
+  const parsed = schema.safeParse(value);
+  if (!parsed.success) throw Object.assign(new Error(`INVALID_WORKFLOW_GRAPH_REQUEST:${parsed.error.issues.map(({ path, message }) => `${path.map(String).join(".") || "$"}: ${message}`).join("; ")}`), { statusCode: 400 });
+  return parsed.data;
 }
 
 function checkpointPolicyOf(config: RunConfig): CheckpointPolicy | undefined {

@@ -7,6 +7,7 @@ import { featureExecutionSchema } from "./feature-execution.js";
 import { testingExecutionSchema } from "./testing.js";
 import { checkpointPolicySchema } from "./checkpoint-policy.js";
 import { incrementalAuditSchema } from "./incremental.js";
+import { workflowGraphReferenceSchema } from "./workflow-graphs.js";
 
 export const RUN_CONFIG_SCHEMA_VERSION = 1 as const;
 
@@ -62,6 +63,11 @@ export const runConfigSchema = z.object({
       const checkpoints = checkpointPolicySchema.safeParse(workflow["checkpoints"]);
       if (!checkpoints.success) for (const issue of checkpoints.error.issues) context.addIssue({ ...issue, path: ["checkpoints", ...issue.path] });
     }
+    if (workflow["graph"] !== undefined) {
+      const graph = workflowGraphReferenceSchema.safeParse(workflow["graph"]);
+      if (!graph.success) for (const issue of graph.error.issues) context.addIssue({ ...issue, path: ["graph", ...issue.path] });
+      if (workflow["preset"] !== undefined) context.addIssue({ code: "custom", path: ["graph"], message: "A saved workflow graph and a preset are exclusive" });
+    }
     if (workflow["modelExecution"] === undefined) return;
     const result = providerExecutionSchema.safeParse(workflow["modelExecution"]);
     if (!result.success) for (const issue of result.error.issues) context.addIssue({ ...issue, path: ["modelExecution", ...issue.path] });
@@ -73,6 +79,8 @@ export const runConfigSchema = z.object({
   contextPolicies: jsonObjectSchema,
 }).strict().superRefine((config, context) => {
   if (config.workflow["incremental"] !== undefined && config.mode !== "audit") context.addIssue({ code: "custom", path: ["workflow", "incremental"], message: "Incremental reuse applies only to Audit runs" });
+  // Operator-authored graphs dispatch through the Audit executors; Feature and Testing keep their presets.
+  if (config.workflow["graph"] !== undefined && config.mode !== "audit") context.addIssue({ code: "custom", path: ["workflow", "graph"], message: "Saved workflow graphs require audit mode" });
   if (config.workflow["testing"] !== undefined) {
     const testing = testingExecutionSchema.safeParse(config.workflow["testing"]);
     if (config.mode !== "testing") context.addIssue({ code: "custom", path: ["workflow", "testing"], message: "Testing settings require testing mode" });

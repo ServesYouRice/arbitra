@@ -52,6 +52,8 @@ const warning = (code: string, path: string, message: string): PreflightDiagnost
 
 /** The graph a configuration executes, including operator-registered presets. Mode and preset must agree. */
 export function graphForConfiguration(config: RunConfig, registered: Readonly<Record<string, RunnerGraph>> = {}): RunnerGraph {
+  // A saved operator-authored graph is loaded by the orchestrator, never resolved as a preset.
+  if (config.workflow["graph"] !== undefined) throw new Error("WORKFLOW_GRAPH_REQUIRES_SAVED_VERSION");
   if (config.workflow["preset"] !== undefined && typeof config.workflow["preset"] !== "string") throw new Error("INVALID_WORKFLOW_PRESET");
   const testingPreset = config.mode === "testing" && testingExecutionSchema.parse(config.workflow["testing"]).mode === "execute" ? "testing-execute" : "testing-plan";
   const preset = typeof config.workflow["preset"] === "string" ? config.workflow["preset"] : undefined;
@@ -64,6 +66,8 @@ export function graphForConfiguration(config: RunConfig, registered: Readonly<Re
 export interface ConfigurationPreflightOptions {
   /** Operator-registered graphs dispatched by preset ID. */
   readonly graphs?: Readonly<Record<string, RunnerGraph>>;
+  /** The resolved saved graph for `workflow.graph`; its own diagnostics come from the orchestrator. */
+  readonly savedGraph?: RunnerGraph;
   /** Validates the graph's gate/human checkpoints against `workflow.checkpoints`; throws on failure. */
   readonly checkpoints?: (graph: RunnerGraph) => void;
 }
@@ -76,7 +80,7 @@ export function configurationDiagnostics(config: RunConfig, options: Configurati
   }
   const modelBacked = config.mode !== "audit" || Object.keys(config.models).length > 0;
   unenforcedSectionDiagnostics(config, modelBacked, diagnostics);
-  const graph = presetDiagnostics(config, options.graphs ?? {}, diagnostics);
+  const graph = config.workflow["graph"] !== undefined ? options.savedGraph : presetDiagnostics(config, options.graphs ?? {}, diagnostics);
   if (graph !== undefined && options.checkpoints !== undefined) {
     try { options.checkpoints(graph); }
     catch (failure) {

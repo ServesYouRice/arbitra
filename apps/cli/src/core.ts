@@ -14,6 +14,8 @@ export interface CoreCommandResult {
 export interface OrchestratorCore {
   respondCheckpoint?(runId: string, checkpointId: string, version: string, decision: string): Promise<CoreCommandResult>;
   requirements?(runId: string): Promise<CoreCommandResult>;
+  /** Operator-authored graphs: list, show one version, validate or save a graph file. */
+  workflow?(request: WorkflowCommand): Promise<CoreCommandResult>;
   applyRequirementsRevision?(runId: string, artifactId: string): Promise<CoreCommandResult>;
   approveRequirements?(runId: string, artifactId: string, ambiguityIds: readonly string[]): Promise<CoreCommandResult>;
   reviseRequirements?(runId: string, artifactId: string, draftPath: string): Promise<CoreCommandResult>;
@@ -32,3 +34,8 @@ export interface OrchestratorCore {
   exportRun(runId: string, format: "json"): Promise<CoreCommandResult>;
   report(runId: string): Promise<CoreCommandResult>;
 }
+
+export type WorkflowCommand =
+  | { readonly action: "list" }
+  | { readonly action: "show"; readonly graphId: string; readonly version?: string }
+  | { readonly action: "validate" | "save"; readonly graphPath: string; readonly configurationId?: string; readonly parentVersion?: string; readonly authorize: readonly string[] };

@@ -16,7 +16,7 @@ async function fixture(files: Readonly<Record<string, string>>, options: { reado
   const f = await incrementalFixture(files, options); cleanups.push(f.cleanup); return f;
 }
 
-const incremental = (config: RunConfig, baseRunId: string, changes: Partial<RunConfig> = {}): RunConfig => runConfigSchema.parse({ ...config, ...changes, workflow: { ...config.workflow, incremental: { baseRunId } } });
+const incremental = (config: RunConfig, baseRunId: string, changes: Partial<RunConfig> = {}): RunConfig => runConfigSchema.parse({ ...config, ...changes, workflow: { ...(changes.workflow ?? config.workflow), incremental: { baseRunId } } });
 type Report = Awaited<ReturnType<Orchestrator["incrementalReport"]>>;
 const regenerated = (report: Report) => [...new Set(report.units.filter(({ decision }) => decision === "regenerate").flatMap(({ paths }) => paths))].sort();
 const reasonsFor = (report: Report, path: string) => [...new Set(report.units.filter(({ paths }) => paths.includes(path)).flatMap(({ reasons }) => reasons))].sort();
@@ -36,6 +36,23 @@ const baseTree = {
   "pkg/package.json": '{"name":"pkg"}\n',
   "pkg/gamma.ts": moduleSource("gamma", ["gamma"]),
 };
+
+/** A completed base over `baseTree`, and a probe that audits one change against it and then restores the tree. */
+async function invalidationProbe() {
+  const f = await fixture(baseTree);
+  const orchestrator = f.orchestrator();
+  const base = await orchestrator.run(f.config);
+  expect(base.state).toBe("COMPLETED");
+  return async (tree: Readonly<Record<string, string | null>>, changes: Partial<RunConfig> = {}) => {
+    await f.write(tree);
+    f.calls.length = 0;
+    const result = await orchestrator.run(incremental(f.config, base.runId, changes));
+    expect(result.state).toBe("COMPLETED");
+    const report = await orchestrator.incrementalReport(result.runId);
+    await f.write(baseTree);
+    return { report, discovery: f.calls.filter(({ stage }) => stage === "discovery").map(({ activity }) => activity).sort() };
+  };
+}
 
 describe("incremental and repeat audits", () => {
   it("reruns an identical snapshot with no provider calls, reusing every unit and stage without touching the base", async () => {
@@ -74,21 +91,8 @@ describe("incremental and repeat audits", () => {
     expect(f.calls).toEqual([]);
   });
 
-  it("invalidates exactly the units whose cited lines, imports, manifests, exclusions or policy changed", async () => {
-    const f = await fixture(baseTree);
-    const orchestrator = f.orchestrator();
-    const base = await orchestrator.run(f.config);
-    expect(base.state).toBe("COMPLETED");
-    const probe = async (tree: Readonly<Record<string, string | null>>, changes: Partial<RunConfig> = {}) => {
-      await f.write(tree);
-      f.calls.length = 0;
-      const result = await orchestrator.run(incremental(f.config, base.runId, changes));
-      expect(result.state).toBe("COMPLETED");
-      const report = await orchestrator.incrementalReport(result.runId);
-      await f.write(baseTree);
-      return { report, discovery: f.calls.filter(({ stage }) => stage === "discovery").map(({ activity }) => activity).sort() };
-    };
-
+  it("invalidates exactly the units whose cited lines, uncited lines or imports changed", async () => {
+    const probe = await invalidationProbe();
     const cited = await probe({ "src/alpha.ts": baseTree["src/alpha.ts"].replace(defect("alpha"), defect("alpha").replace("JSON.parse(input)", "JSON.parse(input ?? '{}')")) });
     expect(regenerated(cited.report)).toEqual(["src/alpha.ts"]);
     expect(reasonsFor(cited.report, "src/alpha.ts")).toEqual(["changed:cited_lines:src/alpha.ts:1-1", "changed:footprint:src/alpha.ts"]);
@@ -104,7 +108,10 @@ describe("incremental and repeat audits", () => {
     expect(regenerated(imported.report)).toEqual(["src/beta-util.ts", "src/beta.ts"]);
     expect(reasonsFor(imported.report, "src/beta.ts")).toEqual(["changed:footprint:src/beta-util.ts", "changed:imports:src/beta-util.ts"]);
     expect(imported.discovery).toEqual(["auditor-a:src/beta-util.ts,src/beta.ts", "auditor-b:src/beta-util.ts,src/beta.ts"]);
+  });
 
+  it("invalidates exactly the units whose nested or root manifests changed", async () => {
+    const probe = await invalidationProbe();
     const nested = await probe({ "pkg/package.json": '{"name":"pkg","dependencies":{"left-pad":"1.3.0"}}\n' });
     expect(regenerated(nested.report)).toEqual(["pkg/gamma.ts"]);
     expect(reasonsFor(nested.report, "pkg/gamma.ts")).toEqual(["changed:manifests:pkg/package.json"]);
@@ -113,7 +120,10 @@ describe("incremental and repeat audits", () => {
     const root = await probe({ "package.json": '{"name":"fixture","type":"module"}\n' });
     expect(regenerated(root.report)).toEqual(["pkg/gamma.ts", "src/alpha.ts", "src/beta-util.ts", "src/beta.ts"]);
     expect(root.report.units.every(({ reasons }) => reasons.includes("changed:manifests:package.json"))).toBe(true);
+  });
 
+  it("invalidates the required units and stages when exclusions or policy change", async () => {
+    const probe = await invalidationProbe();
     const excluded = await probe({}, { scope: { kind: "repository", exclude: ["pkg"] } });
     expect(excluded.report.units.map(({ paths }) => paths.join(","))).not.toContain("pkg/gamma.ts");
     expect(excluded.report.units.every(({ decision, reasons }) => decision === "regenerate" && reasons.includes("changed:scope"))).toBe(true);
@@ -123,7 +133,7 @@ describe("incremental and repeat audits", () => {
     const consensus = await probe({}, { consensusPolicy: "full" });
     expect(regenerated(consensus.report)).toEqual([]);
     expect(consensus.discovery).toEqual([]);
-    expect(consensus.report.stages.map(({ decision, reasons }) => `${decision}:${reasons.join(",")}`)).toEqual(Array(4).fill("regenerate:changed:policy"));
+    expect(consensus.report.stages.map(({ decision, reasons }) => `${decision}:${reasons.join(",")}`)).toEqual(["regenerate:changed:policy", ...Array(3).fill("regenerate:changed:policy,changed:upstream")]);
 
     const depth = await probe({}, { auditDepth: "deep" });
     expect(regenerated(depth.report)).toEqual(["pkg/gamma.ts", "src/alpha.ts", "src/beta-util.ts", "src/beta.ts"]);
@@ -203,7 +213,7 @@ describe("incremental and repeat audits", () => {
     expect(await issues(resumed, failed.runId)).toEqual(["Unchecked parse alpha-two|accepted|none|2", "Unchecked parse alpha|accepted|none|2", "Unchecked parse beta|accepted|none|2"]);
   });
 
-  it("falls back to a full audit for an unfinished base or rewritten history, and records why", async () => {
+  it("falls back to a full audit for an unfinished base, and records why", async () => {
     const f = await fixture(baseTree);
     const orchestrator = f.orchestrator();
     f.fail("src/alpha.ts");
@@ -216,8 +226,18 @@ describe("incremental and repeat audits", () => {
     expect(fallback).toMatchObject({ strategy: "full_fallback", fallbackReasons: ["base_run_not_completed:FAILED"] });
     expect(fallback.units.every(({ decision, reasons }) => decision === "regenerate" && reasons[0] === "full_audit_fallback")).toBe(true);
     expect(f.calls.filter(({ stage }) => stage === "discovery")).toHaveLength(6);
+  });
 
+  it("falls back to a full audit when the executed graph or the Git history changed", async () => {
+    const f = await fixture(baseTree);
+    const orchestrator = f.orchestrator();
     const base = await orchestrator.run(f.config);
+    // Reuse is bound to the executed graph's identity: a different graph is a full audit.
+    f.calls.length = 0;
+    const otherGraph = await orchestrator.run(incremental(f.config, base.runId, { workflow: { ...f.config.workflow, preset: "diff-review" } }));
+    expect(otherGraph.state).toBe("COMPLETED");
+    expect(await orchestrator.incrementalReport(otherGraph.runId)).toMatchObject({ strategy: "full_fallback", fallbackReasons: ["workflow_graph_changed"] });
+    expect(f.calls.filter(({ stage }) => stage === "discovery")).toHaveLength(6);
     await f.git("commit", "-q", "--amend", "-m", "rewritten");
     f.calls.length = 0;
     const rewritten = await orchestrator.run(incremental(f.config, base.runId));

@@ -19,4 +19,8 @@ button, input, select, textarea { border: var(--hairline) solid var(--line); bor
 button:disabled { color: var(--mute); cursor: not-allowed; }
 @media (max-width: 1180px) { .shell { grid-template-columns: 280px minmax(420px, 1fr) 360px; } .shell__column--inspector { position: fixed; inset: 0 0 0 auto; width: 320px; z-index: 2; border-inline-start: var(--hairline) solid var(--line); } }
 @media (max-width: 900px) { .shell { grid-template-columns: minmax(0, 1fr); } .shell__column--models, .shell__column--contract { display: none; } .shell[data-tab="models"] .shell__column--models, .shell[data-tab="contract"] .shell__column--contract { display: block; } }
-
+/* The unsaved-changes guard: a modal alert dialog over the workspace. */
+.unsaved-backdrop { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; background: none; }
+.unsaved-dialog { display: grid; gap: var(--s3); max-width: var(--measure); padding: var(--s4); border: var(--hairline) solid var(--line); background: var(--surface); color: var(--body); }
+.unsaved-actions { display: flex; gap: var(--s2); }
+.unsaved-actions button { min-height: var(--row-h); }

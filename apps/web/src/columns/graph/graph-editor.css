@@ -1,0 +1,20 @@
+/* Edit mode of the graph column: hairlines, square corners, the shared type and space scales. */
+.graph-editor label { display: grid; gap: var(--s1); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); color: var(--mute); }
+.editor-toolbar { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: end; padding-block-end: var(--s2); border-block-end: var(--hairline) solid var(--line); }
+.editor-toolbar button, .editor-forms button, .editor-list button, .editor-fields button { min-height: var(--row-h); }
+.editor-dirty[data-dirty="true"] { color: var(--ink); }
+.editor-reference code { font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); overflow-wrap: anywhere; }
+.editor-forms { display: flex; flex-wrap: wrap; gap: var(--s3); }
+.editor-forms fieldset { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: end; margin: 0; padding: var(--s2); border: var(--hairline) solid var(--line); border-radius: var(--radius); }
+.editor-forms legend { font: 600 var(--t-label)/var(--lh-tight) var(--font-display); letter-spacing: .14em; text-transform: uppercase; color: var(--mute); }
+.editor-lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--s3); }
+.editor-list { display: grid; gap: var(--s1); margin: 0; padding: 0; list-style: none; }
+.editor-list li { display: flex; gap: var(--s1); align-items: center; font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); border-inline-start: var(--stripe) solid transparent; padding-inline-start: var(--s1); }
+.editor-list li[data-selected="true"] { border-inline-start-color: var(--steel); }
+.editor-list__select { flex: 1; border-color: transparent; background: none; text-align: start; }
+.editor-list__select[aria-pressed="true"] { border-color: var(--line); color: var(--ink); }
+.editor-inspector, .editor-validation { border-block-start: var(--hairline) solid var(--line); padding-block-start: var(--s2); }
+.editor-fields { display: grid; gap: var(--s2); max-width: var(--measure); }
+.editor-diagnostics { display: grid; gap: var(--s1); margin: 0; padding: 0; list-style: none; font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); overflow-wrap: anywhere; }
+.editor-diagnostics__code { color: var(--ink); font-weight: 600; }
+@media (forced-colors: active) { .editor-list li[data-selected="true"] { border-color: CanvasText; } }
