@@ -88,7 +88,7 @@ function captureIo(): { io: { writeStdout(text: string): void; writeStderr(text:
 describe("CLI commands", () => {
   it("exposes the complete public command registry with estimate implemented", () => {
     expect([...IMPLEMENTED_COMMANDS].sort()).toEqual(
-      ["validate", "estimate", "run", "audit", "resume", "status", "replay", "diff", "trace", "export", "report", "requirements", "approve-requirements", "revise-requirements", "apply-requirements-revision", "respond-checkpoint", "workflow", "incremental"].sort(),
+      ["validate", "estimate", "run", "audit", "resume", "status", "replay", "diff", "trace", "export", "report", "requirements", "approve-requirements", "revise-requirements", "apply-requirements-revision", "respond-checkpoint", "workflow", "incremental", "apply-changes"].sort(),
     );
     expect(RESERVED_COMMANDS).toEqual([]);
     expect(IMPLEMENTED_COMMANDS).toContain("estimate");
@@ -310,5 +310,20 @@ describe("CLI commands", () => {
     expect((await runCli(["run", "audit.json", "--base", "run-1"], core, io)).output.policy.reasons).toEqual(["invalid_arguments:run"]);
     expect((await runCli(["run", "--incremental", "run-1"], core, io)).output.policy.reasons).toEqual(["missing_argument:run"]);
     expect(runs).toHaveLength(3);
+  });
+
+  it("applies a verified change set only to an explicitly named checkout and fails on stale destinations", async () => {
+    const calls: unknown[] = [];
+    const core = Object.assign(new FakeWorkflowCore(), {
+      async applyChanges(runId: string, target: string) {
+        calls.push([runId, target]);
+        return target === "stale" ? { disposition: "failed" as const, reasons: ["stale_destination"], value: { stale: ["tests/a.test.ts"] } } : { disposition: "passed" as const, value: { applied: [{ path: "tests/a.test.ts" }] } };
+      },
+    });
+    const io = captureIo().io;
+    expect((await runCli(["apply-changes", "run-1", "checkout"], core, io)).exit).toBe(0);
+    expect((await runCli(["apply-changes", "run-1", "stale"], core, io)).exit).toBe(1);
+    expect((await runCli(["apply-changes", "run-1"], core, io)).exit).toBe(2);
+    expect(calls).toEqual([["run-1", "checkout"], ["run-1", "stale"]]);
   });
 });

@@ -15,10 +15,20 @@ import { TestingPlanExecutor } from "../src/testing-plan-executor.js";
 import { testingRepairClosure } from "../src/testing-repair.js";
 import { TestingTaskAttempts } from "../src/testing-task-attempts.js";
 import { TestingWorktree, type TestingWorktreeHandle } from "../src/testing-worktree.js";
-import type { TestSandbox } from "../src/test-sandbox.js";
+import { DockerTestSandbox, type TestSandbox } from "../src/test-sandbox.js";
 
-// Injected sandbox/provider ports only. Repeating these cases against the real
-// Docker sandbox is outstanding acceptance evidence (completion plan P07/P04).
+// Scripted provider ports throughout. The sandbox is injected by default; with
+// ARBITRA_DOCKER_ACCEPTANCE=1 and ARBITRA_DOCKER_IMAGE=<name@sha256:...> every case runs its
+// checks in real containers instead (completion plan P07/P04). The real check is a script in
+// the snapshot that applies the same pass/fail rule to the mounted files and exits with it.
+const realImage = process.env["ARBITRA_DOCKER_ACCEPTANCE"] === "1" ? process.env["ARBITRA_DOCKER_IMAGE"] : undefined;
+const verifier = `import { existsSync, readFileSync } from "node:fs";
+const [number, layout] = process.argv.slice(2);
+const read = (path) => existsSync(path) ? readFileSync(path, "utf8") : "";
+const failed = number === "001" && (layout === "shared" ? read("tests/fixture.ts").includes("broken") : existsSync("tests/002.ts") && !read("tests/001.ts").includes("repaired"));
+console.log(failed ? "assertion failed" : "ok");
+process.exit(failed ? 1 : 0);
+`;
 
 const fixtures: { root: string; store: RunStore }[] = [];
 afterEach(async () => {
@@ -46,6 +56,7 @@ async function fixture(scenario: Scenario) {
   const f = await featureFixture(root);
   const shared = scenario === "shared" || scenario === "oscillation";
   if (shared) { await mkdir(join(root, "tests"), { recursive: true }); await writeFile(join(root, "tests/fixture.ts"), "export const fixture = 'base';\n"); }
+  if (realImage !== undefined) { await mkdir(join(root, "checks"), { recursive: true }); await writeFile(join(root, "checks/verify.mjs"), verifier); }
   const config = runConfigSchema.parse({ ...f.config, mode: "testing", models: { ...f.config.models, planner: { ...f.config.models["planner"], capabilityTier: "frontier" } },
     workflow: { modelExecution: f.config.workflow["modelExecution"], testing: { mode: "plan", goal: "Test sessions", roles: { analyst: "planner", planner: "planner" } } } });
   const snapshot = await snapshotRepository(root);
@@ -61,8 +72,8 @@ async function fixture(scenario: Scenario) {
   link.taskIds = plan.tasks.map(({ id }) => id);
   await store.publish("plan-ir", plan, "testing");
   await store.publish("testing-outcome", { passed: true, reasons: [], testsExecuted: false, selectedGaps: 1, planFingerprint: hash(plan) }, "testing");
-  const policy = testingVerificationPolicySchema.parse({ execution: { driver: "docker", image: `local/node@sha256:${"a".repeat(64)}`, maximumRuns: scenario === "budget" ? 5 : 12,
-    checks: ["001", "002"].map((number) => ({ id: number, executable: "/usr/bin/node", arguments: ["--test", `tests/${number}.ts`], sourcePaths: scope(number) })) },
+  const policy = testingVerificationPolicySchema.parse({ execution: { driver: "docker", image: realImage ?? `local/node@sha256:${"a".repeat(64)}`, maximumRuns: scenario === "budget" ? 5 : 12,
+    checks: ["001", "002"].map((number) => ({ id: number, executable: realImage === undefined ? "/usr/bin/node" : "/usr/local/bin/node", arguments: realImage === undefined ? ["--test", `tests/${number}.ts`] : ["checks/verify.mjs", number, shared ? "shared" : "separate"], sourcePaths: scope(number) })) },
     bindings: ["001", "002"].map((number) => ({ command: `check ${number}`, checkId: number, authorization: "allowlisted", expectedExitCode: 0 })) });
   const options = { authorization: { maximumParallelTasks: 2, partitions: [{ id: "tests", paths: ["tests/001.ts", "tests/002.ts", ...(shared ? ["tests/fixture.ts"] : [])] }],
     tasks: plan.tasks.map(({ id }) => ({ taskId: id, partitionId: "tests", exclusive: false })) },
@@ -106,7 +117,13 @@ async function fixture(scenario: Scenario) {
       arguments: JSON.stringify({ path, expectedHash: current.has(path) ? digest(current.get(path) ?? "") : null, content: text }) })) } : { output_text: '{"summary":"Updated tests","limitations":[]}' }),
       usage: { input_tokens: 10, output_tokens: 10 } } };
   } } };
-  const sandbox: TestSandbox = { async recover() {}, async run(current, execution, check) {
+  const docker = new DockerTestSandbox();
+  const sandbox: TestSandbox = realImage !== undefined ? { recover: (handle) => docker.recover(handle), async run(current, execution, check, runSignal, lifecycle) {
+    checks.push({ id: check.id, files: new Map(current.files.map(({ path, lines }) => [path, lines.join("\n")])) });
+    const result = await docker.run(current, execution, check, runSignal, lifecycle);
+    if (result.status !== "exited" || !result.cleanupCompleted) throw new Error(`REAL_SANDBOX_${result.status.toUpperCase()}:${result.stderr}`);
+    return result;
+  } } : { async recover() {}, async run(current, execution, check) {
     const files = new Map(current.files.map(({ path, lines }) => [path, lines.join("\n")]));
     checks.push({ id: check.id, files });
     const failed = check.id === "001" && (shared ? (files.get("tests/fixture.ts") ?? "").includes("broken")

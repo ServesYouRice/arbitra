@@ -6,6 +6,7 @@ import type { ReplayRequest } from "@arbitra/schemas/replay.js";
 import type { Orchestrator } from "./orchestrator.js";
 import { PreflightError } from "./preflight.js";
 import { withIncrementalBase } from "./incremental-audit.js";
+import { applyTestingChangeSet } from "./testing-change-set.js";
 
 export interface CoreCommandResult {
   readonly disposition: "passed" | "failed" | "system_failure" | "suspended" | "unknown";
@@ -156,6 +157,22 @@ export function orchestratorCore(orchestrator: Orchestrator) {
     async incremental(runId: string): Promise<CoreCommandResult> {
       const report = await orchestrator.incrementalReport(runId);
       return { disposition: report.coverage.degradedVersusFullRun ? "failed" : "passed", reasons: report.coverage.degradedVersusFullRun ? ["incremental_coverage_degraded"] : [], value: report };
+    },
+
+    /**
+     * The only path that writes a verified Testing change set outside the run. The target is
+     * named explicitly; any destination that no longer matches its baseline hash rejects
+     * the whole set before a byte is written.
+     */
+    async applyChanges(runId: string, targetDirectory: string): Promise<CoreCommandResult> {
+      const verified = await orchestrator.testingChangeSet(runId);
+      try {
+        return { disposition: "passed", reasons: [], value: { runId, changeSetArtifactId: verified.changeSetArtifactId, ...await applyTestingChangeSet(verified.changeSet, resolve(targetDirectory)) } };
+      } catch (error) {
+        const message = describe(error);
+        if (!message.startsWith("TESTING_CHANGE_SET_STALE_DESTINATION:")) throw error;
+        return { disposition: "failed", reasons: ["stale_destination"], value: { runId, changeSetArtifactId: verified.changeSetArtifactId, stale: message.slice(message.indexOf(":") + 1).split(","), applied: [] } };
+      }
     },
 
     async diff(runA: string, runB: string): Promise<CoreCommandResult> {
