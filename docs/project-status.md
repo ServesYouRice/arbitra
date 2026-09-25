@@ -1,13 +1,13 @@
 # Project status
 
-Updated September 25, 2026 against commit 64f887e (branch `beta`).
+Updated September 25, 2026 against commit 0c6fb12 (branch `beta`).
 
 arbitra is a beta runtime for model-backed Audit, Feature planning, Testing planning and
 guarded Testing execution. These share the CLI/server orchestrator, canonical harness,
-durable model activities and run budget. The implementation queue is largely done; what
-remains is mostly acceptance that needs live providers, a Docker engine or a native
-harness binary, plus a few explicit scale limits. Nothing here has run against a live
-provider.
+durable model activities and run budget. The implementation queue is done except the
+premise evaluation. Docker, Linux and browser acceptance are complete. Live-provider
+acceptance so far covers Gemini only, natively and through its OpenAI-compatible endpoint, because the
+OpenAI and Anthropic accounts have no API credit and the Gemini key is free tier.
 
 The [completion plan](completion-plan.md#status-september-25-2026) is the authoritative
 queue and records each item's status. An implemented path is not automatically
@@ -19,13 +19,13 @@ quality or a vendor capability guarantee.
 | Area | Current behavior | Remaining boundary |
 |---|---|---|
 | Setup | Model-backed templates for every mode and all four protocols; [`setup.md`](setup.md); preflight diagnostics before any run or spend; unenforced `budgets` refused for model-backed runs | Live credentials and spend are the operator's |
-| Providers and harness | Four wire protocols plus compatible endpoints; canonical tool loop; durable attempts, usage, budgets and cancellation; output-limit detection; opt-in batch lane (OpenAI, Anthropic, Gemini); native Claude Code adapter for the Testing writer | Live conformance for protocols, batch drivers and the native adapter; all declared-unverified |
-| Audit | Independent discovery, review, verification, planning, criticism, revision; staged composition for oversized contexts; opt-in incremental reuse from a prior run; operator-authored saved graphs | Global planner outline and some per-item stages still fail explicitly when oversized |
-| Feature | Requirements checkpoints, exploration, review, planning, revision and handoff; staged review/planning/critique; mode-specific replay; web contract view | Requirements generation and exploration are not yet staged |
-| Testing | Risk analysis, gap selection, plans, guarded execution, bounded repair after final invalidation, bounded advisors, replay, web execution view | Real-sandbox acceptance; risk analysis is not staged |
+| Providers and harness | Four wire protocols plus compatible endpoints; canonical tool loop; bounded output repair; quota-aware error classes; durable attempts, usage, budgets and cancellation; output-limit detection; opt-in batch lane (OpenAI, Anthropic, Gemini); native Claude Code adapter for the Testing writer | Gemini live; OpenAI/Anthropic protocols, batch drivers and native conformance need funded accounts |
+| Audit | Independent discovery, review, verification, planning, criticism, revision; staged composition for oversized contexts; opt-in incremental reuse from a prior run; operator-authored saved graphs | Live Audit acceptance incomplete (quota); oversized limits validated with scripted providers only |
+| Feature | Requirements checkpoints, exploration, review, planning, revision and handoff; staged review/planning/critique; mode-specific replay; web contract view | Interactive mode not yet run live |
+| Testing | Risk analysis, gap selection, plans, guarded execution, bounded repair after final invalidation, bounded advisors, replay, web execution view | Generated tests are verified to pass, not to be right (a live test pinned a seeded defect) |
 | Gates and checkpoints | Generic gate/human nodes with persisted, versioned decisions across CLI, HTTP, web and graph state | Shipped presets contain no such nodes; saved graphs use them |
 | Persistence | Journals, content-addressed artifacts (published atomically), durable evaluation corpora, persistent trace index | Corpora have one writer per directory |
-| Web | Graph view and editor, issue board, plan, evaluation, traces, Feature and Testing views; Playwright acceptance on three engines | Browser runs recorded on macOS only |
+| Web | Graph view and editor, issue board, plan, evaluation, traces, Feature and Testing views; Playwright acceptance on three engines | Headless Linux arm64 and macOS only |
 
 Audit and Feature export plans for a consuming implementation agent. Generalized
 production-code implementation is outside the current [product scope](architecture.md#explicitly-out-of-scope).
@@ -48,45 +48,22 @@ not the duration of each task.
 
 ## Verification evidence
 
-On September 25, on macOS 26.6 (arm64) with Node 22.23.2, pnpm 10.24.0 and the frozen
-lockfile, commit 64f887e passed `pnpm run ci` and `pnpm build` in one run:
+- **CI:** commit 0c6fb12 passed `pnpm run ci` and `pnpm build` on GitHub Actions on both `ubuntu-latest` and `macos-latest`. The same suite also passed locally: on macOS 26 (arm64), and in a clean `node:22-bookworm` Linux container.
+- **Docker:** the Docker boundary and the Testing repair cases ran against a real engine. See [`qa/p04`](qa/p04/README.md).
+- **Browsers:** acceptance ran on Linux arm64 as well as macOS, 51/51 runs on each. See [`qa/p10`](qa/p10/README.md), [`qa/p10-linux`](qa/p10-linux/README.md) and [`qa/p16`](qa/p16/README.md).
+- **Live providers:** Gemini native and the OpenAI-compatible chat protocol passed transport conformance. Testing plan, automatic Feature and Testing execute (live writer plus Docker) passed through the CLI; live Audit did not complete before the free-tier quota ran out. See [`qa/p03`](qa/p03/README.md).
+- **Advisors:** the live advisor path is recorded in [`qa/p13-live`](qa/p13-live/README.md).
+- **Batch drivers:** every driver was refused before a job was created. See [`qa/p15-live`](qa/p15-live/README.md).
+- **Embedding decision:** recorded in [`qa/p18`](qa/p18/README.md).
 
-| Suite | Result |
-|---|---|
-| runtime | 441 passed, 2 skipped (opt-in trace benchmark and native conformance) |
-| providers | 79 passed, 7 skipped (credential-gated conformance) |
-| security / workflow / core | 135 / 120 / 70 passed (core: 1 skipped) |
-| web / CLI / server | 81 / 54 / 37 passed; server includes the real localhost HTTP integration |
-| schemas / persistence / harness / testing | 58 / 52 / 28 / 25 passed |
-| lint rules / examples / design check | 3 / 30 / 10 passed |
-
-Browser acceptance: `pnpm --filter @arbitra/web e2e` passed all 51 runs — 14 operator
-scenarios ([`qa/p10`](qa/p10/README.md)) and 3 editor scenarios ([`qa/p16`](qa/p16/README.md)),
-each on Chromium 149, Firefox 151 and WebKit 26.5 on the same Mac. The trace index benchmark is in
-[durability](durability.md).
-
-The September 24 test-harness defects (unquoted glob, macOS path alias, five-second limits)
-are fixed. Every package now fails when it discovers no tests. Linux has not yet run this
-commit; the GitHub workflow will on push.
-
-No live-provider call, Docker-backed run or native-binary run was performed. Every provider
-batch driver and the native adapter are recorded as `declared_unverified`. The premise
-flag helper still does not implement a live evaluation runner.
+The live runs found 14 runtime defects in provider classification, Gemini encoding, evidence grounding, output parsing and repair, planner and peer contracts, and writer loops. All are fixed with regressions and listed in [`qa/p03`](qa/p03/README.md). Two further defects were exposed by the real Docker engine and one by Linux browsers; those are fixed too.
 
 ## Remaining work
 
-See the [status table](completion-plan.md#status-september-25-2026) for per-item detail.
-
-- **Needs provider credentials:** live-provider conformance and public workflow acceptance
-  (P03), real-model premise evaluation (P06), a live advisor path (P13) and each batch driver (P15).
-- **Needs a Docker engine:** Testing execution acceptance (P04) and real-sandbox repair (P07).
-- **Needs a native harness binary:** Claude Code conformance (P12).
-- **Needs another platform:** Linux CI and non-macOS browser runs (P01, P10).
-- **Implementation still open:** oversized global planner outline, Feature requirements
-  and exploration, and Testing risk analysis (P08); end-to-end protocol/scope replay (P11);
-  an operator command for uncertain batch submissions (P15).
-- **Decision and review:** the embedding decision after P06 (P18) and the final defect
-  review with repeated live acceptance (P19).
+See [WORK-REMAINING](../WORK-REMAINING.md) and the [status table](completion-plan.md#status-september-25-2026).
+The remaining acceptance items need funded provider accounts or the next free-tier quota
+window. Then the embedding decision is rerun on real-model findings (P18), and the final
+review takes place (P19).
 
 Earlier assessments are preserved in [historical notes](history/implementation-log-through-2026-09-23.md)
 and the [pre-integration assessment](history/project-status-before-model-integration.md).

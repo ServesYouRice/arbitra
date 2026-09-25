@@ -1,6 +1,6 @@
 # Completion plan
 
-Updated September 25, 2026 against commit 64f887e (branch `beta`). Original baseline: 77149ef.
+Updated September 25, 2026 against commit 0c6fb12 (branch `beta`). Original baseline: 77149ef.
 See [status](#status-september-25-2026) for each item.
 
 This plan covers every unfinished implementation, validation and usability step identified
@@ -56,36 +56,45 @@ previously deferred extensions and evaluation; P19 closes the whole queue.
 
 ## Status, September 25, 2026
 
-Measured on macOS 26 (arm64), Node 22.23.2, pnpm 10.24.0, commit 64f887e: `pnpm run ci`
-and `pnpm build` exit 0 (runtime 441 passed / 2 skipped, providers 79 / 7 skipped, harness
-28, web 81, CLI 54, server 37, all other suites passing). No provider credentials, Docker
-engine or native harness binary were available, so every live check below is outstanding.
+GitHub Actions ran `pnpm run ci` and `pnpm build` on commit 0c6fb12 and both passed, on
+`ubuntu-latest` and on `macos-latest`. The same suite also passed locally: on macOS 26
+(arm64), and in a clean `node:22-bookworm` Linux container.
+
+Live environments used in this pass:
+
+- **Docker:** Docker Desktop 29.8.0 (`linux/arm64`).
+- **Gemini:** a free-tier key, native and through its OpenAI-compatible endpoint.
+- **Claude Code:** the Claude Code 2.1.281 binary.
+
+The OpenAI and Anthropic keys authenticate but have no API credit. Every call to them is
+recorded as `unavailable` (QUOTA), and so is the native Claude Code run, which needs Anthropic
+credit or a subscription token. Evidence is in `docs/qa/`.
 
 | ID | Status | Evidence here | Outstanding before the checkbox |
 |---|---|---|---|
-| P01 | Implemented | Zero-discovery now fails; testing suites run (5 files, 22 tests at the fix); measured runtime/web limits; macOS CI green | Linux CI run of the same commit |
-| P02 | **Complete** | Six model-backed templates over all four protocols; `docs/setup.md`; preflight diagnostics; credential-free smoke run of every template | — |
-| P03 | Pending | — | Credentials and bounded spend for every protocol |
-| P04 | Pending | Sandbox preflight checks `docker info`/image inspection | A local Linux Docker engine and pinned image |
-| P05 | **Complete** | Durable corpus journal/artifacts; restart, idempotent import, torn tails, conflicts, denominators, incomparable aggregation, redacted reconstruction | — (no driver feeds it until P06) |
-| P06 | Pending | — | P03 plus a prespecified live evaluation |
-| P07 | Implemented | Bounded durable repair; 10 regression tests with the injected sandbox | Critical cases repeated with the real sandbox (P04) |
-| P08 | Implemented | Nine size failures replaced by staged composition; output-limit detection on all transports; inventory in `docs/harness.md` | Global planner outline, Feature requirements/exploration and Testing risk analysis still fail explicitly; live context limits (P03) |
-| P09 | **Complete** | Generic gate/human checkpoints, persisted versioned decisions, CLI/HTTP/graph agreement, restart and double-response tests | — |
-| P10 | Implemented | Feature/Testing views; 14 Playwright scenarios passing on Chromium, Firefox and WebKit (42 runs) ([`qa/p10`](qa/p10/README.md)) | Browser runs on a non-macOS platform |
-| P11 | Implemented | Mode-specific replay contracts; CLI/HTTP parity; source immutability | Changed protocol/scope exercised end to end (currently contract-level) |
-| P12 | Implemented | Claude Code adapter for the Testing writer, `declared_unverified`; stand-in process tests; opt-in conformance test | Conformance against a real `claude` binary (assumptions A1–A8 in `translation.ts`) |
-| P13 | Implemented | Durable, capped advisors for Testing writers; injected-transport tests | One live-provider path (P03) |
-| P14 | **Complete** | Opt-in incremental Audit; identical rerun 0 calls; full vs incremental fixture 25 → 21 calls with identical issues | — (live measurement belongs to P03/P06) |
-| P15 | Implemented | Opt-in batch lane; OpenAI/Anthropic/Gemini drivers against injected HTTP, all `declared_unverified` | Live validation of each driver; operator CLI/HTTP for uncertain submissions |
-| P16 | **Complete** | Versioned saved graphs, server validation, runtime dispatch/resume of the saved version, editor with undo/redo and dirty guard; 3 editor scenarios × 3 browsers plus the P10 suite, 51/51 runs ([`qa/p16`](qa/p16/README.md)) | — (Audit mode only; documented) |
-| P17 | **Complete** | Persistent per-run trace index; differential tests; 100k-trace benchmark (warm p95 2–19 ms vs ≈1 s full scan) | — |
-| P18 | Pending | — | P06 data; no adoption without it |
-| P19 | Pending | Cross-cutting fixes found during this work (artifact-store publish race, silently ignored `budgets`) | Final review after live acceptance |
+| P01 | **Complete** | Same commit green on Linux and macOS CI; zero-discovery fails; measured per-suite limits (harness, web added after live CI failures) | — |
+| P02 | **Complete** | Templates now also set `maximumOutputRepairs: 1` | — |
+| P03 | Partial | Live transport conformance on Gemini native and the compatible endpoint (40 provenance-bearing observations); live Testing plan, Feature (automatic) and Testing execute pass through the CLI, including resume from a fresh process and verified handoff application; 14 live defects fixed ([`qa/p03`](qa/p03/README.md)) | OpenAI/Anthropic protocols and a mixed-provider run (need credit); live Audit and interactive Feature to completion (Gemini free-tier daily quota ran out); exported-plan handoff to a fresh executor; refusal/context-limit elicitation |
+| P04 | **Complete** | Real engine: isolation, limits, timeout/cancel/output, drift, unavailable image, orphan recovery, parallel checks, source preservation, change-set application and stale rejection; public Testing executor with scripted and live model writers; two engine-exposed defects fixed ([`qa/p04`](qa/p04/README.md)) | — |
+| P05 | **Complete** | — | — |
+| P06 | In progress | Prespecified protocol and driver; see [`qa/p06`](qa/p06/README.md) | Live conditions within free-tier quota; heterogeneous families untestable without other funded providers |
+| P07 | **Complete** | Every repair case, including the critical success/failure ones, rerun with real containers ([`qa/p04`](qa/p04/README.md)) | — |
+| P08 | Implemented | All inventory stages now compose (global outline hierarchically, Feature drafting/exploration, Testing risk partitions) with resume tests; limits in `docs/harness.md` | Live context limits (P03) |
+| P09 | **Complete** | — | — |
+| P10 | **Complete** | 51/51 Playwright runs on Linux arm64 as well as macOS; one product race fixed (live state published after the event log) ([`qa/p10-linux`](qa/p10-linux/README.md)) | — |
+| P11 | **Complete** | Feature/Testing replay exercised end to end through the orchestrator, CLI and HTTP with changed protocol, model, scope, requirements, authorization and verification | — |
+| P12 | Implemented | Adapter runs the real `claude` 2.1.281 binary to the provider call; the account then refuses for credit. Subscription tokens are now supported (`credentialKind: oauth_token`) | Conformance run with an Anthropic API key with credit or a `claude setup-token` token |
+| P13 | **Complete** | Live advisor path on Gemini native and compatible chat: limits, identity, measured usage, replay without spend ([`qa/p13-live`](qa/p13-live/README.md)) | — |
+| P14 | **Complete** | — | — |
+| P15 | Implemented | Operator CLI/HTTP for uncertain submissions; live batch runner; every driver refused live before job creation (OpenAI/Anthropic credit, Gemini free tier has no batch) ([`qa/p15-live`](qa/p15-live/README.md)) | Live validation of each driver on a funded account |
+| P16 | **Complete** | — | — |
+| P17 | **Complete** | — | — |
+| P18 | Decided (provisional) | Prespecified criteria; local MiniLM candidate evaluated offline; **reject, keep existing clustering** ([`qa/p18`](qa/p18/README.md)) | Rerun on P06 real-model findings (criterion 1 needs a real-model corpus) |
+| P19 | Pending | Cross-cutting fixes in this pass: quota classification, output repair, evidence re-anchoring, peer-review degradation, writer tool-loop handling | Final review after live acceptance |
 
 ## P01 — Repair test discovery and platform reliability
 
-- [ ] Complete P01.
+- [x] Complete P01.
 
 **Implementation.** Quote the fixture exclusion in [packages/testing/package.json](../packages/testing/package.json)
 and make zero discovered tests fail for packages with required suites. Correct the
@@ -140,7 +149,7 @@ of live Audit. Findings and plans receive human/fixture-grounded correctness rev
 
 ## P04 — Validate the actual Docker boundary
 
-- [ ] Complete P04.
+- [x] Complete P04.
 
 **Implementation.** Establish a reproducible local Linux Docker engine and digest-pinned
 test image with dependencies already installed. Exercise [test-sandbox.ts](../packages/runtime/src/test-sandbox.ts)
@@ -188,7 +197,7 @@ separately. Do not treat the current environment flag as a live evaluation imple
 
 ## P07 — Repair tasks invalidated by final verification
 
-- [ ] Complete P07.
+- [x] Complete P07.
 
 **Implementation.** Extend [the Testing coordinator](../packages/runtime/src/testing-plan-executor.ts)
 to reopen an earlier task when later fixture/test changes invalidate it. Determine the
@@ -236,7 +245,7 @@ an unresolved decision. Existing Feature approval/revision regressions remain in
 
 ## P10 — Finish the operator interface and browser QA
 
-- [ ] Complete P10.
+- [x] Complete P10.
 
 **Implementation.** Add Feature contract inspection, approval, draft revision, proposal
 application and explicit resume using the existing requirements API. Add Testing
@@ -252,7 +261,7 @@ Record screenshots/results on supported browser/platform combinations.
 
 ## P11 — Define and implement Feature/Testing replay
 
-- [ ] Complete P11.
+- [x] Complete P11.
 
 **Implementation.** Add mode-specific replay contracts rather than treating Audit policy
 overrides as Feature/Testing semantics. New runs retain source lineage and immutable
@@ -283,7 +292,7 @@ recovery, unknown usage, tool limits and cleanup under real execution.
 
 ## P13 — Implement bounded advisors
 
-- [ ] Complete P13.
+- [x] Complete P13.
 
 **Implementation.** Consume Task IR advisor routing and maximum-use fields through durable
 activities, with explicit context, capability, token and use limits. Record advisor
