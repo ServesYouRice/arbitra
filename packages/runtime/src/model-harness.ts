@@ -38,7 +38,10 @@ export class ModelHarness {
     for (let repair = 1; ; repair += 1) {
       try { return await this.invokeBounded(attempt); }
       catch (error) {
-        if (!(error instanceof ModelOutputRejectedError) || repair > execution.maximumOutputRepairs) throw error instanceof ModelOutputRejectedError ? error.cause : error;
+        if (!(error instanceof ModelOutputRejectedError)) throw error;
+        // Exhausted: rethrow the validation error itself, marked so a stage that can proceed
+        // without this one reply (peer review) can tell it from a provider or policy failure.
+        if (repair > execution.maximumOutputRepairs) throw error.cause instanceof Error ? Object.assign(error.cause, { modelOutputRejected: true }) : error.cause;
         // A rejected reply is answered once more, as its own durable activity, with the
         // validation failure and the rejected reply (as untrusted data) appended.
         attempt = { ...input, activityId: `${input.activityId}/repair-${repair}`, messages: [...input.messages, { role: "user", content: JSON.stringify({ outputRejected: {
@@ -102,6 +105,8 @@ export class ModelHarness {
     }
   }
 }
+
+export function isModelOutputRejection(error: unknown): boolean { return error instanceof Error && (error as { modelOutputRejected?: unknown }).modelOutputRejected === true; }
 
 /** A reply that arrived but failed output parsing or validation; never a provider or policy failure. */
 export class ModelOutputRejectedError extends Error {

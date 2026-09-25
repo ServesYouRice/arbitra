@@ -87,7 +87,7 @@ describe("model board operations", () => {
     expect(() => translate(response([{ ...base, operationId: "new:merge", candidateId: "C1", type: "merge", sourceCandidateIds: ["C1", "C2"], candidate: seed("C1") }]))).toThrow("PEER_CANDIDATE_ID_MISMATCH");
     // Observed live: a reviewer restated the finding it accepted instead of only voting.
     expect(() => translate(response([{ ...base, type: "accept", reason: "Grounded" }], [], [added]))).toThrow('to agree with a presented candidate, vote on it and do not restate it. Unattached: "self/missing"');
-    expect(() => translate(response([{ ...base, operationId: "C1-vote", type: "accept", reason: "Grounded" }]))).toThrow('INVALID_PEER_LOCAL_ID: new identifiers must look like new:<letters, digits, _ or ->; got "C1-vote"');
+    expect(() => translate(response([{ ...base, operationId: "C1-vote", type: "accept", reason: "Grounded" }]))).toThrow('INVALID_PEER_LOCAL_ID: "C1-vote" is used where a new identifier is required');
   });
 
   it("keeps reused discovery evidence IDs distinct when candidates merge", () => {
@@ -109,5 +109,17 @@ describe("peer-facing output schema", () => {
     expect(JSON.stringify(operations)).not.toContain('"verification"');
     expect(JSON.stringify(findings)).toContain('"verification"');
     expect(JSON.stringify(PEER_OPERATIONS_OUTPUT_SCHEMA)).toContain('"needs_verification"');
+  });
+});
+
+describe("peer location anchoring", () => {
+  it("moves the reviewer's own miscounted location to the unique nearby range holding the exact quote", () => {
+    const lines = ["export function parse(text) {", "  return parseInt(text);", "}"];
+    const three = { root: "fixture", files: [{ path: "a.ts", lines, byteLength: 0, lineStartBytes: [0] }] };
+    const location = { id: "new:loc", path: "a.ts", startLine: 3, endLine: 3 };
+    const operation = { ...base, type: "add_counter_evidence", citedEvidenceIds: ["new:ev"], evidence: { id: "new:ev", text: "return parseInt(text);", locationIds: ["new:loc"] } };
+    const moved = translatePeerOperations(response([operation], [location]), view, three, "reviewer", 1);
+    expect(moved.locations).toContainEqual({ id: "reviewer/review-1/loc", path: "a.ts", startLine: 2, endLine: 2 });
+    expect(() => translatePeerOperations(response([{ ...operation, evidence: { ...operation.evidence, text: "return Number(text);" } }], [location]), view, three, "reviewer", 1)).toThrow("UNGROUNDED_PEER_EVIDENCE");
   });
 });
