@@ -9,20 +9,28 @@ misses — is treated as a hypothesis the system measures, not as a marketing cl
 
 ## Status
 
-The workspace implements an alpha runtime for **model-backed Audit, Feature planning,
-Testing planning and guarded Testing execution**, alongside scripted Audit. Configured
-model execution requires endpoint bindings and explicit roles; see
-[`docs/provider-model.md`](docs/provider-model.md). Model Feature workflows now run through
-the shared CLI/server runtime with durable requirements checkpoints, risk-directed review,
-planning and an exportable implementation handoff; see [`docs/workflows.md`](docs/workflows.md#feature-mode).
-Testing workflows compose grounded risk analysis and gap selection, with either a read-only
-plan or opt-in guarded execution in an isolated worktree. Execution requires explicit
-write partitions and digest-pinned sandbox checks; it exports verified changes without
-modifying the source checkout. Native harnesses remain unimplemented. Live-provider and
-Docker acceptance validation, final-invalidation repair, larger-context handling and
-operator UI work remain. See [project status](docs/project-status.md) for implemented
-capabilities and measured verification, and the [completion plan](docs/completion-plan.md)
-for all remaining steps, dependencies and acceptance criteria.
+arbitra is a **beta** runtime for **model-backed Audit, Feature planning, Testing planning
+and guarded Testing execution**, alongside scripted Audit. Start with
+[`docs/setup.md`](docs/setup.md): it walks through model-backed templates for every mode,
+endpoint and role binding, and the preflight checks that run before any spend.
+
+- **Audit** runs independent discovery, bounded review, verification, planning and
+  criticism. It can reuse unchanged work from a prior run (`--incremental`) and can run
+  operator-authored workflow graphs saved from the web editor.
+- **Feature** runs durable requirements checkpoints, risk-directed review, planning and an
+  exportable implementation handoff; see [`docs/workflows.md`](docs/workflows.md#feature-mode).
+- **Testing** plans from grounded risk analysis and, when explicitly authorized, executes in
+  isolated worktrees with bounded repair, verified change export and optional bounded
+  advisors. The source checkout is never modified.
+- Runs can be replayed with mode-specific reuse contracts, and gates and human checkpoints
+  are durable and versioned across CLI, HTTP and the web UI.
+
+**Beta means:** everything above passes CI with injected providers and sandboxes, and the
+web UI passes browser acceptance on Chromium, Firefox and WebKit. **None of it has run
+against live providers, a real Docker engine or a native harness binary yet.** Batch
+drivers and the native Claude Code adapter are declared but unverified. See
+[project status](docs/project-status.md) for measured evidence and the
+[completion plan](docs/completion-plan.md#status-september-25-2026) for what remains.
 
 One thing is worth knowing before reading further: **the premise is unmeasured on real
 models.** `packages/testing/src/metrics/premise.ts` scores a run against a ground-truth

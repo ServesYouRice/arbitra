@@ -1,35 +1,36 @@
 # Project status
 
-Updated September 24, 2026 against commit 77149ef.
+Updated September 25, 2026 against commit 64f887e (branch `beta`).
 
-arbitra has an implemented alpha runtime for model-backed Audit, Feature planning,
-Testing planning and guarded Testing execution. These paths share the CLI/server
-orchestrator, canonical harness, durable model activities and run budget. Live-provider
-and Docker acceptance validation, empirical audit evaluation, and the remaining
-implementation work below are outstanding.
+arbitra is a beta runtime for model-backed Audit, Feature planning, Testing planning and
+guarded Testing execution. These share the CLI/server orchestrator, canonical harness,
+durable model activities and run budget. The implementation queue is largely done; what
+remains is mostly acceptance that needs live providers, a Docker engine or a native
+harness binary, plus a few explicit scale limits. Nothing here has run against a live
+provider.
 
-The [completion plan](completion-plan.md) is the authoritative queue. An implemented
-path is not automatically live-validated; passing injected-provider tests establishes
-orchestration behavior, not model quality or a vendor capability guarantee.
+The [completion plan](completion-plan.md#status-september-25-2026) is the authoritative
+queue and records each item's status. An implemented path is not automatically
+live-validated: injected-provider tests establish orchestration behavior, not model
+quality or a vendor capability guarantee.
 
 ## Implemented capabilities
 
 | Area | Current behavior | Remaining boundary |
 |---|---|---|
-| Providers and harness | Endpoint bindings for OpenAI Responses, OpenAI Chat, Anthropic Messages, Gemini Native and compatible endpoints; canonical tool loop; durable attempts, usage, budgets and cancellation | Live conformance evidence and native harness adapters are outstanding |
-| Audit | Independent discovery, bounded review and conflict resolution, semantic escalation, verification, planning, independent criticism and bounded revision | Source-only security coverage remains degraded; individually oversized records and global contexts can fail explicitly |
-| Feature | Requirements generation, durable approval/revision checkpoints, grounded exploration, independent review, planner/critic/revision and implementation handoff | Dedicated web controls, oversized-context composition and Feature-specific replay remain |
-| Testing planning | Inventory, grounded risk analysis, complete gap selection, traceable plans and handoff | Oversized mandatory context remains limited; a plan does not establish that tests ran |
-| Testing execution | Explicit write partitions, isolated worktrees, bounded parallel writers, retries, sandbox checks, final verification, exact change export and durable cleanup | Live-provider/Docker validation and automatic repair after final verification invalidates an earlier task remain |
-| CLI/server | Shared run lifecycle, status, resume, Audit replay, artifacts, requirements commands/routes and SSE events | Generic graph checkpoint/gate composition and new replay semantics require further work |
-| Web | Run graph, issue board, plan, evaluation and trace browser; run controls | Graph is read-only; Feature/Testing controls, expanded subgraphs and browser acceptance QA remain |
-| Evaluation | Operational trace metrics and deterministic fixture-based premise scoring | Real-model quality measurements, persistent longitudinal corpora and embedding evaluation remain |
+| Setup | Model-backed templates for every mode and all four protocols; [`setup.md`](setup.md); preflight diagnostics before any run or spend; unenforced `budgets` refused for model-backed runs | Live credentials and spend are the operator's |
+| Providers and harness | Four wire protocols plus compatible endpoints; canonical tool loop; durable attempts, usage, budgets and cancellation; output-limit detection; opt-in batch lane (OpenAI, Anthropic, Gemini); native Claude Code adapter for the Testing writer | Live conformance for protocols, batch drivers and the native adapter; all declared-unverified |
+| Audit | Independent discovery, review, verification, planning, criticism, revision; staged composition for oversized contexts; opt-in incremental reuse from a prior run; operator-authored saved graphs | Global planner outline and some per-item stages still fail explicitly when oversized |
+| Feature | Requirements checkpoints, exploration, review, planning, revision and handoff; staged review/planning/critique; mode-specific replay; web contract view | Requirements generation and exploration are not yet staged |
+| Testing | Risk analysis, gap selection, plans, guarded execution, bounded repair after final invalidation, bounded advisors, replay, web execution view | Real-sandbox acceptance; risk analysis is not staged |
+| Gates and checkpoints | Generic gate/human nodes with persisted, versioned decisions across CLI, HTTP, web and graph state | Shipped presets contain no such nodes; saved graphs use them |
+| Persistence | Journals, content-addressed artifacts (published atomically), durable evaluation corpora, persistent trace index | Corpora have one writer per directory |
+| Web | Graph view and editor, issue board, plan, evaluation, traces, Feature and Testing views; Playwright acceptance on three engines | Browser runs recorded on macOS only |
 
 Audit and Feature export plans for a consuming implementation agent. Generalized
 production-code implementation is outside the current [product scope](architecture.md#explicitly-out-of-scope).
 Testing execution is opt-in and exports changes without applying them to the source
-checkout. It needs configured model roles, concrete task/path authority and a locally
-available digest-pinned Docker image containing the check dependencies.
+checkout.
 
 ## Recent implementation milestones
 
@@ -43,54 +44,49 @@ not the duration of each task.
 | September 21 | 4de07d2 | Trace browser, staged Audit planning/revision, sandbox verification adapter, Feature requirements/review/planning components |
 | September 23, early | 8285e40 | Public Feature composition and revisions, Testing planning, write scheduling and isolated worktree/journal foundations |
 | September 23, latest | 77149ef | Public Testing executor, model writers, durable retries, parallel dispatch, final checks, verified handoff and cleanup/recovery |
+| September 24–25 | 391d3e4 … 64f887e (`beta`) | Completion-plan items P01, P02, P05, P07–P17 implemented; artifact publish race and ignored `budgets` fixed |
 
 ## Verification evidence
 
-The [GitHub CI run for 77149ef](https://github.com/ServesYouRice/arbitra/actions/runs/35918179891)
-completed successfully on September 23. Local verification on September 24 used
-Node 22.23.2, pnpm 10.24.0 and the frozen lockfile:
+On September 25, on macOS 26.6 (arm64) with Node 22.23.2, pnpm 10.24.0 and the frozen
+lockfile, commit 64f887e passed `pnpm run ci` and `pnpm build` in one run:
 
-- Typecheck, lint and production build passed.
-- Example/design validation passed all 26 tests; architecture lint-rule checks passed
-  all three tests. CLI and web suites passed.
-- The default runtime suite had 299 passing and 12 failing tests out of 311:
-  11 five-second timeouts and one macOS path assertion. A serial targeted rerun with
-  a 30-second timeout passed all 16 selected tests, including the 11 timeouts.
-  This rerun does not make the unchanged default CI command pass on macOS.
-- The path assertion at [orchestrator.test.ts](../packages/runtime/test/orchestrator.test.ts)
-  compares a canonical /private/var path with its /var alias and still fails.
-- The [testing package script](../packages/testing/package.json) expands an unquoted
-  fixture glob into positional test filters and succeeds with no discovered tests.
-  Quoting the glob in a direct invocation ran five files and passed all 22 tests.
-- Server unit/route tests passed. Its real HTTP integration test was blocked by the
-  local sandbox's localhost-listener restriction, then passed when allowed to bind.
+| Suite | Result |
+|---|---|
+| runtime | 441 passed, 2 skipped (opt-in trace benchmark and native conformance) |
+| providers | 79 passed, 7 skipped (credential-gated conformance) |
+| security / workflow / core | 135 / 120 / 70 passed (core: 1 skipped) |
+| web / CLI / server | 81 / 54 / 37 passed; server includes the real localhost HTTP integration |
+| schemas / persistence / harness / testing | 58 / 52 / 28 / 25 passed |
+| lint rules / examples / design check | 3 / 30 / 10 passed |
 
-These are recorded results, not a claim that all local CI checks pass unchanged.
-[P01](completion-plan.md#p01--repair-test-discovery-and-platform-reliability) addresses
-the remaining test-harness defects.
+Browser acceptance: `pnpm --filter @arbitra/web e2e` passed all 51 runs — 14 operator
+scenarios ([`qa/p10`](qa/p10/README.md)) and 3 editor scenarios ([`qa/p16`](qa/p16/README.md)),
+each on Chromium 149, Firefox 151 and WebKit 26.5 on the same Mac. The trace index benchmark is in
+[durability](durability.md).
 
-No live-provider call or Docker-backed acceptance run was performed for this review.
-The existing environment-gated conformance test consumes an externally supplied report;
-it does not itself invoke providers or authenticate the report. The premise flag helper
-does not implement a live evaluation runner. The real-handoff script invokes an external
-coding agent using a plan produced from scripted Audit responses. None of these alone
-establishes live multi-model Audit correctness.
+The September 24 test-harness defects (unquoted glob, macOS path alias, five-second limits)
+are fixed. Every package now fails when it discovers no tests. Linux has not yet run this
+commit; the GitHub workflow will on push.
+
+No live-provider call, Docker-backed run or native-binary run was performed. Every provider
+batch driver and the native adapter are recorded as `declared_unverified`. The premise
+flag helper still does not implement a live evaluation runner.
 
 ## Remaining work
 
-The plan separates core validation and recovery work from the previously deferred
-extensions. All are tracked; deferral is not a completion claim.
+See the [status table](completion-plan.md#status-september-25-2026) for per-item detail.
 
-- Reliable CI, reproducible configuration, real-provider conformance and public-workflow
-  acceptance, Docker acceptance, durable evaluation data and real-model premise evaluation.
-- Final-invalidation repair, oversized-context handling, generic durable checkpoints and
-  gates, Feature/Testing web controls, browser QA and Feature/Testing replay.
-- Native harness adapters, bounded advisors, incremental/repeat audits, provider batching,
-  a workflow canvas editor, trace indexing and an evidence-based embedding decision.
-- A final defect review, cross-platform regression/build run and documentation reconciliation.
+- **Needs provider credentials:** live-provider conformance and public workflow acceptance
+  (P03), real-model premise evaluation (P06), a live advisor path (P13) and each batch driver (P15).
+- **Needs a Docker engine:** Testing execution acceptance (P04) and real-sandbox repair (P07).
+- **Needs a native harness binary:** Claude Code conformance (P12).
+- **Needs another platform:** Linux CI and non-macOS browser runs (P01, P10).
+- **Implementation still open:** oversized global planner outline, Feature requirements
+  and exploration, and Testing risk analysis (P08); end-to-end protocol/scope replay (P11);
+  an operator command for uncertain batch submissions (P15).
+- **Decision and review:** the embedding decision after P06 (P18) and the final defect
+  review with repeated live acceptance (P19).
 
-The old implementation plan was reported as 49 tasks complete. The original plan is
-not present in this checkout, so that count has not been independently re-audited here.
-It is not a completion measure for this queue. Earlier assessments and their original
-unchecked lists are preserved in [historical notes](history/implementation-log-through-2026-09-23.md)
+Earlier assessments are preserved in [historical notes](history/implementation-log-through-2026-09-23.md)
 and the [pre-integration assessment](history/project-status-before-model-integration.md).

@@ -1,14 +1,14 @@
 # Project status
 
-Updated September 24, 2026. The maintained assessment is now in
-[docs/project-status.md](docs/project-status.md), and the remaining implementation
-steps are in [docs/completion-plan.md](docs/completion-plan.md).
+Updated September 25, 2026. The maintained assessment is in
+[docs/project-status.md](docs/project-status.md), and per-item status is in the
+[completion plan](docs/completion-plan.md#status-september-25-2026).
 
-The core model-backed Audit, Feature and Testing workflows are implemented. Live
-validation, remaining recovery/scale/operator work and the previously listed extensions
-are outstanding; the linked documents distinguish these from implemented capabilities.
+arbitra is a beta: the model-backed Audit, Feature and Testing workflows, operator UI,
+workflow editor, replay, incremental audits, batch lane, advisors and a native Testing
+adapter are implemented and pass CI on macOS. Live-provider, Docker and native-binary
+acceptance have not been run, and the linked documents keep those separate from
+implemented capabilities.
 
 The earlier assessment is preserved unchanged after an archival notice in
 [the historical project status](docs/history/project-status-before-model-integration.md).
-Its claims that provider execution and Feature/Testing composition are missing are
-superseded by the current implementation.
