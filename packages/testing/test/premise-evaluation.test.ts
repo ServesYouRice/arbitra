@@ -11,7 +11,7 @@ import type { RunConfig } from "@arbitra/schemas/config.js";
 
 import { analyse, type EvaluationRecord } from "../src/premise-evaluation/analysis.js";
 import { corpusImport, persistCorpus } from "../src/premise-evaluation/corpus.js";
-import { assertNoLeak, executeProtocol, prepareCheckout, runPaths, singleAuditorConfiguration } from "../src/premise-evaluation/driver.js";
+import { abandonRun, assertNoLeak, executeProtocol, prepareCheckout, runPaths, singleAuditorConfiguration } from "../src/premise-evaluation/driver.js";
 import { matchFinding } from "../src/premise-evaluation/matching.js";
 import { loadGroundTruth, loadProtocol, validateProtocol, type EvaluationProtocol } from "../src/premise-evaluation/protocol.js";
 import { normalQuantile, pairedBootstrap, wilson } from "../src/premise-evaluation/statistics.js";
@@ -144,6 +144,23 @@ describe("P06 premise evaluation driver (scripted providers, no credentials)", (
     expect(resumed?.status).toBe("completed");
     expect(resumed?.segments.map(({ kind }) => kind)).toEqual(["start", "resume"]);
     expect(second.stoppedReason).toBeNull();
+  }, 120_000);
+
+  it("retires an unresumable run as an adverse result, keeps its discovery and continues the schedule", async () => {
+    const { root, protocol, state, evidence } = await workspace({ schedule: [{ fixtureId: "smoke-fixture", condition: "single", repetition: 1 }, { fixtureId: "smoke-fixture", condition: "single", repetition: 2 }] });
+    const failing = failingPlanner(premiseProvider().providerOptions);
+    expect((await executeProtocol({ root, protocol, stateRoot: state, evidenceDirectory: evidence, providerOptions: failing.providerOptions })).ledger.runs["smoke-fixture/single/r1"]?.status).toBe("incomplete");
+    await expect(abandonRun({ root, protocol, stateRoot: state, evidenceDirectory: evidence }, "smoke-fixture/single/r2", "absent")).rejects.toThrow("P06_ABANDON_REQUIRES_INCOMPLETE_RUN:smoke-fixture/single/r2:absent");
+    expect((await abandonRun({ root, protocol, stateRoot: state, evidenceDirectory: evidence }, "smoke-fixture/single/r1", "planner outage")).status).toBe("abandoned");
+    const next = await executeProtocol({ root, protocol, stateRoot: state, evidenceDirectory: evidence, providerOptions: premiseProvider().providerOptions });
+    expect(next.completed).toEqual(["smoke-fixture/single/r2"]);
+    expect(next.stoppedReason).toBeNull();
+    const saved = await records(evidence);
+    const report = analyse(protocol, new Map([["smoke-fixture", truth]]), saved, "scripted");
+    expect(report.pipelineFailures).toEqual([{ key: "smoke-fixture/single/r1", runId: next.ledger.runs["smoke-fixture/single/r1"]?.runId, reason: "planner outage", discoveryScored: true }]);
+    expect(report.conditions.find(({ condition }) => condition === "A")?.instances).toBe(2);
+    expect(report.conditions.find(({ condition }) => condition === "A_pipeline")?.instances).toBe(1);
+    expect(report.missingRuns).toEqual([]);
   }, 120_000);
 
   it("stops before a run once the prespecified request budget is spent", async () => {
