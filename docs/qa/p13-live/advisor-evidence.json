@@ -1,0 +1,172 @@
+{
+  "evidence": "p13-live-advisor-path",
+  "generatedAt": "2026-09-25T12:19:53.368Z",
+  "platform": "darwin-arm64",
+  "node": "v22.23.2",
+  "observations": [
+    {
+      "endpointId": "gemini-native",
+      "transport": "gemini-native",
+      "providerId": "google",
+      "modelId": "gemini-3.1-flash-lite",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta",
+      "case": "advisor",
+      "status": "passed",
+      "detail": "all checks passed (advice, identity, measuredUsage, replayNotRepaid, useLimit, providerCalls, noTools, trace, budget, advisoryInput)",
+      "checks": {
+        "advice": true,
+        "identity": true,
+        "measuredUsage": true,
+        "replayNotRepaid": true,
+        "useLimit": true,
+        "providerCalls": true,
+        "noTools": true,
+        "trace": true,
+        "budget": true,
+        "advisoryInput": true
+      },
+      "advisor": {
+        "advisorProfileId": "advisor",
+        "tier": "balanced",
+        "modelId": "gemini-3.1-flash-lite",
+        "ordinal": 1,
+        "activityId": "testing/advisor/1bbaeffce2858494ece85649c2080136b91b4027a6572cb52112c09fcac58132/use-1",
+        "state": "completed",
+        "harnessId": "advisor-direct"
+      },
+      "limits": {
+        "maximumUses": 1,
+        "policy": {
+          "models": {
+            "balanced": "advisor"
+          },
+          "maximumUsesPerTask": 1,
+          "maximumContextTokens": 20000,
+          "maximumOutputTokens": 2048,
+          "maximumTokensPerTask": 40000
+        }
+      },
+      "outcomes": {
+        "first": "advice",
+        "replay": "advice",
+        "extra": "exhausted:uses"
+      },
+      "usage": [
+        {
+          "cacheReadTokens": null,
+          "cacheWriteTokens": null,
+          "inputTokens": 433,
+          "outputTokens": 285
+        }
+      ],
+      "ledgerUsage": {
+        "cacheReadTokens": null,
+        "cacheWriteTokens": null,
+        "inputTokens": 433,
+        "outputTokens": 285
+      },
+      "chargedTokens": 718,
+      "estimatedTokens": 4110,
+      "providerRequestIds": [
+        "32a2auDUJoWkvdIP1JLUWA"
+      ],
+      "attempts": [
+        {
+          "attempt": 1,
+          "outcome": "completed",
+          "errorCode": null
+        }
+      ],
+      "httpRequests": 1,
+      "advice": {
+        "summary": "The `isValid` function in `session.ts` is logically flawed as it only checks if the expiration timestamp is non-negative, ignoring the `now` parameter entirely, leading to the reported session bypass vulnerability.",
+        "recommendations": 2,
+        "confidence": "high"
+      },
+      "observedAt": "2026-09-25T12:19:47.315Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "gemini-compatible-chat",
+      "transport": "openai-chat",
+      "providerId": "google-openai-compatible",
+      "modelId": "gemini-3.1-flash-lite",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "case": "advisor",
+      "status": "passed",
+      "detail": "all checks passed (advice, identity, measuredUsage, replayNotRepaid, useLimit, providerCalls, noTools, trace, budget, advisoryInput)",
+      "checks": {
+        "advice": true,
+        "identity": true,
+        "measuredUsage": true,
+        "replayNotRepaid": true,
+        "useLimit": true,
+        "providerCalls": true,
+        "noTools": true,
+        "trace": true,
+        "budget": true,
+        "advisoryInput": true
+      },
+      "advisor": {
+        "advisorProfileId": "advisor",
+        "tier": "balanced",
+        "modelId": "gemini-3.1-flash-lite",
+        "ordinal": 1,
+        "activityId": "testing/advisor/1bbaeffce2858494ece85649c2080136b91b4027a6572cb52112c09fcac58132/use-1",
+        "state": "completed",
+        "harnessId": "advisor-direct"
+      },
+      "limits": {
+        "maximumUses": 1,
+        "policy": {
+          "models": {
+            "balanced": "advisor"
+          },
+          "maximumUsesPerTask": 1,
+          "maximumContextTokens": 20000,
+          "maximumOutputTokens": 2048,
+          "maximumTokensPerTask": 40000
+        }
+      },
+      "outcomes": {
+        "first": "advice",
+        "replay": "advice",
+        "extra": "exhausted:uses"
+      },
+      "usage": [
+        {
+          "cacheReadTokens": null,
+          "cacheWriteTokens": null,
+          "inputTokens": 434,
+          "outputTokens": 247
+        }
+      ],
+      "ledgerUsage": {
+        "cacheReadTokens": null,
+        "cacheWriteTokens": null,
+        "inputTokens": 434,
+        "outputTokens": 247
+      },
+      "chargedTokens": 681,
+      "estimatedTokens": 4110,
+      "providerRequestIds": [
+        "5Ga2avrVELKexN8PgYXnOQ"
+      ],
+      "attempts": [
+        {
+          "attempt": 1,
+          "outcome": "completed",
+          "errorCode": null
+        }
+      ],
+      "httpRequests": 1,
+      "advice": {
+        "summary": "The `isValid` function currently ignores the `now` parameter and incorrectly returns true for any non-negative `expiresAt`, causing the session expiration check to fail.",
+        "recommendations": 2,
+        "confidence": "high"
+      },
+      "observedAt": "2026-09-25T12:19:53.365Z",
+      "source": "live"
+    }
+  ]
+}
