@@ -167,6 +167,22 @@ export interface ReplayContract {
 export const REPLAY_CONTRACT_KIND = "replay-contract";
 
 /**
+ * The contract a Feature/Testing replay run was created with, or null for any other run.
+ * A missing or corrupt copy fails explicitly: a replay is never resumed or reported
+ * without the decisions it was created under.
+ */
+export async function readReplayContract(store: RunStore): Promise<ReplayContract | null> {
+  const descriptor = (await store.listArtifacts()).find(({ kind }) => kind === REPLAY_CONTRACT_KIND);
+  if (descriptor === undefined) return null;
+  const unreadable = () => Object.assign(new Error(`REPLAY_CONTRACT_UNREADABLE:${store.runId}`), { statusCode: 409 });
+  let contract: Partial<ReplayContract> | null;
+  try { contract = await store.artifacts.get<Partial<ReplayContract> | null>(descriptor.ref); }
+  catch { throw unreadable(); }
+  if (typeof contract !== "object" || contract === null || contract.schemaVersion !== 1 || (contract.mode !== "feature" && contract.mode !== "testing") || typeof contract.sourceRunId !== "string" || !Array.isArray(contract.stages)) throw unreadable();
+  return contract as ReplayContract;
+}
+
+/**
  * Serves source outputs to a replay run. Every lookup, reuse or miss is recorded in the
  * replay run as `replay-activity-<key>`, so the replay's provenance is inspectable. The
  * source run is only read.
@@ -218,10 +234,9 @@ export interface ReplayActivityRecord { readonly activityId: string; readonly st
 
 /** The inspectable provenance of a Feature/Testing replay run, derived from its artifacts. */
 export async function replayReport(store: RunStore) {
+  const contract = await readReplayContract(store);
+  if (contract === null) return null;
   const artifacts = await store.listArtifacts();
-  const contractDescriptor = artifacts.find(({ kind }) => kind === REPLAY_CONTRACT_KIND);
-  if (contractDescriptor === undefined) return null;
-  const contract = await store.artifacts.get<ReplayContract>(contractDescriptor.ref);
   const records = await Promise.all(artifacts.filter(({ kind }) => kind.startsWith("replay-activity-")).map(({ ref }) => store.artifacts.get<ReplayActivityRecord>(ref)));
   const byActivity = (items: readonly ReplayActivityRecord[]) => items.map(({ activityId, sourceArtifactId, reason }) => ({ activityId, ...(sourceArtifactId === undefined ? {} : { sourceArtifactId }), ...(reason === undefined ? {} : { reason }) })).sort((a, b) => a.activityId.localeCompare(b.activityId));
   return {

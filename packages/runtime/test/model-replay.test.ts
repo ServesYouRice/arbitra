@@ -4,33 +4,14 @@ import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { runConfigSchema } from "@arbitra/schemas/config.js";
 import { featureFixture } from "./feature-fixture.js";
-import { runDigest, testingReplayFixture } from "./replay-fixture.js";
+import { budget, cleanup, report, runDigest, stage, testingReplayFixture, workspace } from "./replay-fixture.js";
 import { orchestratorCore } from "../src/cli-core.js";
 import { RunStore } from "../src/run-store.js";
-import { TestingWorktree, type TestingWorktreeHandle } from "../src/testing-worktree.js";
 import { Orchestrator } from "../src/orchestrator.js";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 async function root(prefix: string) { const path = await mkdtemp(join(tmpdir(), prefix)); roots.push(path); return path; }
-
-type Report = { stages: { stage: string; decision: string; reasons: string[]; reused: { activityId: string; sourceArtifactId?: string }[]; regenerated: { activityId: string; reason?: string }[] }[] };
-async function report(core: Orchestrator, runId: string): Promise<Report> {
-  const value = await core.replayReport(runId);
-  if (value === null) throw new Error("REPLAY_REPORT_ABSENT");
-  return value as unknown as Report;
-}
-const stage = (value: Report, name: string) => {
-  const found = value.stages.find((item) => item.stage === name);
-  if (found === undefined) throw new Error(`STAGE_ABSENT:${name}`);
-  return found;
-};
-async function budget(root: string, runId: string): Promise<readonly string[]> {
-  const store = new RunStore(join(root, ".runs", "runs"), runId);
-  const descriptor = (await store.listArtifacts()).find(({ kind }) => kind === "model-token-budget");
-  if (descriptor === undefined) return [];
-  return (await store.artifacts.get<{ reservations: { activityId: string }[] }>(descriptor.ref)).reservations.map(({ activityId }) => activityId);
-}
 
 it("reuses every compatible Feature stage without provider calls or budget and leaves the source byte-identical", async () => {
   const path = await root("feature-replay-");
@@ -253,21 +234,6 @@ it("refuses an execution replay of a planning run unless execution settings are 
   expect(result).toMatchObject({ disposition: "passed", value: { state: "COMPLETED", summary: { replay: { sourceRunId: source.runId } } } });
   expect(f.checks()).toBe(0);
 });
-
-async function workspace(core: Orchestrator, runId: string): Promise<string> {
-  const artifact = (await core.artifacts(runId)).find(({ kind }) => kind === "testing-workspace");
-  if (artifact === undefined) throw new Error("WORKSPACE_ABSENT");
-  const record = JSON.parse((await core.artifact(runId, artifact.artifactId) as { content: string }).content) as { handle?: TestingWorktreeHandle };
-  if (record.handle === undefined) throw new Error("WORKSPACE_HANDLE_ABSENT");
-  return record.handle.directory;
-}
-
-async function cleanup(core: Orchestrator, runId: string): Promise<void> {
-  const artifact = (await core.artifacts(runId)).find(({ kind }) => kind === "testing-workspace");
-  if (artifact === undefined) return;
-  const record = JSON.parse((await core.artifact(runId, artifact.artifactId) as { content: string }).content) as { handle?: TestingWorktreeHandle };
-  if (record.handle !== undefined) await TestingWorktree.recover(record.handle);
-}
 
 it("refuses a model replay through preflight before creating a run when a credential is missing", async () => {
   const path = await root("replay-preflight-");
