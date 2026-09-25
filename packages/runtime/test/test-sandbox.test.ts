@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { verificationExecutionSchema } from "@arbitra/schemas/verification-execution.js";
 import { runConfigSchema } from "@arbitra/schemas/config.js";
-import { DockerTestSandbox, runBoundedProcess, type ProcessRequest, type BoundedProcessResult, type SandboxRecoveryHandle } from "../src/test-sandbox.js";
+import { DockerTestSandbox, resolveLocalDockerEndpoint, runBoundedProcess, type ProcessRequest, type BoundedProcessResult, type SandboxRecoveryHandle } from "../src/test-sandbox.js";
 
 const policy = () => verificationExecutionSchema.parse({ driver: "docker", image: `local/node@sha256:${"a".repeat(64)}`, checks: [{ id: "guard", sourcePaths: ["test.js"], executable: "/usr/local/bin/node", arguments: ["--test", "test.js"] }] });
 const snapshot = { root: "unused-original-repository", files: [{ path: "test.js", lines: ["console.log('snapshot source');"], byteLength: 31, lineStartBytes: [0] }] };
@@ -118,6 +118,62 @@ describe("bounded isolated verification execution", () => {
     await expect(sandbox.run(snapshot, policy(), selected(), new AbortController().signal)).rejects.toThrow("VERIFICATION_CONTAINER_CLEANUP_FAILED");
     expect(removals).toBe(2);
     await expect(stat(directory)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+});
+
+describe("engine refusals", () => {
+  it.each([
+    [125, "docker: Error response from daemon: No such image: local/node@sha256:aaaa", "unavailable"],
+    [127, "docker: Error response from daemon: failed to create task for container: exec: \"/usr/local/bin/node\": stat /usr/local/bin/node: no such file or directory", "unavailable"],
+    [125, "test runner exited with 125", "exited"],
+    [1, "docker: looks like engine text but the check failed", "exited"],
+  ] as const)("classifies exit %i with %j as %s", async (exitCode, stderr, status) => {
+    const sandbox = new DockerTestSandbox({ async run(request) {
+      if (request.arguments[2] === "info") return ok("linux");
+      if (request.arguments[2] === "run") return { ...ok(), exitCode, stderr };
+      return ok();
+    } });
+    expect(await sandbox.run(snapshot, policy(), selected(), new AbortController().signal)).toMatchObject({ status, exitCode, cleanupCompleted: true });
+  });
+});
+
+describe("local Docker endpoint resolution", () => {
+  const never: { run(request: ProcessRequest): Promise<BoundedProcessResult> } = { async run() { throw new Error("UNEXPECTED_LOOKUP"); } };
+  const signal = new AbortController().signal;
+
+  it("uses only a local DOCKER_HOST and refuses remote engines", async () => {
+    expect(await resolveLocalDockerEndpoint({ DOCKER_HOST: "unix:///Users/me/.docker/run/docker.sock" }, never, signal)).toEqual({ host: "unix:///Users/me/.docker/run/docker.sock" });
+    expect(await resolveLocalDockerEndpoint({ DOCKER_HOST: "npipe:////./pipe/docker_engine" }, never, signal)).toEqual({ host: "npipe:////./pipe/docker_engine" });
+    for (const remote of ["tcp://10.0.0.5:2376", "ssh://user@build-host"]) {
+      const endpoint = await resolveLocalDockerEndpoint({ DOCKER_HOST: remote }, never, signal);
+      expect(endpoint).toMatchObject({ unavailable: expect.stringContaining("not a local socket") });
+      expect(JSON.stringify(endpoint)).not.toContain("10.0.0.5"); expect(JSON.stringify(endpoint)).not.toContain("build-host");
+    }
+  });
+
+  it("reads the current context's endpoint without the rest of the operator environment", async () => {
+    const calls: ProcessRequest[] = [];
+    const lookup = (result: BoundedProcessResult) => ({ async run(request: ProcessRequest) { calls.push(request); return result; } });
+    expect(await resolveLocalDockerEndpoint({ HOME: "/Users/me", PATH: "/bin", AWS_SECRET_ACCESS_KEY: "secret" }, lookup(ok("unix:///Users/me/.docker/run/docker.sock\n")), signal)).toEqual({ host: "unix:///Users/me/.docker/run/docker.sock" });
+    expect(calls[0]?.arguments).toEqual(["context", "inspect", "--format", "{{.Endpoints.docker.Host}}"]);
+    expect(calls[0]?.environment).toEqual({ HOME: "/Users/me", PATH: "/bin" });
+    expect(await resolveLocalDockerEndpoint({}, lookup({ ...ok(), exitCode: 1, stderr: "context not found" }), signal)).toEqual({ host: null });
+    expect(await resolveLocalDockerEndpoint({}, lookup(ok("tcp://remote:2375")), signal)).toMatchObject({ unavailable: expect.stringContaining("Docker context endpoint tcp://…") });
+    await expect(resolveLocalDockerEndpoint({}, lookup({ ...ok(), exitCode: null, stopped: "cancelled" }), signal)).rejects.toThrow("VERIFICATION_CANCELLED");
+  });
+
+  it("passes the resolved socket to every command and launches nothing for a refused engine", async () => {
+    const calls: ProcessRequest[] = [];
+    const sandbox = new DockerTestSandbox({ async run(request) {
+      calls.push(request);
+      expect(request.arguments.slice(2, 4)).toEqual(["--host", "unix:///run/user/1000/docker.sock"]);
+      return request.arguments[4] === "info" ? ok("linux") : ok();
+    } }, async () => ({ host: "unix:///run/user/1000/docker.sock" }));
+    expect(await sandbox.run(snapshot, policy(), selected(), new AbortController().signal)).toMatchObject({ status: "exited", cleanupCompleted: true });
+    expect(calls.map(({ arguments: args }) => args[4])).toEqual(["info", "run", "rm"]);
+    const refused = new DockerTestSandbox(never, async () => ({ unavailable: "DOCKER_HOST tcp://… is not a local socket" }));
+    expect(await refused.run(snapshot, policy(), selected(), new AbortController().signal)).toMatchObject({ status: "unavailable", stderr: expect.stringContaining("not a local socket") });
+    expect(await refused.inspect(policy().image, new AbortController().signal)).toEqual({ engine: "unavailable", image: "unknown", detail: "DOCKER_HOST tcp://… is not a local socket" });
   });
 });
 

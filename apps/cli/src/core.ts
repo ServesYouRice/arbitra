@@ -24,6 +24,8 @@ export interface OrchestratorCore {
   /** `incremental` names a completed base Audit run, exactly as `POST /runs` accepts it. */
   run(configPath: string, options?: { readonly incremental?: { readonly baseRunId: string } }): Promise<CoreCommandResult>;
   incremental?(runId: string): Promise<CoreCommandResult>;
+  /** Apply a Testing run's verified change set to an operator-named checkout, compare-and-swap per file. */
+  applyChanges?(runId: string, targetDirectory: string): Promise<CoreCommandResult>;
   audit(request: { readonly preset: string; readonly target: AuditCliTarget }): Promise<CoreCommandResult>;
   status(runId: string): Promise<CoreCommandResult>;
   resume(runId: string): Promise<CoreCommandResult>;

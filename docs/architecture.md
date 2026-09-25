@@ -117,7 +117,7 @@ See [`durability.md`](durability.md).
 ```text
 validate  estimate  run  audit  status  resume  replay  diff  trace  export  report
 requirements  approve-requirements  revise-requirements  apply-requirements-revision
-respond-checkpoint  workflow  incremental
+respond-checkpoint  workflow  incremental  apply-changes
 ```
 
 `apps/cli/src/exit-policy.ts` is the sole mapping from outcome to process exit code:

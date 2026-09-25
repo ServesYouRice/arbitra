@@ -246,12 +246,31 @@ vitest run test/native-harness.conformance.test.ts`. Without those variables it 
 ### Docker prerequisites (Testing execute, Audit verification checks)
 
 - A running local Linux Docker engine: `docker info --format '{{.OSType}}'` prints `linux`.
+  Every sandbox command uses an empty Docker CLI configuration, so the engine's socket is
+  resolved first from `DOCKER_HOST`, else from the current context
+  (`docker context inspect`), and passed as `--host`. This is what makes Docker Desktop,
+  Colima and OrbStack work when `/var/run/docker.sock` is absent. Only `unix://` and
+  `npipe://` endpoints are used; a `tcp://` or `ssh://` engine is refused, because it
+  cannot see the bind-mounted snapshot and is not the boundary being verified.
 - The image is referenced as `name@sha256:<64 hex>` and already present locally:
   `docker image inspect <reference>` succeeds. arbitra never pulls or builds images.
-  Preflight uses exactly these two read-only commands, with an empty Docker CLI
-  configuration.
+  Preflight uses exactly these two read-only commands.
 - The image contains every test dependency. Containers run with no network and a
   read-only snapshot, so nothing is installed at run time.
+  [tooling/sandbox-image](../tooling/sandbox-image/Dockerfile) builds a Node 22 image with
+  vitest preinstalled; its header shows how to obtain the digest reference.
+- A `docker run` that the engine itself refuses (absent image, missing entrypoint:
+  exit 125/126/127 with a `docker:` error) is recorded as `unavailable`, which makes the
+  check incomplete rather than failed, so repair is not spent on an environment fault.
+
+Real-container acceptance (P04, and the P07 repair cases against real containers):
+
+```bash
+docker build -t arbitra-sandbox-node tooling/sandbox-image
+export ARBITRA_DOCKER_ACCEPTANCE=1
+export ARBITRA_DOCKER_IMAGE="arbitra-sandbox-node@$(docker image inspect --format '{{.Id}}' arbitra-sandbox-node)"
+pnpm --filter @arbitra/runtime exec vitest run test/docker-sandbox.acceptance.test.ts test/testing-repair.test.ts
+```
 
 Missing engine or image is a start-blocking error for Testing execution
 (`SANDBOX_ENGINE_UNAVAILABLE`, `SANDBOX_IMAGE_UNAVAILABLE:<image>`). For Audit
@@ -307,9 +326,19 @@ for (const [name, content] of Object.entries(tree)) {
 ```
 
 Task commands in the tree carry `executionPolicy: "requires_approval"`. The consuming
-executor still decides command policy and write authority. When applying a Testing change
-set, compare each destination file's current SHA-256 with `expectedHash` before replacing
-it, and stop on any mismatch.
+executor still decides command policy and write authority.
+
+A verified Testing change set is applied only on request, to a checkout you name:
+
+```bash
+node apps/cli/dist/src/bin.js apply-changes <run-id> <checkout-directory>
+```
+
+The command rechecks the completion record and content hashes, then compares every
+destination's current SHA-256 with its `expectedHash` (a created file must not exist)
+before writing anything. Any mismatch fails with exit `1`, lists the stale paths and
+leaves the checkout untouched. Symbolic links and control-plane paths are refused. If you
+apply the exported JSON with your own tooling, perform the same comparison.
 
 Interactive Feature runs stop in `BLOCKED` (exit `3`) at a requirements checkpoint:
 

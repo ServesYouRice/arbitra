@@ -1,4 +1,4 @@
-export const IMPLEMENTED_COMMANDS = ["validate", "estimate", "run", "audit", "status", "resume", "replay", "diff", "trace", "export", "report", "requirements", "approve-requirements", "revise-requirements", "apply-requirements-revision", "respond-checkpoint", "workflow", "incremental"] as const;
+export const IMPLEMENTED_COMMANDS = ["validate", "estimate", "run", "audit", "status", "resume", "replay", "diff", "trace", "export", "report", "requirements", "approve-requirements", "revise-requirements", "apply-requirements-revision", "respond-checkpoint", "workflow", "incremental", "apply-changes"] as const;
 export const RESERVED_COMMANDS = [] as const;
 
 export type ImplementedCommand = (typeof IMPLEMENTED_COMMANDS)[number];

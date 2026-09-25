@@ -41,15 +41,40 @@ export interface SandboxAvailability {
   readonly detail: string | null;
 }
 
+/** A local engine socket (`null` is the CLI default), or why no local engine may be used. */
+export type DockerEndpoint = { readonly host: string | null } | { readonly unavailable: string };
+export type DockerEndpointResolver = (signal: AbortSignal) => Promise<DockerEndpoint>;
+
+const defaultProcesses: ProcessPort = { run: runBoundedProcess };
+
 /** Launch only a local Docker CLI. Container argv is never interpreted by a host shell. */
 export class DockerTestSandbox implements TestSandbox {
-  constructor(private readonly processes: ProcessPort = { run: runBoundedProcess }) {}
+  readonly #resolveEndpoint: DockerEndpointResolver;
+  #endpoint: Promise<DockerEndpoint> | undefined;
+
+  /**
+   * Every command runs with an empty CLI configuration, which also drops the operator's
+   * current context. The engine's local socket is therefore resolved once, up front, from
+   * `DOCKER_HOST` or the current context (Docker Desktop, Colima and OrbStack do not
+   * serve /var/run/docker.sock by default) and passed as `--host`. An injected process
+   * port stands for the engine itself, so it gets the CLI default unless a resolver is given.
+   */
+  constructor(private readonly processes: ProcessPort = defaultProcesses, resolveEndpoint?: DockerEndpointResolver) {
+    this.#resolveEndpoint = resolveEndpoint ?? (processes === defaultProcesses ? (signal) => resolveLocalDockerEndpoint(process.env, processes, signal) : async () => ({ host: null }));
+  }
+
+  #hostArguments(signal: AbortSignal): Promise<readonly string[] | string> {
+    this.#endpoint ??= this.#resolveEndpoint(signal).catch((error: unknown) => { this.#endpoint = undefined; throw error; });
+    return this.#endpoint.then((endpoint) => "unavailable" in endpoint ? endpoint.unavailable : endpoint.host === null ? [] : ["--host", endpoint.host]);
+  }
 
   async recover(handle: SandboxRecoveryHandle): Promise<void> {
     await validateRecoveryHandle(handle);
     const temporary = await mkdtemp(join(tmpdir(), "arbitra-recovery-"));
     try {
-      const cleanup = await this.processes.run({ executable: "docker", arguments: ["--config", temporary, "rm", "--force", "--volumes", handle.container], cwd: temporary, environment: dockerEnvironment(), timeoutMs: 10_000, maximumOutputBytes: 4096, signal: new AbortController().signal });
+      const host = await this.#hostArguments(new AbortController().signal);
+      if (typeof host === "string") throw new Error(`VERIFICATION_CONTAINER_CLEANUP_FAILED:${handle.container}`);
+      const cleanup = await this.processes.run({ executable: "docker", arguments: ["--config", temporary, ...host, "rm", "--force", "--volumes", handle.container], cwd: temporary, environment: dockerEnvironment(), timeoutMs: 10_000, maximumOutputBytes: 4096, signal: new AbortController().signal });
       if (cleanup.stopped !== null || cleanup.exitCode !== 0 && !/No such container:/u.test(cleanup.stderr)) throw new Error(`VERIFICATION_CONTAINER_CLEANUP_FAILED:${handle.container}`);
       await validateRecoveryHandle(handle);
       await rm(handle.directory, { recursive: true, force: true });
@@ -62,7 +87,9 @@ export class DockerTestSandbox implements TestSandbox {
     const execution = verificationExecutionSchema.parse({ driver: "docker", image, checks: [] });
     const temporary = await mkdtemp(join(tmpdir(), "arbitra-preflight-"));
     try {
-      const run = (args: readonly string[]) => this.processes.run({ executable: "docker", arguments: ["--config", temporary, ...args], cwd: temporary, environment: dockerEnvironment(), timeoutMs: 5_000, maximumOutputBytes: 4096, signal });
+      const host = await this.#hostArguments(signal);
+      if (typeof host === "string") return { engine: "unavailable", image: "unknown", detail: host };
+      const run = (args: readonly string[]) => this.processes.run({ executable: "docker", arguments: ["--config", temporary, ...host, ...args], cwd: temporary, environment: dockerEnvironment(), timeoutMs: 5_000, maximumOutputBytes: 4096, signal });
       const info = await run(["info", "--format", "{{.OSType}}"]);
       if (info.stopped !== null || info.exitCode !== 0 || info.stdout.trim() !== "linux") {
         const detail = info.stopped === "spawn_error" ? "docker executable not found on PATH" : info.stopped !== null ? `docker info stopped: ${info.stopped}` : info.exitCode !== 0 ? firstLine(info.stderr) ?? `docker info exited ${String(info.exitCode)}` : `engine OSType is ${info.stdout.trim() || "unknown"}, not linux`;
@@ -85,12 +112,14 @@ export class DockerTestSandbox implements TestSandbox {
     validateSnapshot(snapshot);
     const paths = new Set(snapshot.files.map(({ path }) => path));
     if (check.sourcePaths.some((path) => !paths.has(path))) throw new Error("VERIFICATION_CHECK_OUTSIDE_SNAPSHOT");
+    const host = await this.#hostArguments(signal);
+    if (typeof host === "string") return { exitCode: null, stdout: "", stderr: host, stopped: null, status: "unavailable", cleanupCompleted: true, driver: "docker", image: execution.image, checkId: check.id, isolation: "read_only_snapshot_no_network" };
     // arbitra-determinism: allow -- disposable container identity is minted at the execution boundary
     const container = `arbitra-verification-${randomUUID()}`;
     const root = await mkdtemp(join(tmpdir(), `${container}-`));
     const workspace = join(root, "snapshot"); const configuration = join(root, "docker-config");
     const environment = dockerEnvironment();
-    const run = (args: readonly string[], timeoutMs: number, commandSignal: AbortSignal) => this.processes.run({ executable: "docker", arguments: ["--config", configuration, ...args], cwd: root, environment, timeoutMs, maximumOutputBytes: execution.maximumOutputBytes, signal: commandSignal });
+    const run = (args: readonly string[], timeoutMs: number, commandSignal: AbortSignal) => this.processes.run({ executable: "docker", arguments: ["--config", configuration, ...host, ...args], cwd: root, environment, timeoutMs, maximumOutputBytes: execution.maximumOutputBytes, signal: commandSignal });
     const result = (process: BoundedProcessResult, status: SandboxTestResult["status"], cleanupCompleted: boolean): SandboxTestResult => ({ ...process, status, cleanupCompleted, driver: "docker", image: execution.image, checkId: check.id, isolation: "read_only_snapshot_no_network" });
     let attempted = false;
     const cleanupResources = async () => {
@@ -124,11 +153,43 @@ export class DockerTestSandbox implements TestSandbox {
       const cleanupCompleted = cleanup.stopped === null && (cleanup.exitCode === 0 || /No such container:/u.test(cleanup.stderr));
       attempted = !cleanupCompleted;
       if (!cleanupCompleted) throw new Error(`VERIFICATION_CONTAINER_CLEANUP_FAILED:${container}`);
-      return result(process, process.stopped === null ? "exited" : "interrupted", true);
+      return result(process, process.stopped !== null ? "interrupted" : dockerRefusedToStart(process) ? "unavailable" : "exited", true);
     } finally {
       await cleanupResources();
     }
   }
+}
+
+/**
+ * `docker run` exits 125 when the engine itself failed (absent image, rejected option)
+ * and 126/127 when the container's entrypoint could not be started; the CLI then prints
+ * its own `docker: ` error. Neither is a verdict on the check, so it must not be recorded
+ * as a failing test that repair would then try to fix.
+ */
+function dockerRefusedToStart(process: BoundedProcessResult): boolean {
+  return (process.exitCode === 125 || process.exitCode === 126 || process.exitCode === 127) && /^docker: /mu.test(process.stderr);
+}
+
+const LOCAL_ENDPOINT = /^(unix|npipe):\/\/[^\0\r\n]+$/u;
+
+/**
+ * Resolve the local engine the operator's CLI would use, without adopting the rest of
+ * its configuration (credentials, registries, plugins). Only local sockets qualify: a
+ * remote engine (tcp://, ssh://) could not see the bind-mounted snapshot and is not the
+ * isolation boundary this sandbox verifies. A failed lookup falls back to the CLI default.
+ */
+export async function resolveLocalDockerEndpoint(environment: NodeJS.ProcessEnv, processes: ProcessPort, signal: AbortSignal): Promise<DockerEndpoint> {
+  const local = (host: string, source: string): DockerEndpoint => LOCAL_ENDPOINT.test(host) ? { host } : { unavailable: `${source} ${host.replace(/:\/\/.*$/u, "://…")} is not a local socket; the sandbox uses only a local Docker engine` };
+  const configured = environment["DOCKER_HOST"]?.trim();
+  if (configured !== undefined && configured !== "") return local(configured, "DOCKER_HOST");
+  const passed = ["PATH", "Path", "HOME", "USERPROFILE", "APPDATA", "SystemRoot", "SYSTEMROOT", "DOCKER_CONFIG", "DOCKER_CONTEXT"];
+  const lookup = await processes.run({ executable: "docker", arguments: ["context", "inspect", "--format", "{{.Endpoints.docker.Host}}"], cwd: tmpdir(),
+    environment: Object.fromEntries(passed.flatMap((key) => environment[key] === undefined ? [] : [[key, environment[key] as string]])), timeoutMs: 5_000, maximumOutputBytes: 4096, signal });
+  // A cancelled lookup says nothing about the engine and must not be memoized as the default.
+  if (lookup.stopped === "cancelled") throw new Error("VERIFICATION_CANCELLED");
+  const host = lookup.stdout.trim();
+  if (lookup.stopped !== null || lookup.exitCode !== 0 || host === "") return { host: null };
+  return local(host, "Docker context endpoint");
 }
 
 function firstLine(text: string): string | null {

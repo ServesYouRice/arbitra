@@ -54,6 +54,11 @@ export async function executeCommand(
       if (core.reviseRequirements === undefined || artifactId === undefined || draftPath === undefined || positional.length !== 3) throw new Error("USAGE: revise-requirements <run-id> <artifact-id> <draft.json>");
       return core.reviseRequirements(subject, artifactId, draftPath);
     }
+    case "apply-changes": {
+      const target = positional[1];
+      if (core.applyChanges === undefined || target === undefined || positional.length !== 2) throw new Error("USAGE: apply-changes <run-id> <target-directory>");
+      return core.applyChanges(subject, target);
+    }
     case "incremental": {
       if (core.incremental === undefined || positional.length !== 1) throw new Error("USAGE: incremental <run-id>");
       return core.incremental(subject);
