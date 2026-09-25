@@ -26,6 +26,8 @@ app.post<{ Params: { scenario: string } }>("/__fixture/runs/:scenario", async (r
   const run = await runtime.start(scenario as ScriptedScenario);
   return { runId: run.runId, state: run.state };
 });
+// A fresh Audit repository for a run the browser starts itself from a saved graph (P16).
+app.post("/__fixture/repositories/audit", async () => ({ repository: await runtime.auditRepository() }));
 app.setNotFoundHandler(async (request, reply) => {
   if (request.method !== "GET") return reply.code(404).send({ error: "NOT_FOUND" });
   const path = new URL(request.url, "http://localhost").pathname;

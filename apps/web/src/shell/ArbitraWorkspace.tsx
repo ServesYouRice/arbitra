@@ -14,6 +14,8 @@ import { ArtifactView } from "../controls/ArtifactView.js";
 import { InspectorOverlay, RunControls } from "../controls/RunControls.js";
 import { EvaluationApi } from "../views/evaluation/api.js";
 import { RequirementsApi, TestingApi } from "../api/operator.js";
+import { WorkflowApi } from "../api/workflows.js";
+import { UnsavedChangesDialog } from "../controls/UnsavedChangesDialog.js";
 import { AppShell } from "./AppShell.js";
 // Column two shows one view at a time, so each is its own chunk. This keeps React Flow and
 // the per-view code out of the entry chunk, and a deep link to a non-graph view never pays
@@ -29,9 +31,9 @@ export const INSPECTOR_OVERLAY_QUERY = "(max-width: 1180px)";
 /** Column two is the only fluid column, so the run-level views share it with the graph. */
 export const WORKSPACE_VIEWS = Object.freeze({ graph: "workflow graph", issues: "issue board", plan: "plan", feature: "feature contract", testing: "testing execution", evaluation: "evaluation", traces: "traces" });
 export type WorkspaceView = keyof typeof WORKSPACE_VIEWS;
-export interface ArbitraWorkspaceProps { readonly api?: ConfigurationApi; readonly runApi?: RunApi; readonly artifactApi?: ArtifactApi; readonly evaluationApi?: EvaluationApi; readonly requirementsApi?: RequirementsApi; readonly testingApi?: TestingApi; readonly runId: string | null; readonly workflow: WorkflowJson; readonly models: readonly ModelCardData[]; readonly defaultConfiguration: Record<string, unknown>; readonly configurationId?: string | null; readonly repository?: string | null; readonly initialView?: WorkspaceView }
-export function ArbitraWorkspace({ api, runApi, artifactApi, evaluationApi, requirementsApi, testingApi, runId, workflow, models, defaultConfiguration, configurationId = null, repository = null, initialView = "graph" }: ArbitraWorkspaceProps): ReactElement {
-  const configurationApi = useMemo(() => api ?? new ConfigurationApi(), [api]); const lifecycleApi = useMemo(() => runApi ?? new RunApi(), [runApi]); const artifactStore = useMemo(() => artifactApi ?? new ArtifactApi(), [artifactApi]); const metricsApi = useMemo(() => evaluationApi ?? new EvaluationApi(), [evaluationApi]); const contractApi = useMemo(() => requirementsApi ?? new RequirementsApi(), [requirementsApi]); const executionApi = useMemo(() => testingApi ?? new TestingApi(), [testingApi]);
+export interface ArbitraWorkspaceProps { readonly api?: ConfigurationApi; readonly runApi?: RunApi; readonly artifactApi?: ArtifactApi; readonly evaluationApi?: EvaluationApi; readonly requirementsApi?: RequirementsApi; readonly testingApi?: TestingApi; readonly workflowApi?: WorkflowApi; readonly runId: string | null; readonly workflow: WorkflowJson; readonly models: readonly ModelCardData[]; readonly defaultConfiguration: Record<string, unknown>; readonly configurationId?: string | null; readonly repository?: string | null; readonly initialView?: WorkspaceView }
+export function ArbitraWorkspace({ api, runApi, artifactApi, evaluationApi, requirementsApi, testingApi, workflowApi, runId, workflow, models, defaultConfiguration, configurationId = null, repository = null, initialView = "graph" }: ArbitraWorkspaceProps): ReactElement {
+  const configurationApi = useMemo(() => api ?? new ConfigurationApi(), [api]); const lifecycleApi = useMemo(() => runApi ?? new RunApi(), [runApi]); const artifactStore = useMemo(() => artifactApi ?? new ArtifactApi(), [artifactApi]); const metricsApi = useMemo(() => evaluationApi ?? new EvaluationApi(), [evaluationApi]); const contractApi = useMemo(() => requirementsApi ?? new RequirementsApi(), [requirementsApi]); const executionApi = useMemo(() => testingApi ?? new TestingApi(), [testingApi]); const graphApi = useMemo(() => workflowApi ?? new WorkflowApi(), [workflowApi]);
   const [activeRunId, setActiveRunId] = useState(runId);
   const [runVersion, setRunVersion] = useState(0);
   const [selectedConfiguration, setSelectedConfiguration] = useState<StoredConfiguration<Record<string, unknown>> | null | undefined>(undefined);
@@ -45,6 +47,10 @@ export function ArbitraWorkspace({ api, runApi, artifactApi, evaluationApi, requ
   const [artifactId, setArtifactId] = useState<string | null>(null);
   const [overlayOpen, setOverlayOpen] = useState(false);
   const [view, setView] = useState<WorkspaceView>(initialView);
+  // Unsaved graph edits guard every way out of the editor, including these view tabs.
+  const [graphDirty, setGraphDirty] = useState(false);
+  const [pendingView, setPendingView] = useState<WorkspaceView | null>(null);
+  const chooseView = (key: WorkspaceView): void => { if (key === view) return; if (view === "graph" && graphDirty) setPendingView(key); else setView(key); };
   const [finding, setFinding] = useState<string | null>(null);
   const overlay = useMediaQuery(INSPECTOR_OVERLAY_QUERY);
   const model = useMemo(() => models.find(({ alias }) => alias === (node === null ? undefined : assignments[node.id])) ?? null, [models, assignments, node]);
@@ -56,9 +62,10 @@ export function ArbitraWorkspace({ api, runApi, artifactApi, evaluationApi, requ
   const displayedWorkflow = resource?.workflow ?? selectedWorkflow;
   useEffect(() => { setArtifactId(null); setFinding(null); }, [activeRunId]);
   const graph = <>
-    <nav aria-label="workspace views" className="view-tabs">{(Object.keys(WORKSPACE_VIEWS) as WorkspaceView[]).map((key) => <button aria-current={view === key ? "page" : undefined} key={key} type="button" onClick={() => setView(key)}>{WORKSPACE_VIEWS[key]}</button>)}</nav>
+    <nav aria-label="workspace views" className="view-tabs">{(Object.keys(WORKSPACE_VIEWS) as WorkspaceView[]).map((key) => <button aria-current={view === key ? "page" : undefined} key={key} type="button" onClick={() => chooseView(key)}>{WORKSPACE_VIEWS[key]}</button>)}</nav>
+    <UnsavedChangesDialog open={pendingView !== null} action="Leaving the graph editor" onKeep={() => setPendingView(null)} onDiscard={() => { const next = pendingView; setPendingView(null); setGraphDirty(false); if (next !== null) setView(next); }} />
     <Suspense fallback={<p className="state" data-state="unexamined">loading view</p>}>
-      {view === "graph" ? <GraphView workflowJson={displayedWorkflow} artifacts={artifacts} runEvents={events} modelAliases={models.map(({ alias }) => alias)} assignments={assignments} onAssign={(nodeId, alias) => setAssignments((current) => ({ ...current, [nodeId]: alias }))} onSelect={setNode} />
+      {view === "graph" ? <GraphView workflowJson={displayedWorkflow} artifacts={artifacts} runEvents={events} modelAliases={models.map(({ alias }) => alias)} assignments={assignments} onAssign={(nodeId, alias) => setAssignments((current) => ({ ...current, [nodeId]: alias }))} onSelect={setNode} editing={{ api: graphApi, configurationId: runConfigurationId, onDirtyChange: setGraphDirty }} {...(resource?.workflowGraph === undefined ? {} : { identity: resource.workflowGraph })} />
         : view === "issues" ? <IssueBoardView api={artifactStore} runId={activeRunId} selectedFindingId={finding} onSelectFinding={setFinding} refreshKey={events.length} />
         : view === "plan" ? <PlanView api={artifactStore} runId={activeRunId} refreshKey={events.length} />
         : view === "traces" ? <TraceView runId={activeRunId} refreshKey={events.length} />

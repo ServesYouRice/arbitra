@@ -6,7 +6,7 @@ import type { WorkflowJson } from "../columns/graph/layout.js";
 export interface HumanCheckpointResource { readonly kind: "human"; readonly checkpointId: string; readonly version: string; readonly mode: "interactive" | "automatic"; readonly status: "pending" | "approved" | "rejected"; readonly prompt: string; readonly decisions: readonly ("approve" | "reject")[] }
 export interface RequirementsCheckpointResource { readonly kind: "requirements"; readonly artifactId: string; readonly pendingAmbiguityIds: readonly string[] }
 export type CheckpointResource = HumanCheckpointResource | RequirementsCheckpointResource;
-export interface RunResource { readonly runId: string; readonly state: string; readonly resumable: boolean; readonly checkpoints: readonly CheckpointResource[]; readonly eventsCursor?: string; readonly preservedArtifacts?: number; readonly workflow?: WorkflowJson }
+export interface RunResource { readonly runId: string; readonly state: string; readonly resumable: boolean; readonly checkpoints: readonly CheckpointResource[]; readonly eventsCursor?: string; readonly preservedArtifacts?: number; readonly workflow?: WorkflowJson; /** Present when the run executes a saved operator-authored graph. */ readonly workflowGraph?: { readonly id: string; readonly version: string; readonly executedVersion: string } }
 export interface EstimateResource { readonly estimate: unknown; readonly gate: string }
 export class RunApi {
   constructor(private readonly baseUrl = "") {}
@@ -47,6 +47,9 @@ export function useRehydratedRun(api: RunApi, runId: string | null, refreshKey: 
           if (event.t === "run_transition" && event.state !== undefined) {
             const state = event.state;
             setResource((current) => current === null ? current : { ...current, state, resumable: state !== "COMPLETED" });
+            // A run that stops (blocked on a checkpoint, finished, failed) has new durable
+            // state the event does not carry: its checkpoints and its executed graph.
+            if (state !== "CREATED" && state !== "RUNNING") void api.status(runId).then((latest) => { if (active) setResource(latest); }, () => undefined);
           }
         } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); source?.close(); }
       };

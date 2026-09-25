@@ -88,7 +88,7 @@ function captureIo(): { io: { writeStdout(text: string): void; writeStderr(text:
 describe("CLI commands", () => {
   it("exposes the complete public command registry with estimate implemented", () => {
     expect([...IMPLEMENTED_COMMANDS].sort()).toEqual(
-      ["validate", "estimate", "run", "audit", "resume", "status", "replay", "diff", "trace", "export", "report", "requirements", "approve-requirements", "revise-requirements", "apply-requirements-revision", "respond-checkpoint"].sort(),
+      ["validate", "estimate", "run", "audit", "resume", "status", "replay", "diff", "trace", "export", "report", "requirements", "approve-requirements", "revise-requirements", "apply-requirements-revision", "respond-checkpoint", "workflow"].sort(),
     );
     expect(RESERVED_COMMANDS).toEqual([]);
     expect(IMPLEMENTED_COMMANDS).toContain("estimate");
