@@ -60,7 +60,12 @@ import { DiscoveryUnits, type IncrementalSeed, type SnapshotIdentity } from "./i
  * verifier writes one; a peer that sets it is refused as authority spoofing. Real models fill
  * every advertised optional field (observed live), so the peer-facing schema omits it.
  */
-export const PEER_OPERATIONS_OUTPUT_SCHEMA = withoutProperty(peerOperationsResultSchema.toJSONSchema(), "verification");
+export const PEER_OPERATIONS_OUTPUT_SCHEMA = operationsWithoutVerification(peerOperationsResultSchema.toJSONSchema());
+// Only operations lose it: a peer's own finding keeps its required `verification` text.
+function operationsWithoutVerification(schema: Record<string, unknown>): Record<string, unknown> {
+  const properties = schema["properties"] as Record<string, unknown>;
+  return { ...schema, properties: { ...properties, operations: withoutProperty(properties["operations"], "verification") } };
+}
 function withoutProperty(schema: unknown, name: string): unknown {
   if (Array.isArray(schema)) return schema.map((item) => withoutProperty(item, name));
   if (schema === null || typeof schema !== "object") return schema;
