@@ -33,6 +33,22 @@ export class ModelHarness {
   }
 
   async invoke<T>(input: ModelActivityRequest<T>): Promise<T> {
+    const execution = providerExecutionSchema.parse(this.config.workflow["modelExecution"]);
+    let attempt = input;
+    for (let repair = 1; ; repair += 1) {
+      try { return await this.invokeBounded(attempt); }
+      catch (error) {
+        if (!(error instanceof ModelOutputRejectedError) || repair > execution.maximumOutputRepairs) throw error instanceof ModelOutputRejectedError ? error.cause : error;
+        // A rejected reply is answered once more, as its own durable activity, with the
+        // validation failure and the rejected reply (as untrusted data) appended.
+        attempt = { ...input, activityId: `${input.activityId}/repair-${repair}`, messages: [...input.messages, { role: "user", content: JSON.stringify({ outputRejected: {
+          attempt: repair, reason: error.reason, rejectedReply: error.reply.slice(0, 32_000),
+          instruction: "Your previous reply was rejected by validation for the reason given. Return one corrected, complete reply that satisfies the locked output schema and every stated rule. Quote evidence exactly as it appears in the source." } }) }] };
+      }
+    }
+  }
+
+  private async invokeBounded<T>(input: ModelActivityRequest<T>): Promise<T> {
     // Never repeat spend on an activity already known to exceed the output ceiling.
     if (await this.outputLimited(input.activityId)) throw new ModelOutputLimitError(input.activityId);
     try { return await this.invokeTurns(input); }
@@ -76,13 +92,25 @@ export class ModelHarness {
         events.push(event);
         if (event.type !== "completed") continue;
         if (event.refusal !== null) throw new Error("MODEL_ACTIVITY_REFUSED");
-        return input.schema.parse(parsePromptJson(event.text ?? ""));
+        try { return input.schema.parse(parsePromptJson(event.text ?? "")); }
+        catch (error) { throw new ModelOutputRejectedError(error, event.text ?? ""); }
       }
       throw new Error("HARNESS_COMPLETION_ABSENT");
     } finally {
       await this.store.publish(`harness-${key}`, { activityId: input.activityId, profile: harnessProfile, events,
         inspection: toolSet.footprints.inspection(input.activityId), exposure: toolSet.footprints.exposure(input.activityId) }, input.activityId);
     }
+  }
+}
+
+/** A reply that arrived but failed output parsing or validation; never a provider or policy failure. */
+export class ModelOutputRejectedError extends Error {
+  readonly reason: string;
+  constructor(override readonly cause: unknown, readonly reply: string) {
+    const reason = cause instanceof Error ? (cause.name === "ZodError" ? `schema: ${cause.message}` : cause.message) : String(cause);
+    super(`MODEL_OUTPUT_REJECTED:${reason.slice(0, 200)}`);
+    this.reason = reason.slice(0, 4_000);
+    this.name = "ModelOutputRejectedError";
   }
 }
 

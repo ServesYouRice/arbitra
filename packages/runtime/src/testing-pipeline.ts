@@ -27,6 +27,7 @@ import { TestingPlanExecutor } from "./testing-plan-executor.js";
 import type { TestSandbox } from "./test-sandbox.js";
 import { validateBatchLanes } from "./model-batch-lane.js";
 import { validateAdvisorPolicy } from "./model-advisors.js";
+import { traceablePlanSchema } from "./planner-output.js";
 
 export function validateModelTesting(config: RunConfig) {
   if (config.workflow["testing"] === undefined) throw new Error("TESTING_EXECUTION_CONFIGURATION_REQUIRED");
@@ -104,7 +105,7 @@ export class TestingPipeline {
         const port = harnessStagePort({ store: this.store, harness: this.harness, snapshot: this.snapshot, protocol, modelProfileId: this.settings.roles.planner, signal, maximumInputTokens: maximum,
           stagePrefix: `testing/planner/${analysis.inputFingerprint}`, artifactPrefix: "testing-", nodeId: "testing",
           instructionSuffix: "Use mode testing and no audit issues. Every selected gap is a requirement linked bidirectionally to tasks and validation. Task likelyFiles must be concrete test or test-configuration paths, never production files. Use TASK-001 style IDs. Verification commands and executionPolicy must exactly match the repository command catalog. Tests have not run.",
-          full: { stageActivityId: "planner/plan", activityId: `testing/planner/${analysis.inputFingerprint}`, input: request, schema: planIRSchema, outputSchema: planIRSchema.toJSONSchema(), contextArtifact: "testing-planner-context", instruction } });
+          full: { stageActivityId: "planner/plan", activityId: `testing/planner/${analysis.inputFingerprint}`, input: request, schema: traceablePlanSchema("testing", requirements), outputSchema: planIRSchema.toJSONSchema(), contextArtifact: "testing-planner-context", instruction } });
         return replanOnOutputLimit(() => planWithContext(request.input, port, { maximumBriefRecords, records: testingPlannerRecords(projectContext) }));
       } } });
       const result = await planner.run({ projectContext, canonicalIssues: [], repositoryContext: [],

@@ -42,12 +42,13 @@ function explorationRequirements(requirements: RequirementsContract, ids: readon
  * merge by union of paths, categories and requirement links; exact evidence is retained and
  * batch metrics merge as conservative upper bounds so routing never under-reports risk. */
 export async function exploreWithContext(requirements: RequirementsContract, snapshot: RepositorySnapshot, port: PlannerCompositionPort, maximumRecords: number): Promise<FeatureExploration> {
-  const full: PlannerStage = { activityId: "exploration/full", instruction: "", input: { requirements }, schema: featureExplorationSchema, jsonSchema: featureExplorationSchema.toJSONSchema() };
+  const grounded = { parse: (value: unknown) => validateFeatureExploration(value, requirements, snapshot) };
+  const full: PlannerStage = { activityId: "exploration/full", instruction: "", input: { requirements }, schema: grounded, jsonSchema: featureExplorationSchema.toJSONSchema() };
   if (await port.fits(full)) return validateFeatureExploration(await port.call(full), requirements, snapshot);
   const ids = [...requirements.assumptions, ...requirements.ambiguities, ...requirements.acceptance].map(({ id }) => id);
   const request = (batch: readonly string[]): PlannerStage => ({ activityId: `exploration/batch/${createHash("sha256").update(JSON.stringify(batch)).digest("hex").slice(0, 24)}`,
     instruction: "Explore affected surfaces for one batch of approved Feature requirements: the complete requirement set cannot share one exploration context or response. Explore the requirement records in requirementScope.requirementIds and map every surface to recorded requirement IDs from the complete requirementIndex. Other batches are explored separately; surfaces with the same ID are merged by union, so reuse a surface ID only for the same code surface. Report the risk metrics for this batch.",
-    input: { requirements: explorationRequirements(requirements, batch) }, schema: featureExplorationSchema, jsonSchema: featureExplorationSchema.toJSONSchema() });
+    input: { requirements: explorationRequirements(requirements, batch) }, schema: grounded, jsonSchema: featureExplorationSchema.toJSONSchema() });
   const batches: string[][] = []; let current: string[] = [];
   for (const id of ids) {
     if (current.length < maximumRecords && await port.fits(request([...current, id]))) { current.push(id); continue; }

@@ -151,6 +151,7 @@
       "maximumTokens": 2000000,
       "timeoutMs": 180000,
       "maximumRetries": 1,
+      "maximumOutputRepairs": 1,
       "rateLimits": {
         "compatible": {
           "rpm": 30,

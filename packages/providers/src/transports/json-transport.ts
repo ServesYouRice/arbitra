@@ -105,18 +105,44 @@ export function number(value: unknown): number | null { return typeof value === 
 function assertHttpSuccess(value: HttpResponse): void {
   if (value.status >= 200 && value.status < 300) return;
   const detail = providerErrorDetail(value.body);
-  const suffix = detail === null ? "" : `: ${detail}`;
+  const quotaIds = googleDetails(value.body).flatMap((item) => Array.isArray(item["violations"]) ? (item["violations"] as Record<string, unknown>[]).map((violation) => `${String(violation["quotaId"])}=${String(violation["quotaValue"])}`) : []);
+  const suffix = (detail === null ? "" : `: ${detail}`) + (quotaIds.length === 0 ? "" : ` [quota ${[...new Set(quotaIds)].join(", ").slice(0, 300)}]`);
   // Observed live: OpenAI answers exhausted credit with 429 insufficient_quota and Anthropic
   // with 400 "credit balance is too low". Neither is a rate limit or a malformed request,
   // and retrying only repeats the refusal.
-  if ((value.status === 429 || value.status === 400 || value.status === 402) && detail !== null && /insufficient_quota|credit_balance|credit balance|billing|payment required/iu.test(detail)) throw new TransportError("QUOTA", `Provider account has no usable credit or quota${suffix}`, false);
+  const quota = googleQuotaWindow(value.body);
+  // Google reports per-minute throttles and exhausted daily or zero allowances with the same
+  // 429 RESOURCE_EXHAUSTED "exceeded your current quota" text; only its QuotaFailure details
+  // tell them apart (observed live on a free-tier key). A windowed throttle is a rate limit.
+  if (quota === "exhausted" || quota === null && (value.status === 429 || value.status === 400 || value.status === 402) && detail !== null && /insufficient_quota|credit_balance|credit balance|billing|payment required/iu.test(detail)) throw new TransportError("QUOTA", `Provider account has no usable credit or quota${suffix}`, false);
   if (value.status === 429) {
     const header = Object.entries(value.headers).find(([name]) => name.toLowerCase() === "retry-after")?.[1];
-    throw new TransportError("RATE_LIMIT", `Provider rate limit${suffix}`, true, retryAfterMilliseconds(header));
+    throw new TransportError("RATE_LIMIT", `Provider rate limit${suffix}`, true, retryAfterMilliseconds(header) ?? googleRetryDelay(value.body));
   }
   if (value.status === 408 || value.status === 504) throw new TransportError("TIMEOUT", "Provider request timed out", true);
   if (value.status === 401 || value.status === 403) throw new TransportError("AUTH", `Provider rejected credentials${suffix}`, false);
   throw new TransportError("HTTP", `Provider HTTP ${value.status}${suffix}`, value.status >= 500);
+}
+
+function googleDetails(body: unknown): readonly Record<string, unknown>[] {
+  const root = Array.isArray(body) ? body[0] as unknown : body;
+  const error = root !== null && typeof root === "object" ? (root as Record<string, unknown>)["error"] : undefined;
+  const details = error !== null && typeof error === "object" ? (error as Record<string, unknown>)["details"] : undefined;
+  return Array.isArray(details) ? details.filter((item): item is Record<string, unknown> => item !== null && typeof item === "object") : [];
+}
+
+/** `window`: only per-second/minute quotas were hit; `exhausted`: a daily, monthly or zero allowance. */
+function googleQuotaWindow(body: unknown): "window" | "exhausted" | null {
+  const violations = googleDetails(body).filter((detail) => String(detail["@type"]).endsWith("google.rpc.QuotaFailure"))
+    .flatMap((detail) => Array.isArray(detail["violations"]) ? detail["violations"] as Record<string, unknown>[] : []);
+  if (violations.length === 0) return null;
+  return violations.every((violation) => /Per(?:Second|Minute)/u.test(String(violation["quotaId"])) && String(violation["quotaValue"]) !== "0") ? "window" : "exhausted";
+}
+
+function googleRetryDelay(body: unknown): number | null {
+  const delay = googleDetails(body).find((detail) => String(detail["@type"]).endsWith("google.rpc.RetryInfo"))?.["retryDelay"];
+  const seconds = typeof delay === "string" ? /^(\d+(?:\.\d+)?)s$/u.exec(delay)?.[1] : undefined;
+  return seconds === undefined ? null : Math.ceil(Number(seconds) * 1_000);
 }
 
 /**

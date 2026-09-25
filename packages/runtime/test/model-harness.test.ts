@@ -12,14 +12,14 @@ import { snapshotTools } from "../src/snapshot-tools.js";
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 const snapshot = { root: "fixture", files: [{ path: "a.ts", lines: ["const value = null;"], lineStartBytes: [0], byteLength: 19 }] };
-async function setup(maxToolTurns = 2, historySize = 0) {
+async function setup(maxToolTurns = 2, historySize = 0, maximumOutputRepairs = 0) {
   const root = await mkdtemp(join(tmpdir(), "arbitra-harness-")); directories.push(root);
   const example = runConfigSchema.parse(JSON.parse(await readFile(new URL("../../../examples/audit-balanced.json", import.meta.url), "utf8")));
   const profile = example.models["auditor-a"];
   if (profile === undefined) throw new Error("FIXTURE_PROFILE_ABSENT");
   const config = runConfigSchema.parse({ ...example, models: { "auditor-a": { ...profile, quirks: { ...profile.quirks, toolLoopLimit: maxToolTurns } } }, workflow: { modelExecution: {
     endpoints: [{ id: "primary", providerId: "openai", transport: "openai-responses", endpoint: "https://fixture.example/v1", apiKeyEnvVar: "FIXTURE_KEY" }],
-    modelEndpoints: { "auditor-a": "primary" }, maximumOutputTokens: 500, maximumTokens: 100_000, timeoutMs: 1_000, maximumRetries: 0,
+    modelEndpoints: { "auditor-a": "primary" }, maximumOutputTokens: 500, maximumTokens: 100_000, timeoutMs: 1_000, maximumRetries: 0, maximumOutputRepairs,
     ...(historySize === 0 ? {} : { maximumContextTokens: 4_000 }),
     rateLimits: { openai: { rpm: 100, tpm: 100_000, maxConcurrent: 4 } },
   } } });
@@ -40,6 +40,25 @@ const request = () => ({ activityId: "auditor-a/discovery", modelProfileId: "aud
 });
 
 describe("durable canonical model harness", () => {
+  it("re-asks once after a reply fails validation, durably, and fails with the original error when repairs are exhausted", async () => {
+    const replies = ['<quotes>q</quotes>\nThe answer follows.', '{"answer":"repaired"}'];
+    const review = () => ({ ...request(), activityId: "auditor-a/review" });
+    for (const [repairs, expected] of [[1, { answer: "repaired" }], [0, "MODEL_ACTIVITY_INVALID_JSON"]] as const) {
+      const { create, send, requests } = await setup(2, 0, repairs);
+      let index = 0;
+      send.mockImplementation(async (value) => { requests.push(value); const text = replies[Math.min(index, replies.length - 1)]; index += 1; return { status: 200, headers: {}, body: { output_text: text, usage: { input_tokens: 10, output_tokens: 10 } } }; });
+      if (typeof expected === "string") { await expect(create().invoke(review())).rejects.toThrow(expected); expect(requests).toHaveLength(1); continue; }
+      expect(await create().invoke(review())).toEqual(expected);
+      expect(requests).toHaveLength(2);
+      const feedback = JSON.stringify(requests[1]?.body);
+      expect(feedback).toContain("outputRejected"); expect(feedback).toContain("MODEL_ACTIVITY_INVALID_JSON"); expect(feedback).toContain("The answer follows.");
+      // A restarted harness replays both durable activities without new spend.
+      expect(await create().invoke(review())).toEqual(expected);
+      expect(requests).toHaveLength(2);
+    }
+  });
+
+
   it("records output-ceiling truncation durably and never repeats that spend after restart", async () => {
     const { create, send, store } = await setup();
     send.mockImplementation(async () => ({ status: 200, headers: {}, body: { status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, output_text: '{"answer":', usage: { input_tokens: 10, output_tokens: 500 } } }));
