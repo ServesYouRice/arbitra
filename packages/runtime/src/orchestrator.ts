@@ -13,9 +13,10 @@ import { AUDIT_DEEP_GRAPH, auditorIdsFor, PRESET_GRAPHS, withCritic } from "./gr
 import { assertNoPreflightErrors, configurationDiagnostics, environmentDiagnostics, graphForConfiguration, PreflightError, type ConfigurationPreflightOptions, type PreflightDiagnostic } from "./preflight.js";
 import { DockerTestSandbox } from "./test-sandbox.js";
 import { canonicalise, converge, critique, discover, plan, preflight, readStage, verify, type AuditContext, type ConvergenceResult, type Plan } from "./pipeline.js";
-import { snapshotRepository, type RepositorySnapshot } from "./repository.js";
+import { defaultGit, snapshotRepository, type RepositorySnapshot } from "./repository.js";
 import { listRunIds, RunStore, type ArtifactDescriptor, type StoredRunContext } from "./run-store.js";
-import { ModelAuditPipeline, validateModelAudit } from "./model-pipeline.js";
+import { ModelAuditPipeline, validateModelAudit, type AuditUnitOptions } from "./model-pipeline.js";
+import { captureSnapshotIdentity, INCREMENTAL_CONTRACT_KIND, incrementalReport, incrementalRequestOf, IncrementalSeed, planIncrementalAudit, readIncrementalArtifact, SNAPSHOT_IDENTITY_KIND, type IncrementalContract, type SnapshotIdentity } from "./incremental-audit.js";
 import type { TestSandbox } from "./test-sandbox.js";
 import type { TransportFactoryOptions } from "@arbitra/providers/registry.js";
 import type { PlanIR } from "@arbitra/schemas/plan.js";
@@ -199,6 +200,8 @@ export class Orchestrator {
     // Fail before a run, snapshot or provider call exists rather than at first dispatch.
     const environment = await environmentDiagnostics(validated, { ...this.#environmentOptions(), includeWarnings: false });
     if (environment.some(({ severity }) => severity === "error")) throw new PreflightError(environment);
+    const incremental = incrementalRequestOf(validated);
+    const base = incremental === undefined ? undefined : await this.#incrementalBase(incremental.baseRunId);
     const runId = this.#newRunId();
     const store = new RunStore(this.#runsDirectory, runId);
     const selectedRepository = resolve(repository);
@@ -206,7 +209,18 @@ export class Orchestrator {
     const modelConfiguration = Object.keys(validated.models).length > 0 ? validated : undefined;
     const checkpointPolicy = checkpointPolicyOf(validated);
     const storedContext: StoredRunContext = Object.freeze({ repository: selectedRepository, repositoryDigest: snapshotDigest(snapshot), scope: validated.scope, consensusPolicy: validated.consensusPolicy, maximumRounds: validated.maxConsensusRounds, criticEnabled: graph.nodes.some(({ id }) => id === "critic"), ...(modelConfiguration === undefined ? {} : { modelConfiguration }), ...(checkpointPolicy === undefined ? {} : { checkpointPolicy }) });
+    const identity = modelConfiguration?.mode === "audit" ? await captureSnapshotIdentity(snapshot, storedContext.repositoryDigest, defaultGit) : undefined;
+    // Reuse is decided against the base before the run exists; the run then only reads it.
+    const contract = base === undefined || identity === undefined || modelConfiguration === undefined ? undefined : await planIncrementalAudit({
+      base: base.store, baseState: base.state, baseContext: base.context, repository: selectedRepository, config: modelConfiguration, criticEnabled: storedContext.criticEnabled, snapshot, identity, git: defaultGit,
+      targetPin: (id) => registryProtocolPin(modelConfiguration.protocols, id), // A protocol the base never pinned produced no base output, so assuming the new pin cannot enable reuse.
+      basePin: async (id) => await storedProtocolPin(base.store, id) ?? registryProtocolPin(modelConfiguration.protocols, id),
+    });
+    if (runId === contract?.baseRunId) throw new Error("INCREMENTAL_MUST_CREATE_NEW_RUN");
     await store.saveContext(storedContext);
+    if (identity !== undefined) await store.publish(SNAPSHOT_IDENTITY_KIND, identity);
+    if (contract !== undefined) await store.publish(INCREMENTAL_CONTRACT_KIND, contract);
+    const units: AuditUnitOptions | undefined = identity === undefined ? undefined : { identity, ...(contract === undefined || base === undefined ? {} : { seed: new IncrementalSeed(base.store, store, contract) }) };
     const context: AuditContext = Object.freeze({
       snapshot,
       store,
@@ -216,9 +230,28 @@ export class Orchestrator {
       maximumRounds: storedContext.maximumRounds,
       criticEnabled: storedContext.criticEnabled,
     });
-    const handle = this.#runner(store, context, undefined, modelConfiguration, checkpointPolicy).start(graph, { runId });
+    const handle = this.#runner(store, context, undefined, modelConfiguration, checkpointPolicy, undefined, units).start(graph, { runId });
     this.#track(runId, handle);
     return Object.freeze({ runId, state: handle.state, resumable: true, checkpoints: Object.freeze([]), preservedArtifacts: 0 });
+  }
+
+  /**
+   * The base of an incremental Audit. A request that cannot mean an incremental Audit fails
+   * before a run exists; a base that is merely not reusable (not completed, rewritten
+   * history, missing identities) is recorded and the run falls back to fresh work.
+   */
+  async #incrementalBase(baseRunId: string): Promise<{ readonly store: RunStore; readonly context: StoredRunContext; readonly state: string }> {
+    const store = new RunStore(this.#runsDirectory, baseRunId);
+    let context: StoredRunContext;
+    try { context = await store.loadContext(); }
+    catch (error) {
+      if (error instanceof Error && error.message === `RUN_CONTEXT_ABSENT:${baseRunId}`) throw Object.assign(new Error(`INCREMENTAL_BASE_ABSENT:${baseRunId}`), { statusCode: 404 });
+      throw error;
+    }
+    const mode = context.modelConfiguration === undefined ? "scripted_audit" : context.modelConfiguration.mode;
+    if (mode !== "audit") throw Object.assign(new Error(`INCREMENTAL_BASE_MODE_MISMATCH:${mode}`), { statusCode: 409 });
+    const state = this.#live.has(baseRunId) || this.#resuming.has(baseRunId) ? "RUNNING" : (await this.status(baseRunId)).state;
+    return { store, context, state };
   }
 
   /** Start a run and wait for it to finish. The CLI path; the UI uses `start`. */
@@ -395,9 +428,26 @@ export class Orchestrator {
     // Resuming a replay run continues that run under the contract it was created with; it
     // never re-decides reuse from the current configuration.
     const seed = modelReplay && sourceStore !== undefined ? new ReplaySeed(sourceStore, store, await readStage<ReplayContract>(store, REPLAY_CONTRACT_KIND)) : undefined;
-    const handle = this.#runner(store, context, reused, storedContext.modelConfiguration, storedContext.checkpointPolicy, seed).resume(runId);
+    const units = storedContext.modelConfiguration?.mode === "audit" && reused === undefined ? await this.#resumeUnits(store, snapshot, storedContext.repositoryDigest) : undefined;
+    const handle = this.#runner(store, context, reused, storedContext.modelConfiguration, storedContext.checkpointPolicy, seed, units).resume(runId);
     this.#track(runId, handle);
     return Object.freeze({ runId, state: handle.state, resumable: true, checkpoints: Object.freeze([]), preservedArtifacts: (await store.listArtifacts()).length });
+  }
+
+  /** A resumed Audit keeps its recorded snapshot identity and incremental contract; it never re-decides reuse. */
+  async #resumeUnits(store: RunStore, snapshot: RepositorySnapshot, repositoryDigest: string): Promise<AuditUnitOptions> {
+    let identity = await readIncrementalArtifact<SnapshotIdentity>(store, SNAPSHOT_IDENTITY_KIND);
+    if (identity === null) { identity = await captureSnapshotIdentity(snapshot, repositoryDigest, defaultGit); await store.publish(SNAPSHOT_IDENTITY_KIND, identity); }
+    const contract = await readIncrementalArtifact<IncrementalContract>(store, INCREMENTAL_CONTRACT_KIND);
+    return { identity, ...(contract === null ? {} : { seed: new IncrementalSeed(new RunStore(this.#runsDirectory, contract.baseRunId), store, contract) }) };
+  }
+
+  /** Per-unit reuse decisions, saved work and coverage of an incremental Audit run. */
+  async incrementalReport(runId: string) {
+    await this.#requireRun(runId);
+    const report = await incrementalReport(new RunStore(this.#runsDirectory, runId));
+    if (report === null) throw Object.assign(new Error(`INCREMENTAL_CONTRACT_ABSENT:${runId}`), { statusCode: 404 });
+    return report;
   }
 
   async status(runId: string): Promise<RunResource> {
@@ -627,7 +677,9 @@ export class Orchestrator {
       coverage: { complete: boolean };
       limitations: readonly string[];
     };
-    return Object.freeze({ runId, ...parsed.summary, coverageComplete: parsed.coverage.complete, limitations: parsed.limitations, artifacts: descriptors.length });
+    const incremental = await incrementalReport(store);
+    return Object.freeze({ runId, ...parsed.summary, coverageComplete: parsed.coverage.complete, limitations: parsed.limitations, artifacts: descriptors.length,
+      ...(incremental === null ? {} : { incremental: { baseRunId: incremental.baseRunId, strategy: incremental.strategy, fallbackReasons: incremental.fallbackReasons, savedWork: incremental.savedWork, coverageDegraded: incremental.coverage.degradedVersusFullRun } }) });
   }
 
   /**
@@ -704,7 +756,7 @@ export class Orchestrator {
     return reasons;
   }
 
-  #runner(store: RunStore, context: AuditContext, reusedFindings: Readonly<Record<string, readonly AuditFinding[]>> | undefined, modelConfiguration: RunConfig | undefined, checkpointPolicy: CheckpointPolicy | undefined, replay?: ReplaySeed): WorkflowRunner {
+  #runner(store: RunStore, context: AuditContext, reusedFindings: Readonly<Record<string, readonly AuditFinding[]>> | undefined, modelConfiguration: RunConfig | undefined, checkpointPolicy: CheckpointPolicy | undefined, replay?: ReplaySeed, units?: AuditUnitOptions): WorkflowRunner {
     // Every mode gets the same generic gate/human executors; none has an implicit pass.
     const checkpoints = this.#checkpoints(store, checkpointPolicy).executors();
     if (modelConfiguration?.mode === "testing") {
@@ -736,7 +788,7 @@ export class Orchestrator {
         ...checkpoints,
       } });
     }
-    const models = modelConfiguration === undefined ? undefined : new ModelAuditPipeline(context, this.configurations.validate(modelConfiguration), this.#providerOptions, this.#testSandbox);
+    const models = modelConfiguration === undefined ? undefined : new ModelAuditPipeline(context, this.configurations.validate(modelConfiguration), this.#providerOptions, this.#testSandbox, units);
     // Stages hand off through the artifact store rather than through closure state, so a
     // resumed run can start at any node with every earlier stage's output still readable.
     return new WorkflowRunner({

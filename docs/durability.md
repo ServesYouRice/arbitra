@@ -154,6 +154,26 @@ configuration. Testing execution is never reused. An execution replay allocates 
 worktree and makes its own sandbox runs. See
 [Feature and Testing replay](workflows.md#feature-and-testing-replay).
 
+## Incremental Audit
+
+An incremental Audit is a new run that only reads its completed base. Its immutable
+`incremental-contract` artifact is written before the run starts. The contract records:
+
+- the base's state;
+- any fallback reasons;
+- the changed files and manifests;
+- the downstream stage decisions;
+- the peer-review seed.
+
+Each discovery unit's decision is written as `incremental-unit-<key>` before the unit
+dispatches. A resumed incremental run reads both artifacts and reuses its own completed
+activities first, so a crash never re-decides reuse or repays a completed unit. Reused
+outputs carry `replayedFrom`. Each lookup is recorded as `incremental-activity-<key>` with
+the base usage it saved, and reused outputs are not charged to the new run's token budget.
+Every model Audit also records `snapshot-identity` and per-unit `discovery-unit-<key>`
+records, so any completed run can serve as a base. See
+[Incremental Audit](workflows.md#incremental-audit).
+
 ## Traces and the rebuildable index
 
 `packages/persistence/src/trace.ts` records one exhaustive terminal trace per model

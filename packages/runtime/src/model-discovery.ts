@@ -9,6 +9,7 @@ import type { PinnedProtocol } from "@arbitra/protocols/registry.js";
 
 import { createHash } from "node:crypto";
 import { allocateDiscoveryScopes } from "./discovery-scope.js";
+import type { DiscoveryUnit, DiscoveryUnitHooks } from "./incremental-audit.js";
 
 const PROTOCOL = "runtime-independent-discovery@2";
 
@@ -26,6 +27,8 @@ export interface ModelDiscoveryOptions {
   readonly scopeId?: string;
   /** A contiguous original line range of the single file in `snapshot`. */
   readonly window?: { readonly startLine: number; readonly endLine: number };
+  /** Records each unit's input identity and, for an incremental run, decides its reuse before dispatch. */
+  readonly units?: DiscoveryUnitHooks;
 }
 
 /** Lines shared by consecutive windows so short defects spanning a boundary stay whole. */
@@ -35,6 +38,10 @@ async function discoverScopeWithModel(options: ModelDiscoveryOptions): Promise<r
   const { auditorId, snapshot, activities, store } = options;
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(auditorId)) throw new Error("INVALID_MODEL_AUDITOR_ID");
   const artifactAuditorId = options.scopeId === undefined ? auditorId : `${auditorId}-${options.scopeId}`;
+  const unit: DiscoveryUnit = { auditorId, scopeId: options.scopeId ?? null, activityId: discoveryActivityId(options), paths: snapshot.files.map(({ path }) => path),
+    ...(options.window === undefined ? {} : { window: options.window }), ...(options.protocol === undefined ? {} : { protocol: options.protocol }),
+    ...(options.maximumInputTokens === undefined ? {} : { maximumInputTokens: options.maximumInputTokens }), ...(options.effort === undefined ? {} : { effort: options.effort }) };
+  await options.units?.begin(unit);
   const discovery = await activities.invoke(discoveryRequest(options));
   const findings = discovery.findings;
 
@@ -64,7 +71,12 @@ async function discoverScopeWithModel(options: ModelDiscoveryOptions): Promise<r
   await store.publish(`discovery-validation-${artifactAuditorId}`, { summaries: validation.summaries, quoteRejections, acceptedCount: accepted.length, rejectedCount: validation.rejected.length + quoteRejections.length,
     truncated: discovery.truncated, unexaminedDueToBudget: discovery.unexaminedDueToBudget, limitations: discovery.limitations }, auditorId);
   await store.publish(`findings-${artifactAuditorId}`, accepted, auditorId);
+  await options.units?.complete(unit, accepted);
   return accepted;
+}
+
+function discoveryActivityId(options: ModelDiscoveryOptions): string {
+  return `${options.scopeId === undefined ? options.auditorId : `${options.auditorId}/${options.scopeId}`}/discovery`;
 }
 
 export async function discoverWithModel(options: ModelDiscoveryOptions): Promise<readonly SourceFinding[]> {
@@ -147,7 +159,7 @@ function discoveryRequest(options: ModelDiscoveryOptions): ModelActivityRequest<
   const files = snapshot.files.map((file) => ({ path: file.path, ...(window === undefined ? {} : { lineWindow: { startLine: window.startLine, endLine: window.endLine, totalLines: file.lines.length } }),
     lines: file.lines.map((text, index) => ({ line: index + 1, text })).filter(({ line }) => window === undefined || line >= window.startLine && line <= window.endLine).map(({ line, text }) => ({ line, text: redactSecrets(text).text })) }));
   return {
-    activityId: `${artifactAuditorId}/discovery`, sourcePaths: snapshot.files.map(({ path }) => path), modelProfileId, protocol: options.protocol === undefined ? PROTOCOL : `${options.protocol.protocolId}@${options.protocol.protocolVersion}`, signal,
+    activityId: discoveryActivityId(options), sourcePaths: snapshot.files.map(({ path }) => path), modelProfileId, protocol: options.protocol === undefined ? PROTOCOL : `${options.protocol.protocolId}@${options.protocol.protocolVersion}`, signal,
     ...(options.protocol === undefined ? {} : { protocolAsset: options.protocol, outputSchema: modelDiscoveryResultSchema.toJSONSchema(), protocolIdentity: { protocolId: options.protocol.protocolId, protocolVersion: options.protocol.protocolVersion, protocolHash: options.protocol.protocolHash } }),
     ...(options.effort === undefined ? {} : { effort: options.effort }),
     messages: [

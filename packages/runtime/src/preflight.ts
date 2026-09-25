@@ -84,6 +84,9 @@ export function configurationDiagnostics(config: RunConfig, options: Configurati
       diagnostics.push(error(codeOf(message, "CHECKPOINT_POLICY_INVALID"), "workflow.checkpoints", `${message}. Every gate node needs a known deterministic gate policy and every human node a decision policy in workflow.checkpoints; decisions may name only human nodes of graph ${graph.id}.`));
     }
   }
+  if (!modelBacked && config.workflow["incremental"] !== undefined) {
+    diagnostics.push(error("INCREMENTAL_REQUIRES_MODEL_AUDIT", "workflow.incremental", "Incremental reuse saves model work, and a scripted Audit makes no model calls. Configure model profiles and workflow.modelExecution, or remove workflow.incremental."));
+  }
   if (!modelBacked) return Object.freeze(diagnostics);
   const execution = executionOf(config, diagnostics);
   if (execution?.batch !== undefined) {

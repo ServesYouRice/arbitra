@@ -58,6 +58,19 @@ export function approximateModules(files: readonly ModuleSourceFile[]): readonly
   }).sort((left, right) => left.id.localeCompare(right.id)));
 }
 
+/**
+ * Each source file's repository-internal imports, resolved with the same rules the module
+ * approximation uses. Unresolvable and package imports are omitted.
+ */
+export function resolvedImports(files: readonly ModuleSourceFile[]): ReadonlyMap<string, readonly string[]> {
+  const sourceFiles = files.filter(({ path }) => isSourceFile(path)).map(({ path, content }) => ({ path: normalize(path), content: content ?? "" }));
+  const paths = new Set(sourceFiles.map(({ path }) => path));
+  return new Map(sourceFiles.map((file) => [file.path, Object.freeze([...new Set(extractEdges(file.content).flatMap((specifier) => {
+    const target = resolveSpecifier(file.path, specifier, paths);
+    return target === null || target === file.path ? [] : [target];
+  }))].sort())]));
+}
+
 function extractEdges(content: string): readonly string[] {
   const values: string[] = [];
   const pattern = /(?:import|export)\s+(?:[^"']*?\s+from\s+)?["']([^"']+)["']|require\(\s*["']([^"']+)["']\s*\)|(?:route|register|use)\(\s*["']([^"']+)["']/gu;

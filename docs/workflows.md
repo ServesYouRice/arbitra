@@ -459,6 +459,137 @@ contracts, missing and corrupt artifacts, a failed replay resumed as the same ru
 byte-level source immutability and CLI/HTTP parity. Replay under live providers and real
 Docker has not been exercised.
 
+## Incremental Audit
+
+An incremental Audit is a **new** model-backed Audit of the current snapshot that may reuse
+work from a completed earlier Audit, its *base*. Replay reuses work for the same snapshot.
+An incremental run reuses work from a base that audited a changed snapshot. It is off by
+default and is always requested explicitly:
+
+```text
+orchestrator run audit.json --incremental <base-run-id>
+POST /runs   {"configurationId": "…", "incremental": {"baseRunId": "<base-run-id>"}}
+workflow.incremental: {"baseRunId": "<base-run-id>"}      (in the saved configuration)
+```
+
+The CLI flag and the HTTP field override the saved configuration's value. The request
+becomes part of the run's stored configuration. `orchestrator incremental <run-id>`,
+`GET /runs/:id/incremental` and the run summary's `incremental` field report the outcome.
+`scope.exclude` (repository-relative path prefixes) removes paths from the snapshot for
+any scope kind.
+
+**Requests that fail before a run is created.** An absent base returns
+`INCREMENTAL_BASE_ABSENT` (404). A base that is a Feature, Testing or scripted run returns
+`INCREMENTAL_BASE_MODE_MISMATCH:<mode>` (409). A scripted target returns
+`INCREMENTAL_REQUIRES_MODEL_AUDIT` (a preflight error). `workflow.incremental` outside
+Audit mode fails schema validation. A malformed base ID returns 400.
+
+**Fallback.** Some bases cannot establish safe reuse. The run is then a full audit, and
+the reasons are recorded in `fallbackReasons`:
+
+- `base_run_not_completed:<state>`
+- `base_repository_differs`
+- `base_snapshot_identity_unavailable` (the base predates this feature)
+- `git_identity_unavailable`
+- `git_history_rewritten` (the base commit is no longer an ancestor of `HEAD`)
+
+**Snapshot identity.** Every model Audit records a `snapshot-identity` artifact before any
+stage runs. It holds the SHA-256 of each snapshot file, the SHA-256 of each build or
+dependency manifest (`package.json`, lockfiles, `tsconfig.json`, `go.mod`, `Cargo.toml`
+and similar) in any ancestor directory of a snapshot file, and the Git `HEAD`. The run
+compares these hashes with the base's to compute the changed files and manifests. Those
+changes are expanded to affected surfaces (module topology, import and manifest relations),
+and hotspots rank the changed paths when Git history is available. Paths from
+`git diff` are recorded for information only. The byte hashes decide.
+
+**Reuse unit.** The unit of reuse is one discovery activity: one auditor over one discovery
+scope or one exact line window. Every model Audit records a `discovery-unit-<auditor>-<scope>`
+artifact for each unit. The record holds the unit's identity, its cited line ranges and
+the harness inspection footprint (the files the model read through tools). The identity
+covers:
+
+- the exact bytes of every file the unit was given or could read (its footprint);
+- the transitive repository-internal imports of those files;
+- the manifests in their ancestor directories;
+- the run scope, including exclusions, and any line window;
+- the pinned `production-audit` protocol and its prompt override;
+- the model profile, endpoint and output reserve;
+- the harness;
+- the discovery policy (audit depth, effort, discovery budget, `security`, `contextPolicies`).
+
+Before dispatching a unit, an incremental run compares the unit's identity with the
+base's record of the same unit. It stores the decision as `incremental-unit-<key>` and
+names each component that changed:
+
+- `changed:footprint:<path>`, `changed:cited_lines:<path>:<a>-<b>`, `changed:imports:<path>`,
+  `changed:manifests:<path>`
+- `changed:scope`, `changed:protocol`, `changed:model`, `changed:harness`, `changed:policy`
+- `base_unit_absent` (for example, allocation changed), `base_unit_identity_unavailable`
+- `base_footprint_unavailable`, `footprint_outside_unit:<path>`, `manifest_unverifiable:<path>`
+
+A missing record or footprint never counts as equal. A reusable unit obtains its model
+outputs through the replay mechanism: each harness turn is reused only if its per-activity
+replay identity (see [replay](#feature-and-testing-replay)) is unchanged. Tool calls
+re-execute against the current snapshot. Findings are validated again against the current
+snapshot. `incremental-unit-result-<key>` lists each finding with `reusedFrom` (base run
+and findings artifact) and whether the findings equal the base's.
+
+Units are allocated on the current snapshot in the same way as in a full run. A small
+repository that fits one context is a single unit per auditor, so any change regenerates
+that auditor's discovery; partial reuse comes from partitioned discovery. Only a
+byte-identical unit is reused, so reused findings always cite unchanged bytes.
+`baseFindingLineage` re-anchors each base finding by exact content only:
+
+- `unchanged`
+- `moved`, with the new location, when exactly one exact match exists
+- `absent`
+- `ambiguous`, when more than one exact match exists
+- `unverifiable`, when the stored text was redacted
+
+**Independence.** Reused discovery comes from independent discovery of identical inputs.
+It is served only to the same auditor's same unit. Round-zero inputs never contain base,
+peer or reused findings.
+
+**Downstream stages.** Clustering, peer review, verification and planning are recomputed
+over the union of reused and fresh findings. There is one exception: a stage whose whole
+input identity matches the base may reuse the base's saved outputs. That identity covers
+the repository digest, manifests, scope, harness, models, protocols, the consensus,
+verification and discovery policy, and the upstream stage. Each output must also match
+its per-activity replay identity. In that case the run also keeps the base's peer-review
+view seed, so identical views can be reused. Consensus-policy changes therefore
+regenerate only downstream stages; discovery is still reused.
+
+**Report.** `savedWork` gives:
+
+- reused and regenerated units;
+- model calls reused and made;
+- tokens saved, from the base's traces (usage the base provider did not report is counted
+  as `callsWithUnknownUsage`, never as zero);
+- regeneration reasons.
+
+`coverage` lists uncovered snapshot paths per auditor and reused units that carried
+truncation or unexamined surfaces. `degradedVersusFullRun` is true if either is non-empty.
+The base run is only read. Resuming an incremental run keeps its recorded contract and
+unit decisions; it never re-decides against the base.
+
+**Evidence.** The evidence comes from injected fake providers and a Git fixture
+([`incremental-audit.test.ts`](../packages/runtime/test/incremental-audit.test.ts)):
+
+- An identical rerun made zero provider calls.
+- Edits to cited lines, uncited lines, an imported file, a nested manifest, the root
+  manifest, exclusions, consensus policy and audit depth each regenerated exactly the
+  expected units or stages.
+- The fixture compared a full run with an incremental run over a moved, a fixed, a recurring
+  and a new defect in five modules. Both produced the same canonical issues and summary,
+  with no coverage degradation. The full run made 25 provider calls (10 discovery); the
+  incremental run made 21 (6 discovery) and reused 4 discovery units. Downstream stages
+  regenerated because the repository changed.
+- An interrupted incremental run resumed without repaying completed units.
+- A failed base and rewritten Git history fell back to a full audit.
+- The CLI and HTTP cores made identical decisions.
+
+Live providers have not been exercised.
+
 ## Presets
 
 Seven presets are executable through the shared runtime's

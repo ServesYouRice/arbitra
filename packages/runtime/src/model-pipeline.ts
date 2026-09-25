@@ -53,19 +53,27 @@ export function validateModelAudit(config: RunConfig, auditorIds: readonly strin
 import { verificationExecutionSchema } from "@arbitra/schemas/verification-execution.js";
 import { VerificationExecutor } from "./verification-execution.js";
 import type { TestSandbox } from "./test-sandbox.js";
+import { DiscoveryUnits, type IncrementalSeed, type SnapshotIdentity } from "./incremental-audit.js";
+
+/** Every model Audit records its discovery units; an incremental one also consults its base. */
+export interface AuditUnitOptions { readonly identity: SnapshotIdentity; readonly seed?: IncrementalSeed }
 
 export class ModelAuditPipeline {
+  readonly #units: DiscoveryUnits | undefined;
+  readonly #peerReviewSeed: string | undefined;
   readonly #verificationExecutor: VerificationExecutor;
   readonly #activities: ModelHarness;
   readonly #roles;
   readonly #protocols: ModelProtocols;
-  constructor(private readonly context: AuditContext, private readonly config: RunConfig, options: TransportFactoryOptions = {}, sandbox?: TestSandbox) {
+  constructor(private readonly context: AuditContext, private readonly config: RunConfig, options: TransportFactoryOptions = {}, sandbox?: TestSandbox, units?: AuditUnitOptions) {
     this.#verificationExecutor = new VerificationExecutor(context.store, sandbox);
     validateModelAudit(config, context.auditors.map(({ auditorId }) => auditorId), context.criticEnabled);
     const roles = providerExecutionSchema.parse(config.workflow["modelExecution"]).roles;
     if (roles === undefined) throw new Error("MODEL_EXECUTION_ROLES_REQUIRED");
     this.#roles = roles;
-    this.#activities = new ModelHarness(new ModelActivities(context.store, config, options), config, context.snapshot, context.store);
+    this.#activities = new ModelHarness(new ModelActivities(context.store, config, options, units?.seed), config, context.snapshot, context.store);
+    this.#units = units === undefined ? undefined : new DiscoveryUnits(context.store, config, context.snapshot, units.identity, units.seed);
+    this.#peerReviewSeed = units?.seed?.contract.peerReviewSeed ?? undefined;
     this.#protocols = new ModelProtocols(context.store, config.protocols);
   }
 
@@ -77,7 +85,7 @@ export class ModelAuditPipeline {
     const protocol = await this.#protocols.resolve("production-audit");
     const execution = providerExecutionSchema.parse(this.config.workflow["modelExecution"]);
     const contextLimit = Math.min(execution.maximumContextTokens ?? 128_000, execution.maximumDiscoveryTokens ?? Number.POSITIVE_INFINITY, this.config.models[auditorId]?.limits.contextTokens ?? Number.POSITIVE_INFINITY);
-    return discoverWithModel({ auditorId, modelProfileId: auditorId, snapshot: this.context.snapshot, activities: this.#activities, store: this.context.store, signal, effort: this.effort(), protocol, maximumInputTokens: Math.floor(contextLimit * 0.8) });
+    return discoverWithModel({ auditorId, modelProfileId: auditorId, snapshot: this.context.snapshot, activities: this.#activities, store: this.context.store, signal, effort: this.effort(), protocol, maximumInputTokens: Math.floor(contextLimit * 0.8), ...(this.#units === undefined ? {} : { units: this.#units }) });
   }
 
   async converge(findings: Readonly<Record<string, readonly AuditFinding[]>>, signal: AbortSignal): Promise<ConvergenceResult> {
@@ -109,7 +117,8 @@ export class ModelAuditPipeline {
         await this.resolveConflicts(issueBoard, round, signal, conflictVotes);
         ({ candidates, candidateFindings } = issueBoard.view());
       }
-      const rng = new SeededRng(context.store.runId);
+      // An incremental run whose peer-review identity matches its base presents the base's views, so they can be reused.
+      const rng = new SeededRng(this.#peerReviewSeed ?? context.store.runId);
       const batches: PeerOperationBatch[] = [];
       const review = await peerReviewRound({ candidates }, context.policy, round, { auditors: context.auditors, rng, runtime: { review: async (request) => {
         const auditorId = request.reviewerId;

@@ -182,17 +182,10 @@ export class ReplaySeed implements ActivityReplaySource {
     const miss = async (reason: string) => { await this.record(request, decision?.stage ?? null, { decision: "regenerated", reason }); return null; };
     if (definition === undefined || decision === undefined) return miss("activity_outside_replay_contract");
     if (decision.decision !== "reuse") return miss("stage_invalidated");
-    const descriptor = (await this.source.listArtifacts()).find(({ kind }) => kind === request.key);
-    if (descriptor === undefined) return miss("source_activity_absent");
-    let saved: { value?: unknown; replayIdentity?: unknown };
-    // A missing or corrupt artifact is never trusted: it forces regeneration.
-    try { saved = await this.source.artifacts.get<{ value?: unknown; replayIdentity?: unknown }>(descriptor.ref); }
-    catch { return miss("source_artifact_unreadable"); }
-    if (typeof saved !== "object" || saved === null || !("value" in saved)) return miss("source_artifact_unreadable");
-    if (typeof saved.replayIdentity !== "string") return miss("source_activity_identity_unavailable");
-    if (saved.replayIdentity !== request.replayIdentity) return miss("activity_identity_changed");
-    await this.record(request, decision.stage, { decision: "reused", sourceArtifactId: descriptor.artifactId });
-    return { value: saved.value, sourceRunId: this.source.runId, sourceArtifactId: descriptor.artifactId };
+    const saved = await readReplayableOutput(this.source, request.key, request.replayIdentity);
+    if ("reason" in saved) return miss(saved.reason);
+    await this.record(request, decision.stage, { decision: "reused", sourceArtifactId: saved.sourceArtifactId });
+    return { value: saved.value, sourceRunId: this.source.runId, sourceArtifactId: saved.sourceArtifactId };
   }
 
   async reject(request: { readonly activityId: string; readonly key: string }, reason: string): Promise<void> {
@@ -203,6 +196,22 @@ export class ReplaySeed implements ActivityReplaySource {
   private async record(request: { readonly activityId: string; readonly key: string }, stage: string | null, outcome: { readonly decision: "reused"; readonly sourceArtifactId: string } | { readonly decision: "regenerated"; readonly reason: string }): Promise<void> {
     await this.target.publish(`replay-activity-${request.key}`, { activityId: request.activityId, stage, sourceRunId: this.source.runId, ...outcome }, request.activityId);
   }
+}
+
+/**
+ * A saved model output from another run, usable only when it was produced under exactly
+ * the requested replay identity. A missing or corrupt artifact is never trusted.
+ */
+export async function readReplayableOutput(source: RunStore, key: string, replayIdentity: string): Promise<{ readonly value: unknown; readonly sourceArtifactId: string } | { readonly reason: string }> {
+  const descriptor = (await source.listArtifacts()).find(({ kind }) => kind === key);
+  if (descriptor === undefined) return { reason: "source_activity_absent" };
+  let saved: { value?: unknown; replayIdentity?: unknown };
+  try { saved = await source.artifacts.get<{ value?: unknown; replayIdentity?: unknown }>(descriptor.ref); }
+  catch { return { reason: "source_artifact_unreadable" }; }
+  if (typeof saved !== "object" || saved === null || !("value" in saved)) return { reason: "source_artifact_unreadable" };
+  if (typeof saved.replayIdentity !== "string") return { reason: "source_activity_identity_unavailable" };
+  if (saved.replayIdentity !== replayIdentity) return { reason: "activity_identity_changed" };
+  return { value: saved.value, sourceArtifactId: descriptor.artifactId };
 }
 
 export interface ReplayActivityRecord { readonly activityId: string; readonly stage: string | null; readonly sourceRunId: string; readonly decision: "reused" | "regenerated"; readonly sourceArtifactId?: string; readonly reason?: string }

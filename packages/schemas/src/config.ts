@@ -6,6 +6,7 @@ import { verificationExecutionSchema } from "./verification-execution.js";
 import { featureExecutionSchema } from "./feature-execution.js";
 import { testingExecutionSchema } from "./testing.js";
 import { checkpointPolicySchema } from "./checkpoint-policy.js";
+import { incrementalAuditSchema } from "./incremental.js";
 
 export const RUN_CONFIG_SCHEMA_VERSION = 1 as const;
 
@@ -18,6 +19,8 @@ export const runScopeSchema = z.object({
   head: z.string().min(1).optional(),
   revisionRange: z.string().min(1).optional(),
   diffMode: z.enum(["staged", "working_tree", "range"]).optional(),
+  /** Repository-relative path prefixes removed from the snapshot, whatever the scope kind. */
+  exclude: z.array(z.string().min(1)).optional(),
 }).strict();
 
 export const runConfigSchema = z.object({
@@ -51,6 +54,10 @@ export const runConfigSchema = z.object({
       const feature = featureExecutionSchema.safeParse(workflow["feature"]);
       if (!feature.success) for (const issue of feature.error.issues) context.addIssue({ ...issue, path: ["feature", ...issue.path] });
     }
+    if (workflow["incremental"] !== undefined) {
+      const incremental = incrementalAuditSchema.safeParse(workflow["incremental"]);
+      if (!incremental.success) for (const issue of incremental.error.issues) context.addIssue({ ...issue, path: ["incremental", ...issue.path] });
+    }
     if (workflow["checkpoints"] !== undefined) {
       const checkpoints = checkpointPolicySchema.safeParse(workflow["checkpoints"]);
       if (!checkpoints.success) for (const issue of checkpoints.error.issues) context.addIssue({ ...issue, path: ["checkpoints", ...issue.path] });
@@ -65,6 +72,7 @@ export const runConfigSchema = z.object({
   promptOverrides: jsonObjectSchema,
   contextPolicies: jsonObjectSchema,
 }).strict().superRefine((config, context) => {
+  if (config.workflow["incremental"] !== undefined && config.mode !== "audit") context.addIssue({ code: "custom", path: ["workflow", "incremental"], message: "Incremental reuse applies only to Audit runs" });
   if (config.workflow["testing"] !== undefined) {
     const testing = testingExecutionSchema.safeParse(config.workflow["testing"]);
     if (config.mode !== "testing") context.addIssue({ code: "custom", path: ["workflow", "testing"], message: "Testing settings require testing mode" });

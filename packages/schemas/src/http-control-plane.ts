@@ -5,6 +5,7 @@ import { requirementsApprovalSchema } from "./feature-execution.js";
 import { requirementsDraftSchema } from "./requirements.js";
 import { CHECKPOINT_ID_PATTERN, checkpointResponseSchema } from "./checkpoint-policy.js";
 import { replayRequestSchema } from "./replay.js";
+import { incrementalAuditSchema } from "./incremental.js";
 
 const idParams = { type: "object", additionalProperties: false, required: ["id"], properties: { id: { type: "string", minLength: 1, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9._-]*$" } } } as const;
 const artifactParams = { type: "object", additionalProperties: false, required: ["id", "artifactId"], properties: { ...idParams.properties, artifactId: { type: "string", minLength: 1, maxLength: 256 } } } as const;
@@ -13,7 +14,7 @@ const runConfigJsonSchema = z.toJSONSchema(runConfigSchema, { target: "draft-7",
 const { definitions: runConfigDefinitions, ...nestedRunConfigJsonSchema } = runConfigJsonSchema as typeof runConfigJsonSchema & { definitions?: unknown };
 const configurationBody = { type: "object", additionalProperties: false, required: ["name", "config"], properties: { name: { type: "string", minLength: 1, maxLength: 200 }, config: nestedRunConfigJsonSchema }, ...(runConfigDefinitions === undefined ? {} : { definitions: runConfigDefinitions }) } as const;
 const jsonResponse = { 200: true, 201: true, 202: true } as const;
-const runBody = { type: "object", additionalProperties: false, required: ["configurationId"], properties: { configurationId: idParams.properties.id, repository: { type: "string", minLength: 1 } } } as const;
+const runBody = { type: "object", additionalProperties: false, required: ["configurationId"], properties: { configurationId: idParams.properties.id, repository: { type: "string", minLength: 1 }, incremental: z.toJSONSchema(incrementalAuditSchema, { target: "draft-7" }) } } as const;
 const comparisonSide = { type: "object", additionalProperties: false, required: ["protocolIdentity"], properties: { protocolIdentity: { type: "string", minLength: 1, maxLength: 512 }, runIds: { type: "array", items: { type: "string", minLength: 1, maxLength: 128 } } } } as const;
 // HTTP query parameters arrive as text. The runtime performs bounded numeric parsing;
 // request body schemas deliberately do not coerce operator-supplied JSON types.
@@ -25,6 +26,7 @@ const traceHttpQuerySchema = traceQuerySchema.omit({ offset: true, limit: true }
 export const HTTP_ROUTE_SCHEMAS = Object.freeze({
   "POST /runs/:id/replay": { params: idParams, body: z.toJSONSchema(replayRequestSchema, { target: "draft-7", unrepresentable: "any" }), response: jsonResponse },
   "GET /runs/:id/replay": { params: idParams, response: jsonResponse },
+  "GET /runs/:id/incremental": { params: idParams, response: jsonResponse },
   "GET /runs/:id/requirements": { params: idParams, response: jsonResponse },
   "POST /runs/:id/requirements/apply-revision": { params: idParams, body: z.toJSONSchema(z.strictObject({ artifactId: z.string().min(1) }), { target: "draft-7" }), response: jsonResponse },
   "POST /runs/:id/requirements/approve": { params: idParams, body: z.toJSONSchema(requirementsApprovalSchema, { target: "draft-7" }), response: jsonResponse },

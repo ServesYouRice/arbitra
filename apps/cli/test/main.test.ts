@@ -88,7 +88,7 @@ function captureIo(): { io: { writeStdout(text: string): void; writeStderr(text:
 describe("CLI commands", () => {
   it("exposes the complete public command registry with estimate implemented", () => {
     expect([...IMPLEMENTED_COMMANDS].sort()).toEqual(
-      ["validate", "estimate", "run", "audit", "resume", "status", "replay", "diff", "trace", "export", "report", "requirements", "approve-requirements", "revise-requirements", "apply-requirements-revision", "respond-checkpoint"].sort(),
+      ["validate", "estimate", "run", "audit", "resume", "status", "replay", "diff", "trace", "export", "report", "requirements", "approve-requirements", "revise-requirements", "apply-requirements-revision", "respond-checkpoint", "incremental"].sort(),
     );
     expect(RESERVED_COMMANDS).toEqual([]);
     expect(IMPLEMENTED_COMMANDS).toContain("estimate");
@@ -293,5 +293,22 @@ describe("CLI commands", () => {
     const execution = await runCli(["status", "fake-run"], core, capture.io);
     expect(execution.exit).toBe(2);
     expect(execution.output.result).toEqual({ message: "journal unavailable" });
+  });
+
+  it("requests an incremental Audit only explicitly and reports it", async () => {
+    const runs: unknown[] = [];
+    const core = Object.assign(new FakeWorkflowCore(), {
+      async run(configPath: string, options?: unknown) { runs.push([configPath, options]); return { disposition: "passed" as const, value: { runId: "run-2", state: "COMPLETED" } }; },
+      async incremental(runId: string) { runs.push(["incremental", runId]); return { disposition: "passed" as const, value: { baseRunId: "run-1" } }; },
+    });
+    const io = captureIo().io;
+    expect((await runCli(["run", "audit.json"], core, io)).exit).toBe(0);
+    expect((await runCli(["run", "audit.json", "--incremental", "run-1"], core, io)).exit).toBe(0);
+    expect((await runCli(["incremental", "run-2"], core, io)).exit).toBe(0);
+    expect(runs).toEqual([["audit.json", undefined], ["audit.json", { incremental: { baseRunId: "run-1" } }], ["incremental", "run-2"]]);
+    expect((await runCli(["run", "audit.json", "--incremental"], core, io)).output.policy.reasons).toEqual(["invalid_arguments:run"]);
+    expect((await runCli(["run", "audit.json", "--base", "run-1"], core, io)).output.policy.reasons).toEqual(["invalid_arguments:run"]);
+    expect((await runCli(["run", "--incremental", "run-1"], core, io)).output.policy.reasons).toEqual(["missing_argument:run"]);
+    expect(runs).toHaveLength(3);
   });
 });

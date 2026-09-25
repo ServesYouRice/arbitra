@@ -19,7 +19,9 @@ export interface OrchestratorCore {
   reviseRequirements?(runId: string, artifactId: string, draftPath: string): Promise<CoreCommandResult>;
   validate(configPath: string): Promise<CoreCommandResult>;
   estimate(configPath: string): Promise<CoreCommandResult>;
-  run(configPath: string): Promise<CoreCommandResult>;
+  /** `incremental` names a completed base Audit run, exactly as `POST /runs` accepts it. */
+  run(configPath: string, options?: { readonly incremental?: { readonly baseRunId: string } }): Promise<CoreCommandResult>;
+  incremental?(runId: string): Promise<CoreCommandResult>;
   audit(request: { readonly preset: string; readonly target: AuditCliTarget }): Promise<CoreCommandResult>;
   status(runId: string): Promise<CoreCommandResult>;
   resume(runId: string): Promise<CoreCommandResult>;
