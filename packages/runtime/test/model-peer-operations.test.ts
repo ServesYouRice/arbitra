@@ -99,3 +99,15 @@ describe("peer-facing output schema", () => {
     expect(JSON.stringify(PEER_OPERATIONS_OUTPUT_SCHEMA)).toContain('"needs_verification"');
   });
 });
+
+describe("peer location anchoring", () => {
+  it("moves the reviewer's own miscounted location to the unique nearby range holding the exact quote", () => {
+    const lines = ["export function parse(text) {", "  return parseInt(text);", "}"];
+    const three = { root: "fixture", files: [{ path: "a.ts", lines, byteLength: 0, lineStartBytes: [0] }] };
+    const location = { id: "new:loc", path: "a.ts", startLine: 3, endLine: 3 };
+    const operation = { ...base, type: "add_counter_evidence", citedEvidenceIds: ["new:ev"], evidence: { id: "new:ev", text: "return parseInt(text);", locationIds: ["new:loc"] } };
+    const moved = translatePeerOperations(response([operation], [location]), view, three, "reviewer", 1);
+    expect(moved.locations).toContainEqual({ id: "reviewer/review-1/loc", path: "a.ts", startLine: 2, endLine: 2 });
+    expect(() => translatePeerOperations(response([{ ...operation, evidence: { ...operation.evidence, text: "return Number(text);" } }], [location]), view, three, "reviewer", 1)).toThrow("UNGROUNDED_PEER_EVIDENCE");
+  });
+});
