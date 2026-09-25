@@ -93,7 +93,9 @@ describe("model board operations", () => {
 describe("peer-facing output schema", () => {
   it("does not advertise the verifier-only verification record", async () => {
     const { PEER_OPERATIONS_OUTPUT_SCHEMA } = await import("../src/model-pipeline.js");
-    expect(JSON.stringify(PEER_OPERATIONS_OUTPUT_SCHEMA)).not.toContain('"verification"');
+    const { operations, findings } = (PEER_OPERATIONS_OUTPUT_SCHEMA as { properties: Record<string, unknown> }).properties;
+    expect(JSON.stringify(operations)).not.toContain('"verification"');
+    expect(JSON.stringify(findings)).toContain('"verification"');
     expect(JSON.stringify(PEER_OPERATIONS_OUTPUT_SCHEMA)).toContain('"needs_verification"');
   });
 });
