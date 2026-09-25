@@ -4,6 +4,7 @@ import { CrossProtocolComparisonError } from "@arbitra/persistence/metrics/queri
 import { realpath, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { Orchestrator } from "./orchestrator.js";
+import { withIncrementalBase } from "./incremental-audit.js";
 
 /**
  * The server's port, satisfied by the same orchestrator the CLI uses.
@@ -20,11 +21,12 @@ export function controlPlaneCore(orchestrator: Orchestrator) {
   };
 
   const configured = async (body: unknown): Promise<{ config: Awaited<ReturnType<Orchestrator["configurations"]["load"]>>["config"]; repository: string }> => {
-    const request = body as { configurationId?: unknown; repository?: unknown } | undefined;
+    const request = body as { configurationId?: unknown; repository?: unknown; incremental?: unknown } | undefined;
     if (typeof request?.configurationId !== "string") throw new Error("CONFIGURATION_ID_REQUIRED");
     if (request.repository !== undefined && typeof request.repository !== "string") throw new Error("REPOSITORY_PATH_REQUIRED");
     const repository = request.repository === undefined ? selectedRepository : await repositoryPath(request.repository);
-    return { config: (await orchestrator.configurations.load(request.configurationId)).config, repository };
+    // An explicit incremental request overrides the saved configuration's, exactly as the CLI flag does.
+    return { config: withIncrementalBase((await orchestrator.configurations.load(request.configurationId)).config, request.incremental), repository };
   };
 
   return {
@@ -64,6 +66,10 @@ export function controlPlaneCore(orchestrator: Orchestrator) {
       list: (runId: string, query: unknown) => orchestrator.traces(runId, query),
       detail: (runId: string, traceId: string) => orchestrator.trace(runId, traceId),
       artifact: (runId: string, traceId: string, slot: string) => orchestrator.traceArtifact(runId, traceId, slot),
+    },
+
+    incremental: {
+      report: (runId: string) => orchestrator.incrementalReport(runId),
     },
 
     replay: {

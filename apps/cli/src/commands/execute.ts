@@ -22,6 +22,7 @@ export async function executeCommand(
   if (command === "trace") return executeTrace(core, positional);
   if (command === "export") return executeExport(core, positional);
   if (command === "report") return executeReport(core, positional);
+  if (command === "run") return executeRun(core, positional);
   const subject = positional[0];
   if (subject === undefined || subject.length === 0) {
     return { disposition: "system_failure", reasons: [`missing_argument:${command}`], value: null };
@@ -51,10 +52,24 @@ export async function executeCommand(
       if (core.reviseRequirements === undefined || artifactId === undefined || draftPath === undefined || positional.length !== 3) throw new Error("USAGE: revise-requirements <run-id> <artifact-id> <draft.json>");
       return core.reviseRequirements(subject, artifactId, draftPath);
     }
+    case "incremental": {
+      if (core.incremental === undefined || positional.length !== 1) throw new Error("USAGE: incremental <run-id>");
+      return core.incremental(subject);
+    }
     case "validate": return core.validate(subject);
     case "estimate": return executeEstimate(core, subject);
-    case "run": return core.run(subject);
     case "status": return core.status(subject);
     case "resume": return core.resume(subject);
   }
+}
+
+/** `run <config> [--incremental <base-run-id>]`: an incremental Audit is always requested explicitly. */
+function executeRun(core: OrchestratorCore, argv: readonly string[]): Promise<CoreCommandResult> | CoreCommandResult {
+  const [configPath, ...options] = argv;
+  if (configPath === undefined || configPath.length === 0 || configPath.startsWith("--")) return { disposition: "system_failure", reasons: ["missing_argument:run"], value: null };
+  if (options.length === 0) return core.run(configPath);
+  if (options[0] !== "--incremental" || options.length !== 2) return { disposition: "system_failure", reasons: ["invalid_arguments:run"], value: null };
+  const baseRunId = options[1];
+  if (baseRunId === undefined || baseRunId.startsWith("--")) return { disposition: "system_failure", reasons: ["missing_value:--incremental"], value: null };
+  return core.run(configPath, { incremental: { baseRunId } });
 }

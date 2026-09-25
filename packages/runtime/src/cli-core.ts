@@ -5,6 +5,7 @@ import type { ReplayOverrides } from "@arbitra/core/replay/index.js";
 import type { ReplayRequest } from "@arbitra/schemas/replay.js";
 import type { Orchestrator } from "./orchestrator.js";
 import { PreflightError } from "./preflight.js";
+import { withIncrementalBase } from "./incremental-audit.js";
 
 export interface CoreCommandResult {
   readonly disposition: "passed" | "failed" | "system_failure" | "suspended" | "unknown";
@@ -83,9 +84,10 @@ export function orchestratorCore(orchestrator: Orchestrator) {
       return { disposition: "passed", reasons: [], value: await orchestrator.estimate(await load(configPath)) };
     },
 
-    async run(configPath: string): Promise<CoreCommandResult> {
+    /** `options.incremental` is the same request `POST /runs` accepts; it overrides the configuration's. */
+    async run(configPath: string, options: { readonly incremental?: { readonly baseRunId: string } } = {}): Promise<CoreCommandResult> {
       try {
-        const { runId, state } = await orchestrator.run(await load(configPath));
+        const { runId, state } = await orchestrator.run(withIncrementalBase(await load(configPath), options.incremental));
         return completed(runId, state);
       } catch (error) {
         if (!(error instanceof PreflightError)) throw error;
@@ -132,6 +134,12 @@ export function orchestratorCore(orchestrator: Orchestrator) {
       const request: unknown = JSON.parse(await readFile(resolve(requestPath), "utf8"));
       const replayed = await orchestrator.replay(runId, request as ReplayRequest);
       return completed(replayed.runId, replayed.state);
+    },
+
+    /** Reuse decisions, saved work and coverage of an incremental Audit run. */
+    async incremental(runId: string): Promise<CoreCommandResult> {
+      const report = await orchestrator.incrementalReport(runId);
+      return { disposition: report.coverage.degradedVersusFullRun ? "failed" : "passed", reasons: report.coverage.degradedVersusFullRun ? ["incremental_coverage_degraded"] : [], value: report };
     },
 
     async diff(runA: string, runB: string): Promise<CoreCommandResult> {
