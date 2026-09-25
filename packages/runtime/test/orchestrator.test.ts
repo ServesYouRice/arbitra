@@ -93,7 +93,7 @@ describe("a run over the fixture repository", () => {
     const core = orchestrator();
     await expect(core.start(core.configurations.validate({ ...config, mode: "feature" }))).rejects.toThrow("FEATURE_EXECUTION_CONFIGURATION_REQUIRED");
     await expect(core.estimate(core.configurations.validate({ ...config, mode: "testing" }))).rejects.toThrow("TESTING_EXECUTION_CONFIGURATION_REQUIRED");
-    await expect(core.start(core.configurations.validate({ ...config, harness: { mode: "native" } }))).rejects.toThrow("RUNTIME_NATIVE_HARNESS_NOT_AVAILABLE");
+    await expect(core.start(core.configurations.validate({ ...config, harness: { mode: "native" } }))).rejects.toThrow("NATIVE_HARNESS_DISCOVERY_FORBIDDEN");
   });
   it("runs the two-auditor graph without requesting nonexistent third-auditor artifacts", async () => {
     const core = orchestrator();

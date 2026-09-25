@@ -6,6 +6,7 @@ import { verificationExecutionSchema } from "./verification-execution.js";
 import { featureExecutionSchema } from "./feature-execution.js";
 import { testingExecutionSchema } from "./testing.js";
 import { checkpointPolicySchema } from "./checkpoint-policy.js";
+import { nativeHarnessConfigSchema } from "./native-harness.js";
 import { incrementalAuditSchema } from "./incremental.js";
 import { workflowGraphReferenceSchema } from "./workflow-graphs.js";
 
@@ -45,7 +46,8 @@ export const runConfigSchema = z.object({
   harness: z.object({
     mode: z.enum(["canonical", "native"]),
     profileId: z.string().min(1).optional(),
-  }).strict(),
+    native: nativeHarnessConfigSchema.optional(),
+  }).strict().refine((harness) => harness.native === undefined || harness.mode === "native", { path: ["native"], message: "harness.native requires harness.mode \"native\"" }),
   workflow: jsonObjectSchema.superRefine((workflow, context) => {
     if (workflow["testing"] !== undefined) {
       const testing = testingExecutionSchema.safeParse(workflow["testing"]);

@@ -203,9 +203,45 @@ Use `scope` to narrow what is read.
 
 ### Native mode
 
-`harness.mode` must be `canonical`. Native harness adapters are not implemented, and
-preflight rejects `native` with `RUNTIME_NATIVE_HARNESS_NOT_AVAILABLE`. No native tool
-loop is substituted silently. See [harness.md](harness.md).
+`harness.mode` defaults to `canonical`. `native` is accepted only for a Testing execute run,
+and only the Testing writer runs natively; analysis, planning and verification stay
+canonical. The single supported harness is Claude Code (headless `claude -p`, versions
+`>=2.0.0 <3.0.0`), declared but **not yet conformance-verified** against the real CLI
+(preflight warns `NATIVE_HARNESS_UNVERIFIED`). See
+[harness.md](harness.md#native-harness-adapters) for the matrix and enforcement.
+
+```json
+"harness": {
+  "mode": "native",
+  "native": {
+    "harnessId": "claude-code",
+    "stages": ["testing-writer"],
+    "apiKeyEnvVar": "ARBITRA_CLAUDE_CODE_API_KEY",
+    "timeoutMs": 600000,
+    "maximumTurns": 20,
+    "maximumToolCalls": 40,
+    "maximumTokensPerRun": 400000
+  }
+}
+```
+
+Host setup (never run configuration):
+
+- `ARBITRA_CLAUDE_CODE_EXECUTABLE` — absolute path of the `claude` executable. Its
+  `--version` is probed before every native run and must fall in the supported range.
+- The variable named by `apiKeyEnvVar` — passed to the native process as
+  `ANTHROPIC_API_KEY`, its only credential.
+- Every writer profile in `workflow.testing.execution.models` must be an `anthropic`
+  profile; its `modelId` is passed as `--model`. Advisors are refused in native mode.
+- Optional `tools` (default `Read, Glob, Grep, Edit, Write`); shell, network, subagent,
+  MCP and unknown tools are refused. `maximumTokensPerRun` is reserved against
+  `workflow.modelExecution.maximumTokens` before launch and stays charged in full when the
+  harness reports no usage.
+
+Opt-in conformance against the real CLI (spends tokens):
+`ARBITRA_NATIVE_HARNESS_CONFORMANCE=1 ARBITRA_CLAUDE_CODE_EXECUTABLE=/path/to/claude
+ARBITRA_NATIVE_CONFORMANCE_MODEL=<model> ANTHROPIC_API_KEY=… pnpm --filter @arbitra/runtime exec
+vitest run test/native-harness.conformance.test.ts`. Without those variables it is skipped.
 
 ### Docker prerequisites (Testing execute, Audit verification checks)
 
@@ -291,7 +327,11 @@ See [Feature mode](workflows.md#feature-mode) for revision and the equivalent HT
 |---|---|---|
 | `CONFIG_SCHEMA_INVALID` | configuration | Edit the field at `path`; the message is the schema's |
 | `RESOLVED_CREDENTIAL_FORBIDDEN`, `INVALID_CREDENTIAL_ENVIRONMENT_REFERENCE` | configuration | Replace the literal secret with an uppercase `…EnvVar` variable name |
-| `RUNTIME_NATIVE_HARNESS_NOT_AVAILABLE` | configuration | Set `harness.mode` to `canonical` |
+| `NATIVE_HARNESS_DISCOVERY_FORBIDDEN`, `NATIVE_HARNESS_MODE_UNSUPPORTED` | configuration | Native mode serves only the Testing writer: use a Testing execute run, or set `harness.mode` to `canonical` |
+| `NATIVE_HARNESS_CONFIGURATION_REQUIRED`, `NATIVE_HARNESS_UNSUPPORTED:<id>`, `NATIVE_HARNESS_STAGE_UNSUPPORTED:<stage>` | configuration | Add `harness.native` naming a harness and stage from the support matrix |
+| `NATIVE_HARNESS_TOOL_UNENFORCEABLE:<tool>` | configuration | Remove shell, network, subagent, MCP or unknown tools from `harness.native.tools` |
+| `NATIVE_HARNESS_MODEL_INCOMPATIBLE:<id>`, `NATIVE_HARNESS_ADVISOR_UNSUPPORTED`, `NATIVE_HARNESS_CONTROL_PATH_IN_LEASE` | configuration | Use writer profiles the harness serves; remove advisors; never grant `CLAUDE.md`, `.claude/` or `.mcp.json` |
+| `NATIVE_HARNESS_UNVERIFIED` | configuration (warning) | The matrix entry has no recorded real-CLI conformance yet |
 | `BUDGETS_NOT_ENFORCED` | configuration | Set `budgets` to `{}`; limit spend with `workflow.modelExecution.maximumTokens` (error for model-backed runs, warning for scripted Audit) |
 | `SECURITY_SETTINGS_NOT_ENFORCED`, `CONTEXT_POLICIES_NOT_ENFORCED` | configuration (warning) | Set the section to `{}`; exclude paths with `scope.exclude` or narrow `scope` |
 | `UNKNOWN_WORKFLOW_PRESET`, `WORKFLOW_PRESET_MODE_MISMATCH` | configuration | Use a preset that executes the configured mode |
@@ -309,6 +349,7 @@ See [Feature mode](workflows.md#feature-mode) for revision and the equivalent HT
 | `ADVISOR_MODEL_CONFIGURATION_INVALID`, `ADVISOR_OUTPUT_LIMIT_EXCEEDED`, `ADVISOR_CONTEXT_LIMIT_EXCEEDED`, `ADVISOR_MODEL_ENDPOINT_ABSENT:<id>` | configuration | Each `workflow.testing.execution.advisors.models` tier must name a bound profile at or above that tier whose limits admit the advisor limits |
 | `MODEL_IDENTITY_PLACEHOLDER:<id>` | environment (live runs) | Set real `modelId`/`family` |
 | `PROVIDER_CREDENTIAL_MISSING:<endpoint>` | environment | Export the named variable |
+| `NATIVE_HARNESS_EXECUTABLE_MISSING`, `NATIVE_HARNESS_CREDENTIAL_MISSING:<var>` | environment | Export `ARBITRA_CLAUDE_CODE_EXECUTABLE` (absolute path) and the `apiKeyEnvVar` variable |
 | `SANDBOX_ENGINE_UNAVAILABLE`, `SANDBOX_IMAGE_UNAVAILABLE:<image>` | environment | Start a Linux Docker engine; make the pinned image present locally |
 
 `run` reports these with exit `2` and reason `preflight_failed`, before a run

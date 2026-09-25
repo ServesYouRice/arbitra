@@ -3,6 +3,7 @@ import type { ModelActivityTraceRecord } from "@arbitra/persistence/trace.js";
 import type { RunStore } from "./run-store.js";
 import { readStage } from "./pipeline.js";
 import { modelIdentity, harnessIdentity, protocolIdentity } from "@arbitra/persistence/index-db/rebuild.js";
+import { harnessMeasurementClass } from "@arbitra/harness/measurement.js";
 
 /** Operational measurements do not establish ground-truth model quality. */
 export async function evaluationMetrics(store: RunStore, traces: readonly ModelActivityTraceRecord[]) {
@@ -21,6 +22,8 @@ export async function evaluationMetrics(store: RunStore, traces: readonly ModelA
     const members = traces.filter((trace) => modelIdentity(trace) === row.group.model && harnessIdentity(trace) === row.group.harness && protocolIdentity(trace) === row.group.protocol);
     return {
     ...row, modelIdentity: row.group.model, harnessIdentity: row.group.harness, protocolIdentity: row.group.protocol,
+    // Rows are segmented by harness; the class makes native rows unmistakable to any consumer.
+    measurementClass: members[0] === undefined ? null : harnessMeasurementClass(members[0].harnessId),
     recall: null, precision: null, falsePositiveRate: null, uniqueTrueContribution: null, marginalTrueContribution: null,
     repairFrequency: null, invalidEvidenceRate: null, refusalRate: row.activityCount === 0 ? null : row.refusalCount / row.activityCount,
     cacheHitRate: cacheRate(members), latencyMs: members.reduce((total, trace) => total + trace.durationMs, 0) / members.length, independenceGroup: null,
@@ -31,6 +34,8 @@ export async function evaluationMetrics(store: RunStore, traces: readonly ModelA
     rows, denominator: { activityCount: traces.length, auditorCount: 0, groundTruthAvailable: false },
     configuredAuditorCount: issues?.summary.auditorCount ?? null,
     segmentation: ["model", "harness", "protocol"],
+    /** Present whenever any native-harness activity was recorded; such rows are never canonical measurements. */
+    measurementClasses: [...new Set(traces.map(({ harnessId }) => harnessMeasurementClass(harnessId)))].sort(),
     independence: { applicable: false, reason: traces.length === 0 ? "no_recorded_provider_activity" : "no_ground_truth_measurement", groups: [] },
     totalCostUsd, currency: totalCostUsd === null ? null : "USD", costPerTrueAcceptedIssue: null,
     inputTokens: knownSum(traces.map(({ tokenUsage }) => tokenUsage?.inputTokens ?? null)),

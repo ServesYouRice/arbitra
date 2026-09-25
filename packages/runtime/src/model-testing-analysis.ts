@@ -8,6 +8,7 @@ import { prioritiseGaps, testInventory, type TestGap } from "@arbitra/workflow/n
 import { OUTPUT_TOKENS_PER_RECORD, outputRecordLimit, replanOnOutputLimit, stageBudget } from "./context-budget.js";
 import { ModelActivities, type ModelActivityRequest } from "./model-activities.js";
 import { ModelHarness } from "./model-harness.js";
+import { canonicalTestingStagesPermitted } from "./native-testing-writer.js";
 import { ModelProtocols } from "./model-protocols.js";
 import { allocateModelContext, withinStringBudget } from "./model-context.js";
 import { repositoryTestCommands, validateTestingRisk, validateTestingSelection } from "./testing-context.js";
@@ -17,7 +18,7 @@ import type { RunStore } from "./run-store.js";
 /** Read-only analysis; the caller owns planning, handoff and the public run gate. */
 export async function modelTestingAnalysis(store: RunStore, config: RunConfig, snapshot: RepositorySnapshot,
   options: { readonly signal: AbortSignal; readonly harness?: ModelHarness; readonly transport?: TransportFactoryOptions }) {
-  if (config.mode !== "testing" || config.harness.mode !== "canonical") throw new Error("TESTING_ANALYSIS_CONFIGURATION_REQUIRED");
+  if (config.mode !== "testing" || !canonicalTestingStagesPermitted(config)) throw new Error("TESTING_ANALYSIS_CONFIGURATION_REQUIRED");
   const settings = testingExecutionSchema.parse(config.workflow["testing"]);
   const profile = Object.hasOwn(config.models, settings.roles.analyst) ? config.models[settings.roles.analyst] : undefined;
   if (profile?.capabilityTier !== "frontier") throw new Error("TESTING_FRONTIER_ANALYST_REQUIRED");

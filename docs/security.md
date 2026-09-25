@@ -120,6 +120,38 @@ invalidate their previous authorization. Final verification checks the whole wor
 before exact verified changes are exported. Planning success alone cannot pass an execution
 gate. See [Testing mode](workflows.md#testing-mode) for the execution configuration.
 
+## Native harness boundary
+
+A native Testing writer (`harness.mode: "native"`, Claude Code only, see
+[harness.md](harness.md#native-harness-adapters)) never receives write access to the
+worktree or the source checkout. `packages/runtime/src/native-testing-writer.ts` runs it in
+a disposable scratch copy of the redacted pinned snapshot, from which harness instruction
+and configuration files (`CLAUDE.md`, `CLAUDE.local.md`, `.claude/`, `.mcp.json`) are
+omitted, so repository content cannot become harness instructions. The executable path
+comes from host environment (`ARBITRA_CLAUDE_CODE_EXECUTABLE`), never from run
+configuration, so a configuration submitted over HTTP cannot choose a program to execute.
+The child environment is rebuilt from an allowlist (`claudeCodeEnvironment` in
+`packages/harness/src/native/claude-code/translation.ts`): PATH, a scratch
+`HOME`/`CLAUDE_CONFIG_DIR`/`TMPDIR`, flags that disable non-essential traffic, and exactly
+one credential, the value of the configured `apiKeyEnvVar`. Other host credentials, tokens
+and proxies are not passed.
+
+Tool authority is refused at preflight when it cannot be enforced: shell, network, subagent,
+MCP and unknown tools (`NATIVE_HARNESS_TOOL_UNENFORCEABLE`). At run time, streamed tool
+events are checked against the granted tools, the scratch root and the exact leased paths;
+a violation, timeout or cancellation kills the whole process group
+(`packages/harness/src/native/process.ts`). File changes are diffed after exit and admitted
+only through `TestingWorkspace.write` under the task's write lease; one change outside the
+lease, a deletion or an unsupported file admits nothing. The scratch copy is removed on
+every path and swept on restart.
+
+Not enforced: the native process runs as the host user without an OS sandbox, so reads
+outside the scratch copy are detected from tool events rather than prevented, and host
+managed settings still apply to the CLI. Its network use is limited to what the harness
+itself does with its permitted tools (no network tools are granted); it is not isolated at
+the network layer. The adapter is `declared_unverified` until conformance against the real
+CLI is recorded.
+
 Normal completion, cancellation and timeout independently force-remove the container
 and its anonymous volumes before removing the staged files. Cleanup failure stops the
 adapter; persistent failure retains staged files. Abrupt host-process termination can

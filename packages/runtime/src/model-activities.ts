@@ -5,7 +5,7 @@ import { ProviderRegistry, type TransportFactoryOptions } from "@arbitra/provide
 import { RateLimitScheduler } from "@arbitra/providers/scheduler.js";
 import { DurableTokenBudget } from "@arbitra/providers/token-budget.js";
 import { ContinuationStateStore } from "@arbitra/providers/continuation/store.js";
-import { ProviderInvocationFailure, type InvocationTrace, type TraceSink } from "@arbitra/providers/runtime.js";
+import { ProviderBudgetSuspendedError, ProviderInvocationFailure, type InvocationTrace, type TraceSink } from "@arbitra/providers/runtime.js";
 import { BatchItemFailedError, BatchLane, type BatchSubmissionRecord } from "@arbitra/providers/batch/lane.js";
 import { ModelOutputLimitError } from "./context-budget.js";
 import type { TransportMessage, TransportTool } from "@arbitra/providers/transport-contract.js";
@@ -71,6 +71,7 @@ export class ModelActivities {
   /** Present only when `workflow.modelExecution.batch` explicitly configures a lane. */
   readonly #batch: BatchLane | null;
   readonly #replay: ActivityReplaySource | undefined;
+  readonly #budget: DurableTokenBudget;
 
   constructor(private readonly store: RunStore, config: RunConfig, options: TransportFactoryOptions = {}, replay?: ActivityReplaySource) {
     this.#replay = replay;
@@ -82,6 +83,7 @@ export class ModelActivities {
       load: () => this.read("model-token-budget"),
       save: async (state) => { await store.publish("model-token-budget", state); },
     });
+    this.#budget = budget;
     const traces: TraceSink = { record: (trace) => {
       const traces = this.#traces.get(trace.activityId) ?? [];
       traces.push(trace);
@@ -277,6 +279,22 @@ export class ModelActivities {
     }
     await this.store.publish(key, { fingerprint, value, replayIdentity }, input.activityId);
     return value;
+  }
+
+  /**
+   * Charge an activity that runs outside the provider pool (a native harness process)
+   * to the same durable run budget. The reservation is committed before launch and
+   * stays charged at its full estimate until measured usage replaces it.
+   */
+  async reserveExternal(activityId: string, estimatedTokens: number): Promise<string> {
+    const reservation = await this.#budget.reserve(activityId, estimatedTokens);
+    if (!reservation.allowed || reservation.reservationId === undefined) throw new ProviderBudgetSuspendedError(reservation.reason ?? "Run token budget exhausted");
+    return reservation.reservationId;
+  }
+
+  /** Record harness-reported usage for an external reservation. Partial usage never lowers the charge below the estimate. */
+  async recordExternalUsage(activityId: string, reservationId: string, usage: NonNullable<InvocationTrace["usage"]>): Promise<void> {
+    await this.#budget.recordActual(activityId, usage, reservationId);
   }
 
   /** Measured usage of a finished activity: null means unknown, never zero. Absent trace → undefined. */

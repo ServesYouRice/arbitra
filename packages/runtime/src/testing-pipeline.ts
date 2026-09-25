@@ -12,6 +12,7 @@ import { validateRequirementsPlanTraceability } from "@arbitra/workflow/nodes/re
 import { testTasks } from "@arbitra/workflow/nodes/test-inventory.js";
 import { ModelActivities, type ActivityReplaySource } from "./model-activities.js";
 import { ModelHarness } from "./model-harness.js";
+import { nativeWriterSettings } from "./native-testing-writer.js";
 import { ModelProtocols } from "./model-protocols.js";
 import { OUTPUT_TOKENS_PER_RECORD, outputRecordLimit, replanOnOutputLimit, stageBudget } from "./context-budget.js";
 import { planWithContext } from "./planner-context.js";
@@ -34,8 +35,13 @@ export function validateModelTesting(config: RunConfig) {
   validateBatchLanes(config);
   for (const id of Object.values(settings.roles)) if (!Object.hasOwn(config.models, id)) throw new Error(`TESTING_MODEL_PROFILE_REQUIRED:${id}`);
   if (config.models[settings.roles.analyst]?.capabilityTier !== "frontier") throw new Error("TESTING_FRONTIER_ANALYST_REQUIRED");
+  // A native harness serves only the Testing writer; a planning-only run has none.
+  if (config.harness.mode !== "canonical" && settings.mode !== "execute") throw new Error("NATIVE_HARNESS_MODE_UNSUPPORTED:testing-plan");
   if (settings.mode === "execute") {
-    if (config.harness.mode !== "canonical") throw new Error("TESTING_EXECUTION_CANONICAL_REQUIRED");
+    if (config.harness.mode !== "canonical") {
+      nativeWriterSettings(config);
+      if (settings.execution.advisors !== undefined) throw new Error("NATIVE_HARNESS_ADVISOR_UNSUPPORTED");
+    }
     const ranks = { fast: 0, balanced: 1, frontier: 2 };
     for (const capability of ["fast", "balanced", "frontier"] as const) {
       const profile = config.models[settings.execution.models[capability]];
