@@ -6,6 +6,7 @@ import { requirementsDraftSchema } from "./requirements.js";
 import { CHECKPOINT_ID_PATTERN, checkpointResponseSchema } from "./checkpoint-policy.js";
 import { replayRequestSchema } from "./replay.js";
 import { incrementalAuditSchema } from "./incremental.js";
+import { WORKFLOW_GRAPH_ID_PATTERN, WORKFLOW_GRAPH_VERSION_PATTERN, workflowGraphSaveRequestSchema, workflowGraphValidateRequestSchema } from "./workflow-graphs.js";
 
 const idParams = { type: "object", additionalProperties: false, required: ["id"], properties: { id: { type: "string", minLength: 1, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9._-]*$" } } } as const;
 const artifactParams = { type: "object", additionalProperties: false, required: ["id", "artifactId"], properties: { ...idParams.properties, artifactId: { type: "string", minLength: 1, maxLength: 256 } } } as const;
@@ -13,6 +14,8 @@ const checkpointParams = { type: "object", additionalProperties: false, required
 const runConfigJsonSchema = z.toJSONSchema(runConfigSchema, { target: "draft-7", unrepresentable: "any" });
 const { definitions: runConfigDefinitions, ...nestedRunConfigJsonSchema } = runConfigJsonSchema as typeof runConfigJsonSchema & { definitions?: unknown };
 const configurationBody = { type: "object", additionalProperties: false, required: ["name", "config"], properties: { name: { type: "string", minLength: 1, maxLength: 200 }, config: nestedRunConfigJsonSchema }, ...(runConfigDefinitions === undefined ? {} : { definitions: runConfigDefinitions }) } as const;
+const workflowParams = { type: "object", additionalProperties: false, required: ["id"], properties: { id: { type: "string", minLength: 1, maxLength: 128, pattern: WORKFLOW_GRAPH_ID_PATTERN.source } } } as const;
+const workflowVersionParams = { type: "object", additionalProperties: false, required: ["id", "version"], properties: { ...workflowParams.properties, version: { type: "string", pattern: WORKFLOW_GRAPH_VERSION_PATTERN.source } } } as const;
 const jsonResponse = { 200: true, 201: true, 202: true } as const;
 const runBody = { type: "object", additionalProperties: false, required: ["configurationId"], properties: { configurationId: idParams.properties.id, repository: { type: "string", minLength: 1 }, incremental: z.toJSONSchema(incrementalAuditSchema, { target: "draft-7" }) } } as const;
 const comparisonSide = { type: "object", additionalProperties: false, required: ["protocolIdentity"], properties: { protocolIdentity: { type: "string", minLength: 1, maxLength: 512 }, runIds: { type: "array", items: { type: "string", minLength: 1, maxLength: 128 } } } } as const;
@@ -54,6 +57,13 @@ export const HTTP_ROUTE_SCHEMAS = Object.freeze({
   "GET /runs/:id/artifacts": { params: idParams, response: jsonResponse },
   "GET /runs/:id/artifacts/:artifactId": { params: artifactParams, response: jsonResponse },
   "GET /runs/:id/metrics": { params: idParams, response: jsonResponse },
+  // Operator-authored graphs: list, read one immutable version, validate (server-side,
+  // authoritative) and save a new content-addressed version.
+  "GET /workflows": { response: jsonResponse },
+  "GET /workflows/:id": { params: workflowParams, response: jsonResponse },
+  "GET /workflows/:id/versions/:version": { params: workflowVersionParams, response: jsonResponse },
+  "POST /workflows/validate": { body: z.toJSONSchema(workflowGraphValidateRequestSchema, { target: "draft-7", unrepresentable: "any", io: "input" }), response: jsonResponse },
+  "POST /workflows": { body: z.toJSONSchema(workflowGraphSaveRequestSchema, { target: "draft-7", unrepresentable: "any", io: "input" }), response: jsonResponse },
   "POST /runs/compare": { body: { type: "object", additionalProperties: false, required: ["a", "b"], properties: { a: comparisonSide, b: comparisonSide } }, response: jsonResponse },
 } as const);
 

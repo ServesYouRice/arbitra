@@ -60,6 +60,8 @@ export interface ScriptedRuntime {
   readonly orchestrator: Orchestrator;
   /** Create a scenario's repository and configuration, start it, and wait for it to settle (except `feature-slow`). */
   start(scenario: ScriptedScenario): Promise<{ readonly runId: string; readonly state: string; readonly repository: string; readonly config: RunConfig }>;
+  /** A fresh Audit repository for a run the operator starts from the interface (P16 saved graphs). */
+  auditRepository(): Promise<string>;
 }
 
 export function scriptedRuntime(root: string, options: { newRunId?: () => string } = {}): ScriptedRuntime {
@@ -155,14 +157,30 @@ export function scriptedRuntime(root: string, options: { newRunId?: () => string
     return { runId: resource.runId, state: settled.state, repository, config };
   }
 
-  return { orchestrator, start };
+  async function auditRepository(): Promise<string> {
+    sequence += 1;
+    const repository = join(root, "repositories", `authored-${sequence}`);
+    await mkdir(repository, { recursive: true });
+    await writeAuditSources(repository);
+    return repository;
+  }
+
+  return { orchestrator, start, auditRepository };
 }
 
 async function prepare(repository: string, key: string, state: ScenarioState): Promise<RunConfig> {
   await writeFile(join(repository, "session.ts"), "export const version = 1;\n");
   if (state.scenario === "audit" || state.scenario === "checkpoint") {
-    await mkdir(join(repository, "src"), { recursive: true });
-    await writeFile(join(repository, "src/handlers.ts"), [
+    await writeAuditSources(repository);
+    return runConfigSchema.parse({ ...base, mode: "audit", models: {}, workflow: state.scenario === "audit" ? { preset: "audit-deep" } : { preset: "e2e-checkpoint", checkpoints: { mode: "interactive" } } });
+  }
+  return prepareModelScenario(repository, key, state);
+}
+
+/** Sources the scripted auditors find issues in, including untrusted text in a comment. */
+async function writeAuditSources(repository: string): Promise<void> {
+  await mkdir(join(repository, "src"), { recursive: true });
+  await writeFile(join(repository, "src/handlers.ts"), [
       "export function parse(value: unknown): string {",
       "  try { return JSON.stringify(value); } catch {}",
       "  return (value as " + "any).label!.trim();",
@@ -170,8 +188,9 @@ async function prepare(repository: string, key: string, state: ScenarioState): P
       `// ${"TO" + "DO"} replace legacy parser ${UNTRUSTED_TEXT}`,
       "export const retry = (callback: () => void, pause: number) => setTimeout(callback, pause);",
     ].join("\n") + "\n");
-    return runConfigSchema.parse({ ...base, mode: "audit", models: {}, workflow: state.scenario === "audit" ? { preset: "audit-deep" } : { preset: "e2e-checkpoint", checkpoints: { mode: "interactive" } } });
-  }
+}
+
+async function prepareModelScenario(repository: string, key: string, state: ScenarioState): Promise<RunConfig> {
   if (state.scenario.startsWith("feature-")) {
     return runConfigSchema.parse({ ...base, mode: "feature", models, workflow: {
       preset: "feature-simple",

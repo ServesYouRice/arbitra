@@ -2,14 +2,43 @@ import "@xyflow/react/dist/style.css";
 import "./graph.css";
 import { NODE_GLYPHS, STATE_LABELS, type NodeKind, type RunState } from "@arbitra/schemas/glyphs";
 import { Background, Controls, ReactFlow, type Edge, type Node, type ReactFlowInstance } from "@xyflow/react";
-import { useEffect, useMemo, useState, type ReactElement } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import type { RunEvent } from "../../api/sse.js";
+import type { GraphVersionRecord, WorkflowApi } from "../../api/workflows.js";
+import { UnsavedChangesDialog } from "../../controls/UnsavedChangesDialog.js";
 import { layoutWorkflow, type WorkflowJson } from "./layout.js";
 import { expandWorkflow, isRecordedStage, recordedStages } from "./recorded-stages.js";
 const NO_ARTIFACTS: readonly { readonly kind: string }[] = Object.freeze([]);
-interface GraphViewProps { readonly workflowJson: WorkflowJson; readonly runEvents: readonly RunEvent[]; readonly modelAliases: readonly string[]; readonly assignments: Readonly<Record<string, string>>; readonly onAssign: (nodeId: string, alias: string) => void; readonly onSelect?: (node: WorkflowJson["nodes"][number] | null) => void; /** Recorded run artifacts; Feature/Testing subgraphs expand into the stages these record. */ readonly artifacts?: readonly { readonly kind: string }[] }
+// The editor is its own chunk: a read-only run view never loads it.
+const GraphEditor = lazy(async () => ({ default: (await import("./GraphEditor.js")).GraphEditor }));
+/** Edit mode: operator-authored graphs are validated and saved as versions by the server. */
+export interface GraphEditing { readonly api: WorkflowApi; readonly configurationId: string | null; readonly preferredSource?: string | null; readonly onDirtyChange?: (dirty: boolean) => void; readonly onSaved?: (record: GraphVersionRecord) => void }
+/** The saved graph a run executes and the content version of what it actually ran. */
+export interface ExecutedGraphIdentity { readonly id: string; readonly version: string; readonly executedVersion: string }
+interface GraphViewProps { readonly workflowJson: WorkflowJson; readonly runEvents: readonly RunEvent[]; readonly modelAliases: readonly string[]; readonly assignments: Readonly<Record<string, string>>; readonly onAssign: (nodeId: string, alias: string) => void; readonly onSelect?: (node: WorkflowJson["nodes"][number] | null) => void; /** Recorded run artifacts; Feature/Testing subgraphs expand into the stages these record. */ readonly artifacts?: readonly { readonly kind: string }[]; readonly editing?: GraphEditing; readonly identity?: ExecutedGraphIdentity }
 interface GraphNodeData extends Record<string, unknown> { readonly label: string; readonly kind: NodeKind; readonly semanticState: RunState | null; readonly runtimeStatus: "not_started" | "running" | "completed" | "failed" | "replayed" | "recorded"; readonly activity: string; readonly assignment: string | null; readonly retries: number }
-export function GraphView({ workflowJson: sourceWorkflow, runEvents, modelAliases, assignments, onAssign, onSelect, artifacts = NO_ARTIFACTS }: GraphViewProps): ReactElement {
+export function GraphView(props: GraphViewProps): ReactElement {
+  const { editing, identity } = props;
+  const [mode, setMode] = useState<"run" | "edit">("run");
+  const [dirty, setDirty] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  const { onDirtyChange } = editing ?? {};
+  const dirtyChanged = useCallback((value: boolean): void => { setDirty(value); onDirtyChange?.(value); }, [onDirtyChange]);
+  const toRunView = (): void => { if (dirty) setLeaving(true); else setMode("run"); };
+  const toggle = editing === undefined ? null : <div aria-label="graph mode" className="graph-mode" role="group">
+    <button aria-pressed={mode === "run"} type="button" onClick={toRunView}>run view · read only</button>
+    <button aria-pressed={mode === "edit"} type="button" onClick={() => setMode("edit")}>edit graph</button>
+  </div>;
+  if (mode === "edit" && editing !== undefined) {
+    return <>{toggle}
+      <Suspense fallback={<p className="state" data-state="unexamined">loading editor</p>}><GraphEditor api={editing.api} configurationId={editing.configurationId} preferredSource={editing.preferredSource ?? (identity === undefined ? null : `saved:${identity.id}:${identity.version}`)} onDirtyChange={dirtyChanged} {...(editing.onSaved === undefined ? {} : { onSaved: editing.onSaved })} /></Suspense>
+      <UnsavedChangesDialog open={leaving} action="Returning to the read-only run view" onKeep={() => setLeaving(false)} onDiscard={() => { setLeaving(false); dirtyChanged(false); setMode("run"); }} />
+    </>;
+  }
+  return <>{toggle}<RunGraphView {...props} /></>;
+}
+
+function RunGraphView({ workflowJson: sourceWorkflow, runEvents, modelAliases, assignments, onAssign, onSelect, artifacts = NO_ARTIFACTS, identity }: GraphViewProps): ReactElement {
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const stages = useMemo(() => recordedStages(sourceWorkflow, artifacts), [sourceWorkflow, artifacts]);
   const workflowJson = useMemo(() => expandWorkflow(sourceWorkflow, stages, expanded), [sourceWorkflow, stages, expanded]);
@@ -29,7 +58,8 @@ export function GraphView({ workflowJson: sourceWorkflow, runEvents, modelAliase
   const edges: Edge[] = workflowJson.edges.map(({ id, from, to }) => ({ id, source: from, target: to, animated: live.get(from)?.runtimeStatus === "running" }));
   const selectedNode = workflowJson.nodes.find(({ id }) => id === selected);
   const select = (id: string): void => { setSelected(id); onSelect?.(workflowJson.nodes.find((item) => item.id === id) ?? null); };
-  return <section className="graph-region" aria-labelledby="graph-title"><h2 className="panel-title" id="graph-title">workflow graph · read only</h2><div className="graph-canvas"><ReactFlow nodes={canvasNodes} edges={edges} fitView minZoom={0.1} nodesDraggable={false} nodesConnectable={false} onInit={setFlow} onNodeClick={(_, item) => select(item.id)}><Background /><Controls showInteractive={false} /></ReactFlow></div>
+  return <section className="graph-region" aria-labelledby="graph-title"><h2 className="panel-title" id="graph-title">workflow graph · read only{identity === undefined ? "" : ` · saved graph ${identity.id}`}</h2>
+    {identity === undefined ? null : <p aria-label="executed graph identity" className="state" data-state={identity.version === identity.executedVersion ? "verified" : "refuted"}>executes {identity.id} @ {identity.version} · {identity.version === identity.executedVersion ? "executed graph matches the saved version" : `executed graph differs: ${identity.executedVersion}`}</p>}<div className="graph-canvas"><ReactFlow nodes={canvasNodes} edges={edges} fitView minZoom={0.1} nodesDraggable={false} nodesConnectable={false} onInit={setFlow} onNodeClick={(_, item) => select(item.id)}><Background /><Controls showInteractive={false} /></ReactFlow></div>
     <ol aria-label="live run stages" className="run-stages">{nodes.map(({ id, data }) => {
       const recorded = stages.get(id);
       const parent = workflowJson.nodes.find((item) => item.id === id)?.config?.["parentId"];

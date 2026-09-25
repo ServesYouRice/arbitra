@@ -8,6 +8,7 @@ import { CANONICAL_HARNESS_PROFILE } from "@arbitra/harness/profile.js";
 import type { PinnedProtocol } from "@arbitra/protocols/registry.js";
 import { runConfigSchema, type RunConfig } from "@arbitra/schemas/config.js";
 import type { SourceFinding } from "@arbitra/schemas/finding.js";
+import type { WorkflowGraphReference } from "@arbitra/schemas/workflow-graphs.js";
 import { incrementalAuditSchema, type IncrementalAuditRequest } from "@arbitra/schemas/incremental.js";
 import { providerExecutionSchema } from "@arbitra/schemas/provider-execution.js";
 import { RepositoryPathGuard } from "@arbitra/security/path-guard";
@@ -244,6 +245,8 @@ export interface IncrementalContract {
   readonly schemaVersion: 1;
   readonly baseRunId: string;
   readonly baseState: string;
+  readonly graph?: ExecutedGraphIdentity;
+  readonly baseGraph?: ExecutedGraphIdentity | null;
   readonly strategy: "incremental" | "full_fallback";
   readonly fallbackReasons: readonly string[];
   readonly baseRepositoryDigest: string;
@@ -279,6 +282,8 @@ export function withIncrementalBase(config: RunConfig, request: unknown): RunCon
   return runConfigSchema.parse({ ...config, workflow: { ...config.workflow, incremental: parsed.data } });
 }
 
+export interface ExecutedGraphIdentity { readonly reference: WorkflowGraphReference | null; readonly version: string }
+
 export interface IncrementalPlanInput {
   readonly base: RunStore;
   readonly baseState: string;
@@ -289,6 +294,10 @@ export interface IncrementalPlanInput {
   readonly snapshot: RepositorySnapshot;
   readonly identity: SnapshotIdentity;
   readonly git: RepositoryGit;
+  /** The graph this run executes: its saved-graph reference (null for a preset) and content version. */
+  readonly graph: ExecutedGraphIdentity;
+  /** The graph the base executed, or null when its stored definition is unavailable. */
+  readonly baseGraph: ExecutedGraphIdentity | null;
   readonly targetPin: (id: string) => Promise<ProtocolPin>;
   readonly basePin: (id: string) => Promise<ProtocolPin | null>;
 }
@@ -301,6 +310,8 @@ export async function planIncrementalAudit(input: IncrementalPlanInput): Promise
   const fallbackReasons: string[] = [];
   if (input.baseState !== "COMPLETED") fallbackReasons.push(`base_run_not_completed:${input.baseState}`);
   if (baseContext.repository !== input.repository) fallbackReasons.push("base_repository_differs");
+  if (input.baseGraph === null) fallbackReasons.push("base_workflow_graph_unavailable");
+  else if (canonicalJson(input.baseGraph) !== canonicalJson(input.graph)) fallbackReasons.push("workflow_graph_changed");
   const baseIdentity = await readKind<SnapshotIdentity>(base, SNAPSHOT_IDENTITY_KIND);
   if (baseIdentity === null) fallbackReasons.push("base_snapshot_identity_unavailable");
   else if (baseIdentity.repositoryDigest !== baseContext.repositoryDigest) fallbackReasons.push("base_snapshot_identity_inconsistent");
@@ -339,7 +350,7 @@ export async function planIncrementalAudit(input: IncrementalPlanInput): Promise
   const lineage = records.length === 0 ? null : findingLineage(records, input.snapshot);
   const baseContract = await readKind<IncrementalContract>(base, INCREMENTAL_CONTRACT_KIND);
   const peerReviewSeed = stages.find(({ stage }) => stage === "peer-review")?.decision === "reuse" ? baseContract?.peerReviewSeed ?? base.runId : null;
-  return Object.freeze({ schemaVersion: 1, peerReviewSeed, baseRunId: base.runId, baseState: input.baseState, strategy: fallbackReasons.length === 0 ? "incremental" : "full_fallback", fallbackReasons: Object.freeze(fallbackReasons),
+  return Object.freeze({ schemaVersion: 1, peerReviewSeed, graph: input.graph, baseGraph: input.baseGraph, baseRunId: base.runId, baseState: input.baseState, strategy: fallbackReasons.length === 0 ? "incremental" : "full_fallback", fallbackReasons: Object.freeze(fallbackReasons),
     baseRepositoryDigest: baseContext.repositoryDigest, repositoryDigest: identity.repositoryDigest, baseGitHead: baseIdentity?.gitHead ?? null, gitHead: identity.gitHead,
     changedPaths, changedManifests, gitChangedPaths, affectedSurfaces, hotspots, stages: Object.freeze(stages), baseFindingLineage: lineage });
 }
