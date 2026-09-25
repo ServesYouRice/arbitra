@@ -23,7 +23,7 @@
     },
     {
       "id": "gemini-native-flash",
-      "providerId": "google",
+      "providerId": "google-flash",
       "transport": "gemini-native",
       "endpoint": "https://generativelanguage.googleapis.com/v1beta",
       "apiKeyEnvVar": "ARBITRA_GEMINI_API_KEY"
@@ -58,9 +58,9 @@
       }
     },
     "gemini-native-flash": {
-      "modelId": "gemini-2.5-flash",
+      "modelId": "gemini-3.5-flash",
       "family": "gemini",
-      "independenceGroup": "gemini-2.5-flash",
+      "independenceGroup": "gemini-3.5-flash",
       "limits": {
         "contextTokens": 1000000,
         "maxOutputTokens": 65536
@@ -68,9 +68,9 @@
     }
   },
   "rateLimit": {
-    "rpm": 12,
-    "tpm": 1000000,
-    "maxConcurrent": 2
+    "rpm": 8,
+    "tpm": 250000,
+    "maxConcurrent": 1
   },
   "assign": {
     "audit-mixed-providers": {
@@ -101,7 +101,9 @@
     "audit-mixed-providers": {
       "workflow": {
         "modelExecution": {
-          "maximumTokens": 1500000
+          "maximumTokens": 1500000,
+          "maximumRetries": 5,
+          "maximumOutputRepairs": 2
         }
       }
     },
@@ -109,6 +111,10 @@
       "workflow": {
         "feature": {
           "request": "Add a removeLine(lines, sku) function to src/cart.js that removes every cart line with the given sku and returns a new array. Keep subtotal behaviour unchanged. Acceptance: removing an absent sku returns an equal array; the input array is not mutated."
+        },
+        "modelExecution": {
+          "maximumRetries": 5,
+          "maximumOutputRepairs": 2
         }
       }
     },
@@ -116,6 +122,10 @@
       "workflow": {
         "feature": {
           "request": "Let customers keep their session alive while they are active: refresh should extend a session only if it is not expired, and expiry must be enforced exactly at expiresAt. Decide how clock skew is handled."
+        },
+        "modelExecution": {
+          "maximumRetries": 5,
+          "maximumOutputRepairs": 2
         }
       }
     },
@@ -123,6 +133,10 @@
       "workflow": {
         "testing": {
           "goal": "Protect session expiry and refresh behaviour in src/session.js."
+        },
+        "modelExecution": {
+          "maximumRetries": 5,
+          "maximumOutputRepairs": 2
         }
       },
       "scope": {
@@ -169,6 +183,10 @@
               }
             }
           }
+        },
+        "modelExecution": {
+          "maximumRetries": 5,
+          "maximumOutputRepairs": 2
         }
       },
       "scope": {
@@ -179,6 +197,13 @@
           "package.json"
         ]
       }
+    }
+  },
+  "providerRateLimits": {
+    "google-flash": {
+      "rpm": 4,
+      "tpm": 250000,
+      "maxConcurrent": 1
     }
   }
 }

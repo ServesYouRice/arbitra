@@ -180,6 +180,7 @@ These limits are enforced:
 | `workflow.modelExecution.maximumTokens` | Durable run-wide admission budget in conservative estimated tokens (derived from request bytes, so it overstates provider tokens). Reservations are saved before dispatch; exhaustion suspends the run (`SUSPENDED_BUDGET`) rather than overspending. |
 | `maximumOutputTokens`, `maximumContextTokens`, `maximumDiscoveryTokens` | Per-request output reserve and context caps. |
 | `maximumRetries`, `timeoutMs`, `rateLimits` | Retry count, per-request timeout, per-provider pacing and concurrency. |
+| `maximumOutputRepairs` | Re-asks per model stage (0–3, default 0; templates use 1) after a reply fails output validation: unparsable JSON, schema, evidence grounding or plan traceability. Each re-ask is its own durable, budgeted activity that carries the rejection reason and the rejected reply as untrusted data. Provider failures, refusals and output-limit stops are never repaired. |
 | `verification.maxModelQuestionsPerRound` | Targeted verification questions per round (0 disables). |
 | `verification.execution.maximumRuns`, Testing `maximumAttempts` | Sandbox check runs and writer attempts. |
 

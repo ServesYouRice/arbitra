@@ -40,6 +40,8 @@ export const providerExecutionSchema = z.object({
   maximumContextTokens: z.number().int().positive().optional(),
   timeoutMs: z.number().int().positive().max(2_147_483_647),
   maximumRetries: z.number().int().min(0).max(10),
+  /** Re-asks, per model stage, after a reply fails output validation (invalid JSON, schema or grounding). Each is a separate durable, budgeted activity. */
+  maximumOutputRepairs: z.number().int().min(0).max(3).default(0),
   maximumTokens: z.number().int().positive(),
   rateLimits: z.record(identifier, z.object({
     rpm: z.number().int().positive(),

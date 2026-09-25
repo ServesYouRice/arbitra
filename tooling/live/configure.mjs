@@ -36,7 +36,7 @@ for (const [example, assignment] of Object.entries(bindings.assign)) {
   }
   const endpoints = bindings.endpoints.filter(({ id }) => used.has(id));
   config.workflow.modelExecution.endpoints = endpoints;
-  config.workflow.modelExecution.rateLimits = Object.fromEntries([...new Set(endpoints.map(({ providerId }) => providerId))].map((provider) => [provider, bindings.rateLimit ?? { rpm: 15, tpm: 1_000_000, maxConcurrent: 2 }]));
+  config.workflow.modelExecution.rateLimits = Object.fromEntries([...new Set(endpoints.map(({ providerId }) => providerId))].map((provider) => [provider, bindings.providerRateLimits?.[provider] ?? bindings.rateLimit ?? { rpm: 15, tpm: 1_000_000, maxConcurrent: 2 }]));
   const merged = deepMerge(config, bindings.overrides?.[example] ?? {});
   writeFileSync(join(resolve(output), `${example}.json`), `${JSON.stringify(merged, null, 2)}\n`);
   console.log(`${example}: ${Object.entries(assignment).map(([role, id]) => `${role}->${id}`).join(", ")}`);

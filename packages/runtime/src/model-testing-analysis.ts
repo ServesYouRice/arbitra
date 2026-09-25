@@ -53,7 +53,7 @@ export async function modelTestingAnalysis(store: RunStore, config: RunConfig, s
     const allocated = await allocate({ goal: settings.goal, inventory, repository: sources(snapshot.files.map(({ path }) => path)) });
     if (allocated !== undefined) {
       await store.publish("testing-risk-context", { ...allocated.coverage, maximumEstimatedTokens: maximum }, "testing");
-      return validateTestingRisk(await harness.invoke(request(allocated.input)), snapshot, inventory);
+      return await harness.invoke({ ...request(allocated.input), schema: { parse: (value: unknown) => validateTestingRisk(value, snapshot, inventory) } });
     }
     // Partition reviewed paths; each partition carries its complete files, the scoped inventory
     // and global counts. Surfaces, evidence, reviewed paths and limitations merge verbatim.
@@ -86,7 +86,7 @@ export async function modelTestingAnalysis(store: RunStore, config: RunConfig, s
       if (allocated === undefined) throw new Error(`TESTING_RISK_PATH_CONTEXT_EXCEEDED:${paths[0] ?? ""}`);
       const activityId = request(allocated.input, paths).activityId;
       await store.publish(`testing-risk-context-${createHash("sha256").update(activityId).digest("hex").slice(0, 24)}`, { activityId, ...allocated.coverage, maximumEstimatedTokens: maximum }, "testing");
-      parts.push(validateTestingRisk(await harness.invoke(request(allocated.input, paths)), snapshot, scoped));
+      parts.push(await harness.invoke({ ...request(allocated.input, paths), schema: { parse: (value: unknown) => validateTestingRisk(value, snapshot, scoped) } }));
     }
     // Surface IDs from separate partitions stay distinct; a repeated ID is scoped, never merged away.
     const seen = new Set<string>();
@@ -133,7 +133,7 @@ export async function modelTestingAnalysis(store: RunStore, config: RunConfig, s
       return candidates.length <= maximumSelectionCandidates && !await harness.outputLimited(request.activityId) && withinStringBudget(request.messages, maximum) && harness.estimateInitialTokens(request) <= maximum;
     };
     const selection = await replanOnOutputLimit(async () => {
-      if (await fits(input.candidates)) return validateTestingSelection(await harness.invoke(selectionRequest(input.candidates)), input.candidates);
+      if (await fits(input.candidates)) return await harness.invoke({ ...selectionRequest(input.candidates), schema: { parse: (value: unknown) => validateTestingSelection(value, input.candidates) } });
       const batches: TestGap[][] = []; let current: TestGap[] = [];
       for (const candidate of input.candidates) {
         if (await fits([...current, candidate])) { current.push(candidate); continue; }
@@ -144,7 +144,7 @@ export async function modelTestingAnalysis(store: RunStore, config: RunConfig, s
       if (current.length > 0) batches.push(current);
       await store.publish("testing-selection-batches", batches.map((batch) => ({ activityId: selectionRequest(batch).activityId, candidateIds: batch.map(({ id }) => id) })), "testing");
       const parts = [];
-      for (const batch of batches) parts.push(validateTestingSelection(await harness.invoke(selectionRequest(batch)), batch));
+      for (const batch of batches) parts.push(await harness.invoke({ ...selectionRequest(batch), schema: { parse: (value: unknown) => validateTestingSelection(value, batch) } }));
       return validateTestingSelection({ selectedGapIds: parts.flatMap(({ selectedGapIds }) => selectedGapIds), rejected: parts.flatMap(({ rejected }) => rejected),
         limitations: [...new Set(parts.flatMap(({ limitations }) => limitations))] }, input.candidates);
     });

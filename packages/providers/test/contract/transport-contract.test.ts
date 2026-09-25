@@ -218,6 +218,21 @@ function geminiBody(kind: Case): unknown {
     usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 4 }, continuation: "continue-1" };
 }
 
+describe("Google quota classification", () => {
+  const exhausted = (quotaId: string, quotaValue: string) => ({ error: { code: 429, status: "RESOURCE_EXHAUSTED", message: "You exceeded your current quota, please check your plan and billing details.",
+    details: [{ "@type": "type.googleapis.com/google.rpc.QuotaFailure", violations: [{ quotaId, quotaValue }] }, { "@type": "type.googleapis.com/google.rpc.RetryInfo", retryDelay: "21s" }] } });
+  it("treats a per-minute throttle as a retryable rate limit and a daily or zero allowance as QUOTA", async () => {
+    const transport = factory(GeminiNativeTransport)(new ScriptedHttpClient([
+      http(429, exhausted("GenerateRequestsPerMinutePerProjectPerModel-FreeTier", "5")),
+      http(429, exhausted("GenerateRequestsPerDayPerProjectPerModel-FreeTier", "20")),
+      http(429, exhausted("GenerateRequestsPerMinutePerProjectPerModel-FreeTier", "0")),
+    ]));
+    await expect(transport.send(request(), signal())).rejects.toMatchObject({ code: "RATE_LIMIT", retryable: true, retryAfterMs: 21_000 });
+    await expect(transport.send(request(), signal())).rejects.toMatchObject({ code: "QUOTA", retryable: false });
+    await expect(transport.send(request(), signal())).rejects.toMatchObject({ code: "QUOTA", retryable: false });
+  });
+});
+
 describe("provider round-trip state on tool calls", () => {
   it("echoes Gemini thought signatures natively and through the OpenAI-compatible endpoint, and sends standard JSON Schema", async () => {
     const native = new ScriptedHttpClient([http(200, { candidates: [{ content: { parts: [{ functionCall: { id: "c1", name: "lookup", args: { q: "x" } }, thoughtSignature: "sig-native" }] }, finishReason: "STOP" }], usageMetadata: {} }), http(200, geminiBody("success"))]);
