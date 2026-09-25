@@ -13,7 +13,7 @@ export function plannerNode<TPlan extends TraceablePlan>(config: PlannerNodeConf
   return Object.freeze({ async run(input: PlannerInput) {
     validateInput(input); const protocol = Object.freeze({ protocolId: "planner" as const, protocolVersion: config.protocolVersion, protocolHash: config.protocolHash });
     const raw = await config.runtime.plan(Object.freeze({ session: "single_coherent_planner" as const, input: freezeInput(input), protocol, outputSchema: "PlanIR" as const, forbiddenInputs: Object.freeze(["raw_audit_transcripts"] as const) }));
-    const plan = config.schema.parse(raw); const accepted = input.canonicalIssues.filter(({ disposition }) => disposition === "accepted").map(({ candidateId }) => candidateId).sort(); const diagnostics = validateTraceability(plan, accepted);
+    const plan = config.schema.parse(withoutSelfReferences(raw)); const accepted = input.canonicalIssues.filter(({ disposition }) => disposition === "accepted").map(({ candidateId }) => candidateId).sort(); const diagnostics = validateTraceability(plan, accepted);
     if (diagnostics.length > 0) throw new PlannerTraceabilityError(diagnostics);
     // Logical planner requests can each contain tool turns or reuse durable output;
     // provider attempts and spend remain authoritative in the activity trace log.
@@ -26,3 +26,22 @@ export class PlannerTraceabilityError extends Error { constructor(readonly diagn
 function validateInput(input: PlannerInput): void { if (input.workflowGoal.trim() === "" || input.premiseReport.limitations.length === 0) throw new Error("INVALID_PLANNER_INPUT"); if (containsTranscriptKey(input)) throw new Error("RAW_AUDIT_TRANSCRIPT_FORBIDDEN"); for (const issue of input.canonicalIssues) if (issue.claim.trust !== "untrusted_data" || issue.sourceFindingIds.length === 0) throw new Error(`INVALID_PLANNER_CANONICAL_ISSUE:${issue.candidateId}`); }
 function containsTranscriptKey(value: unknown): boolean { if (Array.isArray(value)) return value.some(containsTranscriptKey); if (typeof value !== "object" || value === null) return false; return Object.entries(value).some(([key, child]) => /(?:raw)?(?:audit)?transcript/iu.test(key) || containsTranscriptKey(child)); }
 function freezeInput(input: PlannerInput): PlannerInput { return Object.freeze({ ...input, canonicalIssues: Object.freeze([...input.canonicalIssues]), repositoryContext: Object.freeze([...input.repositoryContext]), constraints: Object.freeze([...input.constraints]), premiseReport: Object.freeze({ ...input.premiseReport, limitations: Object.freeze([...input.premiseReport.limitations]) }) }); }
+/**
+ * A task that depends on, blocks or conflicts with itself states nothing, yet real models
+ * emit exactly that for single-task plans (observed live: a `TASK-1 -> TASK-1` edge on
+ * every Gemini flash-lite plan). Removing such self-references cannot widen scope or drop
+ * a real ordering; every other graph defect is still reported by traceability validation.
+ */
+export function withoutSelfReferences(raw: unknown): unknown {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return raw;
+  const plan = raw as Record<string, unknown>;
+  const graph = Array.isArray(plan["taskGraph"]) ? plan["taskGraph"].filter((edge: unknown) => !(edge !== null && typeof edge === "object" && (edge as { from?: unknown }).from === (edge as { to?: unknown }).to)) : plan["taskGraph"];
+  const tasks = Array.isArray(plan["tasks"]) ? plan["tasks"].map((task: unknown) => {
+    if (task === null || typeof task !== "object") return task;
+    const { id, dependencies } = task as { id?: unknown; dependencies?: unknown };
+    if (dependencies === null || typeof dependencies !== "object" || Array.isArray(dependencies)) return task;
+    return { ...task, dependencies: Object.fromEntries(Object.entries(dependencies).map(([key, value]) => [key, Array.isArray(value) ? value.filter((other) => other !== id) : value])) };
+  }) : plan["tasks"];
+  return { ...plan, ...(plan["taskGraph"] === undefined ? {} : { taskGraph: graph }), ...(plan["tasks"] === undefined ? {} : { tasks }) };
+}
+

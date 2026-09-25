@@ -24,7 +24,11 @@ export function translatePeerOperations(value: unknown, view: View, snapshot: Re
   for (const entry of [...parsed.locations, ...parsed.findings.flatMap(({ locations }) => locations)]) {
     const id = local(entry.id);
     const file = snapshot.files.find(({ path }) => path === entry.path);
-    if (locations.has(entry.id) || file === undefined || entry.endLine < entry.startLine || entry.endLine > file.lines.length) throw new Error("INVALID_PEER_LOCATION");
+    // Models restate a declared location inside the finding that cites it (observed live).
+    // An identical restatement is the same location; a conflicting reuse of the ID is not.
+    const existing = locations.get(entry.id);
+    if (existing !== undefined && existing.path === entry.path && existing.startLine === entry.startLine && existing.endLine === entry.endLine) continue;
+    if (existing !== undefined || file === undefined || entry.endLine < entry.startLine || entry.endLine > file.lines.length) throw new Error("INVALID_PEER_LOCATION");
     locations.set(entry.id, { ...entry, id });
   }
   const newEvidence = new Map<string, IssueEvidence>();
