@@ -124,9 +124,12 @@ export class WorkflowRunner {
     const result = (async (): Promise<RunState> => {
       let records: RunnerJournalRecord[] = [];
       const append = async (record: RunnerJournalRecord, durability: "cheap" | "expensive" = "cheap"): Promise<void> => {
+        // The live state leads the journal. A transition is readable from the journal before
+        // an expensive append resolves (it still syncs), and a reader that sees it there must
+        // not get an older state from this handle.
+        if (record.t === "run_transition") liveState = projectRunState([...records, record]);
         await this.#options.journal.append(record, durability);
         records.push(record);
-        if (record.t === "run_transition") liveState = projectRunState(records);
         if (record.t === "run_transition" || record.t === "node_dispatched" || record.t === "node_completed") {
           stream.emit(record);
         }
