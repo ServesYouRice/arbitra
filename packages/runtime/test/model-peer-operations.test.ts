@@ -85,6 +85,8 @@ describe("model board operations", () => {
     // Observed live (gemini-3.1-flash-lite): the finding was filed under the reviewed candidate's ID.
     expect(() => translate(response([operation], [], [added]))).toThrow('PEER_CANDIDATE_ID_MISMATCH: a add_missing_finding operation creates a candidate, so its candidateId and candidate.candidateId must be the same new:<name> ID; got "C1" and "new:missing"');
     expect(() => translate(response([{ ...base, operationId: "new:merge", candidateId: "C1", type: "merge", sourceCandidateIds: ["C1", "C2"], candidate: seed("C1") }]))).toThrow("PEER_CANDIDATE_ID_MISMATCH");
+    // Observed live: a reviewer restated the finding it accepted instead of only voting.
+    expect(() => translate(response([{ ...base, type: "accept", reason: "Grounded" }], [], [added]))).toThrow('to agree with a presented candidate, vote on it and do not restate it. Unattached: "self/missing"');
     expect(() => translate(response([{ ...base, operationId: "C1-vote", type: "accept", reason: "Grounded" }]))).toThrow('INVALID_PEER_LOCAL_ID: new identifiers must look like new:<letters, digits, _ or ->; got "C1-vote"');
   });
 
