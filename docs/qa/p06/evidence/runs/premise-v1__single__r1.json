@@ -1,0 +1,353 @@
+{
+  "schemaVersion": 1,
+  "key": "premise-v1/single/r1",
+  "fixtureId": "premise-v1",
+  "condition": "single",
+  "repetition": 1,
+  "protocolId": "arbitra-p06-premise",
+  "protocolVersion": "1.0.0",
+  "wallClockMs": 107987,
+  "segments": [
+    {
+      "startedAt": "2026-09-25T16:49:15.695Z",
+      "endedAt": "2026-09-25T16:51:03.683Z",
+      "wallClockMs": 107987,
+      "state": "COMPLETED",
+      "kind": "start"
+    }
+  ],
+  "record": {
+    "runId": "run-a4803ff7-0159-4a44-9a49-7831cd07d60d",
+    "state": "COMPLETED",
+    "snapshot": {
+      "repositoryDigest": "80a0557bcea30fc1baef951d66d7bcb18f5386cdd883c552a0746c9b0caabcbf",
+      "gitHead": "ad7342d0c33f9ece92a84449379baf14d5880e12"
+    },
+    "identity": {
+      "protocol": {
+        "id": "production-audit",
+        "version": "1.0.0",
+        "hash": "89a666a6f6f5c39ab1228aeee9d1deffd0489e8d30e687be5c6f53c626bd4ed9"
+      },
+      "harness": {
+        "id": "arbitra-canonical",
+        "version": "1.0.0",
+        "policyHash": "a123fc756e8bf36fb80a36e5c803c251c68d48863d7cd12599863095729837f2"
+      },
+      "models": [
+        {
+          "auditorId": "auditor-a",
+          "modelId": "gemini-3.1-flash-lite",
+          "modelProfileVersion": "ddda1c7c994d37133eaa04d0e34b7e1d4eeb6d1b9f8d7e5519812be40755c082",
+          "transportId": "gemini-native",
+          "transportVersion": "1.0.0"
+        }
+      ]
+    },
+    "auditors": [
+      {
+        "auditorId": "auditor-a",
+        "modelId": "gemini-3.1-flash-lite",
+        "independenceGroup": "gemini-3.1-flash-lite",
+        "transport": "gemini-native",
+        "findings": [
+          {
+            "sourceFindingId": "auditor-a/auth-bypass",
+            "auditorId": "auditor-a",
+            "category": "SECURITY",
+            "title": "Unauthorized access via support mode header",
+            "severity": "critical",
+            "problem": "The authorize function allows any user to bypass authorization checks if they provide the 'x-support-mode' header set to '1'.",
+            "recommendedFix": "Remove the hardcoded support mode check. Implement a secure, authenticated support mechanism if needed.",
+            "locations": [
+              {
+                "path": "src/auth.ts",
+                "startLine": 3,
+                "endLine": 3
+              }
+            ],
+            "evidence": [
+              {
+                "text": "if (headers[\"x-support-mode\"] === \"1\") return true;"
+              }
+            ]
+          },
+          {
+            "sourceFindingId": "auditor-a/race-condition-inventory",
+            "auditorId": "auditor-a",
+            "category": "RELIABILITY",
+            "title": "Time-of-check to time-of-use (TOCTOU) race condition in inventory reservation",
+            "severity": "high",
+            "problem": "The inventory reservation logic reads the stock level and then updates it in two separate asynchronous operations without locking, allowing race conditions.",
+            "recommendedFix": "Use database-level transactions with appropriate locking (e.g., SELECT FOR UPDATE) or atomic decrement operations within the database.",
+            "locations": [
+              {
+                "path": "src/inventory.ts",
+                "startLine": 2,
+                "endLine": 7
+              }
+            ],
+            "evidence": [
+              {
+                "text": "const available = await store.stock(sku);\n  if (available < quantity) return false;\n  await store.setStock(sku, available - quantity);"
+              }
+            ]
+          },
+          {
+            "sourceFindingId": "auditor-a/n-plus-one-query",
+            "auditorId": "auditor-a",
+            "category": "PERFORMANCE",
+            "title": "N+1 query problem in listUsers",
+            "severity": "medium",
+            "problem": "The listUsers function performs an N+1 query pattern by executing a separate SQL query for every user to fetch their profile within a map/Promise.all loop.",
+            "recommendedFix": "Use a single SQL JOIN query or fetch all profiles for the list of users in a single 'WHERE user_id IN (...)' query.",
+            "locations": [
+              {
+                "path": "src/users.ts",
+                "startLine": 4,
+                "endLine": 4
+              }
+            ],
+            "evidence": [
+              {
+                "text": "return Promise.all(users.map(async (user) => ({ ...user, profile: (await db.query(\"SELECT * FROM profiles WHERE user_id = $1\", [user.id]))[0] })));"
+              }
+            ]
+          },
+          {
+            "sourceFindingId": "auditor-a/payment-double-capture",
+            "auditorId": "auditor-a",
+            "category": "CORRECTNESS",
+            "title": "Redundant payment capture logic with potential side effects",
+            "severity": "medium",
+            "problem": "The catch block retries the payment capture exactly as it was called in the try block without error handling, which could lead to double-charging or idempotency issues if the gateway is not idempotent.",
+            "recommendedFix": "Ensure the payment gateway integration supports idempotency keys or implement proper error handling that prevents blind retries.",
+            "locations": [
+              {
+                "path": "src/payments.ts",
+                "startLine": 2,
+                "endLine": 5
+              }
+            ],
+            "evidence": [
+              {
+                "text": "try { await gateway.capture(paymentId, amount); }\n  catch { await gateway.capture(paymentId, amount); }"
+              }
+            ]
+          }
+        ],
+        "rejectedFindings": [],
+        "quoteRejectedCount": 0,
+        "repairedCount": 0,
+        "truncated": false,
+        "usage": {
+          "requests": 1,
+          "failedRequests": 0,
+          "inputTokens": 4253,
+          "outputTokens": 1697,
+          "unknownUsageRequests": 0,
+          "attemptDurationMs": 11521,
+          "repairTurns": 0
+        }
+      }
+    ],
+    "sourceFindings": [
+      {
+        "sourceFindingId": "auditor-a/payment-double-capture",
+        "auditorId": "auditor-a",
+        "category": "CORRECTNESS",
+        "title": "Redundant payment capture logic with potential side effects",
+        "severity": "medium",
+        "problem": "The catch block retries the payment capture exactly as it was called in the try block without error handling, which could lead to double-charging or idempotency issues if the gateway is not idempotent.",
+        "recommendedFix": "Ensure the payment gateway integration supports idempotency keys or implement proper error handling that prevents blind retries.",
+        "locations": [
+          {
+            "path": "src/payments.ts",
+            "startLine": 2,
+            "endLine": 5
+          }
+        ],
+        "evidence": [
+          {
+            "text": "try { await gateway.capture(paymentId, amount); }\n  catch { await gateway.capture(paymentId, amount); }"
+          }
+        ]
+      },
+      {
+        "sourceFindingId": "auditor-a/auth-bypass",
+        "auditorId": "auditor-a",
+        "category": "SECURITY",
+        "title": "Unauthorized access via support mode header",
+        "severity": "critical",
+        "problem": "The authorize function allows any user to bypass authorization checks if they provide the 'x-support-mode' header set to '1'.",
+        "recommendedFix": "Remove the hardcoded support mode check. Implement a secure, authenticated support mechanism if needed.",
+        "locations": [
+          {
+            "path": "src/auth.ts",
+            "startLine": 3,
+            "endLine": 3
+          }
+        ],
+        "evidence": [
+          {
+            "text": "if (headers[\"x-support-mode\"] === \"1\") return true;"
+          }
+        ]
+      },
+      {
+        "sourceFindingId": "auditor-a/race-condition-inventory",
+        "auditorId": "auditor-a",
+        "category": "RELIABILITY",
+        "title": "Time-of-check to time-of-use (TOCTOU) race condition in inventory reservation",
+        "severity": "high",
+        "problem": "The inventory reservation logic reads the stock level and then updates it in two separate asynchronous operations without locking, allowing race conditions.",
+        "recommendedFix": "Use database-level transactions with appropriate locking (e.g., SELECT FOR UPDATE) or atomic decrement operations within the database.",
+        "locations": [
+          {
+            "path": "src/inventory.ts",
+            "startLine": 2,
+            "endLine": 7
+          }
+        ],
+        "evidence": [
+          {
+            "text": "const available = await store.stock(sku);\n  if (available < quantity) return false;\n  await store.setStock(sku, available - quantity);"
+          }
+        ]
+      },
+      {
+        "sourceFindingId": "auditor-a/n-plus-one-query",
+        "auditorId": "auditor-a",
+        "category": "PERFORMANCE",
+        "title": "N+1 query problem in listUsers",
+        "severity": "medium",
+        "problem": "The listUsers function performs an N+1 query pattern by executing a separate SQL query for every user to fetch their profile within a map/Promise.all loop.",
+        "recommendedFix": "Use a single SQL JOIN query or fetch all profiles for the list of users in a single 'WHERE user_id IN (...)' query.",
+        "locations": [
+          {
+            "path": "src/users.ts",
+            "startLine": 4,
+            "endLine": 4
+          }
+        ],
+        "evidence": [
+          {
+            "text": "return Promise.all(users.map(async (user) => ({ ...user, profile: (await db.query(\"SELECT * FROM profiles WHERE user_id = $1\", [user.id]))[0] })));"
+          }
+        ]
+      }
+    ],
+    "issues": [
+      {
+        "candidateId": "C-290f04369df2",
+        "title": "Redundant payment capture logic with potential side effects",
+        "description": "The catch block retries the payment capture exactly as it was called in the try block without error handling, which could lead to double-charging or idempotency issues if the gateway is not idempotent.",
+        "severity": "medium",
+        "disposition": "single_source",
+        "verificationOutcome": "CONFIRMED",
+        "sourceFindingIds": [
+          "auditor-a/payment-double-capture"
+        ]
+      },
+      {
+        "candidateId": "C-29ddc79ff023",
+        "title": "Unauthorized access via support mode header",
+        "description": "The authorize function allows any user to bypass authorization checks if they provide the 'x-support-mode' header set to '1'.",
+        "severity": "critical",
+        "disposition": "single_source",
+        "verificationOutcome": "CONFIRMED",
+        "sourceFindingIds": [
+          "auditor-a/auth-bypass"
+        ]
+      },
+      {
+        "candidateId": "C-d277e8f159e5",
+        "title": "Time-of-check to time-of-use (TOCTOU) race condition in inventory reservation",
+        "description": "The inventory reservation logic reads the stock level and then updates it in two separate asynchronous operations without locking, allowing race conditions.",
+        "severity": "high",
+        "disposition": "single_source",
+        "verificationOutcome": "STILL_NEEDS_VERIFICATION",
+        "sourceFindingIds": [
+          "auditor-a/race-condition-inventory"
+        ]
+      },
+      {
+        "candidateId": "C-e32d03bd8a1b",
+        "title": "N+1 query problem in listUsers",
+        "description": "The listUsers function performs an N+1 query pattern by executing a separate SQL query for every user to fetch their profile within a map/Promise.all loop.",
+        "severity": "medium",
+        "disposition": "single_source",
+        "verificationOutcome": "STILL_NEEDS_VERIFICATION",
+        "sourceFindingIds": [
+          "auditor-a/n-plus-one-query"
+        ]
+      }
+    ],
+    "verification": [
+      {
+        "candidateId": "C-290f04369df2",
+        "method": "single_model_question",
+        "result": "CONFIRMED"
+      },
+      {
+        "candidateId": "C-29ddc79ff023",
+        "method": "single_model_question",
+        "result": "CONFIRMED"
+      },
+      {
+        "candidateId": "C-d277e8f159e5",
+        "method": "bounded_deterministic_check",
+        "result": "STILL_NEEDS_VERIFICATION"
+      },
+      {
+        "candidateId": "C-e32d03bd8a1b",
+        "method": "bounded_deterministic_check",
+        "result": "STILL_NEEDS_VERIFICATION"
+      }
+    ],
+    "plan": {
+      "acceptedIssueIds": [],
+      "addressedIssueIds": [],
+      "taskCount": 1
+    },
+    "critic": null,
+    "usage": {
+      "requests": 6,
+      "failedRequests": 0,
+      "inputTokens": 11220,
+      "outputTokens": 1980,
+      "unknownUsageRequests": 3,
+      "attemptDurationMs": 106863,
+      "repairTurns": 0
+    },
+    "usageByNode": {
+      "auditor-a": {
+        "requests": 1,
+        "failedRequests": 0,
+        "inputTokens": 4253,
+        "outputTokens": 1697,
+        "unknownUsageRequests": 0,
+        "attemptDurationMs": 11521,
+        "repairTurns": 0
+      },
+      "planner": {
+        "requests": 1,
+        "failedRequests": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "unknownUsageRequests": 1,
+        "attemptDurationMs": 15666,
+        "repairTurns": 0
+      },
+      "verification": {
+        "requests": 4,
+        "failedRequests": 0,
+        "inputTokens": 6967,
+        "outputTokens": 283,
+        "unknownUsageRequests": 2,
+        "attemptDurationMs": 79676,
+        "repairTurns": 0
+      }
+    }
+  }
+}

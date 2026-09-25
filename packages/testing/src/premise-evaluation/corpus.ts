@@ -22,6 +22,8 @@ export const CORPUS_REDACTOR: CorpusRedactor = {
  *    observation for multi-auditor runs (who found it in isolated discovery, and whether consensus
  *    accepted it) and a real-world-outcome observation for every run — followed by the ground-truth
  *    ruling as adjudication version 1, so disagreement with ground truth is explicit history;
+ *  - per multi-auditor run and ground-truth item, which auditors found it in isolated discovery
+ *    (`discovery:<item>`; recorded even when the run's pipeline later failed);
  *  - per fixture, the repeated single-model runs as one independence set whose auditors are the
  *    repetitions of one model (one independence group), observed per ground-truth item.
  */
@@ -54,6 +56,16 @@ export function corpusImport(protocol: EvaluationProtocol, truths: ReadonlyMap<s
       }
     }
   }
+  for (const item of records) {
+    const truth = truths.get(item.fixtureId); const fixture = fixtureOf(protocol, item.fixtureId);
+    const auditorIds = item.record.auditors.map(({ auditorId }) => auditorId);
+    if (truth === undefined || auditorIds.length < 2) continue;
+    for (const entry of truth.items) {
+      const foundBy = item.record.auditors.filter((auditor) => auditor.findings.some((finding) => matchFinding(finding, fixture).matchedGroundTruthIds.includes(entry.id))).map(({ auditorId }) => auditorId);
+      // Discovery has no consensus: `accepted` records the ground-truth kind, as for the repetition sets below.
+      if (foundBy.length > 0) observations.push({ corpus: "independence", runId: item.record.runId, findingId: `discovery:${entry.id}`, auditorIds, independentlyFoundBy: foundBy, accepted: entry.kind === "defect" });
+    }
+  }
   for (const fixture of protocol.fixtures) {
     const singles = records.filter((item) => item.fixtureId === fixture.id && item.condition === "single").sort((a, b) => a.repetition - b.repetition);
     const truth = truths.get(fixture.id);
@@ -69,7 +81,7 @@ export function corpusImport(protocol: EvaluationProtocol, truths: ReadonlyMap<s
       const foundBy = singles.filter(({ record }) => record.auditors[0]?.findings.some((finding) => matchFinding(finding, fixture).matchedGroundTruthIds.includes(item.id)) === true).map(({ repetition }) => `repetition-${repetition}`);
       if (foundBy.length === 0) continue;
       // No consensus runs across separate repetitions: `accepted` records the ground-truth kind.
-      observations.push({ corpus: "independence", runId, findingId: item.id, auditorIds, independentlyFoundBy: foundBy, accepted: item.kind === "defect" });
+      observations.push({ corpus: "independence", runId, findingId: `discovery:${item.id}`, auditorIds, independentlyFoundBy: foundBy, accepted: item.kind === "defect" });
     }
   }
   return { groundTruth, runs, observations, adjudications };

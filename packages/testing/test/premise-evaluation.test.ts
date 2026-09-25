@@ -125,6 +125,7 @@ describe("P06 premise evaluation driver (scripted providers, no credentials)", (
     const first = await persistCorpus(corpus, bundle, () => 0);
     expect(first.appended).toBeGreaterThan(0);
     expect(first.independenceReport.report.observations.some(({ judgmentVersion }) => judgmentVersion === 1)).toBe(true);
+    expect(bundle.observations?.filter((observation) => observation.findingId === "discovery:SMOKE-DEFECT").map((observation) => observation.corpus === "independence" ? observation.independentlyFoundBy : [])).toEqual([["auditor-a", "auditor-b", "auditor-c"], ["repetition-1", "repetition-2"]]);
     const again = await persistCorpus(corpus, bundle, () => 0);
     expect(again.appended).toBe(0);
     expect(again.independenceReport.status).toBe("unchanged");
