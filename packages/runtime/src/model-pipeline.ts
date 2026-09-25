@@ -13,7 +13,7 @@ import type { VerificationAttempt, VerificationTools } from "@arbitra/workflow/n
 import type { TransportFactoryOptions } from "@arbitra/providers/registry.js";
 import { ModelActivities } from "./model-activities.js";
 import { ModelProtocols } from "./model-protocols.js";
-import { ModelHarness } from "./model-harness.js";
+import { isModelOutputRejection, ModelHarness } from "./model-harness.js";
 import { discoverWithModel } from "./model-discovery.js";
 import { converge, readStage, type AuditContext, type ConvergenceResult } from "./pipeline.js";
 import type { AuditFinding } from "./auditors.js";
@@ -54,6 +54,7 @@ import { verificationExecutionSchema } from "@arbitra/schemas/verification-execu
 import { VerificationExecutor } from "./verification-execution.js";
 import type { TestSandbox } from "./test-sandbox.js";
 import { DiscoveryUnits, type IncrementalSeed, type SnapshotIdentity } from "./incremental-audit.js";
+import { traceablePlanSchema } from "./planner-output.js";
 
 /**
  * The schema peers answer against. Board votes may carry a `verification` record, but only the
@@ -152,7 +153,7 @@ export class ModelAuditPipeline {
           activityId: `peer-review/${round}/${auditorId}${scopeId === undefined ? "" : `/${scopeId}`}`, modelProfileId: auditorId, signal,
           protocol: "peer-review", instruction: part.kind === "merge_check"
             ? "Compare the supplied candidate pair for a shared root cause requiring a merge. Return at most one typed merge operation, or an empty operations array if they should remain separate. Use authorId self, the supplied round, new:<unique-name> IDs, anonymous findingRef source references and supplied evidence IDs. Do not vote, split, add findings, or add evidence; locations and findings must be empty. This is a cross-batch duplicate check following full candidate review."
-            : "Review every supplied candidate against the source and return typed board operations. Use authorId self and the supplied round. Use new:<unique-name> for operation IDs, new candidate IDs, new evidence IDs and new location IDs. Refer to anonymous source findingRef values in candidate sourceFindingIds. New findings use self/<unique-name> as sourceFindingId. Supply new evidence with exact source quotations and declared locations. Do not emit add_candidate or verification metadata. Do not vote on a newly created candidate until a later round. Preserve counter-evidence and dissent; use needs_verification for insufficient evidence.",
+            : "Review every supplied candidate against the source and return typed board operations. Use authorId self and the supplied round. Use new:<unique-name> for operation IDs, new candidate IDs, new evidence IDs and new location IDs. For merge and split, candidate sourceFindingIds are the anonymous source findingRef values of the candidates involved. New findings use self/<unique-name> as sourceFindingId; an add_missing_finding candidate lists exactly those self/<unique-name> IDs from your findings array and carries exactly their evidence. Supply new evidence with exact source quotations and declared locations. Do not emit add_candidate or verification metadata. Do not vote on a newly created candidate until a later round. Preserve counter-evidence and dissent; use needs_verification for insufficient evidence.",
           input: { round, candidates: part.segment === undefined ? scopedView.candidates : segmentedCandidates(scopedView.candidates, part.segment), repository: this.repository() },
           schema: { parse(value: unknown) {
             const parsed = peerOperationsResultSchema.parse(value);
@@ -175,7 +176,16 @@ export class ModelAuditPipeline {
           const mergedPairs = new Set<string>();
           for (const part of parts) {
             const { input, scopedView, scopeId } = requestFor(part);
-            const result = await this.call(input);
+            let result: unknown;
+            try { result = await this.call(input); }
+            catch (error) {
+              if (!isModelOutputRejection(error)) throw error;
+              // One reviewer's reply that stays invalid after its repairs contributes nothing to
+              // the board; the rejection is durable and reported as degraded review coverage.
+              await context.store.publish(`peer-review-rejected-${createHash("sha256").update(input.activityId).digest("hex").slice(0, 24)}`, { round, auditorId, scopeId: scopeId ?? null, activityId: input.activityId, reason: (error as Error).message.slice(0, 1_000) });
+              local.push({ operations: [], findings: [], locations: [] });
+              continue;
+            }
             const batch = translatePeerOperations(result, scopedView, context.snapshot, auditorId, round, scopeId);
             // Segments of one pair jointly form a single pair check: keep its first merge only.
             const pair = part.segment === undefined ? null : JSON.stringify(part.candidateIds);
@@ -296,12 +306,15 @@ export class ModelAuditPipeline {
       ...output.deferredCheckIds.map((checkId) => ({ kind: "verification_check_deferred", candidateId, checkId })),
       ...output.records.filter(({ state, result }) => state !== "completed" || result?.status !== "exited" || result.exitCode !== 0).map(({ checkId, state, result }) => ({ kind: "verification_check_incomplete_or_failed", candidateId, checkId, state, status: result?.status ?? null, exitCode: result?.exitCode ?? null })),
     ]);
+    const rejectedReviews = await Promise.all((await context.store.listArtifacts()).filter(({ kind }) => kind.startsWith("peer-review-rejected-"))
+      .map(({ ref }) => context.store.artifacts.get<{ round: number; auditorId: string; scopeId: string | null; reason: string }>(ref)));
     const discoveryCoverage = await Promise.all(context.auditors.map(async ({ auditorId }) => ({ auditorId, ...await readStage<{ truncated: boolean; unexaminedDueToBudget: readonly string[]; limitations: readonly string[] }>(context.store, `discovery-validation-${auditorId}`) })));
     const issues = canonicaliseIssues({ candidates: Object.fromEntries(Object.entries(convergence.board.candidates).map(([id, candidate]) => [id, { ...candidate, counterEvidence: boardEvidenceSchema.array().parse(candidate.counterEvidence) }])), consensus: convergence.consensus }, verification.results, {
       securityCoverage: { degraded: true, reason: "source_snapshot_only_no_runtime_or_deployment_security_evidence" },
-      suppressionCandidates: [], unexaminedSurfaces: [...executionGaps, ...operationConflicts.map((conflict) => ({ kind: "peer_operation_conflict", conflict })), ...verification.metrics.deferredItemIds, ...discoveryCoverage.flatMap(({ auditorId, unexaminedDueToBudget }) => unexaminedDueToBudget.map((surface) => ({ auditorId, surface })))],
+      suppressionCandidates: [], unexaminedSurfaces: [...executionGaps, ...operationConflicts.map((conflict) => ({ kind: "peer_operation_conflict", conflict })), ...rejectedReviews.map(({ round, auditorId, scopeId, reason }) => ({ kind: "peer_review_output_rejected", round, auditorId, scopeId, reason })), ...verification.metrics.deferredItemIds, ...discoveryCoverage.flatMap(({ auditorId, unexaminedDueToBudget }) => unexaminedDueToBudget.map((surface) => ({ auditorId, surface })))],
       limitations: ["auditor_kind:model_auditors", "model_verification_is_not_executed_test_evidence", "real_model_premise_unmeasured", `findings_rejected_on_validation:${convergence.rejectedCount}`,
         ...(operationConflicts.length === 0 ? [] : [`unresolved_peer_operation_conflicts:${operationConflicts.length}`]),
+        ...(rejectedReviews.length === 0 ? [] : [`peer_review_output_rejected:${rejectedReviews.length}`]),
         ...discoveryCoverage.flatMap(({ auditorId, truncated, limitations }) => [...(truncated ? [`discovery_truncated:${auditorId}`] : []), ...limitations.map((limitation) => `${auditorId}:${limitation}`)])],
     });
     await context.store.publish("canonical-issues", issues);
@@ -326,7 +339,7 @@ export class ModelAuditPipeline {
           },
           call: (stage) => { plannerCalls += 1; return this.call(stageInput(stage)); },
           publish: (kind, value) => this.context.store.publish(kind, value),
-        }, { maximumBriefRecords }); });
+        }, { maximumBriefRecords, fullSchema: traceablePlanSchema("audit", null, request.input.canonicalIssues.filter(({ disposition }) => disposition === "accepted").map(({ candidateId }) => candidateId)) }); });
       } },
     });
     const { plan, modelCalls } = await planner.run({

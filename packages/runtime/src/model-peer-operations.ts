@@ -16,7 +16,7 @@ export function translatePeerOperations(value: unknown, view: View, snapshot: Re
   if (scopeId !== undefined && !/^[a-z0-9-]+$/u.test(scopeId)) throw new Error("INVALID_PEER_SCOPE_ID");
   const prefix = `${reviewerId}/review-${round}/${scopeId === undefined ? "" : `${scopeId}/`}`;
   const local = (id: string): string => {
-    if (!/^new:[A-Za-z0-9_-]+$/u.test(id)) throw new Error(`INVALID_PEER_LOCAL_ID: new identifiers must look like new:<letters, digits, _ or ->; got ${JSON.stringify(id.slice(0, 80))}`);
+    if (!/^new:[A-Za-z0-9_-]+$/u.test(id)) throw new Error(`INVALID_PEER_LOCAL_ID: "${id.slice(0, 80)}" is used where a new identifier is required; operation IDs, added evidence and location IDs, and the candidateId of every candidate created by merge, split or add_missing_finding must be new:<letters, digits, _ or -> and never a presented ID`);
     return `${prefix}${id.slice(4)}`;
   };
   const newCandidate = (id: string): string => `C-${createHash("sha256").update(local(id)).digest("hex").slice(0, 24)}`;
@@ -39,7 +39,15 @@ export function translatePeerOperations(value: unknown, view: View, snapshot: Re
       const location = locations.get(locationId);
       if (location === undefined) throw new Error("UNKNOWN_PEER_LOCATION: evidence and findings may only cite location IDs declared in locations or in the same finding");
       const file = snapshot.files.find(({ path }) => path === location.path);
-      if (file === undefined || !redactSecrets(file.lines.slice(location.startLine - 1, location.endLine).join("\n")).text.includes(entry.text)) throw new Error("UNGROUNDED_PEER_EVIDENCE: evidence text must be copied exactly from the lines of the locations it cites, and cite at least one location");
+      const quoted = (start: number) => file !== undefined && redactSecrets(file.lines.slice(start - 1, start - 1 + location.endLine - location.startLine + 1).join("\n")).text.includes(entry.text);
+      if (file !== undefined && !quoted(location.startLine)) {
+        // The reviewer's own new location, miscounted by a line or two (observed live): move it
+        // to the one nearby range of the same length that holds the exact quotation.
+        const nearby = [1, -1, 2, -2, 3, -3].map((offset) => location.startLine + offset).filter((start) => start >= 1 && start + location.endLine - location.startLine <= file.lines.length && quoted(start));
+        if (nearby.length === 1 && nearby[0] !== undefined && entry.text.trim() !== "") locations.set(locationId, { ...location, startLine: nearby[0], endLine: nearby[0] + location.endLine - location.startLine });
+      }
+      const anchored = locations.get(locationId) ?? location;
+      if (file === undefined || !redactSecrets(file.lines.slice(anchored.startLine - 1, anchored.endLine).join("\n")).text.includes(entry.text)) throw new Error("UNGROUNDED_PEER_EVIDENCE: evidence text must be copied exactly from the lines of the locations it cites, and cite at least one location");
       return location.id;
     });
     const result = { ...entry, id, locationIds: resolved };
@@ -53,9 +61,10 @@ export function translatePeerOperations(value: unknown, view: View, snapshot: Re
     const sourceFindingId = local(`new:${suffix}`);
     if (finding.evidence.length === 0) throw new Error("PEER_FINDING_REQUIRES_EVIDENCE: every finding needs at least one evidence entry");
     if (finding.evidence.some(({ locationIds }) => locationIds.some((id) => !finding.locations.some((location) => location.id === id)))) throw new Error("PEER_FINDING_LOCATION_MISMATCH: a finding's evidence may only cite that finding's own locations");
+    const grounded = finding.evidence.map(evidence);
     return { ...finding, sourceFindingId, locations: finding.locations.map((location) => {
       const resolved = locations.get(location.id); if (resolved === undefined) throw new Error("UNKNOWN_PEER_LOCATION: evidence and findings may only cite location IDs declared in locations or in the same finding"); return resolved;
-    }), evidence: finding.evidence.map(evidence) };
+    }), evidence: grounded };
   });
   const sourceIds = new Map(view.findingIds);
   for (const [index, finding] of parsed.findings.entries()) {
@@ -99,7 +108,7 @@ export function translatePeerOperations(value: unknown, view: View, snapshot: Re
     if (result.type === "add_missing_finding") {
       const sourceEvidence = new Set(findings.filter(({ sourceFindingId }) => result.candidate.sourceFindingIds.includes(sourceFindingId)).flatMap(({ evidence }) => evidence.map(({ id }) => id)));
       const addedEvidence = new Set(result.evidence.map(({ id }) => id));
-      if (sourceEvidence.size !== addedEvidence.size || [...sourceEvidence].some((id) => !addedEvidence.has(id))) throw new Error("PEER_MISSING_FINDING_EVIDENCE_MISMATCH: an add_missing_finding operation must carry exactly the evidence of the findings it introduces");
+      if (sourceEvidence.size !== addedEvidence.size || [...sourceEvidence].some((id) => !addedEvidence.has(id))) throw new Error(`PEER_MISSING_FINDING_EVIDENCE_MISMATCH: an add_missing_finding operation introduces findings from this reply's findings array: its candidate.sourceFindingIds must list their self/<name> sourceFindingIds (here: ${parsed.findings.map(({ sourceFindingId }) => sourceFindingId).join(", ") || "none"}), never a presented source, and its evidence must be exactly those findings' evidence`);
     }
     // Existing aliases must belong to the referenced candidate(s), not another
     // candidate that happened to be present in the same request.
