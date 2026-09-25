@@ -125,6 +125,16 @@ positives; `null` otherwise. `interpretation` is the literal
 
 `realPremiseMeasurementEnabled` requires `ARBITRA_PREMISE_REAL_MODELS=1` **and** a provider
 key. This helper is an eligibility check, not a live evaluation runner.
+
+The live runner is the P06 driver in `packages/testing/src/premise-evaluation/`. It runs
+the public Orchestrator in Audit mode over checkouts that contain no answers, and follows
+a prespecified protocol ([docs/qa/p06](qa/p06/PROTOCOL.md)). It keeps a resumable ledger,
+scores the runs with `scorePremiseRun`, and imports every observation into the durable
+corpus.
+
+The first live results are interim. The run was stopped by quota, and every model was a
+Gemini model, so the results say nothing about different model families. See
+[docs/qa/p06/README.md](qa/p06/README.md).
 The default suites run scripted auditors
 (`packages/testing/src/scripted-auditor.ts`) over `packages/testing/src/fake-transport.ts`.
 

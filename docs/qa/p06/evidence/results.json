@@ -1,0 +1,1104 @@
+{
+  "schemaVersion": 1,
+  "protocolIdentity": "arbitra-p06-premise@1.0.0",
+  "mode": "real_models",
+  "confidence": 0.95,
+  "groundTruth": {
+    "fixtures": 3,
+    "defects": 10,
+    "decoys": 6
+  },
+  "completedRuns": [
+    "expanded-evaluation-v1/single/r1",
+    "premise-v1/single/r1"
+  ],
+  "missingRuns": [
+    "live-fixture-v1/single/r1",
+    "live-fixture-v1/heterogeneous/r1",
+    "premise-v1/single/r2",
+    "expanded-evaluation-v1/single/r2",
+    "live-fixture-v1/single/r2",
+    "premise-v1/single/r3",
+    "expanded-evaluation-v1/single/r3",
+    "live-fixture-v1/single/r3",
+    "premise-v1/heterogeneous/r2",
+    "expanded-evaluation-v1/heterogeneous/r2",
+    "live-fixture-v1/heterogeneous/r2"
+  ],
+  "pipelineFailures": [
+    {
+      "key": "expanded-evaluation-v1/heterogeneous/r1",
+      "runId": "run-db89e63d-3d36-4c53-a5b2-b56e35878e49",
+      "reason": "peer review failed output validation after 2 repairs (UNATTACHED_PEER_FINDING: reviewer restated accepted findings); resume replays the durable rejected outputs and fails identically",
+      "discoveryScored": true
+    },
+    {
+      "key": "premise-v1/heterogeneous/r1",
+      "runId": "run-ccceb104-bb39-488f-8674-35e2dd00c5f9",
+      "reason": "peer review failed output validation after 2 repairs (INVALID_CANDIDATE_SEED, unexplained refusal fixed in 42dfb34); resume then refused MODEL_ACTIVITY_INPUT_CHANGED because the fix changed the repair prompt",
+      "discoveryScored": true
+    }
+  ],
+  "instances": [
+    {
+      "condition": "A",
+      "fixtureId": "premise-v1",
+      "runIds": [
+        "run-a4803ff7-0159-4a44-9a49-7831cd07d60d"
+      ],
+      "detected": [
+        "DEF-AUTH-BYPASS",
+        "DEF-IDEMPOTENCY",
+        "DEF-N-PLUS-ONE",
+        "DEF-RACE"
+      ],
+      "reported": 4,
+      "trueReported": 4,
+      "decoyReports": 0,
+      "unlistedReports": 0,
+      "decoysHit": [],
+      "injectionReportsExcluded": 0,
+      "severityAdequate": 3,
+      "premise": {
+        "schemaVersion": 1,
+        "runId": "run-a4803ff7-0159-4a44-9a49-7831cd07d60d",
+        "fixtureId": "premise-v1",
+        "protocolIdentity": "production-audit@1.0.0",
+        "mode": "real_models",
+        "currency": "tokens",
+        "groundTruth": {
+          "defects": 5,
+          "decoys": 3
+        },
+        "auditors": [
+          {
+            "auditorId": "auditor-a",
+            "modelIdentity": "gemini-3.1-flash-lite@gemini-native",
+            "protocolIdentity": "production-audit@1.0.0",
+            "independenceGroup": "gemini-3.1-flash-lite",
+            "findingCount": 4,
+            "trueFindingCount": 4,
+            "falsePositiveCount": 0,
+            "recall": 0.8,
+            "precision": 1,
+            "falsePositiveRate": 0,
+            "uniqueTrueContribution": 4,
+            "marginalTrueContribution": 4,
+            "marginalRecallGain": 0.8,
+            "repairFrequency": 0,
+            "invalidEvidenceRate": 0,
+            "refusalRate": 0,
+            "cost": 5950,
+            "latencyMs": 11521
+          }
+        ],
+        "consensus": {
+          "acceptedIssueCount": 0,
+          "trueAcceptedIssueCount": 0,
+          "falseAcceptedIssueCount": 0,
+          "precision": null,
+          "recall": 0,
+          "costPerTrueAcceptedIssue": null
+        },
+        "result": {
+          "additionalAuditorUniqueContribution": [],
+          "premiseSignal": "null",
+          "interpretation": "smoke_test_only_not_proof"
+        },
+        "limitations": [
+          "One small fixture cannot prove or disprove the multi-auditor premise.",
+          "Real-model results are specific to the recorded protocol and model identities.",
+          "Tool quality, scope selection, clustering and validation can affect observed recall."
+        ]
+      },
+      "usage": {
+        "requests": 1,
+        "failedRequests": 0,
+        "inputTokens": 4253,
+        "outputTokens": 1697,
+        "unknownUsageRequests": 0,
+        "attemptDurationMs": 11521,
+        "repairTurns": 0
+      },
+      "wallClockMs": 107987
+    },
+    {
+      "condition": "A_pipeline",
+      "fixtureId": "premise-v1",
+      "runIds": [
+        "run-a4803ff7-0159-4a44-9a49-7831cd07d60d"
+      ],
+      "detected": [
+        "DEF-AUTH-BYPASS",
+        "DEF-IDEMPOTENCY",
+        "DEF-N-PLUS-ONE",
+        "DEF-RACE"
+      ],
+      "reported": 4,
+      "trueReported": 4,
+      "decoyReports": 0,
+      "unlistedReports": 0,
+      "decoysHit": [],
+      "injectionReportsExcluded": 0,
+      "severityAdequate": 3,
+      "premise": {
+        "schemaVersion": 1,
+        "runId": "run-a4803ff7-0159-4a44-9a49-7831cd07d60d",
+        "fixtureId": "premise-v1",
+        "protocolIdentity": "production-audit@1.0.0",
+        "mode": "real_models",
+        "currency": "tokens",
+        "groundTruth": {
+          "defects": 5,
+          "decoys": 3
+        },
+        "auditors": [
+          {
+            "auditorId": "auditor-a",
+            "modelIdentity": "gemini-3.1-flash-lite@gemini-native",
+            "protocolIdentity": "production-audit@1.0.0",
+            "independenceGroup": "gemini-3.1-flash-lite",
+            "findingCount": 0,
+            "trueFindingCount": 0,
+            "falsePositiveCount": 0,
+            "recall": 0,
+            "precision": null,
+            "falsePositiveRate": null,
+            "uniqueTrueContribution": 0,
+            "marginalTrueContribution": 0,
+            "marginalRecallGain": 0,
+            "repairFrequency": null,
+            "invalidEvidenceRate": null,
+            "refusalRate": null,
+            "cost": 5950,
+            "latencyMs": 11521
+          }
+        ],
+        "consensus": {
+          "acceptedIssueCount": 4,
+          "trueAcceptedIssueCount": 4,
+          "falseAcceptedIssueCount": 0,
+          "precision": 1,
+          "recall": 0.8,
+          "costPerTrueAcceptedIssue": 1487.5
+        },
+        "result": {
+          "additionalAuditorUniqueContribution": [],
+          "premiseSignal": "null",
+          "interpretation": "smoke_test_only_not_proof"
+        },
+        "limitations": [
+          "One small fixture cannot prove or disprove the multi-auditor premise.",
+          "Real-model results are specific to the recorded protocol and model identities.",
+          "Tool quality, scope selection, clustering and validation can affect observed recall."
+        ]
+      },
+      "usage": {
+        "requests": 6,
+        "failedRequests": 0,
+        "inputTokens": 11220,
+        "outputTokens": 1980,
+        "unknownUsageRequests": 3,
+        "attemptDurationMs": 106863,
+        "repairTurns": 0
+      },
+      "wallClockMs": 107987
+    },
+    {
+      "condition": "C",
+      "fixtureId": "premise-v1",
+      "runIds": [
+        "run-ccceb104-bb39-488f-8674-35e2dd00c5f9"
+      ],
+      "detected": [
+        "DEF-AUTH-BYPASS",
+        "DEF-IDEMPOTENCY",
+        "DEF-MIGRATION",
+        "DEF-N-PLUS-ONE",
+        "DEF-RACE"
+      ],
+      "reported": 12,
+      "trueReported": 12,
+      "decoyReports": 0,
+      "unlistedReports": 0,
+      "decoysHit": [],
+      "injectionReportsExcluded": 2,
+      "severityAdequate": 11,
+      "premise": {
+        "schemaVersion": 1,
+        "runId": "run-ccceb104-bb39-488f-8674-35e2dd00c5f9",
+        "fixtureId": "premise-v1",
+        "protocolIdentity": "production-audit@1.0.0",
+        "mode": "real_models",
+        "currency": "tokens",
+        "groundTruth": {
+          "defects": 5,
+          "decoys": 3
+        },
+        "auditors": [
+          {
+            "auditorId": "auditor-a",
+            "modelIdentity": "gemini-3.1-flash-lite@gemini-native",
+            "protocolIdentity": "production-audit@1.0.0",
+            "independenceGroup": "gemini-3.1-flash-lite",
+            "findingCount": 4,
+            "trueFindingCount": 4,
+            "falsePositiveCount": 0,
+            "recall": 0.8,
+            "precision": 1,
+            "falsePositiveRate": 0,
+            "uniqueTrueContribution": 0,
+            "marginalTrueContribution": 4,
+            "marginalRecallGain": 0.8,
+            "repairFrequency": 0,
+            "invalidEvidenceRate": 0,
+            "refusalRate": 0,
+            "cost": 6088,
+            "latencyMs": 10102
+          },
+          {
+            "auditorId": "auditor-b",
+            "modelIdentity": "gemini-3.5-flash-lite@gemini-native",
+            "protocolIdentity": "production-audit@1.0.0",
+            "independenceGroup": "gemini-3.5-flash-lite",
+            "findingCount": 4,
+            "trueFindingCount": 4,
+            "falsePositiveCount": 0,
+            "recall": 0.8,
+            "precision": 1,
+            "falsePositiveRate": 0,
+            "uniqueTrueContribution": 1,
+            "marginalTrueContribution": 1,
+            "marginalRecallGain": 0.2,
+            "repairFrequency": 0,
+            "invalidEvidenceRate": 0,
+            "refusalRate": 0,
+            "cost": 6538,
+            "latencyMs": 17214
+          },
+          {
+            "auditorId": "auditor-c",
+            "modelIdentity": "gemini-3.1-flash-lite@openai-chat",
+            "protocolIdentity": "production-audit@1.0.0",
+            "independenceGroup": "gemini-3.1-flash-lite",
+            "findingCount": 4,
+            "trueFindingCount": 4,
+            "falsePositiveCount": 0,
+            "recall": 0.8,
+            "precision": 1,
+            "falsePositiveRate": 0,
+            "uniqueTrueContribution": 0,
+            "marginalTrueContribution": 0,
+            "marginalRecallGain": 0,
+            "repairFrequency": 0,
+            "invalidEvidenceRate": 0,
+            "refusalRate": 0,
+            "cost": 31178,
+            "latencyMs": 33873
+          }
+        ],
+        "consensus": {
+          "acceptedIssueCount": 0,
+          "trueAcceptedIssueCount": 0,
+          "falseAcceptedIssueCount": 0,
+          "precision": null,
+          "recall": 0,
+          "costPerTrueAcceptedIssue": null
+        },
+        "result": {
+          "additionalAuditorUniqueContribution": [
+            1,
+            0
+          ],
+          "premiseSignal": "positive",
+          "interpretation": "smoke_test_only_not_proof"
+        },
+        "limitations": [
+          "One small fixture cannot prove or disprove the multi-auditor premise.",
+          "Real-model results are specific to the recorded protocol and model identities.",
+          "Tool quality, scope selection, clustering and validation can affect observed recall."
+        ]
+      },
+      "usage": {
+        "requests": 8,
+        "failedRequests": 0,
+        "inputTokens": 37541,
+        "outputTokens": 6263,
+        "unknownUsageRequests": 0,
+        "attemptDurationMs": 61189,
+        "repairTurns": 0
+      },
+      "wallClockMs": 142250
+    },
+    {
+      "condition": "A",
+      "fixtureId": "expanded-evaluation-v1",
+      "runIds": [
+        "run-6975a7e8-0bc9-4a00-be09-7d8cf8a95a1c"
+      ],
+      "detected": [
+        "DEF-PATH-ESCAPE"
+      ],
+      "reported": 1,
+      "trueReported": 1,
+      "decoyReports": 0,
+      "unlistedReports": 0,
+      "decoysHit": [],
+      "injectionReportsExcluded": 1,
+      "severityAdequate": 1,
+      "premise": {
+        "schemaVersion": 1,
+        "runId": "run-6975a7e8-0bc9-4a00-be09-7d8cf8a95a1c",
+        "fixtureId": "expanded-evaluation-v1",
+        "protocolIdentity": "production-audit@1.0.0",
+        "mode": "real_models",
+        "currency": "tokens",
+        "groundTruth": {
+          "defects": 2,
+          "decoys": 2
+        },
+        "auditors": [
+          {
+            "auditorId": "auditor-a",
+            "modelIdentity": "gemini-3.1-flash-lite@gemini-native",
+            "protocolIdentity": "production-audit@1.0.0",
+            "independenceGroup": "gemini-3.1-flash-lite",
+            "findingCount": 1,
+            "trueFindingCount": 1,
+            "falsePositiveCount": 0,
+            "recall": 0.5,
+            "precision": 1,
+            "falsePositiveRate": 0,
+            "uniqueTrueContribution": 1,
+            "marginalTrueContribution": 1,
+            "marginalRecallGain": 0.5,
+            "repairFrequency": 0,
+            "invalidEvidenceRate": 0,
+            "refusalRate": 0,
+            "cost": 11993,
+            "latencyMs": 24388
+          }
+        ],
+        "consensus": {
+          "acceptedIssueCount": 0,
+          "trueAcceptedIssueCount": 0,
+          "falseAcceptedIssueCount": 0,
+          "precision": null,
+          "recall": 0,
+          "costPerTrueAcceptedIssue": null
+        },
+        "result": {
+          "additionalAuditorUniqueContribution": [],
+          "premiseSignal": "null",
+          "interpretation": "smoke_test_only_not_proof"
+        },
+        "limitations": [
+          "One small fixture cannot prove or disprove the multi-auditor premise.",
+          "Real-model results are specific to the recorded protocol and model identities.",
+          "Tool quality, scope selection, clustering and validation can affect observed recall."
+        ]
+      },
+      "usage": {
+        "requests": 4,
+        "failedRequests": 0,
+        "inputTokens": 11045,
+        "outputTokens": 948,
+        "unknownUsageRequests": 1,
+        "attemptDurationMs": 24388,
+        "repairTurns": 0
+      },
+      "wallClockMs": 89207
+    },
+    {
+      "condition": "A_pipeline",
+      "fixtureId": "expanded-evaluation-v1",
+      "runIds": [
+        "run-6975a7e8-0bc9-4a00-be09-7d8cf8a95a1c"
+      ],
+      "detected": [
+        "DEF-PATH-ESCAPE"
+      ],
+      "reported": 1,
+      "trueReported": 1,
+      "decoyReports": 0,
+      "unlistedReports": 0,
+      "decoysHit": [],
+      "injectionReportsExcluded": 1,
+      "severityAdequate": 1,
+      "premise": {
+        "schemaVersion": 1,
+        "runId": "run-6975a7e8-0bc9-4a00-be09-7d8cf8a95a1c",
+        "fixtureId": "expanded-evaluation-v1",
+        "protocolIdentity": "production-audit@1.0.0",
+        "mode": "real_models",
+        "currency": "tokens",
+        "groundTruth": {
+          "defects": 2,
+          "decoys": 2
+        },
+        "auditors": [
+          {
+            "auditorId": "auditor-a",
+            "modelIdentity": "gemini-3.1-flash-lite@gemini-native",
+            "protocolIdentity": "production-audit@1.0.0",
+            "independenceGroup": "gemini-3.1-flash-lite",
+            "findingCount": 0,
+            "trueFindingCount": 0,
+            "falsePositiveCount": 0,
+            "recall": 0,
+            "precision": null,
+            "falsePositiveRate": null,
+            "uniqueTrueContribution": 0,
+            "marginalTrueContribution": 0,
+            "marginalRecallGain": 0,
+            "repairFrequency": null,
+            "invalidEvidenceRate": null,
+            "refusalRate": null,
+            "cost": 11993,
+            "latencyMs": 24388
+          }
+        ],
+        "consensus": {
+          "acceptedIssueCount": 1,
+          "trueAcceptedIssueCount": 1,
+          "falseAcceptedIssueCount": 0,
+          "precision": 1,
+          "recall": 0.5,
+          "costPerTrueAcceptedIssue": 11993
+        },
+        "result": {
+          "additionalAuditorUniqueContribution": [],
+          "premiseSignal": "null",
+          "interpretation": "smoke_test_only_not_proof"
+        },
+        "limitations": [
+          "One small fixture cannot prove or disprove the multi-auditor premise.",
+          "Real-model results are specific to the recorded protocol and model identities.",
+          "Tool quality, scope selection, clustering and validation can affect observed recall."
+        ]
+      },
+      "usage": {
+        "requests": 9,
+        "failedRequests": 0,
+        "inputTokens": 25521,
+        "outputTokens": 2619,
+        "unknownUsageRequests": 2,
+        "attemptDurationMs": 85216,
+        "repairTurns": 0
+      },
+      "wallClockMs": 89207
+    },
+    {
+      "condition": "C",
+      "fixtureId": "expanded-evaluation-v1",
+      "runIds": [
+        "run-db89e63d-3d36-4c53-a5b2-b56e35878e49"
+      ],
+      "detected": [
+        "DEF-PATH-ESCAPE"
+      ],
+      "reported": 3,
+      "trueReported": 3,
+      "decoyReports": 0,
+      "unlistedReports": 0,
+      "decoysHit": [],
+      "injectionReportsExcluded": 3,
+      "severityAdequate": 3,
+      "premise": {
+        "schemaVersion": 1,
+        "runId": "run-db89e63d-3d36-4c53-a5b2-b56e35878e49",
+        "fixtureId": "expanded-evaluation-v1",
+        "protocolIdentity": "production-audit@1.0.0",
+        "mode": "real_models",
+        "currency": "tokens",
+        "groundTruth": {
+          "defects": 2,
+          "decoys": 2
+        },
+        "auditors": [
+          {
+            "auditorId": "auditor-a",
+            "modelIdentity": "gemini-3.1-flash-lite@gemini-native",
+            "protocolIdentity": "production-audit@1.0.0",
+            "independenceGroup": "gemini-3.1-flash-lite",
+            "findingCount": 1,
+            "trueFindingCount": 1,
+            "falsePositiveCount": 0,
+            "recall": 0.5,
+            "precision": 1,
+            "falsePositiveRate": 0,
+            "uniqueTrueContribution": 0,
+            "marginalTrueContribution": 1,
+            "marginalRecallGain": 0.5,
+            "repairFrequency": 0,
+            "invalidEvidenceRate": 0,
+            "refusalRate": 0,
+            "cost": 15822,
+            "latencyMs": 23626
+          },
+          {
+            "auditorId": "auditor-b",
+            "modelIdentity": "gemini-3.5-flash-lite@gemini-native",
+            "protocolIdentity": "production-audit@1.0.0",
+            "independenceGroup": "gemini-3.5-flash-lite",
+            "findingCount": 1,
+            "trueFindingCount": 1,
+            "falsePositiveCount": 0,
+            "recall": 0.5,
+            "precision": 1,
+            "falsePositiveRate": 0,
+            "uniqueTrueContribution": 0,
+            "marginalTrueContribution": 0,
+            "marginalRecallGain": 0,
+            "repairFrequency": 0,
+            "invalidEvidenceRate": 0,
+            "refusalRate": 0,
+            "cost": 4285,
+            "latencyMs": 9650
+          },
+          {
+            "auditorId": "auditor-c",
+            "modelIdentity": "gemini-3.1-flash-lite@openai-chat",
+            "protocolIdentity": "production-audit@1.0.0",
+            "independenceGroup": "gemini-3.1-flash-lite",
+            "findingCount": 1,
+            "trueFindingCount": 1,
+            "falsePositiveCount": 0,
+            "recall": 0.5,
+            "precision": 1,
+            "falsePositiveRate": 0,
+            "uniqueTrueContribution": 0,
+            "marginalTrueContribution": 0,
+            "marginalRecallGain": 0,
+            "repairFrequency": 0,
+            "invalidEvidenceRate": 0,
+            "refusalRate": 0,
+            "cost": 4363,
+            "latencyMs": 9105
+          }
+        ],
+        "consensus": {
+          "acceptedIssueCount": 0,
+          "trueAcceptedIssueCount": 0,
+          "falseAcceptedIssueCount": 0,
+          "precision": null,
+          "recall": 0,
+          "costPerTrueAcceptedIssue": null
+        },
+        "result": {
+          "additionalAuditorUniqueContribution": [
+            0,
+            0
+          ],
+          "premiseSignal": "null",
+          "interpretation": "smoke_test_only_not_proof"
+        },
+        "limitations": [
+          "One small fixture cannot prove or disprove the multi-auditor premise.",
+          "Real-model results are specific to the recorded protocol and model identities.",
+          "Tool quality, scope selection, clustering and validation can affect observed recall."
+        ]
+      },
+      "usage": {
+        "requests": 6,
+        "failedRequests": 0,
+        "inputTokens": 21691,
+        "outputTokens": 2779,
+        "unknownUsageRequests": 0,
+        "attemptDurationMs": 42381,
+        "repairTurns": 0
+      },
+      "wallClockMs": 303424
+    }
+  ],
+  "conditions": [
+    {
+      "condition": "A",
+      "instances": 2,
+      "fixtures": [
+        "expanded-evaluation-v1",
+        "premise-v1"
+      ],
+      "recall": {
+        "successes": 5,
+        "trials": 7,
+        "estimate": 0.7143,
+        "interval": [
+          0.3589,
+          0.9178
+        ]
+      },
+      "precision": {
+        "successes": 5,
+        "trials": 5,
+        "estimate": 1,
+        "interval": [
+          0.5655,
+          1
+        ]
+      },
+      "falsePositives": {
+        "decoyReports": 0,
+        "unlistedReports": 0,
+        "decoysHit": {
+          "successes": 0,
+          "trials": 5,
+          "estimate": 0,
+          "interval": [
+            0,
+            0.4345
+          ]
+        }
+      },
+      "severityAdequacy": {
+        "successes": 4,
+        "trials": 5,
+        "estimate": 0.8,
+        "interval": [
+          0.3755,
+          0.9638
+        ]
+      },
+      "usage": {
+        "requests": 5,
+        "failedRequests": 0,
+        "inputTokens": 15298,
+        "outputTokens": 2645,
+        "unknownUsageRequests": 1,
+        "attemptDurationMs": 35909,
+        "repairTurns": 0,
+        "perInstanceMeanRequests": 2.5,
+        "perInstanceMeanKnownTokens": 8971.5
+      },
+      "wallClockMs": {
+        "total": 197194,
+        "perInstanceMean": 98597
+      }
+    },
+    {
+      "condition": "A_pipeline",
+      "instances": 2,
+      "fixtures": [
+        "expanded-evaluation-v1",
+        "premise-v1"
+      ],
+      "recall": {
+        "successes": 5,
+        "trials": 7,
+        "estimate": 0.7143,
+        "interval": [
+          0.3589,
+          0.9178
+        ]
+      },
+      "precision": {
+        "successes": 5,
+        "trials": 5,
+        "estimate": 1,
+        "interval": [
+          0.5655,
+          1
+        ]
+      },
+      "falsePositives": {
+        "decoyReports": 0,
+        "unlistedReports": 0,
+        "decoysHit": {
+          "successes": 0,
+          "trials": 5,
+          "estimate": 0,
+          "interval": [
+            0,
+            0.4345
+          ]
+        }
+      },
+      "severityAdequacy": {
+        "successes": 4,
+        "trials": 5,
+        "estimate": 0.8,
+        "interval": [
+          0.3755,
+          0.9638
+        ]
+      },
+      "usage": {
+        "requests": 15,
+        "failedRequests": 0,
+        "inputTokens": 36741,
+        "outputTokens": 4599,
+        "unknownUsageRequests": 5,
+        "attemptDurationMs": 192079,
+        "repairTurns": 0,
+        "perInstanceMeanRequests": 7.5,
+        "perInstanceMeanKnownTokens": 20670
+      },
+      "wallClockMs": {
+        "total": 197194,
+        "perInstanceMean": 98597
+      }
+    },
+    {
+      "condition": "C",
+      "instances": 2,
+      "fixtures": [
+        "expanded-evaluation-v1",
+        "premise-v1"
+      ],
+      "recall": {
+        "successes": 6,
+        "trials": 7,
+        "estimate": 0.8571,
+        "interval": [
+          0.4869,
+          0.9743
+        ]
+      },
+      "precision": {
+        "successes": 15,
+        "trials": 15,
+        "estimate": 1,
+        "interval": [
+          0.7961,
+          1
+        ]
+      },
+      "falsePositives": {
+        "decoyReports": 0,
+        "unlistedReports": 0,
+        "decoysHit": {
+          "successes": 0,
+          "trials": 5,
+          "estimate": 0,
+          "interval": [
+            0,
+            0.4345
+          ]
+        }
+      },
+      "severityAdequacy": {
+        "successes": 14,
+        "trials": 15,
+        "estimate": 0.9333,
+        "interval": [
+          0.7018,
+          0.9881
+        ]
+      },
+      "usage": {
+        "requests": 14,
+        "failedRequests": 0,
+        "inputTokens": 59232,
+        "outputTokens": 9042,
+        "unknownUsageRequests": 0,
+        "attemptDurationMs": 103570,
+        "repairTurns": 0,
+        "perInstanceMeanRequests": 7,
+        "perInstanceMeanKnownTokens": 34137
+      },
+      "wallClockMs": {
+        "total": 445674,
+        "perInstanceMean": 222837
+      }
+    }
+  ],
+  "contribution": {
+    "B": null,
+    "C": {
+      "byPosition": [
+        {
+          "position": 1,
+          "identities": [
+            "gemini-3.1-flash-lite@gemini-native [gemini-3.1-flash-lite]"
+          ],
+          "uniqueTrue": 0,
+          "marginalTrue": 5,
+          "falsePositives": 0
+        },
+        {
+          "position": 2,
+          "identities": [
+            "gemini-3.5-flash-lite@gemini-native [gemini-3.5-flash-lite]"
+          ],
+          "uniqueTrue": 1,
+          "marginalTrue": 1,
+          "falsePositives": 0
+        },
+        {
+          "position": 3,
+          "identities": [
+            "gemini-3.1-flash-lite@openai-chat [gemini-3.1-flash-lite]"
+          ],
+          "uniqueTrue": 0,
+          "marginalTrue": 0,
+          "falsePositives": 0
+        }
+      ],
+      "premiseSignals": {
+        "premise-v1:run-ccceb104-bb39-488f-8674-35e2dd00c5f9": "positive",
+        "expanded-evaluation-v1:run-db89e63d-3d36-4c53-a5b2-b56e35878e49": "null"
+      }
+    }
+  },
+  "evidence": {
+    "emitted": 26,
+    "rejectedOnValidation": 0,
+    "quoteRejected": 0,
+    "invalidEvidenceRate": {
+      "successes": 0,
+      "trials": 26,
+      "estimate": 0,
+      "interval": [
+        0,
+        0.1287
+      ]
+    },
+    "rejectedTrueDefects": 0
+  },
+  "verification": {
+    "items": 5,
+    "decisive": 3,
+    "correct": {
+      "successes": 3,
+      "trials": 3,
+      "estimate": 1,
+      "interval": [
+        0.4385,
+        1
+      ]
+    },
+    "confirmedTrue": 3,
+    "confirmedFalse": 0,
+    "rejectedTrue": 0,
+    "rejectedFalse": 0,
+    "inconclusive": 2,
+    "byCondition": {
+      "A_pipeline": {
+        "items": 5,
+        "correct": {
+          "successes": 3,
+          "trials": 3,
+          "estimate": 1,
+          "interval": [
+            0.4385,
+            1
+          ]
+        }
+      }
+    }
+  },
+  "plan": {
+    "plans": 2,
+    "addressedIssues": 0,
+    "addressedTrue": {
+      "successes": 0,
+      "trials": 0,
+      "estimate": null,
+      "interval": null
+    },
+    "trueAcceptedCovered": {
+      "successes": 0,
+      "trials": 0,
+      "estimate": null,
+      "interval": null
+    },
+    "byCondition": {
+      "A_pipeline": {
+        "plans": 2,
+        "addressedIssues": 0,
+        "addressedTrue": {
+          "successes": 0,
+          "trials": 0,
+          "estimate": null,
+          "interval": null
+        },
+        "trueAcceptedCovered": {
+          "successes": 0,
+          "trials": 0,
+          "estimate": null,
+          "interval": null
+        }
+      }
+    }
+  },
+  "comparisons": [
+    {
+      "name": "heterogeneous discovery (C) vs one run (A)",
+      "left": "C",
+      "right": "A",
+      "recallDifference": {
+        "estimate": 0.1429,
+        "interval": [
+          0,
+          0.4286
+        ],
+        "units": 7,
+        "iterations": 10000
+      },
+      "precisionDifference": 0,
+      "knownTokenRatio": 3.805
+    }
+  ],
+  "decision": {
+    "heterogeneousOverRepeated": "insufficient_evidence",
+    "repeatedOverSingle": "insufficient_evidence",
+    "pipelineOverSinglePipeline": "insufficient_evidence",
+    "rule": "fewer than 10 paired ground-truth defects: insufficient_evidence; otherwise worthwhile: the paired-bootstrap interval of the recall difference lies above 0 and the precision difference is at least -0.10; not_worthwhile: the interval lies below 0, or it lies within [-0.05, 0.05] entirely while the left condition spends at least 1.5x the known tokens; otherwise insufficient_evidence",
+    "statement": "Heterogeneous (same-family) auditors versus repeated runs of one model: insufficient evidence (recall C 0.8571 vs B null). Repeated isolated runs versus one run: insufficient evidence (recall B null vs A 0.7143). Full reconciliation/verification pipeline versus the single-auditor pipeline: insufficient evidence (recall D null vs A_pipeline 0.7143). Heterogeneous model families were not available, so the multi-family premise itself is untested by this evaluation."
+  },
+  "limitations": [
+    "All auditors are Gemini models (one family): condition C compares variants and endpoints of one family, so the premise about heterogeneous model families remains untested.",
+    "3 small fixtures with 10 defects and 6 decoys: intervals are wide and fixture effects dominate.",
+    "Units within a fixture are not independent (shared code, shared run); Wilson intervals treat them as independent and are optimistic.",
+    "Matching is a prespecified location-and-keyword rubric; unlisted findings count as false positives even when they may describe real issues (reviewed separately in the README).",
+    "Free-tier quota and provider availability bounded the number of repetitions; missing runs are listed rather than imputed."
+  ],
+  "corpus": {
+    "appended": 25,
+    "unchanged": 0,
+    "independenceReport": {
+      "hash": "4d488b5a668b36e87c6b45c0a32d0a4628cf8cb085a71f1f5a39781310d4e8a8",
+      "byteLength": 7119,
+      "extension": "corpus-report",
+      "relativePath": "artifacts/4d488b5a668b36e87c6b45c0a32d0a4628cf8cb085a71f1f5a39781310d4e8a8.corpus-report"
+    },
+    "outcomeReport": {
+      "hash": "df9ec6a1385823b885c92bc8ab85a23feeedef1a87e25da08ff6107b50a37fc3",
+      "byteLength": 6924,
+      "extension": "corpus-report",
+      "relativePath": "artifacts/df9ec6a1385823b885c92bc8ab85a23feeedef1a87e25da08ff6107b50a37fc3.corpus-report"
+    },
+    "independenceSummary": {
+      "corpus": "independence",
+      "groupBy": [
+        "model",
+        "harness",
+        "protocol",
+        "groundTruth",
+        "mode"
+      ],
+      "applicable": true,
+      "reason": null,
+      "denominator": {
+        "runCount": 2,
+        "observationCount": 6,
+        "runsWithGroundTruth": 2,
+        "adjudicatedCount": 0,
+        "unmatchedRunIds": []
+      },
+      "rows": [
+        {
+          "group": {
+            "model": "[\"[\\\"gemini-3.1-flash-lite\\\",\\\"7be59188ba194ed1de1744e907c70bdb596b46eea32972743f9e5470cae25d2b\\\",\\\"openai-chat\\\",\\\"1.0.0\\\"]\",\"[\\\"gemini-3.1-flash-lite\\\",\\\"ddda1c7c994d37133eaa04d0e34b7e1d4eeb6d1b9f8d7e5519812be40755c082\\\",\\\"gemini-native\\\",\\\"1.0.0\\\"]\",\"[\\\"gemini-3.5-flash-lite\\\",\\\"7b731790437c6f01c51f3cebe0d6f825386c3d3b321e6bc2d154abdd61f05071\\\",\\\"gemini-native\\\",\\\"1.0.0\\\"]\"]",
+            "harness": "[\"arbitra-canonical\",\"1.0.0\",\"a123fc756e8bf36fb80a36e5c803c251c68d48863d7cd12599863095729837f2\"]",
+            "protocol": "[\"production-audit\",\"1.0.0\",\"89a666a6f6f5c39ab1228aeee9d1deffd0489e8d30e687be5c6f53c626bd4ed9\"]",
+            "groundTruth": "[\"premise-v1\",1]",
+            "mode": "real_models"
+          },
+          "runCount": 1,
+          "findingCount": 5,
+          "adjudicatedCount": 0,
+          "acceptedCount": 5,
+          "acceptedRate": 1,
+          "independentlyFoundCount": 5,
+          "multiplyFoundCount": 4,
+          "auditorSlotCount": 15
+        },
+        {
+          "group": {
+            "model": "[\"[\\\"gemini-3.1-flash-lite\\\",\\\"7be59188ba194ed1de1744e907c70bdb596b46eea32972743f9e5470cae25d2b\\\",\\\"openai-chat\\\",\\\"1.0.0\\\"]\",\"[\\\"gemini-3.1-flash-lite\\\",\\\"ddda1c7c994d37133eaa04d0e34b7e1d4eeb6d1b9f8d7e5519812be40755c082\\\",\\\"gemini-native\\\",\\\"1.0.0\\\"]\",\"[\\\"gemini-3.5-flash-lite\\\",\\\"7b731790437c6f01c51f3cebe0d6f825386c3d3b321e6bc2d154abdd61f05071\\\",\\\"gemini-native\\\",\\\"1.0.0\\\"]\"]",
+            "harness": "[\"arbitra-canonical\",\"1.0.0\",\"c06714c889cc4ca3237faef85d0f5063f4724d215a135a008d057178bcba29cd\"]",
+            "protocol": "[\"production-audit\",\"1.0.0\",\"89a666a6f6f5c39ab1228aeee9d1deffd0489e8d30e687be5c6f53c626bd4ed9\"]",
+            "groundTruth": "[\"expanded-evaluation-v1\",1]",
+            "mode": "real_models"
+          },
+          "runCount": 1,
+          "findingCount": 1,
+          "adjudicatedCount": 0,
+          "acceptedCount": 1,
+          "acceptedRate": 1,
+          "independentlyFoundCount": 1,
+          "multiplyFoundCount": 1,
+          "auditorSlotCount": 3
+        }
+      ]
+    },
+    "outcomeSummary": {
+      "corpus": "real_world_outcomes",
+      "groupBy": [
+        "model",
+        "harness",
+        "protocol",
+        "groundTruth",
+        "mode"
+      ],
+      "denominator": {
+        "runCount": 2,
+        "observationCount": 6,
+        "runsWithGroundTruth": 2,
+        "adjudicatedCount": 6,
+        "unmatchedRunIds": []
+      },
+      "rows": [
+        {
+          "group": {
+            "model": "[\"[\\\"gemini-3.1-flash-lite\\\",\\\"ddda1c7c994d37133eaa04d0e34b7e1d4eeb6d1b9f8d7e5519812be40755c082\\\",\\\"gemini-native\\\",\\\"1.0.0\\\"]\"]",
+            "harness": "[\"arbitra-canonical\",\"1.0.0\",\"a123fc756e8bf36fb80a36e5c803c251c68d48863d7cd12599863095729837f2\"]",
+            "protocol": "[\"production-audit\",\"1.0.0\",\"89a666a6f6f5c39ab1228aeee9d1deffd0489e8d30e687be5c6f53c626bd4ed9\"]",
+            "groundTruth": "[\"premise-v1\",1]",
+            "mode": "real_models"
+          },
+          "runCount": 1,
+          "observationCount": 4,
+          "adjudicatedCount": 4,
+          "outcomes": {
+            "verified": 4,
+            "rejected": 0,
+            "fixed": 0,
+            "ignored": 0,
+            "recurred": 0
+          },
+          "costUsd": {
+            "total": null,
+            "knownCount": 0,
+            "unknownCount": 4
+          },
+          "latencyMs": {
+            "mean": null,
+            "knownCount": 0,
+            "unknownCount": 4
+          }
+        },
+        {
+          "group": {
+            "model": "[\"[\\\"gemini-3.1-flash-lite\\\",\\\"ddda1c7c994d37133eaa04d0e34b7e1d4eeb6d1b9f8d7e5519812be40755c082\\\",\\\"gemini-native\\\",\\\"1.0.0\\\"]\"]",
+            "harness": "[\"arbitra-canonical\",\"1.0.0\",\"c06714c889cc4ca3237faef85d0f5063f4724d215a135a008d057178bcba29cd\"]",
+            "protocol": "[\"production-audit\",\"1.0.0\",\"89a666a6f6f5c39ab1228aeee9d1deffd0489e8d30e687be5c6f53c626bd4ed9\"]",
+            "groundTruth": "[\"expanded-evaluation-v1\",1]",
+            "mode": "real_models"
+          },
+          "runCount": 1,
+          "observationCount": 2,
+          "adjudicatedCount": 2,
+          "outcomes": {
+            "verified": 1,
+            "rejected": 1,
+            "fixed": 0,
+            "ignored": 0,
+            "recurred": 0
+          },
+          "costUsd": {
+            "total": null,
+            "knownCount": 0,
+            "unknownCount": 2
+          },
+          "latencyMs": {
+            "mean": null,
+            "knownCount": 0,
+            "unknownCount": 2
+          }
+        }
+      ]
+    }
+  }
+}

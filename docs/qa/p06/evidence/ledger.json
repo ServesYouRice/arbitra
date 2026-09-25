@@ -1,0 +1,123 @@
+{
+  "schemaVersion": 1,
+  "protocolId": "arbitra-p06-premise",
+  "protocolVersion": "1.0.0",
+  "runs": {
+    "premise-v1/single/r1": {
+      "key": "premise-v1/single/r1",
+      "fixtureId": "premise-v1",
+      "condition": "single",
+      "repetition": 1,
+      "runId": "run-a4803ff7-0159-4a44-9a49-7831cd07d60d",
+      "status": "completed",
+      "state": "COMPLETED",
+      "segments": [
+        {
+          "startedAt": "2026-09-25T16:49:15.695Z",
+          "endedAt": "2026-09-25T16:51:03.683Z",
+          "wallClockMs": 107987,
+          "state": "COMPLETED",
+          "kind": "start"
+        }
+      ],
+      "failures": []
+    },
+    "premise-v1/heterogeneous/r1": {
+      "key": "premise-v1/heterogeneous/r1",
+      "fixtureId": "premise-v1",
+      "condition": "heterogeneous",
+      "repetition": 1,
+      "runId": "run-ccceb104-bb39-488f-8674-35e2dd00c5f9",
+      "status": "abandoned",
+      "state": "FAILED",
+      "segments": [
+        {
+          "startedAt": "2026-09-25T16:51:03.695Z",
+          "endedAt": "2026-09-25T16:53:25.693Z",
+          "wallClockMs": 141998,
+          "state": "FAILED",
+          "kind": "start"
+        },
+        {
+          "startedAt": "2026-09-25T16:55:40.269Z",
+          "endedAt": "2026-09-25T16:55:40.522Z",
+          "wallClockMs": 252,
+          "state": "FAILED",
+          "kind": "resume"
+        }
+      ],
+      "failures": [
+        "abandoned:peer review failed output validation after 2 repairs (INVALID_CANDIDATE_SEED, unexplained refusal fixed in 42dfb34); resume then refused MODEL_ACTIVITY_INPUT_CHANGED because the fix changed the repair prompt"
+      ]
+    },
+    "expanded-evaluation-v1/single/r1": {
+      "key": "expanded-evaluation-v1/single/r1",
+      "fixtureId": "expanded-evaluation-v1",
+      "condition": "single",
+      "repetition": 1,
+      "runId": "run-6975a7e8-0bc9-4a00-be09-7d8cf8a95a1c",
+      "status": "completed",
+      "state": "COMPLETED",
+      "segments": [
+        {
+          "startedAt": "2026-09-25T16:57:46.452Z",
+          "endedAt": "2026-09-25T16:59:15.660Z",
+          "wallClockMs": 89207,
+          "state": "COMPLETED",
+          "kind": "start"
+        }
+      ],
+      "failures": []
+    },
+    "expanded-evaluation-v1/heterogeneous/r1": {
+      "key": "expanded-evaluation-v1/heterogeneous/r1",
+      "fixtureId": "expanded-evaluation-v1",
+      "condition": "heterogeneous",
+      "repetition": 1,
+      "runId": "run-db89e63d-3d36-4c53-a5b2-b56e35878e49",
+      "status": "abandoned",
+      "state": "FAILED",
+      "segments": [
+        {
+          "startedAt": "2026-09-25T16:59:15.723Z",
+          "endedAt": "2026-09-25T17:04:18.940Z",
+          "wallClockMs": 303217,
+          "state": "FAILED",
+          "kind": "start"
+        },
+        {
+          "startedAt": "2026-09-25T17:04:56.089Z",
+          "endedAt": "2026-09-25T17:04:56.297Z",
+          "wallClockMs": 207,
+          "state": "FAILED",
+          "kind": "resume"
+        }
+      ],
+      "failures": [
+        "abandoned:peer review failed output validation after 2 repairs (UNATTACHED_PEER_FINDING: reviewer restated accepted findings); resume replays the durable rejected outputs and fails identically"
+      ]
+    },
+    "live-fixture-v1/single/r1": {
+      "key": "live-fixture-v1/single/r1",
+      "fixtureId": "live-fixture-v1",
+      "condition": "single",
+      "repetition": 1,
+      "runId": "run-a31982bb-5d2c-487d-8b89-46a89e0cfd8c",
+      "status": "incomplete",
+      "state": "FAILED",
+      "segments": [
+        {
+          "startedAt": "2026-09-25T17:08:23.260Z",
+          "endedAt": "2026-09-25T17:08:37.137Z",
+          "wallClockMs": 13875,
+          "state": "FAILED",
+          "kind": "start"
+        }
+      ],
+      "failures": [
+        "ProviderInvocationFailure"
+      ]
+    }
+  },
+  "stoppedReason": "run_incomplete:live-fixture-v1/single/r1:FAILED"
+}
