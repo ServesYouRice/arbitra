@@ -30,7 +30,9 @@ const codec: ProtocolCodec = {
     const usage = object(root["usage"] ?? {}, "usage");
     return response(request, { text, toolCalls: calls, refusal: string(message["refusal"]),
       usage: { inputTokens: number(usage["prompt_tokens"]), outputTokens: number(usage["completion_tokens"]),
-        cacheReadTokens: number(object(usage["prompt_tokens_details"] ?? {}, "details")["cached_tokens"]) }, requestId: headers["x-request-id"] ?? null });
+        cacheReadTokens: number(object(usage["prompt_tokens_details"] ?? {}, "details")["cached_tokens"]) },
+      // Compatible services (observed live: Gemini's OpenAI endpoint, P13) send no x-request-id; the completion id is their identity.
+      requestId: headers["x-request-id"] ?? string(root["id"]) ?? null });
   },
 };
 function chatExtraContent(state: unknown): { extra_content?: unknown } {
