@@ -114,7 +114,9 @@ export function translatePeerOperations(value: unknown, view: View, snapshot: Re
   });
   const votes = operations.filter(({ type }) => type === "accept" || type === "reject" || type === "needs_verification");
   if (new Set(votes.map(({ candidateId }) => candidateId)).size !== votes.length) throw new Error("DUPLICATE_PEER_VOTE: cast at most one accept, reject or needs_verification vote per candidate");
-  for (const finding of findings) if (!operations.some((operation) => operation.type === "add_missing_finding" && operation.candidate.sourceFindingIds.includes(finding.sourceFindingId))) throw new Error("UNATTACHED_PEER_FINDING: every entry in findings must be introduced by an add_missing_finding operation whose candidate.sourceFindingIds lists it; otherwise leave findings empty");
+  // Observed live: models restate the presented findings they vote on. Name the entries so a repair can drop them.
+  const unattached = parsed.findings.filter((_, index) => { const finding = findings[index]; return finding !== undefined && !operations.some((operation) => operation.type === "add_missing_finding" && operation.candidate.sourceFindingIds.includes(finding.sourceFindingId)); });
+  if (unattached.length > 0) throw new Error(`UNATTACHED_PEER_FINDING: every entry in findings must be introduced by an add_missing_finding operation whose candidate.sourceFindingIds lists it; otherwise leave findings empty. Findings are only for problems no presented candidate covers: to agree with a presented candidate, vote on it and do not restate it. Unattached: ${unattached.map(({ sourceFindingId }) => JSON.stringify(sourceFindingId.slice(0, 80))).join(", ")}`);
   return { operations, findings, locations: [...locations.values()] };
 }
 
