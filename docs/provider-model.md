@@ -338,13 +338,49 @@ abandoned; `sending` becomes uncertain. An acknowledgment lost to a network erro
 timeout or 5xx is also `uncertain`. The lane reconciles an uncertain submission with the
 driver's lookup. A match attaches it to the provider job; not-found (listings can lag),
 inconclusive or unsupported lookup keeps it uncertain and fails the waiting activity with
-`BATCH_SUBMISSION_UNCERTAIN`. It is never resubmitted automatically; only
-`ModelActivities.resolveBatchSubmission` (an operator-supplied provider job ID, or an
-explicit "not submitted" decision with an actor) moves it on. A definite rejection
+`BATCH_SUBMISSION_UNCERTAIN`. It is never resubmitted automatically; only an operator
+decision (see operator resolution below) moves it on. A definite rejection
 (4xx, 429, failed upload, encoding error) marks items `not_submitted`. A new attempt
 follows only provider-confirmed non-processing (`not_submitted`, `cancelled`, `expired`)
 and is bounded by `maximumAttempts`; `errored` and `missing` items are not resubmitted.
-There is no CLI or HTTP command for operator resolution yet; it is a runtime API.
+
+**Operator resolution of uncertain submissions.** The CLI and HTTP expose the same
+orchestrator operations:
+
+```text
+orchestrator batches <run-id>
+orchestrator resolve-batch <run-id> <submission-id> <version> provider_job <provider-job-id> --by=<actor>
+orchestrator resolve-batch <run-id> <submission-id> <version> not_submitted|abandon --by=<actor>
+GET  /runs/:id/batches
+POST /runs/:id/batches/:submissionId/resolve   {"version": "<64 hex>", "decision": "provider_job", "providerJobId": "batch_abc", "by": "operator"}
+```
+
+The listing returns every submission of the run in preparation order. Each entry has its
+state, driver, capability status, the driver's reconciliation support, provider job ID
+and status, timings, the recorded submit error, reconciliation attempts and last lookup
+result, any operator resolution, anomalies and a content `version`. It also lists each
+member's activity ID, trace ID, attempt, state, estimate, reported usage (`null` =
+unknown) and whether its reservation moved on. Raw result bodies are omitted. An
+`uncertain` submission, or a `sending` one left by a crash, is `resolvable`. The CLI exits
+`3` with reasons `batch_submission_uncertain:<id>` while any resolvable submission remains.
+
+A decision names the `version` the operator inspected and an explicit actor (`by`). The
+run must not be live in this process. The decision is saved on the submission record
+with actor, time, version and job ID, so it survives restart. Each version accepts one
+decision. A changed version fails with `BATCH_SUBMISSION_VERSION_STALE` (HTTP 409), for
+example after another reconciliation attempt. A second decision fails with
+`BATCH_SUBMISSION_NOT_UNCERTAIN` (409). An unknown submission returns 404, and the CLI
+exits `2` on all three. No decision submits anything.
+
+| Decision | Effect |
+|---|---|
+| `provider_job` | Binds the job ID found in the provider console. One status request must succeed first (`BATCH_PROVIDER_JOB_UNVERIFIED`, 409), and a job already bound to another submission is refused (`BATCH_PROVIDER_JOB_ALREADY_BOUND`, 409). Members become `submitted`; resume or reconcile polls and collects the job normally, matching results by `custom_id`, so item and trace identity are kept. |
+| `not_submitted` | Declares that the provider never accepted the submission. Members become `not_submitted`. Nothing is refunded: the reservation stays charged and moves to the item's next attempt, which is sent on resume within `maximumAttempts`. |
+| `abandon` | Fails the members with non-retryable `BATCH_ABANDONED_BY_OPERATOR`. Their estimates stay charged as unknown spend, and they are never resubmitted. No provider job is cancelled because none is known. |
+
+A wrongly bound job whose results contain no line for a member makes that member
+`missing` (unknown spend, not resubmitted). Unmatched result lines are recorded as
+anomalies.
 
 **Budget.** Every item reserves its worst-case estimate (input bytes plus output reserve)
 through the shared `DurableTokenBudget` before it can join a submission; a refusal
