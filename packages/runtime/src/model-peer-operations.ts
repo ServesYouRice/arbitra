@@ -16,7 +16,7 @@ export function translatePeerOperations(value: unknown, view: View, snapshot: Re
   if (scopeId !== undefined && !/^[a-z0-9-]+$/u.test(scopeId)) throw new Error("INVALID_PEER_SCOPE_ID");
   const prefix = `${reviewerId}/review-${round}/${scopeId === undefined ? "" : `${scopeId}/`}`;
   const local = (id: string): string => {
-    if (!/^new:[A-Za-z0-9_-]+$/u.test(id)) throw new Error("INVALID_PEER_LOCAL_ID");
+    if (!/^new:[A-Za-z0-9_-]+$/u.test(id)) throw new Error("INVALID_PEER_LOCAL_ID: new identifiers must look like new:<letters, digits, _ or ->");
     return `${prefix}${id.slice(4)}`;
   };
   const newCandidate = (id: string): string => `C-${createHash("sha256").update(local(id)).digest("hex").slice(0, 24)}`;
@@ -28,39 +28,39 @@ export function translatePeerOperations(value: unknown, view: View, snapshot: Re
     // An identical restatement is the same location; a conflicting reuse of the ID is not.
     const existing = locations.get(entry.id);
     if (existing !== undefined && existing.path === entry.path && existing.startLine === entry.startLine && existing.endLine === entry.endLine) continue;
-    if (existing !== undefined || file === undefined || entry.endLine < entry.startLine || entry.endLine > file.lines.length) throw new Error("INVALID_PEER_LOCATION");
+    if (existing !== undefined || file === undefined || entry.endLine < entry.startLine || entry.endLine > file.lines.length) throw new Error("INVALID_PEER_LOCATION: a location must name a snapshot file with 1 <= startLine <= endLine <= its line count, and one location ID may not describe two ranges");
     locations.set(entry.id, { ...entry, id });
   }
   const newEvidence = new Map<string, IssueEvidence>();
   const evidence = (entry: IssueEvidence): IssueEvidence => {
     const id = local(entry.id);
-    if (entry.locationIds.length === 0) throw new Error("UNGROUNDED_PEER_EVIDENCE");
+    if (entry.locationIds.length === 0) throw new Error("UNGROUNDED_PEER_EVIDENCE: evidence text must be copied exactly from the lines of the locations it cites, and cite at least one location");
     const resolved = entry.locationIds.map((locationId) => {
       const location = locations.get(locationId);
-      if (location === undefined) throw new Error("UNKNOWN_PEER_LOCATION");
+      if (location === undefined) throw new Error("UNKNOWN_PEER_LOCATION: evidence and findings may only cite location IDs declared in locations or in the same finding");
       const file = snapshot.files.find(({ path }) => path === location.path);
-      if (file === undefined || !redactSecrets(file.lines.slice(location.startLine - 1, location.endLine).join("\n")).text.includes(entry.text)) throw new Error("UNGROUNDED_PEER_EVIDENCE");
+      if (file === undefined || !redactSecrets(file.lines.slice(location.startLine - 1, location.endLine).join("\n")).text.includes(entry.text)) throw new Error("UNGROUNDED_PEER_EVIDENCE: evidence text must be copied exactly from the lines of the locations it cites, and cite at least one location");
       return location.id;
     });
     const result = { ...entry, id, locationIds: resolved };
     const prior = newEvidence.get(entry.id);
-    if (prior !== undefined && JSON.stringify(prior) !== JSON.stringify(result)) throw new Error("CONFLICTING_PEER_EVIDENCE");
+    if (prior !== undefined && JSON.stringify(prior) !== JSON.stringify(result)) throw new Error("CONFLICTING_PEER_EVIDENCE: one evidence ID was given two different contents");
     newEvidence.set(entry.id, result);
     return result;
   };
   const findings: AuditFinding[] = parsed.findings.map((finding) => {
     const suffix = finding.sourceFindingId.startsWith("self/") ? finding.sourceFindingId.slice(5) : "";
     const sourceFindingId = local(`new:${suffix}`);
-    if (finding.evidence.length === 0) throw new Error("PEER_FINDING_REQUIRES_EVIDENCE");
-    if (finding.evidence.some(({ locationIds }) => locationIds.some((id) => !finding.locations.some((location) => location.id === id)))) throw new Error("PEER_FINDING_LOCATION_MISMATCH");
+    if (finding.evidence.length === 0) throw new Error("PEER_FINDING_REQUIRES_EVIDENCE: every finding needs at least one evidence entry");
+    if (finding.evidence.some(({ locationIds }) => locationIds.some((id) => !finding.locations.some((location) => location.id === id)))) throw new Error("PEER_FINDING_LOCATION_MISMATCH: a finding's evidence may only cite that finding's own locations");
     return { ...finding, sourceFindingId, locations: finding.locations.map((location) => {
-      const resolved = locations.get(location.id); if (resolved === undefined) throw new Error("UNKNOWN_PEER_LOCATION"); return resolved;
+      const resolved = locations.get(location.id); if (resolved === undefined) throw new Error("UNKNOWN_PEER_LOCATION: evidence and findings may only cite location IDs declared in locations or in the same finding"); return resolved;
     }), evidence: finding.evidence.map(evidence) };
   });
   const sourceIds = new Map(view.findingIds);
   for (const [index, finding] of parsed.findings.entries()) {
     const resolved = findings[index];
-    if (resolved === undefined || sourceIds.has(finding.sourceFindingId)) throw new Error("DUPLICATE_PEER_FINDING");
+    if (resolved === undefined || sourceIds.has(finding.sourceFindingId)) throw new Error("DUPLICATE_PEER_FINDING: each finding needs a distinct self/<name> sourceFindingId that is not a presented finding");
     sourceIds.set(finding.sourceFindingId, resolved.sourceFindingId);
   }
   for (const operation of parsed.operations) {
@@ -69,18 +69,18 @@ export function translatePeerOperations(value: unknown, view: View, snapshot: Re
   }
   const citation = (id: string): string => {
     const resolved = view.evidenceIds.get(id) ?? newEvidence.get(id)?.id;
-    if (resolved === undefined) throw new Error("UNKNOWN_PEER_EVIDENCE");
+    if (resolved === undefined) throw new Error("UNKNOWN_PEER_EVIDENCE: citedEvidenceIds must be presented evidence IDs or new evidence added in this reply");
     return resolved;
   };
-  const candidateId = (id: string): string => id.startsWith("new:") ? newCandidate(id) : Object.hasOwn(view.candidates, id) ? id : (() => { throw new Error("UNPRESENTED_PEER_CANDIDATE"); })();
+  const candidateId = (id: string): string => id.startsWith("new:") ? newCandidate(id) : Object.hasOwn(view.candidates, id) ? id : (() => { throw new Error("UNPRESENTED_PEER_CANDIDATE: operations may only target presented candidate IDs or new:<name> candidates"); })();
   const seed = (candidate: CandidateSeed): CandidateSeed => ({ ...candidate, candidateId: newCandidate(candidate.candidateId), sourceFindingIds: candidate.sourceFindingIds.map((id) => {
-    const resolved = sourceIds.get(id); if (resolved === undefined) throw new Error("UNKNOWN_PEER_SOURCE_FINDING"); return resolved;
+    const resolved = sourceIds.get(id); if (resolved === undefined) throw new Error("UNKNOWN_PEER_SOURCE_FINDING: sourceFindingIds must name presented findings or findings added in this reply"); return resolved;
   }) });
   const seen = new Set<string>();
   const operations: IssueOperation[] = parsed.operations.map((operation): IssueOperation => {
     if (operation.authorId !== "self" || operation.round !== round || "verification" in operation || operation.type === "add_candidate") throw new Error(`INVALID_MODEL_OPERATION_AUTHORITY: every operation must use authorId "self" and round ${round}, must not carry a verification record and must not add candidates`);
     const operationId = local(operation.operationId);
-    if (seen.has(operationId)) throw new Error("DUPLICATE_PEER_OPERATION");
+    if (seen.has(operationId)) throw new Error("DUPLICATE_PEER_OPERATION: operation IDs must be unique");
     seen.add(operationId);
     const base = { ...operation, operationId, authorId: reviewerId, candidateId: candidateId(operation.candidateId), citedEvidenceIds: operation.citedEvidenceIds.map(citation) };
     let result: IssueOperation;
@@ -95,21 +95,21 @@ export function translatePeerOperations(value: unknown, view: View, snapshot: Re
     if (result.type === "add_missing_finding") {
       const sourceEvidence = new Set(findings.filter(({ sourceFindingId }) => result.candidate.sourceFindingIds.includes(sourceFindingId)).flatMap(({ evidence }) => evidence.map(({ id }) => id)));
       const addedEvidence = new Set(result.evidence.map(({ id }) => id));
-      if (sourceEvidence.size !== addedEvidence.size || [...sourceEvidence].some((id) => !addedEvidence.has(id))) throw new Error("PEER_MISSING_FINDING_EVIDENCE_MISMATCH");
+      if (sourceEvidence.size !== addedEvidence.size || [...sourceEvidence].some((id) => !addedEvidence.has(id))) throw new Error("PEER_MISSING_FINDING_EVIDENCE_MISMATCH: an add_missing_finding operation must carry exactly the evidence of the findings it introduces");
     }
     // Existing aliases must belong to the referenced candidate(s), not another
     // candidate that happened to be present in the same request.
     const referenced = operation.type === "merge" ? operation.sourceCandidateIds : [operation.candidateId];
     const targets = operation.type === "merge" || operation.type === "add_missing_finding" ? [operation.candidate] : operation.type === "split" ? operation.candidates : [];
     const allowedSources = new Set(operation.type === "add_missing_finding" ? parsed.findings.map(({ sourceFindingId }) => sourceFindingId) : referenced.flatMap((id) => view.candidates[id]?.sources.map(({ findingRef }) => findingRef) ?? []));
-    if (targets.some(({ sourceFindingIds }) => sourceFindingIds.some((id) => !allowedSources.has(id)))) throw new Error("CROSS_CANDIDATE_PEER_SOURCE");
+    if (targets.some(({ sourceFindingIds }) => sourceFindingIds.some((id) => !allowedSources.has(id)))) throw new Error("CROSS_CANDIDATE_PEER_SOURCE: merged or split candidates may only use source findings of the candidates they reference");
     const allowed = new Set(referenced.flatMap((id) => view.candidates[id]?.sources.flatMap(({ evidence }) => evidence.map(({ id }) => id)) ?? []));
     const allowedNew = new Set(parsed.operations.filter((other) => referenced.includes(other.candidateId)).flatMap((other) => other.type === "add_evidence" || other.type === "add_counter_evidence" ? [other.evidence.id] : other.type === "add_missing_finding" ? other.evidence.map(({ id }) => id) : []));
-    if (operation.citedEvidenceIds.some((id) => !allowedNew.has(id) && !allowed.has(id))) throw new Error("CROSS_CANDIDATE_PEER_EVIDENCE");
+    if (operation.citedEvidenceIds.some((id) => !allowedNew.has(id) && !allowed.has(id))) throw new Error("CROSS_CANDIDATE_PEER_EVIDENCE: an operation may only cite evidence of the candidate it targets");
     return result;
   });
   const votes = operations.filter(({ type }) => type === "accept" || type === "reject" || type === "needs_verification");
-  if (new Set(votes.map(({ candidateId }) => candidateId)).size !== votes.length) throw new Error("DUPLICATE_PEER_VOTE");
-  for (const finding of findings) if (!operations.some((operation) => operation.type === "add_missing_finding" && operation.candidate.sourceFindingIds.includes(finding.sourceFindingId))) throw new Error("UNATTACHED_PEER_FINDING");
+  if (new Set(votes.map(({ candidateId }) => candidateId)).size !== votes.length) throw new Error("DUPLICATE_PEER_VOTE: cast at most one accept, reject or needs_verification vote per candidate");
+  for (const finding of findings) if (!operations.some((operation) => operation.type === "add_missing_finding" && operation.candidate.sourceFindingIds.includes(finding.sourceFindingId))) throw new Error("UNATTACHED_PEER_FINDING: every entry in findings must be introduced by an add_missing_finding operation whose candidate.sourceFindingIds lists it; otherwise leave findings empty");
   return { operations, findings, locations: [...locations.values()] };
 }
