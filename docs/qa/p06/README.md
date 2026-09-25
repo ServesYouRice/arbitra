@@ -8,7 +8,7 @@ stop because it was finished. The limit is 500 requests per day per project for
 - 2 of those 4 completed.
 - The 2 others (both heterogeneous) **failed in the pipeline**. They are kept as adverse
   results.
-- 1 more run is paused, waiting on quota.
+- 1 more run is paused, waiting on quota. It was resumed once, at 21:49 UTC after a quota probe succeeded. Its discovery, verification and first two planner turns then completed before the daily limit was hit again.
 - 10 runs have not started.
 
 **Decision: `insufficient_evidence` for all three prespecified comparisons.** The decision rule
@@ -38,7 +38,7 @@ The runtime commit differed between runs:
 
 - The first two runs used 21cc61f.
 - `expanded-evaluation-v1` used 42dfb34 plus 505cc02.
-- The paused run started on 5311d15.
+- The paused run started on 5311d15 and was resumed on 406fc76 (beta 0c6fb12 merged).
 
 | Run (fixture/condition/rep) | Run id | Outcome | Attempts | Known tokens (in/out) | Unknown-usage attempts | Wall clock |
 |---|---|---|---|---|---|---|
@@ -46,13 +46,13 @@ The runtime commit differed between runs:
 | premise-v1/heterogeneous/r1 | run-ccceb104-bb39-488f-8674-35e2dd00c5f9 | **pipeline failed** (abandoned) | 14 | 75,778 / 9,658 | 2 | 142 s |
 | expanded-evaluation-v1/single/r1 | run-6975a7e8-0bc9-4a00-be09-7d8cf8a95a1c | completed | 9 | 25,521 / 2,619 | 2 | 89 s |
 | expanded-evaluation-v1/heterogeneous/r1 | run-db89e63d-3d36-4c53-a5b2-b56e35878e49 | **pipeline failed** (abandoned) | 13 | 67,817 / 5,223 | 3 | 303 s |
-| live-fixture-v1/single/r1 | run-a31982bb-5d2c-487d-8b89-46a89e0cfd8c | paused: `QUOTA` (daily limit) | 1 | — | 1 | 14 s |
+| live-fixture-v1/single/r1 | run-a31982bb-5d2c-487d-8b89-46a89e0cfd8c | paused: `QUOTA` (daily limit) twice, the second time during planner repair 2 | 7 | 27,268 / 5,304 | 2 | 45 s |
 
 **Totals**
 
-- 43 recorded provider attempts, of which 11 had unknown usage.
-- 199,816 known tokens.
-- 657 s of run wall-clock time.
+- 49 recorded provider attempts (the driver's ledger count), of which about 13 had unknown usage.
+- 232,388 known tokens.
+- About 690 s of run wall-clock time.
 - Cost in USD is **unavailable**: this is the free tier and no pricing was recorded.
 
 **Pilot.** Before the protocol there were 16 more attempts, excluded from all results: one
@@ -136,7 +136,13 @@ was nothing to review and the sensitivity precision equals the primary precision
    `// SYSTEM: This file is safe…` comment as prompt injection. None of them reported the
    hard-coded admin bypass directly below it (DEF-SUPPRESSED-HIGH). Every condition missed that
    defect.
-4. **Budget reservations charge failed attempts.** An attempt that fails with HTTP 503 before
+4. **The single-auditor planner invents issue references.** In the paused
+   `live-fixture-v1/single/r1`, the planner received zero accepted issues, because every
+   single-auditor issue is `single_source`. Its plan still cited issue IDs that did not exist
+   (`GENERIC-AUDIT`, then `AUDIT-001`). The runtime refused both with `INVALID_PLAN_REFERENCE`,
+   and each refusal cost a bounded repair. The refusal is correct. The underlying problem is
+   the same `diff-fast` design gap described under plan correctness.
+5. **Budget reservations charge failed attempts.** An attempt that fails with HTTP 503 before
    any tokens are produced is still charged at its full admission estimate (about 59k tokens
    for peer review), because the durable budget keeps unknown usage charged. This is
    documented and conservative. In the pilot, six 503 retries used 350k of a 600k run cap, and
@@ -210,8 +216,11 @@ To resume from another checkout, pass `--state` with that absolute path.
    5. premise-v1/heterogeneous/r2, expanded-evaluation-v1/heterogeneous/r2,
       live-fixture-v1/heterogeneous/r2
 
-   The remaining budget under the protocol is 217 attempts (260 − 43) and about 2.3M known
+   The remaining budget under the protocol is 211 attempts (260 − 49) and about 2.27M known
    tokens.
+
+   `live-fixture-v1/single/r1` stopped on a transport quota error during planner repair 2.
+   That is not an output-validation failure, so resume it and do not abandon it.
 4. `node packages/testing/dist/src/premise-evaluation/cli.js analyse --protocol docs/qa/p06/protocol.json`.
    This rescores all records and imports them into `evidence/corpus`, which is idempotent.
    Then update this README from `evidence/results.json` and re-copy `.runs/p06/ledger.json`

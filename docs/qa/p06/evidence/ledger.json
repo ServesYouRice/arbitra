@@ -112,6 +112,13 @@
           "wallClockMs": 13875,
           "state": "FAILED",
           "kind": "start"
+        },
+        {
+          "startedAt": "2026-09-25T21:49:53.550Z",
+          "endedAt": "2026-09-25T21:50:24.027Z",
+          "wallClockMs": 30476,
+          "state": "FAILED",
+          "kind": "resume"
         }
       ],
       "failures": [
