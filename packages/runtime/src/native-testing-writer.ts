@@ -158,7 +158,7 @@ export async function nativeTestingWriter(store: RunStore, config: RunConfig, ac
     }
     const realWork = await realpath(work);
     const adapter = new ClaudeCodeHarnessAdapter({ executable, cwd: work, cwdAliases: realWork === work ? [] : [realWork],
-      environment: claudeCodeEnvironment({ host, home: join(directory, "home"), configDirectory: join(directory, "config"), temporaryDirectory: join(directory, "tmp"), credentialTarget: support.credentialTargets[settings.credentialKind] ?? (() => { throw new Error(`NATIVE_HARNESS_CREDENTIAL_KIND_UNSUPPORTED:${settings.credentialKind}`); })(), credential }),
+      environment: claudeCodeEnvironment({ host, home: join(directory, "home"), configDirectory: join(directory, "config"), temporaryDirectory: join(directory, "tmp"), credentialTarget: support.credentialTargets[settings.credentialKind ?? "api_key"] ?? (() => { throw new Error(`NATIVE_HARNESS_CREDENTIAL_KIND_UNSUPPORTED:${settings.credentialKind ?? "api_key"}`); })(), credential }),
       model: profile.modelId, maximumTurns: settings.maximumTurns, timeoutMs: settings.timeoutMs, maximumOutputBytes: settings.maximumOutputBytes ?? DEFAULT_OUTPUT_BYTES,
       maximumTokens: settings.maximumTokensPerRun, writablePaths: lease.paths, processes });
     const prompt = nativePrompt(task, attempt, lease, pinned.feedback);

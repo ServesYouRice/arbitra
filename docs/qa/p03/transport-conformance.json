@@ -1,0 +1,959 @@
+{
+  "evidence": "p03-live-transport-conformance",
+  "generatedAt": "2026-09-25T11:24:45.018Z",
+  "platform": "darwin-arm64",
+  "node": "v22.23.2",
+  "observations": [
+    {
+      "endpointId": "openai-responses",
+      "transport": "openai-responses",
+      "providerId": "openai",
+      "modelId": "gpt-5.4-nano",
+      "endpoint": "https://api.openai.com/v1",
+      "case": "text",
+      "status": "unavailable",
+      "detail": "QUOTA: Provider openai failed after 1 attempt (QUOTA: Provider account has no usable credit or quota: insufficient_quota/credit_balance_exhausted You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.); completed artifacts are preserved and the run may resume with degraded completeness.",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "errorCode": "QUOTA"
+        }
+      ],
+      "observedAt": "2026-09-25T11:22:54.102Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "openai-responses",
+      "transport": "openai-responses",
+      "providerId": "openai",
+      "modelId": "gpt-5.4-nano",
+      "endpoint": "https://api.openai.com/v1",
+      "case": "structured_output",
+      "status": "unavailable",
+      "detail": "QUOTA: Provider openai failed after 1 attempt (QUOTA: Provider account has no usable credit or quota: insufficient_quota/credit_balance_exhausted You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.); completed artifacts are preserved and the run may resume with degraded completeness.",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "errorCode": "QUOTA"
+        }
+      ],
+      "observedAt": "2026-09-25T11:22:55.766Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "openai-responses",
+      "transport": "openai-responses",
+      "providerId": "openai",
+      "modelId": "gpt-5.4-nano",
+      "endpoint": "https://api.openai.com/v1",
+      "case": "tools",
+      "status": "unavailable",
+      "detail": "QUOTA: Provider openai failed after 1 attempt (QUOTA: Provider account has no usable credit or quota: insufficient_quota/credit_balance_exhausted You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.); completed artifacts are preserved and the run may resume with degraded completeness.",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "errorCode": "QUOTA"
+        }
+      ],
+      "observedAt": "2026-09-25T11:22:57.037Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "openai-responses",
+      "transport": "openai-responses",
+      "providerId": "openai",
+      "modelId": "gpt-5.4-nano",
+      "endpoint": "https://api.openai.com/v1",
+      "case": "output_limit",
+      "status": "unavailable",
+      "detail": "QUOTA: Provider openai failed after 1 attempt (QUOTA: Provider account has no usable credit or quota: insufficient_quota/credit_balance_exhausted You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.); completed artifacts are preserved and the run may resume with degraded completeness.",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "errorCode": "QUOTA"
+        }
+      ],
+      "observedAt": "2026-09-25T11:22:57.718Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "openai-responses",
+      "transport": "openai-responses",
+      "providerId": "openai",
+      "modelId": "gpt-5.4-nano",
+      "endpoint": "https://api.openai.com/v1",
+      "case": "cancellation",
+      "status": "passed",
+      "detail": "CANCELLED",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "errorCode": "CANCELLED"
+        }
+      ],
+      "observedAt": "2026-09-25T11:22:57.874Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "openai-responses",
+      "transport": "openai-responses",
+      "providerId": "openai",
+      "modelId": "gpt-5.4-nano",
+      "endpoint": "https://api.openai.com/v1",
+      "case": "timeout_retry",
+      "status": "passed",
+      "detail": "retry:TIMEOUT,failed:TIMEOUT",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "retry",
+          "errorCode": "TIMEOUT"
+        },
+        {
+          "attempt": 2,
+          "outcome": "failed",
+          "errorCode": "TIMEOUT"
+        }
+      ],
+      "observedAt": "2026-09-25T11:22:59.281Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "openai-responses",
+      "transport": "openai-responses",
+      "providerId": "openai",
+      "modelId": "gpt-5.4-nano",
+      "endpoint": "https://api.openai.com/v1",
+      "case": "cache_accounting",
+      "status": "unavailable",
+      "detail": "QUOTA: Provider openai failed after 1 attempt (QUOTA: Provider account has no usable credit or quota: insufficient_quota/credit_balance_exhausted You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.); completed artifacts are preserved and the run may resume with degraded completeness.",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "errorCode": "QUOTA"
+        }
+      ],
+      "observedAt": "2026-09-25T11:23:01.963Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "openai-responses",
+      "transport": "openai-responses",
+      "providerId": "openai",
+      "modelId": "gpt-5.4-nano",
+      "endpoint": "https://api.openai.com/v1",
+      "case": "continuation",
+      "status": "unavailable",
+      "detail": "QUOTA: Provider openai failed after 1 attempt (QUOTA: Provider account has no usable credit or quota: insufficient_quota/credit_balance_exhausted You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.); completed artifacts are preserved and the run may resume with degraded completeness.",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "errorCode": "QUOTA"
+        }
+      ],
+      "observedAt": "2026-09-25T11:23:02.963Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "openai-chat",
+      "transport": "openai-chat",
+      "providerId": "openai",
+      "modelId": "gpt-5.4-nano",
+      "endpoint": "https://api.openai.com/v1",
+      "case": "text",
+      "status": "unavailable",
+      "detail": "QUOTA: Provider openai failed after 1 attempt (QUOTA: Provider account has no usable credit or quota: insufficient_quota/credit_balance_exhausted You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.); completed artifacts are preserved and the run may resume with degraded completeness.",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "errorCode": "QUOTA"
+        }
+      ],
+      "observedAt": "2026-09-25T11:23:03.637Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "openai-chat",
+      "transport": "openai-chat",
+      "providerId": "openai",
+      "modelId": "gpt-5.4-nano",
+      "endpoint": "https://api.openai.com/v1",
+      "case": "structured_output",
+      "status": "unavailable",
+      "detail": "QUOTA: Provider openai failed after 1 attempt (QUOTA: Provider account has no usable credit or quota: insufficient_quota/credit_balance_exhausted You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.); completed artifacts are preserved and the run may resume with degraded completeness.",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "errorCode": "QUOTA"
+        }
+      ],
+      "observedAt": "2026-09-25T11:23:04.068Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "openai-chat",
+      "transport": "openai-chat",
+      "providerId": "openai",
+      "modelId": "gpt-5.4-nano",
+      "endpoint": "https://api.openai.com/v1",
+      "case": "tools",
+      "status": "unavailable",
+      "detail": "QUOTA: Provider openai failed after 1 attempt (QUOTA: Provider account has no usable credit or quota: insufficient_quota/credit_balance_exhausted You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.); completed artifacts are preserved and the run may resume with degraded completeness.",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "errorCode": "QUOTA"
+        }
+      ],
+      "observedAt": "2026-09-25T11:23:04.732Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "openai-chat",
+      "transport": "openai-chat",
+      "providerId": "openai",
+      "modelId": "gpt-5.4-nano",
+      "endpoint": "https://api.openai.com/v1",
+      "case": "output_limit",
+      "status": "unavailable",
+      "detail": "QUOTA: Provider openai failed after 1 attempt (QUOTA: Provider account has no usable credit or quota: insufficient_quota/credit_balance_exhausted You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.); completed artifacts are preserved and the run may resume with degraded completeness.",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "errorCode": "QUOTA"
+        }
+      ],
+      "observedAt": "2026-09-25T11:23:05.448Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "openai-chat",
+      "transport": "openai-chat",
+      "providerId": "openai",
+      "modelId": "gpt-5.4-nano",
+      "endpoint": "https://api.openai.com/v1",
+      "case": "cancellation",
+      "status": "passed",
+      "detail": "CANCELLED",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "errorCode": "CANCELLED"
+        }
+      ],
+      "observedAt": "2026-09-25T11:23:05.601Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "openai-chat",
+      "transport": "openai-chat",
+      "providerId": "openai",
+      "modelId": "gpt-5.4-nano",
+      "endpoint": "https://api.openai.com/v1",
+      "case": "timeout_retry",
+      "status": "passed",
+      "detail": "retry:TIMEOUT,failed:TIMEOUT",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "retry",
+          "errorCode": "TIMEOUT"
+        },
+        {
+          "attempt": 2,
+          "outcome": "failed",
+          "errorCode": "TIMEOUT"
+        }
+      ],
+      "observedAt": "2026-09-25T11:23:07.007Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "openai-chat",
+      "transport": "openai-chat",
+      "providerId": "openai",
+      "modelId": "gpt-5.4-nano",
+      "endpoint": "https://api.openai.com/v1",
+      "case": "cache_accounting",
+      "status": "unavailable",
+      "detail": "QUOTA: Provider openai failed after 1 attempt (QUOTA: Provider account has no usable credit or quota: insufficient_quota/credit_balance_exhausted You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.); completed artifacts are preserved and the run may resume with degraded completeness.",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "errorCode": "QUOTA"
+        }
+      ],
+      "observedAt": "2026-09-25T11:23:07.456Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "openai-chat",
+      "transport": "openai-chat",
+      "providerId": "openai",
+      "modelId": "gpt-5.4-nano",
+      "endpoint": "https://api.openai.com/v1",
+      "case": "continuation",
+      "status": "unsupported",
+      "detail": "openai-chat has no server-side continuation in arbitra",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [],
+      "observedAt": "2026-09-25T11:23:07.456Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "anthropic-messages",
+      "transport": "anthropic-messages",
+      "providerId": "anthropic",
+      "modelId": "claude-haiku-4-5-20251001",
+      "endpoint": "https://api.anthropic.com/v1",
+      "case": "text",
+      "status": "unavailable",
+      "detail": "QUOTA: Provider anthropic failed after 1 attempt (QUOTA: Provider account has no usable credit or quota: invalid_request_error Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.); completed artifacts are preserved and the run may resume with degraded completeness.",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "errorCode": "QUOTA"
+        }
+      ],
+      "observedAt": "2026-09-25T11:23:08.091Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "anthropic-messages",
+      "transport": "anthropic-messages",
+      "providerId": "anthropic",
+      "modelId": "claude-haiku-4-5-20251001",
+      "endpoint": "https://api.anthropic.com/v1",
+      "case": "structured_output",
+      "status": "unavailable",
+      "detail": "QUOTA: Provider anthropic failed after 1 attempt (QUOTA: Provider account has no usable credit or quota: invalid_request_error Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.); completed artifacts are preserved and the run may resume with degraded completeness.",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "errorCode": "QUOTA"
+        }
+      ],
+      "observedAt": "2026-09-25T11:23:08.414Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "anthropic-messages",
+      "transport": "anthropic-messages",
+      "providerId": "anthropic",
+      "modelId": "claude-haiku-4-5-20251001",
+      "endpoint": "https://api.anthropic.com/v1",
+      "case": "tools",
+      "status": "unavailable",
+      "detail": "QUOTA: Provider anthropic failed after 1 attempt (QUOTA: Provider account has no usable credit or quota: invalid_request_error Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.); completed artifacts are preserved and the run may resume with degraded completeness.",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "errorCode": "QUOTA"
+        }
+      ],
+      "observedAt": "2026-09-25T11:23:08.752Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "anthropic-messages",
+      "transport": "anthropic-messages",
+      "providerId": "anthropic",
+      "modelId": "claude-haiku-4-5-20251001",
+      "endpoint": "https://api.anthropic.com/v1",
+      "case": "output_limit",
+      "status": "unavailable",
+      "detail": "QUOTA: Provider anthropic failed after 1 attempt (QUOTA: Provider account has no usable credit or quota: invalid_request_error Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.); completed artifacts are preserved and the run may resume with degraded completeness.",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "errorCode": "QUOTA"
+        }
+      ],
+      "observedAt": "2026-09-25T11:23:09.073Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "anthropic-messages",
+      "transport": "anthropic-messages",
+      "providerId": "anthropic",
+      "modelId": "claude-haiku-4-5-20251001",
+      "endpoint": "https://api.anthropic.com/v1",
+      "case": "cancellation",
+      "status": "passed",
+      "detail": "CANCELLED",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "errorCode": "CANCELLED"
+        }
+      ],
+      "observedAt": "2026-09-25T11:23:09.225Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "anthropic-messages",
+      "transport": "anthropic-messages",
+      "providerId": "anthropic",
+      "modelId": "claude-haiku-4-5-20251001",
+      "endpoint": "https://api.anthropic.com/v1",
+      "case": "timeout_retry",
+      "status": "passed",
+      "detail": "retry:TIMEOUT,failed:TIMEOUT",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "retry",
+          "errorCode": "TIMEOUT"
+        },
+        {
+          "attempt": 2,
+          "outcome": "failed",
+          "errorCode": "TIMEOUT"
+        }
+      ],
+      "observedAt": "2026-09-25T11:23:10.630Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "anthropic-messages",
+      "transport": "anthropic-messages",
+      "providerId": "anthropic",
+      "modelId": "claude-haiku-4-5-20251001",
+      "endpoint": "https://api.anthropic.com/v1",
+      "case": "cache_accounting",
+      "status": "unavailable",
+      "detail": "QUOTA: Provider anthropic failed after 1 attempt (QUOTA: Provider account has no usable credit or quota: invalid_request_error Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.); completed artifacts are preserved and the run may resume with degraded completeness.",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "errorCode": "QUOTA"
+        }
+      ],
+      "observedAt": "2026-09-25T11:23:11.628Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "anthropic-messages",
+      "transport": "anthropic-messages",
+      "providerId": "anthropic",
+      "modelId": "claude-haiku-4-5-20251001",
+      "endpoint": "https://api.anthropic.com/v1",
+      "case": "continuation",
+      "status": "unsupported",
+      "detail": "anthropic-messages has no server-side continuation in arbitra",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [],
+      "observedAt": "2026-09-25T11:23:11.628Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "gemini-native",
+      "transport": "gemini-native",
+      "providerId": "google",
+      "modelId": "gemini-3.1-flash-lite",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta",
+      "case": "text",
+      "status": "passed",
+      "detail": "text=\"pong\" requestId=present",
+      "providerRequestIds": [
+        "oFm2as3GBo7uxs0PsYqt0Q8"
+      ],
+      "usage": [
+        {
+          "inputTokens": 19,
+          "outputTokens": 1,
+          "cacheReadTokens": null,
+          "cacheWriteTokens": null
+        }
+      ],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "completed",
+          "errorCode": null
+        }
+      ],
+      "observedAt": "2026-09-25T11:23:17.773Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "gemini-native",
+      "transport": "gemini-native",
+      "providerId": "google",
+      "modelId": "gemini-3.1-flash-lite",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta",
+      "case": "structured_output",
+      "status": "passed",
+      "detail": "tier=native_structured value={\"capital\":\"Paris\",\"population_millions\":2}",
+      "providerRequestIds": [
+        "pVm2ao2DPav3xN8Po5jUuAw"
+      ],
+      "usage": [
+        {
+          "inputTokens": 25,
+          "outputTokens": 21,
+          "cacheReadTokens": null,
+          "cacheWriteTokens": null
+        }
+      ],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "completed",
+          "errorCode": null
+        }
+      ],
+      "observedAt": "2026-09-25T11:23:20.813Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "gemini-native",
+      "transport": "gemini-native",
+      "providerId": "google",
+      "modelId": "gemini-3.1-flash-lite",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta",
+      "case": "tools",
+      "status": "passed",
+      "detail": "arguments={\"city\":\"Lisbon\"} answer=\"The weather in Lisbon is sunny with a temperature of 24°C.\"",
+      "providerRequestIds": [
+        "qVm2atyGAvGpvdIPk-yjiA8",
+        "sFm2arWyB5CXvdIPh_7N0A0"
+      ],
+      "usage": [
+        {
+          "inputTokens": 74,
+          "outputTokens": 17,
+          "cacheReadTokens": null,
+          "cacheWriteTokens": null
+        },
+        {
+          "inputTokens": 115,
+          "outputTokens": 16,
+          "cacheReadTokens": null,
+          "cacheWriteTokens": null
+        }
+      ],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "completed",
+          "errorCode": null
+        },
+        {
+          "attempt": 1,
+          "outcome": "completed",
+          "errorCode": null
+        }
+      ],
+      "observedAt": "2026-09-25T11:23:30.942Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "gemini-native",
+      "transport": "gemini-native",
+      "providerId": "google",
+      "modelId": "gemini-3.1-flash-lite",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta",
+      "case": "output_limit",
+      "status": "passed",
+      "detail": "OUTPUT_LIMIT",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "errorCode": "OUTPUT_LIMIT"
+        }
+      ],
+      "observedAt": "2026-09-25T11:23:34.156Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "gemini-native",
+      "transport": "gemini-native",
+      "providerId": "google",
+      "modelId": "gemini-3.1-flash-lite",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta",
+      "case": "cancellation",
+      "status": "passed",
+      "detail": "CANCELLED",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "errorCode": "CANCELLED"
+        }
+      ],
+      "observedAt": "2026-09-25T11:23:34.309Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "gemini-native",
+      "transport": "gemini-native",
+      "providerId": "google",
+      "modelId": "gemini-3.1-flash-lite",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta",
+      "case": "timeout_retry",
+      "status": "passed",
+      "detail": "retry:TIMEOUT,failed:TIMEOUT",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "retry",
+          "errorCode": "TIMEOUT"
+        },
+        {
+          "attempt": 2,
+          "outcome": "failed",
+          "errorCode": "TIMEOUT"
+        }
+      ],
+      "observedAt": "2026-09-25T11:23:35.713Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "gemini-native",
+      "transport": "gemini-native",
+      "providerId": "google",
+      "modelId": "gemini-3.1-flash-lite",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta",
+      "case": "cache_accounting",
+      "status": "passed",
+      "detail": "cacheReadTokens first=4075 second=4075",
+      "providerRequestIds": [
+        "uFm2aubbEP6d28oPlYrYkQU",
+        "wlm2asnfBLSvvdIPh5rvoQw"
+      ],
+      "usage": [
+        {
+          "inputTokens": 7108,
+          "outputTokens": 1,
+          "cacheReadTokens": 4075,
+          "cacheWriteTokens": null
+        },
+        {
+          "inputTokens": 7108,
+          "outputTokens": 1,
+          "cacheReadTokens": 4075,
+          "cacheWriteTokens": null
+        }
+      ],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "completed",
+          "errorCode": null
+        },
+        {
+          "attempt": 1,
+          "outcome": "completed",
+          "errorCode": null
+        }
+      ],
+      "observedAt": "2026-09-25T11:23:51.158Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "gemini-native",
+      "transport": "gemini-native",
+      "providerId": "google",
+      "modelId": "gemini-3.1-flash-lite",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta",
+      "case": "continuation",
+      "status": "unsupported",
+      "detail": "gemini-native has no server-side continuation in arbitra",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [],
+      "observedAt": "2026-09-25T11:23:51.159Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "gemini-compatible-chat",
+      "transport": "openai-chat",
+      "providerId": "google-openai-compatible",
+      "modelId": "gemini-3.1-flash-lite",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "case": "text",
+      "status": "passed",
+      "detail": "text=\"pong\" requestId=absent",
+      "providerRequestIds": [],
+      "usage": [
+        {
+          "inputTokens": 20,
+          "outputTokens": 1,
+          "cacheReadTokens": null,
+          "cacheWriteTokens": null
+        }
+      ],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "completed",
+          "errorCode": null
+        }
+      ],
+      "observedAt": "2026-09-25T11:23:53.107Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "gemini-compatible-chat",
+      "transport": "openai-chat",
+      "providerId": "google-openai-compatible",
+      "modelId": "gemini-3.1-flash-lite",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "case": "structured_output",
+      "status": "passed",
+      "detail": "tier=native_structured value={\"capital\":\"Paris\",\"population_millions\":2}",
+      "providerRequestIds": [],
+      "usage": [
+        {
+          "inputTokens": 26,
+          "outputTokens": 21,
+          "cacheReadTokens": null,
+          "cacheWriteTokens": null
+        }
+      ],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "completed",
+          "errorCode": null
+        }
+      ],
+      "observedAt": "2026-09-25T11:23:55.823Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "gemini-compatible-chat",
+      "transport": "openai-chat",
+      "providerId": "google-openai-compatible",
+      "modelId": "gemini-3.1-flash-lite",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "case": "tools",
+      "status": "passed",
+      "detail": "arguments={\"city\":\"Lisbon\"} answer=\"The weather in Lisbon is sunny with a temperature of 24°C.\"",
+      "providerRequestIds": [],
+      "usage": [
+        {
+          "inputTokens": 75,
+          "outputTokens": 17,
+          "cacheReadTokens": null,
+          "cacheWriteTokens": null
+        },
+        {
+          "inputTokens": 116,
+          "outputTokens": 16,
+          "cacheReadTokens": null,
+          "cacheWriteTokens": null
+        }
+      ],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "completed",
+          "errorCode": null
+        },
+        {
+          "attempt": 1,
+          "outcome": "completed",
+          "errorCode": null
+        }
+      ],
+      "observedAt": "2026-09-25T11:24:13.308Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "gemini-compatible-chat",
+      "transport": "openai-chat",
+      "providerId": "google-openai-compatible",
+      "modelId": "gemini-3.1-flash-lite",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "case": "output_limit",
+      "status": "passed",
+      "detail": "OUTPUT_LIMIT",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "errorCode": "OUTPUT_LIMIT"
+        }
+      ],
+      "observedAt": "2026-09-25T11:24:17.249Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "gemini-compatible-chat",
+      "transport": "openai-chat",
+      "providerId": "google-openai-compatible",
+      "modelId": "gemini-3.1-flash-lite",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "case": "cancellation",
+      "status": "passed",
+      "detail": "CANCELLED",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "errorCode": "CANCELLED"
+        }
+      ],
+      "observedAt": "2026-09-25T11:24:17.402Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "gemini-compatible-chat",
+      "transport": "openai-chat",
+      "providerId": "google-openai-compatible",
+      "modelId": "gemini-3.1-flash-lite",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "case": "timeout_retry",
+      "status": "passed",
+      "detail": "retry:TIMEOUT,failed:TIMEOUT",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "retry",
+          "errorCode": "TIMEOUT"
+        },
+        {
+          "attempt": 2,
+          "outcome": "failed",
+          "errorCode": "TIMEOUT"
+        }
+      ],
+      "observedAt": "2026-09-25T11:24:18.806Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "gemini-compatible-chat",
+      "transport": "openai-chat",
+      "providerId": "google-openai-compatible",
+      "modelId": "gemini-3.1-flash-lite",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "case": "cache_accounting",
+      "status": "not_elicited",
+      "detail": "cacheReadTokens first=null second=null",
+      "providerRequestIds": [],
+      "usage": [
+        {
+          "inputTokens": 7109,
+          "outputTokens": 1,
+          "cacheReadTokens": null,
+          "cacheWriteTokens": null
+        },
+        {
+          "inputTokens": 7109,
+          "outputTokens": 1,
+          "cacheReadTokens": null,
+          "cacheWriteTokens": null
+        }
+      ],
+      "traces": [
+        {
+          "attempt": 1,
+          "outcome": "completed",
+          "errorCode": null
+        },
+        {
+          "attempt": 1,
+          "outcome": "completed",
+          "errorCode": null
+        }
+      ],
+      "observedAt": "2026-09-25T11:24:45.017Z",
+      "source": "live"
+    },
+    {
+      "endpointId": "gemini-compatible-chat",
+      "transport": "openai-chat",
+      "providerId": "google-openai-compatible",
+      "modelId": "gemini-3.1-flash-lite",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "case": "continuation",
+      "status": "unsupported",
+      "detail": "openai-chat has no server-side continuation in arbitra",
+      "providerRequestIds": [],
+      "usage": [],
+      "traces": [],
+      "observedAt": "2026-09-25T11:24:45.018Z",
+      "source": "live"
+    }
+  ]
+}
