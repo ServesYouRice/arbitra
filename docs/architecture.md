@@ -116,7 +116,7 @@ See [`durability.md`](durability.md).
 ```text
 validate  estimate  run  audit  status  resume  replay  diff  trace  export  report
 requirements  approve-requirements  revise-requirements  apply-requirements-revision
-respond-checkpoint
+respond-checkpoint  workflow
 ```
 
 `apps/cli/src/exit-policy.ts` is the sole mapping from outcome to process exit code:
@@ -136,6 +136,11 @@ no schema entry throws `MISSING_HTTP_SCHEMA` at registration rather than serving
 input. Seventeen control-plane routes are listed in `apps/server/src/routes/inventory.ts`;
 two evaluation routes (`GET /runs/:id/metrics`, `POST /runs/compare`) register only when a
 metric store is wired, and return 404 otherwise.
+
+Five workflow routes (`GET /workflows`, `GET /workflows/:id`,
+`GET /workflows/:id/versions/:version`, `POST /workflows/validate`, `POST /workflows`) list,
+validate and save operator-authored graphs as immutable content-addressed versions. See
+[Operator-authored graphs](workflows.md#operator-authored-graphs).
 
 `POST /runs/:id/checkpoints/:checkpointId` records one versioned decision for a generic
 `human` node through the orchestrator. The server holds no checkpoint state. See

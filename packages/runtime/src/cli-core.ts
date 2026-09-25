@@ -11,6 +11,11 @@ export interface CoreCommandResult {
   readonly value?: unknown;
 }
 
+export type WorkflowCliRequest =
+  | { readonly action: "list" }
+  | { readonly action: "show"; readonly graphId: string; readonly version?: string }
+  | { readonly action: "validate" | "save"; readonly graphPath: string; readonly configurationId?: string; readonly parentVersion?: string; readonly authorize: readonly string[] };
+
 export type AuditCliTarget = Readonly<
   { kind: "full" }
   | { kind: "module"; moduleId: string }
@@ -55,6 +60,17 @@ export function orchestratorCore(orchestrator: Orchestrator) {
     /** Record one decision for the current version of a generic human checkpoint. */
     async respondCheckpoint(runId: string, checkpointId: string, version: string, decision: string): Promise<CoreCommandResult> {
       return { disposition: "passed", value: await orchestrator.respondCheckpoint(runId, checkpointId, { version, decision }) };
+    },
+    /** The same list, show, validate and save the HTTP workflow routes expose. */
+    async workflow(request: WorkflowCliRequest): Promise<CoreCommandResult> {
+      if (request.action === "list") return { disposition: "passed", value: await orchestrator.listWorkflowGraphs() };
+      if (request.action === "show") return { disposition: "passed", value: request.version === undefined ? await orchestrator.workflowGraphVersions(request.graphId) : await orchestrator.workflowGraph(request.graphId, request.version) };
+      const graph: unknown = JSON.parse(await readFile(resolve(request.graphPath), "utf8"));
+      const body = { graph, authorize: request.authorize, ...(request.configurationId === undefined ? {} : { configurationId: request.configurationId }) };
+      const validation = await orchestrator.validateWorkflowGraph(body);
+      if (!validation.valid) return { disposition: "failed", reasons: [...new Set(validation.diagnostics.map(({ code }) => code))], value: validation };
+      if (request.action === "validate") return { disposition: "passed", reasons: [], value: validation };
+      return { disposition: "passed", reasons: [], value: await orchestrator.saveWorkflowGraph({ ...body, parentVersion: request.parentVersion ?? null }) };
     },
     async requirements(runId: string): Promise<CoreCommandResult> {
       return { disposition: "passed", value: await orchestrator.requirements(runId) };

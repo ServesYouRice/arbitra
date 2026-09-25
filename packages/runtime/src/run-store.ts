@@ -12,6 +12,7 @@ import { runScopeSchema, runConfigSchema, type RunScope, type RunConfig } from "
 import { redactSecrets } from "@arbitra/security/redaction";
 import { TraceRecorder, loadActivityTraces, type ModelActivityTraceRecord } from "@arbitra/persistence/trace.js";
 import { checkpointPolicySchema, type CheckpointPolicy } from "@arbitra/schemas/checkpoint-policy.js";
+import { workflowGraphReferenceSchema, type WorkflowGraphReference } from "@arbitra/schemas/workflow-graphs.js";
 
 const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 
@@ -44,6 +45,8 @@ export interface StoredRunContext {
   readonly modelConfiguration?: RunConfig;
   /** The authoritative generic checkpoint policy, fixed when the run is created. */
   readonly checkpointPolicy?: CheckpointPolicy;
+  /** The saved operator-authored graph version this run executes; resume and replay use exactly it. */
+  readonly workflowGraph?: WorkflowGraphReference;
 }
 
 const ONCE_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
@@ -273,6 +276,7 @@ function validateContext(value: unknown): asserts value is StoredRunContext {
   runScopeSchema.parse(context["scope"]);
   if (context["modelConfiguration"] !== undefined) runConfigSchema.parse(context["modelConfiguration"]);
   if (context["checkpointPolicy"] !== undefined) checkpointPolicySchema.parse(context["checkpointPolicy"]);
+  if (context["workflowGraph"] !== undefined) workflowGraphReferenceSchema.parse(context["workflowGraph"]);
   if (context["replaySourceRunId"] !== undefined && (typeof context["replaySourceRunId"] !== "string" || !RUN_ID_PATTERN.test(context["replaySourceRunId"]))) throw new Error("INVALID_REPLAY_SOURCE_RUN_ID");
   if (context["consensusPolicy"] !== "full" && context["consensusPolicy"] !== "risk_weighted" && context["consensusPolicy"] !== "minimal") throw new Error("INVALID_RUN_CONTEXT_POLICY");
   if (!Number.isSafeInteger(context["maximumRounds"]) || (context["maximumRounds"] as number) < 0 || (context["maximumRounds"] as number) > 3) throw new Error("INVALID_RUN_CONTEXT_ROUNDS");

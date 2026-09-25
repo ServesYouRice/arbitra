@@ -52,7 +52,8 @@ how a multi-auditor run quietly becomes a single-auditor run with extra cost.
 `packages/core/src/runner/graph-checkpoints.ts` gives every graph the same `gate` and
 `human` executors, in Audit, Feature and Testing runs alike. Neither kind passes implicitly.
 The shipped presets do not contain these nodes. Graphs registered through the
-orchestrator's `graphs` option use them, and operator-authored graphs (P16) will too.
+orchestrator's `graphs` option use them, and so do
+[operator-authored graphs](#operator-authored-graphs).
 
 A `gate` node names a deterministic policy in `config.policy`. The built-in `quality_gate`
 evaluates the public quality-gate reasons over the artifacts written so far, without the
@@ -100,6 +101,87 @@ automatic mode or a non-blocked run returns 409. Deciding does not resume the ru
 Approval completes the node. Rejection fails the run as a policy outcome: the public
 gate reports `checkpoint_rejected:<node>`, and the CLI exits `1`, not `2`. Until an operator decides,
 the public gate reports `checkpoint_pending:<node>`, and `run`/`resume`/`status` exit `3`.
+
+### Operator-authored graphs
+
+An operator can edit a graph and save it as a version, then run that version. The graph
+uses the shared workflow schema (`packages/workflow/src/graph-schema.ts`), the six node kinds
+and the edge and context contracts. It runs through the one shared runner with the Audit
+executors. There is no second engine, and nothing generates a graph from a model.
+
+**Versions.** `packages/persistence/src/workflow-graph-store.ts` stores each graph once in
+a content-addressed artifact store. The version is the SHA-256 of the graph's canonical JSON.
+Each version record holds the parent version, the save time from an injected clock, and the
+authorizations the graph needed. It is created once and cannot be replaced. Every read
+re-checks the record and the body's content address. Saving an identical graph again returns
+the existing version. State lives under `<state>/workflows/`.
+
+**Validation.** The server's validator (`packages/runtime/src/authored-graphs.ts`) decides
+every check. Each diagnostic has a stable code and a path:
+
+| Check | Codes |
+|---|---|
+| Schema, the six kinds, edge and context contract shapes | `SCHEMA`, `INVALID_GRAPH_ID`, `INVALID_NODE_ID` |
+| Edges and reachability (`packages/workflow/src/graph-structure.ts`) | `SELF_LOOP`, `DUPLICATE_EDGE`, `EDGE_INTO_ENTRY`, `UNREACHABLE_NODE`, `CONTEXT_TRUST_ESCALATION` (model output carried as system-trusted context) |
+| Bounded loops | `UNBOUNDED_CYCLE` rejects any edge cycle, because iteration must be a `loop` node with an explicit `maximum`. `LOOP_BOUND_EXCEEDED` rejects a maximum above 3. At run time, the loop's maximum caps the configuration's consensus rounds. |
+| Audit stage contracts | `ENTRY_NOT_DETERMINISTIC`, `UNSUPPORTED_NODE`, `UNKNOWN_MODEL_ROLE` (model nodes are `auditor-<name>`, `planner` or `critic`), `AUDITOR_REQUIRED`, `CONSENSUS_LOOP_REQUIRED`, `VERIFICATION_SUBGRAPH_REQUIRED`, `EDGE_CONTRACT_UNSATISFIED` (each auditor must be upstream of consensus, then verification, then the planner, then the critic) |
+| Gates and human checkpoints (P09) | `GATE_POLICY_REQUIRED`, `UNKNOWN_GATE_POLICY`, and, against a configuration, `CHECKPOINT_POLICY_REQUIRED`, `AUTOMATIC_CHECKPOINT_DECISION_REQUIRED`, `UNKNOWN_CHECKPOINT_NODE` |
+| Model roles, against a configuration | `MODEL_ROLE_UNAVAILABLE`: an auditor with no profile (or, with no models configured, no scripted auditor), or a planner or critic role not bound in `workflow.modelExecution.roles` |
+| Privileged changes | `UNAUTHORIZED_CHANGE` |
+
+Some changes are privileged: control-plane protocol sources (non-empty
+`prompt.protocolLayers`, or `protocol*` / `controlPlane` keys in a node's config), write
+authority (`write*`, `authorization`, `apply*` keys), Testing execution (a node named
+`execute`, or `testing`, `execution` or `sandbox` keys), and reusing a shipped preset ID.
+Each category needs its own explicit authorization (`authorize: ["write_authority", …]`).
+Without one, the change is rejected. The record keeps only the authorizations the graph uses.
+An authorization lets a graph be saved and dispatched. It never gives a run authority it does
+not already have: the Audit executors ignore these keys, and write authority still comes
+only from a Testing configuration's own execution authorization.
+
+**Dispatch.** A run configuration names one exact version:
+
+```json
+{ "mode": "audit", "workflow": { "graph": { "id": "reviewed-audit", "version": "<64 hex>" }, "checkpoints": { "mode": "interactive" } } }
+```
+
+`workflow.graph` requires audit mode and cannot be combined with `workflow.preset`. It never
+means "latest". `estimate` and `start` load the version and validate it again against the
+run's configuration, before any run exists. A missing version fails with
+`WORKFLOW_GRAPH_VERSION_ABSENT` (HTTP 404). An invalid one fails with
+`WORKFLOW_GRAPH_INVALID:<id>:<codes>` (422). The run context records `workflowGraph`
+(`id`, `version`). The runner's stored definition is the saved graph itself. Resume and Audit
+replay re-check that the definition's content address equals the recorded version and that
+the version still exists (`RUN_WORKFLOW_GRAPH_MISMATCH`, `WORKFLOW_GRAPH_VERSION_ABSENT`).
+A later version of the same graph never changes an existing run. A replay cannot toggle the
+critic on a saved graph (`REPLAY_SAVED_GRAPH_IMMUTABLE`). Run status reports
+`workflowGraph: { id, version, executedVersion }`.
+
+**Interfaces.**
+
+```text
+GET  /workflows                              saved graphs by ID, plus an editable template of each Audit preset
+GET  /workflows/:id                          the versions of one graph
+GET  /workflows/:id/versions/:version        one immutable version
+POST /workflows/validate  {"graph", "configurationId"?, "authorize"?}   diagnostics; writes nothing
+POST /workflows           {"graph", "parentVersion"?, "configurationId"?, "authorize"?}
+
+orchestrator workflow list | show <id> [version]
+orchestrator workflow validate <graph.json> [--configuration=<id>] [--authorize=<category,...>]
+orchestrator workflow save <graph.json> [--parent=<version>] [--configuration=<id>] [--authorize=<category,...>]
+```
+
+In the web app, the graph column has two modes: a read-only run view and an editor. The
+editor starts from a preset template or a saved version. You can add, remove and connect
+nodes of the six kinds, and the inspector edits each node and edge. It shows the server's
+diagnostics as you edit, checked against the selected configuration. Undo and redo cover
+every edit, and saving creates a new version. Unsaved changes are marked. Leaving the editor,
+switching views, opening another graph or unloading the page asks first. Every operation
+works from the keyboard. The shortcuts are Ctrl/⌘+Z to undo, Ctrl/⌘+Shift+Z or Ctrl+Y to
+redo, Ctrl/⌘+S to save, and Delete to remove the selected node or edge. After a save, the
+editor shows the exact `workflow.graph` reference for a run configuration. A run's graph view
+shows the saved version it executes, and whether the executed graph matches it. Browser
+evidence is in [`docs/qa/p16/`](qa/p16/README.md).
 
 ## Audit mode
 

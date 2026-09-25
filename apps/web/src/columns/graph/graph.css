@@ -1,4 +1,4 @@
-.graph-region { display: grid; grid-template-rows: auto minmax(420px, 1fr) auto; gap: var(--s3); min-height: 0; }
+.graph-region { display: grid; gap: var(--s3); min-height: 0; }
 .graph-canvas { min-height: max(420px, 56vh); border: var(--hairline) solid var(--line); }
 .react-flow__node { border: var(--hairline) solid var(--line); border-radius: var(--radius); box-shadow: none; background: var(--surface); color: var(--ink); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); }
 .run-stages { display: grid; gap: var(--s1); padding: 0; list-style: none; }
@@ -9,4 +9,7 @@
 /* Recorded Feature/Testing stages sit under the subgraph they expand. */
 .run-stage[data-stage-of] { margin-inline-start: var(--s4); padding-inline-start: var(--s2); border-inline-start: var(--hairline) solid var(--line); }
 @media (forced-colors: active) { .run-stage[data-stage-of] { border-color: CanvasText; } }
-
+/* Run view / edit mode toggle. */
+.graph-mode { display: flex; gap: var(--s2); align-items: center; }
+.graph-mode button[aria-pressed="true"] { border-block-end: var(--stripe) solid var(--steel); color: var(--ink); }
+@media (forced-colors: active) { .graph-mode button[aria-pressed="true"] { border-color: CanvasText; } }
