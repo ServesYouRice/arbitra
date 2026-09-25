@@ -78,6 +78,16 @@ describe("model board operations", () => {
     expect(() => translate(response([{ ...base, type: "accept", reason: "Fake verification", verification: { result: "CONFIRMED", method: "cited_lines", evidenceIds: ["e1"], artifactRefs: [], toolCallIds: [], activityId: "fake", confidence: 1 } }]))).toThrow("INVALID_MODEL_OPERATION_AUTHORITY");
   });
 
+  it("explains a refused candidate-creating operation so a bounded repair can correct it", () => {
+    const added = { schemaVersion: 1, sourceFindingId: "self/missing", category: "PROMPT_INJECTION", title: "Missing", problem: "Missing claim", recommendedFix: "Fix", severity: "high", productionBlocker: false, status: "confirmed", confidence: 1, productionImpact: "", trigger: "", verification: "", dependencies: [], relatedRisks: [],
+      locations: [{ id: "new:location", path: "a.ts", startLine: 1, endLine: 1 }], evidence: [{ id: "new:evidence", text: "return null;", locationIds: ["new:location"] }] };
+    const operation = { ...base, type: "add_missing_finding", candidate: { ...seed("new:missing"), sourceFindingIds: ["self/missing"] }, citedEvidenceIds: ["new:evidence"], evidence: added.evidence };
+    // Observed live (gemini-3.1-flash-lite): the finding was filed under the reviewed candidate's ID.
+    expect(() => translate(response([operation], [], [added]))).toThrow('PEER_CANDIDATE_ID_MISMATCH: a add_missing_finding operation creates a candidate, so its candidateId and candidate.candidateId must be the same new:<name> ID; got "C1" and "new:missing"');
+    expect(() => translate(response([{ ...base, operationId: "new:merge", candidateId: "C1", type: "merge", sourceCandidateIds: ["C1", "C2"], candidate: seed("C1") }]))).toThrow("PEER_CANDIDATE_ID_MISMATCH");
+    expect(() => translate(response([{ ...base, operationId: "C1-vote", type: "accept", reason: "Grounded" }]))).toThrow('INVALID_PEER_LOCAL_ID: new identifiers must look like new:<letters, digits, _ or ->; got "C1-vote"');
+  });
+
   it("keeps reused discovery evidence IDs distinct when candidates merge", () => {
     const other = { ...finding, sourceFindingId: "other/f1", evidence: [{ ...finding.evidence[0], id: "e1", text: "different source", locationIds: ["l1"] }] };
     const candidate = (candidateId: string, member: AuditFinding) => ({ candidateId, claim: { title: member.title, description: member.problem }, sourceFindingIds: [member.sourceFindingId], severity: "high" as const, blocker: true, status: "open", votes: [], evidence: member.evidence, counterEvidence: [], firstSeenRound: 0, lastChangedRound: 0 });

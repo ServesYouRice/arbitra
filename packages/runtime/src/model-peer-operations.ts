@@ -16,7 +16,7 @@ export function translatePeerOperations(value: unknown, view: View, snapshot: Re
   if (scopeId !== undefined && !/^[a-z0-9-]+$/u.test(scopeId)) throw new Error("INVALID_PEER_SCOPE_ID");
   const prefix = `${reviewerId}/review-${round}/${scopeId === undefined ? "" : `${scopeId}/`}`;
   const local = (id: string): string => {
-    if (!/^new:[A-Za-z0-9_-]+$/u.test(id)) throw new Error("INVALID_PEER_LOCAL_ID: new identifiers must look like new:<letters, digits, _ or ->");
+    if (!/^new:[A-Za-z0-9_-]+$/u.test(id)) throw new Error(`INVALID_PEER_LOCAL_ID: new identifiers must look like new:<letters, digits, _ or ->; got ${JSON.stringify(id.slice(0, 80))}`);
     return `${prefix}${id.slice(4)}`;
   };
   const newCandidate = (id: string): string => `C-${createHash("sha256").update(local(id)).digest("hex").slice(0, 24)}`;
@@ -79,6 +79,10 @@ export function translatePeerOperations(value: unknown, view: View, snapshot: Re
   const seen = new Set<string>();
   const operations: IssueOperation[] = parsed.operations.map((operation): IssueOperation => {
     if (operation.authorId !== "self" || operation.round !== round || "verification" in operation || operation.type === "add_candidate") throw new Error(`INVALID_MODEL_OPERATION_AUTHORITY: every operation must use authorId "self" and round ${round}, must not carry a verification record and must not add candidates`);
+    // A created candidate is addressed by the operation that creates it (observed live: a
+    // model filed add_missing_finding under the existing candidate it was reviewing).
+    const created = operation.type === "add_missing_finding" || operation.type === "merge" ? operation.candidate.candidateId : null;
+    if (created !== null && (created !== operation.candidateId || !created.startsWith("new:"))) throw new Error(`PEER_CANDIDATE_ID_MISMATCH: a ${operation.type} operation creates a candidate, so its candidateId and candidate.candidateId must be the same new:<name> ID; got ${JSON.stringify(operation.candidateId.slice(0, 80))} and ${JSON.stringify(created.slice(0, 80))}`);
     const operationId = local(operation.operationId);
     if (seen.has(operationId)) throw new Error("DUPLICATE_PEER_OPERATION: operation IDs must be unique");
     seen.add(operationId);
@@ -91,7 +95,7 @@ export function translatePeerOperations(value: unknown, view: View, snapshot: Re
       case "add_evidence": case "add_counter_evidence": result = { ...base, type: operation.type, evidence: evidence(operation.evidence) }; break;
       default: result = base as IssueOperation;
     }
-    assertIssueOperation(result);
+    assertExplainedIssueOperation(result);
     if (result.type === "add_missing_finding") {
       const sourceEvidence = new Set(findings.filter(({ sourceFindingId }) => result.candidate.sourceFindingIds.includes(sourceFindingId)).flatMap(({ evidence }) => evidence.map(({ id }) => id)));
       const addedEvidence = new Set(result.evidence.map(({ id }) => id));
@@ -112,4 +116,25 @@ export function translatePeerOperations(value: unknown, view: View, snapshot: Re
   if (new Set(votes.map(({ candidateId }) => candidateId)).size !== votes.length) throw new Error("DUPLICATE_PEER_VOTE: cast at most one accept, reject or needs_verification vote per candidate");
   for (const finding of findings) if (!operations.some((operation) => operation.type === "add_missing_finding" && operation.candidate.sourceFindingIds.includes(finding.sourceFindingId))) throw new Error("UNATTACHED_PEER_FINDING: every entry in findings must be introduced by an add_missing_finding operation whose candidate.sourceFindingIds lists it; otherwise leave findings empty");
   return { operations, findings, locations: [...locations.values()] };
+}
+
+/** Core refusals carry bare codes; a peer reply is repaired from its refusal, so each code gets its rule. */
+const ISSUE_OPERATION_RULES: readonly (readonly [string, string])[] = [
+  ["INVALID_ISSUE_OPERATION_SHAPE", "each operation must match the typed board operation schema for its type"],
+  ["INVALID_CANDIDATE_SEED", "every created candidate needs a non-empty title, description and sourceFindingIds, and a candidateId equal to its operation's candidateId"],
+  ["MISSING_FINDING_REQUIRES_EVIDENCE", "an add_missing_finding operation must carry the evidence of the finding it introduces"],
+  ["INVALID_MERGE_SOURCES", "a merge needs at least two distinct sourceCandidateIds"],
+  ["INVALID_SPLIT_TARGETS", "a split needs at least two candidates with distinct new:<name> candidateIds"],
+  ["ISSUE_EVIDENCE_ID_NOT_CITED", "an add_evidence or add_counter_evidence operation must list its own evidence id in citedEvidenceIds"],
+  ["ISSUE_OPERATION_REQUIRES_EVIDENCE", "votes, evidence, severity, blocker and add_missing_finding operations must cite at least one evidence ID"],
+  ["INVALID_ISSUE_OPERATION", "operation IDs, candidate IDs, reasons and supplement text must be non-empty"],
+];
+function assertExplainedIssueOperation(operation: IssueOperation): void {
+  try { assertIssueOperation(operation); }
+  catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const rule = ISSUE_OPERATION_RULES.find(([code]) => message === code || message.startsWith(`${code}:`))?.[1];
+    if (rule === undefined) throw error;
+    throw new Error(`${message}: ${rule}`, { cause: error });
+  }
 }
