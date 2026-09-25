@@ -20,6 +20,8 @@ import { featureFixture } from "./feature-fixture.js";
  *   ARBITRA_CLAUDE_CODE_EXECUTABLE=/absolute/path/to/claude
  *   ARBITRA_NATIVE_CONFORMANCE_MODEL=<model id the CLI accepts>
  *   ARBITRA_NATIVE_CONFORMANCE_API_KEY_ENV=<name of the variable holding the key> (default ANTHROPIC_API_KEY)
+ *   ARBITRA_NATIVE_CONFORMANCE_CREDENTIAL_KIND=oauth_token when that variable holds a subscription
+ *     token from `claude setup-token` instead of an API key (default api_key)
  * It checks the translation layer's assumptions (A1–A8 in translation.ts) end to end and
  * prints the evidence to record. Without the variables it is skipped, never passed.
  */
@@ -39,7 +41,7 @@ describe.skipIf(!enabled)("native harness conformance: Claude Code (actual proce
     const reviewer = f.config.models["reviewer"];
     if (reviewer === undefined || model === undefined) throw new Error("FIXTURE_PROFILE_ABSENT");
     const config = runConfigSchema.parse({ ...f.config, mode: "testing", models: { ...f.config.models, reviewer: { ...reviewer, modelId: model } },
-      harness: { mode: "native", native: { harnessId: "claude-code", stages: ["testing-writer"], apiKeyEnvVar: keyVariable, timeoutMs: 300_000, maximumTurns: 12, maximumToolCalls: 24, maximumTokensPerRun: 400_000 } },
+      harness: { mode: "native", native: { harnessId: "claude-code", stages: ["testing-writer"], apiKeyEnvVar: keyVariable, credentialKind: process.env["ARBITRA_NATIVE_CONFORMANCE_CREDENTIAL_KIND"] === "oauth_token" ? "oauth_token" : "api_key", timeoutMs: 300_000, maximumTurns: 12, maximumToolCalls: 24, maximumTokensPerRun: 400_000 } },
       workflow: { modelExecution: f.config.workflow["modelExecution"] } });
     const store = new RunStore(join(root, ".runs"), "conformance");
     const partitions = new WritePartitions([{ id: "tests", paths: ["session.test.ts"] }]);

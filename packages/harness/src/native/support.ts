@@ -29,6 +29,8 @@ export interface NativeHarnessSupport {
   readonly executableEnvVar: string;
   /** Environment variable, inside the native process, that receives the configured credential. */
   readonly credentialTarget: string;
+  /** Every variable the operator may choose instead (`credentialKind`); nothing else is ever set. */
+  readonly credentialTargets: Readonly<Record<string, string>>;
   /** Model profile providers this harness can serve. */
   readonly modelProviders: readonly string[];
   readonly translation: { readonly id: string; readonly version: string; readonly verified: boolean };
@@ -58,6 +60,8 @@ export const NATIVE_HARNESS_SUPPORT: readonly NativeHarnessSupport[] = Object.fr
     status: "declared_unverified" as const,
     executableEnvVar: "ARBITRA_CLAUDE_CODE_EXECUTABLE",
     credentialTarget: "ANTHROPIC_API_KEY",
+    // A Claude subscription is used through a long-lived token from `claude setup-token`.
+    credentialTargets: Object.freeze({ api_key: "ANTHROPIC_API_KEY", oauth_token: "CLAUDE_CODE_OAUTH_TOKEN" }),
     modelProviders: Object.freeze(["anthropic"]),
     translation: CLAUDE_CODE_TRANSLATION,
     defaultTools: Object.freeze(["Read", "Glob", "Grep", "Edit", "Write"]),

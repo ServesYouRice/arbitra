@@ -43,7 +43,11 @@ export function FeatureView({ runId, run, artifacts, api = SHARED_REQUIREMENTS, 
     void api.current(runId).then((value) => { if (active) setResource(value); }, (cause: unknown) => { if (active) setLoadError(failure(cause)); });
     return () => { active = false; };
   }, [api, runId, feature, refreshKey, reload]);
-  useEffect(() => { setSelected([]); setEditing(false); }, [resource?.artifactId]);
+  // Reset per-contract selections while rendering the new contract, not in an effect: an
+  // effect runs after the contract is on screen, so a quick first selection was wiped
+  // (seen as a flaky approval under load in CI).
+  const [selectionFor, setSelectionFor] = useState<string | undefined>(undefined);
+  if (resource?.artifactId !== selectionFor) { setSelectionFor(resource?.artifactId); setSelected([]); setEditing(false); }
 
   if (runId === null || run === null) return <Frame><p className="state" data-state="unexamined">select a Feature run to inspect its requirements contract</p></Frame>;
   if (!feature) return <Frame><p className="state" data-state="unexamined">not a Feature run · workflow {run.workflow?.id ?? "unavailable"}</p></Frame>;
