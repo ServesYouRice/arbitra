@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runConfigSchema } from "@arbitra/schemas/config.js";
 import type { HttpClient } from "@arbitra/providers/transport-contract.js";
-import { ModelActivities } from "../src/model-activities.js";
+import { ModelActivities, parsePromptJson } from "../src/model-activities.js";
 import { RunStore } from "../src/run-store.js";
 
 const directories: string[] = [];
@@ -86,5 +86,19 @@ describe("durable model activities", () => {
     await expect(create().invoke({ ...request(), signal: controller.signal })).rejects.toThrow("MODEL_ACTIVITY_CANCELLED");
     expect(send).not.toHaveBeenCalled();
     expect(await store.listArtifacts()).toEqual([]);
+  });
+});
+
+describe("prompt-JSON replies", () => {
+  it("accepts the requested leading <quotes> block and a Markdown fence, and nothing looser", () => {
+    expect(parsePromptJson('{"a":1}')).toEqual({ a: 1 });
+    expect(parsePromptJson('<quotes>\n1. "x" (src/a.js:1-2: `a < b`)\n</quotes>\n\n{"a":1}')).toEqual({ a: 1 });
+    expect(parsePromptJson('<quotes>q</quotes>\n```json\n{"a":1}\n```')).toEqual({ a: 1 });
+    expect(parsePromptJson('```\n{"a":1}\n```')).toEqual({ a: 1 });
+    expect(parsePromptJson('<quotes>\nexport const a = { b: 1 };\n</quotes>\n\nThe session logic is risky.\n\n```json\n{"a":1}\n```')).toEqual({ a: 1 });
+    expect(parsePromptJson('<quotes>q</quotes>\nReasoning mentions {"a":0} inline.\n{\n  "a": 1\n}\n')).toEqual({ a: 1 });
+    expect(() => parsePromptJson('Here is the answer: {"a":1}')).toThrow("MODEL_ACTIVITY_INVALID_JSON");
+    expect(() => parsePromptJson('{"a":1}\nThanks!')).toThrow("MODEL_ACTIVITY_INVALID_JSON");
+    expect(() => parsePromptJson('{"a":1}\n<quotes>late</quotes>')).toThrow("MODEL_ACTIVITY_INVALID_JSON");
   });
 });

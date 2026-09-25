@@ -106,7 +106,9 @@ export class ProviderInvocationRuntime {
       }
     }
     const code = lastError instanceof TransportError ? lastError.code : "UNKNOWN";
-    throw new ProviderInvocationFailure(`Provider ${context.providerId} failed after ${attempts} attempt${attempts === 1 ? "" : "s"} (${code}); completed artifacts are preserved and the run may resume with degraded completeness.`, attempts, code);
+    // Transport messages are bounded and redacted at the source (providerErrorDetail).
+    const detail = lastError instanceof TransportError ? `: ${lastError.message.slice(0, 300)}` : "";
+    throw new ProviderInvocationFailure(`Provider ${context.providerId} failed after ${attempts} attempt${attempts === 1 ? "" : "s"} (${code}${detail}); completed artifacts are preserved and the run may resume with degraded completeness.`, attempts, code);
   }
 }
 

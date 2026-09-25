@@ -24,7 +24,13 @@ describe("grounded Feature exploration", () => {
     expect(() => validateFeatureExploration({ ...exploration(), evidence: [] }, requirements, snapshot)).toThrow("FEATURE_EXPLORATION_EVIDENCE_MISSING");
   });
 
-  it.each([{ text: "fabricated quotation" }, { endLine: 2 }, { startLine: 2 }, { surfaceId: "unknown" }])("rejects ungrounded citations: %j", (patch) => {
+  it("re-anchors exact quotations whose stated range is miscounted", () => {
+    const result = exploration(); const original = structuredClone(result.evidence);
+    result.evidence = result.evidence.map((evidence) => ({ ...evidence, endLine: 2 }));
+    expect(validateFeatureExploration(result, requirements, snapshot).evidence).toEqual(original);
+  });
+
+  it.each([{ text: "fabricated quotation" }, { startLine: 40, endLine: 40 }, { startLine: 2 }, { surfaceId: "unknown" }])("rejects ungrounded citations: %j", (patch) => {
     const result = exploration(); result.evidence = result.evidence.map((evidence) => ({ ...evidence, ...patch }));
     expect(() => validateFeatureExploration(result, requirements, snapshot)).toThrow();
   });

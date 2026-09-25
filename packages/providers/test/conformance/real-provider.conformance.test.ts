@@ -1,25 +1,48 @@
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { BATCH_DRIVER_DECLARATIONS } from "../../src/batch/drivers.js";
 
+/**
+ * Gate over recorded live evidence. It no longer trusts supplied booleans: it reads the
+ * provenance-bearing observations written by live-transport.conformance.test.ts (and the
+ * batch runner) and requires, per capability, at least one `passed` live observation that
+ * names its endpoint, protocol and model and carries measured usage or a provider request ID.
+ *
+ *   ARBITRA_REAL_PROVIDER_CONFORMANCE=1 ARBITRA_LIVE_EVIDENCE=.runs/live/transport-conformance.json
+ */
 const enabled = process.env["ARBITRA_REAL_PROVIDER_CONFORMANCE"] === "1";
 
+interface Observation {
+  readonly endpointId: string; readonly transport: string; readonly modelId: string; readonly case: string; readonly status: string; readonly source: string;
+  readonly providerRequestIds: readonly string[]; readonly usage: readonly { inputTokens: number | null }[];
+}
+async function evidence(): Promise<readonly Observation[]> {
+  const path = process.env["ARBITRA_LIVE_EVIDENCE"];
+  expect(path, "Set ARBITRA_LIVE_EVIDENCE to the evidence file written by the live conformance runner").toBeTruthy();
+  const report = JSON.parse(await readFile(resolve(path ?? ""), "utf8")) as { observations?: Observation[] };
+  return report.observations ?? [];
+}
+const provenanced = (observation: Observation) => observation.source === "live" && observation.endpointId !== "" && observation.transport !== "" && observation.modelId !== ""
+  && (observation.providerRequestIds.length > 0 || observation.usage.some(({ inputTokens }) => (inputTokens ?? 0) > 0));
+
 describe.skipIf(!enabled)("real-provider declared-capability conformance", () => {
-  it.each(["structuredOutput", "parallelToolCalls", "promptCaching", "continuation"])(
-    "requires an external signed report for %s",
-    (capability) => {
-      const raw = process.env["ARBITRA_CONFORMANCE_REPORT"];
-      expect(raw, "Set ARBITRA_CONFORMANCE_REPORT to the JSON output of the opt-in real-provider runner").toBeTruthy();
-      const report = JSON.parse(raw ?? "{}") as Record<string, boolean>;
-      expect(report[capability], `Real-provider report did not verify ${capability}`).toBe(true);
+  it.each(["text", "structured_output", "tools", "output_limit", "cancellation", "timeout_retry", "cache_accounting", "continuation"])(
+    "has a passed live observation with provenance for %s",
+    async (capability) => {
+      const passed = (await evidence()).filter((observation) => observation.case === capability && observation.status === "passed");
+      expect(passed.length, `No live observation passed ${capability}`).toBeGreaterThan(0);
+      // Cancellation and timeout end before a response exists, so they cannot carry usage.
+      if (!["cancellation", "timeout_retry"].includes(capability)) expect(passed.some(provenanced), `${capability} lacks provider request identity or measured usage`).toBe(true);
     },
   );
 
-  // Every declared batch driver needs its own live submit/poll/results/cancel evidence.
+  // Every declared batch driver needs its own live submit/poll/results evidence.
   it.each(BATCH_DRIVER_DECLARATIONS.map(({ driverId }) => driverId))(
     "requires live batch validation for driver %s",
-    (driverId) => {
-      const report = JSON.parse(process.env["ARBITRA_CONFORMANCE_REPORT"] ?? "{}") as Record<string, boolean>;
-      expect(report[`batch:${driverId}`], `Real-provider report did not verify batch driver ${driverId}`).toBe(true);
+    async (driverId) => {
+      const passed = (await evidence()).filter((observation) => observation.case === `batch:${driverId}` && observation.status === "passed" && provenanced(observation));
+      expect(passed.length, `No live observation validated batch driver ${driverId}`).toBeGreaterThan(0);
     },
   );
 });

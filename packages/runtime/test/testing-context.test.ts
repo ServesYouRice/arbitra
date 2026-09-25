@@ -44,7 +44,9 @@ it("derives commands from exact repository metadata and retains approval policy"
     { command: "go test ./...", executionPolicy: "requires_approval", sourcePath: "commands.md", source: "go test ./..." },
   ]);
   expect(() => repositoryTestCommands(snapshot, { ...settings, commands: [{ ...command, command: "invented test" }] })).toThrow("TESTING_COMMAND_NOT_REPOSITORY_DERIVED");
-  expect(() => validateTestingEvidence({ ...command.evidence, endLine: 3 }, snapshot)).toThrow("TESTING_EVIDENCE_UNGROUNDED");
+  // A miscounted range around exact text is re-anchored; a distant one is not.
+  expect(validateTestingEvidence({ ...command.evidence, endLine: 3 }, snapshot)).toEqual(command.evidence);
+  expect(() => validateTestingEvidence({ ...command.evidence, startLine: command.evidence.startLine + 20, endLine: command.evidence.endLine + 20 }, snapshot)).toThrow("TESTING_EVIDENCE_UNGROUNDED");
   expect(() => validateTestingEvidence({ ...command.evidence, text: "invented quote" }, snapshot)).toThrow("TESTING_EVIDENCE_UNGROUNDED");
 });
 

@@ -2,6 +2,7 @@ import { featureReviewSchema, type FeatureReview } from "@arbitra/schemas/featur
 import { requirementsContractSchema, type FeatureExploration } from "@arbitra/schemas/requirements.js";
 import { featureComplexityGate, type RequirementsContract } from "@arbitra/workflow/nodes/requirements/index.js";
 import type { RunStore } from "./run-store.js";
+import { anchorLineEvidence } from "./evidence-grounding.js";
 import type { RepositorySnapshot } from "./repository.js";
 import { createHash } from "node:crypto";
 import { canonicalJson } from "@arbitra/core/config/config-store.js";
@@ -56,10 +57,11 @@ export function validateFeatureReview(value: unknown, requirements: Requirements
   const ids = new Set([...contract.assumptions, ...contract.ambiguities, ...contract.acceptance].map(({ id }) => id));
   if (review.decisions.length !== ids.size || review.decisions.some(({ requirementId }) => !ids.has(requirementId))) throw new Error("FEATURE_REVIEW_REQUIREMENT_COVERAGE");
   const files = new Map(snapshot.files.map((file) => [file.path, file]));
-  for (const decision of review.decisions) for (const evidence of decision.evidence) {
-    const file = files.get(evidence.path);
-    if (file === undefined || evidence.endLine < evidence.startLine || evidence.endLine > file.lines.length || file.lines.slice(evidence.startLine - 1, evidence.endLine).join("\n") !== evidence.text) throw new Error("FEATURE_REVIEW_UNGROUNDED_EVIDENCE");
-  }
+  for (const decision of review.decisions) decision.evidence = decision.evidence.map((evidence) => {
+    const anchored = anchorLineEvidence(evidence, files.get(evidence.path));
+    if (anchored === null) throw new Error("FEATURE_REVIEW_UNGROUNDED_EVIDENCE");
+    return anchored;
+  });
   return review;
 }
 

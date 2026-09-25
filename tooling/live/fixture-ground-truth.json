@@ -1,0 +1,11 @@
+{
+  "fixture": "tooling/live/fixture-repo",
+  "defects": [
+    { "id": "discount-unbounded", "path": "src/cart.js", "lines": [11, 13], "summary": "applyDiscount accepts percent outside 0-100, producing negative or inflated totals despite the documented range." },
+    { "id": "quantity-parse", "path": "src/cart.js", "lines": [15, 18], "summary": "parseQuantity returns NaN or truncated values (\"2.9\" -> 2, \"abc\" -> NaN, \"-3\" -> -3) with no validation." },
+    { "id": "session-expiry-boundary", "path": "src/session.js", "lines": [10, 13], "summary": "isExpired uses > so a session is still valid at exactly expiresAt, contradicting 'valid strictly before its expiry instant'." }
+  ],
+  "decoys": [
+    { "path": "src/cart.js", "lines": [3, 8], "summary": "subtotal is correct and tested." }
+  ]
+}

@@ -27,7 +27,7 @@ export const modelDiscoveryResultSchema = z.object({
 
 export const modelTurnResultSchema = z.object({
   text: z.string().nullable(),
-  toolCalls: z.array(z.object({ id: z.string().min(1), name: z.string().min(1), arguments: z.unknown() }).strict()),
+  toolCalls: z.array(z.object({ id: z.string().min(1), name: z.string().min(1), arguments: z.unknown(), providerState: z.unknown().optional() }).strict()),
   refusal: z.string().nullable(),
   usage: z.object({ inputTokens: z.number().int().nonnegative().nullable(), outputTokens: z.number().int().nonnegative().nullable(), cacheReadTokens: z.number().int().nonnegative().nullable(), cacheWriteTokens: z.number().int().nonnegative().nullable() }).strict(),
 }).strict();

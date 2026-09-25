@@ -46,6 +46,22 @@ describe.each(adapters)("$name transport contract", ({ name, create, body }) => 
     await expect(transport.send(request(), signal())).resolves.toMatchObject({ text: "hello" });
   });
 
+  it("classifies exhausted credit as non-retryable QUOTA and keeps a redacted provider error detail", async () => {
+    const client = new ScriptedHttpClient([
+      http(429, { error: { message: "You have no credits remaining.", type: "insufficient_quota", code: "credit_balance_exhausted" } }),
+      http(400, { type: "error", error: { type: "invalid_request_error", message: "Your credit balance is too low to access the Anthropic API." } }),
+      http(429, { error: { message: "Rate limit reached", type: "requests" } }),
+      http(400, [{ error: { code: 400, status: "INVALID_ARGUMENT", message: "Invalid JSON payload received. Unknown name \"additionalProperties\" key=AIzaSyDexampleexample" } }]),
+    ]);
+    const transport = create(client);
+    await expect(transport.send(request(), signal())).rejects.toMatchObject({ code: "QUOTA", retryable: false, message: expect.stringContaining("insufficient_quota") as string });
+    await expect(transport.send(request(), signal())).rejects.toMatchObject({ code: "QUOTA", retryable: false });
+    await expect(transport.send(request(), signal())).rejects.toMatchObject({ code: "RATE_LIMIT", retryable: true, message: expect.stringContaining("requests") as string });
+    const invalid = await transport.send(request(), signal()).then(() => new Error("EXPECTED_FAILURE"), (error: unknown) => error as Error);
+    expect(invalid).toMatchObject({ code: "HTTP", retryable: false, message: expect.stringContaining("INVALID_ARGUMENT") as string });
+    expect(invalid.message).toContain("<redacted>"); expect(invalid.message).not.toContain("SyDexample");
+  });
+
   it("fails explicitly instead of returning output truncated at the output ceiling", async () => {
     const truncated = { "anthropic-messages": { content: [{ type: "text", text: "{\"ok\":" }], stop_reason: "max_tokens", usage: {} },
       "openai-responses": { status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, output_text: "{\"ok\":", usage: {} },
@@ -201,3 +217,26 @@ function geminiBody(kind: Case): unknown {
   return { candidates: [{ content: { parts }, finishReason: kind === "refusal" ? "SAFETY" : "STOP", safetyMessage: "cannot comply" }],
     usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 4 }, continuation: "continue-1" };
 }
+
+describe("provider round-trip state on tool calls", () => {
+  it("echoes Gemini thought signatures natively and through the OpenAI-compatible endpoint, and sends standard JSON Schema", async () => {
+    const native = new ScriptedHttpClient([http(200, { candidates: [{ content: { parts: [{ functionCall: { id: "c1", name: "lookup", args: { q: "x" } }, thoughtSignature: "sig-native" }] }, finishReason: "STOP" }], usageMetadata: {} }), http(200, geminiBody("success"))]);
+    const gemini = factory(GeminiNativeTransport)(native);
+    const schema = { type: "object", properties: { q: { type: "string" } }, required: ["q"], additionalProperties: false };
+    const first = await gemini.send({ ...request(), tools: [{ ...tool(), inputSchema: schema }], responseSchema: schema }, signal());
+    expect(first.toolCalls[0]).toEqual({ id: "c1", name: "lookup", arguments: { q: "x" }, providerState: { thoughtSignature: "sig-native" } });
+    const sent = native.requests[0]?.body as { tools: { functionDeclarations: Record<string, unknown>[] }[]; generationConfig: Record<string, unknown> };
+    expect(sent.tools[0]?.functionDeclarations[0]).toMatchObject({ parametersJsonSchema: schema }); expect(sent.tools[0]?.functionDeclarations[0]).not.toHaveProperty("parameters");
+    expect(sent.generationConfig).toMatchObject({ responseJsonSchema: schema }); expect(sent.generationConfig["responseSchema"]).toBeUndefined();
+    await gemini.send({ ...request(), messages: [{ role: "user", content: "q" }, { role: "assistant", content: "", toolCalls: first.toolCalls }, { role: "tool", toolCallId: "c1", toolName: "lookup", content: "r" }] }, signal());
+    expect(JSON.stringify(native.requests[1]?.body)).toContain('"thoughtSignature":"sig-native"');
+
+    const extra = { google: { thought_signature: "sig-chat" } };
+    const compatible = new ScriptedHttpClient([http(200, { choices: [{ finish_reason: "tool_calls", message: { content: null, tool_calls: [{ id: "c2", type: "function", function: { name: "lookup", arguments: "{\"q\":\"y\"}" }, extra_content: extra }] } }], usage: {} }), http(200, chatBody("success"))]);
+    const chat = factory(OpenAiChatTransport)(compatible);
+    const called = await chat.send({ ...request(), tools: [tool()] }, signal());
+    expect(called.toolCalls[0]?.providerState).toEqual({ extra_content: extra });
+    await chat.send({ ...request(), messages: [{ role: "user", content: "q" }, { role: "assistant", content: "", toolCalls: called.toolCalls }, { role: "tool", toolCallId: "c2", toolName: "lookup", content: "r" }] }, signal());
+    expect((compatible.requests[1]?.body as { messages: { tool_calls?: unknown[] }[] }).messages[1]?.tool_calls?.[0]).toMatchObject({ id: "c2", extra_content: extra });
+  });
+});

@@ -104,13 +104,37 @@ export function number(value: unknown): number | null { return typeof value === 
 
 function assertHttpSuccess(value: HttpResponse): void {
   if (value.status >= 200 && value.status < 300) return;
+  const detail = providerErrorDetail(value.body);
+  const suffix = detail === null ? "" : `: ${detail}`;
+  // Observed live: OpenAI answers exhausted credit with 429 insufficient_quota and Anthropic
+  // with 400 "credit balance is too low". Neither is a rate limit or a malformed request,
+  // and retrying only repeats the refusal.
+  if ((value.status === 429 || value.status === 400 || value.status === 402) && detail !== null && /insufficient_quota|credit_balance|credit balance|billing|payment required/iu.test(detail)) throw new TransportError("QUOTA", `Provider account has no usable credit or quota${suffix}`, false);
   if (value.status === 429) {
     const header = Object.entries(value.headers).find(([name]) => name.toLowerCase() === "retry-after")?.[1];
-    throw new TransportError("RATE_LIMIT", "Provider rate limit", true, retryAfterMilliseconds(header));
+    throw new TransportError("RATE_LIMIT", `Provider rate limit${suffix}`, true, retryAfterMilliseconds(header));
   }
   if (value.status === 408 || value.status === 504) throw new TransportError("TIMEOUT", "Provider request timed out", true);
-  if (value.status === 401 || value.status === 403) throw new TransportError("AUTH", "Provider rejected credentials", false);
-  throw new TransportError("HTTP", `Provider HTTP ${value.status}`, value.status >= 500);
+  if (value.status === 401 || value.status === 403) throw new TransportError("AUTH", `Provider rejected credentials${suffix}`, false);
+  throw new TransportError("HTTP", `Provider HTTP ${value.status}${suffix}`, value.status >= 500);
+}
+
+/**
+ * The provider's own error classification, bounded and stripped of anything credential-like,
+ * so an operator can tell a schema rejection from an outage. Only the error object's
+ * type/code/status and the start of its message are kept; request echoes are not.
+ */
+export function providerErrorDetail(body: unknown): string | null {
+  const root = Array.isArray(body) ? body[0] as unknown : body;
+  if (root === null || typeof root !== "object") return null;
+  const error = (root as Record<string, unknown>)["error"];
+  if (error === null || typeof error !== "object") return null;
+  const fields = error as Record<string, unknown>;
+  const parts = [fields["type"], fields["code"], fields["status"]].filter((part): part is string | number => typeof part === "string" || typeof part === "number").map(String);
+  const message = typeof fields["message"] === "string" ? fields["message"].replace(/\s+/gu, " ").slice(0, 240) : null;
+  const text = [...new Set(parts)].join("/") + (message === null ? "" : ` ${message}`);
+  const redacted = text.replace(/(sk-(?:ant-|proj-)?|AIza|AQ\.)[A-Za-z0-9_.-]{6,}/gu, "$1<redacted>").replace(/\b(key|token|secret)=[^\s&]+/giu, "$1=<redacted>").trim();
+  return redacted === "" ? null : redacted;
 }
 function ensureTrailingSlash(value: string): string { return value.endsWith("/") ? value : `${value}/`; }
 

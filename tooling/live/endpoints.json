@@ -1,0 +1,7 @@
+[
+  { "id": "openai-responses", "providerId": "openai", "transport": "openai-responses", "endpoint": "https://api.openai.com/v1", "apiKeyEnvVar": "ARBITRA_OPENAI_API_KEY", "modelId": "gpt-5.4-nano", "continuation": true },
+  { "id": "openai-chat", "providerId": "openai", "transport": "openai-chat", "endpoint": "https://api.openai.com/v1", "apiKeyEnvVar": "ARBITRA_OPENAI_API_KEY", "modelId": "gpt-5.4-nano" },
+  { "id": "anthropic-messages", "providerId": "anthropic", "transport": "anthropic-messages", "endpoint": "https://api.anthropic.com/v1", "apiKeyEnvVar": "ARBITRA_ANTHROPIC_API_KEY", "modelId": "claude-haiku-4-5-20251001" },
+  { "id": "gemini-native", "providerId": "google", "transport": "gemini-native", "endpoint": "https://generativelanguage.googleapis.com/v1beta", "apiKeyEnvVar": "ARBITRA_GEMINI_API_KEY", "modelId": "gemini-3.1-flash-lite" },
+  { "id": "gemini-compatible-chat", "providerId": "google-openai-compatible", "transport": "openai-chat", "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai", "apiKeyEnvVar": "ARBITRA_GEMINI_API_KEY", "modelId": "gemini-3.1-flash-lite" }
+]
