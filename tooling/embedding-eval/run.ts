@@ -1,6 +1,6 @@
 /**
  * P18 runner (docs/qa/p18/PROTOCOL.md). `pnpm fetch-model` downloads and hash-verifies the pinned model into
- * ./.cache; `pnpm eval [--corpus <file>] [--out <file>]` evaluates offline (remote loading disabled, fetch
+ * ./.cache; `pnpm evaluate [--corpus <file>] [--out <file>]` evaluates offline (remote loading disabled, fetch
  * blocked and counted) and writes a JSON report with identities, measurements and the prespecified decision.
  */
 import { execFileSync } from "node:child_process";
@@ -26,10 +26,11 @@ const baselineRss = Math.max(process.memoryUsage().rss, ...rssSamples);
 let networkRequests = 0; const realFetch = globalThis.fetch; const fetchOnly = args.includes("--fetch-only");
 globalThis.fetch = (async (...request: Parameters<typeof fetch>) => { networkRequests += 1; if (!fetchOnly) throw new Error(`P18_NETWORK_BLOCKED:${String(request[0])}`); return realFetch(...request); }) as typeof fetch;
 const transformers = await import("@huggingface/transformers");
-transformers.env.cacheDir = join(here, ".cache"); transformers.env.allowRemoteModels = fetchOnly; transformers.env.allowLocalModels = false;
+// Fetch: download into the revision-keyed cache. Evaluate: remote loading off, cache lookup off, load the revision directory as a local model.
+transformers.env.cacheDir = join(here, ".cache"); transformers.env.allowRemoteModels = fetchOnly; transformers.env.useFSCache = fetchOnly; transformers.env.allowLocalModels = !fetchOnly; transformers.env.localModelPath = join(here, ".cache", "no-local-models");
 
 const coldStart = performance.now();
-const extractor = await transformers.pipeline("feature-extraction", MODEL.id, { revision: MODEL.revision, dtype: MODEL.dtype, device: "cpu" });
+const extractor = await (fetchOnly ? transformers.pipeline("feature-extraction", MODEL.id, { revision: MODEL.revision, dtype: MODEL.dtype, device: "cpu" }) : transformers.pipeline("feature-extraction", join(here, ".cache", MODEL.id, MODEL.revision), { dtype: MODEL.dtype, device: "cpu", local_files_only: true }));
 await extractor(["warm-up"], { pooling: "mean", normalize: true });
 const coldLoadMs = performance.now() - coldStart;
 const artifactPath = findArtifact(join(here, ".cache")); const artifact = readFileSync(artifactPath);
@@ -42,15 +43,16 @@ const embedder: TextEmbedder = { identity: Object.freeze({ model: MODEL.id, revi
   async embed(texts) { const output = await extractor([...texts], { pooling: "mean", normalize: true }); return (output.tolist() as number[][]).map((row) => Float32Array.from(row)); } };
 
 const report = await evaluateEmbeddingClustering(loaded, { embedder, clock: () => performance.now() });
-// Descriptive scaling probe (not a criterion): one synthetic run of 200 findings built by relabelling corpus findings.
+const peakRss = Math.max(process.memoryUsage().rss, ...rssSamples);
+// Peak RSS for criterion 6 is taken above, over model load and the protocol evaluation. Descriptive scaling probe (not a criterion): one synthetic run of 200 findings built by relabelling corpus findings.
 const pool = loaded.corpus.runs.flatMap(({ findings }) => findings); const synthetic = Array.from({ length: 200 }, (_, index) => { const source = pool[index % pool.length]; if (source === undefined) throw new Error("P18_EMPTY_CORPUS"); return { validation: "accepted" as const, auditorId: `${source.auditorId}-${index}`, finding: { ...source.finding, sourceFindingId: `${source.finding.sourceFindingId}#${index}` } }; });
 const scaleStart = performance.now(); const scaleVectors = await embedFindings(embedder, synthetic); const scaled = await cluster(synthetic, { semantic: embeddingPairResolver(scaleVectors, 0.5), maximumEscalatedPairs: P18_SETTINGS.maximumEscalatedPairs }); const scaleMs = performance.now() - scaleStart;
-const peakRss = Math.max(process.memoryUsage().rss, ...rssSamples); clearInterval(sampler);
+const probePeakRss = Math.max(process.memoryUsage().rss, ...rssSamples); clearInterval(sampler);
 const resources = { coldLoadMs: Math.round(coldLoadMs), modelBytes: artifact.byteLength, rssGrowthBytes: peakRss - baselineRss, dependencyBytes: dependencyBytes(), networkRequests, marginalCostUsd: 0 };
 const decision = decideAdoption(report, resources);
 const output = { generatedAt: new Date().toISOString(), commit: git(["rev-parse", "HEAD"]), dirty: git(["status", "--porcelain", "--", "packages", "tooling"]) !== "", host: { cpu: cpus()[0]?.model ?? "unknown", cores: cpus().length, memoryBytes: totalmem(), loadAverage: process.platform === "win32" ? null : (await import("node:os")).loadavg() }, corpusPath: relative(repository, corpusPath),
   resources: { ...resources, baselineRssBytes: baselineRss, peakRssBytes: peakRss, artifactPath: relative(here, artifactPath), coldLoadNote: "pipeline construction + one warm-up embed from the local cache; OS file cache may already hold the artifact" },
-  scalingProbe: { findings: synthetic.length, embedAndClusterMs: Math.round(scaleMs), ambiguousPairs: scaled.ambiguousPairs.length, note: "descriptive only; relabelled duplicates of corpus findings" }, report, decision };
+  scalingProbe: { findings: synthetic.length, embedAndClusterMs: Math.round(scaleMs), peakRssBytes: probePeakRss, ambiguousPairs: scaled.ambiguousPairs.length, note: "descriptive only; relabelled duplicates of corpus findings" }, report, decision };
 const outPath = resolve(option("--out") ?? join(repository, "docs/qa/p18/results", `${loaded.corpus.corpusId}.json`)); mkdirSync(dirname(outPath), { recursive: true }); writeFileSync(outPath, `${JSON.stringify(output, null, 2)}\n`);
 const row = (name: string, value: typeof report.configurations.deterministic) => `${name.padEnd(22)} FM=${value.score.falseMerges} FS=${value.score.falseSplits} W=${value.score.weightedErrors} defectLoss=${value.score.defectLossMerges} candidates=${value.score.candidates} contaminated=${value.score.contaminatedCandidates} redundant=${value.score.redundantCandidates} ΔW=${value.versusDeterministic.difference} [${value.versusDeterministic.lower}, ${value.versusDeterministic.upper}]`;
 process.stdout.write([`Corpus ${report.corpus.corpusId}@${report.corpus.version} (${report.corpus.mode}) sha256 ${report.corpus.sha256}`, `Embedder ${runtime} ${MODEL.id}@${MODEL.revision}`, `Thresholds E1 ${JSON.stringify(report.thresholds.e1)} E2 ${JSON.stringify(report.thresholds.e2)}`, row("D deterministic", report.configurations.deterministic), row("E1 embedding escalation", report.configurations.embeddingEscalation), row("E2 embedding only", report.configurations.embeddingOnly), row("S* oracle escalation", report.configurations.oracleEscalation), `Latency D ${JSON.stringify(report.latency.deterministic)} E1 ${JSON.stringify(report.latency.embeddingEscalation)}`, `Resources ${JSON.stringify(resources)}`, `Decision ${decision.outcome}: ${decision.reasons.join("; ")}`, ...decision.criteria.map(({ id, passed, detail }) => `  ${passed ? "pass" : "FAIL"} ${id}: ${detail}`), `Wrote ${relative(repository, outPath)}`, ""].join("\n"));

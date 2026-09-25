@@ -6,7 +6,7 @@
   "description": "P18 local embedding clustering evaluation runner. Not a workspace package: the model runtime stays out of every runtime dependency graph.",
   "scripts": {
     "fetch-model": "tsx run.ts --fetch-only",
-    "eval": "tsx run.ts"
+    "evaluate": "tsx run.ts"
   },
   "devDependencies": {
     "@huggingface/transformers": "4.3.0",

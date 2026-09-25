@@ -78,7 +78,7 @@ describe("P18 embedding harness", () => {
     const report = await evaluateEmbeddingClustering(loaded, { embedder, clock, repeats: 2, bootstrapResamples: 500 });
     expect(report).toMatchObject({ protocolVersion: "p18-protocol-v1", corpus: { corpusId: "clustering-authored-v1", sha256: loaded.corpusSha256 }, embedder: { model: "test/hashed-bag-of-words" }, settings: { textTemplate: "finding-text-v1", maximumEscalatedPairs: 20, bootstrapSeed: 18, repeats: 2 }, reproducible: true });
     expect(report.evidence).toMatchObject({ fixtures: 2, runs: 4, findings: 58, multiMemberClusters: 15, samePairs: 47 });
-    expect(Object.keys(report.thresholds.e1).sort()).toEqual(["expanded-evaluation-v1", "premise-v1"]);
+    expect(Object.keys(report.thresholds.e1).sort()).toEqual(["expanded-evaluation-v1", "premise-v1"]); expect(report.thresholdSweep).toHaveLength(14);
     const { deterministic, embeddingEscalation, oracleEscalation } = report.configurations;
     expect(embeddingEscalation.score.falseSplits).toBeLessThanOrEqual(deterministic.score.falseSplits); expect(embeddingEscalation.score.falseMerges).toBeGreaterThanOrEqual(deterministic.score.falseMerges);
     expect(oracleEscalation.score.weightedErrors).toBeLessThanOrEqual(deterministic.score.weightedErrors); expect(deterministic.versusDeterministic).toMatchObject({ difference: 0, lower: 0, upper: 0 });
@@ -106,7 +106,7 @@ function syntheticReport(): EmbeddingClusteringReport {
   const interval = (difference: number) => ({ difference, lower: difference - 5, upper: Math.min(-1, difference + 5), units: 40, resamples: 10_000, seed: 18 });
   const configuration = (weightedErrors: number, difference: number) => ({ score: score(weightedErrors), perRun: [], versusDeterministic: interval(difference) });
   return { schemaVersion: 1, protocolVersion: "p18-protocol-v1", corpus: { corpusId: "p06", version: 1, mode: "real_models", sha256: "0", fixtures: [] }, embedder: standInEmbedder().identity, settings: { textTemplate: "finding-text-v1", thresholdGrid: [], maximumEscalatedPairs: 20, bootstrapResamples: 10_000, bootstrapSeed: 18, repeats: 5, falseMergeWeight: 2 },
-    evidence: { fixtures: 3, runs: 10, findings: 200, groundTruthClusters: 60, multiMemberClusters: 40, samePairs: 150, differentPairs: 1000, ambiguousPairs: 50, escalatedPairs: 50 }, thresholds: { e1: {}, e2: {} },
+    evidence: { fixtures: 3, runs: 10, findings: 200, groundTruthClusters: 60, multiMemberClusters: 40, samePairs: 150, differentPairs: 1000, ambiguousPairs: 50, escalatedPairs: 50 }, thresholds: { e1: {}, e2: {} }, thresholdSweep: [],
     configurations: { deterministic: configuration(30, 0), embeddingEscalation: configuration(10, -20), embeddingOnly: configuration(40, 10), oracleEscalation: configuration(5, -25) },
     latency: { deterministic: { samples: 50, medianMs: 1, p95Ms: 2, maxMs: 3 }, embeddingEscalation: { samples: 50, medianMs: 100, p95Ms: 200, maxMs: 300 }, maximumRunFindings: 25 }, reproducible: true, semanticCalls: { e1: 50, oracle: 50 }, ambiguousPairs: [] };
 }

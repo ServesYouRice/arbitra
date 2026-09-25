@@ -120,6 +120,8 @@ export interface EmbeddingClusteringReport {
   readonly embedder: TextEmbedderIdentity; readonly settings: { readonly textTemplate: string; readonly thresholdGrid: readonly number[]; readonly maximumEscalatedPairs: number; readonly bootstrapResamples: number; readonly bootstrapSeed: number; readonly repeats: number; readonly falseMergeWeight: number };
   readonly evidence: { readonly fixtures: number; readonly runs: number; readonly findings: number; readonly groundTruthClusters: number; readonly multiMemberClusters: number; readonly samePairs: number; readonly differentPairs: number; readonly ambiguousPairs: number; readonly escalatedPairs: number };
   readonly thresholds: { readonly e1: Readonly<Record<string, number>>; readonly e2: Readonly<Record<string, number>> };
+  /** Descriptive, in-sample: pooled weighted errors at every grid threshold. Never used for selection or the decision. */
+  readonly thresholdSweep: readonly { readonly threshold: number; readonly e1WeightedErrors: number; readonly e2WeightedErrors: number }[];
   readonly configurations: { readonly deterministic: ConfigurationResult; readonly embeddingEscalation: ConfigurationResult; readonly embeddingOnly: ConfigurationResult; readonly oracleEscalation: ConfigurationResult };
   readonly latency: { readonly deterministic: LatencySummary; readonly embeddingEscalation: LatencySummary; readonly maximumRunFindings: number };
   readonly reproducible: boolean; readonly semanticCalls: { readonly e1: number; readonly oracle: number }; readonly ambiguousPairs: readonly AmbiguousPairDetail[];
@@ -137,16 +139,19 @@ export async function evaluateEmbeddingClustering(loaded: LoadedClusteringCorpus
   const deterministicOf = (runId: string) => { const value = deterministic.get(runId); if (value === undefined) throw new Error(`DETERMINISTIC_RUN_MISSING:${runId}`); return value; };
   const e1 = (runId: string, inputs: readonly ValidatedClusterInput[], threshold: number) => cluster(inputs, { semantic: embeddingPairResolver(vectorsOf(runId), threshold), maximumEscalatedPairs: maximum });
   const e2 = (runId: string, inputs: readonly ValidatedClusterInput[], threshold: number) => cluster(inputs, { strategy: embeddingThresholdStrategy(vectorsOf(runId), threshold) });
-  const calibrate = async (method: typeof e1): Promise<Record<string, number>> => {
+  const sweep = async (method: typeof e1): Promise<ReadonlyMap<number, ReadonlyMap<string, number>>> => { const table = new Map<number, Map<string, number>>(); for (const threshold of P18_THRESHOLD_GRID) { const perRun = new Map<string, number>(); for (const { run, inputs } of runs) perRun.set(run.runId, scoreClusters(run, (await method(run.runId, inputs, threshold)).clusters, kinds).score.weightedErrors); table.set(threshold, perRun); } return table; };
+  const calibrate = (table: ReadonlyMap<number, ReadonlyMap<string, number>>): Record<string, number> => {
     const selected: Record<string, number> = {};
     for (const fixture of fixtures) {
       let best: { threshold: number; errors: number } | null = null;
-      for (const threshold of P18_THRESHOLD_GRID) { let errors = 0; for (const { run, inputs } of runs.filter(({ run }) => run.fixtureId !== fixture)) errors += scoreClusters(run, (await method(run.runId, inputs, threshold)).clusters, kinds).score.weightedErrors; if (best === null || errors <= best.errors) best = { threshold, errors }; }
+      for (const [threshold, perRun] of table) { const errors = runs.filter(({ run }) => run.fixtureId !== fixture).reduce((sum, { run }) => sum + (perRun.get(run.runId) ?? 0), 0); if (best === null || errors <= best.errors) best = { threshold, errors }; }
       if (best === null) throw new Error("EMPTY_THRESHOLD_GRID"); selected[fixture] = best.threshold;
     }
     return Object.freeze(selected);
   };
-  const thresholds = { e1: await calibrate(e1), e2: await calibrate(e2) }; const thresholdOf = (table: Record<string, number>, fixtureId: string) => { const value = table[fixtureId]; if (value === undefined) throw new Error(`THRESHOLD_MISSING:${fixtureId}`); return value; };
+  const sweeps = { e1: await sweep(e1), e2: await sweep(e2) }; const thresholds = { e1: calibrate(sweeps.e1), e2: calibrate(sweeps.e2) };
+  const pooled = (table: ReadonlyMap<string, number> | undefined) => [...(table?.values() ?? [])].reduce((sum, value) => sum + value, 0);
+  const thresholdSweep = Object.freeze(P18_THRESHOLD_GRID.map((threshold) => Object.freeze({ threshold, e1WeightedErrors: pooled(sweeps.e1.get(threshold)), e2WeightedErrors: pooled(sweeps.e2.get(threshold)) }))); const thresholdOf = (table: Record<string, number>, fixtureId: string) => { const value = table[fixtureId]; if (value === undefined) throw new Error(`THRESHOLD_MISSING:${fixtureId}`); return value; };
   const oracle = (run: ClusteringCorpusRun): SemanticClusteringRuntime => { const label = new Map(run.findings.map(({ groundTruthId, finding }) => [finding.sourceFindingId, groundTruthId])); return { capability: "fast", async classify({ left, right }) { return { relationship: label.get(left.finding.sourceFindingId) === label.get(right.finding.sourceFindingId) ? "same_root_cause" : "unrelated", inputTokens: null, outputTokens: null, cost: null }; } }; };
   const results = { deterministic: new Map<string, ClusteringResult>(), embeddingEscalation: new Map<string, ClusteringResult>(), embeddingOnly: new Map<string, ClusteringResult>(), oracleEscalation: new Map<string, ClusteringResult>() };
   for (const { run, inputs } of runs) {
@@ -176,7 +181,7 @@ export async function evaluateEmbeddingClustering(loaded: LoadedClusteringCorpus
     schemaVersion: 1, protocolVersion: P18_PROTOCOL_VERSION, corpus: Object.freeze({ corpusId: corpus.corpusId, version: corpus.version, mode: corpus.mode, sha256: loaded.corpusSha256, fixtures: corpus.sourceFixtures }),
     embedder: options.embedder.identity, settings: Object.freeze({ textTemplate: FINDING_TEXT_TEMPLATE, thresholdGrid: P18_THRESHOLD_GRID, maximumEscalatedPairs: maximum, bootstrapResamples: resamples, bootstrapSeed: P18_SETTINGS.bootstrapSeed, repeats, falseMergeWeight: P18_SETTINGS.falseMergeWeight }),
     evidence: Object.freeze({ fixtures: fixtures.length, runs: runs.length, findings: base.score.findings, groundTruthClusters: labelCounts.length, multiMemberClusters: labelCounts.filter((count) => count > 1).length, samePairs: base.score.samePairs, differentPairs: base.score.differentPairs, ambiguousPairs: ambiguousPairs.length, escalatedPairs: ambiguousPairs.filter(({ escalated }) => escalated).length }),
-    thresholds: Object.freeze(thresholds),
+    thresholds: Object.freeze(thresholds), thresholdSweep,
     configurations: Object.freeze({ deterministic: finish(base), embeddingEscalation: finish(configuration(results.embeddingEscalation)), embeddingOnly: finish(configuration(results.embeddingOnly)), oracleEscalation: finish(configuration(results.oracleEscalation)) }),
     latency: Object.freeze({ deterministic: summarize(deterministicLatency), embeddingEscalation: summarize(embeddingLatency), maximumRunFindings: Math.max(...runs.map(({ inputs }) => inputs.length)) }),
     reproducible, semanticCalls: Object.freeze({ e1: e1Calls, oracle: oracleCalls }), ambiguousPairs: Object.freeze(ambiguousPairs),
