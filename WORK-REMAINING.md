@@ -22,14 +22,14 @@ The maintained execution queue is the [completion plan](docs/completion-plan.md)
 
 ## Live-testing policy
 
-The owner's own live testing runs **only on subscription models**, through the vendors'
+Subscription mode is a product feature for every user, on an equal footing with API keys and selectable per role. The owner's own live testing runs **only on subscription models**, through the vendors'
 CLIs, and never on API credits:
 
 | Vendor | CLI | Sign-in |
 |---|---|---|
 | Anthropic | Claude Code | Claude login |
 | OpenAI | Codex CLI | ChatGPT login |
-| Google | Gemini CLI | Google login; needs a one-time interactive sign-in: run `gemini` and choose "Login with Google" |
+| Google | Gemini CLI | Google login (the owner is signed in) |
 
 Claude carries most roles. Codex and Gemini take at most one secondary role each, because
 their limits are lower. The API-key transports remain for other users.
