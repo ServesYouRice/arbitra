@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -90,7 +90,76 @@ it.each(["complete", "interrupted", "output-limited"] as const)("selects an over
   expect(calls).toBe(1 + selections.length);
 });
 
-it.each([false, true])("plans an oversized selected-gap set through one staged durable Testing planner (interrupted: %s)", async (interrupted) => {
+it.each(["inventory", "output-limited", "interrupted"] as const)("analyses risk for an oversized repository through bounded durable partitions: %s", async (scenario) => {
+  const root = await mkdtemp(join(tmpdir(), "testing-risk-")); roots.push(root);
+  // `inventory`: the mandatory path inventory alone cannot fit one request. Otherwise the full
+  // request fits with excerpted source but its complete response exceeds the output ceiling.
+  const count = scenario === "inventory" ? 64 : 6; const nested = ["inventory", "pressure", "module"].map((part) => `${part}-${"deliberately-long-directory-name-".repeat(6)}`).join("/");
+  const directory = join(root, "src", ...nested.split("/"));
+  await mkdir(directory, { recursive: true });
+  const paths: string[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const name = `module-${String(index).padStart(3, "0")}.ts`; paths.push(`src/${nested}/${name}`);
+    await writeFile(join(directory, name), `export const value${index} = ${index};\n` + (scenario === "inventory" ? "" : `// ${"production branch detail ".repeat(160)}\n`));
+  }
+  await writeFile(join(root, "app.unit.test.ts"), "test('unrelated', () => {});\n");
+  await writeFile(join(root, "package.json"), '{"scripts":{"test":"vitest run"}}');
+  const snapshot = await snapshotRepository(root, 400, { includeTestMetadata: true });
+  const example = runConfigSchema.parse(JSON.parse(await readFile(new URL("../../../examples/audit-balanced.json", import.meta.url), "utf8")));
+  const profile = example.models["auditor-a"];
+  if (profile === undefined) throw new Error("FIXTURE_PROFILE_ABSENT");
+  const config = runConfigSchema.parse({ ...example, mode: "testing", scope: { kind: "repository" }, models: { analyst: { ...profile, capabilityTier: "frontier" } }, workflow: {
+    testing: { mode: "plan", goal: "Prevent production failures", roles: { analyst: "analyst", planner: "analyst" } },
+    modelExecution: { endpoints: [{ id: "primary", providerId: profile.provider, transport: profile.transport, endpoint: "https://fixture.example/v1", apiKeyEnvVar: "FIXTURE_KEY" }],
+      modelEndpoints: { analyst: "primary" }, maximumOutputTokens: 2000, maximumContextTokens: 36_000, maximumTokens: 10_000_000, maximumRetries: 0, timeoutMs: 30_000,
+      rateLimits: { [profile.provider]: { rpm: 100_000, tpm: 100_000_000, maxConcurrent: 4 } } },
+  } });
+  const partitions: { paths: string[]; repository: { path: string; content: string }[] }[] = [];
+  let calls = 0; let full = 0; let interrupt = scenario === "interrupted";
+  const options = { signal: new AbortController().signal, transport: { credential: () => "fixture-credential", client: { async send(request: HttpRequest) {
+    calls += 1;
+    const { system, input } = payload(request);
+    const respond = (output: unknown) => ({ status: 200, headers: {}, body: { output_text: JSON.stringify(output), usage: { input_tokens: 20, output_tokens: 30 } } });
+    if (system.startsWith("Select Testing gaps")) return respond({ selectedGapIds: (input["candidates"] as { id: string }[]).map(({ id }) => id), rejected: [], limitations: [] });
+    const scope = input["analysisScope"] as { assignedPaths: string[] } | undefined;
+    if (scope === undefined) { full += 1; return { status: 200, headers: {}, body: { status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, output_text: '{"summary":', usage: { input_tokens: 20, output_tokens: 2000 } } }; }
+    partitions.push({ paths: scope.assignedPaths, repository: input["repository"] as { path: string; content: string }[] });
+    if (interrupt && partitions.length === 2) { interrupt = false; throw new Error("FIXTURE_INTERRUPTED"); }
+    const inventory = input["inventory"] as { sourceFiles: string[]; testFiles: string[] };
+    // Every partition reports a surface named `shared`; separate partitions must not merge it away.
+    const flagged = inventory.sourceFiles.filter((path) => paths.indexOf(path) % (scenario === "inventory" ? 16 : 2) === 0);
+    return respond({ summary: `Partition ${scope.assignedPaths[0] ?? ""}`, reviewedSourcePaths: inventory.sourceFiles, reviewedTestPaths: inventory.testFiles, limitations: [],
+      surfaces: flagged.map((path, index) => ({ id: index === 0 ? "shared" : path.slice(-6, -3), paths: [path], categories: ["unit"], severity: "high", failureModes: [`${path} regresses`],
+        evidence: [{ path, startLine: 1, endLine: 1, text: `export const value${paths.indexOf(path)} = ${paths.indexOf(path)};` }] })) });
+  } } } };
+  const store = () => new RunStore(join(root, ".runs"), "run");
+  if (scenario === "interrupted") await expect(modelTestingAnalysis(store(), config, snapshot, options)).rejects.toThrow("Provider openai failed");
+  const result = await modelTestingAnalysis(store(), config, snapshot, options);
+  const inventory = [...paths, "app.unit.test.ts"].sort();
+  // The complete inventory could not be analysed in one request; the output-limited request is never repeated.
+  expect(full).toBe(scenario === "inventory" ? 0 : 1);
+  const artifacts = await store().listArtifacts();
+  const read = async (kind: string) => JSON.parse((await store().readArtifact(artifacts.filter((entry) => entry.kind === kind).at(-1)?.artifactId ?? "")).content) as unknown;
+  const batches = await read("testing-risk-batches") as { paths: string[] }[];
+  expect(batches.length).toBeGreaterThan(1);
+  expect(batches.flatMap((batch) => batch.paths).sort()).toEqual(inventory);
+  // Every path was reviewed exactly once, and multi-path partitions carried each assigned file whole.
+  expect([...result.risk.reviewedSourcePaths].sort()).toEqual(paths);
+  expect(result.risk.reviewedTestPaths).toEqual(["app.unit.test.ts"]);
+  expect(result.coverageComplete).toBe(true);
+  for (const partition of partitions) expect(partition.repository.map(({ path, content }) => [path, content])).toEqual(partition.paths.map((path) => [path, snapshot.files.find((file) => file.path === path)?.lines.join("\n")]));
+  const ids = result.risk.surfaces.map(({ id }) => id);
+  expect(new Set(ids).size).toBe(ids.length);
+  expect(ids.filter((id) => id.startsWith("shared"))).toHaveLength(batches.filter((batch) => batch.paths.some((path) => paths.indexOf(path) % (scenario === "inventory" ? 16 : 2) === 0)).length);
+  // Resume repeats no completed model work; only the interrupted partition was re-sent.
+  const before = calls;
+  expect(await modelTestingAnalysis(store(), config, snapshot, options)).toEqual(result);
+  expect(calls).toBe(before);
+  expect(partitions).toHaveLength(batches.length + (scenario === "interrupted" ? 1 : 0));
+});
+
+it.each(["complete", "interrupted", "outline-limited"] as const)("plans an oversized selected-gap set through one staged durable Testing planner: %s", async (scenario) => {
+  const interrupted = scenario === "interrupted";
   const root = await mkdtemp(join(tmpdir(), "testing-planner-")); roots.push(root);
   const surfaces = ["auth", "session", "billing", "export"];
   await writeFile(join(root, "app.ts"), surfaces.map((id) => `export const ${id} = false;`).join("\n") + "\n");
@@ -123,6 +192,10 @@ it.each([false, true])("plans an oversized selected-gap set through one staged d
     traceability: { issueToValidation: [], requirementLinks: { schemaVersion: 1, links: gapIds.map((requirementId, index) => ({ requirementId, taskIds: [`TASK-00${index + 1}`], validationIds: [`VAL-00${index + 1}`] })) } },
     routingRecommendations: tasks.map(({ id }) => ({ ...route, taskId: id })) };
   const calls: { stage: string; key: string; input: Record<string, unknown> }[] = [];
+  const truncated = (stage: string, system: string, input: Record<string, unknown>) => {
+    calls.push({ stage, key: createHash("sha256").update(system).update(JSON.stringify(input)).digest("hex"), input });
+    return { status: 200, headers: {}, body: { status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, output_text: '{"schemaVersion":', usage: { input_tokens: 20, output_tokens: 2000 } } };
+  };
   let failNext = interrupted;
   const transport = { credential: () => "fixture-credential", client: { async send(request: HttpRequest) {
     const { system, input } = payload(request);
@@ -133,11 +206,25 @@ it.each([false, true])("plans an oversized selected-gap set through one staged d
     else if (system.startsWith("Read the complete requirement records")) {
       stage = "planner-brief";
       output = { issues: (input["planningScope"] as { recordIds: string[] }).recordIds.map((issueId) => ({ issueId, summary: `Brief ${issueId}`, affectedPaths: ["app.unit.test.ts"], behavioralAssertions: [`${issueId} protected`], integrationConstraints: [], unresolvedQuestions: [] })) };
-    } else if (system.startsWith("Produce the single global testing plan outline")) { stage = "planner-outline"; output = { ...plan, tasks: tasks.map(taskOutline) }; }
+    } else if (system.startsWith("Produce the single global testing plan outline")) {
+      stage = "planner-outline"; output = { ...plan, tasks: tasks.map(taskOutline) };
+      // The complete outline exceeds the output ceiling; a hierarchical outline must replace it.
+      if (scenario === "outline-limited") return truncated(stage, system, input);
+    } else if (system.startsWith("Produce one section of the single global testing plan outline")) {
+      stage = "planner-section"; const recordIds = (input["outlineScope"] as { recordIds: string[] }).recordIds;
+      if (recordIds.length > 2) return truncated(stage, system, input);
+      const local = recordIds.filter((id) => gapIds.includes(id));
+      const sectionTasks = local.map((gapId, index) => ({ ...taskOutline(tasks[0] ?? base), id: `TASK-00${index + 1}`, title: `Protect ${gapId}`, addresses: { issues: [], validation: [`VAL-00${index + 1}`], requirements: [gapId] } }));
+      output = { ...plan, id: `section-${recordIds.join("-")}`, tasks: sectionTasks, rolloutConcerns: [`Roll out ${recordIds.join(",")}`],
+        validationContract: { schemaVersion: 1, validation: local.map((id, index) => ({ id: `VAL-00${index + 1}`, assertion: `${id} is protected`, evidence: ["regression test"] })) },
+        traceability: { issueToValidation: [], requirementLinks: { schemaVersion: 1, links: local.map((requirementId, index) => ({ requirementId, taskIds: [`TASK-00${index + 1}`], validationIds: [`VAL-00${index + 1}`] })) } },
+        routingRecommendations: sectionTasks.map(({ id }) => ({ ...route, taskId: id })) };
+    } else if (system.startsWith("Write the header of the single global testing plan outline")) { stage = "planner-header"; output = { id: "testing-plan", title: "Testing plan", reasoningOutcome: "Protect every selected gap", implementationStrategy: ["One regression test per gap"], dependencies: [], rolloutConcerns: [], migrationConcerns: [] }; }
+    else if (system.startsWith("Link dependencies across")) { stage = "planner-links"; output = { dependencies: [] }; }
     else if (system.startsWith("Expand the selected task")) {
-      stage = "planner-expand"; const id = (input["selectedTask"] as { id: string }).id;
-      if (failNext && id === "TASK-003") { failNext = false; calls.push({ stage, key: "interrupted", input }); throw new Error("FIXTURE_EXPANSION_INTERRUPTED"); }
-      output = { task: tasks.find((task) => task.id === id), unresolvedQuestions: [] };
+      stage = "planner-expand"; const selected = input["selectedTask"] as PlanIR["tasks"][number];
+      if (failNext && selected.id === "TASK-003") { failNext = false; calls.push({ stage, key: "interrupted", input }); throw new Error("FIXTURE_EXPANSION_INTERRUPTED"); }
+      output = { task: { ...tasks[0], ...selected }, unresolvedQuestions: [] };
     } else throw new Error(`UNEXPECTED_TESTING_PROMPT:${system.slice(0, 80)}`);
     calls.push({ stage, key: createHash("sha256").update(system).update(JSON.stringify(input)).digest("hex"), input });
     return { status: 200, headers: {}, body: { output_text: JSON.stringify(output), usage: { input_tokens: 20, output_tokens: 30 } } };
@@ -151,6 +238,15 @@ it.each([false, true])("plans an oversized selected-gap set through one staged d
   expect(stages).not.toContain("planner-full");
   expect(stages.filter((stage) => stage === "planner-outline")).toHaveLength(1);
   expect(stages.filter((stage) => stage === "planner-expand")).toHaveLength(interrupted ? 5 : 4);
+  if (scenario === "outline-limited") {
+    // Output-limited sections were retired and split until every section fit one response.
+    const sections = calls.filter(({ stage }) => stage === "planner-section").map(({ input }) => (input["outlineScope"] as { recordIds: string[] }).recordIds);
+    const completed = sections.filter((ids) => ids.length <= 2);
+    expect(completed.length).toBeGreaterThan(1);
+    expect(completed.flat().sort()).toEqual(["TEST_SCOPE", ...gapIds].sort());
+    expect(stages.filter((stage) => stage === "planner-header")).toHaveLength(1);
+    expect(stages.filter((stage) => stage === "planner-links")).toHaveLength(1);
+  }
   const keys = calls.filter(({ key }) => key !== "interrupted").map(({ key }) => key);
   expect(new Set(keys).size).toBe(keys.length);
   // Each selected gap's complete record and exact risk evidence reached a brief and its expansion.
@@ -161,7 +257,9 @@ it.each([false, true])("plans an oversized selected-gap set through one staged d
   const store = new RunStore(join(root, ".runs"), "run");
   const saved = (await store.listArtifacts()).filter(({ kind }) => kind === "plan-ir").at(-1);
   const final = planIRSchema.parse(JSON.parse((await store.readArtifact(saved?.artifactId ?? "")).content));
-  expect(final.traceability.requirementLinks.links.map(({ requirementId }) => requirementId)).toEqual(gapIds);
+  expect(final.traceability.requirementLinks.links.map(({ requirementId }) => requirementId).sort()).toEqual([...gapIds].sort());
+  expect(final.tasks.map(({ id }) => id)).toEqual(["TASK-001", "TASK-002", "TASK-003", "TASK-004"]);
+  if (scenario === "outline-limited") expect(final.rolloutConcerns).toHaveLength(3);
   // Re-running the completed plan repeats no model work.
   const before = calls.length;
   expect(await pipeline().run(new AbortController().signal)).toEqual(outcome);
