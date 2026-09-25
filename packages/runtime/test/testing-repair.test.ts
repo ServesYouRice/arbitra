@@ -45,7 +45,7 @@ const signal = () => new AbortController().signal;
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 const hash = (value: unknown) => digest(canonicalJson(value));
 
-type Scenario = "repair" | "shared" | "oscillation" | "rounds" | "unrecoverable" | "budget" | "interrupted" | "cancelled" | "reopen-interrupted";
+type Scenario = "repair" | "shared" | "oscillation" | "rounds" | "unrecoverable" | "budget" | "interrupted" | "cancelled" | "reopen-interrupted" | "tool-loop";
 interface Write { path: string; content: string }
 
 /** TASK-001 -> TASK-002. A later TASK-002 write breaks TASK-001's check, which only
@@ -110,6 +110,13 @@ async function fixture(scenario: Scenario) {
       // Interrupt after the repair's tool work was durably recorded.
       if (failures.interrupt && turn === 1) { failures.interrupt = false; throw new Error("REPAIR_WRITER_INTERRUPTED"); }
       if (failures.cancel && turn === 0) { failures.cancel = false; controller.current.abort(); }
+    }
+    // A writer that never stops calling tools: it rewrites its file on every turn.
+    if (scenario === "tool-loop" && number === "001" && payload.attempt.ordinal === 1) {
+      const current = new Map(payload.repository.map(({ path, content: text }) => [path, text]));
+      const written = body.input.filter(({ type }) => type === "function_call_output").length > 0;
+      return { status: 200, headers: {}, body: { output: [{ type: "function_call", call_id: `loop-${String(body.input.length)}`, name: "testing_write_file",
+        arguments: JSON.stringify({ path: "tests/001.ts", expectedHash: written ? digest("test('001', () => {});\n") : current.has("tests/001.ts") ? digest(current.get("tests/001.ts") ?? "") : null, content: "test('001', () => {});\n" }) }], usage: { input_tokens: 10, output_tokens: 10 } } };
     }
     const writes = turn === 0 ? script(number, payload.attempt.ordinal) : [];
     const current = new Map(payload.repository.map(({ path, content: text }) => [path, text]));
@@ -284,3 +291,15 @@ it("derives the dependency/conflict closure without widening any task's authorit
     staleTaskIds: ["B", "D"],
   });
 });
+
+it("ends a writer attempt at the tool-turn limit as an incomplete attempt instead of failing the run", async () => {
+  const f = await fixture("tool-loop");
+  const result = await f.executor().run(signal());
+  const first = (await f.ledger("TASK-001").status()).attempts[0];
+  // The limited attempt is judged incomplete; the next attempt completes the plan.
+  expect(first).toMatchObject({ ordinal: 1, result: "incomplete", state: "verified" });
+  expect(result).toMatchObject({ passed: true, reasons: [] });
+  await expectNoDuplicateOrWidenedWrites(f);
+  await expectSourceUnchanged(f.root);
+});
+
