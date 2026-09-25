@@ -41,7 +41,7 @@ import { featureExecutionSchema } from "@arbitra/schemas/feature-execution.js";
 import { ProtocolRegistry } from "@arbitra/protocols/registry.js";
 import { bundledProtocolControlPlane } from "@arbitra/protocols/bundled.js";
 import { hashProtocolBytes } from "@arbitra/protocols/versioning.js";
-import { decideStages, REPLAY_CONTRACT_KIND, ReplaySeed, replayReport, stageIdentities, type ProtocolPin, type ReplayContract, type StageDecision } from "./replay-contracts.js";
+import { decideStages, readReplayContract, REPLAY_CONTRACT_KIND, ReplaySeed, replayReport, stageIdentities, type ProtocolPin, type ReplayContract, type StageDecision } from "./replay-contracts.js";
 
 /** A replay's new run, with the per-stage reuse decisions for Feature and Testing. */
 export interface ReplayResource {
@@ -463,7 +463,7 @@ export class Orchestrator {
     const reused = sourceStore === undefined || modelReplay ? undefined : Object.fromEntries(await Promise.all(context.auditors.map(async ({ auditorId }) => [auditorId, await readStage<readonly AuditFinding[]>(sourceStore, `findings-${auditorId}`)] as const)));
     // Resuming a replay run continues that run under the contract it was created with; it
     // never re-decides reuse from the current configuration.
-    const seed = modelReplay && sourceStore !== undefined ? new ReplaySeed(sourceStore, store, await readStage<ReplayContract>(store, REPLAY_CONTRACT_KIND)) : undefined;
+    const seed = modelReplay && sourceStore !== undefined ? new ReplaySeed(sourceStore, store, await resumableReplayContract(store, storedContext)) : undefined;
     const units = storedContext.modelConfiguration?.mode === "audit" && reused === undefined ? await this.#resumeUnits(store, snapshot, storedContext.repositoryDigest) : undefined;
     const handle = this.#runner(store, context, reused, storedContext.modelConfiguration, storedContext.checkpointPolicy, seed, units).resume(runId);
     this.#track(runId, handle);
@@ -1030,6 +1030,14 @@ function auditorsFor(graph: RunnerGraph, config?: RunConfig) {
 async function replaySummary(store: RunStore): Promise<{ readonly replay?: unknown }> {
   const report = await replayReport(store);
   return report === null ? {} : { replay: report };
+}
+
+/** The contract a replay run resumes under; it must be intact and name the run's own source and mode. */
+async function resumableReplayContract(store: RunStore, context: StoredRunContext): Promise<ReplayContract> {
+  const contract = await readReplayContract(store);
+  if (contract === null) throw Object.assign(new Error(`REPLAY_CONTRACT_ABSENT:${store.runId}`), { statusCode: 409 });
+  if (contract.sourceRunId !== context.replaySourceRunId || contract.mode !== context.modelConfiguration?.mode) throw Object.assign(new Error(`REPLAY_CONTRACT_MISMATCH:${store.runId}`), { statusCode: 409 });
+  return contract;
 }
 
 /** Legacy Audit overrides carry no `mode`; every other request names its replay contract. */
