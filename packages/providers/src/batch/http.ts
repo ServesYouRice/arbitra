@@ -87,8 +87,12 @@ export class BatchHttp {
   }
 }
 
-/** Exhausted credit or quota, as OpenAI (429 insufficient_quota) and Anthropic (400 credit balance) report it. */
-const QUOTA_REFUSAL = /insufficient_quota|credit_balance|credit balance|billing|payment required/iu;
+/**
+ * Exhausted credit, as OpenAI (429 insufficient_quota, 400 billing_hard_limit_reached) and
+ * Anthropic (400 credit balance) report it. Deliberately not the bare word "billing": Google
+ * says "check your plan and billing details" on ordinary per-minute 429s, which stay retryable.
+ */
+const QUOTA_REFUSAL = /insufficient_quota|billing_hard_limit|credit_balance|credit balance|payment required/iu;
 
 export function record(value: unknown, label: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) throw new BatchRequestError("MALFORMED_RESPONSE", `${label} must be an object`, "no", false);
