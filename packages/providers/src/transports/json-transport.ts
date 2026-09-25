@@ -106,7 +106,8 @@ function assertHttpSuccess(value: HttpResponse): void {
   if (value.status >= 200 && value.status < 300) return;
   const detail = providerErrorDetail(value.body);
   const quotaIds = googleDetails(value.body).flatMap((item) => Array.isArray(item["violations"]) ? (item["violations"] as Record<string, unknown>[]).map((violation) => `${String(violation["quotaId"])}=${String(violation["quotaValue"])}`) : []);
-  const suffix = (detail === null ? "" : `: ${detail}`) + (quotaIds.length === 0 ? "" : ` [quota ${[...new Set(quotaIds)].join(", ").slice(0, 300)}]`);
+  // Quota identities first: they decide the class and must survive downstream truncation.
+  const suffix = (quotaIds.length === 0 ? "" : ` [quota ${[...new Set(quotaIds)].join(", ").slice(0, 300)}]`) + (detail === null ? "" : `: ${detail}`);
   // Observed live: OpenAI answers exhausted credit with 429 insufficient_quota and Anthropic
   // with 400 "credit balance is too low". Neither is a rate limit or a malformed request,
   // and retrying only repeats the refusal.

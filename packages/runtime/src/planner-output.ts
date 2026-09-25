@@ -9,10 +9,10 @@ import type { RequirementsContract } from "@arbitra/workflow/nodes/requirements/
  * is rejected while the reply can still be repaired (maximumOutputRepairs) instead of only
  * failing the finished stage. The node re-validates the returned plan unchanged.
  */
-export function traceablePlanSchema(mode: "feature" | "testing", requirements: RequirementsContract, acceptedIssueIds: readonly string[] = []): { parse(value: unknown): PlanIR } {
+export function traceablePlanSchema(mode: "audit" | "feature" | "testing", requirements: RequirementsContract | null, acceptedIssueIds: readonly string[] = []): { parse(value: unknown): PlanIR } {
   return { parse(value: unknown): PlanIR {
     const plan = planIRSchema.parse(withoutSelfReferences(value));
-    const diagnostics = [...validateTraceability(plan, [...acceptedIssueIds].sort()), ...validateRequirementsPlanTraceability(requirements, plan, mode)];
+    const diagnostics = [...validateTraceability(plan, [...acceptedIssueIds].sort()), ...(mode === "audit" || requirements === null ? [] : validateRequirementsPlanTraceability(requirements, plan, mode))];
     if (diagnostics.length > 0) throw new PlannerTraceabilityError(diagnostics);
     return plan;
   } };
