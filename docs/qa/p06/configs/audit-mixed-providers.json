@@ -1,0 +1,230 @@
+{
+  "schemaVersion": 1,
+  "mode": "audit",
+  "scope": {
+    "kind": "repository"
+  },
+  "auditDepth": "deep",
+  "consensusPolicy": "full",
+  "maxConsensusRounds": 2,
+  "verification": {
+    "deterministicFirst": true,
+    "maxModelQuestionsPerRound": 2
+  },
+  "models": {
+    "auditor-a": {
+      "schemaVersion": 1,
+      "provider": "google",
+      "modelId": "gemini-3.1-flash-lite",
+      "transport": "gemini-native",
+      "servedBy": null,
+      "family": "gemini",
+      "independenceGroup": "gemini-3.1-flash-lite",
+      "capabilityTier": "frontier",
+      "supports": {
+        "tools": true,
+        "parallelToolCalls": false,
+        "structuredOutput": true,
+        "reasoning": false,
+        "promptCaching": false,
+        "batch": false,
+        "vision": false
+      },
+      "limits": {
+        "contextTokens": 1000000,
+        "maxOutputTokens": 65536
+      },
+      "effort": {
+        "supported": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "collapse": {
+          "xhigh": "high"
+        },
+        "params": {}
+      },
+      "quirks": {
+        "systemPromptSupport": "full",
+        "fewShotPolicy": "neutral",
+        "promptStyle": "markdown",
+        "documentPlacement": "leading",
+        "historyPolicy": "round_trip_opaque",
+        "samplingDefaults": {
+          "temperature": null,
+          "topP": null,
+          "topK": null
+        },
+        "greedyDecodingSafe": true,
+        "toolLoopLimit": 8,
+        "prefillSupported": false
+      },
+      "structuredOutputDialect": "gemini"
+    },
+    "auditor-b": {
+      "schemaVersion": 1,
+      "provider": "google",
+      "modelId": "gemini-3.5-flash-lite",
+      "transport": "gemini-native",
+      "servedBy": null,
+      "family": "gemini",
+      "independenceGroup": "gemini-3.5-flash-lite",
+      "capabilityTier": "frontier",
+      "supports": {
+        "tools": true,
+        "parallelToolCalls": false,
+        "structuredOutput": true,
+        "reasoning": false,
+        "promptCaching": false,
+        "batch": false,
+        "vision": false
+      },
+      "limits": {
+        "contextTokens": 1000000,
+        "maxOutputTokens": 65536
+      },
+      "effort": {
+        "supported": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "collapse": {
+          "xhigh": "high"
+        },
+        "params": {}
+      },
+      "quirks": {
+        "systemPromptSupport": "full",
+        "fewShotPolicy": "neutral",
+        "promptStyle": "xml",
+        "documentPlacement": "leading",
+        "historyPolicy": "round_trip_opaque",
+        "samplingDefaults": {
+          "temperature": null,
+          "topP": null,
+          "topK": null
+        },
+        "greedyDecodingSafe": true,
+        "toolLoopLimit": 8,
+        "prefillSupported": true
+      },
+      "structuredOutputDialect": "gemini"
+    },
+    "auditor-c": {
+      "schemaVersion": 1,
+      "provider": "google-openai-compatible",
+      "modelId": "gemini-3.1-flash-lite",
+      "transport": "openai-chat",
+      "servedBy": null,
+      "family": "gemini",
+      "independenceGroup": "gemini-3.1-flash-lite",
+      "capabilityTier": "frontier",
+      "supports": {
+        "tools": true,
+        "parallelToolCalls": false,
+        "structuredOutput": true,
+        "reasoning": false,
+        "promptCaching": false,
+        "batch": false,
+        "vision": false
+      },
+      "limits": {
+        "contextTokens": 1000000,
+        "maxOutputTokens": 65536
+      },
+      "effort": {
+        "supported": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "collapse": {
+          "xhigh": "high"
+        },
+        "params": {}
+      },
+      "quirks": {
+        "systemPromptSupport": "full",
+        "fewShotPolicy": "neutral",
+        "promptStyle": "markdown",
+        "documentPlacement": "leading",
+        "historyPolicy": "strip_reasoning",
+        "samplingDefaults": {
+          "temperature": null,
+          "topP": null,
+          "topK": null
+        },
+        "greedyDecodingSafe": true,
+        "toolLoopLimit": 8,
+        "prefillSupported": false
+      },
+      "structuredOutputDialect": "json_mode"
+    }
+  },
+  "harness": {
+    "mode": "canonical"
+  },
+  "workflow": {
+    "preset": "audit-deep",
+    "modelExecution": {
+      "endpoints": [
+        {
+          "id": "gemini-native",
+          "providerId": "google",
+          "transport": "gemini-native",
+          "endpoint": "https://generativelanguage.googleapis.com/v1beta",
+          "apiKeyEnvVar": "ARBITRA_GEMINI_API_KEY"
+        },
+        {
+          "id": "gemini-native-b",
+          "providerId": "google",
+          "transport": "gemini-native",
+          "endpoint": "https://generativelanguage.googleapis.com/v1beta",
+          "apiKeyEnvVar": "ARBITRA_GEMINI_API_KEY"
+        },
+        {
+          "id": "gemini-compatible",
+          "providerId": "google-openai-compatible",
+          "transport": "openai-chat",
+          "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai",
+          "apiKeyEnvVar": "ARBITRA_GEMINI_API_KEY"
+        }
+      ],
+      "modelEndpoints": {
+        "auditor-a": "gemini-native",
+        "auditor-b": "gemini-native-b",
+        "auditor-c": "gemini-compatible"
+      },
+      "roles": {
+        "planner": "auditor-a",
+        "verifier": "auditor-b",
+        "critic": "auditor-c"
+      },
+      "maximumOutputTokens": 8000,
+      "maximumContextTokens": 128000,
+      "maximumTokens": 3000000,
+      "timeoutMs": 180000,
+      "maximumRetries": 5,
+      "maximumOutputRepairs": 2,
+      "rateLimits": {
+        "google": {
+          "rpm": 6,
+          "tpm": 250000,
+          "maxConcurrent": 1
+        },
+        "google-openai-compatible": {
+          "rpm": 6,
+          "tpm": 250000,
+          "maxConcurrent": 1
+        }
+      }
+    }
+  },
+  "budgets": {},
+  "security": {},
+  "protocols": {},
+  "promptOverrides": {},
+  "contextPolicies": {}
+}

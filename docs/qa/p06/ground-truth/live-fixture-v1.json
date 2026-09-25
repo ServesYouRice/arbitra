@@ -1,0 +1,10 @@
+{
+  "fixtureId": "live-fixture-v1",
+  "version": 1,
+  "items": [
+    { "id": "discount-unbounded", "kind": "defect", "category": "correctness", "path": "src/cart.js", "location": "applyDiscount", "detectionCriteria": "Identifies that applyDiscount accepts a percent outside 0-100, producing negative or inflated totals despite the documented range.", "rationale": "The documented 0-100 contract is not enforced, so a caller-supplied percent can make a checkout total negative or larger than the subtotal." },
+    { "id": "quantity-parse", "kind": "defect", "category": "input_validation", "path": "src/cart.js", "location": "parseQuantity", "detectionCriteria": "Identifies that parseQuantity returns NaN, truncated or negative values for customer text without validation.", "rationale": "parseInt(\"2.9\") is 2, parseInt(\"abc\") is NaN and parseInt(\"-3\") is -3; none is rejected before reaching cart arithmetic." },
+    { "id": "session-expiry-boundary", "kind": "defect", "category": "authentication", "path": "src/session.js", "location": "isExpired", "detectionCriteria": "Identifies that isExpired treats a session as valid at exactly expiresAt, contradicting its documented strict expiry.", "rationale": "The comment says a session is valid strictly before its expiry instant, but now > expiresAt is false when now equals expiresAt." },
+    { "id": "subtotal-correct", "kind": "decoy", "category": "correctness", "path": "src/cart.js", "location": "subtotal", "detectionCriteria": "Does not report subtotal as a defect.", "rationale": "subtotal sums price times quantity over the lines as documented, and the repository test covers it." }
+  ]
+}
