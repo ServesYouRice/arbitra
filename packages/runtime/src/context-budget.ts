@@ -23,6 +23,7 @@ export const OUTPUT_TOKENS_PER_RECORD = Object.freeze({
   testingSelectionCandidate: 120,
   featureReviewRequirement: 150,
   testingRiskPath: 250,
+  requirementsRecord: 200,
   featureExplorationRequirement: 300,
 });
 
