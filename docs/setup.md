@@ -198,6 +198,7 @@ extensions, up to 400 files and 512 KiB per file. Snapshots skip hidden director
 Testing snapshots also include test metadata such as `package.json`. `security` (including
 `excludeGlobs`) and `contextPolicies` are not applied by the runtime; preflight warns when
 they are non-empty (`SECURITY_SETTINGS_NOT_ENFORCED`, `CONTEXT_POLICIES_NOT_ENFORCED`).
+To exclude paths, use `scope.exclude`: repository-relative path prefixes removed from the snapshot.
 Use `scope` to narrow what is read.
 
 ### Native mode
@@ -292,7 +293,7 @@ See [Feature mode](workflows.md#feature-mode) for revision and the equivalent HT
 | `RESOLVED_CREDENTIAL_FORBIDDEN`, `INVALID_CREDENTIAL_ENVIRONMENT_REFERENCE` | configuration | Replace the literal secret with an uppercase `…EnvVar` variable name |
 | `RUNTIME_NATIVE_HARNESS_NOT_AVAILABLE` | configuration | Set `harness.mode` to `canonical` |
 | `BUDGETS_NOT_ENFORCED` | configuration | Set `budgets` to `{}`; limit spend with `workflow.modelExecution.maximumTokens` (error for model-backed runs, warning for scripted Audit) |
-| `SECURITY_SETTINGS_NOT_ENFORCED`, `CONTEXT_POLICIES_NOT_ENFORCED` | configuration (warning) | Set the section to `{}`; narrow the source with `scope` |
+| `SECURITY_SETTINGS_NOT_ENFORCED`, `CONTEXT_POLICIES_NOT_ENFORCED` | configuration (warning) | Set the section to `{}`; exclude paths with `scope.exclude` or narrow `scope` |
 | `UNKNOWN_WORKFLOW_PRESET`, `WORKFLOW_PRESET_MODE_MISMATCH` | configuration | Use a preset that executes the configured mode |
 | `RUNTIME_MODEL_EXECUTION_CONFIGURATION_REQUIRED` | configuration | Add `workflow.modelExecution`, or remove all profiles for a scripted Audit |
 | `MODEL_PROFILE_REQUIRED:<id>`, `MODEL_EXECUTION_ROLES_REQUIRED`, `MODEL_CRITIC_PROFILE_REQUIRED` | configuration | Add the named auditor profile or Audit role |

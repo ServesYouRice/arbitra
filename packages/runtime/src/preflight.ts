@@ -117,7 +117,7 @@ function unenforcedSectionDiagnostics(config: RunConfig, modelBacked: boolean, d
     diagnostics.push(modelBacked ? error("BUDGETS_NOT_ENFORCED", "budgets", message) : warning("BUDGETS_NOT_ENFORCED", "budgets", `${message} This scripted run makes no model calls.`));
   }
   if (Object.keys(config.security).length > 0) {
-    diagnostics.push(warning("SECURITY_SETTINGS_NOT_ENFORCED", "security", "security is not enforced: excludeGlobs and the other keys here do not remove files from the snapshot. Narrow the source with scope (module or diff scope) and keep secrets out of the repository; secret redaction applies regardless. Set security to {}."));
+    diagnostics.push(warning("SECURITY_SETTINGS_NOT_ENFORCED", "security", "security is not enforced: excludeGlobs and the other keys here do not remove files from the snapshot. Exclude paths with scope.exclude (repository-relative path prefixes), or narrow the source with a module or diff scope; secret redaction applies regardless. Set security to {}."));
   }
   if (Object.keys(config.contextPolicies).length > 0) {
     diagnostics.push(warning("CONTEXT_POLICIES_NOT_ENFORCED", "contextPolicies", "contextPolicies is not read: each stage's context is fixed by its workflow (discovery is always independent). Set contextPolicies to {}."));
