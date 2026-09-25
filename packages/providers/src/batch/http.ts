@@ -1,5 +1,5 @@
 import { FetchHttpClient, type HttpClient, type HttpResponse, type TransportConfiguration, type TransportResponse, type TransportUsage } from "../transport-contract.js";
-import { providerErrorDetail } from "../transports/json-transport.js";
+import { isQuotaRefusal, providerErrorDetail } from "../transports/json-transport.js";
 import { BatchRequestError } from "./contract.js";
 
 export interface BatchHttpOptions {
@@ -74,7 +74,7 @@ export class BatchHttp {
     const detail = providerErrorDetail(response.body);
     const suffix = detail === null ? "" : `: ${detail}`;
     // Same classification as the interactive transports: an unfunded account is refused, not rate limited.
-    if ([400, 402, 429].includes(response.status) && detail !== null && QUOTA_REFUSAL.test(detail)) {
+    if (isQuotaRefusal(response.status, response.body)) {
       throw new BatchRequestError("QUOTA", `Provider account has no usable credit or quota${suffix}`, "no", false);
     }
     if (response.status === 429) throw new BatchRequestError("RATE_LIMIT", `Provider rate limit${suffix}`, "no", true);
@@ -87,12 +87,6 @@ export class BatchHttp {
   }
 }
 
-/**
- * Exhausted credit, as OpenAI (429 insufficient_quota, 400 billing_hard_limit_reached) and
- * Anthropic (400 credit balance) report it. Deliberately not the bare word "billing": Google
- * says "check your plan and billing details" on ordinary per-minute 429s, which stay retryable.
- */
-const QUOTA_REFUSAL = /insufficient_quota|billing_hard_limit|credit_balance|credit balance|payment required/iu;
 
 export function record(value: unknown, label: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) throw new BatchRequestError("MALFORMED_RESPONSE", `${label} must be an object`, "no", false);
