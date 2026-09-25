@@ -68,6 +68,12 @@ export function controlPlaneCore(orchestrator: Orchestrator) {
       artifact: (runId: string, traceId: string, slot: string) => orchestrator.traceArtifact(runId, traceId, slot),
     },
 
+    // Operator decisions for uncertain provider batch submissions; the orchestrator versions and records them.
+    batches: {
+      list: (runId: string) => orchestrator.batchSubmissions(runId),
+      resolve: (runId: string, submissionId: string, body: unknown) => orchestrator.resolveBatchSubmission(runId, submissionId, body),
+    },
+
     incremental: {
       report: (runId: string) => orchestrator.incrementalReport(runId),
     },

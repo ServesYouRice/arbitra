@@ -7,6 +7,7 @@ import type { HttpClient, HttpRequest, HttpResponse } from "@arbitra/providers/t
 import { ModelActivities } from "../src/model-activities.js";
 import { validateBatchLanes } from "../src/model-batch-lane.js";
 import { RunStore } from "../src/run-store.js";
+import { Orchestrator } from "../src/orchestrator.js";
 
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
@@ -29,10 +30,15 @@ async function fixture(options: { transport?: string; batch?: boolean; tools?: b
       batch: { lanes: [{ modelProfileId: "cheap", activityGroups: ["semantic-clustering"], pollIntervalMs: 1_000, maximumWaitMs: 60_000, maximumItemsPerSubmission: options.itemsPerSubmission ?? 10, collectWindowMs: options.collectWindowMs ?? 250 }] },
     },
   } });
-  const store = new RunStore(root, "run-1");
+  const state = join(root, "state");
+  const store = new RunStore(join(state, "runs"), "run-1");
   const openai = new FakeOpenAi();
-  const create = () => new ModelActivities(store, config, { client: openai, credential: () => "fixture-credential" });
-  return { store, openai, create, config };
+  const providerOptions = { client: openai, credential: () => "fixture-credential" };
+  const create = () => new ModelActivities(store, config, providerOptions);
+  // A restarted process: a new orchestrator over the same state directory.
+  const orchestrator = () => new Orchestrator({ repository: root, stateDirectory: state, providerOptions });
+  const saveContext = () => store.saveContext({ repository: root, repositoryDigest: "a".repeat(64), scope: { kind: "repository" }, consensusPolicy: "minimal", maximumRounds: 1, criticEnabled: false, modelConfiguration: config });
+  return { store, openai, create, config, orchestrator, saveContext };
 }
 
 /** OpenAI Batch and Responses APIs as documented, over injected HTTP. */
@@ -124,13 +130,55 @@ describe("model activities on an explicit batch lane", () => {
     await expect(create().invoke(request("semantic-clustering/pair-1"))).rejects.toMatchObject({ code: "BATCH_SUBMISSION_UNCERTAIN" });
     const creations = () => openai.requests.filter(({ method, url }) => (method ?? "POST") === "POST" && url === `${BASE}batches`).length;
     expect(creations()).toBe(1);
-    const [submission] = await create().batchSubmissions();
+    const [submission] = await create().batchView();
     expect(submission).toMatchObject({ state: "uncertain", reconciliation: { lastResult: "not_found" } });
 
     // The operator confirms the job exists in the provider console.
-    await create().resolveBatchSubmission(submission?.id ?? "", { providerJobId: "batch_1" }, "operator");
+    await create().resolveBatchSubmission(submission?.id ?? "", submission?.version ?? "", { decision: "provider_job", providerJobId: "batch_1" }, "operator");
     await expect(create().invoke(request("semantic-clustering/pair-1"))).resolves.toEqual({ answer: "semantic-clustering/pair-1" });
     expect(creations()).toBe(1);
+  });
+
+  it("lists uncertain submissions through the orchestrator and records one versioned operator decision that survives restart", async () => {
+    const { create, openai, orchestrator, saveContext, store } = await fixture();
+    await expect(orchestrator().batchSubmissions("run-1")).rejects.toMatchObject({ statusCode: 404 });
+    await saveContext();
+    expect(await orchestrator().batchSubmissions("run-1")).toEqual({ runId: "run-1", configured: true, live: false, submissions: [] });
+    openai.createBatch = async () => ({ status: 503, headers: {}, body: { error: { message: "overloaded" } } });
+    await expect(create().invoke(request("semantic-clustering/pair-1"))).rejects.toMatchObject({ code: "BATCH_SUBMISSION_UNCERTAIN" });
+    const creations = () => openai.requests.filter(({ method, url }) => (method ?? "POST") === "POST" && url === `${BASE}batches`).length;
+
+    const listed = await orchestrator().batchSubmissions("run-1");
+    const [uncertain] = listed.submissions;
+    const traceId = uncertain?.items[0]?.traceId;
+    expect(uncertain).toMatchObject({ state: "uncertain", resolvable: true, driverId: "openai-batch", capabilityStatus: "declared_unverified", reconciliationSupport: "metadata_listing",
+      providerJobId: null, sentAt: expect.any(Number), error: { code: expect.any(String) }, reconciliation: { attempts: 1, lastResult: "not_found" }, resolution: null,
+      items: [{ activityId: "semantic-clustering/pair-1", traceId: expect.any(String), attempt: 1, state: "queued", usage: null }] });
+    const id = uncertain?.id ?? ""; const version = uncertain?.version ?? "";
+    const [budget] = await artifact(store, (kind) => kind === "model-token-budget") as { reservations: unknown[] }[];
+
+    await expect(orchestrator().resolveBatchSubmission("run-1", id, { version: "0".repeat(64), decision: "not_submitted", by: "operator" })).rejects.toMatchObject({ statusCode: 409, message: `BATCH_SUBMISSION_VERSION_STALE:${id}` });
+    await expect(orchestrator().resolveBatchSubmission("run-1", "f".repeat(32), { version, decision: "not_submitted", by: "operator" })).rejects.toMatchObject({ statusCode: 404 });
+    await expect(orchestrator().resolveBatchSubmission("run-1", id, { version, decision: "not_submitted" })).rejects.toThrow();
+    const accepted = await orchestrator().resolveBatchSubmission("run-1", id, { version, decision: "not_submitted", by: "operator" });
+    expect(accepted).toMatchObject({ accepted: true, runId: "run-1", submission: { id, state: "abandoned", resolvable: false, resolution: { kind: "not_submitted", by: "operator", version },
+      items: [{ state: "not_submitted", reservationTransferred: false }] } });
+    await expect(orchestrator().resolveBatchSubmission("run-1", id, { version, decision: "abandon", by: "operator" })).rejects.toMatchObject({ statusCode: 409, message: `BATCH_SUBMISSION_NOT_UNCERTAIN:${id}:abandoned` });
+    expect(creations()).toBe(1);
+    // Declaring it absent refunds nothing: the reservation is unchanged until the next attempt takes it over.
+    expect(await artifact(store, (kind) => kind === "model-token-budget")).toEqual([budget]);
+
+    openai.createBatch = async () => ok({ id: "batch_1", status: "validating" });
+    await expect(create().invoke(request("semantic-clustering/pair-1"))).resolves.toEqual({ answer: "semantic-clustering/pair-1" });
+    expect(creations()).toBe(2);
+    const resumed = await orchestrator().batchSubmissions("run-1");
+    const summary = resumed.submissions.map(({ state, items }) => ({ state, items: items.map(({ attempt, state: itemState, traceId: itemTrace, reservationTransferred }) => ({ attempt, itemState, itemTrace, reservationTransferred })) }));
+    expect(summary.sort((a, b) => a.state.localeCompare(b.state))).toEqual([
+      { state: "abandoned", items: [{ attempt: 1, itemState: "not_submitted", itemTrace: traceId, reservationTransferred: true }] },
+      { state: "ended", items: [{ attempt: 2, itemState: "succeeded", itemTrace: traceId, reservationTransferred: false }] },
+    ]);
+    const [after] = await artifact(store, (kind) => kind === "model-token-budget") as { reservations: { activityId: string }[] }[];
+    expect(after?.reservations.filter(({ activityId }) => activityId === "semantic-clustering/pair-1")).toHaveLength(1);
   });
 
   it("rejects unsupported batch lanes at preflight with an actionable error", async () => {

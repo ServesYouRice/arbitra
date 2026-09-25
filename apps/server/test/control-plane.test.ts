@@ -11,6 +11,7 @@ import { REPLAY_ROUTE_INVENTORY } from "../src/routes/replay.js";
 import { TESTING_ROUTE_INVENTORY } from "../src/routes/testing.js";
 import { INCREMENTAL_ROUTE_INVENTORY } from "../src/routes/incremental.js";
 import { WORKFLOW_ROUTE_INVENTORY } from "../src/routes/workflows.js";
+import { BATCH_ROUTE_INVENTORY } from "../src/routes/batches.js";
 import { ROUTE_INVENTORY } from "../src/routes/inventory.js";
 import { HTTP_ROUTE_SCHEMAS } from "@arbitra/schemas/http-control-plane";
 
@@ -21,7 +22,7 @@ describe("localhost control plane contracts", () => {
     expect(server.routes.map(({ method, url }) => [method, url])).toEqual(ROUTE_INVENTORY);
     expect(server.listenOptions).toEqual({ host: "127.0.0.1", port: 4178 }); expect(DEFAULT_SERVER_HOST).toBe("127.0.0.1");
     expect(JSON.stringify(ROUTE_INVENTORY)).not.toMatch(/websocket|ws:/iu);
-    expect(Object.keys(HTTP_ROUTE_SCHEMAS).sort()).toEqual([...ROUTE_INVENTORY, ...EVALUATION_ROUTE_INVENTORY, ...TRACE_ROUTE_INVENTORY, ...REQUIREMENTS_ROUTE_INVENTORY, ...REPLAY_ROUTE_INVENTORY, ...TESTING_ROUTE_INVENTORY, ...WORKFLOW_ROUTE_INVENTORY, ...INCREMENTAL_ROUTE_INVENTORY].map(([method, url]) => `${method} ${url}`).sort());
+    expect(Object.keys(HTTP_ROUTE_SCHEMAS).sort()).toEqual([...ROUTE_INVENTORY, ...EVALUATION_ROUTE_INVENTORY, ...TRACE_ROUTE_INVENTORY, ...REQUIREMENTS_ROUTE_INVENTORY, ...REPLAY_ROUTE_INVENTORY, ...TESTING_ROUTE_INVENTORY, ...WORKFLOW_ROUTE_INVENTORY, ...INCREMENTAL_ROUTE_INVENTORY, ...BATCH_ROUTE_INVENTORY].map(([method, url]) => `${method} ${url}`).sort());
     expect(assertLoopbackHost("::1")).toBe("::1");
     expect(() => assertLoopbackHost("0.0.0.0")).toThrow("NON_LOOPBACK_SERVER_HOST");
     await expect(startServer(fakeServer(), core(), HTTP_ROUTE_SCHEMAS, { host: "localhost" })).rejects.toThrow("NON_LOOPBACK_SERVER_HOST");

@@ -1,6 +1,7 @@
 import { isImplementedCommand } from "../command-registry.js";
 import type { CoreCommandResult, OrchestratorCore } from "../core.js";
 import { executeAudit } from "./audit.js";
+import { executeBatches, executeResolveBatch } from "./batches.js";
 import { executeDiff } from "./diff.js";
 import { executeEstimate } from "./estimate.js";
 import { executeExport } from "./export.js";
@@ -25,6 +26,8 @@ export async function executeCommand(
   if (command === "report") return executeReport(core, positional);
   if (command === "run") return executeRun(core, positional);
   if (command === "workflow") return executeWorkflow(core, positional);
+  if (command === "batches") return executeBatches(core, positional);
+  if (command === "resolve-batch") return executeResolveBatch(core, positional);
   const subject = positional[0];
   if (subject === undefined || subject.length === 0) {
     return { disposition: "system_failure", reasons: [`missing_argument:${command}`], value: null };

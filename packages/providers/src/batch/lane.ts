@@ -130,11 +130,33 @@ export interface BatchSubmissionRecord {
   readonly cancelRequestedAt: number | null;
   readonly cancelReason: "deadline" | "all_items_cancelled" | null;
   readonly reconciliation: { readonly attempts: number; readonly lastResult: string | null };
-  readonly resolution: null | { readonly kind: "provider_job" | "not_submitted"; readonly by: string; readonly at: number };
+  /** The operator decision that moved an uncertain submission on, and the version it answered. */
+  readonly resolution: null | { readonly kind: "provider_job" | "not_submitted" | "abandoned"; readonly by: string; readonly at: number; readonly version?: string; readonly providerJobId?: string };
   readonly error: Failure | null;
   /** Result lines that matched no member, or duplicated one. Recorded, never delivered. */
   readonly anomalies: readonly string[];
 }
+
+/** Operator decisions for an uncertain submission: bind the job found in the provider console, declare it never accepted, or fail its items. */
+export type BatchResolution =
+  | { readonly decision: "provider_job"; readonly providerJobId: string }
+  | { readonly decision: "not_submitted" }
+  | { readonly decision: "abandon" };
+
+/** What an operator needs to decide about one submission; raw result bodies are omitted. */
+export interface BatchSubmissionView extends Omit<BatchSubmissionRecord, "members"> {
+  readonly version: string;
+  /** Only uncertain submissions (or ones interrupted while sending) accept an operator decision. */
+  readonly resolvable: boolean;
+  readonly reconciliationSupport: BatchCapabilityDeclaration["reconciliation"] | null;
+  readonly items: readonly {
+    readonly itemId: string; readonly customId: string; readonly activityId: string | null; readonly traceId: string | null; readonly attempt: number | null;
+    readonly state: AttemptState | "absent"; readonly estimatedTokens: number | null; readonly reservationTransferred: boolean;
+    readonly usage: TransportUsage | null; readonly cancelRequested: boolean; readonly late: boolean; readonly error: Failure | null;
+  }[];
+}
+
+const PROVIDER_JOB_ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/u;
 
 export class BatchSubmissionUncertainError extends Error {
   readonly code = "BATCH_SUBMISSION_UNCERTAIN" as const;
@@ -243,19 +265,48 @@ export class BatchLane {
     return { ended, uncertain, pending };
   }
 
-  /** Operator decision for an uncertain submission. The only way one leaves that state without a provider match. */
-  async resolveUncertain(submissionId: string, resolution: { readonly providerJobId: string } | { readonly notSubmitted: true }, by: string): Promise<BatchSubmissionRecord> {
+  /** Content version of a submission record. A decision must name the version it was made against. */
+  static versionOf(record: BatchSubmissionRecord): string { return digest(JSON.stringify(record)); }
+
+  /**
+   * Operator decision for an uncertain submission; the only way one leaves that state
+   * without a provider match. A stale version or a second decision is rejected. A bound
+   * job ID is checked with one status request and must not already belong to another
+   * submission. Nothing is submitted here and no reservation is released.
+   */
+  async resolveUncertain(submissionId: string, version: string, resolution: BatchResolution, by: string): Promise<BatchSubmissionRecord> {
     if (by.trim() === "") throw new Error("BATCH_RESOLUTION_ACTOR_REQUIRED");
-    return this.#serial(async () => {
+    const current = async (): Promise<BatchSubmissionRecord> => {
       const submission = await this.#submission(submissionId);
       if (submission.state !== "uncertain" && submission.state !== "sending") throw new Error(`BATCH_SUBMISSION_NOT_UNCERTAIN:${submissionId}:${submission.state}`);
+      if (BatchLane.versionOf(submission) !== version) throw new Error(`BATCH_SUBMISSION_VERSION_STALE:${submissionId}`);
+      return submission;
+    };
+    const decided = await this.#serial(current);
+    let providerStatus: string | null = null;
+    if (resolution.decision === "provider_job") {
+      const jobId = resolution.providerJobId;
+      if (!PROVIDER_JOB_ID.test(jobId)) throw new Error("INVALID_PROVIDER_JOB_ID");
+      const bound = (await this.submissions()).find((other) => other.id !== submissionId && other.providerJobId === jobId);
+      if (bound !== undefined) throw new Error(`BATCH_PROVIDER_JOB_ALREADY_BOUND:${jobId}:${bound.id}`);
+      try { providerStatus = (await this.#withTimeout((signal) => this.options.driver(decided.endpointId).status(jobId, signal))).providerStatus; }
+      catch (error) { throw new Error(`BATCH_PROVIDER_JOB_UNVERIFIED:${jobId}: ${error instanceof Error ? error.message : String(error)}`); }
+    }
+    return this.#serial(async () => {
+      const submission = await current();
       const at = this.#now();
-      if ("providerJobId" in resolution) {
-        if (resolution.providerJobId.trim() === "") throw new Error("INVALID_PROVIDER_JOB_ID");
-        return this.#markSubmitted(submission, resolution.providerJobId, { kind: "provider_job", by, at });
+      if (resolution.decision === "provider_job") {
+        return this.#markSubmitted({ ...submission, providerStatus }, resolution.providerJobId, { kind: "provider_job", by, at, version, providerJobId: resolution.providerJobId });
       }
-      await this.#updateMembers(submission, (attempt) => attempt.state === "queued" ? { ...attempt, state: "not_submitted" } : attempt);
-      const next: BatchSubmissionRecord = { ...submission, state: "abandoned", resolution: { kind: "not_submitted", by, at } };
+      if (resolution.decision === "not_submitted") {
+        // The reservation stays on the item and moves to its next attempt; nothing is refunded.
+        await this.#updateMembers(submission, (attempt) => attempt.state === "queued" ? { ...attempt, state: "not_submitted" } : attempt);
+      } else {
+        // Whether the provider ran (and billed) the work is unknown, so the estimate stays charged.
+        const error = { code: "BATCH_ABANDONED_BY_OPERATOR", message: `Uncertain batch submission ${submissionId} abandoned by ${by}; spend is unknown and the item is not resubmitted` };
+        await this.#updateMembers(submission, (attempt) => attempt.state === "queued" ? { ...attempt, state: "errored", error, usage: null } : attempt);
+      }
+      const next: BatchSubmissionRecord = { ...submission, state: "abandoned", resolution: { kind: resolution.decision === "abandon" ? "abandoned" : "not_submitted", by, at, version } };
       await this.#saveSubmission(next);
       return next;
     });
@@ -264,6 +315,24 @@ export class BatchLane {
   async submissions(): Promise<readonly BatchSubmissionRecord[]> {
     const keys = await this.options.backend.list("submission/");
     return Promise.all(keys.map((key) => this.#submission(key.slice("submission/".length))));
+  }
+
+  /** Every submission with its version and its members' item and trace identity, attempt state and spend. */
+  async view(): Promise<readonly BatchSubmissionView[]> {
+    const submissions = [...await this.submissions()].sort((a, b) => a.preparedAt - b.preparedAt || a.id.localeCompare(b.id));
+    return Promise.all(submissions.map(async (submission) => {
+      const { members, ...rest } = submission;
+      let reconciliationSupport: BatchCapabilityDeclaration["reconciliation"] | null = null;
+      try { reconciliationSupport = this.options.driver(submission.endpointId).declaration.reconciliation; } catch { /* reported as unknown */ }
+      const items = await Promise.all(members.map(async ({ itemId, customId }) => {
+        const record = await this.#item(itemId);
+        const attempt = record?.attempts.find((candidate) => candidate.customId === customId);
+        return { itemId, customId, activityId: record?.activityId ?? null, traceId: record?.traceId ?? null, attempt: attempt?.attempt ?? null, state: attempt?.state ?? "absent" as const,
+          estimatedTokens: attempt?.estimatedTokens ?? null, reservationTransferred: attempt?.reservationTransferred ?? false, usage: attempt?.usage ?? null,
+          cancelRequested: attempt?.cancelRequested ?? false, late: attempt?.late ?? false, error: attempt?.error ?? null };
+      }));
+      return { ...rest, version: BatchLane.versionOf(submission), resolvable: submission.state === "uncertain" || submission.state === "sending", reconciliationSupport, items };
+    }));
   }
 
   async item(activityId: string): Promise<BatchItemRecord | null> { return this.#item(BatchLane.itemIdFor(activityId)); }

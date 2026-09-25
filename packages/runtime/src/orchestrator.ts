@@ -34,6 +34,8 @@ import { ModelProtocols } from "./model-protocols.js";
 import { readRequirementsProposal } from "./requirements-revision.js";
 import { GraphCheckpoints, validateGraphCheckpoints, type CheckpointView, type GatePolicyRegistry } from "@arbitra/core/runner/graph-checkpoints.js";
 import { checkpointPolicySchema, checkpointResponseSchema, type CheckpointPolicy } from "@arbitra/schemas/checkpoint-policy.js";
+import { batchResolutionRequestSchema } from "@arbitra/schemas/provider-execution.js";
+import { ModelActivities } from "./model-activities.js";
 import { graphCheckpointStore } from "./graph-checkpoint-store.js";
 import { canonicalJson } from "@arbitra/core/config/config-store.js";
 import { replayRequestSchema, type FeatureReplayRequest, type ReplayRequest, type TestingReplayRequest } from "@arbitra/schemas/replay.js";
@@ -528,6 +530,45 @@ export class Orchestrator {
       if (checkpoint === undefined) throw new Error(`CHECKPOINT_NOT_FOUND:${checkpointId}`);
       return Object.freeze({ accepted: true as const, runId, state: status.state as RunState, checkpoint });
     } finally { this.#resuming.delete(runId); }
+  }
+
+  /** The run's provider batch submissions, including uncertain ones and the evidence recorded for them. */
+  async batchSubmissions(runId: string) {
+    await this.#requireRun(runId);
+    const activities = await this.#batchActivities(runId);
+    return Object.freeze({ runId, configured: activities !== null, live: this.#live.has(runId) || this.#resuming.has(runId), submissions: activities === null ? [] : await activities.batchView() });
+  }
+
+  /**
+   * Record an operator decision for one uncertain batch submission. The run must be idle,
+   * the version must be current, and each version accepts one decision. Nothing is
+   * submitted here; a bound job is polled and collected when the run resumes.
+   */
+  async resolveBatchSubmission(runId: string, submissionId: string, value: unknown) {
+    const { version, by, ...decision } = batchResolutionRequestSchema.parse(value);
+    await this.#requireRun(runId);
+    if (this.#live.has(runId) || this.#resuming.has(runId)) throw Object.assign(new Error(`RUN_ALREADY_LIVE:${runId}`), { statusCode: 409 });
+    this.#resuming.add(runId);
+    try {
+      const activities = await this.#batchActivities(runId);
+      if (activities === null) throw Object.assign(new Error(`BATCH_LANE_NOT_CONFIGURED:${runId}`), { statusCode: 409 });
+      try { await activities.resolveBatchSubmission(submissionId, version, decision, by); }
+      catch (error) {
+        const code = error instanceof Error ? error.message.split(":")[0] ?? "" : "";
+        const statusCode = code === "BATCH_SUBMISSION_ABSENT" ? 404 : ["BATCH_SUBMISSION_NOT_UNCERTAIN", "BATCH_SUBMISSION_VERSION_STALE", "BATCH_PROVIDER_JOB_ALREADY_BOUND", "BATCH_PROVIDER_JOB_UNVERIFIED"].includes(code) ? 409 : undefined;
+        throw statusCode === undefined ? error : Object.assign(error as Error, { statusCode });
+      }
+      const submission = (await activities.batchView()).find(({ id }) => id === submissionId);
+      if (submission === undefined) throw new Error(`BATCH_SUBMISSION_ABSENT:${submissionId}`);
+      return Object.freeze({ accepted: true as const, runId, submission });
+    } finally { this.#resuming.delete(runId); }
+  }
+
+  async #batchActivities(runId: string): Promise<ModelActivities | null> {
+    const config = (await new RunStore(this.#runsDirectory, runId).loadContext()).modelConfiguration;
+    const execution = config?.workflow["modelExecution"] as { batch?: unknown } | undefined;
+    if (config === undefined || execution?.batch === undefined) return null;
+    return new ModelActivities(new RunStore(this.#runsDirectory, runId), config, this.#providerOptions);
   }
 
   #checkpoints(store: RunStore, policy: CheckpointPolicy | undefined): GraphCheckpoints {
