@@ -1,26 +1,24 @@
 # Remaining work
 
-Updated September 25, 2026 against commit 64f887e (branch `beta`).
+Updated September 25, 2026 against commit 0c6fb12 (branch `beta`).
 
-The maintained execution queue is the [completion plan](docs/completion-plan.md); its
-[status table](docs/completion-plan.md#status-september-25-2026) records every item.
-P02, P05, P09, P14, P16 and P17 are complete. P01, P07, P08, P10–P13 and P15 are
-implemented, with the evidence listed there still outstanding. P03, P04, P06, P18 and
-P19 are pending.
+The maintained execution queue is the [completion plan](docs/completion-plan.md). Every item is recorded in its [status table](docs/completion-plan.md#status-september-25-2026).
+
+- **Complete:** P01, P02, P04, P05, P07, P09–P11, P13, P14, P16 and P17.
+- **Implemented, evidence still outstanding:** P08, P12 and P15.
+- **Partially accepted live:** P03.
+- **In progress:** P06.
+- **Decided provisionally (reject), to be rerun on P06 data:** P18.
+- **Pending:** P19.
 
 ## What is left, by what it needs
 
-1. **Provider credentials and bounded spend:** P03 live conformance and public workflow
-   acceptance, then P06 real-model premise evaluation, the live advisor path (P13) and
-   each batch driver (P15).
-2. **A local Linux Docker engine and pinned image:** P04, then P07's real-sandbox repair cases.
-3. **A Claude Code binary and key:** P12 conformance (`ARBITRA_NATIVE_HARNESS_CONFORMANCE=1`).
-4. **Other platforms:** Linux CI for P01 and non-macOS browser runs for P10.
-5. **Implementation:** the remaining oversized stages in P08, end-to-end protocol/scope
-   replay in P11, and an operator command for uncertain batch submissions in P15.
-6. **After live data:** the P18 embedding decision and the P19 final review.
+1. **Funded provider accounts.** The OpenAI and Anthropic keys have no API credit, and the Gemini key is free tier.
+   - The Gemini free tier limits flash-lite to 500 requests per day per model and flash to 20; it has no Pro access and no Batch.
+   - Credit on any account unlocks the rest of P03: the other protocols, a mixed-provider run, live Audit, interactive Feature and the executor handoff.
+   - It also unlocks each P15 batch driver, a heterogeneous-family P06 and the P12 conformance run. P12 needs Anthropic credit, or instead a subscription token from `claude setup-token` with `credentialKind: oauth_token`.
+2. **The next Gemini quota window**, for the remaining live Audit/Feature runs and P06 conditions, if no paid key is added.
+3. **After live data:** rerun P18 on P06 findings, then the P19 final review.
 
-See [project status](docs/project-status.md) for implemented capabilities and measured
-evidence. Historical notes are in the
-[implementation log](docs/history/implementation-log-through-2026-09-23.md).
-Update task status only in the completion plan.
+See [project status](docs/project-status.md) for implemented capabilities and measured evidence.
+Evidence per item is in [docs/qa](docs/qa/). Update task status only in the completion plan.
