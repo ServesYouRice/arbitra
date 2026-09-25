@@ -22,15 +22,23 @@ The maintained execution queue is the [completion plan](docs/completion-plan.md)
 
 ## Live-testing policy
 
-Claude carries most of the live API testing. OpenAI (Codex) and Gemini have lower limits,
-so they take only secondary roles: one auditor or reviewer each, never the bulk of the calls.
-[tooling/live/bindings.claude-primary.json](tooling/live/bindings.claude-primary.json)
-encodes this: Claude Haiku 4.5 for most roles, Sonnet 5 as the second Claude reviewer, and
-GPT-5.4 nano and Gemini 3.1 flash-lite as one auditor or reviewer each.
+The owner's own live testing runs **only on subscription models**, through the vendors'
+CLIs, and never on API credits:
 
-The live runs so far used Gemini only. That was forced, because the Anthropic and OpenAI
-accounts had no API credit, and it does not reflect the policy.
-[bindings.gemini.json](tooling/live/bindings.gemini.json) records that setup.
+| Vendor | CLI | Sign-in |
+|---|---|---|
+| Anthropic | Claude Code | Claude login |
+| OpenAI | Codex CLI | ChatGPT login |
+| Google | Gemini CLI | Google login; needs a one-time interactive sign-in: run `gemini` and choose "Login with Google" |
+
+Claude carries most roles. Codex and Gemini take at most one secondary role each, because
+their limits are lower. The API-key transports remain for other users.
+
+Subscription CLI transports are being built so that every role can run this way. When they
+land, live configurations come from `tooling/live/bindings.subscription.json`.
+[bindings.claude-primary.json](tooling/live/bindings.claude-primary.json) is the API-key
+equivalent, and [bindings.gemini.json](tooling/live/bindings.gemini.json) records the
+free-tier Gemini setup that produced the evidence so far.
 
 ## How to pick this up again
 
