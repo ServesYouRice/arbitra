@@ -3,9 +3,18 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "dependencies": {
+    "@arbitra/persistence": "workspace:*",
+    "@arbitra/providers": "workspace:*",
+    "@arbitra/runtime": "workspace:*",
+    "@arbitra/schemas": "workspace:*",
+    "@arbitra/security": "workspace:*"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "handoff:real": "pnpm --filter @arbitra/schemas build && pnpm --filter @arbitra/core build && pnpm --filter @arbitra/providers build && pnpm --filter @arbitra/workflow build && node --experimental-strip-types scripts/run-real-handoff.ts",
+    "premise:run": "node dist/src/premise-evaluation/cli.js run --root ../.. --protocol docs/qa/p06/protocol.json",
+    "premise:analyse": "node dist/src/premise-evaluation/cli.js analyse --root ../.. --protocol docs/qa/p06/protocol.json",
     "test": "vitest run --exclude 'fixtures/**'",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   }

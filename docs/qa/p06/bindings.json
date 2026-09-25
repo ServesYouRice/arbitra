@@ -1,0 +1,21 @@
+{
+  "endpoints": [
+    { "id": "gemini-native", "providerId": "google", "transport": "gemini-native", "endpoint": "https://generativelanguage.googleapis.com/v1beta", "apiKeyEnvVar": "ARBITRA_GEMINI_API_KEY" },
+    { "id": "gemini-native-b", "providerId": "google", "transport": "gemini-native", "endpoint": "https://generativelanguage.googleapis.com/v1beta", "apiKeyEnvVar": "ARBITRA_GEMINI_API_KEY" },
+    { "id": "gemini-compatible", "providerId": "google-openai-compatible", "transport": "openai-chat", "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai", "apiKeyEnvVar": "ARBITRA_GEMINI_API_KEY" }
+  ],
+  "profiles": {
+    "gemini-native": { "modelId": "gemini-3.1-flash-lite", "family": "gemini", "independenceGroup": "gemini-3.1-flash-lite", "limits": { "contextTokens": 1000000, "maxOutputTokens": 65536 } },
+    "gemini-native-b": { "modelId": "gemini-3.5-flash-lite", "family": "gemini", "independenceGroup": "gemini-3.5-flash-lite", "limits": { "contextTokens": 1000000, "maxOutputTokens": 65536 } },
+    "gemini-compatible": { "modelId": "gemini-3.1-flash-lite", "family": "gemini", "independenceGroup": "gemini-3.1-flash-lite", "limits": { "contextTokens": 1000000, "maxOutputTokens": 65536 } }
+  },
+  "rateLimit": { "rpm": 6, "tpm": 250000, "maxConcurrent": 1 },
+  "assign": {
+    "audit-mixed-providers": { "auditor-a": "gemini-native", "auditor-b": "gemini-native-b", "auditor-c": "gemini-compatible" }
+  },
+  "overrides": {
+    "audit-mixed-providers": {
+      "workflow": { "modelExecution": { "maximumTokens": 3000000, "maximumRetries": 5, "maximumOutputRepairs": 2 } }
+    }
+  }
+}

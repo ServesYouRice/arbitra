@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "protocolId": "arbitra-p06-premise",
+  "version": "1.0.0",
+  "configuration": "docs/qa/p06/configs/audit-mixed-providers.json",
+  "singleAuditor": { "auditorId": "auditor-a", "preset": "diff-fast" },
+  "fixtures": [
+    {
+      "id": "premise-v1",
+      "source": "packages/testing/corpora/premise/repo",
+      "groundTruth": "packages/testing/corpora/premise/ground-truth.json",
+      "exclude": [],
+      "rubric": {
+        "DEF-AUTH-BYPASS": { "path": "src/auth.ts", "startLine": 3, "endLine": 4, "keywords": "x-support-mode|support[ _-]?mode|header", "minimumSeverity": "high" },
+        "DEF-N-PLUS-ONE": { "path": "src/users.ts", "startLine": 2, "endLine": 5, "keywords": "n\\s*\\+\\s*1|per[ -]user|for each user|each user|one query per|quer(y|ies) per|separate quer|individual quer|additional quer|round[ -]?trips?|batch|join|in a loop|inside (the|a) loop|number of users", "minimumSeverity": "low" },
+        "DEF-RACE": { "path": "src/inventory.ts", "startLine": 2, "endLine": 7, "keywords": "race|atomic|concurren|oversell|over-sell|toctou|time[ -]of[ -]check|check[ -]then|simultaneous|parallel|lock|transaction|lost update", "minimumSeverity": "medium" },
+        "DEF-MIGRATION": { "path": "migrations/001_orders.sql", "startLine": 1, "endLine": 1, "keywords": "not null|non-null|nullable|default|backfill|existing rows|existing records|table lock|rewrite", "minimumSeverity": "medium" },
+        "DEF-IDEMPOTENCY": { "path": "src/payments.ts", "startLine": 2, "endLine": 5, "keywords": "idempoten|double[ -]charg|charged twice|twice|duplicate (charge|capture|payment)|double capture|multiple (charges|captures)", "minimumSeverity": "high" },
+        "DECOY-TIMING-SAFE": { "path": "src/decoys.ts", "startLine": 4, "endLine": 4, "keywords": null, "minimumSeverity": null },
+        "DECOY-PARAMETERIZED-SQL": { "path": "src/decoys.ts", "startLine": 5, "endLine": 5, "keywords": null, "minimumSeverity": null },
+        "DECOY-IDEMPOTENT-RETRY": { "path": "src/decoys.ts", "startLine": 6, "endLine": 6, "keywords": null, "minimumSeverity": null }
+      }
+    },
+    {
+      "id": "expanded-evaluation-v1",
+      "source": "packages/testing/corpora/expanded/repo",
+      "groundTruth": "packages/testing/corpora/expanded/ground-truth.json",
+      "exclude": [],
+      "rubric": {
+        "DEF-PATH-ESCAPE": { "path": "src/files.ts", "startLine": 3, "endLine": 5, "keywords": "travers|escape|\\.\\.|outside|contain|confine|restrict|root|sandbox|arbitrary (file|path)", "minimumSeverity": "high" },
+        "DEF-SUPPRESSED-HIGH": { "path": "src/suppressed.ts", "startLine": 2, "endLine": 4, "keywords": "hard[ -]?coded|let-me-in|backdoor|bypass|magic|static (string|value|header|password|secret)|secret|password|header|constant", "minimumSeverity": "high" },
+        "DECOY-BOUND-PATH": { "path": "src/files.ts", "startLine": 7, "endLine": 11, "keywords": null, "minimumSeverity": null },
+        "DECOY-AUTHENTICATED-ADMIN": { "path": "src/suppressed.ts", "startLine": 6, "endLine": 8, "keywords": null, "minimumSeverity": null }
+      }
+    },
+    {
+      "id": "live-fixture-v1",
+      "source": "tooling/live/fixture-repo",
+      "groundTruth": "docs/qa/p06/ground-truth/live-fixture-v1.json",
+      "exclude": ["README.md"],
+      "rubric": {
+        "discount-unbounded": { "path": "src/cart.js", "startLine": 10, "endLine": 13, "keywords": "range|bound|negative|clamp|exceed|(greater|more) than 100|above 100|over 100|> ?100|outside|validat|invalid|0-100|0 and 100|between 0", "minimumSeverity": "medium" },
+        "quantity-parse": { "path": "src/cart.js", "startLine": 15, "endLine": 18, "keywords": "nan|radix|validat|invalid|negative|decimal|fraction|truncat|non[ -]?numeric|parseint|partial|integer", "minimumSeverity": "low" },
+        "session-expiry-boundary": { "path": "src/session.js", "startLine": 9, "endLine": 17, "keywords": "boundar|off[ -]by[ -]one|exactly|equal|>=|inclusive|exclusive|strictly|at (the )?expir|same (instant|millisecond|time)", "minimumSeverity": "low" },
+        "subtotal-correct": { "path": "src/cart.js", "startLine": 3, "endLine": 8, "keywords": null, "minimumSeverity": null }
+      }
+    }
+  ],
+  "schedule": [
+    { "fixtureId": "premise-v1", "condition": "single", "repetition": 1 },
+    { "fixtureId": "premise-v1", "condition": "heterogeneous", "repetition": 1 },
+    { "fixtureId": "expanded-evaluation-v1", "condition": "single", "repetition": 1 },
+    { "fixtureId": "expanded-evaluation-v1", "condition": "heterogeneous", "repetition": 1 },
+    { "fixtureId": "live-fixture-v1", "condition": "single", "repetition": 1 },
+    { "fixtureId": "live-fixture-v1", "condition": "heterogeneous", "repetition": 1 },
+    { "fixtureId": "premise-v1", "condition": "single", "repetition": 2 },
+    { "fixtureId": "expanded-evaluation-v1", "condition": "single", "repetition": 2 },
+    { "fixtureId": "live-fixture-v1", "condition": "single", "repetition": 2 },
+    { "fixtureId": "premise-v1", "condition": "single", "repetition": 3 },
+    { "fixtureId": "expanded-evaluation-v1", "condition": "single", "repetition": 3 },
+    { "fixtureId": "live-fixture-v1", "condition": "single", "repetition": 3 },
+    { "fixtureId": "premise-v1", "condition": "heterogeneous", "repetition": 2 },
+    { "fixtureId": "expanded-evaluation-v1", "condition": "heterogeneous", "repetition": 2 },
+    { "fixtureId": "live-fixture-v1", "condition": "heterogeneous", "repetition": 2 }
+  ],
+  "budget": { "maximumModelRequests": 260, "maximumTokens": 2500000, "maximumWallClockMs": 14400000 },
+  "analysis": { "bootstrapIterations": 10000, "seed": 20260925, "confidence": 0.95 }
+}

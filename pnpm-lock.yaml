@@ -158,7 +158,23 @@ importers:
 
   packages/security: {}
 
-  packages/testing: {}
+  packages/testing:
+    dependencies:
+      '@arbitra/persistence':
+        specifier: workspace:*
+        version: link:../persistence
+      '@arbitra/providers':
+        specifier: workspace:*
+        version: link:../providers
+      '@arbitra/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@arbitra/schemas':
+        specifier: workspace:*
+        version: link:../schemas
+      '@arbitra/security':
+        specifier: workspace:*
+        version: link:../security
 
   packages/tools: {}
 
