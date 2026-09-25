@@ -124,6 +124,14 @@ respond-checkpoint  workflow
 unrecognised disposition fails closed at `2`. Every command can emit JSON with `--json`
 (`apps/cli/src/output/json.ts`).
 
+`validate` runs `Orchestrator.preflight` (`packages/runtime/src/preflight.ts`). It
+reports configuration diagnostics, which fail validation with exit `1`, separately from
+environment diagnostics: credential variables, placeholder model identities, and the local
+Docker engine and image. `run`, `start` and `estimate` apply the same configuration checks.
+`run`/`start` also refuse environment errors before a run directory, snapshot or provider
+request exists (exit `2`, reason `preflight_failed`; HTTP `400`). See the
+[preflight reference](setup.md#preflight-reference).
+
 `report` renders the evaluation surface and redacts its output through
 `redactSecrets` from `packages/security/src/redaction.ts`, failing closed with
 `report_redaction_failed` if anything secret-shaped survives.
@@ -228,8 +236,9 @@ The [completion plan](completion-plan.md) records dependencies and acceptance cr
 - Final Testing verification can reopen invalidated earlier work for bounded, durable repair
   under the original write grants (see [Testing mode](workflows.md#testing-mode)). The critical
   repair cases have not yet been repeated against the real Docker sandbox.
-- Individually oversized records and mandatory global contexts can still fail explicitly
-  across Audit, Feature and Testing.
+- Individually oversized records, the single global planner outline and several one-call
+  stages (Feature requirements/exploration, Testing risk analysis) can still fail explicitly;
+  see [context and output capacity](harness.md#context-and-output-capacity).
 - Durable Feature requirements checkpoints and generic gate/human checkpoints work through
   CLI/HTTP and the web Feature contract view. Generic checkpoints apply to registered graphs;
   the shipped presets do not contain those nodes. Feature/Testing replay has
@@ -250,7 +259,7 @@ now differs; all unfinished work is included in the completion plan.
 | Autonomous Testing execution | Implemented through opt-in `testing-execute`: planning, authority preflight, parallel writers, serial checks, final verification, bounded repair and durable handoff. Real-sandbox repair QA, richer web views and live-provider/Docker QA remain; plan items P04/P07/P10/P11 |
 | Native harness adapters | `packages/harness/src/adapter.ts` defines the port; `canonical/adapter.ts` is the only implementation. `harness.mode: "native"` is accepted by the schema and has no adapter behind it |
 | Advisor runtime | Implemented for Testing writers in `packages/runtime/src/model-advisors.ts`: operator-capped, durably journaled advisor uses with no tools, traced under the advisor identity. Tested with injected transports only; live-provider exercise remains (P13). See [`task-ir.md`](task-ir.md#advisors) |
-| Feature workflow extensions | Public requirements/review/planning/revision is implemented; web checkpoints, expanded subgraphs and oversized contexts remain; mode-specific replay is implemented without live-provider evidence; P08/P10/P11 |
+| Feature workflow extensions | Public requirements/review/planning/revision is implemented; web checkpoints, expanded subgraphs and oversized requirements/exploration contexts remain; mode-specific replay is implemented without live-provider evidence; P08/P10/P11 |
 | Incremental / repeat audit execution | Snapshot identity, hotspots and inspection footprints are already recorded by preflight and `packages/tools/src/footprint` |
 | Provider batch API path | Opt-in batch lane and OpenAI/Anthropic/Gemini drivers in `packages/providers/src/batch/`, tested against injected HTTP only; every driver is declared-unverified and live validation remains (P15). See [`provider-model.md`](provider-model.md#batch-lane) |
 | Drag-and-drop workflow canvas editor | `apps/web/src/columns/graph` renders from workflow JSON and is read-only by construction |

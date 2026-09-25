@@ -48,7 +48,49 @@ describe("independent model discovery", () => {
     expect(new Set(result.map(({ sourceFindingId }) => sourceFindingId)).size).toBe(2);
     const summary = (await store.listArtifacts()).find(({ kind }) => kind === "discovery-validation-auditor-a");
     if (summary === undefined) throw new Error("SUMMARY_ABSENT");
-    expect(JSON.parse((await store.readArtifact(summary.artifactId)).content)).toMatchObject({ acceptedCount: 2, unexaminedDueToBudget: ["huge.ts"] });
+    expect(JSON.parse((await store.readArtifact(summary.artifactId)).content)).toMatchObject({ acceptedCount: 2, unexaminedDueToBudget: ["huge.ts:1"], limitations: expect.arrayContaining(["lines_exceed_discovery_context_budget"]) });
+  });
+
+  it("audits a file larger than the discovery budget through exact original-line windows and reuses them on resume", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbitra-discovery-windows-")); directories.push(root);
+    const store = new RunStore(root, "run-windows");
+    const lines = Array.from({ length: 200 }, (_, index) => `const value${index + 1} = ${index % 50 === 7 ? "null" : index};`);
+    const big = { path: "big.ts", lines, lineStartBytes: lines.map((_, index) => lines.slice(0, index).reduce((sum, line) => sum + Buffer.byteLength(line) + 1, 0)), byteLength: Buffer.byteLength(lines.join("\n")) };
+    const durable = new Map<string, unknown>(); const spent: string[] = []; const seen: { start: number; end: number }[] = [];
+    const activities = {
+      estimateInitialTokens(input: { messages: readonly { role: string; content: string }[] }) { return Buffer.byteLength(input.messages.find(({ role }) => role === "user")?.content ?? ""); },
+      async invoke<T>(input: ModelActivityRequest<T>): Promise<T> {
+        if (!durable.has(input.activityId)) {
+          spent.push(input.activityId);
+          const payload = JSON.parse(input.messages.find(({ role }) => role === "user")?.content ?? "{}") as { files: { path: string; lines: { line: number; text: string }[] }[] };
+          const namespace = /Every sourceFindingId must start with (.+)\/ and be unique/u.exec(input.messages.find(({ role }) => role === "system")?.content ?? "")?.[1];
+          const supplied = payload.files[0]?.lines ?? [];
+          seen.push({ start: supplied[0]?.line ?? 0, end: supplied.at(-1)?.line ?? 0 });
+          // Evidence cites original line numbers taken from the window and exact source text.
+          durable.set(input.activityId, { findings: supplied.filter(({ text }) => text.includes("null")).map(({ line, text }) => ({ ...finding(`${line}`), sourceFindingId: `${namespace}/L${line}`,
+            locations: [{ id: "L1", path: "big.ts", startLine: line, endLine: line }], evidence: [{ id: "E1", text, locationIds: ["L1"] }] })), truncated: false, unexaminedDueToBudget: [], limitations: [] });
+        }
+        return input.schema.parse(durable.get(input.activityId));
+      },
+    };
+    const run = () => discoverWithModel({ auditorId: "auditor-a", modelProfileId: "model", activities, store, signal: new AbortController().signal, maximumInputTokens: 2_500, snapshot: { root: "fixture", files: [big] } });
+    const result = await run();
+    // Previously this whole file was reported unexamined; every line is now read exactly.
+    expect(seen.length).toBeGreaterThan(2);
+    expect(seen[0]?.start).toBe(1); expect(seen.at(-1)?.end).toBe(200);
+    for (let index = 1; index < seen.length; index += 1) expect((seen[index]?.start ?? 0)).toBeLessThanOrEqual((seen[index - 1]?.end ?? 0) + 1);
+    const nullLines = lines.flatMap((line, index) => line.includes("null") ? [index + 1] : []);
+    expect([...new Set(result.map(({ locations }) => locations[0]?.startLine))].sort((a, b) => (a ?? 0) - (b ?? 0))).toEqual(nullLines);
+    const summary = (await store.listArtifacts()).find(({ kind }) => kind === "discovery-validation-auditor-a");
+    const coverage = JSON.parse((await store.readArtifact(summary?.artifactId ?? "")).content) as { unexaminedDueToBudget: string[]; limitations: string[]; rejectedCount: number };
+    expect(coverage.unexaminedDueToBudget).toEqual([]);
+    expect(coverage.rejectedCount).toBe(0);
+    expect(coverage.limitations).toEqual(expect.arrayContaining(["file_context_split:big.ts"]));
+    expect(coverage.limitations).not.toContain("files_exceed_discovery_context_budget");
+    // Deterministic window identities: a resumed discovery repeats no model work.
+    const before = spent.length;
+    expect((await run()).map(({ sourceFindingId }) => sourceFindingId)).toEqual(result.map(({ sourceFindingId }) => sourceFindingId));
+    expect(spent).toHaveLength(before);
   });
 
   it("accepts grounded citations, rejects fabricated excerpts and invalid paths, and records coverage loss", async () => {

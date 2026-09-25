@@ -30,8 +30,9 @@ it("serves durable generic checkpoints that agree with the CLI port and survive 
     expect(unconfigured.statusCode).toBeGreaterThanOrEqual(400); expect(unconfigured.body).toContain("checkpoints");
     const noPolicy = await app.inject({ method: "POST", url: "/configurations", payload: { name: "None", config: { ...config, workflow: { preset: "gated-audit" } } } });
     const refused = await app.inject({ method: "POST", url: "/runs", payload: { configurationId: noPolicy.json<{ id: string }>().id } });
-    expect(refused.statusCode).toBe(500);
-    expect(refused.json()).toMatchObject({ message: "CHECKPOINT_POLICY_REQUIRED:approval" });
+    // A configuration the operator must fix is a client error, reported by preflight.
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json<{ message: string }>().message).toMatch(/^CHECKPOINT_POLICY_REQUIRED at workflow\.checkpoints: CHECKPOINT_POLICY_REQUIRED:approval/u);
 
     const started = await app.inject({ method: "POST", url: "/runs", payload: { configurationId: saved.json<{ id: string }>().id } });
     const { runId } = started.json<{ runId: string }>();

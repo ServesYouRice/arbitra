@@ -9,7 +9,9 @@ import type { RunEvent, RunState } from "@arbitra/core/runner/events.js";
 import { runConfigSchema, type RunConfig } from "@arbitra/schemas/config.js";
 import { DEFAULT_AUDITORS, type AuditFinding } from "./auditors.js";
 import type { CanonicalIssueSet } from "@arbitra/workflow/nodes/canonical-issues.js";
-import { AUDIT_DEEP_GRAPH, auditorIdsFor, graphForPreset, PRESET_GRAPHS, withCritic } from "./graphs.js";
+import { AUDIT_DEEP_GRAPH, auditorIdsFor, PRESET_GRAPHS, withCritic } from "./graphs.js";
+import { assertNoPreflightErrors, configurationDiagnostics, environmentDiagnostics, graphForConfiguration, PreflightError, type ConfigurationPreflightOptions, type PreflightDiagnostic } from "./preflight.js";
+import { DockerTestSandbox } from "./test-sandbox.js";
 import { canonicalise, converge, critique, discover, plan, preflight, readStage, verify, type AuditContext, type ConvergenceResult, type Plan } from "./pipeline.js";
 import { snapshotRepository, type RepositorySnapshot } from "./repository.js";
 import { listRunIds, RunStore, type ArtifactDescriptor, type StoredRunContext } from "./run-store.js";
@@ -74,6 +76,16 @@ export interface OrchestratorOptions {
   readonly gatePolicies?: GatePolicyRegistry;
   /** The clock recorded on saved workflow graph versions (ISO-8601). */
   readonly now?: () => string;
+}
+
+export interface PreflightReport {
+  readonly valid: boolean;
+  readonly ready: boolean;
+  readonly mode: RunConfig["mode"] | null;
+  readonly preset: string | null;
+  /** False for a scripted Audit (no model profiles); null when the schema is invalid. */
+  readonly modelBacked: boolean | null;
+  readonly diagnostics: readonly PreflightDiagnostic[];
 }
 
 export type RequirementsCheckpointResource = { readonly artifactId: string; readonly kind: "requirements"; readonly pendingAmbiguityIds: readonly string[]; readonly revisionProposalArtifactId?: string };
@@ -168,10 +180,41 @@ export class Orchestrator {
     });
   }
 
+  /**
+   * Everything checkable before a run exists: schema, roles, capabilities, effort,
+   * write authority, credentials (presence only) and local sandbox prerequisites.
+   * `valid` covers the configuration; `ready` additionally covers the environment.
+   */
+  async preflight(value: unknown): Promise<PreflightReport> {
+    let config: RunConfig;
+    try { config = this.configurations.validate(value); }
+    catch (failure) {
+      return Object.freeze({ valid: false, ready: false, mode: null, preset: null, modelBacked: null, diagnostics: Object.freeze(schemaDiagnostics(failure)) });
+    }
+    const saved = await this.#savedGraph(config);
+    const configuration = [...saved.diagnostics, ...configurationDiagnostics(config, this.#preflightOptions(config, saved.graph))];
+    const environment = await environmentDiagnostics(config, this.#environmentOptions());
+    const valid = !configuration.some(({ severity }) => severity === "error");
+    const preset = presetOf(config) ?? (valid ? (saved.graph ?? graphForConfiguration(config, this.#graphs)).id : null);
+    return Object.freeze({ valid, ready: valid && !environment.some(({ severity }) => severity === "error"), mode: config.mode, preset,
+      modelBacked: config.mode !== "audit" || Object.keys(config.models).length > 0, diagnostics: Object.freeze([...configuration, ...environment]) });
+  }
+
+  #preflightOptions(config: RunConfig, savedGraph?: RunnerGraph): ConfigurationPreflightOptions {
+    return { graphs: this.#graphs, ...(savedGraph === undefined ? {} : { savedGraph }), checkpoints: (graph) => validateGraphCheckpoints(graph, checkpointPolicyOf(config), this.#gatePolicies) };
+  }
+
+  #environmentOptions() {
+    return { credential: this.#providerOptions.credential ?? ((name: string) => process.env[name]), sandbox: this.#testSandbox ?? new DockerTestSandbox(), liveDispatch: this.#providerOptions.client === undefined };
+  }
+
   /** Start a run and return as soon as it is created; it continues in the background. */
   async start(config: RunConfig, repository = this.repository): Promise<RunResource> {
     const validated = this.configurations.validate(config);
     const { graph, authored } = await this.#assertRunnable(validated);
+    // Fail before a run, snapshot or provider call exists rather than at first dispatch.
+    const environment = await environmentDiagnostics(validated, { ...this.#environmentOptions(), includeWarnings: false });
+    if (environment.some(({ severity }) => severity === "error")) throw new PreflightError(environment);
     const runId = this.#newRunId();
     const store = new RunStore(this.#runsDirectory, runId);
     const selectedRepository = resolve(repository);
@@ -261,6 +304,9 @@ export class Orchestrator {
       execution = request.execution.mode === "plan" ? { mode: "plan" } : { mode: "execute", authority: "replay_request", authorizationDigest: createHash("sha256").update(canonicalJson(request.execution.authorization)).digest("hex") };
     }
     const { graph } = await this.#assertRunnable(config);
+    // Regenerated stages dispatch models and may run checks: same environment gate as `start`.
+    const environment = await environmentDiagnostics(config, { ...this.#environmentOptions(), includeWarnings: false });
+    if (environment.some(({ severity }) => severity === "error")) throw new PreflightError(environment);
     const checkpointPolicy = checkpointPolicyOf(config);
     const snapshot = await snapshotRepository(original.repository, 400, { scope: config.scope, ...testingSnapshotOptions(config) });
     const repositoryDigest = snapshotDigest(snapshot);
@@ -430,26 +476,32 @@ export class Orchestrator {
   }
 
   async #assertRunnable(config: RunConfig): Promise<{ readonly graph: RunnerGraph; readonly authored?: WorkflowGraphReference }> {
-    const authored = await this.#savedGraph(config);
-    assertRuntimeConfiguration(config, this.#graphs, authored?.graph);
-    const graph = authored?.graph ?? graphForConfiguration(config, this.#graphs);
+    const saved = await this.#savedGraph(config);
+    assertNoPreflightErrors([...saved.diagnostics, ...configurationDiagnostics(config, this.#preflightOptions(config, saved.graph))]);
+    // The composed stages re-check their own settings; keep those checks authoritative.
+    assertRuntimeConfiguration(config, this.#graphs, saved.graph);
+    const graph = saved.graph ?? graphForConfiguration(config, this.#graphs);
     validateGraphCheckpoints(graph, checkpointPolicyOf(config), this.#gatePolicies);
-    return authored === undefined ? { graph } : { graph, authored: authored.reference };
+    return saved.reference === undefined ? { graph } : { graph, authored: saved.reference };
   }
 
   /**
    * Resolve `workflow.graph` to its saved version and re-validate it against this run's
-   * configuration before any run exists. A missing or invalid version is refused here.
+   * configuration. A missing or invalid version becomes preflight configuration
+   * diagnostics at `workflow.graph`, so it is refused before any run exists.
    */
-  async #savedGraph(config: RunConfig): Promise<{ readonly graph: RunnerGraph; readonly reference: WorkflowGraphReference } | undefined> {
-    if (config.workflow["graph"] === undefined) return undefined;
+  async #savedGraph(config: RunConfig): Promise<{ readonly graph?: RunnerGraph; readonly reference?: WorkflowGraphReference; readonly diagnostics: readonly PreflightDiagnostic[] }> {
+    if (config.workflow["graph"] === undefined) return { diagnostics: [] };
+    const failed = (code: string, path: string, message: string) => ({ diagnostics: [Object.freeze({ code, severity: "error" as const, scope: "configuration" as const, path, message })] });
     const reference = workflowGraphReferenceSchema.parse(config.workflow["graph"]);
     const record = await this.workflowGraphs.get(reference.id, reference.version);
-    if (record === null) throw Object.assign(new Error(`WORKFLOW_GRAPH_VERSION_ABSENT:${reference.id}:${reference.version}`), { statusCode: 404 });
-    if ((record.graph as { id?: unknown }).id !== reference.id) throw Object.assign(new Error(`WORKFLOW_GRAPH_ID_MISMATCH:${reference.id}`), { statusCode: 422 });
+    if (record === null) return failed("WORKFLOW_GRAPH_VERSION_ABSENT", "workflow.graph", `Saved graph ${reference.id} has no version ${reference.version}. Save the graph first and reference the exact version the save returned.`);
+    if ((record.graph as { id?: unknown }).id !== reference.id) return failed("WORKFLOW_GRAPH_ID_MISMATCH", "workflow.graph.id", `Version ${reference.version} is not a version of graph ${reference.id}.`);
     const validation = this.#validateGraph(record.graph, record.authorizations as readonly WorkflowGraphAuthorization[], config);
-    if (!validation.valid) throw Object.assign(new Error(`WORKFLOW_GRAPH_INVALID:${reference.id}:${[...new Set(validation.diagnostics.map(({ code }) => code))].join(",")}`), { statusCode: 422 });
-    return { graph: runnerGraphOf(record.graph as WorkflowGraph), reference: Object.freeze({ ...reference }) };
+    if (!validation.valid) {
+      return { diagnostics: validation.diagnostics.map(({ code, path, message }) => Object.freeze({ code, severity: "error" as const, scope: "configuration" as const, path: `workflow.graph(${reference.id}).${path}`, message })) };
+    }
+    return { graph: runnerGraphOf(record.graph as WorkflowGraph), reference: Object.freeze({ ...reference }), diagnostics: [] };
   }
 
   /** The graph a run executed must be byte-for-byte the saved version it references. */
@@ -881,15 +933,14 @@ function checkpointPolicyOf(config: RunConfig): CheckpointPolicy | undefined {
   return value === undefined ? undefined : checkpointPolicySchema.parse(value);
 }
 
-function graphForConfiguration(config: RunConfig, registered: Readonly<Record<string, RunnerGraph>>): RunnerGraph {
-  if (config.workflow["graph"] !== undefined) throw new Error("WORKFLOW_GRAPH_REQUIRES_SAVED_VERSION");
-  if (config.workflow["preset"] !== undefined && typeof config.workflow["preset"] !== "string") throw new Error("INVALID_WORKFLOW_PRESET");
-  const testingPreset = config.mode === "testing" && testingExecutionSchema.parse(config.workflow["testing"]).mode === "execute" ? "testing-execute" : "testing-plan";
-  const preset = presetOf(config);
-  const graph = preset !== undefined && Object.hasOwn(registered, preset) ? registered[preset] as RunnerGraph : graphForPreset(preset ?? (config.mode === "feature" ? "feature-simple" : config.mode === "testing" ? testingPreset : undefined));
-  if ((graph.id === "feature-simple") !== (config.mode === "feature")) throw new Error("WORKFLOW_PRESET_MODE_MISMATCH");
-  if ((graph.id === "testing-plan" || graph.id === "testing-execute") !== (config.mode === "testing") || config.mode === "testing" && graph.id !== testingPreset) throw new Error("WORKFLOW_PRESET_MODE_MISMATCH");
-  return graph;
+function schemaDiagnostics(failure: unknown): PreflightDiagnostic[] {
+  const issues = (failure as { issues?: unknown }).issues;
+  if (Array.isArray(issues)) return issues.map((issue: { path?: readonly PropertyKey[]; message?: string }) => Object.freeze({ code: "CONFIG_SCHEMA_INVALID", severity: "error" as const, scope: "configuration" as const, path: (issue.path ?? []).map(String).join(".") || "$", message: issue.message ?? "Invalid value" }));
+  const message = failure instanceof Error ? failure.message : String(failure);
+  const [code, path] = message.split(":", 2);
+  if (code === "RESOLVED_CREDENTIAL_FORBIDDEN") return [Object.freeze({ code, severity: "error" as const, scope: "configuration" as const, path: path?.replace(/^\$\.?/u, "") || "$", message: "A credential value is present in the configuration. Remove it and name an environment variable in an …EnvVar field (for example apiKeyEnvVar) instead." })];
+  if (code === "INVALID_CREDENTIAL_ENVIRONMENT_REFERENCE") return [Object.freeze({ code, severity: "error" as const, scope: "configuration" as const, path: path?.replace(/^\$\.?/u, "") || "$", message: "Environment-variable references must be uppercase names such as PROVIDER_API_KEY, never the secret itself." })];
+  return [Object.freeze({ code: "CONFIG_INVALID", severity: "error" as const, scope: "configuration" as const, path: "$", message })];
 }
 
 function snapshotDigest(snapshot: RepositorySnapshot): string {

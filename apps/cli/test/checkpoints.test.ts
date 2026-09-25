@@ -27,7 +27,8 @@ it("blocks on a generic checkpoint with exit 3, records one versioned decision, 
     await writeFile(unconfiguredPath, JSON.stringify({ ...config, workflow: { preset: "gated-audit" } }));
     const unconfigured = await runCli(["run", unconfiguredPath, "--json"], cli(), io);
     expect(unconfigured.exit).toBe(2);
-    expect(unconfigured.output).toMatchObject({ result: { message: "CHECKPOINT_POLICY_REQUIRED:approval" } });
+    // Refused by runtime preflight, before any run exists, as an actionable diagnostic.
+    expect(unconfigured.output).toMatchObject({ policy: { reasons: ["preflight_failed", "CHECKPOINT_POLICY_REQUIRED"] }, result: { diagnostics: [{ code: "CHECKPOINT_POLICY_REQUIRED", path: "workflow.checkpoints", message: expect.stringContaining("CHECKPOINT_POLICY_REQUIRED:approval") }] } });
 
     const run = await runCli(["run", configPath, "--json"], cli(), io);
     expect(run.exit).toBe(3);

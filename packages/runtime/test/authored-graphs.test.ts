@@ -103,8 +103,12 @@ describe("saved graph dispatch", () => {
 
     const runConfig = config({ graph: { id: "reviewed-audit", version }, checkpoints: { mode: "interactive" } });
     await expect(first.start(config({ graph: { id: "reviewed-audit", version: "0".repeat(64) }, checkpoints: { mode: "interactive" } }))).rejects.toThrow("WORKFLOW_GRAPH_VERSION_ABSENT");
-    await expect(first.start(config({ graph: { id: "reviewed-audit", version } }))).rejects.toThrow("WORKFLOW_GRAPH_INVALID:reviewed-audit:CHECKPOINT_POLICY_REQUIRED");
+    await expect(first.start(config({ graph: { id: "reviewed-audit", version } }))).rejects.toThrow("CHECKPOINT_POLICY_REQUIRED at workflow.graph(reviewed-audit).nodes[8](signoff)");
     expect(await first.runIds()).toEqual([]);
+    // The same failures are preflight configuration diagnostics at workflow.graph.
+    const report = await first.preflight(config({ graph: { id: "reviewed-audit", version } }));
+    expect(report).toMatchObject({ valid: false, diagnostics: expect.arrayContaining([expect.objectContaining({ code: "CHECKPOINT_POLICY_REQUIRED", scope: "configuration", path: "workflow.graph(reviewed-audit).nodes[8](signoff)" })]) });
+    expect(await first.preflight(config({ graph: { id: "reviewed-audit", version }, checkpoints: { mode: "interactive" } }))).toMatchObject({ valid: true, preset: "reviewed-audit" });
     expect(() => config({ graph: { id: "reviewed-audit", version }, preset: "audit-deep" })).toThrow("exclusive");
     expect(() => runConfigSchema.parse({ ...baseConfig, mode: "feature", workflow: { graph: { id: "reviewed-audit", version } } })).toThrow("audit mode");
 

@@ -105,6 +105,13 @@ include source files only, without repository manifests or installed dependencie
 Check dependencies must already exist in the pinned image. An exit code is a process
 result, not proof of a finding.
 
+Before a run starts, preflight asks the sandbox adapter whether the engine is a running
+Linux engine and whether the pinned image is already present locally. It uses only
+`docker info` and `docker image inspect`, with an empty CLI configuration, and never pulls.
+For Testing execution, an absent engine or image blocks the start; for Audit checks it
+is a warning. Preflight also rejects write grants that are not exact file paths
+or that no command-bound check covers.
+
 Testing planning records command candidates without execution. Opt-in Testing execution
 uses the same sandbox with a fresh snapshot of its isolated worktree, including scoped
 test metadata. Trusted task/path grants and command/check bindings are validated before
@@ -144,7 +151,10 @@ Three independent barriers, none of which relies on the others:
    `password`, `credential` or `accessToken` that holds a value, and
    `INVALID_CREDENTIAL_ENVIRONMENT_REFERENCE` unless a `…EnvVar`-shaped key holds an
    uppercase environment-variable name. A saved configuration therefore cannot contain a
-   secret.
+   secret. Runtime preflight (`packages/runtime/src/preflight.ts`) reports an unset
+   referenced variable by name only, before any run or request exists. The shipped
+   templates use dedicated `ARBITRA_*` names, so an unrelated exported provider key never
+   enables spend.
 2. **Storage.** `packages/persistence/src/private-store.ts` keeps secret-bearing state out
    of the run directory that gets transported or inspected.
 3. **Egress.** `assertNoSecretEgress` in `apps/server/src/routes/control-plane.ts` is the

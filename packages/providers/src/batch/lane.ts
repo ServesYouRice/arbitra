@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { ProviderBudgetSuspendedError, type InvocationBudget, type RuntimeTimer, type TraceSink } from "../runtime.js";
-import type { TransportRequest, TransportResponse, TransportUsage } from "../transport-contract.js";
+import { TransportError, type TransportRequest, type TransportResponse, type TransportUsage } from "../transport-contract.js";
 import { BatchRequestError, type BatchCapabilityDeclaration, type BatchDriver, type BatchJobStatus, type BatchRawItemResult } from "./contract.js";
 
 /** Operator policy for one batch lane. Validated by the run configuration schema. */
@@ -552,7 +552,11 @@ export class BatchLane {
     }
     let response: TransportResponse;
     try { response = driver.parse(attempt.body, item.request); }
-    catch (error) { trace("failed", "MALFORMED_RESPONSE"); throw new BatchItemFailedError("MALFORMED_RESPONSE", error instanceof Error ? error.message : "Malformed batch result", false); }
+    catch (error) {
+      // An item stopped at the output ceiling is incomplete, not malformed; never retried.
+      if (error instanceof TransportError && error.code === "OUTPUT_LIMIT") { trace("failed", "OUTPUT_LIMIT"); throw new BatchItemFailedError("OUTPUT_LIMIT", error.message, false); }
+      trace("failed", "MALFORMED_RESPONSE"); throw new BatchItemFailedError("MALFORMED_RESPONSE", error instanceof Error ? error.message : "Malformed batch result", false);
+    }
     trace("completed", null);
     return Object.freeze({ response, provenance: Object.freeze({
       lane: "batch" as const, driverId: driver.id, capability: driver.declaration, itemId, traceId: item.traceId, customId: attempt.customId,

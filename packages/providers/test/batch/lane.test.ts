@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { BatchRequestError } from "../../src/batch/contract.js";
 import { BatchItemCancelledError, BatchItemFailedError, BatchLane, BatchSubmissionUncertainError, type BatchItemRecord, type BatchSubmissionRecord } from "../../src/batch/lane.js";
 import { environment, item, settings, until } from "./fixtures.js";
+import { AnthropicBatchDriver } from "../../src/batch/anthropic-batch.js";
+import { TransportError } from "../../src/transport-contract.js";
 
 const charged = (state: Awaited<ReturnType<ReturnType<typeof environment>["budget"]>>) => state.reservations.map((reservation) => ({
   activityId: reservation.activityId, estimated: reservation.estimatedTokens, usage: reservation.usage,
@@ -54,6 +56,21 @@ describe("batch lane", () => {
     await expect(restarted.execute(item("audit/c"))).rejects.toMatchObject({ code: "BATCH_RESULT_MISSING" });
     await expect(restarted.execute(item("audit/a", { fingerprint: "changed" }))).rejects.toThrow("BATCH_ITEM_INPUT_CHANGED");
     expect(env.driver.submits).toHaveLength(1);
+  });
+
+  it("fails an item stopped at the output ceiling as a non-retryable output limit, not a malformed result", async () => {
+    const env = environment();
+    const parse = env.driver.parse.bind(env.driver);
+    env.driver.parse = (body, request) => {
+      if ((body as { text?: string }).text === "truncated") throw new TransportError("OUTPUT_LIMIT", "MODEL_OUTPUT_LIMIT_REACHED: provider stopped at maximumOutputTokens", false);
+      return parse(body, request);
+    };
+    env.driver.onResults = async () => (env.driver.submits[0]?.items ?? []).map(({ customId }) => ({ customId, outcome: "succeeded" as const, body: { text: "truncated" }, error: null }));
+    await expect(env.lane().execute(item("audit/cut"))).rejects.toMatchObject({ name: "BatchItemFailedError", code: "OUTPUT_LIMIT", retryable: false });
+    expect(env.traces.map(({ activityId, errorCode }) => ({ activityId, errorCode }))).toContainEqual({ activityId: "audit/cut", errorCode: "OUTPUT_LIMIT" });
+    // A real driver maps the provider's ceiling stop the same way.
+    const anthropic = new AnthropicBatchDriver({ endpoint: "https://batch.example/v1", apiKeyEnv: "KEY" });
+    expect(() => anthropic.parse({ content: [{ type: "text", text: "{\"ok\":" }], stop_reason: "max_tokens", usage: {} }, { modelId: "m", messages: [], maximumOutputTokens: 1, responseSchema: { type: "object" } })).toThrow("MODEL_OUTPUT_LIMIT_REACHED");
   });
 
   it("splits submissions at the configured item limit", async () => {

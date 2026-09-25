@@ -28,6 +28,16 @@ fabricated capability data §32.1 forbids. Fill a profile in from your provider'
 documentation. `limits` stays `null` until you know the number — a null renders as
 *unavailable* everywhere, and never as zero.
 
+Every capability field is therefore an operator declaration with the operator's
+documentation as its provenance. Runtime preflight
+(`packages/runtime/src/preflight.ts`) checks the declarations against what each
+configured stage will ask for before a run exists. It checks tool support for Testing
+writers, capability tiers, and effort levels that are neither supported nor explicitly
+collapsed. A live run whose profile still carries a `replace-with-` identity is refused
+(`MODEL_IDENTITY_PLACEHOLDER`). Runnable templates for every wire protocol and a
+mixed-provider configuration are in `examples/model-backed/`. [Getting started](setup.md)
+explains endpoint/role binding and the enforced budget limits.
+
 ### Independence
 
 `capabilityTier` is `frontier` · `balanced` · `fast`. `independenceGroup` is what makes a
@@ -128,8 +138,9 @@ The run schema validates optional `workflow.modelExecution` settings: `endpoints
 `modelEndpoints`, `maximumOutputTokens`, optional `maximumDiscoveryTokens` and
 `maximumContextTokens`, `timeoutMs`, `maximumRetries`, `maximumTokens`,
 per-provider `rateLimits`, optional `batch` lanes (see [Batch lane](#batch-lane)), and `roles` (`planner`, `verifier`, optional `critic`). Endpoint credentials are named by `apiKeyEnvVar`; values
-are resolved only at dispatch. Limits are supplied by the operator, not inferred from a
-provider-name table. The CLI/server executes a bounded source-snapshot Audit when these
+are resolved only at dispatch; `run` first checks that each referenced variable is set
+(`PROVIDER_CREDENTIAL_MISSING:<endpoint>`) without reading the value into any output.
+Limits are supplied by the operator, not inferred from a provider-name table. The CLI/server executes a bounded source-snapshot Audit when these
 settings and model profiles are supplied. Profile IDs for discovery match the selected
 preset's `auditor-a`, `auditor-b` and, for deep audits, `auditor-c` nodes. Roles reference
 configured profile IDs; deep audits require a critic profile. Audit depth requests low,

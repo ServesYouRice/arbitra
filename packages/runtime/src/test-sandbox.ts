@@ -32,6 +32,13 @@ export interface SandboxLifecycle {
 export interface TestSandbox {
   run(snapshot: RepositorySnapshot, execution: VerificationExecution, check: VerificationCheck, signal: AbortSignal, lifecycle?: SandboxLifecycle): Promise<SandboxTestResult>;
   recover(handle: SandboxRecoveryHandle): Promise<void>;
+  /** Optional preflight: report engine and local image presence without pulling or building. */
+  inspect?(image: string, signal: AbortSignal): Promise<SandboxAvailability>;
+}
+export interface SandboxAvailability {
+  readonly engine: "available" | "unavailable";
+  readonly image: "present" | "absent" | "unknown";
+  readonly detail: string | null;
 }
 
 /** Launch only a local Docker CLI. Container argv is never interpreted by a host shell. */
@@ -46,6 +53,25 @@ export class DockerTestSandbox implements TestSandbox {
       if (cleanup.stopped !== null || cleanup.exitCode !== 0 && !/No such container:/u.test(cleanup.stderr)) throw new Error(`VERIFICATION_CONTAINER_CLEANUP_FAILED:${handle.container}`);
       await validateRecoveryHandle(handle);
       await rm(handle.directory, { recursive: true, force: true });
+    } finally {
+      await rm(temporary, { recursive: true, force: true });
+    }
+  }
+
+  async inspect(image: string, signal: AbortSignal): Promise<SandboxAvailability> {
+    const execution = verificationExecutionSchema.parse({ driver: "docker", image, checks: [] });
+    const temporary = await mkdtemp(join(tmpdir(), "arbitra-preflight-"));
+    try {
+      const run = (args: readonly string[]) => this.processes.run({ executable: "docker", arguments: ["--config", temporary, ...args], cwd: temporary, environment: dockerEnvironment(), timeoutMs: 5_000, maximumOutputBytes: 4096, signal });
+      const info = await run(["info", "--format", "{{.OSType}}"]);
+      if (info.stopped !== null || info.exitCode !== 0 || info.stdout.trim() !== "linux") {
+        const detail = info.stopped === "spawn_error" ? "docker executable not found on PATH" : info.stopped !== null ? `docker info stopped: ${info.stopped}` : info.exitCode !== 0 ? firstLine(info.stderr) ?? `docker info exited ${String(info.exitCode)}` : `engine OSType is ${info.stdout.trim() || "unknown"}, not linux`;
+        return { engine: "unavailable", image: "unknown", detail };
+      }
+      // `image inspect` reads only the local image store; it never contacts a registry.
+      const inspected = await run(["image", "inspect", "--format", "{{.Id}}", execution.image]);
+      if (inspected.stopped !== null) return { engine: "available", image: "unknown", detail: `docker image inspect stopped: ${inspected.stopped}` };
+      return inspected.exitCode === 0 ? { engine: "available", image: "present", detail: null } : { engine: "available", image: "absent", detail: firstLine(inspected.stderr) };
     } finally {
       await rm(temporary, { recursive: true, force: true });
     }
@@ -103,6 +129,11 @@ export class DockerTestSandbox implements TestSandbox {
       await cleanupResources();
     }
   }
+}
+
+function firstLine(text: string): string | null {
+  const line = text.split(/\r?\n/u).map((value) => value.trim()).find((value) => value.length > 0);
+  return line === undefined ? null : line.slice(0, 300);
 }
 
 function dockerEnvironment(): Readonly<Record<string, string>> {
