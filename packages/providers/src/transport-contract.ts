@@ -29,7 +29,12 @@ export interface TransportUsage {
   readonly cacheReadTokens: number | null;
   readonly cacheWriteTokens: number | null;
 }
-export interface TransportToolCall { readonly id: string; readonly name: string; readonly arguments: unknown; }
+/**
+ * `providerState` is opaque data the provider requires back verbatim when the call is
+ * replayed in history (Gemini thought signatures, natively or through its OpenAI-compatible
+ * endpoint). It is never interpreted and never shown to the model as content.
+ */
+export interface TransportToolCall { readonly id: string; readonly name: string; readonly arguments: unknown; readonly providerState?: unknown }
 export interface TransportResponse {
   readonly text: string | null;
   readonly structured: unknown;
@@ -44,7 +49,8 @@ export interface ProviderTransport {
   readonly id: TransportId;
   send(request: TransportRequest, signal: AbortSignal): Promise<TransportResponse>;
 }
-export type TransportErrorCode = "AUTH" | "INVALID_REQUEST" | "MALFORMED_RESPONSE" | "RATE_LIMIT" | "TIMEOUT" | "CANCELLED" | "HTTP" | "OUTPUT_LIMIT";
+/** `QUOTA`: the account cannot pay for the call (exhausted credits or quota); retrying cannot help. */
+export type TransportErrorCode = "AUTH" | "INVALID_REQUEST" | "MALFORMED_RESPONSE" | "RATE_LIMIT" | "QUOTA" | "TIMEOUT" | "CANCELLED" | "HTTP" | "OUTPUT_LIMIT";
 export class TransportError extends Error {
   constructor(
     readonly code: TransportErrorCode,

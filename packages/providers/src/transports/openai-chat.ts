@@ -8,7 +8,7 @@ const codec: ProtocolCodec = {
     if (message.role === "tool" && !message.toolCallId) throw new Error("TOOL_CALL_ID_REQUIRED");
     return { role: message.role, content: message.content,
       tool_call_id: message.role === "tool" ? message.toolCallId : undefined,
-      tool_calls: message.toolCalls?.map((call) => ({ type: "function", id: call.id, function: { name: call.name, arguments: JSON.stringify(call.arguments) } })) };
+      tool_calls: message.toolCalls?.map((call) => ({ type: "function", id: call.id, function: { name: call.name, arguments: JSON.stringify(call.arguments) }, ...chatExtraContent(call.providerState) })) };
   }), max_completion_tokens: request.maximumOutputTokens,
     tools: request.tools?.map((tool) => ({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.inputSchema } })),
     response_format: request.responseSchema === undefined ? undefined : { type: "json_schema", json_schema: { name: "response", strict: true, schema: request.responseSchema } },
@@ -23,7 +23,9 @@ const codec: ProtocolCodec = {
       const call = object(item, "tool call"); const fn = object(call["function"], "tool function");
       const raw = string(fn["arguments"]) ?? "{}"; let args: unknown;
       try { args = JSON.parse(raw); } catch { throw new Error("Tool arguments were not valid JSON"); }
-      return { id: string(call["id"]) ?? "", name: string(fn["name"]) ?? "", arguments: args };
+      // Compatible services attach round-trip data here (Gemini: extra_content.google.thought_signature).
+      const extra = call["extra_content"];
+      return { id: string(call["id"]) ?? "", name: string(fn["name"]) ?? "", arguments: args, ...(extra !== null && typeof extra === "object" ? { providerState: { extra_content: extra } } : {}) };
     });
     const usage = object(root["usage"] ?? {}, "usage");
     return response(request, { text, toolCalls: calls, refusal: string(message["refusal"]),
@@ -31,6 +33,10 @@ const codec: ProtocolCodec = {
         cacheReadTokens: number(object(usage["prompt_tokens_details"] ?? {}, "details")["cached_tokens"]) }, requestId: headers["x-request-id"] ?? null });
   },
 };
+function chatExtraContent(state: unknown): { extra_content?: unknown } {
+  const extra = state !== null && typeof state === "object" ? (state as Record<string, unknown>)["extra_content"] : undefined;
+  return extra !== null && typeof extra === "object" ? { extra_content: extra } : {};
+}
 export class OpenAiChatTransport extends JsonProtocolTransport {
   constructor(config: TransportConfiguration, client?: HttpClient, credential?: (name: string) => string | undefined) { super(config, codec, client, credential); }
 }

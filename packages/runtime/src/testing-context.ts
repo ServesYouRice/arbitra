@@ -1,5 +1,6 @@
 import type { TestingExecution, TestingRisk } from "@arbitra/schemas/testing.js";
 import { testingRiskSchema, testingEvidenceSchema, testingSelectionSchema } from "@arbitra/schemas/testing.js";
+import { anchorLineEvidence } from "./evidence-grounding.js";
 import type { RepositorySnapshot } from "./repository.js";
 import { testInventory, type TestSystemReport, type TestGap } from "@arbitra/workflow/nodes/test-inventory.js";
 
@@ -14,9 +15,8 @@ export function validateTestingSelection(value: unknown, candidates: readonly Te
 export interface RepositoryTestCommand { readonly command: string; readonly executionPolicy: "derived_repository_script" | "requires_approval"; readonly sourcePath: string; readonly source: string }
 
 export function validateTestingEvidence(value: unknown, snapshot: RepositorySnapshot) {
-  const evidence = testingEvidenceSchema.parse(value);
-  const file = snapshot.files.find(({ path }) => path === evidence.path);
-  if (file === undefined || evidence.endLine < evidence.startLine || evidence.endLine > file.lines.length || file.lines.slice(evidence.startLine - 1, evidence.endLine).join("\n") !== evidence.text) throw new Error("TESTING_EVIDENCE_UNGROUNDED");
+  const evidence = anchorLineEvidence(testingEvidenceSchema.parse(value), snapshot.files.find(({ path }) => path === (value as { path?: unknown }).path));
+  if (evidence === null) throw new Error("TESTING_EVIDENCE_UNGROUNDED");
   return evidence;
 }
 
@@ -27,10 +27,8 @@ export function validateTestingRisk(value: unknown, snapshot: RepositorySnapshot
   if (new Set(risk.reviewedSourcePaths).size !== risk.reviewedSourcePaths.length || risk.reviewedSourcePaths.some((path) => !inventory.sourceFiles.includes(path))) throw new Error("TESTING_REVIEWED_SOURCE_INVALID");
   for (const surface of risk.surfaces) {
     if (new Set(surface.paths).size !== surface.paths.length || surface.paths.some((path) => !risk.reviewedSourcePaths.includes(path))) throw new Error("TESTING_RISK_SOURCE_INVALID");
-    for (const evidence of surface.evidence) {
-      validateTestingEvidence(evidence, snapshot);
-      if (!surface.paths.includes(evidence.path)) throw new Error("TESTING_RISK_EVIDENCE_UNRELATED");
-    }
+    surface.evidence = surface.evidence.map((value) => validateTestingEvidence(value, snapshot));
+    for (const evidence of surface.evidence) if (!surface.paths.includes(evidence.path)) throw new Error("TESTING_RISK_EVIDENCE_UNRELATED");
     if (surface.paths.some((path) => !surface.evidence.some((evidence) => evidence.path === path))) throw new Error("TESTING_RISK_EVIDENCE_MISSING");
   }
   return risk;

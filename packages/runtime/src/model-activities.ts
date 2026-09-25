@@ -219,8 +219,7 @@ export class ModelActivities {
       if (!harnessTurn && result.response.toolCalls.length > 0) throw new Error("MODEL_ACTIVITY_UNEXPECTED_TOOL_CALLS");
       let parsed: unknown = harnessTurn ? { text: result.response.text, toolCalls: result.response.toolCalls, refusal: result.response.refusal, usage: result.response.usage } : result.response.structured;
       if (!harnessTurn && parsed === null) {
-        try { parsed = JSON.parse(result.response.text ?? ""); }
-        catch { throw new Error("MODEL_ACTIVITY_INVALID_JSON"); }
+        parsed = parsePromptJson(result.response.text ?? "");
       }
       // Always return the same redacted payload that a resumed call will receive.
       const safe = JSON.parse(JSON.stringify(parsed, (_key, value: unknown) => typeof value === "string" ? redactSecrets(value).text : value)) as unknown;
@@ -313,3 +312,25 @@ export class ModelActivities {
 
 function isDiscoveryActivity(activityId: string): boolean { return activityId.endsWith("/discovery") || activityId.split("/").includes("discovery"); }
 function hash(value: unknown): string { return createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
+
+/**
+ * The prompt compiler asks every model to quote source into a <quotes> block before
+ * reasoning, so a prompt-JSON reply is legitimately quotes, optional reasoning and then the
+ * JSON document, often in a Markdown fence (observed live on Gemini through the
+ * OpenAI-compatible endpoint). The answer is the document that ends the reply: either the
+ * whole reply, a closing fenced block, or a JSON object starting on its own line and running
+ * to the end. Nothing may follow it, and JSON embedded mid-prose is never picked.
+ */
+export function parsePromptJson(text: string): unknown {
+  const attempt = (candidate: string): { value: unknown } | null => { try { return { value: JSON.parse(candidate) as unknown }; } catch { return null; } };
+  const whole = attempt(text);
+  if (whole !== null) return whole.value;
+  const body = text.replace(/^\s*<quotes>[\s\S]*?<\/quotes>/u, "").trimEnd();
+  const fenced = /```(?:json)?[ \t]*\n([\s\S]*?)\n[ \t]*```$/u.exec(body);
+  if (fenced?.[1] !== undefined) { const parsed = attempt(fenced[1]); if (parsed !== null) return parsed.value; }
+  for (const match of body.matchAll(/(?:^|\n)[ \t]*(?=[{[])/gu)) {
+    const parsed = attempt(body.slice(match.index + match[0].length));
+    if (parsed !== null) return parsed.value;
+  }
+  throw new Error("MODEL_ACTIVITY_INVALID_JSON");
+}

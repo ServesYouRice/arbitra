@@ -1,0 +1,168 @@
+{
+  "endpoints": [
+    {
+      "id": "gemini-native",
+      "providerId": "google",
+      "transport": "gemini-native",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta",
+      "apiKeyEnvVar": "ARBITRA_GEMINI_API_KEY"
+    },
+    {
+      "id": "gemini-native-b",
+      "providerId": "google",
+      "transport": "gemini-native",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta",
+      "apiKeyEnvVar": "ARBITRA_GEMINI_API_KEY"
+    },
+    {
+      "id": "gemini-compatible",
+      "providerId": "google-openai-compatible",
+      "transport": "openai-chat",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "apiKeyEnvVar": "ARBITRA_GEMINI_API_KEY"
+    },
+    {
+      "id": "gemini-native-flash",
+      "providerId": "google",
+      "transport": "gemini-native",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta",
+      "apiKeyEnvVar": "ARBITRA_GEMINI_API_KEY"
+    }
+  ],
+  "profiles": {
+    "gemini-native": {
+      "modelId": "gemini-3.1-flash-lite",
+      "family": "gemini",
+      "independenceGroup": "gemini-3.1-flash-lite",
+      "limits": {
+        "contextTokens": 1000000,
+        "maxOutputTokens": 65536
+      }
+    },
+    "gemini-native-b": {
+      "modelId": "gemini-2.5-flash-lite",
+      "family": "gemini",
+      "independenceGroup": "gemini-2.5-flash-lite",
+      "limits": {
+        "contextTokens": 1000000,
+        "maxOutputTokens": 65536
+      }
+    },
+    "gemini-compatible": {
+      "modelId": "gemini-3.5-flash-lite",
+      "family": "gemini",
+      "independenceGroup": "gemini-3.5-flash-lite-via-openai-chat",
+      "limits": {
+        "contextTokens": 1000000,
+        "maxOutputTokens": 65536
+      }
+    },
+    "gemini-native-flash": {
+      "modelId": "gemini-2.5-flash",
+      "family": "gemini",
+      "independenceGroup": "gemini-2.5-flash",
+      "limits": {
+        "contextTokens": 1000000,
+        "maxOutputTokens": 65536
+      }
+    }
+  },
+  "rateLimit": {
+    "rpm": 12,
+    "tpm": 1000000,
+    "maxConcurrent": 2
+  },
+  "assign": {
+    "audit-mixed-providers": {
+      "auditor-a": "gemini-compatible",
+      "auditor-b": "gemini-native",
+      "auditor-c": "gemini-native-b"
+    },
+    "feature-automatic": {
+      "planner": "gemini-native",
+      "reviewer-compatible": "gemini-compatible",
+      "reviewer-gemini": "gemini-native-b"
+    },
+    "feature-interactive": {
+      "planner": "gemini-native",
+      "reviewer-anthropic": "gemini-compatible",
+      "reviewer-gemini": "gemini-native-b"
+    },
+    "testing-plan": {
+      "analyst": "gemini-native",
+      "planner": "gemini-compatible"
+    },
+    "testing-execute": {
+      "analyst": "gemini-native",
+      "writer": "gemini-compatible"
+    }
+  },
+  "overrides": {
+    "audit-mixed-providers": {
+      "workflow": {
+        "modelExecution": {
+          "maximumTokens": 1500000
+        }
+      }
+    },
+    "feature-automatic": {
+      "workflow": {
+        "feature": {
+          "request": "Add a removeLine(lines, sku) function to src/cart.js that removes every cart line with the given sku and returns a new array. Keep subtotal behaviour unchanged. Acceptance: removing an absent sku returns an equal array; the input array is not mutated."
+        }
+      }
+    },
+    "feature-interactive": {
+      "workflow": {
+        "feature": {
+          "request": "Let customers keep their session alive while they are active: refresh should extend a session only if it is not expired, and expiry must be enforced exactly at expiresAt. Decide how clock skew is handled."
+        }
+      }
+    },
+    "testing-plan": {
+      "workflow": {
+        "testing": {
+          "goal": "Protect session expiry and refresh behaviour in src/session.js."
+        }
+      }
+    },
+    "testing-execute": {
+      "workflow": {
+        "testing": {
+          "goal": "Protect session expiry and refresh behaviour in src/session.js.",
+          "execution": {
+            "authorization": {
+              "partitions": [
+                {
+                  "id": "tests",
+                  "paths": [
+                    "test/session.test.js"
+                  ]
+                }
+              ]
+            },
+            "verification": {
+              "execution": {
+                "image": "REPLACED_AT_RUN_TIME",
+                "checks": [
+                  {
+                    "id": "unit-tests",
+                    "executable": "/usr/local/bin/npm",
+                    "arguments": [
+                      "run",
+                      "test"
+                    ],
+                    "sourcePaths": [
+                      "package.json",
+                      "test/session.test.js"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

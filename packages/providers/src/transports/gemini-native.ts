@@ -15,13 +15,15 @@ export const geminiNativeCodec: ProtocolCodec = {
       }
       return { role: message.role === "assistant" ? "model" : "user", parts: [
         ...(message.content === "" ? [] : [{ text: message.content }]),
-        ...(message.toolCalls ?? []).map((call) => ({ functionCall: { id: call.id, name: call.name, args: call.arguments } })),
+        ...(message.toolCalls ?? []).map((call) => ({ functionCall: { id: call.id, name: call.name, args: call.arguments }, ...geminiThoughtSignature(call.providerState) })),
       ] };
     }),
     systemInstruction: request.messages.some(({ role }) => role === "system") ? { parts: request.messages.filter(({ role }) => role === "system").map(({ content }) => ({ text: content })) } : undefined,
-    tools: request.tools === undefined ? undefined : [{ functionDeclarations: request.tools.map((tool) => ({ name: tool.name, description: tool.description, parameters: tool.inputSchema })) }],
+    // The *JsonSchema fields take standard JSON Schema. The older `parameters`/`responseSchema`
+    // accept only an OpenAPI subset and reject `additionalProperties` (observed live, P03).
+    tools: request.tools === undefined ? undefined : [{ functionDeclarations: request.tools.map((tool) => ({ name: tool.name, description: tool.description, parametersJsonSchema: tool.inputSchema })) }],
     generationConfig: { maxOutputTokens: request.maximumOutputTokens,
-      responseMimeType: request.responseSchema === undefined ? undefined : "application/json", responseSchema: request.responseSchema, thinkingConfig: request.effortParams } }),
+      responseMimeType: request.responseSchema === undefined ? undefined : "application/json", responseJsonSchema: request.responseSchema, thinkingConfig: request.effortParams } }),
   parse(body, request, headers) {
     const root = object(body, "gemini response");
     const feedback = object(root["promptFeedback"] ?? {}, "prompt feedback");
@@ -36,7 +38,8 @@ export const geminiNativeCodec: ProtocolCodec = {
       const part = object(item, "candidate part");
       if (typeof part["text"] === "string" && part["thought"] !== true) text = `${text ?? ""}${part["text"]}`;
       if (part["functionCall"] !== undefined) { const call = object(part["functionCall"], "function call");
-        calls.push({ id: string(call["id"]) ?? `gemini-call-${calls.length}`, name: string(call["name"]) ?? "", arguments: call["args"] }); }
+        const signature = string(part["thoughtSignature"]);
+        calls.push({ id: string(call["id"]) ?? `gemini-call-${calls.length}`, name: string(call["name"]) ?? "", arguments: call["args"], ...(signature === null ? {} : { providerState: { thoughtSignature: signature } }) }); }
     }
     const usage = object(root["usageMetadata"] ?? {}, "usage");
     return response(request, { text, toolCalls: calls,
@@ -44,6 +47,10 @@ export const geminiNativeCodec: ProtocolCodec = {
         cacheReadTokens: number(usage["cachedContentTokenCount"]) }, requestId: string(root["responseId"]) ?? headers["x-request-id"] ?? null });
   },
 };
+function geminiThoughtSignature(state: unknown): { thoughtSignature?: string } {
+  const signature = state !== null && typeof state === "object" ? (state as Record<string, unknown>)["thoughtSignature"] : undefined;
+  return typeof signature === "string" ? { thoughtSignature: signature } : {};
+}
 export class GeminiNativeTransport extends JsonProtocolTransport {
   constructor(config: TransportConfiguration, client?: HttpClient, credential?: (name: string) => string | undefined) { super(config, geminiNativeCodec, client, credential); }
 }

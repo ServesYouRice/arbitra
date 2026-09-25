@@ -1,5 +1,6 @@
 import { featureExplorationSchema, requirementsContractSchema, type FeatureExploration } from "@arbitra/schemas/requirements.js";
 import type { RequirementsContract } from "@arbitra/workflow/nodes/requirements/index.js";
+import { anchorLineEvidence } from "./evidence-grounding.js";
 import type { RepositorySnapshot } from "./repository.js";
 
 /** Exploration may propose scope, but every surface must retain grounded source evidence. */
@@ -16,10 +17,11 @@ export function validateFeatureExploration(value: unknown, requirements: Require
       if (!exploration.evidence.some((evidence) => evidence.surfaceId === surface.id && evidence.path === path)) throw new Error(`FEATURE_EXPLORATION_EVIDENCE_MISSING:${surface.id}:${path}`);
     }
   }
-  for (const evidence of exploration.evidence) {
-    const surface = surfaces.get(evidence.surfaceId); const file = files.get(evidence.path);
-    if (surface === undefined || !surface.paths.includes(evidence.path) || file === undefined || evidence.endLine < evidence.startLine || evidence.endLine > file.lines.length
-      || file.lines.slice(evidence.startLine - 1, evidence.endLine).join("\n") !== evidence.text) throw new Error("FEATURE_EXPLORATION_UNGROUNDED_EVIDENCE");
-  }
+  exploration.evidence = exploration.evidence.map((evidence) => {
+    const surface = surfaces.get(evidence.surfaceId);
+    const anchored = surface === undefined || !surface.paths.includes(evidence.path) ? null : anchorLineEvidence(evidence, files.get(evidence.path));
+    if (anchored === null) throw new Error("FEATURE_EXPLORATION_UNGROUNDED_EVIDENCE");
+    return anchored;
+  });
   return exploration;
 }

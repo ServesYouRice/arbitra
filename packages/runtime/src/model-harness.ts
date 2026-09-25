@@ -10,7 +10,7 @@ import { frameUntrusted } from "@arbitra/security/framing";
 import { redactSecrets } from "@arbitra/security/redaction";
 import { boundModelHistory } from "./model-history.js";
 import { ModelOutputLimitError, outputLimitKind } from "./context-budget.js";
-import { ModelActivities, type ModelActivityRequest } from "./model-activities.js";
+import { ModelActivities, parsePromptJson, type ModelActivityRequest } from "./model-activities.js";
 import { snapshotTools, SNAPSHOT_TOOLS } from "./snapshot-tools.js";
 import type { RepositorySnapshot } from "./repository.js";
 import type { RunStore } from "./run-store.js";
@@ -76,9 +76,7 @@ export class ModelHarness {
         events.push(event);
         if (event.type !== "completed") continue;
         if (event.refusal !== null) throw new Error("MODEL_ACTIVITY_REFUSED");
-        let output: unknown;
-        try { output = JSON.parse(event.text ?? ""); } catch { throw new Error("MODEL_ACTIVITY_INVALID_JSON"); }
-        return input.schema.parse(output);
+        return input.schema.parse(parsePromptJson(event.text ?? ""));
       }
       throw new Error("HARNESS_COMPLETION_ABSENT");
     } finally {
