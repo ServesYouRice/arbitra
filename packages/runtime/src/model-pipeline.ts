@@ -54,6 +54,7 @@ import { verificationExecutionSchema } from "@arbitra/schemas/verification-execu
 import { VerificationExecutor } from "./verification-execution.js";
 import type { TestSandbox } from "./test-sandbox.js";
 import { DiscoveryUnits, type IncrementalSeed, type SnapshotIdentity } from "./incremental-audit.js";
+import { traceablePlanSchema } from "./planner-output.js";
 
 /**
  * The schema peers answer against. Board votes may carry a `verification` record, but only the
@@ -338,7 +339,7 @@ export class ModelAuditPipeline {
           },
           call: (stage) => { plannerCalls += 1; return this.call(stageInput(stage)); },
           publish: (kind, value) => this.context.store.publish(kind, value),
-        }, { maximumBriefRecords }); });
+        }, { maximumBriefRecords, fullSchema: traceablePlanSchema("audit", null, request.input.canonicalIssues.filter(({ disposition }) => disposition === "accepted").map(({ candidateId }) => candidateId)) }); });
       } },
     });
     const { plan, modelCalls } = await planner.run({
