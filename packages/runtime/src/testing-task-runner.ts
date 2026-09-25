@@ -6,6 +6,7 @@ import type { TestingVerificationPolicy } from "@arbitra/schemas/testing-verific
 import type { WritePartitions, WriteRequest, WriteLease } from "@arbitra/security/write-partitions";
 import type { ModelActivities } from "./model-activities.js";
 import { modelTestingWriter } from "./model-testing-writer.js";
+import { nativeTestingWriter, nativeWriterSettings, recoverNativeWriterResources, type NativeWriterHost } from "./native-testing-writer.js";
 import type { RunStore } from "./run-store.js";
 import { TestingTaskAttempts } from "./testing-task-attempts.js";
 import type { TestingTaskVerifier } from "./testing-task-verifier.js";
@@ -25,6 +26,8 @@ export interface TestingTaskRunInput {
   readonly maximumAttempts?: number; readonly signal: AbortSignal;
   /** Operator advisor policy; absent means task advisor requests are not served. */
   readonly advisors?: AdvisorPolicy;
+  /** Native writer host (environment, process port); only read when harness.mode is "native". */
+  readonly nativeHost?: NativeWriterHost;
 }
 
 export async function runTestingTask(input: TestingTaskRunInput) {
@@ -44,6 +47,10 @@ async function prepareTask(input: TestingTaskRunInput) {
     if (profile === undefined || !profile.supports.tools || ranks[profile.capabilityTier] < ranks[capability]) throw new Error("TESTING_TASK_MODEL_CONFIGURATION_INVALID");
   }
   validateAdvisorPolicy(config, input.advisors);
+  if (config.harness.mode === "native") {
+    nativeWriterSettings(config);
+    if (input.advisors !== undefined) throw new Error("NATIVE_HARNESS_ADVISOR_UNSUPPORTED");
+  }
   const maximumAttempts = input.maximumAttempts ?? 4;
   const identity = createHash("sha256").update(task.id).digest("hex");
   const kind = `testing-task-runner-${identity}`;
@@ -63,6 +70,8 @@ export async function runTestingBatch(inputs: readonly TestingTaskRunInput[]) {
   const ledgers: TestingTaskAttempts[] = [];
   for (const input of inputs) ledgers.push(await prepareTask(input));
   await first.verifier.recover(first.signal);
+  // Scratch copies of native runs the host did not finish are removed before any dispatch.
+  if (first.config.harness.mode === "native") await recoverNativeWriterResources(first.store);
   while (true) {
     if (first.signal.aborted) throw new Error("TESTING_TASK_RUNNER_CANCELLED");
     const statuses = await Promise.all(ledgers.map((ledger) => ledger.status()));
@@ -77,11 +86,13 @@ export async function runTestingBatch(inputs: readonly TestingTaskRunInput[]) {
       jobs.push({ input, ledger, attempt, feedback });
     }
     const leases: WriteLease[] = [];
-    let results: PromiseSettledResult<Awaited<ReturnType<typeof modelTestingWriter>>>[];
+    let results: PromiseSettledResult<{ readonly summary: string; readonly limitations: readonly string[] }>[];
     try {
       for (const { input } of jobs) leases.push(first.partitions.acquire(input.request));
       results = await Promise.allSettled(jobs.map(({ input, attempt, feedback }, index) => {
         const lease = leases[index]; if (lease === undefined) throw new Error("TESTING_BATCH_LEASE_ABSENT");
+        if (input.config.harness.mode === "native") return nativeTestingWriter(input.store, input.config, input.activities, input.task, attempt, input.workspace, input.partitions, lease,
+          { modelProfileId: input.models[attempt.capability], feedback, signal: input.signal, ...(input.nativeHost === undefined ? {} : { host: input.nativeHost }) });
         return modelTestingWriter(input.store, input.config, input.activities, input.task, attempt, input.workspace, input.partitions, lease,
           { modelProfileId: input.models[attempt.capability], feedback, signal: input.signal, ...(input.advisors === undefined ? {} : { advisors: input.advisors }) });
       }));

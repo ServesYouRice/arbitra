@@ -1,3 +1,4 @@
+import { isAbsolute } from "node:path";
 import type { RunnerGraph } from "@arbitra/core/runner/workflow-runner.js";
 import { resolveEffort, type EffortLevel } from "@arbitra/providers/effort.js";
 import type { RunConfig } from "@arbitra/schemas/config.js";
@@ -11,6 +12,9 @@ import { auditorIdsFor, graphForPreset } from "./graphs.js";
 import type { TestSandbox } from "./test-sandbox.js";
 import { validateBatchLanes } from "./model-batch-lane.js";
 import { validateAdvisorPolicy } from "./model-advisors.js";
+import { NATIVE_HARNESS_SUPPORT, unenforceableNativeTools } from "@arbitra/harness/native/support.js";
+import { isClaudeCodeControlPath } from "@arbitra/harness/native/claude-code/translation.js";
+import { NATIVE_TESTING_WRITER_STAGE } from "./native-testing-writer.js";
 
 /**
  * Runtime preflight: everything that can be established about a configuration before
@@ -75,9 +79,7 @@ export interface ConfigurationPreflightOptions {
 /** Collects every configuration problem the runtime would otherwise report one at a time. */
 export function configurationDiagnostics(config: RunConfig, options: ConfigurationPreflightOptions = {}): readonly PreflightDiagnostic[] {
   const diagnostics: PreflightDiagnostic[] = [];
-  if (config.harness.mode !== "canonical") {
-    diagnostics.push(error("RUNTIME_NATIVE_HARNESS_NOT_AVAILABLE", "harness.mode", "Native harness adapters are not implemented. Set harness.mode to \"canonical\"; no native tool loop is ever substituted silently."));
-  }
+  if (config.harness.mode !== "canonical") nativeHarnessDiagnostics(config, diagnostics);
   const modelBacked = config.mode !== "audit" || Object.keys(config.models).length > 0;
   unenforcedSectionDiagnostics(config, modelBacked, diagnostics);
   const graph = config.workflow["graph"] !== undefined ? options.savedGraph : presetDiagnostics(config, options.graphs ?? {}, diagnostics);
@@ -122,6 +124,57 @@ function unenforcedSectionDiagnostics(config: RunConfig, modelBacked: boolean, d
   if (Object.keys(config.contextPolicies).length > 0) {
     diagnostics.push(warning("CONTEXT_POLICIES_NOT_ENFORCED", "contextPolicies", "contextPolicies is not read: each stage's context is fixed by its workflow (discovery is always independent). Set contextPolicies to {}."));
   }
+}
+
+const SUPPORTED_NATIVE = NATIVE_HARNESS_SUPPORT.map(({ harnessId, versionRange, stages, status }) => `${harnessId} ${versionRange.minimum} <${versionRange.below} [${stages.join(", ")}] (${status})`).join("; ");
+
+/**
+ * Native mode is admitted only for a (harness, stage, tool) combination the support matrix
+ * declares and arbitra can enforce. Everything else is refused before a run exists.
+ */
+function nativeHarnessDiagnostics(config: RunConfig, diagnostics: PreflightDiagnostic[]): void {
+  if (config.mode === "audit") {
+    diagnostics.push(error("NATIVE_HARNESS_DISCOVERY_FORBIDDEN", "harness.mode", "Audit discovery runs only under the canonical harness so independent auditors are measured under identical conditions; a native harness cannot be used for Audit. Set harness.mode to \"canonical\"."));
+    return;
+  }
+  if (config.mode !== "testing") {
+    diagnostics.push(error("NATIVE_HARNESS_MODE_UNSUPPORTED", "harness.mode", `No native harness supports ${config.mode} mode. Supported: ${SUPPORTED_NATIVE}. Set harness.mode to "canonical".`));
+    return;
+  }
+  const testing = testingExecutionSchema.safeParse(config.workflow["testing"]);
+  if (testing.success && testing.data.mode !== "execute") {
+    diagnostics.push(error("NATIVE_HARNESS_MODE_UNSUPPORTED", "harness.mode", "A native harness serves only the Testing writer, and a Testing plan run has none. Use testing.mode \"execute\" or set harness.mode to \"canonical\"."));
+    return;
+  }
+  const native = config.harness.native;
+  if (native === undefined) {
+    diagnostics.push(error("NATIVE_HARNESS_CONFIGURATION_REQUIRED", "harness.native", `Native mode needs harness.native {harnessId, stages: ["testing-writer"], apiKeyEnvVar, timeoutMs, maximumTurns, maximumToolCalls, maximumTokensPerRun}. Supported: ${SUPPORTED_NATIVE}.`));
+    return;
+  }
+  const support = NATIVE_HARNESS_SUPPORT.find(({ harnessId }) => harnessId === native.harnessId);
+  if (support === undefined) {
+    diagnostics.push(error(`NATIVE_HARNESS_UNSUPPORTED:${native.harnessId}`, "harness.native.harnessId", `${native.harnessId} is not in the native support matrix. Supported: ${SUPPORTED_NATIVE}.`));
+    return;
+  }
+  for (const stage of native.stages) {
+    if (!(support.stages as readonly string[]).includes(stage)) diagnostics.push(error(`NATIVE_HARNESS_STAGE_UNSUPPORTED:${stage}`, "harness.native.stages", `${support.harnessId} supports only ${support.stages.join(", ")}. Discovery, review and planning always run canonical.`));
+  }
+  if (!native.stages.includes(NATIVE_TESTING_WRITER_STAGE)) diagnostics.push(error("NATIVE_HARNESS_STAGE_UNSUPPORTED:none", "harness.native.stages", "List \"testing-writer\"; no other native stage is supported."));
+  for (const { tool, reason } of unenforceableNativeTools(support, native.tools ?? support.defaultTools)) {
+    const why = reason === "shell" ? "an unbounded shell cannot be confined to the write lease" : reason === "network" ? "network access cannot be enforced or recorded" : reason === "subagent" ? "subagents are a nested tool loop arbitra cannot bound" : reason === "mcp" ? "MCP servers are external tools outside the lease" : "arbitra cannot classify or bound it";
+    diagnostics.push(error(`NATIVE_HARNESS_TOOL_UNENFORCEABLE:${tool}`, "harness.native.tools", `${tool} is refused: ${why}. Permitted: ${support.defaultTools.join(", ")}.`));
+  }
+  if (testing.success && testing.data.mode === "execute") {
+    if (testing.data.execution.advisors !== undefined) diagnostics.push(error("NATIVE_HARNESS_ADVISOR_UNSUPPORTED", "workflow.testing.execution.advisors", "Advisors feed the canonical writer's prompt; the native writer does not accept advisory input. Remove advisors or use the canonical harness."));
+    for (const [capability, id] of Object.entries(testing.data.execution.models)) {
+      const profile = Object.hasOwn(config.models, id) ? config.models[id] : undefined;
+      if (profile !== undefined && !support.modelProviders.includes(profile.provider)) diagnostics.push(error(`NATIVE_HARNESS_MODEL_INCOMPATIBLE:${id}`, `workflow.testing.execution.models.${capability}`, `${support.harnessId} serves ${support.modelProviders.join(", ")} models; ${id} is provider ${profile.provider}.`));
+    }
+    for (const [index, partition] of testing.data.execution.authorization.partitions.entries()) {
+      for (const path of partition.paths) if (isClaudeCodeControlPath(path)) diagnostics.push(error("NATIVE_HARNESS_CONTROL_PATH_IN_LEASE", `workflow.testing.execution.authorization.partitions.${index}.paths`, `${path} would become native harness instructions or configuration; it cannot be granted to a native writer.`));
+    }
+  }
+  if (support.status === "declared_unverified") diagnostics.push(warning("NATIVE_HARNESS_UNVERIFIED", "harness.native.harnessId", `${support.harnessId} support is declared but not yet conformance-verified against the actual native process; its event translation is an assumption checked only against a scripted stand-in.`));
 }
 
 /** Stable code prefix of a runtime error message such as `CODE:detail`. */
@@ -303,6 +356,18 @@ export async function environmentDiagnostics(config: RunConfig, options: Environ
       if (value === undefined || value.length === 0) {
         diagnostics.push(error(`PROVIDER_CREDENTIAL_MISSING:${endpoint.id}`, `workflow.modelExecution.endpoints.${index}.apiKeyEnvVar`, `Environment variable ${endpoint.apiKeyEnvVar} is not set for endpoint ${endpoint.id} (profiles ${models.join(", ")}). Export it in the process that runs arbitra; the value is read only at dispatch and never written to configuration, runs or responses.`));
       }
+    }
+  }
+  const native = config.harness.mode === "native" ? config.harness.native : undefined;
+  const nativeSupport = native === undefined ? undefined : NATIVE_HARNESS_SUPPORT.find(({ harnessId }) => harnessId === native.harnessId);
+  if (native !== undefined && nativeSupport !== undefined) {
+    const executable = options.credential(nativeSupport.executableEnvVar);
+    if (executable === undefined || !isAbsolute(executable)) {
+      diagnostics.push(error("NATIVE_HARNESS_EXECUTABLE_MISSING", "$environment", `Set ${nativeSupport.executableEnvVar} to the absolute path of the ${nativeSupport.displayName} executable. The path is host configuration, never run configuration; its version is probed before each native run and must be ${nativeSupport.versionRange.minimum} or later and below ${nativeSupport.versionRange.below}.`));
+    }
+    const credential = options.credential(native.apiKeyEnvVar);
+    if (credential === undefined || credential.length === 0) {
+      diagnostics.push(error(`NATIVE_HARNESS_CREDENTIAL_MISSING:${native.apiKeyEnvVar}`, "harness.native.apiKeyEnvVar", `Environment variable ${native.apiKeyEnvVar} is not set. It is passed to the native process as ${nativeSupport.credentialTarget} and is its only credential.`));
     }
   }
   const sandbox = sandboxRequirement(config);

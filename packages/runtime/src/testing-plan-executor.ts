@@ -15,6 +15,7 @@ import type { TestingOutcome } from "./testing-pipeline.js";
 import { DEFAULT_TESTING_REPAIR_ROUNDS, TestingRepairLineage, testingRepairClosure, type TestingRepairRound } from "./testing-repair.js";
 import { TestingTaskAttempts } from "./testing-task-attempts.js";
 import { runTestingBatch } from "./testing-task-runner.js";
+import { canonicalTestingStagesPermitted } from "./native-testing-writer.js";
 import { TestingTaskVerifier, type TestingTaskVerificationResult } from "./testing-task-verifier.js";
 import { testingWriteSchedule } from "./testing-write-schedule.js";
 import { TestingWorkspace } from "./testing-workspace.js";
@@ -48,7 +49,7 @@ export class TestingPlanExecutor {
     private readonly activities: ModelActivities, options: TestingPlanExecutionOptions, sandbox?: TestSandbox) {
     this.#config = runConfigSchema.parse(config); this.#snapshot = structuredClone(snapshot);
     this.#options = testingPlanExecutionOptionsSchema.parse(options);
-    if (config.mode !== "testing" || config.harness.mode !== "canonical") throw new Error("TESTING_PLAN_EXECUTOR_CONFIGURATION_INVALID");
+    if (config.mode !== "testing" || !canonicalTestingStagesPermitted(config)) throw new Error("TESTING_PLAN_EXECUTOR_CONFIGURATION_INVALID");
     if (!Number.isSafeInteger(options.maximumAttempts) || options.maximumAttempts < 1 || options.maximumAttempts > 10) throw new Error("INVALID_TESTING_ATTEMPT_LIMIT");
     this.#partitions = new WritePartitions(this.#options.authorization.partitions);
     this.#workspace = new TestingWorkspace(store, this.#partitions);

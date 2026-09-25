@@ -62,11 +62,11 @@ describe("configuration preflight", () => {
     expect(warned.map(({ code }) => code)).toContain("BUDGETS_NOT_ENFORCED");
   });
 
-  it("rejects native harness mode with the canonical alternative", async () => {
+  it("rejects native harness mode where no native stage is supported, with the canonical alternative", async () => {
     const config = mutable(await template("feature-automatic"));
     config["harness"] = { mode: "native" };
     const [diagnostic] = configurationDiagnostics(config as unknown as RunConfig);
-    expect(diagnostic).toMatchObject({ code: "RUNTIME_NATIVE_HARNESS_NOT_AVAILABLE", path: "harness.mode" });
+    expect(diagnostic).toMatchObject({ code: "NATIVE_HARNESS_MODE_UNSUPPORTED", path: "harness.mode" });
     expect(diagnostic?.message).toContain("canonical");
   });
 
@@ -205,7 +205,7 @@ describe("public runtime preflight", () => {
     expect(run.reasons).toEqual(expect.arrayContaining(["preflight_failed", "PROVIDER_CREDENTIAL_MISSING:openai"]));
     const native = join(root, "native.json");
     await writeFile(native, JSON.stringify({ ...JSON.parse(await readFile(path, "utf8")) as object, harness: { mode: "native" } }));
-    expect(await core.validate(native)).toMatchObject({ disposition: "failed", reasons: ["invalid_configuration", "RUNTIME_NATIVE_HARNESS_NOT_AVAILABLE"], value: { valid: false } });
+    expect(await core.validate(native)).toMatchObject({ disposition: "failed", reasons: ["invalid_configuration", "NATIVE_HARNESS_CONFIGURATION_REQUIRED"], value: { valid: false } });
     const secret = join(root, "secret.json");
     await writeFile(secret, JSON.stringify({ ...JSON.parse(await readFile(path, "utf8")) as object, budgets: { apiKey: "not-a-real-key" } }));
     const rejected = await core.validate(secret);

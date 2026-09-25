@@ -971,7 +971,12 @@ function presetOf(config: RunConfig): string | undefined {
 /** Do not misrepresent a scripted audit as an uncomposed model/Feature/Testing run. */
 function assertRuntimeConfiguration(config: RunConfig, registered: Readonly<Record<string, RunnerGraph>>, saved?: RunnerGraph): void {
   const resolveGraph = (): RunnerGraph => saved ?? graphForConfiguration(config, registered);
-  if (config.harness.mode !== "canonical") throw new Error("RUNTIME_NATIVE_HARNESS_NOT_AVAILABLE");
+  // Native harnesses serve only the stages in their support matrix (the Testing writer).
+  // Audit discovery keeps the canonical baseline; Feature has no native stage.
+  if (config.harness.mode !== "canonical") {
+    if (config.mode === "audit") throw new Error("NATIVE_HARNESS_DISCOVERY_FORBIDDEN");
+    if (config.mode !== "testing") throw new Error(`NATIVE_HARNESS_MODE_UNSUPPORTED:${config.mode}`);
+  }
   if (config.mode === "testing") { validateModelTesting(config); resolveGraph(); return; }
   if (config.mode === "feature") { validateModelFeature(config); resolveGraph(); return; }
   if (Object.keys(config.models).length > 0) {

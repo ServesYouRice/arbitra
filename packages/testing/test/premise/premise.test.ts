@@ -37,6 +37,14 @@ describe("premise metric report", () => {
     expect(scripts.every(({ networkRequests }) => networkRequests === 0)).toBe(true);
   });
 
+  it("never pools a native-harness auditor into canonical premise measurements", () => {
+    const run = fixtureRun();
+    expect(() => scorePremiseRun({ ...run, auditors: run.auditors.map((auditor) => ({ ...auditor, harnessId: "arbitra-canonical" })) }, groundTruth)).not.toThrow();
+    const [first, ...rest] = run.auditors;
+    if (first === undefined) throw new Error("FIXTURE_AUDITOR_ABSENT");
+    expect(() => scorePremiseRun({ ...run, auditors: [{ ...first, harnessId: "native:claude-code" }, ...rest] }, groundTruth)).toThrow("NATIVE_MEASUREMENT_NOT_POOLABLE:premise:native:claude-code");
+  });
+
   it("reports honest null results when an auditor and consensus emit no findings", () => {
     const run: PremiseRun = { ...fixtureRun(), auditors: [{ ...requiredAt(fixtureRun().auditors, 0), findings: [], repairCount: 0, invalidEvidenceCount: 0, refusalCount: 1, cost: 0 }], canonicalIssues: [] };
     const report = scorePremiseRun(run, groundTruth);

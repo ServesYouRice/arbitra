@@ -1,7 +1,8 @@
 # Harness
 
-A *harness* is whatever owns the tool loop around a model call. arbitra ships exactly one —
-the canonical harness — and defines the port a native harness would implement.
+A *harness* is whatever owns the tool loop around a model call. arbitra's default is the
+canonical harness. One native adapter (Claude Code, headless) implements the same port for
+the Testing writer only; see [Native harness adapters](#native-harness-adapters).
 
 ## Why the canonical harness exists
 
@@ -87,7 +88,7 @@ result cannot be constructed as trusted. And `HarnessToolContext.protect` is the
 hook, so untrusted content is wrapped at the point it enters the loop rather than
 remembered about later.
 
-`packages/harness/src/canonical/adapter.ts` (`CanonicalHarnessAdapter`) is the only
+`packages/harness/src/canonical/adapter.ts` (`CanonicalHarnessAdapter`) is the canonical
 implementation. It owns the bounded tool loop: `maxToolTurns` and `toolLoopLimit` are
 enforced, and `AbortSignal` makes cancellation real rather than advisory.
 
@@ -214,33 +215,118 @@ not have to use its vendor's harness, and the canonical harness is the default f
 mode. `harness.profileId` in the run configuration selects a profile; `harness.mode`
 selects `canonical` or `native`.
 
-## Native mode is not implemented
+## Native harness adapters
 
-`harness.mode: "native"` is accepted by `runConfigSchema` and **there is no native adapter
-behind it**. No document in this set shows native mode as working. It is v1.1.
-Runtime preflight rejects it before a run exists with `RUNTIME_NATIVE_HARNESS_NOT_AVAILABLE`
-at `harness.mode` (CLI `validate`/`run`, HTTP `400`), directing the operator to
-`canonical`.
+`harness.mode: "native"` delegates **only the stages listed in the support matrix** to a
+native harness. Every other stage keeps running canonical, explicitly. Configuration,
+host setup and diagnostics are in [setup.md](setup.md#native-mode).
 
-The restrictions it would have to satisfy for independent discovery are specified now, so
-the deferred work is legible:
+### Support matrix
 
-```text
-projectInstructions  disabled
-userMemory           disabled
-skills               audit-approved-only
-subagents            disabled
-advisor              disabled
-network              disabled
-writeAccess          false
-peerAccess           false
-```
+`packages/harness/src/native/support.ts` (`NATIVE_HARNESS_SUPPORT`):
 
-Guarded Testing execution already works through the canonical Testing harness.
-Native Testing adapters and separate harness comparisons remain future work; no native
-mode can bypass write authority or be silently mixed into canonical independence
-measurements. Adapter implementation and live conformance are tracked in
-[P12](completion-plan.md#p12--implement-native-harness-adapters).
+| Harness | Versions | Stages | Status | Executable | Credential |
+|---|---|---|---|---|---|
+| `claude-code` (headless `claude -p --output-format stream-json`) | `>=2.0.0 <3.0.0` | `testing-writer` | `declared_unverified` | `ARBITRA_CLAUDE_CODE_EXECUTABLE` (host env, absolute path) | `apiKeyEnvVar` → `ANTHROPIC_API_KEY` |
+
+`declared_unverified` means the adapter is implemented and tested against a scripted
+stand-in process that emits the documented event stream (`native/stand-in.ts`), but no run
+against the actual CLI has been recorded. The opt-in conformance test
+(`packages/runtime/test/native-harness.conformance.test.ts`, gated by
+`ARBITRA_NATIVE_HARNESS_CONFORMANCE=1`) is that run; it is skipped otherwise, never passed.
+Anything not in the matrix is refused before a run exists: Audit
+(`NATIVE_HARNESS_DISCOVERY_FORBIDDEN`), Feature and planning-only Testing
+(`NATIVE_HARNESS_MODE_UNSUPPORTED`), other harnesses, stages or versions
+(`NATIVE_HARNESS_UNSUPPORTED`, `NATIVE_HARNESS_STAGE_UNSUPPORTED`,
+`NATIVE_HARNESS_VERSION_UNSUPPORTED` from the pre-run `--version` probe), and any tool that
+cannot be bounded (`NATIVE_HARNESS_TOOL_UNENFORCEABLE`: shell, network, subagent, MCP or
+unknown tools). Permitted tools are Read, Glob, Grep, LS, Edit, MultiEdit and Write.
+
+The native profile (`native:claude-code`) declares `managesContextInternally: true` and
+`writeFiles: true`, so the port itself rejects it for Audit (`AUDIT_INTERNAL_CONTEXT_FORBIDDEN`)
+and round zero (`ROUND_ZERO_POLICY_VIOLATION`). Canonical independent discovery keeps its
+strict baseline unchanged.
+
+### Translation layer
+
+`packages/harness/src/native/claude-code/translation.ts` holds every Claude Code-specific
+assumption — flags, environment variables, `--version` format, stream-json event shapes,
+usage buckets and tool names — as numbered checkpoints A1–A8. It is marked
+`verified: false`. The adapter (`claude-code/adapter.ts`) maps the stream to the shared
+`HarnessEvent`s: `harness_started` (session and reported model), `model_turn_started` /
+`model_turn_completed` per assistant message, `tool_call` / `tool_result` (results are
+`trust: "untrusted"` and framed), and `completed` with the harness-reported total usage.
+Invalid JSON or a known event with the wrong shape is `NATIVE_HARNESS_MALFORMED_EVENT`;
+unknown event types are ignored.
+
+### Shape of a native run
+
+The native CLI is an activity under the existing Testing writer node, not a second
+orchestrator: `arbitra → Testing writer activity → claude -p → model`. For each attempt,
+`nativeTestingWriter` (`packages/runtime/src/native-testing-writer.ts`):
+
+1. Validates the matrix, stage, tools, writer model provider and lease (harness control
+   paths such as `CLAUDE.md`, `.claude/` and `.mcp.json` can never be leased).
+2. Pins its input (redacted snapshot, omitting harness control files) and probes the
+   executable's version.
+3. Reserves `maximumTokensPerRun` against the shared run token budget, then durably records
+   the dispatch and its scratch directory **before** launching anything.
+4. Runs the CLI in a fresh scratch copy under the system temp directory — never the Testing
+   worktree or the source checkout — with a sanitized environment (PATH, a scratch
+   `HOME`/`CLAUDE_CONFIG_DIR`/`TMPDIR`, non-essential traffic disabled, and the one
+   configured credential). The prompt goes on stdin. Write tools are allowed only as
+   `Tool(./<leased path>)`.
+5. Checks every streamed event: a tool not granted, a tool path outside the scratch copy, a
+   write tool targeting a non-leased path, more tool calls than `maximumToolCalls`, more
+   turns than `maximumTurns`, streamed usage above `maximumTokensPerRun`, an active MCP
+   server, a subagent message or a malformed event stops the **whole process tree**.
+   Timeout and cancellation do the same.
+6. After the process exits, diffs the scratch copy against its seed. Any change outside the
+   lease, any deletion, symlink, non-UTF-8 or oversize file rejects the whole run. Otherwise
+   the changes are journaled and admitted only through `TestingWorkspace.write` under the
+   task's lease, with stable operation IDs.
+7. Removes the scratch directory on every path.
+
+A failed run (crash, timeout, violation, rejected change, cancellation) admits nothing
+and returns the limitation `native_harness_failure:<code>`, so verification records the
+attempt as `incomplete`; it consumes the attempt and never promotes. Cancellation also
+propagates. Independent sandbox verification is unchanged.
+
+### Recovery
+
+The run journal (`native-writer-run-*`) is written before launch. On restart, a run still
+marked dispatched is treated as interrupted: its scratch copy is removed
+(`recoverNativeWriterResources` also sweeps them before a Testing batch dispatches), nothing
+is admitted, and the attempt ends with `NATIVE_HARNESS_INTERRUPTED`. A run that was
+collected but not fully admitted is admitted exactly once from its journal without
+restarting the CLI. An orphaned CLI process from an abrupt host exit is not killed by
+recovery (its PID is not trusted across restarts); it can only write into its deleted
+scratch copy.
+
+### Identity, usage and measurement separation
+
+Each run records a model-activity trace with `harnessId: "native:claude-code"`, the probed
+CLI version as `harnessVersion`, a policy hash covering the profile, tools, bounds and
+translation version, and `transportId: "native:claude-code-stream-json"`. Usage is the
+harness-reported total when complete, otherwise `null` (unknown). The budget reservation
+stays charged at `maximumTokensPerRun` until measured usage replaces it; partial usage never
+lowers it. The harness's own cost figure is kept in the run's event artifact only;
+`costUsd` stays `null`.
+
+`packages/harness/src/measurement.ts` classifies any `native:` identity as a native
+measurement. Premise scoring refuses native auditors
+(`NATIVE_MEASUREMENT_NOT_POOLABLE:premise:…`), evaluation rows carry `measurementClass`, and
+the evaluation corpus already refuses to aggregate across harness identities unless grouped.
+
+### Limits of enforcement
+
+The native process runs as the host user without an OS sandbox (`sandbox: false`). Writes
+cannot reach the worktree: they are collected from the scratch copy and admitted only
+through the lease. Reads are confined by the harness's own permission rules and detected
+from tool events; a read outside the scratch copy stops the run, but it is detected after
+the tool call is announced, not prevented. Tool arguments other than `file_path`,
+`notebook_path` and `path` (for example a Glob `pattern`) are not inspected. Managed
+enterprise settings installed on the host still apply to the CLI.
 
 Nesting orchestrators is a non-goal either way: the intended shape is
 `arbitra → vendor CLI harness → model`, never `arbitra → another orchestration graph →

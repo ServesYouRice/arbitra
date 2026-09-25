@@ -1,7 +1,9 @@
 export interface PremiseGroundTruthItem { readonly id: string; readonly kind: "defect" | "decoy"; readonly category: string; readonly path: string; readonly location: string; readonly detectionCriteria: string; readonly rationale: string }
 export interface PremiseGroundTruth { readonly fixtureId: string; readonly version: number; readonly items: readonly PremiseGroundTruthItem[] }
 export interface PremiseFinding { readonly findingId: string; readonly matchedGroundTruthIds: readonly string[] }
-export interface PremiseAuditorRun { readonly auditorId: string; readonly modelIdentity: string; readonly independenceGroup: string; readonly findings: readonly PremiseFinding[]; readonly repairCount: number; readonly invalidEvidenceCount: number; readonly refusalCount: number; readonly cost: number; readonly latencyMs: number }
+export interface PremiseAuditorRun { readonly auditorId: string; readonly modelIdentity: string; readonly independenceGroup: string; readonly findings: readonly PremiseFinding[]; readonly repairCount: number; readonly invalidEvidenceCount: number; readonly refusalCount: number; readonly cost: number; readonly latencyMs: number;
+  /** Recorded harness identity of the auditor's discovery. Absent means the canonical harness. */
+  readonly harnessId?: string }
 export interface PremiseCanonicalIssue { readonly issueId: string; readonly accepted: boolean; readonly matchedGroundTruthIds: readonly string[] }
 export interface PremiseRun { readonly runId: string; readonly fixtureId: string; readonly protocolId: string; readonly protocolVersion: string; readonly currency: string; readonly mode: "scripted" | "real_models"; readonly auditors: readonly PremiseAuditorRun[]; readonly canonicalIssues: readonly PremiseCanonicalIssue[] }
 export interface AuditorPremiseMetrics { readonly auditorId: string; readonly modelIdentity: string; readonly protocolIdentity: string; readonly independenceGroup: string; readonly findingCount: number; readonly trueFindingCount: number; readonly falsePositiveCount: number; readonly recall: number; readonly precision: number | null; readonly falsePositiveRate: number | null; readonly uniqueTrueContribution: number; readonly marginalTrueContribution: number; readonly marginalRecallGain: number; readonly repairFrequency: number | null; readonly invalidEvidenceRate: number | null; readonly refusalRate: number | null; readonly cost: number; readonly latencyMs: number }
@@ -10,6 +12,7 @@ export interface PremiseReport { readonly schemaVersion: 1; readonly runId: stri
 export function scorePremiseRun(run: PremiseRun, groundTruth: PremiseGroundTruth): PremiseReport {
   if (run.fixtureId !== groundTruth.fixtureId) throw new Error("PREMISE_FIXTURE_ID_MISMATCH");
   if (run.protocolId.trim() === "" || run.protocolVersion.trim() === "" || run.currency.trim() === "") throw new Error("INVALID_PREMISE_RUN_IDENTITY");
+  assertCanonicalPremiseHarness(run);
   const truth = validateGroundTruth(groundTruth); const defects = new Set(truth.filter(({ kind }) => kind === "defect").map(({ id }) => id)); const known = new Set(truth.map(({ id }) => id));
   const auditorIds = new Set<string>(); const detectedBy = new Map<string, Set<string>>();
   for (const auditor of run.auditors) { if (auditorIds.has(auditor.auditorId) || auditor.modelIdentity.trim() === "" || auditor.independenceGroup.trim() === "") throw new Error("INVALID_PREMISE_AUDITOR_IDENTITY"); auditorIds.add(auditor.auditorId); for (const id of trueIds(auditor.findings, defects, known)) { const values = detectedBy.get(id) ?? new Set<string>(); values.add(auditor.auditorId); detectedBy.set(id, values); } }
@@ -21,6 +24,16 @@ export function scorePremiseRun(run: PremiseRun, groundTruth: PremiseGroundTruth
   const accepted = run.canonicalIssues.filter(({ accepted: value }) => value); const trueAccepted = accepted.filter((issue) => matchingDefects(issue, defects, known).length > 0); const acceptedDefects = new Set(trueAccepted.flatMap((issue) => matchingDefects(issue, defects, known))); const totalCost = run.auditors.reduce((sum, { cost }) => sum + cost, 0);
   const laterContribution = auditors.slice(1).map(({ uniqueTrueContribution }) => uniqueTrueContribution); const premiseSignal = laterContribution.some((value) => value > 0) ? "positive" : auditors.slice(1).some(({ falsePositiveCount }) => falsePositiveCount > 0) ? "negative" : "null";
   return Object.freeze({ schemaVersion: 1, runId: run.runId, fixtureId: run.fixtureId, protocolIdentity, mode: run.mode, currency: run.currency, groundTruth: Object.freeze({ defects: defects.size, decoys: truth.length - defects.size }), auditors: Object.freeze(auditors), consensus: Object.freeze({ acceptedIssueCount: accepted.length, trueAcceptedIssueCount: trueAccepted.length, falseAcceptedIssueCount: accepted.length - trueAccepted.length, precision: ratio(trueAccepted.length, accepted.length), recall: ratio(acceptedDefects.size, defects.size) ?? 0, costPerTrueAcceptedIssue: acceptedDefects.size === 0 ? null : round(totalCost / acceptedDefects.size) }), result: Object.freeze({ additionalAuditorUniqueContribution: Object.freeze(laterContribution), premiseSignal, interpretation: "smoke_test_only_not_proof" as const }), limitations: Object.freeze(["One small fixture cannot prove or disprove the multi-auditor premise.", run.mode === "scripted" ? "Scripted auditors test deterministic measurement and orchestration, not real-model intelligence." : "Real-model results are specific to the recorded protocol and model identities.", "Tool quality, scope selection, clustering and validation can affect observed recall."]) });
+}
+
+/**
+ * The premise measures independent discovery under the canonical harness. A native
+ * harness result is never pooled into it (same `native:` identity rule as
+ * `assertCanonicalMeasurements` in @arbitra/harness/measurement).
+ */
+export function assertCanonicalPremiseHarness(run: Pick<PremiseRun, "auditors">): void {
+  const native = [...new Set(run.auditors.flatMap(({ harnessId }) => harnessId !== undefined && harnessId.startsWith("native:") ? [harnessId] : []))].sort();
+  if (native.length > 0) throw new Error(`NATIVE_MEASUREMENT_NOT_POOLABLE:premise:${native.join(",")}`);
 }
 
 export function realPremiseMeasurementEnabled(environment: Readonly<Record<string, string | undefined>>): boolean { return environment["ARBITRA_PREMISE_REAL_MODELS"] === "1" && ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY"].some((key) => (environment[key]?.length ?? 0) > 0); }

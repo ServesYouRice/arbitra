@@ -25,8 +25,9 @@ Planning records repository-derived commands without executing them. Opt-in Test
 execution adds operator-authorized write partitions, isolated worktrees, bounded parallel
 model writers, sandbox checks, final verification and durable change export. It leaves
 the source checkout unchanged. Resume checks include test metadata; incomplete analysis
-or execution evidence withholds the relevant handoff. Native harnesses produce an explicit
-`RUNTIME_NATIVE_HARNESS_NOT_AVAILABLE` error; unknown presets produce `UNKNOWN_WORKFLOW_PRESET`.
+or execution evidence withholds the relevant handoff. Native harness mode is admitted only for
+the Testing writer (see [harness.md](harness.md#native-harness-adapters)); Audit, Feature and
+planning-only runs refuse it explicitly. Unknown presets produce `UNKNOWN_WORKFLOW_PRESET`.
 Schema validation and saving a configuration do not imply that its execution mode is
 available. This boundary is distinct from the planned v1.1 extensions.
 
@@ -257,7 +258,7 @@ now differs; all unfinished work is included in the completion plan.
 | Deferred feature | Extension point |
 |---|---|
 | Autonomous Testing execution | Implemented through opt-in `testing-execute`: planning, authority preflight, parallel writers, serial checks, final verification, bounded repair and durable handoff. Real-sandbox repair QA, richer web views and live-provider/Docker QA remain; plan items P04/P07/P10/P11 |
-| Native harness adapters | `packages/harness/src/adapter.ts` defines the port; `canonical/adapter.ts` is the only implementation. `harness.mode: "native"` is accepted by the schema and has no adapter behind it |
+| Native harness adapters | Claude Code headless adapter (`packages/harness/src/native/`) for the Testing writer only, status `declared_unverified`: tested against a scripted stand-in process; conformance against the actual CLI remains (P12). See [harness.md](harness.md#native-harness-adapters) |
 | Advisor runtime | Implemented for Testing writers in `packages/runtime/src/model-advisors.ts`: operator-capped, durably journaled advisor uses with no tools, traced under the advisor identity. Tested with injected transports only; live-provider exercise remains (P13). See [`task-ir.md`](task-ir.md#advisors) |
 | Feature workflow extensions | Public requirements/review/planning/revision is implemented; web checkpoints, expanded subgraphs and oversized requirements/exploration contexts remain; mode-specific replay is implemented without live-provider evidence; P08/P10/P11 |
 | Incremental / repeat audit execution | Opt-in incremental Audit in `packages/runtime/src/incremental-audit.ts`. It reuses byte-identical discovery units and identity-matched downstream stages from a completed base, with fallback, provenance and saved-work/coverage reporting. Tested with injected fake providers only; live-provider exercise remains. See [Incremental Audit](workflows.md#incremental-audit) |

@@ -24,6 +24,9 @@ export type HarnessEvent =
   | { readonly type: "model_turn_completed"; readonly nodeId: string; readonly turn: number; readonly usage: HarnessUsage }
   | { readonly type: "tool_call"; readonly nodeId: string; readonly turn: number; readonly call: HarnessToolCall }
   | { readonly type: "tool_result"; readonly nodeId: string; readonly turn: number; readonly callId: string; readonly result: HarnessToolResult }
-  | { readonly type: "completed"; readonly nodeId: string; readonly turns: number; readonly text: string | null; readonly refusal: string | null };
+  /** Native harnesses only: the harness's own session identity as it reported it. */
+  | { readonly type: "harness_started"; readonly nodeId: string; readonly harnessId: string; readonly sessionId: string | null; readonly model: string | null }
+  /** `usage`/`costUsd` are the harness-reported run totals when a native harness reports them; null is unknown. */
+  | { readonly type: "completed"; readonly nodeId: string; readonly turns: number; readonly text: string | null; readonly refusal: string | null; readonly usage?: HarnessUsage | null; readonly costUsd?: number | null };
 export interface HarnessRun { readonly events: AsyncIterable<HarnessEvent> }
 export interface HarnessAdapter { readonly profile: HarnessProfile; run(node: HarnessNode, prompt: HarnessPrompt, tools: readonly HarnessToolDefinition[], toolRuntime: HarnessToolRuntime, policy: HarnessRunPolicy): HarnessRun }
