@@ -190,7 +190,10 @@ describe("Gemini batch driver", () => {
     // A generic precondition refusal stays an invalid request, but now names the provider's status.
     await expect(submit(refusal(400, { code: 400, status: "FAILED_PRECONDITION", message: "Precondition check failed." }).client))
       .rejects.toMatchObject({ code: "INVALID_REQUEST", accepted: "no", message: "Provider HTTP 400: 400/FAILED_PRECONDITION Precondition check failed." });
-    await expect(submit(refusal(429, { status: "RESOURCE_EXHAUSTED", message: "Too many requests" }).client)).rejects.toMatchObject({ code: "RATE_LIMIT", retryable: true });
+    await expect(submit(refusal(400, { type: "invalid_request_error", code: "billing_hard_limit_reached", message: "Billing hard limit has been reached" }).client)).rejects.toMatchObject({ code: "QUOTA" });
+    // Google words its per-minute 429 with "plan and billing details"; that is still a retryable rate limit.
+    await expect(submit(refusal(429, { code: 429, status: "RESOURCE_EXHAUSTED", message: "You exceeded your current quota, please check your plan and billing details." }).client))
+      .rejects.toMatchObject({ code: "RATE_LIMIT", retryable: true });
   });
 
   it("marks cancelled and expired jobs per item", async () => {
