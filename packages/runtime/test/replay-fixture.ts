@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { runConfigSchema } from "@arbitra/schemas/config.js";
 import { featureFixture } from "./feature-fixture.js";
 import { Orchestrator } from "../src/orchestrator.js";
+import { RunStore } from "../src/run-store.js";
+import { TestingWorktree, type TestingWorktreeHandle } from "../src/testing-worktree.js";
 
 /** Byte-level identity of a whole run directory: every path and every byte. */
 export async function runDigest(root: string, runId: string): Promise<string> {
@@ -61,4 +63,37 @@ export async function testingReplayFixture(root: string, options: { readonly exe
     return { driver: "docker", image: policy.image, checkId: check.id, isolation: "read_only_snapshot_no_network", status: "exited", stopped: null, cleanupCompleted: true, exitCode: 0, stdout: "fixture verification", stderr: "" };
   } } });
   return { config, authorization, analysis: [risk, selection], plan, writer, responses, sent, checks: () => checks, orchestrator };
+}
+
+export type Report = { stages: { stage: string; decision: string; reasons: string[]; reused: { activityId: string; sourceArtifactId?: string }[]; regenerated: { activityId: string; reason?: string }[] }[] };
+export async function report(core: Orchestrator, runId: string): Promise<Report> {
+  const value = await core.replayReport(runId);
+  if (value === null) throw new Error("REPLAY_REPORT_ABSENT");
+  return value as unknown as Report;
+}
+export const stage = (value: Report, name: string) => {
+  const found = value.stages.find((item) => item.stage === name);
+  if (found === undefined) throw new Error(`STAGE_ABSENT:${name}`);
+  return found;
+};
+export async function budget(root: string, runId: string): Promise<readonly string[]> {
+  const store = new RunStore(join(root, ".runs", "runs"), runId);
+  const descriptor = (await store.listArtifacts()).find(({ kind }) => kind === "model-token-budget");
+  if (descriptor === undefined) return [];
+  return (await store.artifacts.get<{ reservations: { activityId: string }[] }>(descriptor.ref)).reservations.map(({ activityId }) => activityId);
+}
+
+export async function workspace(core: Orchestrator, runId: string): Promise<string> {
+  const artifact = (await core.artifacts(runId)).find(({ kind }) => kind === "testing-workspace");
+  if (artifact === undefined) throw new Error("WORKSPACE_ABSENT");
+  const record = JSON.parse((await core.artifact(runId, artifact.artifactId) as { content: string }).content) as { handle?: TestingWorktreeHandle };
+  if (record.handle === undefined) throw new Error("WORKSPACE_HANDLE_ABSENT");
+  return record.handle.directory;
+}
+
+export async function cleanup(core: Orchestrator, runId: string): Promise<void> {
+  const artifact = (await core.artifacts(runId)).find(({ kind }) => kind === "testing-workspace");
+  if (artifact === undefined) return;
+  const record = JSON.parse((await core.artifact(runId, artifact.artifactId) as { content: string }).content) as { handle?: TestingWorktreeHandle };
+  if (record.handle !== undefined) await TestingWorktree.recover(record.handle);
 }

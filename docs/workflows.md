@@ -488,7 +488,9 @@ when every component is equal; otherwise the decision names each changed compone
 (`changed:models`, `changed:upstream`, and so on). Protocol bytes are pinned into the new
 run before it starts. A protocol the source never pinned cannot have produced a source
 output, so it does not invalidate the stage; the decision lists it as
-`sourceUnpinnedProtocols`.
+`sourceUnpinnedProtocols`. A source whose pinned copy is missing or corrupt is treated
+the same way and listed there too; its outputs are still reused only under the
+per-activity check below, which includes the protocol hash they were produced under.
 
 Within a reused stage each activity is also checked on its own. Its saved output must
 carry a replay identity equal to the new request's. That identity covers the full
@@ -535,12 +537,22 @@ complete Testing settings, so changing the write grant also regenerates analysis
 planning.
 
 Resuming a replay run uses its stored contract and never re-decides reuse from the
-current configuration. Coverage uses injected fake providers and sandboxes. It includes
-full reuse, changed models, requests and grants, changed protocols and scope (at the
-contract level), stale and unapproved
-contracts, missing and corrupt artifacts, a failed replay resumed as the same run,
-byte-level source immutability and CLI/HTTP parity. Replay under live providers and real
-Docker has not been exercised.
+current configuration. A replay run whose contract is missing, corrupt or names another
+source or mode is not resumed or reported (`REPLAY_CONTRACT_ABSENT`,
+`REPLAY_CONTRACT_UNREADABLE`, `REPLAY_CONTRACT_MISMATCH`; HTTP 409).
+
+Coverage runs through the public orchestrator, and through both the CLI request port and
+HTTP for parity, with injected fake providers and sandboxes
+([`model-replay.test.ts`](../packages/runtime/test/model-replay.test.ts),
+[`replay-end-to-end.test.ts`](../packages/runtime/test/replay-end-to-end.test.ts),
+[server `replay.test.ts`](../apps/server/test/replay.test.ts)). It includes full reuse;
+changed models, wire protocols (endpoint transport), protocol prompts, scope, source,
+requests, write grants and verification; stale and unapproved requirements contracts;
+missing and corrupt source outputs, protocol pins and replay contracts; failed Feature
+and Testing execution replays resumed as the same run; fresh worktrees and checks for
+every execution replay; byte-level source immutability; and matching Feature and Testing
+decisions over the CLI port and HTTP. Replay under live providers and real Docker has not
+been exercised.
 
 ## Incremental Audit
 

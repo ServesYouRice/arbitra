@@ -62,15 +62,25 @@ export interface ScriptedRuntime {
   start(scenario: ScriptedScenario): Promise<{ readonly runId: string; readonly state: string; readonly repository: string; readonly config: RunConfig }>;
   /** A fresh Audit repository for a run the operator starts from the interface (P16 saved graphs). */
   auditRepository(): Promise<string>;
+  /** Every provider call so far, by the stage its instruction names ("risk", "selection", "planner", "writer", ...). */
+  readonly calls: readonly string[];
+  /** The number of sandbox checks run so far. */
+  checks(): number;
 }
+
+const CALL_STAGES: readonly (readonly [string, string])[] = [["Derive a requirements", "requirements"], ["Explore affected", "exploration"], ["Independently review every", "review"], ["Propose a revised Feature requirements", "requirements-revision"],
+  ["Create one coherent", "planner"], ["Independently critique", "critic"], ["Identify production-risk", "risk"], ["Select Testing gaps", "selection"], ["Implement the assigned Testing task", "writer"]];
 
 export function scriptedRuntime(root: string, options: { newRunId?: () => string } = {}): ScriptedRuntime {
   const scenarios = new Map<string, ScenarioState>();
   let sequence = 0;
+  let checks = 0;
+  const calls: string[] = [];
   const providerOptions = { credential: () => "fixture-credential", client: { send: async (request: { url: string; body: unknown; signal: AbortSignal }) => respond(request) } };
   const testSandbox: TestSandbox = {
     async recover() {},
     async run(snapshot, execution, check) {
+      checks += 1;
       const key = /^local\/([A-Za-z0-9.-]+)@/u.exec(execution.image)?.[1] ?? "";
       const state = scenarios.get(key);
       const files = new Map(snapshot.files.map(({ path, lines }) => [path, lines.join("\n")]));
@@ -90,6 +100,7 @@ export function scriptedRuntime(root: string, options: { newRunId?: () => string
     const user = body.input?.find(({ role }) => role === "user")?.content ?? (typeof body.messages?.[0]?.content === "string" ? body.messages[0].content : "");
     const layers = user.split("\n").filter((line) => line.trim() !== "").map((line) => JSON.parse(line) as { layer: string; value: { instruction?: string; artifacts?: string[] } });
     const system = layers.find(({ layer }) => layer === "instruction")?.value.instruction ?? "";
+    if (body.input?.some(({ type }) => type === "function_call_output") !== true) calls.push(CALL_STAGES.find(([prefix]) => system.startsWith(prefix))?.[1] ?? "unexpected");
     const framed = layers.flatMap(({ value }) => value.artifacts ?? [])[0] ?? "";
     const content = /-->\n([\s\S]*)\n<\/repository_content>$/u.exec(framed)?.[1] ?? "{}";
     const input = JSON.parse(content.replaceAll("&quot;", '"').replaceAll("&apos;", "'").replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&")) as Record<string, unknown>;
@@ -165,7 +176,7 @@ export function scriptedRuntime(root: string, options: { newRunId?: () => string
     return repository;
   }
 
-  return { orchestrator, start, auditRepository };
+  return { orchestrator, start, auditRepository, calls, checks: () => checks };
 }
 
 async function prepare(repository: string, key: string, state: ScenarioState): Promise<RunConfig> {
