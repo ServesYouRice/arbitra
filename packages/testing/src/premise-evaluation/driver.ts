@@ -40,7 +40,7 @@ export interface LedgerEntry {
   readonly condition: ScheduledRun["condition"];
   readonly repetition: number;
   runId: string;
-  status: "running" | "incomplete" | "completed";
+  status: "running" | "incomplete" | "completed" | "abandoned";
   state: string;
   segments: { startedAt: string; endedAt: string | null; wallClockMs: number | null; state: string | null; kind: "start" | "resume" }[];
   failures: string[];
@@ -75,7 +75,7 @@ export async function executeProtocol(options: DriverOptions): Promise<DriverRes
   for (const scheduled of protocol.schedule) {
     const key = scheduledRunKey(scheduled);
     const existing = ledger.runs[key];
-    if (existing?.status === "completed") continue;
+    if (existing?.status === "completed" || existing?.status === "abandoned") continue;
     if (options.maximumRunsThisInvocation !== undefined && invocations >= options.maximumRunsThisInvocation) { ledger.stoppedReason = "invocation_run_limit"; break; }
     const used = await budgetUse(options.stateRoot, ledger);
     const exhausted = budgetExhausted(protocol, used);
@@ -114,7 +114,7 @@ export async function executeProtocol(options: DriverOptions): Promise<DriverRes
     segment.endedAt = now(); segment.wallClockMs = clock() - started; segment.state = final.state; entry.state = final.state;
     if (final.state === "COMPLETED") {
       const record = await collectRun(orchestrator, entry.runId, config.models, auditorIdsOf(config));
-      writeJson(join(options.evidenceDirectory, "runs", `${fileKey(key)}.json`), { schemaVersion: 1, key, fixtureId: scheduled.fixtureId, condition: scheduled.condition, repetition: scheduled.repetition,
+      writeJson(join(options.evidenceDirectory, "runs", `${fileKey(key)}.json`), { schemaVersion: 1, status: "completed", key, fixtureId: scheduled.fixtureId, condition: scheduled.condition, repetition: scheduled.repetition,
         protocolId: protocol.protocolId, protocolVersion: protocol.version, wallClockMs: entry.segments.reduce((sum, { wallClockMs }) => sum + (wallClockMs ?? 0), 0), segments: entry.segments, record });
       entry.status = "completed"; completed.push(key);
       log(`completed ${key}: ${record.usage.requests} requests`);
@@ -128,9 +128,35 @@ export async function executeProtocol(options: DriverOptions): Promise<DriverRes
     }
     writeLedger(ledgerPath, ledger);
   }
-  if (protocol.schedule.every((run) => ledger.runs[scheduledRunKey(run)]?.status === "completed")) ledger.stoppedReason = null;
+  if (protocol.schedule.every((run) => ["completed", "abandoned"].includes(ledger.runs[scheduledRunKey(run)]?.status ?? ""))) ledger.stoppedReason = null;
   writeLedger(ledgerPath, ledger);
   return Object.freeze({ ledger, budget: await budgetUse(options.stateRoot, ledger), completed: Object.freeze(completed), stoppedReason: ledger.stoppedReason });
+}
+
+/**
+ * Retire a run that can no longer be resumed (for example MODEL_ACTIVITY_INPUT_CHANGED after a
+ * runtime fix altered a durable repair prompt). It is never restarted or deleted: whatever it
+ * published is saved as an `abandoned` record with the reason, so a pipeline failure stays
+ * visible as an adverse result, and the schedule continues past it.
+ */
+export async function abandonRun(options: Pick<DriverOptions, "root" | "protocol" | "stateRoot" | "evidenceDirectory">, key: string, reason: string): Promise<LedgerEntry> {
+  if (reason.trim() === "") throw new Error("P06_ABANDON_REASON_REQUIRED");
+  const ledgerPath = join(options.stateRoot, LEDGER_FILE);
+  const ledger = readLedger(ledgerPath, options.protocol);
+  const entry = ledger.runs[key];
+  if (entry === undefined || entry.status !== "incomplete") throw new Error(`P06_ABANDON_REQUIRES_INCOMPLETE_RUN:${key}:${entry?.status ?? "absent"}`);
+  const heterogeneous = readConfiguration(options.root, options.protocol);
+  const config = entry.condition === "single" ? singleAuditorConfiguration(heterogeneous, options.protocol.singleAuditor.auditorId) : heterogeneous;
+  const paths = runPaths(options.stateRoot, key);
+  const orchestrator = new Orchestrator({ repository: paths.checkout, stateDirectory: paths.state });
+  let record: RecordedRun | null = null; let collectionError: string | null = null;
+  try { record = await collectRun(orchestrator, entry.runId, config.models, auditorIdsOf(config)); } catch (error) { collectionError = message(error); }
+  entry.status = "abandoned";
+  entry.failures.push(`abandoned:${reason}`);
+  writeJson(join(options.evidenceDirectory, "runs", `${fileKey(key)}.json`), { schemaVersion: 1, status: "abandoned", abandonReason: reason, collectionError, key, fixtureId: entry.fixtureId, condition: entry.condition, repetition: entry.repetition,
+    protocolId: options.protocol.protocolId, protocolVersion: options.protocol.version, wallClockMs: entry.segments.reduce((sum, { wallClockMs }) => sum + (wallClockMs ?? 0), 0), segments: entry.segments, failures: entry.failures, record });
+  writeLedger(ledgerPath, ledger);
+  return entry;
 }
 
 /** Load the materialized heterogeneous configuration. It names environment variables only. */

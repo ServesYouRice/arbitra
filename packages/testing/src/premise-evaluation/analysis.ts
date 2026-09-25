@@ -6,6 +6,9 @@ import { pairedBootstrap, round, wilson, type PairedDifference, type Proportion 
 
 /** One completed run as the driver saved it. */
 export interface EvaluationRecord {
+  /** `abandoned`: the run could not complete; its discovery may still be scored, its pipeline output is a failure. */
+  readonly status?: "completed" | "abandoned";
+  readonly abandonReason?: string;
   readonly key: string;
   readonly fixtureId: string;
   readonly condition: EvaluationCondition;
@@ -62,6 +65,8 @@ export interface AnalysisReport {
   readonly groundTruth: { readonly fixtures: number; readonly defects: number; readonly decoys: number };
   readonly completedRuns: readonly string[];
   readonly missingRuns: readonly string[];
+  /** Runs whose pipeline did not complete. Their discovery is scored when every auditor's discovery was saved; they never contribute pipeline output. */
+  readonly pipelineFailures: readonly { readonly key: string; readonly runId: string | null; readonly reason: string; readonly discoveryScored: boolean }[];
   readonly instances: readonly ConditionInstance[];
   readonly conditions: readonly ConditionSummary[];
   readonly contribution: { readonly B: ContributionSummary | null; readonly C: ContributionSummary | null };
@@ -107,10 +112,14 @@ export interface Decision {
 
 const ACCEPTED_PIPELINE_REPORT = new Set(["accepted", "single_source"]);
 
-export function analyse(protocol: EvaluationProtocol, truths: ReadonlyMap<string, PremiseGroundTruth>, records: readonly EvaluationRecord[], mode: "real_models" | "scripted"): AnalysisReport {
+export function analyse(protocol: EvaluationProtocol, truths: ReadonlyMap<string, PremiseGroundTruth>, saved: readonly (EvaluationRecord | (Omit<EvaluationRecord, "record"> & { readonly record: RecordedRun | null }))[], mode: "real_models" | "scripted"): AnalysisReport {
   const confidence = protocol.analysis.confidence;
-  const completed = new Set(records.map(({ key }) => key));
-  const missingRuns = protocol.schedule.map(({ fixtureId, condition, repetition }) => `${fixtureId}/${condition}/r${repetition}`).filter((key) => !completed.has(key));
+  const abandoned = saved.filter(({ status }) => status === "abandoned");
+  const records = saved.filter((item): item is EvaluationRecord => item.record !== null && (item.status !== "abandoned" || item.record.auditors.length > 0));
+  const pipelineFailures = abandoned.map(({ key, record, abandonReason }) => ({ key, runId: record?.runId ?? null, reason: abandonReason ?? "abandoned", discoveryScored: record !== null && record.auditors.length > 0 }));
+  const completed = new Set(saved.filter(({ status }) => status !== "abandoned").map(({ key }) => key));
+  const failed = new Set(abandoned.map(({ key }) => key));
+  const missingRuns = protocol.schedule.map(({ fixtureId, condition, repetition }) => `${fixtureId}/${condition}/r${repetition}`).filter((key) => !completed.has(key) && !failed.has(key));
   const instances: ConditionInstance[] = [];
   const contributions: { B: PremiseReport[]; C: PremiseReport[] } = { B: [], C: [] };
   const verificationRows: { condition: string; result: string; isTrue: boolean }[] = [];
@@ -129,6 +138,7 @@ export function analyse(protocol: EvaluationProtocol, truths: ReadonlyMap<string
       const auditor = item.record.auditors[0];
       if (auditor === undefined) throw new Error(`P06_SINGLE_AUDITOR_ABSENT:${item.key}`);
       instances.push(discoveryInstance("A", fixture, truth, protocol, [{ id: auditor.auditorId, run: item, findings: auditor.findings, usage: auditor.usage }], item.record.runId, item.wallClockMs));
+      if (item.status === "abandoned") continue;
       instances.push(pipelineInstance("A_pipeline", fixture, truth, protocol, item, (issue) => ACCEPTED_PIPELINE_REPORT.has(issue.disposition) && issue.verificationOutcome !== "REJECTED"));
       collectVerification("A_pipeline", item, fixture, verificationRows); collectPlan("A_pipeline", item, fixture, planRows);
     }
@@ -139,6 +149,7 @@ export function analyse(protocol: EvaluationProtocol, truths: ReadonlyMap<string
     for (const item of heterogeneous) {
       const union = discoveryInstance("C", fixture, truth, protocol, item.record.auditors.map((auditor) => ({ id: auditor.auditorId, run: item, findings: auditor.findings, usage: auditor.usage })), item.record.runId, item.wallClockMs);
       instances.push(union); contributions.C.push(union.premise);
+      if (item.status === "abandoned") continue;
       instances.push(pipelineInstance("D", fixture, truth, protocol, item, (issue) => issue.disposition === "accepted"));
       instances.push(pipelineInstance("D_not_rejected", fixture, truth, protocol, item, (issue) => issue.disposition !== "rejected" && issue.verificationOutcome !== "REJECTED"));
       collectVerification("D", item, fixture, verificationRows); collectPlan("D", item, fixture, planRows);
@@ -152,7 +163,7 @@ export function analyse(protocol: EvaluationProtocol, truths: ReadonlyMap<string
   return Object.freeze({
     schemaVersion: 1, protocolIdentity: `${protocol.protocolId}@${protocol.version}`, mode, confidence,
     groundTruth: { fixtures: truths.size, defects, decoys },
-    completedRuns: [...completed].sort(), missingRuns,
+    completedRuns: [...completed].sort(), missingRuns, pipelineFailures: Object.freeze(pipelineFailures),
     instances: Object.freeze(instances), conditions: Object.freeze(conditions),
     contribution: { B: contributionOf(contributions.B), C: contributionOf(contributions.C) },
     evidence: { emitted, rejectedOnValidation: rejected, quoteRejected, invalidEvidenceRate: wilson(rejected + quoteRejected, emitted, confidence), rejectedTrueDefects: rejectedTrue },
