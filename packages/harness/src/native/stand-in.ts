@@ -74,7 +74,7 @@ process.stdin.on("data", (chunk) => { prompt += chunk; });
 process.stdin.on("end", run);
 function usage() { return scenario.omitMessageUsage ? undefined : { input_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 5 }; }
 function run() {
-  if (scenario.reportFile) fs.writeFileSync(scenario.reportFile, JSON.stringify({ cwd: process.cwd(), envKeys: Object.keys(process.env).sort(), env: { HOME: process.env.HOME, CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR, ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY }, argv: args, prompt, files: fs.readdirSync(process.cwd()).sort() }));
+  if (scenario.reportFile) fs.writeFileSync(scenario.reportFile, JSON.stringify({ cwd: process.cwd(), envKeys: Object.keys(process.env).sort(), env: { HOME: process.env.HOME, CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR, ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN }, argv: args, prompt, files: fs.readdirSync(process.cwd()).sort() }));
   emit({ type: "system", subtype: "init", session_id: "stand-in-session", model: scenario.model ?? "stand-in-model", cwd: process.cwd(), tools: ["Read", "Glob", "Grep", "Edit", "Write", "Bash"], mcp_servers: scenario.mcpServers ?? [] });
   let turn = 0;
   const assistant = (content) => { turn += 1; const message = { id: "msg_" + turn, type: "message", role: "assistant", model: scenario.model ?? "stand-in-model", content }; const u = usage(); if (u) message.usage = u; emit({ type: "assistant", message, parent_tool_use_id: null, session_id: "stand-in-session" }); };

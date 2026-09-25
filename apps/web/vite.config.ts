@@ -15,7 +15,9 @@ export default defineConfig({
   // split further and is already loaded on demand behind the graph view, so the limit is
   // raised past it rather than left to warn on every build.
   // Browser scenarios under e2e/ run through Playwright (`pnpm e2e`), never through vitest.
-  test: { setupFiles: ["./test/setup.ts"], exclude: [...configDefaults.exclude, "e2e/**"] },
+  // jsdom view tests take 1–3 s locally but crossed the 5 s default on a loaded Linux CI
+  // runner (feature contract controls, 5007 ms); the limit leaves room for that.
+  test: { setupFiles: ["./test/setup.ts"], exclude: [...configDefaults.exclude, "e2e/**"], testTimeout: 20_000 },
   build: { outDir: "dist", sourcemap: true, chunkSizeWarningLimit: 1500 },
   // The UI addresses the control plane with root-relative paths, so the dev server
   // forwards exactly the control-plane and evaluation route prefixes to it and serves

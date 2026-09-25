@@ -26,7 +26,9 @@ describe("provider execution configuration", () => {
     expect(runConfigSchema.safeParse({ ...complete, workflow: { modelExecution: { ...execution, modelEndpoints: {} } } }).success).toBe(false);
   });
   it("accepts explicit operator limits and compatible endpoints without provider-name allowlists", () => {
-    expect(providerExecutionSchema.parse(valid)).toEqual(valid);
+    // Output repair is opt-in: an omitted limit parses as zero re-asks.
+    expect(providerExecutionSchema.parse(valid)).toEqual({ ...valid, maximumOutputRepairs: 0 });
+    expect(providerExecutionSchema.safeParse({ ...valid, maximumOutputRepairs: 4 }).success).toBe(false);
   });
   it("accepts an explicit opt-in batch lane and rejects lanes for unbound models or duplicates", () => {
     const lane = { modelProfileId: "auditor", activityGroups: ["semantic-clustering"], pollIntervalMs: 60_000, maximumWaitMs: 86_400_000, maximumItemsPerSubmission: 100, collectWindowMs: 5_000 };

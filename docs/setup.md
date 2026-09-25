@@ -244,6 +244,12 @@ Opt-in conformance against the real CLI (spends tokens):
 ARBITRA_NATIVE_CONFORMANCE_MODEL=<model> ANTHROPIC_API_KEY=… pnpm --filter @arbitra/runtime exec
 vitest run test/native-harness.conformance.test.ts`. Without those variables it is skipped.
 
+A Claude subscription can stand in for an API key: run `claude setup-token`, put the token
+in the variable `apiKeyEnvVar` names and set `harness.native.credentialKind` to
+`oauth_token`. The token is then passed to the native process only as
+`CLAUDE_CODE_OAUTH_TOKEN` (for the conformance test:
+`ARBITRA_NATIVE_CONFORMANCE_CREDENTIAL_KIND=oauth_token`).
+
 ### Docker prerequisites (Testing execute, Audit verification checks)
 
 - A running local Linux Docker engine: `docker info --format '{{.OSType}}'` prints `linux`.
