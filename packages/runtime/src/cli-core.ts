@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import type { RunConfig } from "@arbitra/schemas/config.js";
 import type { ReplayOverrides } from "@arbitra/core/replay/index.js";
 import type { ReplayRequest } from "@arbitra/schemas/replay.js";
+import type { BatchResolutionRequest } from "@arbitra/schemas/provider-execution.js";
 import type { Orchestrator } from "./orchestrator.js";
 import { PreflightError } from "./preflight.js";
 import { withIncrementalBase } from "./incremental-audit.js";
@@ -62,6 +63,16 @@ export function orchestratorCore(orchestrator: Orchestrator) {
     /** Record one decision for the current version of a generic human checkpoint. */
     async respondCheckpoint(runId: string, checkpointId: string, version: string, decision: string): Promise<CoreCommandResult> {
       return { disposition: "passed", value: await orchestrator.respondCheckpoint(runId, checkpointId, { version, decision }) };
+    },
+    /** The run's batch submissions. Unresolved uncertain submissions suspend (exit 3) until an operator decides. */
+    async batches(runId: string): Promise<CoreCommandResult> {
+      const view = await orchestrator.batchSubmissions(runId);
+      const pending = view.submissions.filter(({ resolvable }) => resolvable).map(({ id }) => `batch_submission_uncertain:${id}`);
+      return { disposition: pending.length === 0 ? "passed" : "suspended", reasons: pending, value: view };
+    },
+    /** One versioned decision for an uncertain batch submission; the same body `POST /runs/:id/batches/:submissionId/resolve` accepts. */
+    async resolveBatch(runId: string, submissionId: string, request: BatchResolutionRequest): Promise<CoreCommandResult> {
+      return { disposition: "passed", value: await orchestrator.resolveBatchSubmission(runId, submissionId, request) };
     },
     /** The same list, show, validate and save the HTTP workflow routes expose. */
     async workflow(request: WorkflowCliRequest): Promise<CoreCommandResult> {

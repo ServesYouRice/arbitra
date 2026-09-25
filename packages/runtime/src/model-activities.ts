@@ -6,7 +6,7 @@ import { RateLimitScheduler } from "@arbitra/providers/scheduler.js";
 import { DurableTokenBudget } from "@arbitra/providers/token-budget.js";
 import { ContinuationStateStore } from "@arbitra/providers/continuation/store.js";
 import { ProviderBudgetSuspendedError, ProviderInvocationFailure, type InvocationTrace, type TraceSink } from "@arbitra/providers/runtime.js";
-import { BatchItemFailedError, BatchLane, type BatchSubmissionRecord } from "@arbitra/providers/batch/lane.js";
+import { BatchItemFailedError, BatchLane, type BatchResolution, type BatchSubmissionRecord, type BatchSubmissionView } from "@arbitra/providers/batch/lane.js";
 import { ModelOutputLimitError } from "./context-budget.js";
 import type { TransportMessage, TransportTool } from "@arbitra/providers/transport-contract.js";
 import { runConfigSchema, type RunConfig } from "@arbitra/schemas/config.js";
@@ -113,9 +113,10 @@ export class ModelActivities {
   /** Collects late results and retries reconciliation of uncertain submissions. Never resubmits. */
   async reconcileBatches() { return this.#batchLane().reconcile(); }
   async batchSubmissions(): Promise<readonly BatchSubmissionRecord[]> { return this.#batchLane().submissions(); }
-  /** Operator decision after checking the provider console for an uncertain submission. */
-  async resolveBatchSubmission(submissionId: string, resolution: { readonly providerJobId: string } | { readonly notSubmitted: true }, by: string) {
-    return this.#batchLane().resolveUncertain(submissionId, resolution, by);
+  async batchView(): Promise<readonly BatchSubmissionView[]> { return this.#batchLane().view(); }
+  /** Operator decision, against the version they inspected, after checking the provider console for an uncertain submission. */
+  async resolveBatchSubmission(submissionId: string, version: string, resolution: BatchResolution, by: string) {
+    return this.#batchLane().resolveUncertain(submissionId, version, resolution, by);
   }
   #batchLane(): BatchLane {
     if (this.#batch === null) throw new Error("BATCH_LANE_NOT_CONFIGURED");
