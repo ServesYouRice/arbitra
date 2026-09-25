@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { plannerNode, type PlannerInput, type PlannerRequest, type PlannerSchema } from "../../src/nodes/planner/node.js";
+import { plannerNode, withoutSelfReferences, type PlannerInput, type PlannerRequest, type PlannerSchema } from "../../src/nodes/planner/node.js";
 import { validateTraceability, type TraceablePlan } from "../../src/nodes/planner/traceability.js";
 
 describe("single coherent Planner", () => {
@@ -93,3 +93,14 @@ function plan() {
   return { schemaVersion: 1, id: "PLAN-1", title: "Premise fixture remediation", mode: "audit", reasoningOutcome: "Fix the authorization boundary first.", implementationStrategy: ["Enforce authenticated role checks and add regression coverage."], dependencies: [], acceptedIssueIds: ["C-1"], unresolvedQuestions: [] as Array<{ id: string; question: string; blocking: boolean; blastRadius: "low" | "medium" | "high" }>, validationContract: { schemaVersion: 1, validation: [{ id: "VAL-001", assertion: "Support headers cannot bypass authorization.", evidence: ["authorization regression test"] }] }, tasks: [{ schemaVersion: 1, id: "TASK-001", title: "Close authorization bypass", goal: { objective: "Enforce authorization", doneWhen: ["Header cannot bypass"], stopWhen: ["Regression passes"], blockedWhen: ["Identity unavailable"] }, addresses: { issues: ["C-1"], validation: ["VAL-001"], requirements: [] as string[] }, routing: { capability: "frontier", effort: "high", advisor: null, advisorMaxUses: null, reason: ["securitySensitivity:4"] }, dependencies: { dependsOn: [], blocks: [], conflictsWith: [] }, scope: { likelyFiles: ["src/auth.ts", "test/auth.test.ts"], components: ["authorization"], interfaces: ["authorize"] }, filesNotToTouch: [], readFirst: ["src/auth.ts"], context: [] as string[], invariants: ["Deny by default"], outOfScope: ["Identity redesign"], implementationGuidance: ["Keep tests with behavior"], acceptanceCriteria: ["Bypass rejected"], verification: { preconditions: [], commands: [{ command: "pnpm test", expectedExitCode: 0, executionPolicy: "derived_repository_script" }], checks: ["Regression is deterministic"] }, rollbackPlan: ["Revert guard"], escalateIf: ["Identity source ambiguous"], expectedEvidence: ["test output"], estimatedTurns: 2 }], taskGraph: [], traceability: { issueToValidation: [{ issueId: "C-1", validationIds: ["VAL-001"] }], requirementLinks: { schemaVersion: 1, links: [] as Array<{ requirementId: string; validationIds: string[]; taskIds: string[] }> } }, routingRecommendations: [{ taskId: "TASK-001", capability: "frontier", effort: "high", reason: ["securitySensitivity:4"] }], rolloutConcerns: [], migrationConcerns: [], premiseReport: { status: "positive", interpretation: "smoke_test_only_not_proof", limitations: ["One fixture is not proof."] } };
 }
 function requiredAt<T>(values: readonly T[], index: number): T { const value = values[index]; if (value === undefined) throw new RangeError(`Missing test value at index ${index}`); return value; }
+
+describe("planner self-references", () => {
+  it("drops only a task's references to itself before validation", () => {
+    const raw = { mode: "feature", taskGraph: [{ from: "TASK-1", to: "TASK-1" }, { from: "TASK-1", to: "TASK-2" }],
+      tasks: [{ id: "TASK-1", dependencies: { dependsOn: ["TASK-1"], blocks: ["TASK-1", "TASK-2"], conflictsWith: [] } }, { id: "TASK-2", dependencies: { dependsOn: ["TASK-1"], blocks: [], conflictsWith: ["TASK-2", "TASK-3"] } }] };
+    expect(withoutSelfReferences(raw)).toEqual({ mode: "feature", taskGraph: [{ from: "TASK-1", to: "TASK-2" }],
+      tasks: [{ id: "TASK-1", dependencies: { dependsOn: [], blocks: ["TASK-2"], conflictsWith: [] } }, { id: "TASK-2", dependencies: { dependsOn: ["TASK-1"], blocks: [], conflictsWith: ["TASK-3"] } }] });
+    expect(withoutSelfReferences("not a plan")).toBe("not a plan");
+    expect(withoutSelfReferences({ tasks: [{ id: "A" }] })).toEqual({ tasks: [{ id: "A" }] });
+  });
+});

@@ -40,18 +40,18 @@
       }
     },
     "gemini-native-b": {
-      "modelId": "gemini-2.5-flash-lite",
+      "modelId": "gemini-3.5-flash-lite",
       "family": "gemini",
-      "independenceGroup": "gemini-2.5-flash-lite",
+      "independenceGroup": "gemini-3.5-flash-lite",
       "limits": {
         "contextTokens": 1000000,
         "maxOutputTokens": 65536
       }
     },
     "gemini-compatible": {
-      "modelId": "gemini-3.5-flash-lite",
+      "modelId": "gemini-3.1-flash-lite",
       "family": "gemini",
-      "independenceGroup": "gemini-3.5-flash-lite-via-openai-chat",
+      "independenceGroup": "gemini-3.1-flash-lite-via-openai-chat",
       "limits": {
         "contextTokens": 1000000,
         "maxOutputTokens": 65536
@@ -124,6 +124,14 @@
         "testing": {
           "goal": "Protect session expiry and refresh behaviour in src/session.js."
         }
+      },
+      "scope": {
+        "kind": "module",
+        "modules": [
+          "src/session.js",
+          "test",
+          "package.json"
+        ]
       }
     },
     "testing-execute": {
@@ -162,6 +170,14 @@
             }
           }
         }
+      },
+      "scope": {
+        "kind": "module",
+        "modules": [
+          "src/session.js",
+          "test",
+          "package.json"
+        ]
       }
     }
   }
