@@ -245,7 +245,7 @@ export class ModelActivities {
       const usage = traces.length > 1 ? null : result?.response.usage ?? null;
       const fullTrace: ModelActivityTraceRecord = {
         schemaVersion: 1, runId: this.store.runId, nodeId: input.activityId.split("/")[0] ?? input.activityId, activityId: input.activityId, attempt: executions,
-        modelId: profile.modelId, modelProfileVersion: hash(profile), transportId: profile.transport, transportVersion: "1.0.0",
+        modelId: profile.modelId, modelProfileVersion: hash(profile), transportId: profile.transport, transportVersion: result?.response.transportVersion ?? "1.0.0",
         harnessId: input.advisor !== undefined ? ADVISOR_HARNESS_ID : input.harnessIdentity?.id ?? "direct-json", harnessVersion: input.harnessIdentity?.version ?? "1.0.0", harnessPolicyHash: input.harnessIdentity?.policyHash ?? hash({ tools: input.tools ?? [] }),
         protocolId: input.protocolIdentity?.protocolId ?? input.protocol.split("@")[0] ?? input.protocol,
         protocolVersion: input.protocolIdentity?.protocolVersion ?? input.protocol.split("@")[1] ?? "unversioned",
@@ -272,7 +272,7 @@ export class ModelActivities {
         provenance: result === undefined ? null : {
           endpointId: result.endpointId, providerId: result.providerId, transport: result.transport,
           modelId: result.modelId, effort: result.effort, usage: result.response.usage,
-          structuredOutputTier: result.response.structuredOutputTier, providerRequestId: result.response.providerRequestId,
+          structuredOutputTier: result.response.structuredOutputTier, providerRequestId: result.response.providerRequestId, ...(result.response.transportVersion === undefined ? {} : { transportVersion: result.response.transportVersion }),
           lane: result.batch === undefined ? "interactive" : "batch", ...(result.batch === undefined ? {} : { batch: result.batch }),
         },
       }, input.activityId);

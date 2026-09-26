@@ -1,0 +1,233 @@
+{
+  "schemaVersion": 1,
+  "mode": "testing",
+  "scope": {
+    "kind": "repository"
+  },
+  "auditDepth": "balanced",
+  "consensusPolicy": "minimal",
+  "maxConsensusRounds": 1,
+  "verification": {
+    "deterministicFirst": true,
+    "maxModelQuestionsPerRound": 2
+  },
+  "models": {
+    "analyst": {
+      "schemaVersion": 1,
+      "provider": "openai",
+      "modelId": "replace-with-your-model-id",
+      "transport": "codex-cli",
+      "servedBy": null,
+      "family": "replace-with-your-model-family",
+      "independenceGroup": "openai",
+      "capabilityTier": "frontier",
+      "supports": {
+        "tools": true,
+        "parallelToolCalls": false,
+        "structuredOutput": true,
+        "reasoning": false,
+        "promptCaching": false,
+        "batch": false,
+        "vision": false
+      },
+      "limits": {
+        "contextTokens": null,
+        "maxOutputTokens": null
+      },
+      "effort": {
+        "supported": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "collapse": {
+          "xhigh": "high"
+        },
+        "params": {}
+      },
+      "quirks": {
+        "systemPromptSupport": "full",
+        "fewShotPolicy": "neutral",
+        "promptStyle": "markdown",
+        "documentPlacement": "leading",
+        "historyPolicy": "verbatim",
+        "samplingDefaults": {
+          "temperature": null,
+          "topP": null,
+          "topK": null
+        },
+        "greedyDecodingSafe": true,
+        "toolLoopLimit": 8,
+        "prefillSupported": false
+      },
+      "structuredOutputDialect": "prompt_json"
+    },
+    "writer": {
+      "schemaVersion": 1,
+      "provider": "anthropic",
+      "modelId": "replace-with-your-model-id",
+      "transport": "claude-code-cli",
+      "servedBy": null,
+      "family": "replace-with-your-model-family",
+      "independenceGroup": "anthropic",
+      "capabilityTier": "balanced",
+      "supports": {
+        "tools": true,
+        "parallelToolCalls": false,
+        "structuredOutput": true,
+        "reasoning": false,
+        "promptCaching": false,
+        "batch": false,
+        "vision": false
+      },
+      "limits": {
+        "contextTokens": null,
+        "maxOutputTokens": null
+      },
+      "effort": {
+        "supported": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "collapse": {
+          "xhigh": "high"
+        },
+        "params": {}
+      },
+      "quirks": {
+        "systemPromptSupport": "full",
+        "fewShotPolicy": "neutral",
+        "promptStyle": "xml",
+        "documentPlacement": "leading",
+        "historyPolicy": "verbatim",
+        "samplingDefaults": {
+          "temperature": null,
+          "topP": null,
+          "topK": null
+        },
+        "greedyDecodingSafe": true,
+        "toolLoopLimit": 8,
+        "prefillSupported": true
+      },
+      "structuredOutputDialect": "prompt_json"
+    }
+  },
+  "harness": {
+    "mode": "canonical"
+  },
+  "workflow": {
+    "preset": "testing-execute",
+    "testing": {
+      "mode": "execute",
+      "goal": "Replace with the behavior the new tests must protect.",
+      "roles": {
+        "analyst": "analyst",
+        "planner": "analyst"
+      },
+      "commands": [],
+      "execution": {
+        "authorization": {
+          "maximumParallelTasks": 1,
+          "partitions": [
+            {
+              "id": "tests",
+              "paths": [
+                "test/session.test.ts"
+              ]
+            }
+          ],
+          "tasks": [
+            {
+              "taskId": "TASK-001",
+              "partitionId": "tests",
+              "exclusive": false
+            }
+          ]
+        },
+        "verification": {
+          "execution": {
+            "driver": "docker",
+            "image": "replace-with-your-local-test-image@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            "maximumRuns": 6,
+            "timeoutMs": 120000,
+            "maximumOutputBytes": 65536,
+            "checks": [
+              {
+                "id": "unit-tests",
+                "executable": "/usr/local/bin/npm",
+                "arguments": [
+                  "run",
+                  "test"
+                ],
+                "sourcePaths": [
+                  "package.json",
+                  "test/session.test.ts"
+                ]
+              }
+            ]
+          },
+          "bindings": [
+            {
+              "command": "npm run test",
+              "checkId": "unit-tests",
+              "expectedExitCode": 0,
+              "authorization": "repository_script"
+            }
+          ]
+        },
+        "models": {
+          "fast": "writer",
+          "balanced": "writer",
+          "frontier": "analyst"
+        },
+        "maximumAttempts": 2
+      }
+    },
+    "modelExecution": {
+      "endpoints": [
+        {
+          "id": "claude-code",
+          "providerId": "anthropic",
+          "transport": "claude-code-cli",
+          "endpoint": "cli://claude-code",
+          "auth": "subscription_login"
+        },
+        {
+          "id": "codex",
+          "providerId": "openai",
+          "transport": "codex-cli",
+          "endpoint": "cli://codex",
+          "auth": "subscription_login"
+        }
+      ],
+      "modelEndpoints": {
+        "analyst": "codex",
+        "writer": "claude-code"
+      },
+      "maximumOutputTokens": 8000,
+      "maximumContextTokens": 128000,
+      "maximumTokens": 2000000,
+      "timeoutMs": 600000,
+      "maximumRetries": 1,
+      "maximumOutputRepairs": 1,
+      "rateLimits": {
+        "anthropic": {
+          "rpm": 10,
+          "tpm": 2000000,
+          "maxConcurrent": 1
+        },
+        "openai": {
+          "rpm": 10,
+          "tpm": 2000000,
+          "maxConcurrent": 1
+        }
+      }
+    }
+  },
+  "budgets": {},
+  "security": {},
+  "protocols": {},
+  "promptOverrides": {},
+  "contextPolicies": {}
+}

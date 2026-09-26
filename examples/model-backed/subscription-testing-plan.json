@@ -1,0 +1,176 @@
+{
+  "schemaVersion": 1,
+  "mode": "testing",
+  "scope": {
+    "kind": "repository"
+  },
+  "auditDepth": "balanced",
+  "consensusPolicy": "minimal",
+  "maxConsensusRounds": 1,
+  "verification": {
+    "deterministicFirst": true,
+    "maxModelQuestionsPerRound": 2
+  },
+  "models": {
+    "analyst": {
+      "schemaVersion": 1,
+      "provider": "anthropic",
+      "modelId": "replace-with-your-model-id",
+      "transport": "claude-code-cli",
+      "servedBy": null,
+      "family": "replace-with-your-model-family",
+      "independenceGroup": "anthropic",
+      "capabilityTier": "frontier",
+      "supports": {
+        "tools": true,
+        "parallelToolCalls": false,
+        "structuredOutput": true,
+        "reasoning": false,
+        "promptCaching": false,
+        "batch": false,
+        "vision": false
+      },
+      "limits": {
+        "contextTokens": null,
+        "maxOutputTokens": null
+      },
+      "effort": {
+        "supported": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "collapse": {
+          "xhigh": "high"
+        },
+        "params": {}
+      },
+      "quirks": {
+        "systemPromptSupport": "full",
+        "fewShotPolicy": "neutral",
+        "promptStyle": "markdown",
+        "documentPlacement": "leading",
+        "historyPolicy": "verbatim",
+        "samplingDefaults": {
+          "temperature": null,
+          "topP": null,
+          "topK": null
+        },
+        "greedyDecodingSafe": true,
+        "toolLoopLimit": 8,
+        "prefillSupported": false
+      },
+      "structuredOutputDialect": "prompt_json"
+    },
+    "planner": {
+      "schemaVersion": 1,
+      "provider": "openai",
+      "modelId": "replace-with-your-model-id",
+      "transport": "codex-cli",
+      "servedBy": null,
+      "family": "replace-with-your-model-family",
+      "independenceGroup": "openai",
+      "capabilityTier": "frontier",
+      "supports": {
+        "tools": true,
+        "parallelToolCalls": false,
+        "structuredOutput": true,
+        "reasoning": false,
+        "promptCaching": false,
+        "batch": false,
+        "vision": false
+      },
+      "limits": {
+        "contextTokens": null,
+        "maxOutputTokens": null
+      },
+      "effort": {
+        "supported": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "collapse": {
+          "xhigh": "high"
+        },
+        "params": {}
+      },
+      "quirks": {
+        "systemPromptSupport": "full",
+        "fewShotPolicy": "neutral",
+        "promptStyle": "markdown",
+        "documentPlacement": "leading",
+        "historyPolicy": "verbatim",
+        "samplingDefaults": {
+          "temperature": null,
+          "topP": null,
+          "topK": null
+        },
+        "greedyDecodingSafe": true,
+        "toolLoopLimit": 8,
+        "prefillSupported": false
+      },
+      "structuredOutputDialect": "prompt_json"
+    }
+  },
+  "harness": {
+    "mode": "canonical"
+  },
+  "workflow": {
+    "preset": "testing-plan",
+    "testing": {
+      "mode": "plan",
+      "goal": "Replace with the behavior the new tests must protect.",
+      "roles": {
+        "analyst": "analyst",
+        "planner": "planner"
+      },
+      "commands": []
+    },
+    "modelExecution": {
+      "endpoints": [
+        {
+          "id": "claude-code",
+          "providerId": "anthropic",
+          "transport": "claude-code-cli",
+          "endpoint": "cli://claude-code",
+          "auth": "subscription_login"
+        },
+        {
+          "id": "codex",
+          "providerId": "openai",
+          "transport": "codex-cli",
+          "endpoint": "cli://codex",
+          "auth": "subscription_login"
+        }
+      ],
+      "modelEndpoints": {
+        "analyst": "claude-code",
+        "planner": "codex"
+      },
+      "maximumOutputTokens": 8000,
+      "maximumContextTokens": 128000,
+      "maximumTokens": 1000000,
+      "timeoutMs": 600000,
+      "maximumRetries": 1,
+      "maximumOutputRepairs": 1,
+      "rateLimits": {
+        "anthropic": {
+          "rpm": 10,
+          "tpm": 2000000,
+          "maxConcurrent": 1
+        },
+        "openai": {
+          "rpm": 10,
+          "tpm": 2000000,
+          "maxConcurrent": 1
+        }
+      }
+    }
+  },
+  "budgets": {},
+  "security": {},
+  "protocols": {},
+  "promptOverrides": {},
+  "contextPolicies": {}
+}

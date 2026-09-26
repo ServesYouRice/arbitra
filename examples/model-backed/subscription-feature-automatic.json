@@ -1,0 +1,245 @@
+{
+  "schemaVersion": 1,
+  "mode": "feature",
+  "scope": {
+    "kind": "repository"
+  },
+  "auditDepth": "balanced",
+  "consensusPolicy": "minimal",
+  "maxConsensusRounds": 1,
+  "verification": {
+    "deterministicFirst": true,
+    "maxModelQuestionsPerRound": 2
+  },
+  "models": {
+    "planner": {
+      "schemaVersion": 1,
+      "provider": "anthropic",
+      "modelId": "replace-with-your-model-id",
+      "transport": "claude-code-cli",
+      "servedBy": null,
+      "family": "replace-with-your-model-family",
+      "independenceGroup": "anthropic",
+      "capabilityTier": "frontier",
+      "supports": {
+        "tools": true,
+        "parallelToolCalls": false,
+        "structuredOutput": true,
+        "reasoning": false,
+        "promptCaching": false,
+        "batch": false,
+        "vision": false
+      },
+      "limits": {
+        "contextTokens": null,
+        "maxOutputTokens": null
+      },
+      "effort": {
+        "supported": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "collapse": {
+          "xhigh": "high"
+        },
+        "params": {}
+      },
+      "quirks": {
+        "systemPromptSupport": "full",
+        "fewShotPolicy": "neutral",
+        "promptStyle": "xml",
+        "documentPlacement": "leading",
+        "historyPolicy": "verbatim",
+        "samplingDefaults": {
+          "temperature": null,
+          "topP": null,
+          "topK": null
+        },
+        "greedyDecodingSafe": true,
+        "toolLoopLimit": 8,
+        "prefillSupported": true
+      },
+      "structuredOutputDialect": "prompt_json"
+    },
+    "reviewer-codex": {
+      "schemaVersion": 1,
+      "provider": "openai",
+      "modelId": "replace-with-your-model-id",
+      "transport": "codex-cli",
+      "servedBy": null,
+      "family": "replace-with-your-model-family",
+      "independenceGroup": "openai",
+      "capabilityTier": "frontier",
+      "supports": {
+        "tools": true,
+        "parallelToolCalls": false,
+        "structuredOutput": true,
+        "reasoning": false,
+        "promptCaching": false,
+        "batch": false,
+        "vision": false
+      },
+      "limits": {
+        "contextTokens": null,
+        "maxOutputTokens": null
+      },
+      "effort": {
+        "supported": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "collapse": {
+          "xhigh": "high"
+        },
+        "params": {}
+      },
+      "quirks": {
+        "systemPromptSupport": "full",
+        "fewShotPolicy": "neutral",
+        "promptStyle": "markdown",
+        "documentPlacement": "leading",
+        "historyPolicy": "verbatim",
+        "samplingDefaults": {
+          "temperature": null,
+          "topP": null,
+          "topK": null
+        },
+        "greedyDecodingSafe": true,
+        "toolLoopLimit": 8,
+        "prefillSupported": false
+      },
+      "structuredOutputDialect": "prompt_json"
+    },
+    "reviewer-gemini": {
+      "schemaVersion": 1,
+      "provider": "google",
+      "modelId": "replace-with-your-model-id",
+      "transport": "gemini-cli",
+      "servedBy": null,
+      "family": "replace-with-your-model-family",
+      "independenceGroup": "google",
+      "capabilityTier": "frontier",
+      "supports": {
+        "tools": true,
+        "parallelToolCalls": false,
+        "structuredOutput": false,
+        "reasoning": false,
+        "promptCaching": false,
+        "batch": false,
+        "vision": false
+      },
+      "limits": {
+        "contextTokens": null,
+        "maxOutputTokens": null
+      },
+      "effort": {
+        "supported": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "collapse": {
+          "xhigh": "high"
+        },
+        "params": {}
+      },
+      "quirks": {
+        "systemPromptSupport": "full",
+        "fewShotPolicy": "neutral",
+        "promptStyle": "markdown",
+        "documentPlacement": "leading",
+        "historyPolicy": "verbatim",
+        "samplingDefaults": {
+          "temperature": null,
+          "topP": null,
+          "topK": null
+        },
+        "greedyDecodingSafe": true,
+        "toolLoopLimit": 8,
+        "prefillSupported": false
+      },
+      "structuredOutputDialect": "prompt_json"
+    }
+  },
+  "harness": {
+    "mode": "canonical"
+  },
+  "workflow": {
+    "preset": "feature-simple",
+    "feature": {
+      "request": "Replace with the Feature you want planned, including constraints and acceptance expectations.",
+      "mode": "automatic",
+      "maximumRequirementsRevisions": 1,
+      "roles": {
+        "requirements": "planner",
+        "exploration": "planner",
+        "planner": "planner",
+        "reviewers": [
+          "reviewer-codex",
+          "reviewer-gemini"
+        ],
+        "critic": "reviewer-gemini"
+      }
+    },
+    "modelExecution": {
+      "endpoints": [
+        {
+          "id": "claude-code",
+          "providerId": "anthropic",
+          "transport": "claude-code-cli",
+          "endpoint": "cli://claude-code",
+          "auth": "subscription_login"
+        },
+        {
+          "id": "codex",
+          "providerId": "openai",
+          "transport": "codex-cli",
+          "endpoint": "cli://codex",
+          "auth": "subscription_login"
+        },
+        {
+          "id": "gemini",
+          "providerId": "google",
+          "transport": "gemini-cli",
+          "endpoint": "cli://gemini",
+          "auth": "subscription_login"
+        }
+      ],
+      "modelEndpoints": {
+        "planner": "claude-code",
+        "reviewer-codex": "codex",
+        "reviewer-gemini": "gemini"
+      },
+      "maximumOutputTokens": 8000,
+      "maximumContextTokens": 128000,
+      "maximumTokens": 1500000,
+      "timeoutMs": 600000,
+      "maximumRetries": 1,
+      "maximumOutputRepairs": 1,
+      "rateLimits": {
+        "anthropic": {
+          "rpm": 10,
+          "tpm": 2000000,
+          "maxConcurrent": 1
+        },
+        "openai": {
+          "rpm": 10,
+          "tpm": 2000000,
+          "maxConcurrent": 1
+        },
+        "google": {
+          "rpm": 10,
+          "tpm": 2000000,
+          "maxConcurrent": 1
+        }
+      }
+    }
+  },
+  "budgets": {},
+  "security": {},
+  "protocols": {},
+  "promptOverrides": {},
+  "contextPolicies": {}
+}

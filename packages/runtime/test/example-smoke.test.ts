@@ -41,7 +41,8 @@ async function readArtifact(orchestrator: Orchestrator, runId: string, kind: str
 
 describe("model-backed template smoke checks", () => {
   it("lists exactly the documented model-backed templates", async () => {
-    expect((await readdir(TEMPLATES)).filter((name) => name.endsWith(".json")).sort()).toEqual([
+    // Subscription templates are smoke-run by subscription-smoke.test.ts.
+    expect((await readdir(TEMPLATES)).filter((name) => name.endsWith(".json") && !name.startsWith("subscription-")).sort()).toEqual([
       "audit-compatible-chat.json", "audit-mixed-providers.json", "feature-automatic.json", "feature-interactive.json", "testing-execute.json", "testing-plan.json",
     ]);
   });

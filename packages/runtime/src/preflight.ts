@@ -15,6 +15,9 @@ import { validateAdvisorPolicy } from "./model-advisors.js";
 import { NATIVE_HARNESS_SUPPORT, unenforceableNativeTools } from "@arbitra/harness/native/support.js";
 import { isClaudeCodeControlPath } from "@arbitra/harness/native/claude-code/translation.js";
 import { NATIVE_TESTING_WRITER_STAGE } from "./native-testing-writer.js";
+import { probeCliReadiness, type CliProbe } from "@arbitra/providers/transports/cli/probe.js";
+import { cliTransportSupport } from "@arbitra/providers/transports/cli/support.js";
+import type { CliTransportOptions } from "@arbitra/providers/transports/cli/transport.js";
 
 /**
  * Runtime preflight: everything that can be established about a configuration before
@@ -330,6 +333,9 @@ export interface EnvironmentPreflightOptions {
   readonly includeWarnings?: boolean;
   /** True when requests would reach real provider endpoints (no injected HTTP client). */
   readonly liveDispatch?: boolean;
+  /** Subscription CLI host options (environment reader, process runner, limits record) shared with the transports. */
+  readonly cli?: CliTransportOptions;
+  readonly cliProbe?: CliProbe;
 }
 
 /** Shipped templates name no real model; a live request must never be sent for one. */
@@ -352,6 +358,7 @@ export async function environmentDiagnostics(config: RunConfig, options: Environ
     for (const [index, endpoint] of execution.endpoints.entries()) {
       const models = Object.entries(execution.modelEndpoints).filter(([, endpointId]) => endpointId === endpoint.id).map(([id]) => id);
       if (models.length === 0) continue;
+      if (!("apiKeyEnvVar" in endpoint)) { await cliDiagnostics(endpoint, index, models, options, diagnostics); continue; }
       const value = options.credential(endpoint.apiKeyEnvVar);
       if (value === undefined || value.length === 0) {
         diagnostics.push(error(`PROVIDER_CREDENTIAL_MISSING:${endpoint.id}`, `workflow.modelExecution.endpoints.${index}.apiKeyEnvVar`, `Environment variable ${endpoint.apiKeyEnvVar} is not set for endpoint ${endpoint.id} (profiles ${models.join(", ")}). Export it in the process that runs arbitra; the value is read only at dispatch and never written to configuration, runs or responses.`));
@@ -382,6 +389,41 @@ export async function environmentDiagnostics(config: RunConfig, options: Environ
     }
   }
   return Object.freeze(diagnostics.map((diagnostic) => Object.freeze({ ...diagnostic, scope: "environment" as const })));
+}
+
+/**
+ * Subscription CLI readiness without a model call: installed, supported version, signed in to
+ * a subscription rather than an API key, and not at a recorded usage limit. Each failure names
+ * the exact command or setting that fixes it.
+ */
+async function cliDiagnostics(endpoint: { readonly id: string; readonly transport: string; readonly auth: "subscription_login" | "oauth_token"; readonly oauthTokenEnvVar?: string | undefined }, index: number, models: readonly string[], options: EnvironmentPreflightOptions, diagnostics: PreflightDiagnostic[]): Promise<void> {
+  const support = cliTransportSupport(endpoint.transport);
+  if (support === undefined) return;
+  const path = `workflow.modelExecution.endpoints.${index}`;
+  const who = `${support.displayName} for endpoint ${endpoint.id} (profiles ${models.join(", ")})`;
+  const readiness = await (options.cliProbe ?? probeCliReadiness)(endpoint.transport, {
+    lookup: options.cli?.lookup ?? options.credential, auth: endpoint.auth, oauthTokenEnv: endpoint.oauthTokenEnvVar ?? null,
+    ...(options.cli?.process === undefined ? {} : { process: options.cli.process }), ...(options.cli?.platform === undefined ? {} : { platform: options.cli.platform }),
+    ...(options.cli?.nodeExecutable === undefined ? {} : { nodeExecutable: options.cli.nodeExecutable }), ...(options.cli?.limits === undefined ? {} : { limits: options.cli.limits }),
+  });
+  if (!readiness.executable.found) {
+    diagnostics.push(error(`SUBSCRIPTION_CLI_NOT_INSTALLED:${endpoint.id}`, "$environment", `${who} is not available: ${readiness.executable.detail}. ${support.installInstruction}`));
+    return;
+  }
+  if (readiness.version === null) diagnostics.push(error(`SUBSCRIPTION_CLI_VERSION_UNREADABLE:${endpoint.id}`, "$environment", `${who} at ${readiness.executable.executable.path} did not report a version through --version. Reinstall it or point ${support.executableEnvVar} at a working executable.`));
+  else if (readiness.versionSupported !== true) diagnostics.push(error(`SUBSCRIPTION_CLI_VERSION_UNSUPPORTED:${endpoint.id}`, "$environment", `${who} is version ${readiness.version}; arbitra supports ${support.versionRange.minimum} or later and below ${support.versionRange.below}. Install a supported version or point ${support.executableEnvVar} at one.`));
+  if (readiness.auth === "not_logged_in") {
+    diagnostics.push(error(`SUBSCRIPTION_CLI_NOT_LOGGED_IN:${endpoint.id}`, endpoint.auth === "oauth_token" ? `${path}.oauthTokenEnvVar` : "$environment", endpoint.auth === "oauth_token"
+      ? `${who} uses token authentication, but ${readiness.authDetail ?? "the token variable is not set"}. Run \`claude setup-token\` and export the token in ${endpoint.oauthTokenEnvVar ?? "the named variable"}.`
+      : `${who} is not signed in to a subscription. ${support.loginInstruction}`));
+  }
+  if (readiness.auth === "api_key_login") diagnostics.push(error(`SUBSCRIPTION_CLI_API_KEY_LOGIN:${endpoint.id}`, "$environment", `${who} is signed in with an API key${readiness.authDetail === null ? "" : ` (${readiness.authDetail})`}, which would spend API credit rather than the subscription. ${support.loginInstruction} To use an API key deliberately, bind this role to an API transport instead.`));
+  if (readiness.auth === "unverified") diagnostics.push(warning(`SUBSCRIPTION_CLI_AUTH_UNVERIFIED:${endpoint.id}`, "$environment", `${who}: sign-in cannot be confirmed without a model call${readiness.authDetail === null ? "" : ` (${readiness.authDetail})`}; it is verified by the first call. If that call fails with CLI_NOT_LOGGED_IN: ${support.loginInstruction}`));
+  if (readiness.usageLimit !== null) {
+    const until = readiness.usageLimit.resetsAt === null ? null : new Date(readiness.usageLimit.resetsAt).toISOString();
+    diagnostics.push((until === null ? warning : error)(`SUBSCRIPTION_CLI_USAGE_LIMIT_REACHED:${endpoint.id}`, "$environment", `${who} reported its subscription usage limit ${until === null ? "recently (reset time unknown)" : `and resets at ${until}`}. Wait for the reset, raise the plan's limit, or bind these roles to another endpoint for this run.`));
+  }
+  if (support.status === "declared_unverified") diagnostics.push(warning(`SUBSCRIPTION_CLI_UNVERIFIED:${endpoint.transport}`, path, `${support.displayName} support is declared but not yet verified by a recorded live run; it is tested against scripted stand-in executables only.`));
 }
 
 function sandboxRequirement(config: RunConfig): { readonly execution: VerificationExecution; readonly path: string; readonly required: boolean } | undefined {
