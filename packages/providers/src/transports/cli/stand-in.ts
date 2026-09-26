@@ -18,7 +18,11 @@ export type CliStandInReply =
   | { readonly kind: "rate_limit" }
   | { readonly kind: "malformed" }
   | { readonly kind: "output_limit" }
-  | { readonly kind: "hang" };
+  | { readonly kind: "hang" }
+  /** Antigravity only: a tool call soft-denied on stderr, a SUCCESS with an empty response, or a run waiting for approval. */
+  | { readonly kind: "soft_denied" }
+  | { readonly kind: "empty_success" }
+  | { readonly kind: "waiting" };
 
 export interface CliStandInScenario {
   readonly vendor: CliVendor;
@@ -33,7 +37,7 @@ export interface CliStandInScenario {
   readonly pidFile?: string;
 }
 
-export async function writeCliStandIn(directory: string, scenario: CliStandInScenario, name: string = scenario.vendor === "claude-code" ? "claude" : scenario.vendor): Promise<string> {
+export async function writeCliStandIn(directory: string, scenario: CliStandInScenario, name: string = { "claude-code": "claude", codex: "codex", gemini: "gemini", antigravity: "agy" }[scenario.vendor]): Promise<string> {
   const path = join(directory, name);
   await writeFile(path, `#!/usr/bin/env node\n${SOURCE.replace("__SCENARIO__", () => JSON.stringify({ stateFile: join(directory, `${name}.state`), ...scenario }))}`, { mode: 0o755 });
   await chmod(path, 0o755);
@@ -45,9 +49,9 @@ const fs = require("node:fs"); const path = require("node:path"); const cp = req
 const s = __SCENARIO__;
 const args = process.argv.slice(2);
 const out = (value) => fs.writeSync(1, (typeof value === "string" ? value : JSON.stringify(value)) + "\n");
-const version = s.version ?? { "claude-code": "2.1.282", codex: "0.154.0", gemini: "0.61.0" }[s.vendor];
+const version = s.version ?? { "claude-code": "2.1.282", codex: "0.154.0", gemini: "0.61.0", antigravity: "1.2.0" }[s.vendor];
 const auth = s.auth ?? "logged_in";
-if (args[0] === "--version") { out(s.vendor === "claude-code" ? version + " (Claude Code)" : s.vendor === "codex" ? "codex-cli " + version : version); process.exit(0); }
+if (args[0] === "--version") { out(s.vendor === "claude-code" ? version + " (Claude Code)" : s.vendor === "codex" ? "codex-cli " + version : s.vendor === "antigravity" ? "agy " + version : version); process.exit(0); }
 if (s.vendor === "claude-code" && args[0] === "auth") { out({ loggedIn: auth !== "not_logged_in", authMethod: auth === "api_key" ? "api_key" : "claude.ai", subscriptionType: "max" }); process.exit(0); }
 if (s.vendor === "codex" && args[0] === "login") {
   if (auth === "not_logged_in") { process.stderr.write("Not logged in\n"); process.exit(1); }
@@ -74,7 +78,7 @@ function run() {
   const { index, reply } = next();
   const systemFile = args[args.indexOf("--system-prompt-file") + 1];
   const schemaFile = args[args.indexOf("--output-schema") + 1];
-  if (s.reportFile) fs.writeFileSync(s.reportFile + "." + index, JSON.stringify({ cwd: process.cwd(), argv: args, env: process.env, stdin,
+  if (s.reportFile) fs.writeFileSync(s.reportFile + "." + index, JSON.stringify({ cwd: process.cwd(), argv: args, env: process.env, stdin: s.vendor === "antigravity" ? args[args.indexOf("-p") + 1] : stdin,
     files: fs.readdirSync(process.cwd()).sort(), geminiSettings: fs.existsSync(".gemini/settings.json") ? JSON.parse(fs.readFileSync(".gemini/settings.json", "utf8")) : null,
     system: s.vendor === "gemini" ? fs.readFileSync(process.env.GEMINI_SYSTEM_MD, "utf8") : args.includes("--system-prompt-file") ? fs.readFileSync(systemFile, "utf8") : null,
     schema: args.includes("--output-schema") ? JSON.parse(fs.readFileSync(schemaFile, "utf8")) : null }));
@@ -106,6 +110,27 @@ function run() {
       case "usage_limit": out({ type: "turn.failed", error: { message: "You've hit your usage limit. Upgrade to Pro or try again in 2 hours 5 minutes." } }); process.exit(1);
       case "rate_limit": out({ type: "error", message: "exceeded retry limit, last status: 429 Too Many Requests, retry in 20s" }); out({ type: "turn.failed", error: { message: "429 Too Many Requests" } }); process.exit(1);
       case "malformed": out("{not json"); process.exit(0);
+      case "output_limit": case "hang": return hang();
+    }
+  }
+  if (s.vendor === "antigravity") {
+    const conversation = "stand-in-conversation-" + index;
+    const result = (fields) => out({ event: "result", result: { conversation_id: conversation, duration_seconds: 1, num_turns: 1, ...fields } });
+    const envelope = (status, extra) => { result({ status, ...extra }); process.exit(status === "SUCCESS" ? 0 : 1); };
+    const step = (fields) => out({ event: "step_update", step_update: { conversation_id: conversation, state: "DONE", ...fields } });
+    out({ event: "init", conversation_id: conversation, init: { model: args[args.indexOf("--model") + 1], tools: ["run_command", "browser_click_element"] } });
+    step({ step_index: 0, step_type: "user_input" });
+    switch (reply.kind) {
+      case "text": { const schema = args.includes("--json-schema"); step({ step_index: 1, step_type: "agent_response", text_delta: reply.text + "\n" }); step({ step_index: 2, step_type: "finish" });
+        return envelope("SUCCESS", { response: reply.text, ...(schema ? { structured_output: JSON.parse(reply.text) } : {}), ...(reply.usage === false ? {} : { usage: { input_tokens: 30, output_tokens: 8, thinking_tokens: 2, cache_read_tokens: 10, total_tokens: 40 } }) }); }
+      case "tool_use": step({ step_index: 1, step_type: "run_command", state: "ACTIVE" }); return hang();
+      case "soft_denied": process.stderr.write("Tool run_command requires approval and was denied in headless mode\n"); result({ status: "SUCCESS", response: "I could not run the command." }); process.exit(0);
+      case "empty_success": result({ status: "SUCCESS", response: "" }); process.exit(0);
+      case "waiting": result({ status: "WAITING", response: "" }); return hang();
+      case "not_logged_in": return envelope("ERROR", { error: "Not signed in. Run agy to sign in with Google." });
+      case "usage_limit": return envelope("ERROR", { error: "Quota exhausted for your Google AI Pro plan. Your quota refreshes in 3 hours." });
+      case "rate_limit": return envelope("ERROR", { error: "429 Too Many Requests: rate limited, retry in 20s" });
+      case "malformed": out("not json at all"); process.exit(0);
       case "output_limit": case "hang": return hang();
     }
   }

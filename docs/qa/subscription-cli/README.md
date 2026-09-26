@@ -17,6 +17,7 @@ ChatGPT app, Gemini from PATH).
 |---|---|---|---|---|---|---|---|
 | Claude Code | 2.1.282 | Claude Max (`claude auth status`) | `claude-haiku-4-5-20251001` | passed | passed | passed | [claude-code.json](claude-code.json) |
 | Codex CLI | 0.154.0-alpha.6.2 | ChatGPT (`codex login status`) | `gpt-5.6-luna` | passed | passed | passed | [codex.json](codex.json) |
+| Antigravity CLI | 1.2.11 | Google AI login (OS keyring) | `gemini-3.8-flash-low` | passed | passed | passed | [antigravity.json](antigravity.json) |
 | Gemini CLI | 0.61.0 | Google login cached | `gemini-3-flash-preview` | unavailable (`AUTH`, `CLI_ACCOUNT_INELIGIBLE`) | not reached | not reached | [gemini.json](gemini.json) |
 
 Measured per call: Claude Code about 440 to 880 input tokens (the default system prompt is
@@ -26,12 +27,22 @@ cost as unknown. Both emulated tool calls produced a single `lookup_word` call w
 `call_0ca79e88e488264659ff17b8`, derived from the conversation, so the same conversation gives
 the same ID on every CLI.
 
+Antigravity CLI: about 24,600 to 25,100 input tokens per call (its own agent instructions) and
+about 7 seconds. Its stream-json events are `{"event": "init" | "step_update" | "result", ...}`;
+a plain answer has only `user_input`, `agent_response` and `finish` steps, and the transport
+treats any other step as agent tool use. The init event lists about 40 built-in tools
+(browser, command, file and permission tools) that cannot be switched off. With
+`--json-schema` the `response` text carried extra `toolAction`/`toolSummary` keys, so the
+transport reads `structured_output` only. `--mode plan` only warns while slash commands are
+disabled, so it is not used.
+
 Gemini: the Google account signs in, but the Code Assist service refuses it before any model
 call: `IneligibleTierError: This client is no longer supported for Gemini Code Assist for
 individuals` (tier `free-tier`, reason `UNSUPPORTED_CLIENT`). The transport reports this as
-`AUTH` / `CLI_ACCOUNT_INELIGIBLE` and never counts it as passing. `gemini-cli` stays
-`declared_unverified` until an eligible account (a paid Google AI or Code Assist plan, or a
-Workspace licence with `GOOGLE_CLOUD_PROJECT`) is signed in and this runner passes.
+`AUTH` / `CLI_ACCOUNT_INELIGIBLE` and never counts it as passing. This is Google's retirement
+of personal logins from the Gemini CLI (June 18, 2026), not a defect: personal Google AI
+subscriptions are served through the Antigravity CLI above. `gemini-cli` stays
+`declared_unverified` until a Code Assist Standard or Enterprise login passes this runner.
 
 Probes made while building the adapters (not repeated in the evidence files):
 

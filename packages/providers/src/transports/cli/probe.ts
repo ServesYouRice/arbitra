@@ -76,6 +76,8 @@ async function authState(support: CliTransportSupport, resolution: CliExecutable
       if (/not logged in/iu.test(output) || result.exitCode !== 0) return { auth: "not_logged_in", detail: null };
       return { auth: "unverified", detail: cliFailureDetail(output) || null };
     }
+    // The Antigravity CLI keeps its Google login in the OS keyring and has no status command.
+    case "antigravity": return { auth: "unverified", detail: "the Google login is kept in the OS keyring and is confirmed by the first call" };
     case "gemini": {
       // Gemini CLI has no status command. The cached Google login and the selected auth type
       // are the only model-free evidence; eligibility is established by the first call.

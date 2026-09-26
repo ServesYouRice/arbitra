@@ -18,7 +18,7 @@ export const httpProviderEndpointSchema = z.object({
 }).strict();
 
 /** Subscription CLI transports and the only endpoint each accepts. */
-export const CLI_TRANSPORT_ENDPOINTS: Readonly<Record<string, string>> = Object.freeze({ "claude-code-cli": "cli://claude-code", "codex-cli": "cli://codex", "gemini-cli": "cli://gemini" });
+export const CLI_TRANSPORT_ENDPOINTS: Readonly<Record<string, string>> = Object.freeze({ "claude-code-cli": "cli://claude-code", "codex-cli": "cli://codex", "gemini-cli": "cli://gemini", "antigravity-cli": "cli://antigravity" });
 
 /**
  * A vendor CLI signed in with the operator's own subscription. `subscription_login` uses the

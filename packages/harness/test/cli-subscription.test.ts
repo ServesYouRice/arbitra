@@ -16,7 +16,7 @@ afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root,
  * emulated tool calls come back as ordinary tool calls, arbitra runs the tool, and the
  * result reaches the next CLI call in the framed transcript under the same call ID.
  */
-describe.each(["claude-code", "codex", "gemini"] as const)("canonical harness over the %s subscription CLI", { timeout: 30_000 }, (vendor: CliVendor) => {
+describe.each(["claude-code", "codex", "gemini", "antigravity"] as const)("canonical harness over the %s subscription CLI", { timeout: 30_000 }, (vendor: CliVendor) => {
   it("round-trips an emulated tool call through arbitra's tool loop", async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), "arbitra-harness-cli-"))); roots.push(root);
     await mkdir(join(root, "tmp"));

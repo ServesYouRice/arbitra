@@ -1,5 +1,5 @@
 {
-  "//": "Owner live-testing policy on subscriptions (no API credit): Claude Code carries most roles (Haiku 4.5 for bulk, Sonnet 5 as the second independent reviewer and the frontier Testing analyst); Codex takes one secondary reviewer/auditor role. Gemini CLI is bound to no role: the owner's Google account is currently refused as an ineligible tier (docs/qa/subscription-cli). When an eligible account is signed in, bind it to at most one secondary role (for example audit-mixed-providers auditor-c). This is the owner's policy, not the product default.",
+  "//": "Owner live-testing policy on subscriptions (no API credit): Claude Code carries most roles (Haiku 4.5 for bulk; Sonnet 5 as the second independent reviewer and the frontier Testing analyst). Codex (ChatGPT) and the Antigravity CLI (Google AI subscription) each take one secondary role. Gemini CLI is not bound: Google retired personal logins from it on June 18, 2026 (docs/qa/subscription-cli). The Antigravity model slug carries its effort (gemini-3.8-flash-low), so no effort parameter is sent. This is the owner's policy, not the product default.",
   "endpoints": [
     {
       "id": "claude",
@@ -23,10 +23,10 @@
       "auth": "subscription_login"
     },
     {
-      "id": "gemini",
+      "id": "antigravity",
       "providerId": "google",
-      "transport": "gemini-cli",
-      "endpoint": "cli://gemini",
+      "transport": "antigravity-cli",
+      "endpoint": "cli://antigravity",
       "auth": "subscription_login"
     }
   ],
@@ -58,8 +58,8 @@
         "maxOutputTokens": 128000
       }
     },
-    "gemini": {
-      "modelId": "gemini-3-flash-preview",
+    "antigravity": {
+      "modelId": "gemini-3.8-flash-low",
       "family": "gemini",
       "independenceGroup": "google",
       "limits": {
@@ -89,7 +89,7 @@
     "audit-mixed-providers": {
       "auditor-a": "claude",
       "auditor-b": "codex",
-      "auditor-c": "claude-b"
+      "auditor-c": "antigravity"
     },
     "feature-automatic": {
       "planner": "claude",

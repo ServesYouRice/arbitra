@@ -43,9 +43,9 @@ with your own Claude, ChatGPT or Google subscription instead of API keys (see
 
 | Template | Mode / preset | Subscription CLIs |
 |---|---|---|
-| `subscription-audit.json` | Audit / `audit-deep` | Claude Code, Codex, Gemini CLI |
-| `subscription-feature-interactive.json` | Feature, interactive | Claude Code (planner), Codex and Gemini CLI (reviewers) |
-| `subscription-feature-automatic.json` | Feature, automatic | Claude Code (planner), Codex and Gemini CLI (reviewers) |
+| `subscription-audit.json` | Audit / `audit-deep` | Claude Code, Codex, Antigravity CLI |
+| `subscription-feature-interactive.json` | Feature, interactive | Claude Code (planner), Codex and Antigravity CLI (reviewers) |
+| `subscription-feature-automatic.json` | Feature, automatic | Claude Code (planner), Codex and Antigravity CLI (reviewers) |
 | `subscription-testing-plan.json` | Testing / `testing-plan` | Claude Code (analyst), Codex (planner) |
 | `subscription-testing-execute.json` | Testing / `testing-execute` | Codex (analyst), Claude Code (writer) |
 
@@ -200,7 +200,19 @@ CLI's own agent tools are disabled, and any sign that it used one fails the call
 |---|---|---|---|---|
 | `claude-code-cli` | Claude Code 2.1.x | `cli://claude-code` | `claude auth login` with a Claude Pro or Max account; or `claude setup-token` for `auth: "oauth_token"` | `ARBITRA_CLAUDE_CODE_EXECUTABLE`, else `claude` on PATH, `~/.claude/local`, `~/.local/bin`, npm global bins, or the newest VS Code/Cursor/Windsurf extension binary |
 | `codex-cli` | Codex CLI 0.150–0.199 | `cli://codex` | `codex login`, choose Sign in with ChatGPT (an API-key login is refused) | `ARBITRA_CODEX_EXECUTABLE`, else `codex` on PATH, npm global bins, or `/Applications/ChatGPT.app/Contents/Resources/codex` on macOS |
-| `gemini-cli` | Gemini CLI 0.60+ | `cli://gemini` | run `gemini` and choose Login with Google; the account's plan must allow Gemini CLI use | `ARBITRA_GEMINI_EXECUTABLE`, else `gemini` on PATH or npm global bins |
+| `antigravity-cli` | Antigravity CLI (`agy`) 0.1–1.x | `cli://antigravity` | run `agy` once and sign in with the Google account that holds your Google AI subscription (kept in the OS keyring) | `ARBITRA_ANTIGRAVITY_EXECUTABLE`, else `agy` on PATH, `~/.local/bin/agy` (the installer's location), or `%LOCALAPPDATA%\Microsoft\WinGet\Links\agy.exe` |
+| `gemini-cli` | Gemini CLI 0.60+ | `cli://gemini` | run `gemini`, Login with Google using a Gemini Code Assist Standard or Enterprise account, and export `GOOGLE_CLOUD_PROJECT` | `ARBITRA_GEMINI_EXECUTABLE`, else `gemini` on PATH or npm global bins |
+
+For Google, use `antigravity-cli` with a personal Google AI subscription (free, AI Pro or
+Ultra). Since June 18, 2026 Google no longer serves the Gemini CLI to personal logins and
+refuses them before any model call; arbitra reports that as `CLI_ACCOUNT_INELIGIBLE`.
+`gemini-cli` remains for Code Assist Standard or Enterprise logins, and API-key users use the
+`gemini-native` API transport. Install the Antigravity CLI with
+`curl -fsSL https://antigravity.google/cli/install.sh | bash` (Windows:
+`winget install Google.AntigravityCLI`). Its model slug carries the effort
+(`gemini-3.8-flash-low`, `-medium`, `-high`; `agy models` lists them). A bare slug such as
+`gemini-3.8-flash` needs `effort.params` entries like `{ "effort": "medium" }`, or the CLI
+refuses it (`CLI_MODEL_UNAVAILABLE`, with that hint).
 
 On Windows an npm `.cmd` shim is resolved to its Node script and run with Node, never through
 `cmd.exe`. An endpoint looks like this; no URL, key or token value appears:
@@ -213,8 +225,8 @@ For a separate Claude token instead of the host login, use
 `"auth": "oauth_token", "oauthTokenEnvVar": "ARBITRA_CLAUDE_CODE_OAUTH_TOKEN"`; the CLI then
 runs with an isolated home and configuration directory. Profiles bound to CLI endpoints use
 `structuredOutputDialect: "prompt_json"` and `historyPolicy: "verbatim"`; `effort.params` may
-carry `{ "effort": "high" }` (Claude Code and Codex) and `{ "thinkingTokens": N }` (Claude
-Code). Other effort fields are refused.
+carry `{ "effort": "high" }` (Claude Code, Codex and the Antigravity CLI) and
+`{ "thinkingTokens": N }` (Claude Code). Other effort fields are refused.
 
 What each call does: it creates a fresh temporary directory, runs the CLI with an empty
 working directory and an allowlisted environment (`HOME`, `PATH`, temporary directories,
@@ -229,8 +241,9 @@ version as the transport version (for example `claude-code/2.1.282`).
 
 Preflight checks each CLI without spending a model call: installed
 (`SUBSCRIPTION_CLI_NOT_INSTALLED`), supported version (`SUBSCRIPTION_CLI_VERSION_UNSUPPORTED`),
-signed in (`claude auth status`, `codex login status`; Gemini's cached Google login is only
-evidence, so it warns `SUBSCRIPTION_CLI_AUTH_UNVERIFIED`), not signed in with an API key
+signed in (`claude auth status`, `codex login status`; the Antigravity CLI keeps its login in
+the OS keyring and Gemini's cached Google login is only evidence, so both warn
+`SUBSCRIPTION_CLI_AUTH_UNVERIFIED` until the first call), not signed in with an API key
 (`SUBSCRIPTION_CLI_API_KEY_LOGIN`), and not at a usage limit recorded by an earlier call
 (`SUBSCRIPTION_CLI_USAGE_LIMIT_REACHED`, kept in `~/Library/Caches/arbitra`,
 `$XDG_CACHE_HOME/arbitra` or `%LOCALAPPDATA%\arbitra`).
@@ -246,9 +259,17 @@ start-up and a large vendor system context. Batch lanes are not available on CLI
 Known gaps: Claude Code still adds its own short environment block (working directory,
 platform, date and the signed-in account's email) to the context; Codex declares a few
 built-in functions that cannot be switched off (they are refused if used) and adds roughly
-5,000 tokens of its own instructions per call; the Gemini CLI records session history under
-`~/.gemini/tmp`. Output ceilings are enforced for Claude Code
-(`CLAUDE_CODE_MAX_OUTPUT_TOKENS`); Codex and the Gemini CLI offer no per-call output ceiling.
+5,000 tokens of its own instructions per call; the Antigravity CLI adds about 24,500 tokens
+of agent instructions per call, declares browser, command and file tools that cannot be
+switched off (it runs with `--sandbox` and `--disable-slash-commands`, never
+`--dangerously-skip-permissions`, and any tool step or soft-denied tool notice fails the
+call), still reads the user's own settings under `~/.gemini/antigravity-cli`, and takes the
+prompt as a command-line argument, so prompts over about 30,000 characters on Windows, 120 KiB
+on Linux or 900 KiB on macOS are refused (`CLI_PROMPT_TOO_LARGE`); the Gemini CLI records
+session history under `~/.gemini/tmp`. Output ceilings are enforced for Claude Code
+(`CLAUDE_CODE_MAX_OUTPUT_TOKENS`); Codex, the Antigravity CLI and the Gemini CLI offer no
+per-call output ceiling. Google AI Pro and Ultra quotas refresh on a five-hour cycle; an
+exhausted quota is `QUOTA` and is recorded for preflight until the reset.
 
 ### Budget limits
 

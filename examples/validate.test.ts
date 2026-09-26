@@ -27,7 +27,8 @@ export const SUBSCRIPTION_TEMPLATES = ["subscription-audit", "subscription-featu
 export const MODEL_BACKED_TEMPLATES = [...API_TEMPLATES, ...SUBSCRIPTION_TEMPLATES] as const;
 const modelBacked = join(directory, "model-backed");
 const WIRE_PROTOCOLS = ["anthropic-messages", "gemini-native", "openai-chat", "openai-responses"];
-const CLI_TRANSPORTS = ["claude-code-cli", "codex-cli", "gemini-cli"];
+/** gemini-cli serves only Code Assist Standard/Enterprise logins, so the templates use Antigravity for Google. */
+const CLI_TRANSPORTS = ["antigravity-cli", "claude-code-cli", "codex-cli"];
 
 describe("example configurations", () => {
   it("ships exactly the six documented examples and nothing else", () => {
