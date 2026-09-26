@@ -11,10 +11,13 @@ export function classifyCliFailure(support: CliTransportSupport, text: string, e
   const suffix = detail === "" ? "" : `: ${detail}`;
   if (support.vendor === "gemini" && exitCode === 41 || AUTH_PATTERN.test(text)) {
     const ineligible = /IneligibleTier|no longer supported for Gemini Code Assist|UNSUPPORTED_CLIENT/iu.test(text);
-    if (ineligible) return new TransportError("AUTH", `CLI_ACCOUNT_INELIGIBLE: the signed-in Google account's Gemini Code Assist tier no longer serves ${support.displayName}. Sign in with an account whose plan includes Gemini CLI use (for a Workspace or Standard license also export GOOGLE_CLOUD_PROJECT), or bind this role to another endpoint${suffix}`, false);
+    if (ineligible) return new TransportError("AUTH", `CLI_ACCOUNT_INELIGIBLE: ${support.displayName} no longer serves this Google account's tier (personal Google logins were retired from the Gemini CLI on June 18, 2026). Use the antigravity-cli transport for a personal Google AI subscription, or sign in with a Gemini Code Assist Standard or Enterprise account and export GOOGLE_CLOUD_PROJECT${suffix}`, false);
     return new TransportError("AUTH", `CLI_NOT_LOGGED_IN: ${support.displayName} is not signed in to a subscription. ${support.loginInstruction}${suffix}`, false);
   }
-  if (MODEL_PATTERN.test(text)) return new TransportError("INVALID_REQUEST", `CLI_MODEL_UNAVAILABLE: ${support.displayName} refused the configured model for this subscription${suffix}`, false);
+  if (MODEL_PATTERN.test(text)) {
+    const effort = /requires? --effort/iu.test(text) ? " This model needs an effort level: add effort.params entries such as {\"effort\": \"medium\"} to the profile" : "";
+    return new TransportError("INVALID_REQUEST", `CLI_MODEL_UNAVAILABLE: ${support.displayName} refused the configured model for this subscription.${effort}${suffix}`, false);
+  }
   if (OUTPUT_LIMIT_PATTERN.test(text)) return new TransportError("OUTPUT_LIMIT", `MODEL_OUTPUT_LIMIT_REACHED: ${support.displayName} stopped at the output ceiling${suffix}`, false);
   if (QUOTA_PATTERN.test(text)) {
     const reset = resetTime(text, now);
@@ -27,10 +30,10 @@ export function classifyCliFailure(support: CliTransportSupport, text: string, e
   return new TransportError("HTTP", `CLI_FAILED: ${support.displayName} exited ${exitCode === null ? "without a status" : `with status ${exitCode}`}${suffix}`, false);
 }
 
-const AUTH_PATTERN = /not logged in|please (?:run )?\/?login|run `?(?:claude|codex) (?:auth )?login|invalid api key|oauth token (?:has )?expired|authentication_error|401 Unauthorized|refresh token|token_expired|Please set an Auth method|Error authenticating|Authentication cancelled|IneligibleTier|no longer supported for Gemini Code Assist|Login with Google/iu;
-const MODEL_PATTERN = /model is not supported when using|model_not_found|model[^\n]{0,80}(?:does not exist|not found|is not available|not supported)|invalid model|unknown model/iu;
+const AUTH_PATTERN = /not logged in|not signed in|UNAUTHENTICATED|please (?:run )?\/?login|run `?(?:claude|codex) (?:auth )?login|invalid api key|oauth token (?:has )?expired|authentication_error|401 Unauthorized|refresh token|token_expired|Please set an Auth method|Error authenticating|Authentication cancelled|IneligibleTier|no longer supported for Gemini Code Assist|Login with Google/iu;
+const MODEL_PATTERN = /model is not supported when using|model_not_found|model[^\n]{0,80}(?:does not exist|not found|is not available|not supported)|invalid model|unknown model|requires? --effort/iu;
 const OUTPUT_LIMIT_PATTERN = /exceeded the \d+ output token maximum|max_output_tokens|Output token limit hit/iu;
-const QUOTA_PATTERN = /usage limit|hit your (?:usage )?limit|limit reached|out of (?:extra )?usage|exhausted your (?:daily )?quota|quota exceeded[^\n]*per ?day|daily (?:request )?limit|weekly limit|credit balance/iu;
+const QUOTA_PATTERN = /quota[^\n]{0,40}(?:exhausted|exceeded|reached|used up)|(?:exhausted|exceeded|reached|used up)[^\n]{0,40}quota|usage limit|hit your (?:usage )?limit|limit reached|out of (?:extra )?usage|exhausted your (?:daily )?quota|quota exceeded[^\n]*per ?day|daily (?:request )?limit|weekly limit|credit balance/iu;
 const RATE_PATTERN = /rate[ _-]?limit|too many requests|\b429\b|RESOURCE_EXHAUSTED|overloaded|\b529\b/iu;
 
 /** Bounded single-line failure text with anything credential-shaped removed. */
@@ -43,7 +46,7 @@ export function cliFailureDetail(text: string): string {
 
 /** "try again in 2 hours 5 minutes", "retry in 23.5s", "retry after 30 seconds". */
 export function retryHint(text: string): number | null {
-  const match = /(?:try again|retry)(?: after| in)\s+([\d.]+\s*(?:s|sec|secs|seconds?|m|min|mins|minutes?|h|hours?)\b(?:[\s,and]+[\d.]+\s*(?:s|sec|secs|seconds?|m|min|mins|minutes?|h|hours?|d|days?)\b)*)/iu.exec(text);
+  const match = /(?:try again|retry|refresh(?:es)?|resets?)(?: after| in)\s+([\d.]+\s*(?:s|sec|secs|seconds?|m|min|mins|minutes?|h|hours?)\b(?:[\s,and]+[\d.]+\s*(?:s|sec|secs|seconds?|m|min|mins|minutes?|h|hours?|d|days?)\b)*)/iu.exec(text);
   if (match?.[1] === undefined) return null;
   let total = 0;
   for (const part of match[1].matchAll(/([\d.]+)\s*([a-z]+)/giu)) {

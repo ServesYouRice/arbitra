@@ -35,19 +35,19 @@ async function setup(name: string, options: { highImpactAmbiguity?: boolean; edi
 const record = (calls: readonly { protocol: WireProtocol }[]) => { for (const call of calls) exercised.add(call.protocol); };
 
 describe("subscription template smoke checks", () => {
-  it("validates and runs Audit on three subscription CLIs to a durable plan", async () => {
+  it("validates and runs Audit on three subscription CLIs (Claude Code, Codex, Antigravity) to a durable plan", async () => {
     const f = await setup("subscription-audit");
     const validation = await f.core.validate(f.configPath);
     expect(validation.value).toMatchObject({ valid: true, ready: true, mode: "audit", modelBacked: true });
     const codes = (validation.value as { diagnostics: { code: string; severity: string }[] }).diagnostics;
     expect(codes.filter(({ severity }) => severity === "error")).toEqual([]);
-    expect(codes.map(({ code }) => code)).toContain("SUBSCRIPTION_CLI_AUTH_UNVERIFIED:gemini");
+    expect(codes.map(({ code }) => code)).toContain("SUBSCRIPTION_CLI_AUTH_UNVERIFIED:antigravity");
     const result = await f.core.run(f.configPath);
     const value = result.value as { runId: string; state: string };
     expect(value.state).toBe("COMPLETED");
     expect((await f.orchestrator().artifacts(value.runId)).map(({ kind }) => kind)).toContain("plan-ir");
     const protocols = new Set(f.provider.calls.map(({ protocol }) => protocol));
-    expect([...protocols].sort()).toEqual(["claude-code-cli", "codex-cli", "gemini-cli"]);
+    expect([...protocols].sort()).toEqual(["antigravity-cli", "claude-code-cli", "codex-cli"]);
     expect(await readFile(join(f.root, "src", "session.ts"), "utf8")).toBe(`${SMOKE_SOURCE}\n`);
     record(f.provider.calls);
   }, 120_000);
@@ -63,7 +63,7 @@ describe("subscription template smoke checks", () => {
     } });
     const result = await f.core.run(f.configPath);
     expect((result.value as { state: string }).state).toBe("COMPLETED");
-    expect(new Set(f.provider.calls.map(({ protocol }) => protocol))).toEqual(new Set(["claude-code-cli", "openai-responses", "gemini-cli"]));
+    expect(new Set(f.provider.calls.map(({ protocol }) => protocol))).toEqual(new Set(["claude-code-cli", "openai-responses", "antigravity-cli"]));
   }, 120_000);
 
   it("pauses interactive Feature for approval, then resumes to a handoff", async () => {
@@ -106,6 +106,6 @@ describe("subscription template smoke checks", () => {
   }, 120_000);
 
   it("exercised all three subscription CLIs across the templates", () => {
-    expect([...exercised].sort()).toEqual(["claude-code-cli", "codex-cli", "gemini-cli"]);
+    expect([...exercised].sort()).toEqual(["antigravity-cli", "claude-code-cli", "codex-cli"]);
   });
 });

@@ -16,8 +16,8 @@ const [bindingsPath, output] = process.argv.slice(2);
 if (bindingsPath === undefined || output === undefined) throw new Error("usage: configure.mjs <bindings.json> <output-directory>");
 const bindings = JSON.parse(readFileSync(resolve(bindingsPath), "utf8"));
 const examples = new URL("../../examples/model-backed/", import.meta.url);
-const dialects = { "gemini-native": "gemini", "openai-chat": "json_mode", "openai-responses": "openai_strict", "anthropic-messages": "anthropic_tool", "claude-code-cli": "prompt_json", "codex-cli": "prompt_json", "gemini-cli": "prompt_json" };
-const history = { "gemini-native": "round_trip_opaque", "openai-chat": "strip_reasoning", "openai-responses": "round_trip_opaque", "anthropic-messages": "round_trip_opaque", "claude-code-cli": "verbatim", "codex-cli": "verbatim", "gemini-cli": "verbatim" };
+const dialects = { "gemini-native": "gemini", "openai-chat": "json_mode", "openai-responses": "openai_strict", "anthropic-messages": "anthropic_tool", "claude-code-cli": "prompt_json", "codex-cli": "prompt_json", "gemini-cli": "prompt_json", "antigravity-cli": "prompt_json" };
+const history = { "gemini-native": "round_trip_opaque", "openai-chat": "strip_reasoning", "openai-responses": "round_trip_opaque", "anthropic-messages": "round_trip_opaque", "claude-code-cli": "verbatim", "codex-cli": "verbatim", "gemini-cli": "verbatim", "antigravity-cli": "verbatim" };
 
 mkdirSync(resolve(output), { recursive: true });
 for (const [example, assignment] of Object.entries(bindings.assign)) {
@@ -29,7 +29,7 @@ for (const [example, assignment] of Object.entries(bindings.assign)) {
     if (config.models[role] === undefined || endpoint === undefined || profile === undefined) throw new Error(`BINDING_INVALID:${example}:${role}:${endpointId}`);
     config.models[role] = { ...config.models[role], provider: endpoint.providerId, transport: endpoint.transport, modelId: profile.modelId, family: profile.family,
       independenceGroup: profile.independenceGroup ?? endpointId, structuredOutputDialect: profile.structuredOutputDialect ?? dialects[endpoint.transport],
-      supports: { ...config.models[role].supports, ...profile.supports }, limits: { ...config.models[role].limits, ...profile.limits },
+      supports: { ...config.models[role].supports, ...profile.supports }, limits: { ...config.models[role].limits, ...profile.limits }, effort: profile.effort ?? config.models[role].effort,
       quirks: { ...config.models[role].quirks, historyPolicy: history[endpoint.transport] } };
     config.workflow.modelExecution.modelEndpoints[role] = endpointId;
     used.add(endpointId);

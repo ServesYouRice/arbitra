@@ -11,7 +11,7 @@ import { CLI_TRANSPORT_SUPPORT } from "../../src/transports/cli/support.js";
  * production registry and transport, with redacted evidence. Opt-in only; it spends a small
  * amount of the operator's subscription allowance:
  *
- *   ARBITRA_LIVE_SUBSCRIPTION_CLI=claude-code:claude-haiku-4-5-20251001,codex:gpt-5.4-mini \
+ *   ARBITRA_LIVE_SUBSCRIPTION_CLI=claude-code:claude-haiku-4-5-20251001,codex:gpt-5.6-luna,antigravity:gemini-3.8-flash-low \
  *   ARBITRA_LIVE_EVIDENCE_DIR=docs/qa/subscription-cli \
  *     pnpm --filter @arbitra/providers exec vitest run test/conformance/live-subscription-cli.conformance.test.ts
  *

@@ -25,6 +25,8 @@ export interface CliInvocationContext {
   readonly lookup: (name: string) => string | undefined;
   readonly oauthToken: string | null;
   readonly nativeSchema: boolean;
+  readonly timeoutMs: number;
+  readonly platform: NodeJS.Platform;
 }
 export interface CliInvocation { readonly arguments: readonly string[]; readonly environment: Readonly<Record<string, string>>; readonly stdin: string }
 export interface CliOutcome { readonly text: string; readonly usage: Partial<TransportUsage>; readonly sessionId: string | null; readonly structured?: unknown }
@@ -68,6 +70,7 @@ function effortParameter(request: TransportRequest, support: CliTransportSupport
 const CLAUDE = requireCliTransportSupport("claude-code-cli");
 const CODEX = requireCliTransportSupport("codex-cli");
 const GEMINI = requireCliTransportSupport("gemini-cli");
+const ANTIGRAVITY = requireCliTransportSupport("antigravity-cli");
 
 /**
  * Claude Code in print mode. `--tools ""` removes every built-in tool, `--safe-mode` disables
@@ -267,4 +270,84 @@ export const GEMINI_WORKSPACE_SETTINGS = Object.freeze({
   hooksConfig: { enabled: false }, skills: { enabled: false }, experimental: { enableAgents: false, autoMemory: false },
 });
 
-export const CLI_DIALECTS: Readonly<Record<string, CliDialect>> = Object.freeze({ "claude-code-cli": claudeCodeDialect, "codex-cli": codexDialect, "gemini-cli": geminiDialect });
+/**
+ * Largest prompt the Antigravity CLI can take on its command line (`-p`): Windows limits the
+ * whole command line to 32,767 characters and Linux one argument to 128 KiB.
+ */
+export function antigravityPromptLimit(platform: NodeJS.Platform): number { return platform === "win32" ? 30_000 : platform === "linux" ? 120 * 1024 : 900 * 1024; }
+
+/** stderr notices of a tool call soft-denied in headless mode (the run otherwise continues and exits 0). */
+const ANTIGRAVITY_DENIAL = /\b(?:tool|command|action|permission)\b[^\n]{0,120}\b(?:denied|requires? (?:approval|permission)|not (?:approved|permitted|allowed))|\bsoft[- ]denied\b|approval required/iu;
+/** Step types of a plain answer (observed live on agy 1.2.11); any other step is agent tool use. */
+const ANTIGRAVITY_STEPS = new Set(["user_input", "agent_response", "finish", "thinking", "reasoning", "planner_response"]);
+
+/**
+ * Antigravity CLI (`agy`), Google's CLI for personal Google AI subscriptions, in headless
+ * print mode with stream-json events. It has no documented system-prompt flag, so the engine
+ * preamble and system text lead the prompt; `--sandbox` confines it, permissions are never
+ * skipped, and tool steps in the stream or soft-denied tool notices on stderr fail the call.
+ * The prompt travels as the `-p` argument, so it is bounded per platform.
+ */
+export const antigravityDialect: CliDialect = {
+  support: ANTIGRAVITY,
+  nativeSchema: (request) => request.responseSchema !== undefined && (request.tools?.length ?? 0) === 0,
+  async prepare(context) {
+    const effort = effortParameter(context.request, ANTIGRAVITY, { effort: (value) => typeof value === "string" && ["low", "medium", "high", "max"].includes(value) });
+    const prompt = `${context.prompt.system}\n\n${context.prompt.body}`;
+    const limit = antigravityPromptLimit(context.platform);
+    if (prompt.length > limit) throw new TransportError("INVALID_REQUEST", `CLI_PROMPT_TOO_LARGE: the Antigravity CLI takes its prompt on the command line, limited to ${limit} characters on ${context.platform}; this request has ${prompt.length}. Lower maximumContextTokens for profiles on this endpoint or use another transport for this role`, false);
+    const passthrough = Object.fromEntries(["DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"].flatMap((name) => { const value = context.lookup(name); return value === undefined || value === "" ? [] : [[name, value]]; }));
+    return {
+      // Effort is usually part of the model slug (gemini-3.8-flash-low); a bare slug such as
+      // gemini-3.8-flash needs effort.params {"effort": ...} or the CLI refuses the selection.
+      arguments: ["-p", prompt, "--output-format", "stream-json", "--model", context.request.modelId, ...(typeof effort["effort"] === "string" ? ["--effort", effort["effort"]] : []),
+        "--sandbox", "--disable-slash-commands", "--print-timeout", `${Math.max(1, Math.ceil(context.timeoutMs / 1_000))}s`,
+        ...(context.nativeSchema ? ["--json-schema", JSON.stringify(context.request.responseSchema)] : [])],
+      environment: { ...context.base, ...passthrough }, stdin: "",
+    };
+  },
+  reader(context) {
+    let envelope: Record<string, unknown> | null = null; let streamed = "";
+    return {
+      // Events are {"event": <kind>, <kind>: {...}}: init, step_update (one per agent step) and result.
+      line(line) {
+        const event = parseLine(line);
+        if (event === null) return;
+        const kind = String(event["event"] ?? "");
+        const payload = record(event[kind]);
+        if (kind === "step_update") {
+          const step = String(payload?.["step_type"] ?? "unknown");
+          if (!ANTIGRAVITY_STEPS.has(step)) throw forbiddenToolUse(ANTIGRAVITY, `a ${step.slice(0, 60)} step`);
+          if (step === "agent_response") streamed += text(payload?.["text_delta"]) ?? "";
+        } else if (kind === "result" && payload !== null) {
+          if (String(payload["status"]).toUpperCase() === "WAITING") throw forbiddenToolUse(ANTIGRAVITY, "an action that waits for approval");
+          envelope = payload;
+        } else if (kind !== "init" && /tool|function|command|action|permission/iu.test(kind)) throw forbiddenToolUse(ANTIGRAVITY, `a ${kind.slice(0, 60)} event`);
+      },
+      finish(exitCode, stderr) {
+        if (ANTIGRAVITY_DENIAL.test(stderr)) throw forbiddenToolUse(ANTIGRAVITY, `a tool call that was soft-denied (${stderr.split(/\r?\n/u).find((line) => ANTIGRAVITY_DENIAL.test(line))?.trim().slice(0, 80) ?? "stderr notice"})`);
+        if (envelope === null) throw incomplete(ANTIGRAVITY, exitCode, stderr);
+        const status = String(envelope["status"]).toUpperCase();
+        const failure = `${text(envelope["error"]) ?? text(record(envelope["error"])?.["message"]) ?? ""}\n${stderr}`;
+        if (status === "CANCELED" || status === "INTERRUPTED") throw new TransportError("HTTP", `CLI_INTERRUPTED: the Antigravity CLI reported ${status}`, true);
+        if (status === "INVALID") throw new TransportError("INVALID_REQUEST", `CLI_REQUEST_INVALID: the Antigravity CLI refused the request: ${failure.trim().slice(0, 240)}`, false);
+        if (status !== "SUCCESS" || exitCode !== 0) throw classifyCliFailure(ANTIGRAVITY, failure, exitCode === 0 ? 1 : exitCode);
+        const structured = envelope["structured_output"];
+        const present = structured !== undefined && structured !== null;
+        // With a schema the answer is `structured_output`; `response` then carries narration and
+        // internal tool records. Known CLI defect (antigravity-cli#1065): --json-schema can report
+        // SUCCESS with no structured output, which is never a success.
+        if (context.nativeSchema && !present) throw new TransportError("MALFORMED_RESPONSE", "CLI_EMPTY_SUCCESS: the Antigravity CLI reported SUCCESS without structured output", false);
+        const reply = context.nativeSchema ? JSON.stringify(structured) : (text(envelope["response"]) ?? streamed).replace(/\n$/u, "");
+        if (reply.trim() === "") throw new TransportError("MALFORMED_RESPONSE", "CLI_EMPTY_SUCCESS: the Antigravity CLI reported SUCCESS with an empty response", false);
+        const usage = record(envelope["usage"]);
+        const output = count(usage?.["output_tokens"]); const thinking = count(usage?.["thinking_tokens"]);
+        return { text: reply, sessionId: text(envelope["conversation_id"]), ...(present ? { structured } : {}),
+          // Thinking is counted as output: over-counting keeps the run budget conservative.
+          usage: { inputTokens: count(usage?.["input_tokens"]), outputTokens: output === null ? null : output + (usage?.["thinking_tokens"] === undefined ? 0 : thinking ?? 0), cacheReadTokens: count(usage?.["cache_read_tokens"]), cacheWriteTokens: null } };
+      },
+    };
+  },
+};
+
+export const CLI_DIALECTS: Readonly<Record<string, CliDialect>> = Object.freeze({ "claude-code-cli": claudeCodeDialect, "codex-cli": codexDialect, "gemini-cli": geminiDialect, "antigravity-cli": antigravityDialect });

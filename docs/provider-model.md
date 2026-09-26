@@ -62,7 +62,7 @@ model behind two names. That collapse is reported rather than silently accepted,
 | `anthropic-messages` | `transports/anthropic-messages.ts` |
 | `gemini-native` | `transports/gemini-native.ts` |
 | JSON test transport | `transports/json-transport.ts` |
-| `claude-code-cli`, `codex-cli`, `gemini-cli` | `transports/cli/` (subscription CLIs) |
+| `claude-code-cli`, `codex-cli`, `antigravity-cli`, `gemini-cli` | `transports/cli/` (subscription CLIs) |
 
 `TRANSPORT_SUPPORT_MATRIX` in `transports/cli/support.ts` records every shipped transport
 with its credential kind and verification status:
@@ -75,7 +75,8 @@ with its credential kind and verification status:
 | `gemini-native` | HTTP API | API key variable | live verified | [P03](qa/p03/README.md) |
 | `claude-code-cli` | subscription CLI, Claude Code 2.1.0–<3.0.0 | CLI login or `claude setup-token` token | live verified on 2.1.282 | [subscription-cli](qa/subscription-cli/README.md) |
 | `codex-cli` | subscription CLI, Codex 0.150.0–<0.200.0 | ChatGPT login | live verified on 0.154.0 | [subscription-cli](qa/subscription-cli/README.md) |
-| `gemini-cli` | subscription CLI, Gemini CLI 0.60.0–<1.0.0 | Google login | declared, unverified live (the test account was refused as ineligible) | [subscription-cli](qa/subscription-cli/README.md) |
+| `antigravity-cli` | subscription CLI, Antigravity CLI 0.1.0–<2.0.0 | Google login (personal Google AI plans) | live verified on 1.2.11 | [subscription-cli](qa/subscription-cli/README.md) |
+| `gemini-cli` | subscription CLI, Gemini CLI 0.60.0–<1.0.0 | Google login (Code Assist Standard/Enterprise only since June 18, 2026) | declared, unverified live (a personal account was refused as ineligible) | [subscription-cli](qa/subscription-cli/README.md) |
 
 **Subscription CLI transports** run a vendor's official CLI headless as a completion engine,
 so a role can use a Claude, ChatGPT or Google subscription instead of API credit. The
@@ -89,7 +90,8 @@ environment and its agent tools, MCP, hooks, skills, plugins and project instruc
 disabled, and kills the process tree on exit. Tool use is emulated: the transcript lists
 arbitra's tools and the model replies with `{"toolCalls":[{"name","arguments"}]}` or its final
 answer; calls get IDs derived from the conversation hash, so the canonical harness's durable
-tool loop is unchanged. Codex (`--output-schema`) and Claude Code (`--json-schema`) enforce a
+tool loop is unchanged. Codex (`--output-schema`), Claude Code and the Antigravity CLI (`--json-schema`; the answer is
+read from `structured_output`, and a SUCCESS without it is `MALFORMED_RESPONSE`) enforce a
 response schema natively when one is requested without tools; otherwise output is prompt JSON.
 Usage is mapped as reported (unknown stays `null`), cost is unknown, the provider request ID is
 the CLI session or thread ID, and the response's `transportVersion` (`<vendor>/<version>`) is

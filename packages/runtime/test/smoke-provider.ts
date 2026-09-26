@@ -16,7 +16,7 @@ import type { TestSandbox } from "../src/test-sandbox.js";
  * native wire format of whichever protocol the request used. It proves wiring,
  * preflight, durable stages and handoff publication — never model quality.
  */
-export type WireProtocol = "openai-responses" | "openai-chat" | "anthropic-messages" | "gemini-native" | "claude-code-cli" | "codex-cli" | "gemini-cli";
+export type WireProtocol = "openai-responses" | "openai-chat" | "anthropic-messages" | "gemini-native" | "claude-code-cli" | "codex-cli" | "gemini-cli" | "antigravity-cli";
 export interface SmokeCall { readonly stage: string; readonly protocol: WireProtocol; readonly url: string }
 
 export const SMOKE_SOURCE = "export const sessionVersion = 1;";
@@ -221,20 +221,25 @@ async function smokeCli(root: string, answer: (protocol: WireProtocol, system: s
   const process: NativeProcessPort = { async run(request: NativeProcessRequest): Promise<NativeProcessResult> {
     const vendor = basename(request.executable);
     const args = request.arguments;
-    if (args[0] === "--version") return done({ claude: "2.1.282 (Claude Code)", codex: "codex-cli 0.154.0", gemini: "0.61.0" }[vendor] ?? "");
+    if (args[0] === "--version") return done({ claude: "2.1.282 (Claude Code)", codex: "codex-cli 0.154.0", gemini: "0.61.0", agy: "agy 1.2.0" }[vendor] ?? "");
     if (vendor === "claude" && args[0] === "auth") return done(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", subscriptionType: "max" }));
     if (vendor === "codex" && args[0] === "login") return done("Logged in using ChatGPT");
+    // The Antigravity CLI takes one prompt argument: instructions, then the framed transcript.
+    const agyPrompt = vendor === "agy" ? args[args.indexOf("-p") + 1] ?? "" : "";
+    const transcriptAt = agyPrompt.indexOf("\n\nThe input is a conversation transcript.");
+    const stdin = vendor === "agy" ? transcriptAt < 0 ? agyPrompt : agyPrompt.slice(transcriptAt + 2) : request.stdin;
     const system = vendor === "claude" ? readFileSync(args[args.indexOf("--system-prompt-file") + 1] ?? "", "utf8")
       : vendor === "codex" ? JSON.parse((args.find((value) => value.startsWith("base_instructions=")) ?? "base_instructions=\"\"").slice("base_instructions=".length)) as string
-        : readFileSync(request.environment["GEMINI_SYSTEM_MD"] ?? "", "utf8");
+        : vendor === "agy" ? transcriptAt < 0 ? "" : agyPrompt.slice(0, transcriptAt) : readFileSync(request.environment["GEMINI_SYSTEM_MD"] ?? "", "utf8");
     const instruction = system.startsWith(CLI_ENGINE_PREAMBLE) ? system.slice(CLI_ENGINE_PREAMBLE.length).replace(/^\n\n/u, "") : system;
-    const first = /^<<<BEGIN user ([a-f0-9]{16})>>>\n([\s\S]*?)\n<<<END user \1>>>/mu.exec(request.stdin);
-    const protocol = ({ claude: "claude-code-cli", codex: "codex-cli", gemini: "gemini-cli" } as const)[vendor as "claude" | "codex" | "gemini"];
-    const output = answer(protocol, instruction, first?.[2] ?? request.stdin, request.stdin.includes("<<<BEGIN tool-result") ? "\"role\":\"tool\"" : "");
+    const first = /^<<<BEGIN user ([a-f0-9]{16})>>>\n([\s\S]*?)\n<<<END user \1>>>/mu.exec(stdin);
+    const protocol = ({ claude: "claude-code-cli", codex: "codex-cli", gemini: "gemini-cli", agy: "antigravity-cli" } as const)[vendor as "claude" | "codex" | "gemini" | "agy"];
+    const output = answer(protocol, instruction, first?.[2] ?? stdin, stdin.includes("<<<BEGIN tool-result") ? "\"role\":\"tool\"" : "");
     const call = (output as { toolCall?: { name: string; arguments: unknown } }).toolCall;
     const text = JSON.stringify(call === undefined ? output : { toolCalls: [{ name: call.name, arguments: call.arguments }] });
     const lines = vendor === "claude" ? [{ type: "system", subtype: "init", session_id: "smoke", tools: [], mcp_servers: [], apiKeySource: "none" }, { type: "result", is_error: false, result: text, session_id: "smoke", usage: { input_tokens: 20, output_tokens: 30 } }]
       : vendor === "codex" ? [{ type: "thread.started", thread_id: "smoke" }, { type: "item.completed", item: { type: "agent_message", text } }, { type: "turn.completed", usage: { input_tokens: 20, cached_input_tokens: 0, output_tokens: 30 } }]
+        : vendor === "agy" ? [{ event: "step_update", step_update: { step_type: "agent_response", text_delta: text } }, { event: "result", result: { conversation_id: "smoke", status: "SUCCESS", response: `${text}\n`, num_turns: 1, usage: { input_tokens: 20, output_tokens: 30, thinking_tokens: 0, cache_read_tokens: 0, total_tokens: 50 } } }]
         : [{ type: "init", session_id: "smoke" }, { type: "message", role: "assistant", content: text, delta: true }, { type: "result", status: "success", stats: { input_tokens: 20, output_tokens: 30, cached: 0 } }];
     for (const line of lines) {
       try { request.onLine?.(JSON.stringify(line)); }

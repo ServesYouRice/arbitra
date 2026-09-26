@@ -112,11 +112,11 @@
       },
       "structuredOutputDialect": "prompt_json"
     },
-    "reviewer-gemini": {
+    "reviewer-google": {
       "schemaVersion": 1,
       "provider": "google",
       "modelId": "replace-with-your-model-id",
-      "transport": "gemini-cli",
+      "transport": "antigravity-cli",
       "servedBy": null,
       "family": "replace-with-your-model-family",
       "independenceGroup": "google",
@@ -124,7 +124,7 @@
       "supports": {
         "tools": true,
         "parallelToolCalls": false,
-        "structuredOutput": false,
+        "structuredOutput": true,
         "reasoning": false,
         "promptCaching": false,
         "batch": false,
@@ -178,9 +178,9 @@
         "planner": "planner",
         "reviewers": [
           "reviewer-codex",
-          "reviewer-gemini"
+          "reviewer-google"
         ],
-        "critic": "reviewer-gemini"
+        "critic": "reviewer-google"
       }
     },
     "modelExecution": {
@@ -200,17 +200,17 @@
           "auth": "subscription_login"
         },
         {
-          "id": "gemini",
+          "id": "antigravity",
           "providerId": "google",
-          "transport": "gemini-cli",
-          "endpoint": "cli://gemini",
+          "transport": "antigravity-cli",
+          "endpoint": "cli://antigravity",
           "auth": "subscription_login"
         }
       ],
       "modelEndpoints": {
         "planner": "claude-code",
         "reviewer-codex": "codex",
-        "reviewer-gemini": "gemini"
+        "reviewer-google": "antigravity"
       },
       "maximumOutputTokens": 8000,
       "maximumContextTokens": 128000,

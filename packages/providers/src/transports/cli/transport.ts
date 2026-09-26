@@ -88,7 +88,7 @@ export class CliTransport implements ProviderTransport {
     try {
       const work = join(root, "work"); const control = join(root, "control"); const isolatedHome = join(root, "home"); const scratch = join(root, "tmp");
       await Promise.all([work, control, isolatedHome, scratch].map((directory) => mkdir(directory, { mode: 0o700 })));
-      const context: CliInvocationContext = { request, prompt, work, control, isolatedHome, auth: this.#auth, oauthToken, nativeSchema, lookup: this.#lookup,
+      const context: CliInvocationContext = { request, prompt, work, control, isolatedHome, auth: this.#auth, oauthToken, nativeSchema, lookup: this.#lookup, timeoutMs: this.#timeoutMs, platform: this.#platform,
         hostHome: this.#hostHome(), base: this.#baseEnvironment(executable, scratch) };
       const invocation = await this.dialect.prepare(context);
       const reader = this.dialect.reader(context);

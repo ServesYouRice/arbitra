@@ -39,6 +39,7 @@ export const BUILTIN_TRANSPORT_FACTORIES: Readonly<Record<string, TransportFacto
   "claude-code-cli": cliTransportFactory("claude-code-cli"),
   "codex-cli": cliTransportFactory("codex-cli"),
   "gemini-cli": cliTransportFactory("gemini-cli"),
+  "antigravity-cli": cliTransportFactory("antigravity-cli"),
 });
 
 /** Endpoint-keyed transports keep compatible services' credentials and continuations apart. */

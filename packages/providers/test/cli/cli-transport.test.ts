@@ -16,7 +16,7 @@ import { CLI_TRANSPORT_SUPPORT, requireCliTransportSupport, TRANSPORT_SUPPORT_MA
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 
-const VENDORS: readonly CliVendor[] = ["claude-code", "codex", "gemini"];
+const VENDORS: readonly CliVendor[] = ["claude-code", "codex", "gemini", "antigravity"];
 const transportOf = (vendor: CliVendor) => requireCliTransportSupport(vendor);
 
 async function fixture(scenario: Omit<CliStandInScenario, "reportFile" | "pidFile">, options: { auth?: ProviderEndpoint["auth"]; env?: Record<string, string>; timeoutMs?: number } = {}) {
@@ -63,10 +63,11 @@ describe.each(VENDORS)("%s subscription CLI transport", { timeout: 30_000 }, (ve
   it("completes a call in an empty directory with a sanitized environment and maps usage", async () => {
     const f = await fixture({ vendor, replies: [{ kind: "text", text: "pong" }] });
     const response = await send(f.transport);
-    expect(response).toMatchObject({ text: "pong", toolCalls: [], refusal: null, continuation: null, structuredOutputTier: "prompt_json", transportVersion: { "claude-code": "claude-code/2.1.282", codex: "codex/0.154.0", gemini: "gemini/0.61.0" }[vendor] });
+    expect(response).toMatchObject({ text: "pong", toolCalls: [], refusal: null, continuation: null, structuredOutputTier: "prompt_json", transportVersion: { "claude-code": "claude-code/2.1.282", codex: "codex/0.154.0", gemini: "gemini/0.61.0", antigravity: "antigravity/1.2.0" }[vendor] });
     expect(response.providerRequestId).toMatch(/^stand-in-/u);
     expect(response.usage).toEqual({ "claude-code": { inputTokens: 15, outputTokens: 5, cacheReadTokens: 3, cacheWriteTokens: 2 },
-      codex: { inputTokens: 12, outputTokens: 6, cacheReadTokens: 4, cacheWriteTokens: null }, gemini: { inputTokens: 20, outputTokens: 7, cacheReadTokens: 5, cacheWriteTokens: null } }[vendor]);
+      codex: { inputTokens: 12, outputTokens: 6, cacheReadTokens: 4, cacheWriteTokens: null }, gemini: { inputTokens: 20, outputTokens: 7, cacheReadTokens: 5, cacheWriteTokens: null },
+      antigravity: { inputTokens: 30, outputTokens: 10, cacheReadTokens: 10, cacheWriteTokens: null } }[vendor]);
     const report = await f.report();
     expect(report.cwd.startsWith(f.temporary)).toBe(true);
     expect(report.cwd.endsWith("/work")).toBe(true);
@@ -75,11 +76,14 @@ describe.each(VENDORS)("%s subscription CLI transport", { timeout: 30_000 }, (ve
     expect(report.env["HOME"]).toBe(f.home);
     expect(report.env["TMPDIR"]?.startsWith(f.temporary)).toBe(true);
     expect(report.stdin).toContain("Say pong.");
-    if (vendor !== "codex") expect(report.system).toBe(`${CLI_ENGINE_PREAMBLE}\n\nAnswer tersely.`);
+    // The Antigravity CLI has no system-prompt flag: the instructions lead its prompt.
+    if (vendor === "antigravity") expect(report.stdin).toBe(`${CLI_ENGINE_PREAMBLE}\n\nAnswer tersely.\n\nSay pong.`);
+    else if (vendor !== "codex") expect(report.system).toBe(`${CLI_ENGINE_PREAMBLE}\n\nAnswer tersely.`);
     else expect(report.argv.find((value) => value.startsWith("base_instructions="))).toBe(`base_instructions=${JSON.stringify(`${CLI_ENGINE_PREAMBLE}\n\nAnswer tersely.`)}`);
     const flags = { "claude-code": ["--tools", "", "--safe-mode", "--strict-mcp-config", "--setting-sources", "--no-session-persistence", "--disable-slash-commands"],
       codex: ["--ephemeral", "--ignore-user-config", "--ignore-rules", "read-only", "shell_tool", "unified_exec", "project_doc_max_bytes=0", "approval_policy=\"never\""],
-      gemini: ["--approval-mode", "plan", "--extensions", "none"] }[vendor];
+      gemini: ["--approval-mode", "plan", "--extensions", "none"], antigravity: ["--output-format", "stream-json", "--sandbox", "--disable-slash-commands", "--print-timeout", "20s"] }[vendor];
+    expect(report.argv).not.toContain("--dangerously-skip-permissions");
     for (const flag of flags) expect(report.argv).toContain(flag);
     if (vendor === "gemini") expect(report.geminiSettings).toMatchObject({ tools: { core: ["arbitra-no-tools"] }, mcp: { allowed: ["arbitra-no-mcp"] }, hooksConfig: { enabled: false } });
     if (vendor === "claude-code") expect(report.env).toMatchObject({ CLAUDE_CODE_MAX_OUTPUT_TOKENS: "1000", MAX_THINKING_TOKENS: "0" });
@@ -101,6 +105,7 @@ describe.each(VENDORS)("%s subscription CLI transport", { timeout: 30_000 }, (ve
     if (vendor === "codex") { expect(report.schema).toEqual(schema); expect(response.structuredOutputTier).toBe("native_structured"); }
     if (vendor === "claude-code") { expect(report.argv).toContain("--json-schema"); expect(response.structuredOutputTier).toBe("native_structured"); }
     if (vendor === "gemini") { expect(report.stdin).toContain("JSON Schema"); expect(response.structuredOutputTier).toBe("prompt_json"); }
+    if (vendor === "antigravity") { expect(report.argv).toContain("--json-schema"); expect(response.structuredOutputTier).toBe("native_structured"); }
   });
 
   it("emulates tool calls with stable IDs and replays results in the transcript", async () => {
@@ -144,7 +149,7 @@ describe.each(VENDORS)("%s subscription CLI transport", { timeout: 30_000 }, (ve
   it("classifies throttling as a retryable RATE_LIMIT with the CLI's retry hint", async () => {
     const f = await fixture({ vendor, replies: [{ kind: "rate_limit" }] });
     const error = await failure(send(f.transport));
-    expect(error).toMatchObject({ code: "RATE_LIMIT", retryable: true, retryAfterMs: { "claude-code": 30_000, codex: 20_000, gemini: 23_500 }[vendor] });
+    expect(error).toMatchObject({ code: "RATE_LIMIT", retryable: true, retryAfterMs: { "claude-code": 30_000, codex: 20_000, gemini: 23_500, antigravity: 20_000 }[vendor] });
   });
 
   it("stops at the first sign of the CLI's own tool use and kills the process tree", async () => {
@@ -196,9 +201,9 @@ describe.each(VENDORS)("%s subscription CLI transport", { timeout: 30_000 }, (ve
       await writeFile(join(ready.home, ".gemini", "oauth_creds.json"), "{}");
     }
     const readiness = await probeCliReadiness(ready.support.transport, { lookup: (name) => ready.env[name], auth: "subscription_login", oauthTokenEnv: null, limits: null });
-    expect(readiness).toMatchObject({ versionSupported: true, auth: vendor === "gemini" ? "unverified" : "logged_in", usageLimit: null });
+    expect(readiness).toMatchObject({ versionSupported: true, auth: vendor === "gemini" || vendor === "antigravity" ? "unverified" : "logged_in", usageLimit: null });
     expect(existsSync(`${join(ready.root, "report")}.0`)).toBe(false);
-    if (vendor !== "gemini") {
+    if (vendor === "claude-code" || vendor === "codex") {
       const out = await fixture({ vendor, auth: "not_logged_in" });
       expect((await probeCliReadiness(out.support.transport, { lookup: (name) => out.env[name], auth: "subscription_login", oauthTokenEnv: null, limits: null })).auth).toBe("not_logged_in");
       const key = await fixture({ vendor, auth: "api_key" });
@@ -239,6 +244,38 @@ describe("Claude Code specifics", { timeout: 30_000 }, () => {
   });
 });
 
+describe("Antigravity CLI specifics", { timeout: 30_000 }, () => {
+  it("fails a soft-denied tool call, a run waiting for approval and an empty SUCCESS", async () => {
+    for (const kind of ["soft_denied", "waiting"] as const) {
+      const f = await fixture({ vendor: "antigravity", replies: [{ kind }] });
+      const error = await failure(send(f.transport));
+      expect(error).toMatchObject({ code: "MALFORMED_RESPONSE", retryable: false });
+      expect(error.message).toContain("CLI_AGENT_TOOL_USE_FORBIDDEN");
+    }
+    const empty = await fixture({ vendor: "antigravity", replies: [{ kind: "empty_success" }] });
+    expect((await failure(send(empty.transport, request({ responseSchema: { type: "object" } })))).message).toContain("CLI_EMPTY_SUCCESS");
+  });
+
+  it("passes the requested effort, and names the missing effort when a model requires one", async () => {
+    const f = await fixture({ vendor: "antigravity", replies: [{ kind: "text", text: "pong" }] });
+    await send(f.transport, request({ effortParams: { effort: "high" } }));
+    const argv = (await f.report()).argv;
+    expect(argv.slice(argv.indexOf("--effort"), argv.indexOf("--effort") + 2)).toEqual(["--effort", "high"]);
+    expect(await failure(send(f.transport, request({ effortParams: { effort: "xhigh" } })))).toMatchObject({ code: "INVALID_REQUEST" });
+    await send(f.transport);
+    expect((await f.report(1)).argv).not.toContain("--effort");
+    const refused = classifyCliFailure(requireCliTransportSupport("antigravity-cli"), "status ERROR: invalid model selection gemini-3.8-flash requires --effort", 1);
+    expect(refused).toMatchObject({ code: "INVALID_REQUEST" });
+    expect(refused.message).toContain("effort.params");
+  });
+
+  it("refuses a prompt larger than the platform's command line allows", async () => {
+    const f = await fixture({ vendor: "antigravity", replies: [{ kind: "text", text: "pong" }] });
+    const error = await failure(send(f.transport, request({ messages: [{ role: "user", content: "x".repeat(1_000_000) }] })));
+    expect(error.message).toContain("CLI_PROMPT_TOO_LARGE");
+  });
+});
+
 describe("subscription CLI configuration", () => {
   const base = { id: "e", providerId: "anthropic" };
   it("accepts only cli://<vendor> endpoints without API keys, and supported auth modes", () => {
@@ -263,7 +300,7 @@ describe("subscription CLI configuration", () => {
   it("lists every transport with its credential kind and verification status", () => {
     expect(TRANSPORT_SUPPORT_MATRIX.map(({ transport, kind }) => `${kind}:${transport}`)).toEqual([
       "http_api:openai-responses", "http_api:openai-chat", "http_api:anthropic-messages", "http_api:gemini-native",
-      "subscription_cli:claude-code-cli", "subscription_cli:codex-cli", "subscription_cli:gemini-cli"]);
+      "subscription_cli:claude-code-cli", "subscription_cli:codex-cli", "subscription_cli:gemini-cli", "subscription_cli:antigravity-cli"]);
     for (const entry of CLI_TRANSPORT_SUPPORT) expect(entry.status === "live_verified").toBe(entry.verifiedVersions.length > 0);
   });
 });
@@ -282,6 +319,13 @@ describe("executable discovery", () => {
     await mkdir(join(root, "bin")); await writeFile(join(root, "bin", "claude"), "#!/bin/sh\n", { mode: 0o755 });
     expect(await resolveCliExecutable(support, host({ HOME: home, PATH: join(root, "bin") }))).toMatchObject({ found: true, executable: { source: "path", path: join(root, "bin", "claude") } });
     expect(await resolveCliExecutable(support, host({ HOME: home, PATH: join(root, "bin"), ARBITRA_CLAUDE_CODE_EXECUTABLE: "relative/claude" }))).toMatchObject({ found: false, reason: "override_invalid" });
+  });
+
+  it("finds the Antigravity CLI in its installer's ~/.local/bin location", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbitra-cli-agy-")); roots.push(root);
+    await mkdir(join(root, ".local", "bin"), { recursive: true }); await writeFile(join(root, ".local", "bin", "agy"), "#!/bin/sh\n", { mode: 0o755 });
+    expect(await resolveCliExecutable(requireCliTransportSupport("antigravity-cli"), { platform: "darwin", nodeExecutable: process.execPath, lookup: (name) => ({ HOME: root, PATH: join(root, "none") } as Record<string, string>)[name] }))
+      .toMatchObject({ found: true, executable: { source: "well_known", path: join(root, ".local", "bin", "agy") } });
   });
 
   it("runs a Windows npm shim's script with Node instead of through a command shell", async () => {

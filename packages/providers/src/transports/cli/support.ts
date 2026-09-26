@@ -7,8 +7,8 @@
  * `declared_unverified`: implemented and tested against scripted stand-in executables only.
  * `live_verified`: a recorded live run (see `evidence`) passed on the listed CLI versions.
  */
-export type CliVendor = "claude-code" | "codex" | "gemini";
-export type CliTransportId = "claude-code-cli" | "codex-cli" | "gemini-cli";
+export type CliVendor = "claude-code" | "codex" | "gemini" | "antigravity";
+export type CliTransportId = "claude-code-cli" | "codex-cli" | "gemini-cli" | "antigravity-cli";
 export type CliAuthMode = "subscription_login" | "oauth_token";
 export type TransportSupportStatus = "declared_unverified" | "live_verified";
 
@@ -58,8 +58,19 @@ export const CLI_TRANSPORT_SUPPORT: readonly CliTransportSupport[] = Object.free
     versionRange: Object.freeze({ minimum: "0.60.0", below: "1.0.0" }),
     status: "declared_unverified", verifiedVersions: Object.freeze([]), evidence: "docs/qa/subscription-cli/README.md",
     authModes: Object.freeze(["subscription_login"] as const),
-    loginInstruction: "Run `gemini` once in a terminal and choose Login with Google. The Google account must be eligible for Gemini CLI use.",
+    // Since June 18, 2026 Google serves the Gemini CLI only to Code Assist Standard/Enterprise
+    // logins; personal Google accounts (free, AI Pro, AI Ultra) use the Antigravity CLI instead.
+    loginInstruction: "Run `gemini` once in a terminal and choose Login with Google using a Gemini Code Assist Standard or Enterprise account (export GOOGLE_CLOUD_PROJECT for it). Personal Google AI subscriptions use the antigravity-cli transport; API-key users use gemini-native.",
     installInstruction: "Install the Gemini CLI (`npm install -g @google/gemini-cli`) so `gemini` is on PATH, or set ARBITRA_GEMINI_EXECUTABLE to its absolute path.",
+  }),
+  Object.freeze({
+    transport: "antigravity-cli", vendor: "antigravity", displayName: "Antigravity CLI", endpoint: "cli://antigravity",
+    executableEnvVar: "ARBITRA_ANTIGRAVITY_EXECUTABLE", command: "agy",
+    versionRange: Object.freeze({ minimum: "0.1.0", below: "2.0.0" }),
+    status: "live_verified", verifiedVersions: Object.freeze(["1.2.11"]), evidence: "docs/qa/subscription-cli/README.md",
+    authModes: Object.freeze(["subscription_login"] as const),
+    loginInstruction: "Run `agy` once in a terminal and sign in with the Google account that holds your Google AI subscription; the login is kept in the operating system's keyring.",
+    installInstruction: "Install the Antigravity CLI (`curl -fsSL https://antigravity.google/cli/install.sh | bash`, or `winget install Google.AntigravityCLI` on Windows) so `agy` is on PATH or in ~/.local/bin, or set ARBITRA_ANTIGRAVITY_EXECUTABLE to its absolute path.",
   }),
 ] satisfies CliTransportSupport[]);
 

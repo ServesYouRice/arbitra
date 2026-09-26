@@ -140,16 +140,17 @@ describe("environment preflight", () => {
     const diagnostics = await run({
       "claude-code-cli": { executable: { found: false, reason: "not_found", detail: "claude was not found" }, version: null, versionSupported: null, auth: null },
       "codex-cli": { auth: "not_logged_in", version: "0.100.0", versionSupported: false },
-      "gemini-cli": { auth: "api_key_login", usageLimit: { transport: "gemini-cli", observedAt: 0, resetsAt: Date.parse("2099-01-01T00:00:00Z"), message: "limit" } },
+      "antigravity-cli": { auth: "not_logged_in", usageLimit: { transport: "antigravity-cli", observedAt: 0, resetsAt: Date.parse("2099-01-01T00:00:00Z"), message: "limit" } },
     });
     expect(codes(diagnostics)).toEqual(["SUBSCRIPTION_CLI_NOT_INSTALLED:claude-code", "SUBSCRIPTION_CLI_VERSION_UNSUPPORTED:codex", "SUBSCRIPTION_CLI_NOT_LOGGED_IN:codex",
-      "SUBSCRIPTION_CLI_API_KEY_LOGIN:gemini", "SUBSCRIPTION_CLI_USAGE_LIMIT_REACHED:gemini"]);
+      "SUBSCRIPTION_CLI_NOT_LOGGED_IN:antigravity", "SUBSCRIPTION_CLI_USAGE_LIMIT_REACHED:antigravity"]);
     const message = (code: string) => diagnostics.find((diagnostic) => diagnostic.code === code)?.message ?? "";
     expect(message("SUBSCRIPTION_CLI_NOT_INSTALLED:claude-code")).toContain("ARBITRA_CLAUDE_CODE_EXECUTABLE");
     expect(message("SUBSCRIPTION_CLI_NOT_LOGGED_IN:codex")).toContain("codex login");
-    expect(message("SUBSCRIPTION_CLI_USAGE_LIMIT_REACHED:gemini")).toContain("2099-01-01T00:00:00.000Z");
-    const warnings = (await run({ "gemini-cli": { auth: "unverified" } })).filter(({ severity }) => severity === "warning").map(({ code }) => code);
-    expect(warnings).toEqual(["SUBSCRIPTION_CLI_AUTH_UNVERIFIED:gemini", "SUBSCRIPTION_CLI_UNVERIFIED:gemini-cli"]);
+    expect(message("SUBSCRIPTION_CLI_USAGE_LIMIT_REACHED:antigravity")).toContain("2099-01-01T00:00:00.000Z");
+    expect(message("SUBSCRIPTION_CLI_NOT_LOGGED_IN:antigravity")).toContain("Run `agy` once");
+    const warnings = (await run({ "antigravity-cli": { auth: "unverified" } })).filter(({ severity }) => severity === "warning").map(({ code }) => code);
+    expect(warnings).toEqual(["SUBSCRIPTION_CLI_AUTH_UNVERIFIED:antigravity"]);
   });
 
   it("refuses live dispatch of template placeholder model identities", async () => {
