@@ -87,5 +87,116 @@
       "durationMs": 26127,
       "error": null
     }
+  ],
+  "4-sonnet-analyst-descriptive-refusal-failed-at-planner": [
+    {
+      "activity": "testing/risk/<id>/turn-0",
+      "modelId": "claude-sonnet-5",
+      "transport": "claude-code-cli",
+      "transportVersion": "claude-code/2.1.283",
+      "harness": "arbitra-canonical",
+      "outcome": "success",
+      "tokenUsage": {
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 4108,
+        "inputTokens": 4110,
+        "outputTokens": 1363
+      },
+      "costUsd": null,
+      "durationMs": 13881,
+      "error": null
+    },
+    {
+      "activity": "testing/risk/<id>/repair-1/turn-0",
+      "modelId": "claude-sonnet-5",
+      "transport": "claude-code-cli",
+      "transportVersion": "claude-code/2.1.283",
+      "harness": "arbitra-canonical",
+      "outcome": "success",
+      "tokenUsage": {
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 6858,
+        "inputTokens": 6860,
+        "outputTokens": 1325
+      },
+      "costUsd": null,
+      "durationMs": 8769,
+      "error": null
+    },
+    {
+      "activity": "testing/selection/<id>/turn-0",
+      "modelId": "claude-sonnet-5",
+      "transport": "claude-code-cli",
+      "transportVersion": "claude-code/2.1.283",
+      "harness": "arbitra-canonical",
+      "outcome": "success",
+      "tokenUsage": {
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 8269,
+        "inputTokens": 8271,
+        "outputTokens": 1143
+      },
+      "costUsd": null,
+      "durationMs": 14107,
+      "error": null
+    },
+    {
+      "activity": "testing/planner/<id>/turn-0",
+      "modelId": "claude-haiku-4-5-20251001",
+      "transport": "claude-code-cli",
+      "transportVersion": "1.0.0",
+      "harness": "arbitra-canonical",
+      "outcome": "error",
+      "tokenUsage": null,
+      "costUsd": null,
+      "durationMs": 371471,
+      "error": "Provider anthropic failed after 1 attempt (OUTPUT_LIMIT: MODEL_OUTPUT_LIMIT_REACHED: Claude Code stopped at maximumOutputTokens); completed artifacts are preserved and the run may resume with degraded"
+    },
+    {
+      "activity": "testing/planner/<id>/planner/brief/5ecd4c38b004e6203b582774/turn-0",
+      "modelId": "claude-haiku-4-5-20251001",
+      "transport": "claude-code-cli",
+      "transportVersion": "claude-code/2.1.283",
+      "harness": "arbitra-canonical",
+      "outcome": "success",
+      "tokenUsage": {
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 11581,
+        "inputTokens": 11584,
+        "outputTokens": 2569
+      },
+      "costUsd": null,
+      "durationMs": 22826,
+      "error": null
+    },
+    {
+      "activity": "testing/planner/<id>/planner/outline/turn-0",
+      "modelId": "claude-haiku-4-5-20251001",
+      "transport": "claude-code-cli",
+      "transportVersion": "claude-code/2.1.283",
+      "harness": "arbitra-canonical",
+      "outcome": "success",
+      "tokenUsage": null,
+      "costUsd": null,
+      "durationMs": 646662,
+      "error": null
+    },
+    {
+      "activity": "testing/planner/<id>/planner/outline/repair-1/turn-0",
+      "modelId": "claude-haiku-4-5-20251001",
+      "transport": "claude-code-cli",
+      "transportVersion": "claude-code/2.1.283",
+      "harness": "arbitra-canonical",
+      "outcome": "success",
+      "tokenUsage": {
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 11598,
+        "inputTokens": 11601,
+        "outputTokens": 7808
+      },
+      "costUsd": null,
+      "durationMs": 99184,
+      "error": null
+    }
   ]
 }

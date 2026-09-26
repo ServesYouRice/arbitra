@@ -57,6 +57,10 @@ it("rejects fabricated risk evidence, unrelated paths and incomplete candidate a
   expect(validateTestingRisk(risk, snapshot, inventory)).toEqual(risk);
   expect(() => validateTestingRisk({ ...risk, surfaces: [{ ...surface, paths: ["auth.test.ts"] }] }, snapshot, inventory)).toThrow("TESTING_RISK_SOURCE_INVALID");
   expect(() => validateTestingRisk({ ...risk, reviewedTestPaths: ["missing.test.ts"] }, snapshot, inventory)).toThrow("TESTING_REVIEWED_PATH_INVALID");
+  // A metadata file is not source; the refusal names it and the allowed files so a repair can act.
+  expect(() => validateTestingRisk({ ...risk, reviewedSourcePaths: ["auth.ts", "package.json"] }, snapshot, inventory))
+    .toThrow(/^TESTING_REVIEWED_SOURCE_INVALID: reviewedSourcePaths lists "package\.json", which is not among the source files .*; allowed: "auth\.ts"/u);
+  expect(() => validateTestingRisk({ ...risk, reviewedSourcePaths: ["auth.ts", "auth.ts"] }, snapshot, inventory)).toThrow("TESTING_REVIEWED_SOURCE_INVALID: reviewedSourcePaths repeats \"auth.ts\"");
   expect(() => validateTestingRisk({ ...risk, surfaces: [{ ...surface, evidence: [{ ...surface.evidence[0], text: "fabrication" }] }] }, snapshot, inventory)).toThrow("TESTING_EVIDENCE_UNGROUNDED");
   const gaps = await prioritiseGaps(inventory, validateTestingRisk(risk, snapshot, inventory).surfaces, { async select({ candidates }) { return candidates.map(({ id }) => id); } });
   const selection = { selectedGapIds: ["GAP-auth-1"], rejected: [], limitations: [] };

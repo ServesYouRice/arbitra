@@ -78,8 +78,25 @@ canonical harness's tool loop ran unchanged over the subscription. Run 3 complet
 with 4 selected gaps; planning stopped because removing `package.json` from scope also removed
 the repository test command, as designed.
 
-The failures in runs 1 and 2 are a finding about the Testing risk prompt, not the transport.
-When `package.json` is in `scope.modules`, both models listed it in `reviewedSourcePaths`, which
-the validator allows only for inventory source files (`src/session.js` here), and the repair
-message names only the code. The same scope is used by the API bindings
-(`bindings.claude-primary.json`, `bindings.gemini.json`), so this would affect them too.
+The failures in runs 1 and 2 were not transport failures. With `package.json` in
+`scope.modules`, both models listed it in `reviewedSourcePaths`. The validator is right to
+refuse that: the field is compared with the inventory's source files (`src/session.js` here)
+to report unreviewed source, and `package.json` is test metadata. The refusal carried only
+the code, so the repairs could not tell what to change. `validateTestingRisk` now names the
+offending paths and the allowed ones (for example `TESTING_REVIEWED_SOURCE_INVALID:
+reviewedSourcePaths lists "package.json", which is not among the source files …; allowed:
+"src/session.js"`), and the check itself is unchanged.
+
+| Run | Analyst / planner | Calls | Result |
+|---|---|---|---|
+| 4 | Sonnet 5 / Haiku 4.5, committed scope (with `package.json`), descriptive refusal | 7 | Risk analysis recovered on its first repair; gap selection passed; the run `FAILED` in planning with `MODEL_PLAN_PROVENANCE_MISMATCH` |
+
+In run 4 the Haiku planner's first call stopped at the 8,000-token output ceiling
+(`OUTPUT_LIMIT`, and Claude Code's automatic continuation was stopped), so the runtime split
+planning into a brief and an outline. The outline's first attempt ran past the 600 s stage
+timeout and was retried. Its repaired reply then failed validation: it did not echo the
+premise report verbatim, `MODEL_PLAN_PROVENANCE_MISMATCH`. That is a planner-output problem
+on Haiku, not a transport one. A Sonnet 5 planner, or a descriptive refusal for that check
+like the one above, is the next thing to try. The long first attempt suggests that Claude
+Code retries throttled or overloaded requests internally before it reports anything, so a
+subscription call can take minutes.
