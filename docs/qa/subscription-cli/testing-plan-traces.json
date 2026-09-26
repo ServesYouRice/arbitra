@@ -1,0 +1,91 @@
+{
+  "1-haiku-analyst-failed": [
+    {
+      "activity": "testing/risk/<id>/turn-0",
+      "modelId": "claude-haiku-4-5-20251001",
+      "transport": "claude-code-cli",
+      "transportVersion": "claude-code/2.1.282",
+      "harness": "arbitra-canonical",
+      "outcome": "success",
+      "tokenUsage": {
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "inputTokens": 2862,
+        "outputTokens": 1622
+      },
+      "costUsd": null,
+      "durationMs": 13244,
+      "error": null
+    },
+    {
+      "activity": "testing/risk/<id>/repair-1/turn-0",
+      "modelId": "claude-haiku-4-5-20251001",
+      "transport": "claude-code-cli",
+      "transportVersion": "claude-code/2.1.282",
+      "harness": "arbitra-canonical",
+      "outcome": "success",
+      "tokenUsage": {
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 6081,
+        "inputTokens": 6084,
+        "outputTokens": 1559
+      },
+      "costUsd": null,
+      "durationMs": 15279,
+      "error": null
+    },
+    {
+      "activity": "testing/risk/<id>/repair-2/turn-0",
+      "modelId": "claude-haiku-4-5-20251001",
+      "transport": "claude-code-cli",
+      "transportVersion": "claude-code/2.1.282",
+      "harness": "arbitra-canonical",
+      "outcome": "success",
+      "tokenUsage": {
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 6006,
+        "inputTokens": 6009,
+        "outputTokens": 1559
+      },
+      "costUsd": null,
+      "durationMs": 12824,
+      "error": null
+    }
+  ],
+  "3-sonnet-analyst-completed": [
+    {
+      "activity": "testing/risk/<id>/turn-0",
+      "modelId": "claude-sonnet-5",
+      "transport": "claude-code-cli",
+      "transportVersion": "claude-code/2.1.282",
+      "harness": "arbitra-canonical",
+      "outcome": "success",
+      "tokenUsage": {
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 3848,
+        "inputTokens": 3850,
+        "outputTokens": 2263
+      },
+      "costUsd": null,
+      "durationMs": 21360,
+      "error": null
+    },
+    {
+      "activity": "testing/selection/<id>/turn-0",
+      "modelId": "claude-sonnet-5",
+      "transport": "claude-code-cli",
+      "transportVersion": "claude-code/2.1.282",
+      "harness": "arbitra-canonical",
+      "outcome": "success",
+      "tokenUsage": {
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 11354,
+        "inputTokens": 11356,
+        "outputTokens": 2370
+      },
+      "costUsd": null,
+      "durationMs": 26127,
+      "error": null
+    }
+  ]
+}

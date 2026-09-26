@@ -98,7 +98,7 @@ async function newestExtensionBinary(root: string, prefix: string, relative: str
   const entries = await readdir(root).catch(() => [] as string[]);
   return entries.filter((name) => name.startsWith(prefix))
     .map((name) => ({ name, version: /^(\d+)\.(\d+)\.(\d+)/u.exec(name.slice(prefix.length))?.slice(1).map(Number) ?? [0, 0, 0] }))
-    .sort((a, b) => b.version[0]! - a.version[0]! || b.version[1]! - a.version[1]! || b.version[2]! - a.version[2]! || b.name.localeCompare(a.name))
+    .sort((a, b) => [0, 1, 2].map((index) => (b.version[index] ?? 0) - (a.version[index] ?? 0)).find((difference) => difference !== 0) ?? b.name.localeCompare(a.name))
     .map(({ name }) => join(root, name, relative));
 }
 

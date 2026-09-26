@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { TransportError, type TransportRequest, type TransportUsage } from "../../transport-contract.js";
 import type { CliPrompt } from "./prompt.js";
 import { classifyCliFailure } from "./classify.js";
-import { cliTransportSupport, type CliAuthMode, type CliTransportSupport } from "./support.js";
+import { requireCliTransportSupport, type CliAuthMode, type CliTransportSupport } from "./support.js";
 
 /**
  * Per-vendor invocation: the flags that make each CLI a plain completion engine, the
@@ -65,9 +65,9 @@ function effortParameter(request: TransportRequest, support: CliTransportSupport
   return result;
 }
 
-const CLAUDE = cliTransportSupport("claude-code-cli")!;
-const CODEX = cliTransportSupport("codex-cli")!;
-const GEMINI = cliTransportSupport("gemini-cli")!;
+const CLAUDE = requireCliTransportSupport("claude-code-cli");
+const CODEX = requireCliTransportSupport("codex-cli");
+const GEMINI = requireCliTransportSupport("gemini-cli");
 
 /**
  * Claude Code in print mode. `--tools ""` removes every built-in tool, `--safe-mode` disables

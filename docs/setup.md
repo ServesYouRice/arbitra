@@ -37,8 +37,20 @@ The model-backed templates:
 | `testing-plan.json` | Testing / `testing-plan` (read-only) | Gemini, Chat Completions | Gemini, compatible variables |
 | `testing-execute.json` | Testing / `testing-execute` (guarded writes) | Responses, Messages | OpenAI, Anthropic variables |
 
-Together they cover all four wire protocols; `audit-mixed-providers` is the mixed-provider
-configuration. Every template names a placeholder model (`replace-with-your-model-id`)
+The same five modes also ship as **subscription templates**, served by vendor CLIs signed in
+with your own Claude, ChatGPT or Google subscription instead of API keys (see
+[Subscription CLIs](#subscription-clis-instead-of-api-keys)):
+
+| Template | Mode / preset | Subscription CLIs |
+|---|---|---|
+| `subscription-audit.json` | Audit / `audit-deep` | Claude Code, Codex, Gemini CLI |
+| `subscription-feature-interactive.json` | Feature, interactive | Claude Code (planner), Codex and Gemini CLI (reviewers) |
+| `subscription-feature-automatic.json` | Feature, automatic | Claude Code (planner), Codex and Gemini CLI (reviewers) |
+| `subscription-testing-plan.json` | Testing / `testing-plan` | Claude Code (analyst), Codex (planner) |
+| `subscription-testing-execute.json` | Testing / `testing-execute` | Codex (analyst), Claude Code (writer) |
+
+Together they cover all four wire protocols and all three subscription CLIs;
+`audit-mixed-providers` is the mixed-provider configuration. Every template names a placeholder model (`replace-with-your-model-id`)
 and uses dedicated `ARBITRA_*` variable names, so an unrelated provider key already
 exported in your shell cannot enable a run.
 
@@ -80,8 +92,12 @@ Add `--json` for machine-readable diagnostics (`code`, `severity`, `scope`, `pat
 pnpm run smoke:examples
 ```
 
-This runs [`example-smoke.test.ts`](../packages/runtime/test/example-smoke.test.ts) and
-[`preflight.test.ts`](../packages/runtime/test/preflight.test.ts). Each model-backed
+This runs [`example-smoke.test.ts`](../packages/runtime/test/example-smoke.test.ts),
+[`subscription-smoke.test.ts`](../packages/runtime/test/subscription-smoke.test.ts) and
+[`preflight.test.ts`](../packages/runtime/test/preflight.test.ts). The subscription smoke
+checks replace the CLI processes with an in-process runner that speaks each CLI's event
+format, so no CLI, login or model is needed; one of them mixes an API-key auditor with
+subscription auditors in a single run. Each model-backed
 template is loaded unmodified and executed through the public CLI core and
 `Orchestrator` against a small fixture repository. Only three things are replaced: the
 HTTP client (a fixture that answers each stage in that protocol's native wire format),
@@ -170,6 +186,69 @@ credentials and continuation state. Roles are always named explicitly:
 
 `independenceGroup` is your statement of which profiles are genuinely independent. Two
 aliases of one model are not independent auditors or reviewers.
+
+### Subscription CLIs instead of API keys
+
+Any model role can be served either by an API endpoint (an `apiKeyEnvVar`, billed to API
+credit) or by a **subscription CLI**: the vendor's official CLI, signed in with your own
+subscription, run headless as a plain completion engine. You choose per endpoint, and one
+run may mix both. arbitra keeps the tool loop, context, budgets, durability and policy; the
+CLI's own agent tools are disabled, and any sign that it used one fails the call
+(`CLI_AGENT_TOOL_USE_FORBIDDEN`).
+
+| Transport | CLI | Endpoint | Sign in (once, in a terminal) | Executable |
+|---|---|---|---|---|
+| `claude-code-cli` | Claude Code 2.1.x | `cli://claude-code` | `claude auth login` with a Claude Pro or Max account; or `claude setup-token` for `auth: "oauth_token"` | `ARBITRA_CLAUDE_CODE_EXECUTABLE`, else `claude` on PATH, `~/.claude/local`, `~/.local/bin`, npm global bins, or the newest VS Code/Cursor/Windsurf extension binary |
+| `codex-cli` | Codex CLI 0.150–0.199 | `cli://codex` | `codex login`, choose Sign in with ChatGPT (an API-key login is refused) | `ARBITRA_CODEX_EXECUTABLE`, else `codex` on PATH, npm global bins, or `/Applications/ChatGPT.app/Contents/Resources/codex` on macOS |
+| `gemini-cli` | Gemini CLI 0.60+ | `cli://gemini` | run `gemini` and choose Login with Google; the account's plan must allow Gemini CLI use | `ARBITRA_GEMINI_EXECUTABLE`, else `gemini` on PATH or npm global bins |
+
+On Windows an npm `.cmd` shim is resolved to its Node script and run with Node, never through
+`cmd.exe`. An endpoint looks like this; no URL, key or token value appears:
+
+```json
+{ "id": "claude-code", "providerId": "anthropic", "transport": "claude-code-cli", "endpoint": "cli://claude-code", "auth": "subscription_login" }
+```
+
+For a separate Claude token instead of the host login, use
+`"auth": "oauth_token", "oauthTokenEnvVar": "ARBITRA_CLAUDE_CODE_OAUTH_TOKEN"`; the CLI then
+runs with an isolated home and configuration directory. Profiles bound to CLI endpoints use
+`structuredOutputDialect: "prompt_json"` and `historyPolicy: "verbatim"`; `effort.params` may
+carry `{ "effort": "high" }` (Claude Code and Codex) and `{ "thinkingTokens": N }` (Claude
+Code). Other effort fields are refused.
+
+What each call does: it creates a fresh temporary directory, runs the CLI with an empty
+working directory and an allowlisted environment (`HOME`, `PATH`, temporary directories,
+locale, plus `CODEX_HOME`/`CLAUDE_CONFIG_DIR`/`GOOGLE_CLOUD_PROJECT` when set), checks the
+CLI version against the support matrix, sends the framed conversation on stdin, reads the
+CLI's event stream, kills the whole process tree on every exit path and deletes the
+directory. Repository content reaches the model only through arbitra's framed prompt. Tool
+calls are emulated: the model answers with a `{"toolCalls": [...]}` envelope or its final
+answer, and arbitra runs the tools. Measured tokens are recorded; cost is recorded as
+unknown, because subscription use is not billed per call. Traces record the CLI and its
+version as the transport version (for example `claude-code/2.1.282`).
+
+Preflight checks each CLI without spending a model call: installed
+(`SUBSCRIPTION_CLI_NOT_INSTALLED`), supported version (`SUBSCRIPTION_CLI_VERSION_UNSUPPORTED`),
+signed in (`claude auth status`, `codex login status`; Gemini's cached Google login is only
+evidence, so it warns `SUBSCRIPTION_CLI_AUTH_UNVERIFIED`), not signed in with an API key
+(`SUBSCRIPTION_CLI_API_KEY_LOGIN`), and not at a usage limit recorded by an earlier call
+(`SUBSCRIPTION_CLI_USAGE_LIMIT_REACHED`, kept in `~/Library/Caches/arbitra`,
+`$XDG_CACHE_HOME/arbitra` or `%LOCALAPPDATA%\arbitra`).
+
+**Limits and terms.** Subscription use is subject to each vendor's terms of service and to
+the plan's personal usage limits; check that automated use through the official CLI is
+permitted for your plan before relying on it. A plan limit fails the call as `QUOTA` with the
+reset time when the CLI gives one (`CLI_USAGE_LIMIT_REACHED`); short throttles are
+`RATE_LIMIT` and retried. Keep `rateLimits` low (the templates use `maxConcurrent: 1` and
+`rpm: 10`) and `timeoutMs` generous (600000), because CLI calls carry several seconds of
+start-up and a large vendor system context. Batch lanes are not available on CLI endpoints.
+
+Known gaps: Claude Code still adds its own short environment block (working directory,
+platform, date and the signed-in account's email) to the context; Codex declares a few
+built-in functions that cannot be switched off (they are refused if used) and adds roughly
+5,000 tokens of its own instructions per call; the Gemini CLI records session history under
+`~/.gemini/tmp`. Output ceilings are enforced for Claude Code
+(`CLAUDE_CODE_MAX_OUTPUT_TOKENS`); Codex and the Gemini CLI offer no per-call output ceiling.
 
 ### Budget limits
 
@@ -387,6 +466,10 @@ See [Feature mode](workflows.md#feature-mode) for revision and the equivalent HT
 | `PROVIDER_CREDENTIAL_MISSING:<endpoint>` | environment | Export the named variable |
 | `NATIVE_HARNESS_EXECUTABLE_MISSING`, `NATIVE_HARNESS_CREDENTIAL_MISSING:<var>` | environment | Export `ARBITRA_CLAUDE_CODE_EXECUTABLE` (absolute path) and the `apiKeyEnvVar` variable |
 | `SANDBOX_ENGINE_UNAVAILABLE`, `SANDBOX_IMAGE_UNAVAILABLE:<image>` | environment | Start a Linux Docker engine; make the pinned image present locally |
+| `SUBSCRIPTION_CLI_NOT_INSTALLED:<endpoint>`, `SUBSCRIPTION_CLI_VERSION_UNREADABLE:<endpoint>`, `SUBSCRIPTION_CLI_VERSION_UNSUPPORTED:<endpoint>` | environment | Install a supported CLI version, or set its `ARBITRA_*_EXECUTABLE` to an absolute path |
+| `SUBSCRIPTION_CLI_NOT_LOGGED_IN:<endpoint>`, `SUBSCRIPTION_CLI_API_KEY_LOGIN:<endpoint>` | environment | Sign in with the subscription using the command in the message (`claude auth login`, `codex login`, `gemini`) |
+| `SUBSCRIPTION_CLI_USAGE_LIMIT_REACHED:<endpoint>` | environment | Wait for the reset shown, or bind those roles to another endpoint (warning when the reset time is unknown) |
+| `SUBSCRIPTION_CLI_AUTH_UNVERIFIED:<endpoint>`, `SUBSCRIPTION_CLI_UNVERIFIED:<transport>` | environment (warning) | Sign-in is confirmed only by the first call; the CLI has no recorded live verification yet |
 
 `run` reports these with exit `2` and reason `preflight_failed`, before a run
 directory, snapshot or provider request exists. Feature and Testing replays apply the

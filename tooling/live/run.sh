@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Run one live-acceptance configuration through the public CLI against a fresh copy of the
-# fixture repository (completion plan P03). Credentials come from the repository's .env.
+# fixture repository (completion plan P03). API credentials come from the repository's .env when present;
+# subscription CLI endpoints use the CLI's own login on this host.
 #   tooling/live/run.sh <configs-dir> <config-name> [cli args after the config path...]
 # Prints the CLI policy, the run state and, for a failed run, the recorded failure reason.
 set -euo pipefail
@@ -9,7 +10,7 @@ configs="$(cd "$1" && pwd)"; name="$2"; shift 2
 work="$root/.runs/live/work/$name"
 rm -rf "$work" && mkdir -p "$work" && cp -R "$root/tooling/live/fixture-repo" "$work/repo"
 cd "$work/repo" && git init -q && git add -A && git -c user.email=live@arbitra.invalid -c user.name=live commit -qm fixture
-set -a; . "$root/.env"; set +a
+if [ -f "$root/.env" ]; then set -a; . "$root/.env"; set +a; fi
 status=0
 node "$root/apps/cli/dist/src/bin.js" run "$configs/$name.json" "$@" --json 2>"$work/stderr.log" >"$work/result.json" || status=$?
 python3 - "$work" "$status" <<'PY'
