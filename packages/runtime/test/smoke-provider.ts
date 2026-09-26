@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
+import type { NativeProcessPort, NativeProcessRequest, NativeProcessResult } from "@arbitra/providers/process.js";
+import { CLI_ENGINE_PREAMBLE } from "@arbitra/providers/transports/cli/prompt.js";
+import { CLI_TRANSPORT_SUPPORT } from "@arbitra/providers/transports/cli/support.js";
 import { planIRSchema, type PlanIR } from "@arbitra/schemas/plan.js";
 import type { HttpRequest, HttpResponse } from "@arbitra/providers/transport-contract.js";
 import type { TransportFactoryOptions } from "@arbitra/providers/registry.js";
@@ -12,7 +16,7 @@ import type { TestSandbox } from "../src/test-sandbox.js";
  * native wire format of whichever protocol the request used. It proves wiring,
  * preflight, durable stages and handoff publication — never model quality.
  */
-export type WireProtocol = "openai-responses" | "openai-chat" | "anthropic-messages" | "gemini-native";
+export type WireProtocol = "openai-responses" | "openai-chat" | "anthropic-messages" | "gemini-native" | "claude-code-cli" | "codex-cli" | "gemini-cli";
 export interface SmokeCall { readonly stage: string; readonly protocol: WireProtocol; readonly url: string }
 
 export const SMOKE_SOURCE = "export const sessionVersion = 1;";
@@ -27,7 +31,7 @@ export async function smokeRepository(root: string): Promise<void> {
   await writeFile(join(root, "package.json"), '{"name":"smoke","private":true,"scripts":{"test":"vitest run"}}\n');
 }
 
-export async function smokeProvider(options: { highImpactAmbiguity?: boolean } = {}) {
+export async function smokeProvider(options: { highImpactAmbiguity?: boolean; root?: string } = {}) {
   const template = planIRSchema.parse(JSON.parse(await readFile(new URL("../../schemas/test/golden/plan-ir.valid.json", import.meta.url), "utf8")));
   const calls: SmokeCall[] = [];
   const respond = (stage: string, input: Record<string, unknown>, system: string, body: string): unknown => {
@@ -90,6 +94,13 @@ export async function smokeProvider(options: { highImpactAmbiguity?: boolean } =
       return { status: 200, headers: {}, body: encode(protocol, output) };
     } },
   };
+  const cli = options.root === undefined ? undefined : await smokeCli(options.root, (protocol, system, user, body) => {
+    const decoded = decodeCompiled(system, user);
+    const stage = stageOf(decoded.system);
+    calls.push({ stage, protocol, url: `cli://${protocol}` });
+    return respond(stage, decoded.input, decoded.system, body);
+  });
+  if (cli !== undefined) Object.assign(providerOptions, { cli });
   let checks = 0;
   const sandbox: TestSandbox = {
     async inspect() { return { engine: "available", image: "present", detail: null }; },
@@ -159,6 +170,11 @@ function decode(protocol: WireProtocol, value: unknown): { system: string; input
   if (protocol === "openai-chat") { system = text(body.messages?.find(({ role }) => role === "system")?.content); user = text(body.messages?.find(({ role }) => role === "user")?.content); }
   if (protocol === "anthropic-messages") { system = body.system ?? ""; user = text(body.messages?.find(({ role }) => role === "user")?.content); }
   if (protocol === "gemini-native") { system = body.systemInstruction?.parts.map(({ text: part }) => part).join("\n") ?? ""; user = body.contents?.[0]?.parts.map(({ text: part }) => part ?? "").join("") ?? ""; }
+  return decodeCompiled(system, user);
+}
+
+function decodeCompiled(initialSystem: string, initialUser: string): { system: string; input: Record<string, unknown> } {
+  let system = initialSystem; let user = initialUser;
   if (user.startsWith('{"layer":"locked"')) {
     // Compiled prompts carry the instruction and framed untrusted input as JSON lines.
     const layers = user.split("\n").map((line) => JSON.parse(line) as { layer: string; value: { instruction?: string; artifacts?: string[] } });
@@ -180,5 +196,51 @@ function encode(protocol: WireProtocol, output: unknown): unknown {
     case "openai-chat": return { choices: [{ message: call === undefined ? { role: "assistant", content: text } : { role: "assistant", content: null, tool_calls: [{ id: "smoke-call", type: "function", function: { name: call.name, arguments: JSON.stringify(call.arguments) } }] } }], usage: { prompt_tokens: 20, completion_tokens: 30 } };
     case "anthropic-messages": return { content: call === undefined ? [{ type: "text", text }] : [{ type: "tool_use", id: "smoke-call", name: call.name, input: call.arguments }], stop_reason: call === undefined ? "end_turn" : "tool_use", usage: { input_tokens: 20, output_tokens: 30 } };
     case "gemini-native": return { candidates: [{ content: { parts: call === undefined ? [{ text }] : [{ functionCall: { id: "smoke-call", name: call.name, args: call.arguments } }] } }], usageMetadata: { promptTokenCount: 20, candidatesTokenCount: 30 } };
+    default: throw new Error(`SMOKE_PROTOCOL_NOT_HTTP:${protocol}`);
   }
+}
+
+/**
+ * Stand-in subscription CLIs for the smoke run: placeholder executables that discovery and
+ * preflight accept, and an in-process runner that answers version and auth-status commands
+ * and each model call in the vendor's own event format. Emulated tool calls use the same
+ * envelope a real CLI's model returns, so the canonical harness's tool loop is exercised.
+ */
+async function smokeCli(root: string, answer: (protocol: WireProtocol, system: string, user: string, body: string) => unknown) {
+  const bin = join(root, "cli-bin"); const home = join(root, "cli-home");
+  await mkdir(bin, { recursive: true }); await mkdir(join(home, ".gemini"), { recursive: true });
+  // The Gemini CLI has no status command; a cached Google login is its readiness evidence.
+  await writeFile(join(home, ".gemini", "oauth_creds.json"), "{}");
+  const env: Record<string, string> = { HOME: home, PATH: "/usr/bin:/bin" };
+  for (const support of CLI_TRANSPORT_SUPPORT) {
+    const path = join(bin, support.command);
+    await writeFile(path, "#!/bin/sh\nexit 1\n"); await chmod(path, 0o755);
+    env[support.executableEnvVar] = path;
+  }
+  const done = (stdout: string, exitCode = 0): NativeProcessResult => ({ pid: null, exitCode, exitSignal: null, stopped: null, violation: null, stdout, stderr: "", treeTerminated: true });
+  const process: NativeProcessPort = { async run(request: NativeProcessRequest): Promise<NativeProcessResult> {
+    const vendor = basename(request.executable);
+    const args = request.arguments;
+    if (args[0] === "--version") return done({ claude: "2.1.282 (Claude Code)", codex: "codex-cli 0.154.0", gemini: "0.61.0" }[vendor] ?? "");
+    if (vendor === "claude" && args[0] === "auth") return done(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", subscriptionType: "max" }));
+    if (vendor === "codex" && args[0] === "login") return done("Logged in using ChatGPT");
+    const system = vendor === "claude" ? readFileSync(args[args.indexOf("--system-prompt-file") + 1] ?? "", "utf8")
+      : vendor === "codex" ? JSON.parse((args.find((value) => value.startsWith("base_instructions=")) ?? "base_instructions=\"\"").slice("base_instructions=".length)) as string
+        : readFileSync(request.environment["GEMINI_SYSTEM_MD"] ?? "", "utf8");
+    const instruction = system.startsWith(CLI_ENGINE_PREAMBLE) ? system.slice(CLI_ENGINE_PREAMBLE.length).replace(/^\n\n/u, "") : system;
+    const first = /^<<<BEGIN user ([a-f0-9]{16})>>>\n([\s\S]*?)\n<<<END user \1>>>/mu.exec(request.stdin);
+    const protocol = ({ claude: "claude-code-cli", codex: "codex-cli", gemini: "gemini-cli" } as const)[vendor as "claude" | "codex" | "gemini"];
+    const output = answer(protocol, instruction, first?.[2] ?? request.stdin, request.stdin.includes("<<<BEGIN tool-result") ? "\"role\":\"tool\"" : "");
+    const call = (output as { toolCall?: { name: string; arguments: unknown } }).toolCall;
+    const text = JSON.stringify(call === undefined ? output : { toolCalls: [{ name: call.name, arguments: call.arguments }] });
+    const lines = vendor === "claude" ? [{ type: "system", subtype: "init", session_id: "smoke", tools: [], mcp_servers: [], apiKeySource: "none" }, { type: "result", is_error: false, result: text, session_id: "smoke", usage: { input_tokens: 20, output_tokens: 30 } }]
+      : vendor === "codex" ? [{ type: "thread.started", thread_id: "smoke" }, { type: "item.completed", item: { type: "agent_message", text } }, { type: "turn.completed", usage: { input_tokens: 20, cached_input_tokens: 0, output_tokens: 30 } }]
+        : [{ type: "init", session_id: "smoke" }, { type: "message", role: "assistant", content: text, delta: true }, { type: "result", status: "success", stats: { input_tokens: 20, output_tokens: 30, cached: 0 } }];
+    for (const line of lines) {
+      try { request.onLine?.(JSON.stringify(line)); }
+      catch (violation) { return { ...done(""), stopped: "violation", violation }; }
+    }
+    return done("");
+  } };
+  return { lookup: (name: string) => env[name], process, limits: null };
 }

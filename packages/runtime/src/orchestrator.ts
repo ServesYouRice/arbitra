@@ -208,7 +208,8 @@ export class Orchestrator {
   }
 
   #environmentOptions() {
-    return { credential: this.#providerOptions.credential ?? ((name: string) => process.env[name]), sandbox: this.#testSandbox ?? new DockerTestSandbox(), liveDispatch: this.#providerOptions.client === undefined };
+    return { credential: this.#providerOptions.credential ?? ((name: string) => process.env[name]), sandbox: this.#testSandbox ?? new DockerTestSandbox(), liveDispatch: this.#providerOptions.client === undefined,
+      ...(this.#providerOptions.cli === undefined ? {} : { cli: this.#providerOptions.cli }) };
   }
 
   /** Start a run and return as soon as it is created; it continues in the background. */

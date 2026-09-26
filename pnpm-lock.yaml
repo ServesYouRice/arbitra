@@ -108,7 +108,11 @@ importers:
         specifier: workspace:*
         version: link:../schemas
 
-  packages/harness: {}
+  packages/harness:
+    dependencies:
+      '@arbitra/providers':
+        specifier: workspace:*
+        version: link:../providers
 
   packages/persistence:
     dependencies:

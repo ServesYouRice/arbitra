@@ -44,6 +44,8 @@ export interface TransportResponse {
   readonly continuation: string | null;
   readonly structuredOutputTier: StructuredOutputTier;
   readonly providerRequestId: string | null;
+  /** The executing client's identity when it is not the wire protocol alone, e.g. `claude-code/2.1.282` for a subscription CLI. */
+  readonly transportVersion?: string;
 }
 export interface ProviderTransport {
   readonly id: TransportId;
@@ -64,6 +66,8 @@ export interface TransportConfiguration {
   readonly endpoint: string;
   readonly apiKeyEnv: string;
   readonly compatibleProviderName?: string;
+  /** Subscription CLI endpoints (`cli://<vendor>`): how the CLI authenticates. No API key is involved. */
+  readonly cli?: { readonly auth: "subscription_login" | "oauth_token"; readonly oauthTokenEnv: string | null };
 }
 
 export interface HttpRequest {

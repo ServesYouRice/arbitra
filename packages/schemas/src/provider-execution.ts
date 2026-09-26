@@ -6,13 +6,43 @@ const endpointUrl = z.string().url().refine((value) => {
   return ["https:", "http:"].includes(url.protocol) && !url.username && !url.password && !url.search && !url.hash;
 }, "Provider endpoints must use HTTP(S) and cannot contain credentials, queries, or fragments");
 
-export const providerEndpointSchema = z.object({
+const environmentName = z.string().regex(/^[A-Z_][A-Z0-9_]*$/u);
+
+/** An HTTP API endpoint, authenticated with an API key read from the named environment variable. */
+export const httpProviderEndpointSchema = z.object({
   id: identifier,
   providerId: identifier,
   transport: identifier,
   endpoint: endpointUrl,
-  apiKeyEnvVar: z.string().regex(/^[A-Z_][A-Z0-9_]*$/u),
+  apiKeyEnvVar: environmentName,
 }).strict();
+
+/** Subscription CLI transports and the only endpoint each accepts. */
+export const CLI_TRANSPORT_ENDPOINTS: Readonly<Record<string, string>> = Object.freeze({ "claude-code-cli": "cli://claude-code", "codex-cli": "cli://codex", "gemini-cli": "cli://gemini" });
+
+/**
+ * A vendor CLI signed in with the operator's own subscription. `subscription_login` uses the
+ * CLI's existing login on this host; `oauth_token` (Claude Code only) reads a long-lived token
+ * from `oauthTokenEnvVar` and runs the CLI with an isolated configuration directory.
+ */
+export const cliProviderEndpointSchema = z.object({
+  id: identifier,
+  providerId: identifier,
+  transport: identifier,
+  endpoint: z.string().regex(/^cli:\/\/[a-z][a-z0-9-]{0,40}$/u, "CLI endpoints have the form cli://<vendor>"),
+  auth: z.enum(["subscription_login", "oauth_token"]),
+  oauthTokenEnvVar: environmentName.optional(),
+}).strict().superRefine((value, context) => {
+  const expected = Object.hasOwn(CLI_TRANSPORT_ENDPOINTS, value.transport) ? CLI_TRANSPORT_ENDPOINTS[value.transport] : undefined;
+  if (expected !== undefined && value.endpoint !== expected) context.addIssue({ code: "custom", path: ["endpoint"], message: `Transport ${value.transport} requires endpoint ${expected}` });
+  if (value.auth === "oauth_token" && value.oauthTokenEnvVar === undefined) context.addIssue({ code: "custom", path: ["oauthTokenEnvVar"], message: "Token authentication names the environment variable that holds the token" });
+  if (value.auth === "oauth_token" && value.transport !== "claude-code-cli" && expected !== undefined) context.addIssue({ code: "custom", path: ["auth"], message: "Only Claude Code supports token authentication" });
+  if (value.auth === "subscription_login" && value.oauthTokenEnvVar !== undefined) context.addIssue({ code: "custom", path: ["oauthTokenEnvVar"], message: "A subscription login uses no token variable" });
+});
+
+export const providerEndpointSchema = z.union([httpProviderEndpointSchema, cliProviderEndpointSchema]).superRefine((value, context) => {
+  if (!("auth" in value) && Object.hasOwn(CLI_TRANSPORT_ENDPOINTS, value.transport)) context.addIssue({ code: "custom", path: ["endpoint"], message: `Transport ${value.transport} is a subscription CLI: use endpoint ${CLI_TRANSPORT_ENDPOINTS[value.transport] ?? ""} with auth, not an HTTP URL and API key` });
+});
 
 /**
  * One explicit, opt-in batch lane. Only single-shot activities in the listed activity groups for this

@@ -21,9 +21,13 @@ const directory = dirname(fileURLToPath(import.meta.url));
 export const EXAMPLE_NAMES = ["audit-balanced", "audit-deep", "diff-fast", "diff-review", "feature-simple", "testing-plan"] as const;
 /** Model-backed templates: pass runtime preflight and are smoke-run through the public
  * runtime by packages/runtime/test/example-smoke.test.ts (`pnpm run smoke:examples`). */
-export const MODEL_BACKED_TEMPLATES = ["audit-compatible-chat", "audit-mixed-providers", "feature-automatic", "feature-interactive", "testing-execute", "testing-plan"] as const;
+export const API_TEMPLATES = ["audit-compatible-chat", "audit-mixed-providers", "feature-automatic", "feature-interactive", "testing-execute", "testing-plan"] as const;
+/** The same modes served by subscription CLIs (Claude Code, Codex, Gemini CLI) instead of API keys. */
+export const SUBSCRIPTION_TEMPLATES = ["subscription-audit", "subscription-feature-automatic", "subscription-feature-interactive", "subscription-testing-execute", "subscription-testing-plan"] as const;
+export const MODEL_BACKED_TEMPLATES = [...API_TEMPLATES, ...SUBSCRIPTION_TEMPLATES] as const;
 const modelBacked = join(directory, "model-backed");
 const WIRE_PROTOCOLS = ["anthropic-messages", "gemini-native", "openai-chat", "openai-responses"];
+const CLI_TRANSPORTS = ["claude-code-cli", "codex-cli", "gemini-cli"];
 
 describe("example configurations", () => {
   it("ships exactly the six documented examples and nothing else", () => {
@@ -118,10 +122,17 @@ describe("model-backed templates", () => {
     expect(configurationDiagnostics(config).filter(({ severity }) => severity === "error")).toEqual([]);
   });
 
-  it("covers every wire protocol, Audit, both Feature modes and both Testing modes", () => {
+  it("covers every wire protocol and subscription CLI, Audit, both Feature modes and both Testing modes", () => {
     const configs = templates();
     const transports = new Set(configs.flatMap(([, config]) => Object.values(config.models).map(({ transport }) => transport)));
-    expect([...transports].sort()).toEqual(WIRE_PROTOCOLS);
+    expect([...transports].sort()).toEqual([...WIRE_PROTOCOLS, ...CLI_TRANSPORTS].sort());
+    for (const family of [API_TEMPLATES, SUBSCRIPTION_TEMPLATES] as const) {
+      const members = configs.filter(([name]) => (family as readonly string[]).includes(name));
+      const modes = new Set(members.map(([, config]) => config.mode === "feature" ? `feature:${(config.workflow["feature"] as { mode: string }).mode}` : config.mode === "testing" ? `testing:${testingExecutionSchema.parse(config.workflow["testing"]).mode}` : config.mode));
+      expect([...modes].sort()).toEqual(["audit", "feature:automatic", "feature:interactive", "testing:execute", "testing:plan"]);
+      const used = new Set(members.flatMap(([, config]) => Object.values(config.models).map(({ transport }) => transport)));
+      expect([...used].every((transport) => (family === API_TEMPLATES ? WIRE_PROTOCOLS : CLI_TRANSPORTS).includes(transport))).toBe(true);
+    }
     expect(configs.filter(([, config]) => config.mode === "audit")).not.toHaveLength(0);
     expect(new Set(configs.filter(([, config]) => config.mode === "feature").map(([, config]) => (config.workflow["feature"] as { mode: string }).mode))).toEqual(new Set(["interactive", "automatic"]));
     expect(new Set(configs.filter(([, config]) => config.mode === "testing").map(([, config]) => testingExecutionSchema.parse(config.workflow["testing"]).mode))).toEqual(new Set(["plan", "execute"]));
@@ -129,14 +140,18 @@ describe("model-backed templates", () => {
     expect(mixed.map(([name]) => name)).toContain("audit-mixed-providers");
   });
 
-  it("binds every profile to an endpoint whose credential is an ARBITRA_* environment reference", () => {
+  it("binds every profile to an endpoint whose credential is an ARBITRA_* environment reference or a subscription login", () => {
     for (const [name, config] of templates()) {
       const raw = readFileSync(join(modelBacked, `${name}.json`), "utf8");
       expect(raw).not.toMatch(/sk-[A-Za-z0-9_-]{12,}|gh[opusr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|"apiKey"|"secret"/u);
       const execution = providerExecutionSchema.parse(config.workflow["modelExecution"]);
       for (const id of Object.keys(config.models)) expect(execution.modelEndpoints[id], `${name}:${id}`).toBeDefined();
       // Dedicated names keep an unrelated exported provider key from enabling spend.
-      for (const endpoint of execution.endpoints) expect(endpoint.apiKeyEnvVar).toMatch(/^ARBITRA_[A-Z0-9_]+_API_KEY$/u);
+      for (const endpoint of execution.endpoints) {
+        if ("apiKeyEnvVar" in endpoint) expect(endpoint.apiKeyEnvVar).toMatch(/^ARBITRA_[A-Z0-9_]+_API_KEY$/u);
+        // A subscription CLI uses its own login on the host; no credential reference is configured.
+        else expect(endpoint).toMatchObject({ endpoint: expect.stringMatching(/^cli:\/\/[a-z-]+$/u) as unknown, auth: "subscription_login" });
+      }
     }
   });
 
@@ -158,7 +173,7 @@ describe("model-backed templates", () => {
   it("grants write authority only in the execute template, with a placeholder pinned image", () => {
     for (const [name, config] of templates()) {
       const testing = config.workflow["testing"] === undefined ? undefined : testingExecutionSchema.parse(config.workflow["testing"]);
-      expect(testing?.mode === "execute", name).toBe(name === "testing-execute");
+      expect(testing?.mode === "execute", name).toBe(name.endsWith("testing-execute"));
       expect(config.verification["execution"], name).toBeUndefined();
       if (testing?.mode === "execute") {
         expect(testing.execution.verification.execution.image).toBe(`replace-with-your-local-test-image@sha256:${"0".repeat(64)}`);

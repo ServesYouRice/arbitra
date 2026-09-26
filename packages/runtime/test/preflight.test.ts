@@ -8,6 +8,8 @@ import { orchestratorCore } from "../src/cli-core.js";
 import { configurationDiagnostics, environmentDiagnostics, PreflightError, type PreflightDiagnostic } from "../src/preflight.js";
 import { DockerTestSandbox, type BoundedProcessResult, type ProcessRequest, type SandboxAvailability } from "../src/test-sandbox.js";
 import { smokeProvider, smokeRepository } from "./smoke-provider.js";
+import type { CliProbe, CliReadiness } from "@arbitra/providers/transports/cli/probe.js";
+import { cliTransportSupport } from "@arbitra/providers/transports/cli/support.js";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
@@ -25,7 +27,8 @@ const execution = (config: Mutable) => config.workflow["modelExecution"] as Reco
 const testing = (config: Mutable) => (config.workflow["testing"] as { execution: { authorization: { partitions: { id: string; paths: string[] }[] }; verification: { execution: Record<string, unknown> } } });
 
 describe("configuration preflight", () => {
-  it.each(["audit-mixed-providers", "audit-compatible-chat", "feature-interactive", "feature-automatic", "testing-plan", "testing-execute"])("accepts the shipped %s template", async (name) => {
+  it.each(["audit-mixed-providers", "audit-compatible-chat", "feature-interactive", "feature-automatic", "testing-plan", "testing-execute",
+    "subscription-audit", "subscription-feature-automatic", "subscription-feature-interactive", "subscription-testing-plan", "subscription-testing-execute"])("accepts the shipped %s template", async (name) => {
     expect(codes(configurationDiagnostics(await template(name)))).toEqual([]);
   });
 
@@ -125,6 +128,28 @@ describe("environment preflight", () => {
     expect(diagnostics[0]?.message).toContain("ARBITRA_ANTHROPIC_API_KEY");
     expect(JSON.stringify(diagnostics)).not.toContain("value-never-reported");
     expect(seen.sort()).toEqual(["ARBITRA_ANTHROPIC_API_KEY", "ARBITRA_GEMINI_API_KEY", "ARBITRA_OPENAI_API_KEY"]);
+  });
+
+  it("reports each subscription CLI state with the command that fixes it, without a model call", async () => {
+    const config = await template("subscription-audit");
+    const state = (transport: string, changes: Partial<CliReadiness>): CliReadiness => ({ support: cliTransportSupport(transport)!, version: "1.0.0", versionSupported: true, auth: "logged_in", authDetail: null, usageLimit: null,
+      executable: { found: true, executable: { command: "/bin/cli", prefixArguments: [], path: "/bin/cli", source: "path" } }, ...changes });
+    const probe = (states: Record<string, Partial<CliReadiness>>): CliProbe => async (transport) => state(transport, states[transport] ?? {});
+    const run = async (states: Record<string, Partial<CliReadiness>>) => environmentDiagnostics(config, { credential: absent, cliProbe: probe(states) });
+    expect(codes(await run({}))).toEqual([]);
+    const diagnostics = await run({
+      "claude-code-cli": { executable: { found: false, reason: "not_found", detail: "claude was not found" }, version: null, versionSupported: null, auth: null },
+      "codex-cli": { auth: "not_logged_in", version: "0.100.0", versionSupported: false },
+      "gemini-cli": { auth: "api_key_login", usageLimit: { transport: "gemini-cli", observedAt: 0, resetsAt: Date.parse("2099-01-01T00:00:00Z"), message: "limit" } },
+    });
+    expect(codes(diagnostics)).toEqual(["SUBSCRIPTION_CLI_NOT_INSTALLED:claude-code", "SUBSCRIPTION_CLI_VERSION_UNSUPPORTED:codex", "SUBSCRIPTION_CLI_NOT_LOGGED_IN:codex",
+      "SUBSCRIPTION_CLI_API_KEY_LOGIN:gemini", "SUBSCRIPTION_CLI_USAGE_LIMIT_REACHED:gemini"]);
+    const message = (code: string) => diagnostics.find((diagnostic) => diagnostic.code === code)?.message ?? "";
+    expect(message("SUBSCRIPTION_CLI_NOT_INSTALLED:claude-code")).toContain("ARBITRA_CLAUDE_CODE_EXECUTABLE");
+    expect(message("SUBSCRIPTION_CLI_NOT_LOGGED_IN:codex")).toContain("codex login");
+    expect(message("SUBSCRIPTION_CLI_USAGE_LIMIT_REACHED:gemini")).toContain("2099-01-01T00:00:00.000Z");
+    const warnings = (await run({ "gemini-cli": { auth: "unverified" } })).filter(({ severity }) => severity === "warning").map(({ code }) => code);
+    expect(warnings).toEqual(["SUBSCRIPTION_CLI_AUTH_UNVERIFIED:gemini", "SUBSCRIPTION_CLI_UNVERIFIED:gemini-cli"]);
   });
 
   it("refuses live dispatch of template placeholder model identities", async () => {
