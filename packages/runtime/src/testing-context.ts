@@ -20,13 +20,22 @@ export function validateTestingEvidence(value: unknown, snapshot: RepositorySnap
   return evidence;
 }
 
+function assertPathSubset(code: string, field: string, paths: readonly string[], allowed: readonly string[], kind: string): void {
+  const duplicates = [...new Set(paths.filter((path, index) => paths.indexOf(path) !== index))];
+  const invalid = [...new Set(paths.filter((path) => !allowed.includes(path)))];
+  if (duplicates.length === 0 && invalid.length === 0) return;
+  const list = (values: readonly string[]) => values.slice(0, 20).map((value) => JSON.stringify(value)).join(", ") + (values.length > 20 ? ` and ${values.length - 20} more` : "");
+  throw new Error(`${code}: ${field} ${invalid.length > 0 ? `lists ${list(invalid)}, which ${invalid.length === 1 ? "is" : "are"} not among the ${kind}` : `repeats ${list(duplicates)}`}; allowed: ${allowed.length === 0 ? "none" : list(allowed)}`);
+}
+
 export function validateTestingRisk(value: unknown, snapshot: RepositorySnapshot, inventory: TestSystemReport): TestingRisk {
   const risk = testingRiskSchema.parse(value);
   if (new Set(risk.surfaces.map(({ id }) => id)).size !== risk.surfaces.length) throw new Error("DUPLICATE_TEST_RISK_SURFACE");
-  if (new Set(risk.reviewedTestPaths).size !== risk.reviewedTestPaths.length || risk.reviewedTestPaths.some((path) => !inventory.testFiles.includes(path))) throw new Error("TESTING_REVIEWED_PATH_INVALID");
-  if (new Set(risk.reviewedSourcePaths).size !== risk.reviewedSourcePaths.length || risk.reviewedSourcePaths.some((path) => !inventory.sourceFiles.includes(path))) throw new Error("TESTING_REVIEWED_SOURCE_INVALID");
+  // The code stays first; the rest tells a repair which paths were wrong and which are allowed.
+  assertPathSubset("TESTING_REVIEWED_PATH_INVALID", "reviewedTestPaths", risk.reviewedTestPaths, inventory.testFiles, "test files");
+  assertPathSubset("TESTING_REVIEWED_SOURCE_INVALID", "reviewedSourcePaths", risk.reviewedSourcePaths, inventory.sourceFiles, "source files (test metadata such as package.json is not source)");
   for (const surface of risk.surfaces) {
-    if (new Set(surface.paths).size !== surface.paths.length || surface.paths.some((path) => !risk.reviewedSourcePaths.includes(path))) throw new Error("TESTING_RISK_SOURCE_INVALID");
+    assertPathSubset("TESTING_RISK_SOURCE_INVALID", `surface ${surface.id} paths`, surface.paths, risk.reviewedSourcePaths, "reviewedSourcePaths entries");
     surface.evidence = surface.evidence.map((value) => validateTestingEvidence(value, snapshot));
     for (const evidence of surface.evidence) if (!surface.paths.includes(evidence.path)) throw new Error("TESTING_RISK_EVIDENCE_UNRELATED");
     if (surface.paths.some((path) => !surface.evidence.some((evidence) => evidence.path === path))) throw new Error("TESTING_RISK_EVIDENCE_MISSING");
