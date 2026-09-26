@@ -1,0 +1,220 @@
+{
+  "//": "Owner live-testing policy on subscriptions (no API credit): Claude Code carries most roles (Haiku 4.5 for bulk, Sonnet 5 as the second independent reviewer and the frontier Testing analyst); Codex takes one secondary reviewer/auditor role. Gemini CLI is bound to no role: the owner's Google account is currently refused as an ineligible tier (docs/qa/subscription-cli). When an eligible account is signed in, bind it to at most one secondary role (for example audit-mixed-providers auditor-c). This is the owner's policy, not the product default.",
+  "endpoints": [
+    {
+      "id": "claude",
+      "providerId": "anthropic",
+      "transport": "claude-code-cli",
+      "endpoint": "cli://claude-code",
+      "auth": "subscription_login"
+    },
+    {
+      "id": "claude-b",
+      "providerId": "anthropic",
+      "transport": "claude-code-cli",
+      "endpoint": "cli://claude-code",
+      "auth": "subscription_login"
+    },
+    {
+      "id": "codex",
+      "providerId": "openai",
+      "transport": "codex-cli",
+      "endpoint": "cli://codex",
+      "auth": "subscription_login"
+    },
+    {
+      "id": "gemini",
+      "providerId": "google",
+      "transport": "gemini-cli",
+      "endpoint": "cli://gemini",
+      "auth": "subscription_login"
+    }
+  ],
+  "profiles": {
+    "claude": {
+      "modelId": "claude-haiku-4-5-20251001",
+      "family": "claude",
+      "independenceGroup": "anthropic",
+      "limits": {
+        "contextTokens": 200000,
+        "maxOutputTokens": 32000
+      }
+    },
+    "claude-b": {
+      "modelId": "claude-sonnet-5",
+      "family": "claude",
+      "independenceGroup": "anthropic-sonnet",
+      "limits": {
+        "contextTokens": 200000,
+        "maxOutputTokens": 32000
+      }
+    },
+    "codex": {
+      "modelId": "gpt-5.6-luna",
+      "family": "gpt",
+      "independenceGroup": "openai",
+      "limits": {
+        "contextTokens": 272000,
+        "maxOutputTokens": 128000
+      }
+    },
+    "gemini": {
+      "modelId": "gemini-3-flash-preview",
+      "family": "gemini",
+      "independenceGroup": "google",
+      "limits": {
+        "contextTokens": 1000000,
+        "maxOutputTokens": 65536
+      }
+    }
+  },
+  "rateLimit": {
+    "rpm": 10,
+    "tpm": 2000000,
+    "maxConcurrent": 2
+  },
+  "providerRateLimits": {
+    "openai": {
+      "rpm": 6,
+      "tpm": 1000000,
+      "maxConcurrent": 1
+    },
+    "google": {
+      "rpm": 6,
+      "tpm": 1000000,
+      "maxConcurrent": 1
+    }
+  },
+  "assign": {
+    "audit-mixed-providers": {
+      "auditor-a": "claude",
+      "auditor-b": "codex",
+      "auditor-c": "claude-b"
+    },
+    "feature-automatic": {
+      "planner": "claude",
+      "reviewer-compatible": "claude-b",
+      "reviewer-gemini": "codex"
+    },
+    "feature-interactive": {
+      "planner": "claude",
+      "reviewer-anthropic": "claude-b",
+      "reviewer-gemini": "codex"
+    },
+    "testing-plan": {
+      "analyst": "claude-b",
+      "planner": "claude"
+    },
+    "testing-execute": {
+      "analyst": "claude-b",
+      "writer": "claude"
+    }
+  },
+  "overrides": {
+    "audit-mixed-providers": {
+      "workflow": {
+        "modelExecution": {
+          "maximumTokens": 1500000,
+          "maximumRetries": 2,
+          "maximumOutputRepairs": 2,
+          "timeoutMs": 600000
+        }
+      }
+    },
+    "feature-automatic": {
+      "workflow": {
+        "feature": {
+          "request": "Add a removeLine(lines, sku) function to src/cart.js that removes every cart line with the given sku and returns a new array. Keep subtotal behaviour unchanged. Acceptance: removing an absent sku returns an equal array; the input array is not mutated."
+        },
+        "modelExecution": {
+          "maximumRetries": 2,
+          "maximumOutputRepairs": 2,
+          "timeoutMs": 600000
+        }
+      }
+    },
+    "feature-interactive": {
+      "workflow": {
+        "feature": {
+          "request": "Let customers keep their session alive while they are active: refresh should extend a session only if it is not expired, and expiry must be enforced exactly at expiresAt. Decide how clock skew is handled."
+        },
+        "modelExecution": {
+          "maximumRetries": 2,
+          "maximumOutputRepairs": 2,
+          "timeoutMs": 600000
+        }
+      }
+    },
+    "testing-plan": {
+      "workflow": {
+        "testing": {
+          "goal": "Protect session expiry and refresh behaviour in src/session.js."
+        },
+        "modelExecution": {
+          "maximumRetries": 2,
+          "maximumOutputRepairs": 2,
+          "timeoutMs": 600000
+        }
+      },
+      "scope": {
+        "kind": "module",
+        "modules": [
+          "src/session.js",
+          "test/session.test.js",
+          "package.json"
+        ]
+      }
+    },
+    "testing-execute": {
+      "workflow": {
+        "testing": {
+          "goal": "Protect session expiry and refresh behaviour in src/session.js.",
+          "execution": {
+            "authorization": {
+              "partitions": [
+                {
+                  "id": "tests",
+                  "paths": [
+                    "test/session.test.js"
+                  ]
+                }
+              ]
+            },
+            "verification": {
+              "execution": {
+                "image": "arbitra-sandbox-node@sha256:6403e233eb1ba30ae3529f48940dd1134f9f31cba556a8bac3cf08b396be5873",
+                "checks": [
+                  {
+                    "id": "unit-tests",
+                    "executable": "/usr/local/bin/npm",
+                    "arguments": [
+                      "run",
+                      "test"
+                    ],
+                    "sourcePaths": [
+                      "package.json",
+                      "test/session.test.js"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "modelExecution": {
+          "maximumRetries": 2,
+          "maximumOutputRepairs": 2,
+          "timeoutMs": 600000
+        }
+      },
+      "scope": {
+        "kind": "module",
+        "modules": [
+          "src/session.js",
+          "test/session.test.js",
+          "package.json"
+        ]
+      }
+    }
+  }
+}

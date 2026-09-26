@@ -11,13 +11,13 @@ import { fileLimitLedger } from "../../src/transports/cli/limits.js";
 import { probeCliReadiness } from "../../src/transports/cli/probe.js";
 import { CLI_ENGINE_PREAMBLE, interpretCliReply, serializeCliPrompt } from "../../src/transports/cli/prompt.js";
 import { writeCliStandIn, type CliStandInScenario } from "../../src/transports/cli/stand-in.js";
-import { CLI_TRANSPORT_SUPPORT, cliTransportSupport, TRANSPORT_SUPPORT_MATRIX, type CliVendor } from "../../src/transports/cli/support.js";
+import { CLI_TRANSPORT_SUPPORT, requireCliTransportSupport, TRANSPORT_SUPPORT_MATRIX, type CliVendor } from "../../src/transports/cli/support.js";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 
 const VENDORS: readonly CliVendor[] = ["claude-code", "codex", "gemini"];
-const transportOf = (vendor: CliVendor) => CLI_TRANSPORT_SUPPORT.find((entry) => entry.vendor === vendor)!;
+const transportOf = (vendor: CliVendor) => requireCliTransportSupport(vendor);
 
 async function fixture(scenario: Omit<CliStandInScenario, "reportFile" | "pidFile">, options: { auth?: ProviderEndpoint["auth"]; env?: Record<string, string>; timeoutMs?: number } = {}) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "arbitra-cli-test-"))); roots.push(root);
@@ -32,7 +32,7 @@ async function fixture(scenario: Omit<CliStandInScenario, "reportFile" | "pidFil
   const endpoint: ProviderEndpoint = { id: "sub", providerId: scenario.vendor, transport: support.transport, endpoint: support.endpoint, auth,
     ...(auth === "oauth_token" ? { oauthTokenEnvVar: "ARBITRA_CLAUDE_CODE_OAUTH_TOKEN" } : {}) };
   const ledger = fileLimitLedger(join(root, "limits.json"));
-  const registry = new ProviderRegistry([endpoint], { cli: { lookup: (name) => env[name], temporaryDirectory: temporary, limits: ledger, ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }) } });
+  const registry = new ProviderRegistry([endpoint], { cli: { lookup: (name) => env[name], temporaryDirectory: temporary, limits: ledger, timeoutMs: options.timeoutMs ?? 20_000 } });
   const transport = registry.transports["sub"] as ProviderTransport;
   const report = async (index = 0) => JSON.parse(await readFile(`${reportFile}.${index}`, "utf8")) as { cwd: string; argv: string[]; env: Record<string, string>; stdin: string; files: string[]; system: string | null; schema: unknown; geminiSettings: unknown };
   return { root, home, temporary, env, transport, report, pidFile, ledger, support, executable };
@@ -271,7 +271,7 @@ describe("subscription CLI configuration", () => {
 describe("executable discovery", () => {
   it("prefers the override, then PATH, then the newest editor-bundled Claude Code", async () => {
     const root = await mkdtemp(join(tmpdir(), "arbitra-cli-discovery-")); roots.push(root);
-    const support = cliTransportSupport("claude-code-cli")!;
+    const support = requireCliTransportSupport("claude-code-cli");
     const home = join(root, "home");
     for (const version of ["2.1.9", "2.1.282", "2.1.30"]) {
       const directory = join(home, ".vscode", "extensions", `anthropic.claude-code-${version}-darwin-arm64`, "resources", "native-binary");
@@ -289,18 +289,19 @@ describe("executable discovery", () => {
     await mkdir(join(root, "node_modules", "@google", "gemini-cli", "bundle"), { recursive: true });
     await writeFile(join(root, "node_modules", "@google", "gemini-cli", "bundle", "gemini.js"), "");
     await writeFile(join(root, "gemini.cmd"), "@ECHO off\r\n\"%_prog%\"  \"%dp0%\\node_modules\\@google\\gemini-cli\\bundle\\gemini.js\" %*\r\n");
-    const resolution = await resolveCliExecutable(cliTransportSupport("gemini-cli")!, { platform: "win32", nodeExecutable: "C:\\node\\node.exe", lookup: (name) => name === "ARBITRA_GEMINI_EXECUTABLE" ? join(root, "gemini.cmd") : undefined });
+    const resolution = await resolveCliExecutable(requireCliTransportSupport("gemini-cli"), { platform: "win32", nodeExecutable: "C:\\node\\node.exe", lookup: (name) => name === "ARBITRA_GEMINI_EXECUTABLE" ? join(root, "gemini.cmd") : undefined });
     expect(resolution).toMatchObject({ found: true, executable: { command: "C:\\node\\node.exe", prefixArguments: [join(root, "node_modules", "@google", "gemini-cli", "bundle", "gemini.js")] } });
   });
 });
 
 describe("failure text classification", () => {
-  const claude = cliTransportSupport("claude-code-cli")!;
+  const claude = requireCliTransportSupport("claude-code-cli");
   it("parses retry hints and reset times", () => {
     expect(retryHint("try again in 2 hours 5 minutes")).toBe(7_500_000);
     expect(retryHint("Please retry in 23.5s")).toBe(23_500);
     expect(resetTime("Claude AI usage limit reached|1790388000", 0)).toBe(1_790_388_000_000);
-    expect(classifyCliFailure(claude, "IneligibleTierError: This client is no longer supported for Gemini Code Assist for individuals", 1).code).toBe("AUTH");
+    expect(classifyCliFailure(claude, "IneligibleTierError: This client is no longer supported for Gemini Code Assist for individuals", 1)).toMatchObject({ code: "AUTH", message: expect.stringContaining("CLI_ACCOUNT_INELIGIBLE") as unknown });
+    expect(classifyCliFailure(claude, "{\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-x' model is not supported when using Codex with a ChatGPT account.\"}}", 1)).toMatchObject({ code: "INVALID_REQUEST", retryable: false });
     expect(classifyCliFailure(claude, "API Error: Claude's response exceeded the 200 output token maximum", 1).code).toBe("OUTPUT_LIMIT");
     expect(classifyCliFailure(claude, "Error for user@example.com token=abc123", 1).message).not.toMatch(/user@example\.com|abc123/u);
   });

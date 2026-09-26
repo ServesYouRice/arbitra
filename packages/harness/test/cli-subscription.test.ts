@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ProviderRegistry } from "@arbitra/providers/registry.js";
 import { writeCliStandIn } from "@arbitra/providers/transports/cli/stand-in.js";
-import { CLI_TRANSPORT_SUPPORT, type CliVendor } from "@arbitra/providers/transports/cli/support.js";
+import { requireCliTransportSupport, type CliVendor } from "@arbitra/providers/transports/cli/support.js";
 import type { HarnessEvent, HarnessProviderRuntime } from "../src/adapter.js";
 import { CanonicalHarnessAdapter } from "../src/canonical/adapter.js";
 
@@ -20,14 +20,15 @@ describe.each(["claude-code", "codex", "gemini"] as const)("canonical harness ov
   it("round-trips an emulated tool call through arbitra's tool loop", async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), "arbitra-harness-cli-"))); roots.push(root);
     await mkdir(join(root, "tmp"));
-    const support = CLI_TRANSPORT_SUPPORT.find((entry) => entry.vendor === vendor)!;
+    const support = requireCliTransportSupport(vendor);
     const executable = await writeCliStandIn(root, { vendor, reportFile: join(root, "report"), replies: [
       { kind: "text", text: "{\"toolCalls\":[{\"name\":\"repo.readFile\",\"arguments\":{\"path\":\"src/a.ts\"}}]}" },
       { kind: "text", text: "{\"findings\":[]}" },
     ] });
     const env: Record<string, string> = { HOME: join(root, "home"), PATH: "/usr/bin:/bin", [support.executableEnvVar]: executable };
     const transport = new ProviderRegistry([{ id: "sub", providerId: vendor, transport: support.transport, endpoint: support.endpoint, auth: "subscription_login" }],
-      { cli: { lookup: (name) => env[name], temporaryDirectory: join(root, "tmp"), limits: null } }).transports["sub"]!;
+      { cli: { lookup: (name) => env[name], temporaryDirectory: join(root, "tmp"), limits: null } }).transports["sub"];
+    if (transport === undefined) throw new Error("TRANSPORT_ABSENT");
     const runtime: HarnessProviderRuntime = { async invoke(request, context) {
       const response = await transport.send({ modelId: request.modelId, messages: request.messages, tools: request.tools, maximumOutputTokens: request.maximumOutputTokens }, context.signal);
       return { text: response.text, toolCalls: response.toolCalls, refusal: response.refusal, usage: response.usage };

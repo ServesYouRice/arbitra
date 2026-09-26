@@ -32,7 +32,8 @@ describe.skipIf(selected.length === 0)("live subscription CLI conformance", () =
     const support = CLI_TRANSPORT_SUPPORT.find((entry) => entry.vendor === vendor);
     if (support === undefined || modelId === "") throw new Error(`usage: ARBITRA_LIVE_SUBSCRIPTION_CLI=<vendor>:<model>; unknown ${vendor}`);
     const readiness = await probeCliReadiness(support.transport, { lookup: (name) => process.env[name], auth: "subscription_login", oauthTokenEnv: null, limits: null });
-    const transport = new ProviderRegistry([{ id: vendor, providerId: vendor, transport: support.transport, endpoint: support.endpoint, auth: "subscription_login" }], { cli: { limits: null } }).transports[vendor]!;
+    const transport = new ProviderRegistry([{ id: vendor, providerId: vendor, transport: support.transport, endpoint: support.endpoint, auth: "subscription_login" }], { cli: { limits: null } }).transports[vendor];
+    if (transport === undefined) throw new Error("TRANSPORT_ABSENT");
     const observations: Observation[] = [];
     const observe = async (name: string, request: TransportRequest, check: (response: TransportResponse) => string | null) => {
       const started = Date.now();
@@ -59,7 +60,8 @@ describe.skipIf(selected.length === 0)("live subscription CLI conformance", () =
       turn = await observe("tool_call", { modelId, maximumOutputTokens: 600, messages: [system, ask], tools },
         (response) => response.toolCalls.length === 1 && response.toolCalls[0]?.name === "lookup_word" ? null : "no single lookup_word call");
       if (turn !== null && turn.toolCalls.length === 1) {
-        const call = turn.toolCalls[0]!;
+        const call = turn.toolCalls[0];
+        if (call === undefined) throw new Error("TOOL_CALL_ABSENT");
         await observe("tool_result", { modelId, maximumOutputTokens: 600, tools, messages: [system, ask, { role: "assistant", content: "", toolCalls: turn.toolCalls },
           { role: "tool", content: JSON.stringify({ definition: "an arbiter of models" }), toolCallId: call.id, toolName: call.name }] },
         (response) => response.toolCalls.length === 0 && /arbiter of models/iu.test(response.text ?? "") ? null : "final answer did not use the tool result");

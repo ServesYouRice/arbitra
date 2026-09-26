@@ -1,0 +1,22 @@
+{
+  "recordedAt": "2026-09-26T09:26:41.905Z",
+  "host": "darwin-arm64",
+  "node": "v22.23.2",
+  "transport": "gemini-cli",
+  "modelId": "gemini-3-flash-preview",
+  "executableSource": "path",
+  "cliVersion": "0.61.0",
+  "versionSupported": true,
+  "auth": "unverified",
+  "observations": [
+    {
+      "case": "text",
+      "status": "unavailable",
+      "detail": "AUTH: CLI_ACCOUNT_INELIGIBLE: the signed-in Google account's Gemini Code Assist tier no longer serves Gemini CLI. Sign in with an account whose plan includes Gemini CLI use (for a Workspace or Standard license also export GOOGLE_CLOUD_PROJECT), or bind this role to another endpoint: Error authenticating: IneligibleTierError: This client is no longer supported for Gemini Code Assist for individuals",
+      "durationMs": 3855,
+      "usage": null,
+      "providerRequestId": null,
+      "transportVersion": null
+    }
+  ]
+}

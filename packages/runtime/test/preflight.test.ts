@@ -9,7 +9,7 @@ import { configurationDiagnostics, environmentDiagnostics, PreflightError, type 
 import { DockerTestSandbox, type BoundedProcessResult, type ProcessRequest, type SandboxAvailability } from "../src/test-sandbox.js";
 import { smokeProvider, smokeRepository } from "./smoke-provider.js";
 import type { CliProbe, CliReadiness } from "@arbitra/providers/transports/cli/probe.js";
-import { cliTransportSupport } from "@arbitra/providers/transports/cli/support.js";
+import { requireCliTransportSupport } from "@arbitra/providers/transports/cli/support.js";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
@@ -132,7 +132,7 @@ describe("environment preflight", () => {
 
   it("reports each subscription CLI state with the command that fixes it, without a model call", async () => {
     const config = await template("subscription-audit");
-    const state = (transport: string, changes: Partial<CliReadiness>): CliReadiness => ({ support: cliTransportSupport(transport)!, version: "1.0.0", versionSupported: true, auth: "logged_in", authDetail: null, usageLimit: null,
+    const state = (transport: string, changes: Partial<CliReadiness>): CliReadiness => ({ support: requireCliTransportSupport(transport), version: "1.0.0", versionSupported: true, auth: "logged_in", authDetail: null, usageLimit: null,
       executable: { found: true, executable: { command: "/bin/cli", prefixArguments: [], path: "/bin/cli", source: "path" } }, ...changes });
     const probe = (states: Record<string, Partial<CliReadiness>>): CliProbe => async (transport) => state(transport, states[transport] ?? {});
     const run = async (states: Record<string, Partial<CliReadiness>>) => environmentDiagnostics(config, { credential: absent, cliProbe: probe(states) });

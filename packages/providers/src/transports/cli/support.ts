@@ -67,6 +67,12 @@ export function cliTransportSupport(transport: string): CliTransportSupport | un
   return CLI_TRANSPORT_SUPPORT.find((entry) => entry.transport === transport);
 }
 
+export function requireCliTransportSupport(key: string): CliTransportSupport {
+  const support = CLI_TRANSPORT_SUPPORT.find((entry) => entry.transport === key || entry.vendor === key);
+  if (support === undefined) throw new Error(`UNKNOWN_TRANSPORT:${key}`);
+  return support;
+}
+
 export function isCliEndpoint(endpoint: string): boolean { return endpoint.startsWith("cli:"); }
 
 /** Every shipped transport, API and subscription CLI, with its credential kind and verification status. */

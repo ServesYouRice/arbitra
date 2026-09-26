@@ -62,6 +62,44 @@ model behind two names. That collapse is reported rather than silently accepted,
 | `anthropic-messages` | `transports/anthropic-messages.ts` |
 | `gemini-native` | `transports/gemini-native.ts` |
 | JSON test transport | `transports/json-transport.ts` |
+| `claude-code-cli`, `codex-cli`, `gemini-cli` | `transports/cli/` (subscription CLIs) |
+
+`TRANSPORT_SUPPORT_MATRIX` in `transports/cli/support.ts` records every shipped transport
+with its credential kind and verification status:
+
+| Transport | Kind | Credential | Status | Evidence |
+|---|---|---|---|---|
+| `openai-responses` | HTTP API | API key variable | declared, unverified live | mock contract tests |
+| `openai-chat` | HTTP API | API key variable | live verified | [P03](qa/p03/README.md) (Gemini's compatible endpoint) |
+| `anthropic-messages` | HTTP API | API key variable | declared, unverified live | mock contract tests |
+| `gemini-native` | HTTP API | API key variable | live verified | [P03](qa/p03/README.md) |
+| `claude-code-cli` | subscription CLI, Claude Code 2.1.0–<3.0.0 | CLI login or `claude setup-token` token | live verified on 2.1.282 | [subscription-cli](qa/subscription-cli/README.md) |
+| `codex-cli` | subscription CLI, Codex 0.150.0–<0.200.0 | ChatGPT login | live verified on 0.154.0 | [subscription-cli](qa/subscription-cli/README.md) |
+| `gemini-cli` | subscription CLI, Gemini CLI 0.60.0–<1.0.0 | Google login | declared, unverified live (the test account was refused as ineligible) | [subscription-cli](qa/subscription-cli/README.md) |
+
+**Subscription CLI transports** run a vendor's official CLI headless as a completion engine,
+so a role can use a Claude, ChatGPT or Google subscription instead of API credit. The
+endpoint is `cli://<vendor>` with `auth` (`subscription_login`, or `oauth_token` plus
+`oauthTokenEnvVar` for Claude Code); no key or URL is configured. Each call: resolves the
+executable (override variable, PATH, documented install locations), refuses a CLI version
+outside the matrix range, serializes the conversation deterministically into one framed
+transcript (system text through the CLI's own system-prompt mechanism, with its default
+prompt replaced), runs the CLI in an empty temporary directory with an allowlisted
+environment and its agent tools, MCP, hooks, skills, plugins and project instructions
+disabled, and kills the process tree on exit. Tool use is emulated: the transcript lists
+arbitra's tools and the model replies with `{"toolCalls":[{"name","arguments"}]}` or its final
+answer; calls get IDs derived from the conversation hash, so the canonical harness's durable
+tool loop is unchanged. Codex (`--output-schema`) and Claude Code (`--json-schema`) enforce a
+response schema natively when one is requested without tools; otherwise output is prompt JSON.
+Usage is mapped as reported (unknown stays `null`), cost is unknown, the provider request ID is
+the CLI session or thread ID, and the response's `transportVersion` (`<vendor>/<version>`) is
+recorded on the trace. Failures are classified: not signed in or ineligible account → `AUTH`;
+plan allowance exhausted → `QUOTA` (with the reset, also recorded for preflight); throttling
+or overload → `RATE_LIMIT` with the CLI's retry hint; refused model → `INVALID_REQUEST`;
+output ceiling (including Claude Code's automatic continuation, which is stopped) →
+`OUTPUT_LIMIT`; unreadable stream or bad tool envelope → `MALFORMED_RESPONSE`; timeout and
+cancellation as usual. The CLI's own tool events (`tool_use`, `command_execution`,
+`file_change`, MCP, search) stop the process immediately and fail the call.
 
 A transport translates; it does not decide policy. Budget, retry and scheduling live above
 it.

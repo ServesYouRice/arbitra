@@ -8,7 +8,7 @@
 //                  "assign": { "<example>": { "<model role>": "<endpoint id>" } }, "overrides": { "<example>": {...} } }
 // Each model role keeps the example's capability tier and role wiring; provider, transport,
 // model identity, structured-output dialect and independence group come from the binding.
-// Nothing here reads or writes credentials: endpoints name environment variables only.
+// Nothing here reads or writes credentials: endpoints name environment variables or a subscription CLI login.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
@@ -16,8 +16,8 @@ const [bindingsPath, output] = process.argv.slice(2);
 if (bindingsPath === undefined || output === undefined) throw new Error("usage: configure.mjs <bindings.json> <output-directory>");
 const bindings = JSON.parse(readFileSync(resolve(bindingsPath), "utf8"));
 const examples = new URL("../../examples/model-backed/", import.meta.url);
-const dialects = { "gemini-native": "gemini", "openai-chat": "json_mode", "openai-responses": "openai_strict", "anthropic-messages": "anthropic_tool" };
-const history = { "gemini-native": "round_trip_opaque", "openai-chat": "strip_reasoning", "openai-responses": "round_trip_opaque", "anthropic-messages": "round_trip_opaque" };
+const dialects = { "gemini-native": "gemini", "openai-chat": "json_mode", "openai-responses": "openai_strict", "anthropic-messages": "anthropic_tool", "claude-code-cli": "prompt_json", "codex-cli": "prompt_json", "gemini-cli": "prompt_json" };
+const history = { "gemini-native": "round_trip_opaque", "openai-chat": "strip_reasoning", "openai-responses": "round_trip_opaque", "anthropic-messages": "round_trip_opaque", "claude-code-cli": "verbatim", "codex-cli": "verbatim", "gemini-cli": "verbatim" };
 
 mkdirSync(resolve(output), { recursive: true });
 for (const [example, assignment] of Object.entries(bindings.assign)) {
