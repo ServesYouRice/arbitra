@@ -5,7 +5,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { canonicalJson } from "@arbitra/core/config/config-store.js";
 import type { HarnessEvent, HarnessUsage } from "@arbitra/harness/adapter.js";
 import { ClaudeCodeHarnessAdapter, NativeHarnessError } from "@arbitra/harness/native/claude-code/adapter.js";
-import { CLAUDE_CODE_VERSION_ARGUMENTS, claudeCodeEnvironment, isClaudeCodeControlPath, parseClaudeCodeVersion } from "@arbitra/harness/native/claude-code/translation.js";
+import { CLAUDE_CODE_VERSION_ARGUMENTS, claudeCodeEnvironment, claudeCodeHostHome, claudeCodeHostLoginEnvironment, isClaudeCodeControlPath, parseClaudeCodeVersion } from "@arbitra/harness/native/claude-code/translation.js";
 import { runNativeProcess, type NativeProcessPort } from "@arbitra/harness/native/process.js";
 import { assertNativeHarnessSupported, nativeHarnessSupport, unenforceableNativeTools, type NativeHarnessSupport } from "@arbitra/harness/native/support.js";
 import type { RunConfig } from "@arbitra/schemas/config.js";
@@ -30,7 +30,11 @@ const DEFAULT_OUTPUT_BYTES = 16 * 1024 * 1024;
 const SCRATCH_PREFIX = "arbitra-native-";
 
 /** Validated static native settings for a configuration. Throws the preflight code of the first problem. */
-export interface NativeWriterSettings { readonly settings: NativeHarnessConfig; readonly support: NativeHarnessSupport; readonly tools: readonly string[] }
+export interface NativeWriterSettings {
+  readonly settings: NativeHarnessConfig; readonly support: NativeHarnessSupport; readonly tools: readonly string[];
+  /** Host variable holding the credential and its variable inside the native process; null for the host's own login (`subscription_login`). */
+  readonly credential: { readonly variable: string; readonly target: string } | null;
+}
 export function nativeWriterSettings(config: RunConfig): NativeWriterSettings {
   if (config.harness.mode !== "native") throw new Error("NATIVE_HARNESS_MODE_REQUIRED");
   if (config.harness.native === undefined) throw new Error("NATIVE_HARNESS_CONFIGURATION_REQUIRED");
@@ -41,7 +45,15 @@ export function nativeWriterSettings(config: RunConfig): NativeWriterSettings {
   const tools = settings.tools ?? support.defaultTools;
   const refused = unenforceableNativeTools(support, tools);
   if (refused[0] !== undefined) throw new Error(`NATIVE_HARNESS_TOOL_UNENFORCEABLE:${refused[0].tool}`);
-  return { settings, support, tools };
+  const kind = settings.credentialKind ?? "api_key"; const variable = settings.apiKeyEnvVar;
+  if (kind === "subscription_login") {
+    if (variable !== undefined) throw new Error("NATIVE_HARNESS_CREDENTIAL_VARIABLE_FORBIDDEN");
+    return { settings, support, tools, credential: null };
+  }
+  if (variable === undefined) throw new Error("NATIVE_HARNESS_CREDENTIAL_VARIABLE_REQUIRED");
+  const target = support.credentialTargets[kind];
+  if (target === undefined) throw new Error(`NATIVE_HARNESS_CREDENTIAL_KIND_UNSUPPORTED:${kind}`);
+  return { settings, support, tools, credential: { variable, target } };
 }
 
 /**
@@ -95,7 +107,7 @@ export async function nativeTestingWriter(store: RunStore, config: RunConfig, ac
   workspace: TestingWorkspace, partitions: WritePartitions, lease: WriteLease,
   options: { readonly modelProfileId: string; readonly feedback: unknown; readonly signal: AbortSignal; readonly host?: NativeWriterHost }) {
   if (config.mode !== "testing" || config.harness.mode !== "native" || attempt.state !== "reserved" || lease.taskId !== taskValue.id) throw new Error("NATIVE_WRITER_CONFIGURATION_INVALID");
-  const { settings, support, tools } = nativeWriterSettings(config);
+  const { settings, support, tools, credential } = nativeWriterSettings(config);
   for (const path of lease.paths) {
     partitions.assertGranted(lease, path);
     if (isClaudeCodeControlPath(path)) throw new Error(`NATIVE_HARNESS_CONTROL_PATH_IN_LEASE:${path}`);
@@ -129,11 +141,13 @@ export async function nativeTestingWriter(store: RunStore, config: RunConfig, ac
   const processes = options.host?.processes ?? { run: runNativeProcess };
   const executable = host[support.executableEnvVar];
   if (executable === undefined || !isAbsolute(executable)) throw new Error(`NATIVE_HARNESS_EXECUTABLE_MISSING:${support.executableEnvVar}`);
-  const credential = host[settings.apiKeyEnvVar];
-  if (credential === undefined || credential.length === 0) throw new Error(`NATIVE_HARNESS_CREDENTIAL_MISSING:${settings.apiKeyEnvVar}`);
+  const secret = credential === null ? "" : host[credential.variable] ?? "";
+  if (credential !== null && secret.length === 0) throw new Error(`NATIVE_HARNESS_CREDENTIAL_MISSING:${credential.variable}`);
+  // The host login is found only through the host home; refused here, before any spend.
+  if (credential === null) claudeCodeHostHome(host);
   const pinned = await pinInput(store, `native-writer-input-${identity}`, binding, workspace, options.feedback);
   const version = await probeNativeVersion(executable, host, processes, options.signal);
-  assertNativeHarnessSupported(support.harnessId, version, NATIVE_TESTING_WRITER_STAGE);
+  assertNativeHarnessSupported(support.harnessId, version, NATIVE_TESTING_WRITER_STAGE, settings.credentialKind);
   if (options.signal.aborted) throw new Error("NATIVE_WRITER_CANCELLED");
 
   const reservationId = await activities.reserveExternal(activityId, settings.maximumTokensPerRun);
@@ -158,9 +172,10 @@ export async function nativeTestingWriter(store: RunStore, config: RunConfig, ac
     }
     const realWork = await realpath(work);
     const adapter = new ClaudeCodeHarnessAdapter({ executable, cwd: work, cwdAliases: realWork === work ? [] : [realWork],
-      environment: claudeCodeEnvironment({ host, home: join(directory, "home"), configDirectory: join(directory, "config"), temporaryDirectory: join(directory, "tmp"), credentialTarget: support.credentialTargets[settings.credentialKind ?? "api_key"] ?? (() => { throw new Error(`NATIVE_HARNESS_CREDENTIAL_KIND_UNSUPPORTED:${settings.credentialKind ?? "api_key"}`); })(), credential }),
+      environment: credential === null ? claudeCodeHostLoginEnvironment({ host, temporaryDirectory: join(directory, "tmp") })
+        : claudeCodeEnvironment({ host, home: join(directory, "home"), configDirectory: join(directory, "config"), temporaryDirectory: join(directory, "tmp"), credentialTarget: credential.target, credential: secret }),
       model: profile.modelId, maximumTurns: settings.maximumTurns, timeoutMs: settings.timeoutMs, maximumOutputBytes: settings.maximumOutputBytes ?? DEFAULT_OUTPUT_BYTES,
-      maximumTokens: settings.maximumTokensPerRun, writablePaths: lease.paths, processes });
+      maximumTokens: settings.maximumTokensPerRun, writablePaths: lease.paths, subscriptionLogin: credential === null, processes });
     const prompt = nativePrompt(task, attempt, lease, pinned.feedback);
     const run = adapter.run({ id: activityId, modelId: profile.modelId, maximumOutputTokens: profile.limits.maxOutputTokens ?? 1, maxToolTurns: settings.maximumToolCalls },
       { text: prompt, hash: hash(prompt) }, tools.map((name) => ({ name, description: `Native ${name}`, inputSchema: {} })), { async invoke() { throw new Error("NATIVE_TOOL_RUNTIME_UNUSED"); } },
@@ -324,7 +339,9 @@ function failureResult(code: string) { return { summary: "Native harness run adm
 async function recordTrace(input: { store: RunStore; activityId: string; profile: RunConfig["models"][string]; support: NativeHarnessSupport; tools: readonly string[]; settings: NativeHarnessConfig;
   version: string; outcome: ModelActivityTraceRecord["outcome"]; failure: string | null; usage: HarnessUsage | null; toolCalls: number; toolErrors: number; durationMs: number; inputRefs: readonly string[]; outputRef: string | null }) {
   const { support, profile, settings } = input;
-  const policyHash = hash({ profile: support.profile, tools: [...input.tools].sort(), maximumTurns: settings.maximumTurns, maximumToolCalls: settings.maximumToolCalls, maximumTokensPerRun: settings.maximumTokensPerRun, translation: support.translation, status: support.status });
+  // The host login runs under other arguments (A9); api_key and oauth_token runs keep their earlier hash.
+  const policyHash = hash({ profile: support.profile, tools: [...input.tools].sort(), maximumTurns: settings.maximumTurns, maximumToolCalls: settings.maximumToolCalls, maximumTokensPerRun: settings.maximumTokensPerRun, translation: support.translation, status: support.status,
+    ...(settings.credentialKind === "subscription_login" ? { subscriptionLogin: true } : {}) });
   const usage = input.usage;
   const trace: ModelActivityTraceRecord = {
     schemaVersion: 1, runId: input.store.runId, nodeId: input.activityId.split("/")[0] ?? input.activityId, activityId: input.activityId, attempt: await input.store.nextModelTraceAttempt(input.activityId),

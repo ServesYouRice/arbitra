@@ -278,7 +278,7 @@ host setup and diagnostics are in [setup.md](setup.md#native-mode).
 
 | Harness | Versions | Stages | Status | Executable | Credential |
 |---|---|---|---|---|---|
-| `claude-code` (headless `claude -p --output-format stream-json`) | `>=2.0.0 <3.0.0` | `testing-writer` | `declared_unverified` | `ARBITRA_CLAUDE_CODE_EXECUTABLE` (host env, absolute path) | `apiKeyEnvVar` → `ANTHROPIC_API_KEY` |
+| `claude-code` (headless `claude -p --output-format stream-json`) | `>=2.0.0 <3.0.0` | `testing-writer` | `declared_unverified` | `ARBITRA_CLAUDE_CODE_EXECUTABLE` (host env, absolute path) | `apiKeyEnvVar` → `ANTHROPIC_API_KEY` (`api_key`) or `CLAUDE_CODE_OAUTH_TOKEN` (`oauth_token`); host login, no variable (`subscription_login`, `>=2.1.0`) |
 
 `declared_unverified` means the adapter is implemented and tested against a scripted
 stand-in process that emits the documented event stream (`native/stand-in.ts`), but no run
@@ -289,7 +289,8 @@ Anything not in the matrix is refused before a run exists: Audit
 (`NATIVE_HARNESS_DISCOVERY_FORBIDDEN`), Feature and planning-only Testing
 (`NATIVE_HARNESS_MODE_UNSUPPORTED`), other harnesses, stages or versions
 (`NATIVE_HARNESS_UNSUPPORTED`, `NATIVE_HARNESS_STAGE_UNSUPPORTED`,
-`NATIVE_HARNESS_VERSION_UNSUPPORTED` from the pre-run `--version` probe), and any tool that
+`NATIVE_HARNESS_VERSION_UNSUPPORTED` from the pre-run `--version` probe, and
+`NATIVE_HARNESS_SUBSCRIPTION_LOGIN_VERSION_UNSUPPORTED` below 2.1.0 for the host login), and any tool that
 cannot be bounded (`NATIVE_HARNESS_TOOL_UNENFORCEABLE`: shell, network, subagent, MCP or
 unknown tools). Permitted tools are Read, Glob, Grep, LS, Edit, MultiEdit and Write.
 
@@ -302,7 +303,7 @@ strict baseline unchanged.
 
 `packages/harness/src/native/claude-code/translation.ts` holds every Claude Code-specific
 assumption — flags, environment variables, `--version` format, stream-json event shapes,
-usage buckets and tool names — as numbered checkpoints A1–A8. It is marked
+usage buckets, tool names and the host-login flags — as numbered checkpoints A1–A9. It is marked
 `verified: false`. The adapter (`claude-code/adapter.ts`) maps the stream to the shared
 `HarnessEvent`s: `harness_started` (session and reported model), `model_turn_started` /
 `model_turn_completed` per assistant message, `tool_call` / `tool_result` (results are
@@ -325,12 +326,18 @@ orchestrator: `arbitra → Testing writer activity → claude -p → model`. For
 4. Runs the CLI in a fresh scratch copy under the system temp directory — never the Testing
    worktree or the source checkout — with a sanitized environment (PATH, a scratch
    `HOME`/`CLAUDE_CONFIG_DIR`/`TMPDIR`, non-essential traffic disabled, and the one
-   configured credential). The prompt goes on stdin. Write tools are allowed only as
-   `Tool(./<leased path>)`.
+   configured credential). With `credentialKind: "subscription_login"` no credential is
+   passed: the CLI uses the host's own login through the host `HOME`, `USER`/`LOGNAME`
+   (and `CLAUDE_CONFIG_DIR` when set), with a scratch `TMPDIR`, and host settings, memory,
+   skills, plugins, hooks and MCP switched off by `--setting-sources ""`, `--safe-mode`, an
+   empty `--mcp-config`, `--no-session-persistence` and `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`.
+   The prompt goes on stdin. Write tools are allowed only as `Tool(./<leased path>)`.
 5. Checks every streamed event: a tool not granted, a tool path outside the scratch copy, a
    write tool targeting a non-leased path, more tool calls than `maximumToolCalls`, more
    turns than `maximumTurns`, streamed usage above `maximumTokensPerRun`, an active MCP
-   server, a subagent message or a malformed event stops the **whole process tree**.
+   server, a host login that reports API-key authentication (`NATIVE_HARNESS_API_KEY_IN_USE`,
+   before the first request), a subagent message or a malformed event stops the **whole
+   process tree**.
    Timeout and cancellation do the same.
 6. After the process exits, diffs the scratch copy against its seed. Any change outside the
    lease, any deletion, symlink, non-UTF-8 or oversize file rejects the whole run. Otherwise
@@ -377,7 +384,10 @@ through the lease. Reads are confined by the harness's own permission rules and 
 from tool events; a read outside the scratch copy stops the run, but it is detected after
 the tool call is announced, not prevented. Tool arguments other than `file_path`,
 `notebook_path` and `path` (for example a Glob `pattern`) are not inspected. Managed
-enterprise settings installed on the host still apply to the CLI.
+enterprise settings installed on the host still apply to the CLI. With
+`subscription_login` the home is the host's own, so host configuration is excluded by the
+flags above rather than by an empty home, and the CLI may still update its own state files
+there (for example `~/.claude.json`).
 
 Nesting orchestrators is a non-goal either way: the intended shape is
 `arbitra → vendor CLI harness → model`, never `arbitra → another orchestration graph →

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { HarnessEvent, HarnessRunPolicy } from "../src/adapter.js";
 import { assertCanonicalMeasurements, harnessMeasurementClass } from "../src/measurement.js";
 import { ClaudeCodeHarnessAdapter, NativeHarnessError, type NativeInvocation } from "../src/native/claude-code/adapter.js";
-import { claudeCodeArguments, claudeCodeEnvironment, isClaudeCodeControlPath, parseClaudeCodeEvent, parseClaudeCodeVersion } from "../src/native/claude-code/translation.js";
+import { claudeCodeArguments, claudeCodeEnvironment, claudeCodeHostLoginEnvironment, isClaudeCodeControlPath, parseClaudeCodeEvent, parseClaudeCodeVersion } from "../src/native/claude-code/translation.js";
 import { runNativeProcess } from "../src/native/process.js";
 import { processTerminated, writeStandInExecutable, type StandInScenario } from "../src/native/stand-in.js";
 import { assertNativeHarnessSupported, NATIVE_HARNESS_SUPPORT, nativeHarnessSupport, unenforceableNativeTools } from "../src/native/support.js";
@@ -46,6 +46,14 @@ describe("native harness support matrix", () => {
       .toEqual([["Bash", "shell"], ["WebFetch", "network"], ["Task", "subagent"], ["mcp__x__y", "mcp"], ["Mystery", "unknown"]]);
   });
 
+  it("requires Claude Code 2.1.0 for the host's own subscription login without narrowing the general range", () => {
+    expect(assertNativeHarnessSupported("claude-code", "2.0.14", "testing-writer").harnessId).toBe("claude-code");
+    expect(assertNativeHarnessSupported("claude-code", "2.0.14", "testing-writer", "oauth_token").harnessId).toBe("claude-code");
+    expect(() => assertNativeHarnessSupported("claude-code", "2.0.14", "testing-writer", "subscription_login")).toThrow("NATIVE_HARNESS_SUBSCRIPTION_LOGIN_VERSION_UNSUPPORTED:claude-code@2.0.14");
+    expect(assertNativeHarnessSupported("claude-code", "2.1.0", "testing-writer", "subscription_login").subscriptionLogin).toEqual({ minimumVersion: "2.1.0" });
+    expect(() => assertNativeHarnessSupported("claude-code", "3.0.0", "testing-writer", "subscription_login")).toThrow("NATIVE_HARNESS_VERSION_UNSUPPORTED:claude-code@3.0.0");
+  });
+
   it("refuses the native profile for Audit and round-zero discovery at the port", () => {
     const adapter = new ClaudeCodeHarnessAdapter({ executable: "/bin/false", cwd: "/tmp", environment: {}, model: null, maximumTurns: 1, timeoutMs: 1000, maximumOutputBytes: 1000, maximumTokens: 1, writablePaths: [] });
     const node = { id: "n", modelId: "m", maximumOutputTokens: 1, maxToolTurns: 1 };
@@ -73,6 +81,21 @@ describe("Claude Code translation layer", () => {
     expect(environment["HOME"]).toBe("/s/home");
     expect(["CLAUDE.md", "a/CLAUDE.local.md", ".claude/settings.json", ".mcp.json"].every(isClaudeCodeControlPath)).toBe(true);
     expect(isClaudeCodeControlPath("tests/claude.test.ts")).toBe(false);
+  });
+
+  it("switches off host settings and extensions and passes the host home but no credential for the host's own login", () => {
+    const base = { model: "m", maximumTurns: 3, tools: ["Read", "Write"], writablePaths: ["tests/a.test.ts"] };
+    expect(claudeCodeArguments({ ...base, subscriptionLogin: false })).toEqual(claudeCodeArguments(base));
+    expect(claudeCodeArguments({ ...base, subscriptionLogin: true })).toEqual([...claudeCodeArguments(base), "--mcp-config", "{\"mcpServers\":{}}", "--setting-sources", "", "--safe-mode", "--no-session-persistence"]);
+    const host = { PATH: "/bin", HOME: "/Users/me", USER: "me", AWS_SECRET_ACCESS_KEY: "x", GITHUB_TOKEN: "y", ANTHROPIC_API_KEY: "host-key", CLAUDE_CODE_OAUTH_TOKEN: "host-token", ANTHROPIC_AUTH_TOKEN: "z" };
+    const environment = claudeCodeHostLoginEnvironment({ host, temporaryDirectory: "/s/tmp" });
+    expect(Object.keys(environment).sort()).toEqual(["CLAUDE_CODE_DISABLE_AUTO_MEMORY", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "DISABLE_AUTOUPDATER", "DISABLE_ERROR_REPORTING", "DISABLE_TELEMETRY", "HOME", "NO_COLOR", "PATH", "TEMP", "TMP", "TMPDIR", "USER", "USERPROFILE"]);
+    expect(environment).toMatchObject({ HOME: "/Users/me", USERPROFILE: "/Users/me", TMPDIR: "/s/tmp", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" });
+    expect(claudeCodeHostLoginEnvironment({ host: { ...host, CLAUDE_CONFIG_DIR: "/Users/me/.claude-work" }, temporaryDirectory: "/s/tmp" })["CLAUDE_CONFIG_DIR"]).toBe("/Users/me/.claude-work");
+    expect(claudeCodeHostLoginEnvironment({ host: { Path: "C:\\bin", USERPROFILE: "C:\\Users\\me" }, temporaryDirectory: "C:\\s\\tmp" })).toMatchObject({ HOME: "C:\\Users\\me", USERPROFILE: "C:\\Users\\me" });
+    expect(() => claudeCodeHostLoginEnvironment({ host: { PATH: "/bin", HOME: "" }, temporaryDirectory: "/s/tmp" })).toThrow("NATIVE_HARNESS_HOST_HOME_MISSING");
+    expect(parseClaudeCodeEvent('{"type":"system","subtype":"init","apiKeySource":"none"}')).toMatchObject({ kind: "init", apiKeySource: "none" });
+    expect(parseClaudeCodeEvent('{"type":"system","subtype":"init"}')).toMatchObject({ kind: "init", apiKeySource: null });
   });
 
   it("parses versions and events, rejecting malformed shapes and tolerating unknown types", () => {
@@ -121,6 +144,19 @@ describe("Claude Code adapter against a scripted native process", () => {
     const { failure } = await run(scenario as StandInScenario);
     expect(failure?.code).toBe(code);
     expect(failure?.observed.process?.treeTerminated).toBe(true);
+  });
+
+  it("passes the host-login flags and stops at init, before any request, when the host login is an API key", async () => {
+    const root = await directory(); const reportFile = join(root, "report.json");
+    const { failure } = await run({ reportFile, apiKeySource: "none", steps: [{ write: "tests/a.test.ts", content: "test();\n" }] }, { subscriptionLogin: true });
+    expect(failure).toBeNull();
+    const report = JSON.parse(await readFile(reportFile, "utf8")) as { argv: string[] };
+    expect(report.argv.slice(-7)).toEqual(["--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--setting-sources", "", "--safe-mode", "--no-session-persistence"]);
+    const keyed = await run({ apiKeySource: "/login managed key", steps: [{ text: "working" }] }, { subscriptionLogin: true });
+    expect(keyed.failure?.code).toBe("NATIVE_HARNESS_API_KEY_IN_USE");
+    expect(keyed.events).toEqual([]);
+    // A variable credential is an API key or token by choice; only the host login is held to "none".
+    expect((await run({ apiKeySource: "ANTHROPIC_API_KEY", steps: [] })).failure).toBeNull();
   });
 
   it("stops at the streamed token ceiling", async () => {

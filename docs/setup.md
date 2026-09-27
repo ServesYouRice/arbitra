@@ -335,7 +335,7 @@ Host setup (never run configuration):
 - `ARBITRA_CLAUDE_CODE_EXECUTABLE` — absolute path of the `claude` executable. Its
   `--version` is probed before every native run and must fall in the supported range.
 - The variable named by `apiKeyEnvVar` — passed to the native process as
-  `ANTHROPIC_API_KEY`, its only credential.
+  `ANTHROPIC_API_KEY`, its only credential. Not used with `subscription_login` (below).
 - Every writer profile in `workflow.testing.execution.models` must be an `anthropic`
   profile; its `modelId` is passed as `--model`. Advisors are refused in native mode.
 - Optional `tools` (default `Read, Glob, Grep, Edit, Write`); shell, network, subagent,
@@ -353,6 +353,18 @@ in the variable `apiKeyEnvVar` names and set `harness.native.credentialKind` to
 `oauth_token`. The token is then passed to the native process only as
 `CLAUDE_CODE_OAUTH_TOKEN` (for the conformance test:
 `ARBITRA_NATIVE_CONFORMANCE_CREDENTIAL_KIND=oauth_token`).
+
+To use the host's own Claude Code login instead (the account `claude` is signed in to on
+this machine: macOS keychain, or `~/.claude/.credentials.json` on Linux), set
+`credentialKind` to `subscription_login` and omit `apiKeyEnvVar`. It needs Claude Code
+2.1.0 or later. No credential variable is passed: the native process gets the host `HOME`
+(`USERPROFILE` on Windows), `USER`/`LOGNAME` (the keychain account) and the host
+`CLAUDE_CONFIG_DIR` only when set, and runs with
+host settings, memory, skills, plugins, hooks and MCP switched off (`--setting-sources ""`,
+`--safe-mode`, an empty `--mcp-config`, `--no-session-persistence`,
+`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`). A login that reports API-key authentication is stopped
+before its first request (`NATIVE_HARNESS_API_KEY_IN_USE`). For the conformance test:
+`ARBITRA_NATIVE_CONFORMANCE_CREDENTIAL_KIND=subscription_login`, with no key variable.
 
 ### Docker prerequisites (Testing execute, Audit verification checks)
 
@@ -478,6 +490,7 @@ See [Feature mode](workflows.md#feature-mode) for revision and the equivalent HT
 | `NATIVE_HARNESS_DISCOVERY_FORBIDDEN`, `NATIVE_HARNESS_MODE_UNSUPPORTED` | configuration | Native mode serves only the Testing writer: use a Testing execute run, or set `harness.mode` to `canonical` |
 | `NATIVE_HARNESS_CONFIGURATION_REQUIRED`, `NATIVE_HARNESS_UNSUPPORTED:<id>`, `NATIVE_HARNESS_STAGE_UNSUPPORTED:<stage>` | configuration | Add `harness.native` naming a harness and stage from the support matrix |
 | `NATIVE_HARNESS_TOOL_UNENFORCEABLE:<tool>` | configuration | Remove shell, network, subagent, MCP or unknown tools from `harness.native.tools` |
+| `NATIVE_HARNESS_CREDENTIAL_VARIABLE_REQUIRED`, `NATIVE_HARNESS_CREDENTIAL_VARIABLE_FORBIDDEN` | configuration | Name `harness.native.apiKeyEnvVar` for `api_key` (the default) and `oauth_token`; omit it for `subscription_login` |
 | `NATIVE_HARNESS_MODEL_INCOMPATIBLE:<id>`, `NATIVE_HARNESS_ADVISOR_UNSUPPORTED`, `NATIVE_HARNESS_CONTROL_PATH_IN_LEASE` | configuration | Use writer profiles the harness serves; remove advisors; never grant `CLAUDE.md`, `.claude/` or `.mcp.json` |
 | `NATIVE_HARNESS_UNVERIFIED` | configuration (warning) | The matrix entry has no recorded real-CLI conformance yet |
 | `BUDGETS_NOT_ENFORCED` | configuration | Set `budgets` to `{}`; limit spend with `workflow.modelExecution.maximumTokens` (error for model-backed runs, warning for scripted Audit) |
@@ -497,7 +510,7 @@ See [Feature mode](workflows.md#feature-mode) for revision and the equivalent HT
 | `ADVISOR_MODEL_CONFIGURATION_INVALID`, `ADVISOR_OUTPUT_LIMIT_EXCEEDED`, `ADVISOR_CONTEXT_LIMIT_EXCEEDED`, `ADVISOR_MODEL_ENDPOINT_ABSENT:<id>` | configuration | Each `workflow.testing.execution.advisors.models` tier must name a bound profile at or above that tier whose limits admit the advisor limits |
 | `MODEL_IDENTITY_PLACEHOLDER:<id>` | environment (live runs) | Set real `modelId`/`family` |
 | `PROVIDER_CREDENTIAL_MISSING:<endpoint>` | environment | Export the named variable |
-| `NATIVE_HARNESS_EXECUTABLE_MISSING`, `NATIVE_HARNESS_CREDENTIAL_MISSING:<var>` | environment | Export `ARBITRA_CLAUDE_CODE_EXECUTABLE` (absolute path) and the `apiKeyEnvVar` variable |
+| `NATIVE_HARNESS_EXECUTABLE_MISSING`, `NATIVE_HARNESS_CREDENTIAL_MISSING:<var>`, `NATIVE_HARNESS_HOST_HOME_MISSING` | environment | Export `ARBITRA_CLAUDE_CODE_EXECUTABLE` (absolute path) and the `apiKeyEnvVar` variable; `subscription_login` needs the host `HOME` (`USERPROFILE` on Windows) |
 | `SANDBOX_ENGINE_UNAVAILABLE`, `SANDBOX_IMAGE_UNAVAILABLE:<image>` | environment | Start a Linux Docker engine; make the pinned image present locally |
 | `SUBSCRIPTION_CLI_NOT_INSTALLED:<endpoint>`, `SUBSCRIPTION_CLI_VERSION_UNREADABLE:<endpoint>`, `SUBSCRIPTION_CLI_VERSION_UNSUPPORTED:<endpoint>` | environment | Install a supported CLI version, or set its `ARBITRA_*_EXECUTABLE` to an absolute path |
 | `SUBSCRIPTION_CLI_NOT_LOGGED_IN:<endpoint>`, `SUBSCRIPTION_CLI_API_KEY_LOGIN:<endpoint>` | environment | Sign in with the subscription using the command in the message (`claude auth login`, `codex login`, `gemini`) |

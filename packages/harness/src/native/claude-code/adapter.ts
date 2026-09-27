@@ -21,6 +21,8 @@ export interface NativeInvocation {
   readonly maximumTokens: number;
   /** Exact relative paths write tools may target (the write lease). */
   readonly writablePaths: readonly string[];
+  /** The process uses the host's own subscription login (`environment` from `claudeCodeHostLoginEnvironment`). */
+  readonly subscriptionLogin?: boolean;
   readonly processes?: NativeProcessPort;
   readonly onSpawn?: (pid: number) => void;
 }
@@ -52,7 +54,7 @@ export class ClaudeCodeHarnessAdapter implements HarnessAdapter {
     const names = tools.map(({ name }) => name);
     for (const name of names) { const kind = claudeCodeToolClass(name); if (kind !== "read" && kind !== "write") throw new Error(`NATIVE_HARNESS_TOOL_UNENFORCEABLE:${name}`); }
     if (!isAbsolute(this.invocation.cwd)) throw new Error("NATIVE_HARNESS_CWD_NOT_ABSOLUTE");
-    const argv = claudeCodeArguments({ model: this.invocation.model, maximumTurns: this.invocation.maximumTurns, tools: names, writablePaths: this.invocation.writablePaths });
+    const argv = claudeCodeArguments({ model: this.invocation.model, maximumTurns: this.invocation.maximumTurns, tools: names, writablePaths: this.invocation.writablePaths, subscriptionLogin: this.invocation.subscriptionLogin === true });
     return Object.freeze({ events: this.execute(node, prompt, names, argv, policy) });
   }
 
@@ -67,6 +69,8 @@ export class ClaudeCodeHarnessAdapter implements HarnessAdapter {
       const event = parseClaudeCodeEvent(line);
       if (event.kind === "init") {
         if (event.mcpServers > 0) throw new Error("NATIVE_HARNESS_MCP_ACTIVE");
+        // A host login that is an API key would spend API credit; init precedes any model request (A9).
+        if (this.invocation.subscriptionLogin === true && event.apiKeySource !== null && event.apiKeySource !== "none") throw new Error("NATIVE_HARNESS_API_KEY_IN_USE");
         push({ type: "harness_started", nodeId: node.id, harnessId: this.profile.id, sessionId: event.sessionId, model: event.model });
       } else if (event.kind === "assistant") {
         if (event.parentToolUseId !== null) throw new Error("NATIVE_HARNESS_SUBAGENT_ACTIVE");

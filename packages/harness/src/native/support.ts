@@ -32,6 +32,8 @@ export interface NativeHarnessSupport {
   readonly credentialTarget: string;
   /** Every variable the operator may choose instead (`credentialKind`); nothing else is ever set. */
   readonly credentialTargets: Readonly<Record<string, string>>;
+  /** `credentialKind: "subscription_login"` (the host's own CLI login, no credential variable) needs at least this CLI version. */
+  readonly subscriptionLogin: { readonly minimumVersion: string };
   /** Model profile providers this harness can serve. */
   readonly modelProviders: readonly string[];
   readonly translation: { readonly id: string; readonly version: string; readonly verified: boolean };
@@ -63,6 +65,8 @@ export const NATIVE_HARNESS_SUPPORT: readonly NativeHarnessSupport[] = Object.fr
     credentialTarget: "ANTHROPIC_API_KEY",
     // A Claude subscription is used through a long-lived token from `claude setup-token`.
     credentialTargets: Object.freeze({ api_key: "ANTHROPIC_API_KEY", oauth_token: "CLAUDE_CODE_OAUTH_TOKEN" }),
+    // The host login keeps the host home, so its settings and extensions are switched off by `--safe-mode` (A9), which needs 2.1.0.
+    subscriptionLogin: Object.freeze({ minimumVersion: "2.1.0" }),
     modelProviders: Object.freeze(["anthropic"]),
     translation: CLAUDE_CODE_TRANSLATION,
     defaultTools: Object.freeze(["Read", "Glob", "Grep", "Edit", "Write"]),
@@ -78,10 +82,13 @@ export function nativeHarnessSupport(harnessId: string): NativeHarnessSupport {
 }
 
 /** Refuses any version, stage or tool the matrix does not declare. */
-export function assertNativeHarnessSupported(harnessId: string, version: string, stage: string): NativeHarnessSupport {
+export function assertNativeHarnessSupported(harnessId: string, version: string, stage: string, credentialKind = "api_key"): NativeHarnessSupport {
   const support = nativeHarnessSupport(harnessId);
   if (!(support.stages as readonly string[]).includes(stage)) throw new Error(`NATIVE_HARNESS_STAGE_UNSUPPORTED:${harnessId}:${stage}`);
   if (!versionInRange(version, support.versionRange)) throw new Error(`NATIVE_HARNESS_VERSION_UNSUPPORTED:${harnessId}@${version}`);
+  if (credentialKind === "subscription_login" && !versionInRange(version, { minimum: support.subscriptionLogin.minimumVersion, below: support.versionRange.below })) {
+    throw new Error(`NATIVE_HARNESS_SUBSCRIPTION_LOGIN_VERSION_UNSUPPORTED:${harnessId}@${version}`);
+  }
   return support;
 }
 
