@@ -45,7 +45,7 @@ const signal = () => new AbortController().signal;
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 const hash = (value: unknown) => digest(canonicalJson(value));
 
-type Scenario = "repair" | "shared" | "oscillation" | "rounds" | "unrecoverable" | "budget" | "interrupted" | "cancelled" | "reopen-interrupted" | "tool-loop";
+type Scenario = "repair" | "shared" | "oscillation" | "rounds" | "unrecoverable" | "budget" | "interrupted" | "cancelled" | "reopen-interrupted" | "tool-loop" | "flaky-final";
 interface Write { path: string; content: string }
 
 /** TASK-001 -> TASK-002. A later TASK-002 write breaks TASK-001's check, which only
@@ -133,7 +133,9 @@ async function fixture(scenario: Scenario) {
   } } : { async recover() {}, async run(current, execution, check) {
     const files = new Map(current.files.map(({ path, lines }) => [path, lines.join("\n")]));
     checks.push({ id: check.id, files });
-    const failed = check.id === "001" && (shared ? (files.get("tests/fixture.ts") ?? "").includes("broken")
+    // The first final check finds the engine unavailable once.
+    if (scenario === "flaky-final" && checks.length === 3) return { driver: "docker", image: execution.image, checkId: check.id, isolation: "read_only_snapshot_no_network", status: "unavailable", stopped: null, cleanupCompleted: true, exitCode: null, stdout: "", stderr: "engine did not answer" };
+    const failed = scenario !== "flaky-final" && check.id === "001" && (shared ? (files.get("tests/fixture.ts") ?? "").includes("broken")
       : files.has("tests/002.ts") && !(files.get("tests/001.ts") ?? "").includes("repaired"));
     return { driver: "docker", image: execution.image, checkId: check.id, isolation: "read_only_snapshot_no_network", status: "exited", stopped: null, cleanupCompleted: true, exitCode: failed ? 1 : 0, stdout: failed ? "assertion failed" : "ok", stderr: "" };
   } };
@@ -301,5 +303,13 @@ it("ends a writer attempt at the tool-turn limit as an incomplete attempt instea
   expect(result).toMatchObject({ passed: true, reasons: [] });
   await expectNoDuplicateOrWidenedWrites(f);
   await expectSourceUnchanged(f.root);
+});
+
+it("reruns a final check the sandbox could not run instead of failing the run", async () => {
+  const f = await fixture("flaky-final");
+  const result = await f.executor().run(signal());
+  expect(result).toMatchObject({ passed: true, reasons: [] });
+  // Two task checks, one unavailable final check, its rerun and the second final check.
+  expect(f.checks.map(({ id }) => id)).toEqual(["001", "002", "001", "001", "002"]);
 });
 
