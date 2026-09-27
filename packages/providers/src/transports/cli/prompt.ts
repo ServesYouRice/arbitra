@@ -69,7 +69,12 @@ export interface CliReply { readonly text: string | null; readonly toolCalls: re
 /** Interprets the model's reply: a tool-call envelope (only when tools were offered) or the final answer. */
 export function interpretCliReply(text: string, request: TransportRequest, boundary: string, nativeStructured?: unknown): CliReply {
   const tools = request.tools ?? [];
-  const document = trailingJson(text);
+  const trailing = trailingJson(text);
+  // Real models sometimes request a tool and then keep writing, inventing the tool's result
+  // and an answer built on it (observed live with Claude Haiku 4.5 through Claude Code). A
+  // native tool call would have stopped at the request, so the first envelope wins and the
+  // invented continuation is discarded.
+  const document = tools.length > 0 && !isEnvelope(trailing) ? firstEnvelope(text) ?? trailing : trailing;
   if (tools.length > 0 && isEnvelope(document)) {
     const calls = document.toolCalls;
     if (!Array.isArray(calls) || calls.length === 0) throw new TransportError("MALFORMED_RESPONSE", "CLI_TOOL_CALL_ENVELOPE_INVALID: toolCalls must be a non-empty array", false);
@@ -79,6 +84,28 @@ export function interpretCliReply(text: string, request: TransportRequest, bound
   const structured = nativeStructured ?? document;
   if (structured === undefined) throw new TransportError("MALFORMED_RESPONSE", "CLI_STRUCTURED_OUTPUT_INVALID: reply is not a JSON document", false);
   return Object.freeze({ text, toolCalls: Object.freeze([]), structured });
+}
+
+/** The first complete `{"toolCalls": ...}` object in the reply, if any. */
+function firstEnvelope(text: string): { toolCalls: unknown } | undefined {
+  for (const match of text.matchAll(/\{\s*"toolCalls"\s*:/gu)) {
+    const end = balancedObjectEnd(text, match.index);
+    if (end === null) continue;
+    try { const value = JSON.parse(text.slice(match.index, end)) as unknown; if (isEnvelope(value)) return value; } catch { /* not a complete envelope */ }
+  }
+  return undefined;
+}
+
+function balancedObjectEnd(text: string, start: number): number | null {
+  let depth = 0; let inString = false;
+  for (let index = start; index < text.length; index += 1) {
+    const character = text[index];
+    if (inString) { if (character === "\\") index += 1; else if (character === "\"") inString = false; continue; }
+    if (character === "\"") inString = true;
+    else if (character === "{") depth += 1;
+    else if (character === "}") { depth -= 1; if (depth === 0) return index + 1; }
+  }
+  return null;
 }
 
 function isEnvelope(value: unknown): value is { toolCalls: unknown } {

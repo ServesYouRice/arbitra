@@ -212,7 +212,7 @@
         "reviewer-codex": "codex",
         "reviewer-google": "antigravity"
       },
-      "maximumOutputTokens": 8000,
+      "maximumOutputTokens": 32000,
       "maximumContextTokens": 128000,
       "maximumTokens": 1500000,
       "timeoutMs": 600000,

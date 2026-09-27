@@ -1,5 +1,5 @@
 {
-  "//": "Owner live-testing policy on subscriptions (no API credit): Claude Code carries most roles (Haiku 4.5 for bulk; Sonnet 5 as the second independent reviewer and the frontier Testing analyst). Codex (ChatGPT) and the Antigravity CLI (Google AI subscription) each take one secondary role. Gemini CLI is not bound: Google retired personal logins from it on June 18, 2026 (docs/qa/subscription-cli). The Antigravity model slug carries its effort (gemini-3.8-flash-low), so no effort parameter is sent. This is the owner's policy, not the product default.",
+  "//": "Owner live-testing policy on subscriptions (no API credit): Claude Code carries most roles (Haiku 4.5 for bulk; Sonnet 5 as the second independent reviewer and the frontier Testing analyst). Codex (ChatGPT) and the Antigravity CLI (Google AI subscription) each take one secondary role. Gemini CLI is not bound: Google retired personal logins from it on June 18, 2026 (docs/qa/subscription-cli). The Antigravity model slug carries its effort (gemini-3.8-flash-low), so no effort parameter is sent. This is the owner's policy, not the product default. Heavy roles (analysts, planners, writers, the main auditor) use Sonnet 5: live runs showed Haiku 4.5 answering a planner outline request with a whole plan and exhausting the output ceiling.",
   "endpoints": [
     {
       "id": "claude",
@@ -87,27 +87,27 @@
   },
   "assign": {
     "audit-mixed-providers": {
-      "auditor-a": "claude",
+      "auditor-a": "claude-b",
       "auditor-b": "codex",
       "auditor-c": "antigravity"
     },
     "feature-automatic": {
-      "planner": "claude",
-      "reviewer-compatible": "claude-b",
+      "planner": "claude-b",
+      "reviewer-compatible": "claude",
       "reviewer-gemini": "codex"
     },
     "feature-interactive": {
-      "planner": "claude",
-      "reviewer-anthropic": "claude-b",
+      "planner": "claude-b",
+      "reviewer-anthropic": "claude",
       "reviewer-gemini": "codex"
     },
     "testing-plan": {
       "analyst": "claude-b",
-      "planner": "claude"
+      "planner": "claude-b"
     },
     "testing-execute": {
       "analyst": "claude-b",
-      "writer": "claude"
+      "writer": "claude-b"
     }
   },
   "overrides": {
@@ -117,7 +117,8 @@
           "maximumTokens": 1500000,
           "maximumRetries": 2,
           "maximumOutputRepairs": 2,
-          "timeoutMs": 600000
+          "timeoutMs": 600000,
+          "maximumOutputTokens": 32000
         }
       }
     },
@@ -129,7 +130,8 @@
         "modelExecution": {
           "maximumRetries": 2,
           "maximumOutputRepairs": 2,
-          "timeoutMs": 600000
+          "timeoutMs": 600000,
+          "maximumOutputTokens": 32000
         }
       }
     },
@@ -141,7 +143,8 @@
         "modelExecution": {
           "maximumRetries": 2,
           "maximumOutputRepairs": 2,
-          "timeoutMs": 600000
+          "timeoutMs": 600000,
+          "maximumOutputTokens": 32000
         }
       }
     },
@@ -153,7 +156,8 @@
         "modelExecution": {
           "maximumRetries": 2,
           "maximumOutputRepairs": 2,
-          "timeoutMs": 600000
+          "timeoutMs": 600000,
+          "maximumOutputTokens": 32000
         }
       },
       "scope": {
@@ -204,7 +208,8 @@
         "modelExecution": {
           "maximumRetries": 2,
           "maximumOutputRepairs": 2,
-          "timeoutMs": 600000
+          "timeoutMs": 600000,
+          "maximumOutputTokens": 32000
         }
       },
       "scope": {
