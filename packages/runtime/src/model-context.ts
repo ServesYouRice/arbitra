@@ -39,7 +39,11 @@ export function allocateModelContext(value: unknown, fits: (input: unknown) => b
   };
   const allPaths = sources.map(pathOf);
   if (new Set(allPaths).size !== allPaths.length) throw new Error("DUPLICATE_MODEL_CONTEXT_PATH");
-  if (fits(value)) return { input: value, coverage: { fullPaths: allPaths, excerptPaths: [], omittedPaths: [] } };
+  // Say so when nothing is left out: models told that context "may be excerpted" otherwise
+  // assume it was (observed live: a planner raised a blocking question about callers outside
+  // a snapshot that held the whole repository).
+  const complete = { ...record, contextCoverage: { complete: true, note: "Every file in the run's repository scope is included in full.", fullPaths: allPaths, excerptPaths: [], omittedPaths: [] } };
+  if (fits(complete)) return { input: complete, coverage: { fullPaths: allPaths, excerptPaths: [], omittedPaths: [] } };
   const mandatory = { ...record, [key]: [] };
   const known = new Set(allPaths); const cited = new Set(preferredPaths.filter((path) => known.has(path)));
   const ranges = new Map<string, { start: number; end: number }[]>();
@@ -60,7 +64,7 @@ export function allocateModelContext(value: unknown, fits: (input: unknown) => b
   const priority = (path: string) => cited.has(path) ? 0 : related.has(path) ? 1 : 2;
   const selected: Source[] = [];
   const coverage = (): ModelContextCoverage => ({ fullPaths: selected.filter((entry) => entry["excerpted"] !== true).map(pathOf), excerptPaths: selected.filter((entry) => entry["excerpted"] === true).map(pathOf), omittedPaths: allPaths.filter((path) => !selected.some((entry) => pathOf(entry) === path)) });
-  const assembled = () => ({ ...mandatory, [key]: [...selected], contextCoverage: coverage() });
+  const assembled = () => ({ ...mandatory, [key]: [...selected], contextCoverage: { complete: false, ...coverage() } });
   if (!fits(assembled())) throw new Error("MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED");
   for (const source of [...sources].sort((a, b) => priority(pathOf(a)) - priority(pathOf(b)) || pathOf(a).localeCompare(pathOf(b)))) {
     selected.push(source);
