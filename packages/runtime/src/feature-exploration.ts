@@ -2,6 +2,7 @@ import { featureExplorationSchema, requirementsContractSchema, type FeatureExplo
 import { createHash } from "node:crypto";
 import type { RequirementsContract } from "@arbitra/workflow/nodes/requirements/index.js";
 import { anchorLineEvidence } from "./evidence-grounding.js";
+import { NEW_FILES_ARE_NOT_SURFACES } from "./prompt-conventions.js";
 import type { PlannerCompositionPort, PlannerStage } from "./planner-context.js";
 import type { RepositorySnapshot } from "./repository.js";
 import { requirementIndex } from "./requirement-records.js";
@@ -16,7 +17,7 @@ export function validateFeatureExploration(value: unknown, requirements: Require
   for (const surface of surfaces.values()) {
     if (surface.relevantTo.some((id) => !requirementIds.has(id))) throw new Error(`FEATURE_EXPLORATION_UNKNOWN_REQUIREMENT:${surface.id}`);
     for (const path of surface.paths) {
-      if (!files.has(path)) throw new Error(`FEATURE_EXPLORATION_UNKNOWN_PATH:${path}`);
+      if (!files.has(path)) throw new Error(`FEATURE_EXPLORATION_UNKNOWN_PATH:${path}: ${NEW_FILES_ARE_NOT_SURFACES}`);
       if (!exploration.evidence.some((evidence) => evidence.surfaceId === surface.id && evidence.path === path)) throw new Error(`FEATURE_EXPLORATION_EVIDENCE_MISSING:${surface.id}:${path}`);
     }
   }
