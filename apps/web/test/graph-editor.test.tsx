@@ -106,6 +106,7 @@ describe("graph editor", () => {
     expect(saved).toEqual([{ graph: expect.objectContaining({ id: "reviewed" }), parent: null }]);
     expect(within(editor).getByLabelText("run configuration reference").textContent).toBe(JSON.stringify({ graph: { id: "reviewed", version: "b".repeat(64) } }));
     expect(within(editor).getByText(`no unsaved changes · version ${"b".repeat(64)}`)).toBeTruthy();
-    expect(dirty).toHaveBeenLastCalledWith(false);
+    // The dirty flag is reported from a passive effect, which can run after the committed text is visible.
+    await waitFor(() => expect(dirty).toHaveBeenLastCalledWith(false));
   });
 });
