@@ -37,6 +37,8 @@ export interface TestingPlanExecutionOutcome {
 
 /** Own one executor per run under the public run lock. Disjoint writer batches
  * settle before serial verification. No writable host path reaches a model. */
+const FINAL_INFRASTRUCTURE_RETRIES = 2;
+
 export class TestingPlanExecutor {
   readonly #config: RunConfig;
   readonly #snapshot: RepositorySnapshot;
@@ -164,7 +166,14 @@ export class TestingPlanExecutor {
       const finalVerification: TestingTaskVerificationResult[] = [];
       if (reasons.length === 0) {
         for (const task of plan.tasks) {
-          const result = await this.#verifier.verify(task, `final/${hash({ task: task.id, snapshotFingerprint })}`, this.#workspace, signal);
+          const attemptId = `final/${hash({ task: task.id, snapshotFingerprint })}`;
+          let result = await this.#verifier.verify(task, attemptId, this.#workspace, signal);
+          // A check the sandbox could not run (engine slow to answer, container cleanup) says
+          // nothing about the tests. Rerun it a bounded number of times, within the run budget.
+          for (let retry = 1; retry <= FINAL_INFRASTRUCTURE_RETRIES && result.status === "incomplete" && result.snapshotFingerprint === snapshotFingerprint
+            && result.reasons.length > 0 && result.reasons.every((reason) => reason.startsWith("verification_incomplete:")); retry += 1) {
+            result = await this.#verifier.verify(task, `${attemptId}/retry-${retry}`, this.#workspace, signal);
+          }
           finalVerification.push(result);
           if (result.snapshotFingerprint !== snapshotFingerprint) reasons.push(`final_verification_stale:${task.id}`);
           else if (result.status !== "passed") reasons.push(`final_verification_${result.status}:${task.id}`);

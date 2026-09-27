@@ -136,7 +136,8 @@ export class DockerTestSandbox implements TestSandbox {
       await mkdir(configuration);
       // Empty CLI configuration and a stripped environment exclude remote contexts,
       // registries and operator credentials. No image is pulled or built here.
-      const info = await run(["info", "--format", "{{.OSType}}"], Math.min(execution.timeoutMs, 5_000), signal);
+      // Docker Desktop can take several seconds to answer `info` under load (observed live).
+      const info = await run(["info", "--format", "{{.OSType}}"], Math.min(execution.timeoutMs, 15_000), signal);
       if (info.stopped !== null || info.exitCode !== 0 || info.stdout.trim() !== "linux") return result(info, "unavailable", true);
       await mkdir(workspace, { mode: 0o755 }); await chmod(workspace, 0o755);
       for (const file of snapshot.files) {
