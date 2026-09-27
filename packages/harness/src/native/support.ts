@@ -60,7 +60,8 @@ export const NATIVE_HARNESS_SUPPORT: readonly NativeHarnessSupport[] = Object.fr
     harnessId: "claude-code", displayName: "Claude Code (headless, stream-json)",
     versionRange: Object.freeze({ minimum: "2.0.0", below: "3.0.0" }),
     stages: Object.freeze(["testing-writer"] as const),
-    status: "declared_unverified" as const,
+    // Conformance run against the real CLI 2.1.283 on the host login: docs/qa/p12/README.md.
+    status: "conformance_verified" as const,
     executableEnvVar: "ARBITRA_CLAUDE_CODE_EXECUTABLE",
     credentialTarget: "ANTHROPIC_API_KEY",
     // A Claude subscription is used through a long-lived token from `claude setup-token`.

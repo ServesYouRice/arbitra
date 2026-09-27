@@ -278,13 +278,15 @@ host setup and diagnostics are in [setup.md](setup.md#native-mode).
 
 | Harness | Versions | Stages | Status | Executable | Credential |
 |---|---|---|---|---|---|
-| `claude-code` (headless `claude -p --output-format stream-json`) | `>=2.0.0 <3.0.0` | `testing-writer` | `declared_unverified` | `ARBITRA_CLAUDE_CODE_EXECUTABLE` (host env, absolute path) | `apiKeyEnvVar` → `ANTHROPIC_API_KEY` (`api_key`) or `CLAUDE_CODE_OAUTH_TOKEN` (`oauth_token`); host login, no variable (`subscription_login`, `>=2.1.0`) |
+| `claude-code` (headless `claude -p --output-format stream-json`) | `>=2.0.0 <3.0.0` | `testing-writer` | `conformance_verified` (2.1.283, host login) | `ARBITRA_CLAUDE_CODE_EXECUTABLE` (host env, absolute path) | `apiKeyEnvVar` → `ANTHROPIC_API_KEY` (`api_key`) or `CLAUDE_CODE_OAUTH_TOKEN` (`oauth_token`); host login, no variable (`subscription_login`, `>=2.1.0`) |
 
-`declared_unverified` means the adapter is implemented and tested against a scripted
-stand-in process that emits the documented event stream (`native/stand-in.ts`), but no run
-against the actual CLI has been recorded. The opt-in conformance test
+`declared_unverified` would mean the adapter is tested only against a scripted stand-in
+process that emits the documented event stream (`native/stand-in.ts`).
+`conformance_verified` means the opt-in conformance test
 (`packages/runtime/test/native-harness.conformance.test.ts`, gated by
-`ARBITRA_NATIVE_HARNESS_CONFORMANCE=1`) is that run; it is skipped otherwise, never passed.
+`ARBITRA_NATIVE_HARNESS_CONFORMANCE=1`, skipped otherwise, never passed) has passed against
+the actual CLI: Claude Code 2.1.283 with `subscription_login` ([evidence](qa/p12/README.md)).
+The `api_key` and `oauth_token` kinds share the event translation but run with an isolated home and a credential variable; they have not been run live.
 Anything not in the matrix is refused before a run exists: Audit
 (`NATIVE_HARNESS_DISCOVERY_FORBIDDEN`), Feature and planning-only Testing
 (`NATIVE_HARNESS_MODE_UNSUPPORTED`), other harnesses, stages or versions
@@ -303,8 +305,8 @@ strict baseline unchanged.
 
 `packages/harness/src/native/claude-code/translation.ts` holds every Claude Code-specific
 assumption — flags, environment variables, `--version` format, stream-json event shapes,
-usage buckets, tool names and the host-login flags — as numbered checkpoints A1–A9. It is marked
-`verified: false`. The adapter (`claude-code/adapter.ts`) maps the stream to the shared
+usage buckets, tool names and the host-login flags — as numbered checkpoints A1–A9. The
+conformance run confirmed them (`verified: true`). The adapter (`claude-code/adapter.ts`) maps the stream to the shared
 `HarnessEvent`s: `harness_started` (session and reported model), `model_turn_started` /
 `model_turn_completed` per assistant message, `tool_call` / `tool_result` (results are
 `trust: "untrusted"` and framed), and `completed` with the harness-reported total usage.

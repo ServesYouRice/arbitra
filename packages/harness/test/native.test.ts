@@ -35,7 +35,7 @@ async function run(scenario: StandInScenario, overrides: Partial<NativeInvocatio
 describe("native harness support matrix", () => {
   it("declares Claude Code for the Testing writer only, unverified until real conformance runs", () => {
     expect(NATIVE_HARNESS_SUPPORT.map(({ harnessId, stages, status, versionRange }) => ({ harnessId, stages, status, versionRange }))).toEqual([
-      { harnessId: "claude-code", stages: ["testing-writer"], status: "declared_unverified", versionRange: { minimum: "2.0.0", below: "3.0.0" } },
+      { harnessId: "claude-code", stages: ["testing-writer"], status: "conformance_verified", versionRange: { minimum: "2.0.0", below: "3.0.0" } },
     ]);
     expect(assertNativeHarnessSupported("claude-code", "2.1.0", "testing-writer").profile.id).toBe("native:claude-code");
     expect(() => assertNativeHarnessSupported("claude-code", "1.9.9", "testing-writer")).toThrow("NATIVE_HARNESS_VERSION_UNSUPPORTED:claude-code@1.9.9");

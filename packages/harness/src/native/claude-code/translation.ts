@@ -1,17 +1,18 @@
 /*
  * ============================================================================
- *  UNVERIFIED TRANSLATION LAYER — Claude Code headless (`claude -p`) stream-json
+ *  TRANSLATION LAYER — Claude Code headless (`claude -p`) stream-json
  * ============================================================================
  *
  * Everything in this file encodes arbitra's reading of Claude Code's documented
  * headless CLI: command-line flags, environment variables, `--version` output and the
  * `--output-format stream-json` event schema. It was written from public
- * documentation and has NOT been exercised against a real `claude` binary; the
- * adapter's tests drive a scripted stand-in executable that emits this schema.
+ * documentation; the adapter's tests drive a scripted stand-in executable that emits this
+ * schema, and the opt-in conformance run against the real `claude` 2.1.283 (host login,
+ * docs/qa/p12/README.md) confirmed A1–A9.
  *
  * Keep all harness-specific assumptions here, so that the opt-in conformance test
  * (`ARBITRA_NATIVE_HARNESS_CONFORMANCE=1`) can confirm or correct them in one place.
- * `CLAUDE_CODE_TRANSLATION.verified` stays false until that run is recorded.
+ * Rerun it after changing any assumption, and before widening the supported versions.
  *
  * Assumptions (each is a conformance checkpoint):
  *  A1 `claude --version` prints `<major>.<minor>.<patch>` first, e.g. `2.0.14 (Claude Code)`.
@@ -48,7 +49,7 @@
  */
 import type { HarnessUsage } from "../../adapter.js";
 
-export const CLAUDE_CODE_TRANSLATION = Object.freeze({ id: "claude-code-stream-json", version: "1.0.0", verified: false });
+export const CLAUDE_CODE_TRANSLATION = Object.freeze({ id: "claude-code-stream-json", version: "1.0.0", verified: true });
 
 export type NativeToolClass = "read" | "write" | "shell" | "network" | "subagent" | "mcp" | "unknown";
 
