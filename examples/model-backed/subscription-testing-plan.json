@@ -148,7 +148,7 @@
         "analyst": "claude-code",
         "planner": "codex"
       },
-      "maximumOutputTokens": 8000,
+      "maximumOutputTokens": 32000,
       "maximumContextTokens": 128000,
       "maximumTokens": 1000000,
       "timeoutMs": 600000,

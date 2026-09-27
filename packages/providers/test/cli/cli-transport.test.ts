@@ -305,6 +305,19 @@ describe("subscription CLI configuration", () => {
   });
 });
 
+describe("emulated tool calls", () => {
+  it("takes the first tool request when the model keeps writing after it, discarding the invented continuation", () => {
+    const tools = [{ name: "repo_read_file", description: "Read a file", inputSchema: { type: "object", properties: { path: { type: "string" } } } }];
+    const value = request({ tools, responseSchema: { type: "object" } });
+    const boundary = serializeCliPrompt(value, { nativeSchema: false, systemInArguments: true }).boundary;
+    // Observed live: Claude Haiku 4.5 requested a read, then invented the file and a full answer.
+    const reply = "I need to read the source first.\n<function_calls>\n{\"toolCalls\":[{\"name\":\"repo_read_file\",\"arguments\":{\"path\":\"src/session.js\"}}]}\n</function_calls>\n\n<quotes>invented {braces} \"and quotes\"</quotes>\n\n```json\n{\"schemaVersion\":1,\"tasks\":[]}\n```";
+    expect(interpretCliReply(reply, value, boundary)).toMatchObject({ text: null, toolCalls: [{ name: "repo_read_file", arguments: { path: "src/session.js" } }] });
+    // A final answer with no tool request stays the answer.
+    expect(interpretCliReply("```json\n{\"schemaVersion\":1}\n```", value, boundary)).toMatchObject({ toolCalls: [], structured: { schemaVersion: 1 } });
+  });
+});
+
 describe("executable discovery", () => {
   it("prefers the override, then PATH, then the newest editor-bundled Claude Code", async () => {
     const root = await mkdtemp(join(tmpdir(), "arbitra-cli-discovery-")); roots.push(root);

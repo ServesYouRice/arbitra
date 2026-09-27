@@ -202,7 +202,7 @@
         "verifier": "auditor-b",
         "critic": "auditor-c"
       },
-      "maximumOutputTokens": 8000,
+      "maximumOutputTokens": 32000,
       "maximumContextTokens": 128000,
       "maximumTokens": 3000000,
       "timeoutMs": 600000,
