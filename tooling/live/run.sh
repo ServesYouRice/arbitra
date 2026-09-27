@@ -11,8 +11,11 @@ work="$root/.runs/live/work/$name"
 rm -rf "$work" && mkdir -p "$work" && cp -R "$root/tooling/live/fixture-repo" "$work/repo"
 cd "$work/repo" && git init -q && git add -A && git -c user.email=live@arbitra.invalid -c user.name=live commit -qm fixture
 if [ -f "$root/.env" ]; then set -a; . "$root/.env"; set +a; fi
+# A sleeping Mac freezes the run: stage timeouts count only awake time, so wall-clock durations
+# stretch by the time asleep (observed live: a 10-minute stage timeout took 27 minutes). Keep it awake.
+awake=(); if command -v caffeinate >/dev/null 2>&1; then awake=(caffeinate -is); fi
 status=0
-node "$root/apps/cli/dist/src/bin.js" run "$configs/$name.json" "$@" --json 2>"$work/stderr.log" >"$work/result.json" || status=$?
+${awake[@]+"${awake[@]}"} node "$root/apps/cli/dist/src/bin.js" run "$configs/$name.json" "$@" --json 2>"$work/stderr.log" >"$work/result.json" || status=$?
 python3 - "$work" "$status" <<'PY'
 import glob, json, re, sys
 work, status = sys.argv[1], sys.argv[2]

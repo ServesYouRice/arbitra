@@ -1,6 +1,7 @@
 import { assertIssueOperation, type CandidateSeed, type IssueEvidence, type IssueOperation } from "@arbitra/core/issue-board/operations.js";
 import { peerOperationsResultSchema } from "@arbitra/schemas/peer-operations.js";
 import type { FindingLocation } from "@arbitra/schemas/finding.js";
+import type { ConsensusCandidate, ConsensusVote } from "@arbitra/workflow/consensus/engine.js";
 import type { AuditFinding } from "./auditors.js";
 import type { RepositorySnapshot } from "./repository.js";
 import type { peerReviewView } from "./peer-review-view.js";
@@ -127,6 +128,36 @@ export function translatePeerOperations(value: unknown, view: View, snapshot: Re
   const unattached = parsed.findings.filter((_, index) => { const finding = findings[index]; return finding !== undefined && !operations.some((operation) => operation.type === "add_missing_finding" && operation.candidate.sourceFindingIds.includes(finding.sourceFindingId)); });
   if (unattached.length > 0) throw new Error(`UNATTACHED_PEER_FINDING: every entry in findings must be introduced by an add_missing_finding operation whose candidate.sourceFindingIds lists it; otherwise leave findings empty. Findings are only for problems no presented candidate covers: to agree with a presented candidate, vote on it and do not restate it. Unattached: ${unattached.map(({ sourceFindingId }) => JSON.stringify(sourceFindingId.slice(0, 80))).join(", ")}`);
   return { operations, findings, locations: [...locations.values()] };
+}
+
+type VotingBoard = Readonly<Record<string, Pick<ConsensusCandidate, "votes">>>;
+const latestVote = (board: VotingBoard, candidateId: string, reviewerId: string): ConsensusVote | undefined =>
+  [...(board[candidateId]?.votes ?? [])].reverse().find(({ authorId }) => authorId === reviewerId);
+
+export const EARLIER_VOTES_RULE = "These are your own earlier votes on the presented candidates, with the evidence each one cited. Keep a vote, or change it only by also citing at least one evidence ID it did not cite (for example new evidence you add in this reply with add_evidence or add_counter_evidence). A changed vote that cites only the same evidence is refused.";
+
+/** The reviewer's own latest vote on each presented candidate, with its evidence under this view's aliases. */
+export function earlierPeerVotes(view: View, board: VotingBoard, reviewerId: string): Record<string, { readonly vote: ConsensusVote["disposition"]; readonly citedEvidenceIds: readonly string[] }> {
+  return Object.fromEntries(Object.keys(view.candidates).flatMap((candidateId) => {
+    const vote = latestVote(board, candidateId, reviewerId);
+    if (vote === undefined) return [];
+    const aliases = [...view.evidenceIds].filter(([alias, id]) => alias.startsWith(`${candidateId}/`) && vote.citedEvidenceIds.includes(id)).map(([alias]) => alias);
+    return [[candidateId, { vote: vote.disposition, citedEvidenceIds: aliases }]];
+  }));
+}
+
+/**
+ * The consensus round refuses a changed vote that cites no new evidence (anti-conformity).
+ * Observed live: a reviewer that is not shown its earlier vote flips it on the same evidence,
+ * which failed the whole run. Refusing it at the model boundary lets the reviewer repair it.
+ */
+export function assertChangedVotesCiteNewEvidence(operations: readonly IssueOperation[], board: VotingBoard, reviewerId: string): void {
+  const changed = operations.flatMap((operation) => {
+    if (operation.type !== "accept" && operation.type !== "reject" && operation.type !== "needs_verification") return [];
+    const prior = latestVote(board, operation.candidateId, reviewerId);
+    return prior !== undefined && prior.disposition !== operation.type && operation.citedEvidenceIds.every((id) => prior.citedEvidenceIds.includes(id)) ? [`${operation.candidateId} (earlier ${prior.disposition}, now ${operation.type})`] : [];
+  });
+  if (changed.length > 0) throw new Error(`PEER_VOTE_CHANGED_WITHOUT_NEW_EVIDENCE: ${changed.join("; ")}. ${EARLIER_VOTES_RULE}`);
 }
 
 /** Core refusals carry bare codes; a peer reply is repaired from its refusal, so each code gets its rule. */
