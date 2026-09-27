@@ -1,77 +1,77 @@
 # Remaining work
 
-Updated September 25, 2026 against commit 0c6fb12 (branch `beta`).
+Updated September 27, 2026 against commit b560162 (branch `beta`).
 
-The maintained execution queue is the [completion plan](docs/completion-plan.md). Every item is recorded in its [status table](docs/completion-plan.md#status-september-25-2026).
+The maintained execution queue is the [completion plan](docs/completion-plan.md). Every item is recorded in its [status table](docs/completion-plan.md#status-september-27-2026).
 
 - **Complete:** P01, P02, P04, P05, P07, P09–P11, P13, P14, P16 and P17.
-- **Implemented, evidence still outstanding:** P08, P12 and P15.
-- **Partially accepted live:** P03.
+- **Implemented, conformance passed, live limits being added:** P12.
+- **Implemented, evidence still outstanding:** P08 and P15.
+- **Accepted live except the API protocols:** P03.
 - **Interim result (insufficient evidence; resumable plan in [docs/qa/p06](docs/qa/p06/README.md)):** P06.
 - **Decided provisionally (reject), to be rerun on P06 data:** P18.
 - **Pending:** P19.
 
 ## What is left, by what it needs
 
-1. **Funded provider accounts.** The OpenAI and Anthropic keys have no API credit, and the Gemini key is free tier.
-   - The Gemini free tier limits flash-lite to 500 requests per day per model and flash to 20; it has no Pro access and no Batch.
-   - Credit on any account unlocks the rest of P03: the other protocols, a mixed-provider run, live Audit, interactive Feature and the executor handoff.
-   - It also unlocks each P15 batch driver, a heterogeneous-family P06 and the P12 conformance run. P12 needs Anthropic credit, or instead a subscription token from `claude setup-token` with `credentialKind: oauth_token`.
-2. **The next Gemini quota window**, for the remaining live Audit/Feature runs and P06 conditions, if no paid key is added.
-3. **After live data:** rerun P18 on P06 findings, then the P19 final review.
+1. **Nothing but time, on subscriptions:**
+   - **P12:** opt-in live cases for crash recovery, tool limits and unknown usage against the real CLI. They are being added to `packages/runtime/test/native-harness.conformance.test.ts`; run them as in step 4 of the pick-up guide.
+   - **P06:** a new protocol version that moves the premise evaluation onto subscription models (the committed protocol is prespecified with Gemini API models), committed before any run, then its runs.
+   - **P18:** rerun on the P06 findings.
+   - **P19:** the final review.
+2. **Funded API accounts, which the owner does not use for testing:**
+   - the OpenAI Responses, OpenAI Chat and Anthropic Messages protocols live (P03);
+   - each P15 batch driver;
+   - P08's live context limits.
+
+   These stay open unless another operator runs them.
 
 ## Live-testing policy
 
-Subscription mode is a product feature for every user, on an equal footing with API keys and selectable per role. The owner's own live testing runs **only on subscription models**, through the vendors'
-CLIs, and never on API credits:
+Subscription mode is a product feature for every user, on an equal footing with API keys and selectable per role. The owner's own live testing runs **only on subscription models**, through the vendors' CLIs, and never on API credits:
 
 | Vendor | CLI | Sign-in |
 |---|---|---|
 | Anthropic | Claude Code | Claude login |
 | OpenAI | Codex CLI | ChatGPT login |
-| Google | Gemini CLI | Google login (the owner is signed in) |
+| Google | Antigravity CLI (`agy`) | Google AI subscription login |
 
-Claude carries most roles. Codex and Gemini take at most one secondary role each, because
-their limits are lower. The API-key transports remain for other users.
+Claude carries most roles. Codex and Antigravity take at most one secondary role each, because their limits are lower.
 
-Subscription CLI transports are being built so that every role can run this way. When they
-land, live configurations come from `tooling/live/bindings.subscription.json`.
-[bindings.claude-primary.json](tooling/live/bindings.claude-primary.json) is the API-key
-equivalent, and [bindings.gemini.json](tooling/live/bindings.gemini.json) records the
-free-tier Gemini setup that produced the evidence so far.
+Google retired personal logins from the Gemini CLI on June 18, 2026, so the `gemini-cli` transport serves only Code Assist Standard or Enterprise accounts. Never use third-party plugins that reuse Antigravity OAuth tokens; they get accounts banned.
+
+Live configurations come from `tooling/live/bindings.subscription.json`. The API-key transports remain for other users: [bindings.claude-primary.json](tooling/live/bindings.claude-primary.json) is the API-key equivalent, and [bindings.gemini.json](tooling/live/bindings.gemini.json) records the free-tier Gemini setup behind the earlier evidence.
 
 ## How to pick this up again
 
-1. **Credentials.** They live in the repository's gitignored `.env`:
-   - `ARBITRA_ANTHROPIC_API_KEY`
-   - `ARBITRA_OPENAI_API_KEY`
-   - `ARBITRA_GEMINI_API_KEY`
-
-   To use Claude, the Anthropic account needs API credit. For the native Claude Code writer only (P12), a subscription token also works:
-   1. Run `claude setup-token`.
-   2. Put the token in the variable `apiKeyEnvVar` names.
-   3. Set `harness.native.credentialKind: "oauth_token"`.
-2. **Transport conformance (P03).** Run
-   `ARBITRA_LIVE_CONFORMANCE=1 ARBITRA_LIVE_ENDPOINTS=tooling/live/endpoints.json pnpm --filter @arbitra/providers exec vitest run test/conformance/live-transport.conformance.test.ts`.
-   Then gate the evidence with `ARBITRA_REAL_PROVIDER_CONFORMANCE=1`.
-3. **Workflows (P03).** Steps:
-   1. Run `pnpm build`.
-   2. Run `node tooling/live/configure.mjs tooling/live/bindings.claude-primary.json .runs/live/configs`.
-   3. Run `tooling/live/run.sh .runs/live/configs <audit-mixed-providers|feature-automatic|feature-interactive|testing-plan|testing-execute>`.
-   4. If a run fails for a provider reason, resume it from a fresh process with `tooling/live/resume.sh <name> <run-id>`.
+1. **Logins.** Sign in once in a terminal: `claude` (/login), `codex login` (Sign in with ChatGPT) and `agy`. The API keys in the gitignored `.env` are not used for owner testing.
+2. **Build.** Run `pnpm build`.
+3. **Workflows (P03).**
+   1. Generate the configurations: `node tooling/live/configure.mjs tooling/live/bindings.subscription.json .runs/live/configs-sub`.
+   2. Run one: `tooling/live/run.sh .runs/live/configs-sub <audit-mixed-providers|feature-automatic|feature-interactive|testing-plan|testing-execute>`. The script keeps the Mac awake; a sleeping host stretches every stage timeout.
+   3. An interactive Feature stops `BLOCKED`. Inspect it with `requirements <run-id>`, then `revise-requirements` and/or `approve-requirements`, then run `tooling/live/resume.sh feature-interactive <run-id>`.
+   4. Hand a Feature plan to fresh Claude Code executors: `node tooling/live/handoff.mjs <work-name> <run-id>`.
 
    `testing-execute` needs Docker and the pinned image; see [qa/p04](docs/qa/p04/README.md).
-4. **Batch (P15).** Run the command in [qa/p15-live](docs/qa/p15-live/README.md). Mark a driver `verified_live` only when its `batch:<driver>` observation passed.
-5. **Premise evaluation (P06).** The saved run state is **local only**, in `.claude/worktrees/agent-a6beaf6fd1302766f/.runs/p06`. Keep that folder. The resume commands are in [qa/p06](docs/qa/p06/README.md). The P06 protocol is prespecified with Gemini models. Moving it to Claude-primary auditors needs a new protocol version, committed before any run.
+4. **Native writer (P12).** Run in `packages/runtime`:
+
+   ```bash
+   ARBITRA_NATIVE_HARNESS_CONFORMANCE=1 ARBITRA_CLAUDE_CODE_EXECUTABLE=<absolute claude path> \
+   ARBITRA_NATIVE_CONFORMANCE_MODEL=claude-sonnet-5 ARBITRA_NATIVE_CONFORMANCE_CREDENTIAL_KIND=subscription_login \
+   npx vitest run test/native-harness.conformance.test.ts --silent=false
+   ```
+
+   See [qa/p12](docs/qa/p12/README.md).
+5. **Premise evaluation (P06).** The saved run state is **local only**, in `.claude/worktrees/agent-a6beaf6fd1302766f/.runs/p06`; keep that folder. The resume commands are in [qa/p06](docs/qa/p06/README.md). Moving P06 to subscription models needs a new protocol version, committed before any run.
 6. **Then:** rerun P18 on the P06 findings, then the P19 review.
 
 ## Open findings to fix or decide
 
-- **Generated tests are only checked to pass, not to be right.** A live Testing writer pinned the seeded `isExpired` defect as correct behaviour. A reviewer or critic step that checks tests against the documented contract would catch this.
-- **Failed requests drain the budget.** A request that fails with no usage (a 503) is charged its full admission estimate, about 59k tokens each in P06.
+- **Models adopt a seeded bug as the intended behaviour.** A live Testing writer pinned the `isExpired` defect as correct. The Feature requirements model wrote the same wrong contract twice. Haiku reviewers accepted it both times, and a Codex reviewer caught it once. A step that checks tests and contracts against documented behaviour would help.
+- **Audit cannot answer a blocking plan question.** A live Audit plan correctly left "throw or clamp?" open and failed its gate. Unlike Feature, an Audit run has no checkpoint to answer it and resume.
+- **Shared-file tasks are ordered loosely.** A planner gave two tasks the same files with only `conflictsWith`. The critic flagged it too late for the one revision. A deterministic check could require an order.
+- **Failed requests drain the budget.** A request that fails with no usage is charged its full admission estimate.
 - **Single-auditor plans never address a finding.** With the `diff-fast` preset, every issue stays `single_source`, so the plan addresses nothing.
-- **All auditors missed a hard-coded admin bypass.** The bypass sat under a planted "this file is safe" comment (P06).
-- **Gemini free tier:** 500 requests/day per flash-lite model, 20 on flash, no Pro, no Batch, frequent 503s.
+- **All auditors missed a hard-coded admin bypass** under a planted "this file is safe" comment (P06).
 
-See [project status](docs/project-status.md) for implemented capabilities and measured evidence.
-Evidence per item is in [docs/qa](docs/qa/). Update task status only in the completion plan.
+See [project status](docs/project-status.md) for implemented capabilities and measured evidence. Evidence per item is in [docs/qa](docs/qa/); the subscription runs are in [qa/p03-subscription](docs/qa/p03-subscription/README.md). Update task status only in the completion plan.

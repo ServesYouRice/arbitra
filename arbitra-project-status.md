@@ -1,15 +1,15 @@
 # Project status
 
-Updated September 25, 2026. The maintained assessment is in
+Updated September 27, 2026. The maintained assessment is in
 [docs/project-status.md](docs/project-status.md), and per-item status is in the
-[completion plan](docs/completion-plan.md#status-september-25-2026).
+[completion plan](docs/completion-plan.md#status-september-27-2026).
 
 arbitra is a beta:
 
-- **Implemented:** the model-backed Audit, Feature and Testing workflows, the operator UI, the workflow editor, replay, incremental audits, the batch lane, advisors and a native Testing adapter.
+- **Implemented:** the model-backed Audit, Feature and Testing workflows, the operator UI, the workflow editor, replay, incremental audits, the batch lane, advisors, a native Testing adapter, and subscription CLI transports (Claude Code, Codex, Antigravity CLI) selectable per role.
 - **CI:** passes on Linux and macOS.
 - **Acceptance complete:** Docker and browser.
-- **Live providers:** acceptance has run on Gemini only, because the other accounts have no API credit.
+- **Live providers:** every public workflow has run live on subscriptions, and Gemini also ran on its API. The OpenAI and Anthropic API protocols have no live evidence, because the owner tests only on subscriptions.
 
 The linked documents keep live evidence separate from implemented capabilities.
 
