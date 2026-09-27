@@ -203,6 +203,10 @@ CLI's own agent tools are disabled, and any sign that it used one fails the call
 | `antigravity-cli` | Antigravity CLI (`agy`) 0.1–1.x | `cli://antigravity` | run `agy` once and sign in with the Google account that holds your Google AI subscription (kept in the OS keyring) | `ARBITRA_ANTIGRAVITY_EXECUTABLE`, else `agy` on PATH, `~/.local/bin/agy` (the installer's location), or `%LOCALAPPDATA%\Microsoft\WinGet\Links\agy.exe` |
 | `gemini-cli` | Gemini CLI 0.60+ | `cli://gemini` | run `gemini`, Login with Google using a Gemini Code Assist Standard or Enterprise account, and export `GOOGLE_CLOUD_PROJECT` | `ARBITRA_GEMINI_EXECUTABLE`, else `gemini` on PATH or npm global bins |
 
+An executable override must be an absolute path. If it names a JavaScript entry point
+(`.js`, `.cjs`, `.mjs`, for example an npm package's `cli.js`), arbitra runs it with its own
+Node on every platform.
+
 For Google, use `antigravity-cli` with a personal Google AI subscription (free, AI Pro or
 Ultra). Since June 18, 2026 Google no longer serves the Gemini CLI to personal logins and
 refuses them before any model call; arbitra reports that as `CLI_ACCOUNT_INELIGIBLE`.
