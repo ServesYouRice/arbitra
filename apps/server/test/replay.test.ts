@@ -147,7 +147,9 @@ it("serves Testing plan, execution and changed-configuration replay over HTTP wi
     let calls = runtime.calls.length; let checks = runtime.checks();
     const plan = await replay(source.runId, { mode: "testing", execution: { mode: "plan" } });
     expect(plan.report.execution).toEqual({ mode: "plan" });
-    expect(plan.report.stages.map(({ stage, decision }) => [stage, decision])).toEqual([["analysis", "regenerate"], ["planning", "regenerate"]]);
+    // Analysis and planning never see execution settings, so they are reused without model calls.
+    expect(plan.report.stages.map(({ stage, decision }) => [stage, decision])).toEqual([["analysis", "reuse"], ["planning", "reuse"]]);
+    expect(runtime.calls.slice(calls)).toEqual([]);
     expect(runtime.calls.slice(calls)).not.toContain("writer");
     expect(runtime.checks()).toBe(checks);
     for (const runId of [plan.http, plan.cli]) expect(await workspace(runId)).toBeNull();
