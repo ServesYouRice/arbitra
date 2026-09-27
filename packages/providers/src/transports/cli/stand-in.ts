@@ -37,7 +37,14 @@ export interface CliStandInScenario {
   readonly pidFile?: string;
 }
 
-export async function writeCliStandIn(directory: string, scenario: CliStandInScenario, name: string = { "claude-code": "claude", codex: "codex", gemini: "gemini", antigravity: "agy" }[scenario.vendor]): Promise<string> {
+/**
+ * Written as a `.cjs` entry point by default, so it runs as `node <script>` through the
+ * executable override. Executing a freshly written file directly is slow and occasionally
+ * stalls for about 25 s on macOS while the system assesses the new executable, and Node's
+ * spawn blocks the event loop for that time; that made timing-sensitive tests flaky.
+ * Pass a bare `name` only where a test needs PATH discovery of the command itself.
+ */
+export async function writeCliStandIn(directory: string, scenario: CliStandInScenario, name: string = `${{ "claude-code": "claude", codex: "codex", gemini: "gemini", antigravity: "agy" }[scenario.vendor]}.cjs`): Promise<string> {
   const path = join(directory, name);
   await writeFile(path, `#!/usr/bin/env node\n${SOURCE.replace("__SCENARIO__", () => JSON.stringify({ stateFile: join(directory, `${name}.state`), ...scenario }))}`, { mode: 0o755 });
   await chmod(path, 0o755);

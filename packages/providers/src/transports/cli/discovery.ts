@@ -9,6 +9,8 @@ export type HostLookup = (name: string) => string | undefined;
 /**
  * How a CLI is started. On Windows an npm `.cmd` shim is resolved to the Node script it
  * wraps and run with Node directly, so no command shell ever parses prompt-bearing arguments.
+ * An executable override that names a JavaScript entry point (`.js`, `.cjs`, `.mjs`, such as
+ * an npm package's `cli.js`) is likewise run with the host's Node on every platform.
  */
 export interface CliExecutable {
   readonly command: string;
@@ -23,7 +25,7 @@ export type CliExecutableResolution =
 export interface DiscoveryHost {
   readonly platform: NodeJS.Platform;
   readonly lookup: HostLookup;
-  /** The Node runtime used to run a Windows npm shim's script. */
+  /** The Node runtime used to run a Windows npm shim's script or a JavaScript entry point. */
   readonly nodeExecutable: string;
 }
 
@@ -55,6 +57,7 @@ async function found(path: string, source: CliExecutable["source"], host: Discov
     if (script === null) return { found: false, reason: "not_found", detail: `${path} is a command shim whose Node entry point could not be identified; set the executable override to the CLI's .exe or script` };
     return { found: true, executable: Object.freeze({ command: host.nodeExecutable, prefixArguments: Object.freeze([script]), path, source }) };
   }
+  if (/\.(?:c|m)?js$/iu.test(path)) return { found: true, executable: Object.freeze({ command: host.nodeExecutable, prefixArguments: Object.freeze([path]), path, source }) };
   return { found: true, executable: Object.freeze({ command: path, prefixArguments: Object.freeze([]), path, source }) };
 }
 

@@ -328,6 +328,13 @@ describe("executable discovery", () => {
       .toMatchObject({ found: true, executable: { source: "well_known", path: join(root, ".local", "bin", "agy") } });
   });
 
+  it("runs a JavaScript entry-point override with the host's Node", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbitra-cli-entry-")); roots.push(root);
+    await writeFile(join(root, "cli.mjs"), "", { mode: 0o755 });
+    const resolution = await resolveCliExecutable(requireCliTransportSupport("codex-cli"), { platform: "linux", nodeExecutable: "/opt/node/bin/node", lookup: (name) => name === "ARBITRA_CODEX_EXECUTABLE" ? join(root, "cli.mjs") : undefined });
+    expect(resolution).toMatchObject({ found: true, executable: { command: "/opt/node/bin/node", prefixArguments: [join(root, "cli.mjs")], source: "override" } });
+  });
+
   it("runs a Windows npm shim's script with Node instead of through a command shell", async () => {
     const root = await mkdtemp(join(tmpdir(), "arbitra-cli-shim-")); roots.push(root);
     await mkdir(join(root, "node_modules", "@google", "gemini-cli", "bundle"), { recursive: true });
