@@ -61,9 +61,14 @@ it("lets a shared check wait for granted files other tasks have not created yet,
     verification: policy, models: { fast: "model", balanced: "model", frontier: "model" }, maximumAttempts: 1 } });
   const seen: string[][] = [];
   const sandbox: TestSandbox = { async recover() {}, async run(_snapshot, _execution, selected) { seen.push([...selected.sourcePaths]); return f.result; } };
-  // other.test.ts is granted to another task and does not exist yet: the check runs on what exists.
-  expect(await new TestingTaskVerifier(f.store, f.snapshot, execute(["new.test.ts", "other.test.ts"]), policy, sandbox).verify(f.task, "shared", f.workspace, signal())).toMatchObject({ status: "passed" });
+  // other.test.ts is granted to another task and does not exist yet: the check runs on what exists,
+  // records the narrowed sources, and the attempt ledger accepts that execution as the configured check.
+  const ledger = new TestingTaskAttempts(f.store, f.task, policy);
+  const attempt = await ledger.reserve(); if (attempt === null) throw new Error("ATTEMPT_ABSENT");
+  const shared = await new TestingTaskVerifier(f.store, f.snapshot, execute(["new.test.ts", "other.test.ts"]), policy, sandbox).verify(f.task, attempt.id, f.workspace, signal());
+  expect(shared).toMatchObject({ status: "passed", checks: [{ checkId: "tests", sourcePaths: ["new.test.ts"] }] });
   expect(seen).toEqual([["new.test.ts"]]);
+  expect(await ledger.recordVerification(attempt.id, shared.artifactId)).toMatchObject({ result: "passed" });
   // A missing source nobody is allowed to write is still refused.
   await expect(new TestingTaskVerifier(f.store, f.snapshot, execute(["new.test.ts"]), policy, sandbox).verify(f.task, "ungranted", f.workspace, signal())).rejects.toThrow("TESTING_CHECK_SOURCE_MISSING:other.test.ts");
 });

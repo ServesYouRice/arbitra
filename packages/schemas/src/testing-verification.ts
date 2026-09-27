@@ -22,6 +22,8 @@ export const testingTaskVerificationSchema = z.strictObject({
   taskFingerprint: z.string().regex(/^[a-f0-9]{64}$/u), policyFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
   snapshotFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
   status: z.enum(["passed", "failed", "incomplete"]), deterministicFailure: z.boolean(), reasons: z.array(z.string()),
-  checks: z.array(z.strictObject({ command: z.string(), checkId: z.string(), executionId: z.string().nullable(), status: z.enum(["passed", "failed", "incomplete"]), expectedExitCode: z.number().int(), actualExitCode: z.number().int().nullable() })),
+  checks: z.array(z.strictObject({ command: z.string(), checkId: z.string(), executionId: z.string().nullable(), status: z.enum(["passed", "failed", "incomplete"]), expectedExitCode: z.number().int(), actualExitCode: z.number().int().nullable(),
+    /** The check's sources as executed, when granted files no task had created yet were left out. */
+    sourcePaths: z.array(z.string()).min(1).optional() })),
 });
 export type TestingTaskVerification = z.infer<typeof testingTaskVerificationSchema>;
