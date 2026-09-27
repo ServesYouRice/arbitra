@@ -98,7 +98,8 @@ export class TestingTaskVerifier {
         const completed = record?.state === "completed" && result?.status === "exited" && result.stopped === null && result.cleanupCompleted
           && result.driver === "docker" && result.image === execution.image && result.checkId === check.id && result.isolation === "read_only_snapshot_no_network" && result.exitCode !== null;
         const status = completed ? result.exitCode === binding.expectedExitCode ? "passed" : "failed" : "incomplete";
-        checks.push({ command: command.command, checkId: check.id, executionId: record?.id ?? null, status, expectedExitCode: binding.expectedExitCode, actualExitCode: result?.exitCode ?? null });
+        const narrowed = this.#policy.execution.checks.find(({ id }) => id === check.id)?.sourcePaths.length !== check.sourcePaths.length;
+        checks.push({ command: command.command, checkId: check.id, executionId: record?.id ?? null, status, expectedExitCode: binding.expectedExitCode, actualExitCode: result?.exitCode ?? null, ...(narrowed ? { sourcePaths: [...check.sourcePaths] } : {}) });
         if (status === "incomplete") reasons.push(results.deferredCheckIds.includes(check.id) ? `verification_budget_exhausted:${check.id}` : `verification_incomplete:${check.id}`);
       }
     }

@@ -130,7 +130,11 @@ export class TestingTaskAttempts {
       const binding = this.#policy.bindings.find((entry) => entry.command === command);
       const check = this.#policy.execution.checks.find(({ id }) => id === binding?.checkId);
       if (check === undefined) throw new Error("TESTING_VERIFICATION_CHECK_INVALID");
-      return check;
+      // A check narrowed to the sources that existed may only drop configured sources.
+      const narrowed = verification.checks.find(({ checkId }) => checkId === check.id)?.sourcePaths;
+      if (narrowed === undefined) return check;
+      if (narrowed.some((path) => !check.sourcePaths.includes(path)) || new Set(narrowed).size !== narrowed.length) throw new Error("TESTING_VERIFICATION_CHECK_INVALID");
+      return { ...check, sourcePaths: check.sourcePaths.filter((path) => narrowed.includes(path)) };
     });
     const executionFingerprint = hash({ ...this.#policy.execution, checks: configuredChecks });
     const invocationId = hash({ taskId: this.#task.id, attemptId: verification.attemptId });
