@@ -22,12 +22,14 @@ export class TestingTaskVerifier {
   readonly #policy: TestingVerificationPolicy;
   readonly #originalCommands;
   readonly #originalSnapshot: RepositorySnapshot;
+  readonly #grantedPaths: ReadonlySet<string>;
   #pending: Promise<unknown> = Promise.resolve();
   constructor(private readonly store: RunStore, originalSnapshot: RepositorySnapshot, settings: TestingExecution, policy: TestingVerificationPolicy, sandbox?: TestSandbox) {
     this.#settings = testingExecutionSchema.parse(settings);
     this.#originalSnapshot = structuredClone(originalSnapshot);
     this.#policy = testingVerificationPolicySchema.parse(policy);
     this.#originalCommands = repositoryTestCommands(originalSnapshot, this.#settings);
+    this.#grantedPaths = new Set(this.#settings.mode === "execute" ? this.#settings.execution.authorization.partitions.flatMap(({ paths }) => paths) : []);
     this.#execution = new VerificationExecutor(store, sandbox);
   }
 
@@ -66,8 +68,12 @@ export class TestingTaskVerifier {
       if (original !== undefined && canonicalJson(original) !== canonicalJson(current ?? null)) throw new Error("TESTING_COMMAND_SOURCE_CHANGED");
       const check = this.#policy.execution.checks.find(({ id }) => id === binding.checkId);
       if (check === undefined) throw new Error("TESTING_SANDBOX_CHECK_ABSENT");
-      if (hasWrites && check.sourcePaths.some((path) => !snapshot.files.some((file) => file.path === path))) throw new Error("TESTING_CHECK_SOURCE_MISSING");
-      return { command, binding, check };
+      // One repository command usually verifies files that several tasks create. A granted
+      // write path that no task has created yet may be absent; any other missing source may not.
+      const present = check.sourcePaths.filter((path) => snapshot.files.some((file) => file.path === path));
+      const missing = check.sourcePaths.filter((path) => !present.includes(path));
+      if (hasWrites && (present.length === 0 || missing.some((path) => !this.#grantedPaths.has(path)))) throw new Error(`TESTING_CHECK_SOURCE_MISSING:${missing.filter((path) => !this.#grantedPaths.has(path)).join(",") || check.id}`);
+      return { command, binding, check: hasWrites && missing.length > 0 ? { ...check, sourcePaths: present } : check };
     });
   }
 
