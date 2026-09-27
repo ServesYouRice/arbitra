@@ -21,6 +21,11 @@ describe("grounded Feature exploration", () => {
     const unknownPath = exploration();
     for (const surface of unknownPath.preflight.affectedSurfaces) surface.paths = ["../outside.ts"];
     expect(() => validateFeatureExploration(unknownPath, requirements, snapshot)).toThrow("FEATURE_EXPLORATION_UNKNOWN_PATH");
+    // A file to be created is steered to the summary, never into limitations.
+    expect(() => validateFeatureExploration(unknownPath, requirements, snapshot)).toThrow(/neither a surface nor a limitation/u);
+    const noPaths = exploration();
+    for (const surface of noPaths.preflight.affectedSurfaces) surface.paths = [];
+    expect(() => validateFeatureExploration(noPaths, requirements, snapshot)).toThrow(/neither a surface nor a limitation/u);
     expect(() => validateFeatureExploration({ ...exploration(), evidence: [] }, requirements, snapshot)).toThrow("FEATURE_EXPLORATION_EVIDENCE_MISSING");
   });
 

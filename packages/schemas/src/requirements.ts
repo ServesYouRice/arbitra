@@ -60,7 +60,7 @@ export type RequirementsDraft = z.infer<typeof requirementsDraftSchema>;
 export type RequirementsContract = z.infer<typeof requirementsContractSchema>;
 
 export const featurePreflightSchema = z.strictObject({
-  affectedSurfaces: z.array(z.strictObject({ id: text, paths: z.array(text).min(1), riskCategories: z.array(text), relevantTo: z.array(text).min(1) })),
+  affectedSurfaces: z.array(z.strictObject({ id: text, paths: z.array(text).min(1, "A surface names at least one existing snapshot file; a file the feature will create is neither a surface nor a limitation (mention it in the summary)"), riskCategories: z.array(text), relevantTo: z.array(text).min(1) })),
   securitySensitiveSurfaceCount: z.number().int().nonnegative(),
   migrationInvolvement: z.boolean(), architectureBreadth: z.number().int().nonnegative(), testingComplexity: z.number().int().nonnegative(),
 }).superRefine((value, context) => {

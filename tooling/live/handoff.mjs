@@ -5,8 +5,9 @@
 // The run is exported through the public CLI. Running this script is the operator's grant, and it
 // prints what it grants: each task's proposed files (scope.likelyFiles, less filesNotToTouch) as its
 // write scope, and its verification commands. Each task goes to a new Claude Code process (the
-// subscription login on this host) whose working directory holds only a clean fixture checkout and
-// the rendered handoff; no run state, journal or trace is reachable from it, and the host's settings,
+// subscription login on this host) whose working directory is a clean fixture checkout with the
+// rendered handoff in ./implementation, the layout the handoff's own paths assume. No run state,
+// journal or trace is reachable from it, and the host's settings,
 // memory, skills, plugins, hooks and MCP servers are switched off. After each task the
 // script itself runs the approved verification commands, then checks that the handoff contract is
 // unchanged and that every repository edit stays inside that task's grant.
@@ -37,7 +38,7 @@ const claude = await resolveCliExecutable(requireCliTransportSupport("claude-cod
 if (!claude.found) throw new Error(`CLAUDE_CODE_NOT_FOUND: ${claude.detail}`);
 
 const sandbox = mkdtempSync(join(tmpdir(), "arbitra-live-handoff-"));
-const repository = join(sandbox, "repository"); const handoff = join(sandbox, "implementation");
+const repository = join(sandbox, "checkout"); const handoff = join(repository, "implementation");
 cpSync(join(root, "tooling/live/fixture-repo"), repository, { recursive: true });
 const git = (...args) => execFileSync("git", ["-c", "user.email=live@arbitra.invalid", "-c", "user.name=live", ...args], { cwd: repository, encoding: "utf8" });
 git("init", "-q"); git("add", "-A"); git("commit", "-qm", "fixture");
@@ -50,30 +51,30 @@ try {
     const write = task.scope.likelyFiles.filter((path) => !excluded.includes(path));
     const commands = task.verification.commands.map(({ command, expectedExitCode }) => ({ command, expectedExitCode }));
     process.stdout.write(`${task.id}: granting write ${JSON.stringify(write)} and approving ${JSON.stringify(commands.map(({ command }) => command))}\n`);
-    rmSync(handoff, { recursive: true, force: true });
+    // The rendered file set is the same for every selected task, so rendering over it keeps execution/ evidence.
     const tree = renderImplementation(manifest, { selectedTaskId: task.id, adapters: ["claude"], effectiveWriteScopes: { [task.id]: write } });
     writeImplementation({ ...tree, "progress.jsonl": progress }, handoff);
     const contract = hashes(handoff, (path) => path !== "progress.jsonl" && !path.startsWith("execution/"));
-    const before = hashes(repository, (path) => !path.startsWith(".git/"));
+    const before = hashes(repository, source);
     const prompt = [
-      `You are a fresh coding agent. Execute ${task.id} from the handoff in ./implementation, working only in ./repository.`,
-      "Start with ./implementation/AGENTS.md and ./implementation/CLAUDE.md, then the selected task contract.",
-      `The operator has approved these verification commands, to run from ./repository: ${commands.map(({ command }) => command).join(", ")}.`,
+      `You are a fresh coding agent in this checkout. Execute ${task.id} from the handoff in ./implementation.`,
+      "Start with implementation/AGENTS.md and implementation/CLAUDE.md, then the selected task contract. Paths in the handoff are relative to this checkout.",
+      `The operator has approved these verification commands, to run from this checkout: ${commands.map(({ command }) => command).join(", ")}.`,
       "Do not run any other command. Do not edit the manifest, task contracts, context or validation documents.",
-      `Append your lifecycle status to ./implementation/progress.jsonl as the progress schema describes. Stop when ${task.id} is done or blocked.`,
+      `Append your lifecycle status to implementation/progress.jsonl as the progress schema describes. Stop when ${task.id} is done or blocked.`,
     ].join("\n");
-    const allowed = ["Read", "Glob", "Grep", "Edit", "Write", ...commands.map(({ command }) => `Bash(cd repository && ${command})`), ...commands.map(({ command }) => `Bash(${command})`)];
+    const allowed = ["Read", "Glob", "Grep", "Edit", "Write", ...commands.map(({ command }) => `Bash(${command})`)];
     const started = Date.now();
     const agent = spawnSync(claude.executable.command, [...claude.executable.prefixArguments, "-p", "--model", model, "--output-format", "json",
       "--permission-mode", "acceptEdits", "--allowedTools", allowed.join(","), "--disallowedTools", "WebFetch,WebSearch,Task",
       "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--setting-sources", "", "--safe-mode", "--no-session-persistence"], {
-      cwd: sandbox, input: prompt, encoding: "utf8", timeout: 30 * 60_000, maxBuffer: 64 * 1024 * 1024, env: releaseEnvironment(),
+      cwd: repository, input: prompt, encoding: "utf8", timeout: 30 * 60_000, maxBuffer: 64 * 1024 * 1024, env: releaseEnvironment(),
     });
     const verification = commands.map(({ command, expectedExitCode }) => {
       const result = spawnSync(command, { cwd: repository, shell: true, encoding: "utf8", timeout: 5 * 60_000, env: releaseEnvironment() });
       return { command, expectedExitCode, exitCode: result.status, output: `${result.stdout ?? ""}${result.stderr ?? ""}`.slice(-4_000) };
     });
-    const after = hashes(repository, (path) => !path.startsWith(".git/"));
+    const after = hashes(repository, source);
     const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((path) => before[path] !== after[path]).sort();
     const contractAfter = hashes(handoff, (path) => path !== "progress.jsonl" && !path.startsWith("execution/"));
     progress = readFileSync(join(handoff, "progress.jsonl"), "utf8");
@@ -91,7 +92,8 @@ try {
     process.stdout.write(`${JSON.stringify(result)}\n`);
     if (!result.accepted) break;
   }
-  git("add", "-A", "--intent-to-add"); writeFileSync(join(evidence, "changes.diff"), git("diff"));
+  git("add", "-A", "--intent-to-add", "--", ".", ":!implementation"); writeFileSync(join(evidence, "changes.diff"), git("diff", "--", ".", ":!implementation"));
+  cpSync(handoff, join(evidence, "implementation"), { recursive: true });
 } finally { rmSync(sandbox, { recursive: true, force: true }); }
 const summary = { runId, model, executor: `${claude.executable.path} (${claude.executable.source})`, accepted: results.length === order.length && results.every(({ accepted }) => accepted), tasks: results };
 writeFileSync(join(evidence, "result.json"), `${JSON.stringify(summary, null, 2)}\n`);
@@ -107,11 +109,13 @@ function topological(tasks) {
   }
   return ordered;
 }
+/** Repository source: everything but version control and the handoff itself. */
+function source(path) { return !path.startsWith(".git/") && !path.startsWith("implementation/"); }
 function hashes(directory, include) {
   const result = {};
   const walk = (current) => { for (const entry of readdirSync(current, { withFileTypes: true })) {
     const path = join(current, entry.name); const relativePath = relative(directory, path).replaceAll("\\", "/");
-    if (entry.isDirectory()) { if (relativePath !== ".git") walk(path); } else if (entry.isFile() && include(relativePath)) result[relativePath] = createHash("sha256").update(readFileSync(path)).digest("hex");
+    if (entry.isDirectory()) { if (relativePath !== ".git" && include(`${relativePath}/`)) walk(path); } else if (entry.isFile() && include(relativePath)) result[relativePath] = createHash("sha256").update(readFileSync(path)).digest("hex");
   } };
   if (existsSync(directory)) walk(directory);
   return result;
