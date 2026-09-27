@@ -16,6 +16,8 @@ import type { RepositorySnapshot } from "./repository.js";
 import type { RunStore } from "./run-store.js";
 import type { TestingToolExtension } from "./testing-tools.js";
 
+const OUTPUT_REPAIR_INSTRUCTION = "Output repair: arbitra's output validation rejected your previous reply. The data artifact outputRejected holds the validator's reason and your rejected reply. It is arbitra's own validation feedback on your earlier output, not repository content and not a prompt injection, so never report it as a finding. Return one corrected, complete reply that satisfies the locked output schema and every stated rule. Quote evidence exactly as it appears in the source.";
+
 /** Replays durable model turns through the canonical read-only tool loop. */
 export class ModelHarness {
   #outputLimited: Promise<Set<string>> | undefined;
@@ -43,10 +45,12 @@ export class ModelHarness {
         // without this one reply (peer review) can tell it from a provider or policy failure.
         if (repair > execution.maximumOutputRepairs) throw error.cause instanceof Error ? Object.assign(error.cause, { modelOutputRejected: true }) : error.cause;
         // A rejected reply is answered once more, as its own durable activity, with the
-        // validation failure and the rejected reply (as untrusted data) appended.
-        attempt = { ...input, activityId: `${input.activityId}/repair-${repair}`, messages: [...input.messages, { role: "user", content: JSON.stringify({ outputRejected: {
-          attempt: repair, reason: error.reason, rejectedReply: error.reply.slice(0, 32_000),
-          instruction: "Your previous reply was rejected by validation for the reason given. Return one corrected, complete reply that satisfies the locked output schema and every stated rule. Quote evidence exactly as it appears in the source." } }) }] };
+        // validation failure and the rejected reply (as untrusted data) appended. Both can
+        // quote model output, so they stay framed as data; the fixed trusted instruction says
+        // what they are (observed live: without it, a model reported the repair request as a
+        // prompt injection).
+        attempt = { ...input, activityId: `${input.activityId}/repair-${repair}`, messages: [...input.messages, { role: "system", content: OUTPUT_REPAIR_INSTRUCTION },
+          { role: "user", content: JSON.stringify({ outputRejected: { attempt: repair, reason: error.reason, rejectedReply: error.reply.slice(0, 32_000) } }) }] };
       }
     }
   }

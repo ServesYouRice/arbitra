@@ -28,7 +28,9 @@ export function computeConsensus(board: ConsensusBoard, policy: ConsensusPolicy 
 export function isHighRisk(candidate: ConsensusCandidate): boolean { return candidate.severity === "critical" || candidate.severity === "high" || candidate.blocker || /(?:security|authorization|data_integrity|architecture|migration)/iu.test(candidate.category ?? "") || candidate.highBlastRadius === true; }
 
 function decide(candidate: ConsensusCandidate, policy: ConsensusPolicy, auditors: readonly ConsensusAuditor[], groups: ReadonlyMap<string, string>, exhausted: boolean): CandidateConsensus {
-  const latest = latestVotes(candidate.votes, new Set(auditors.map(({ auditorId }) => auditorId))); const reviewedBy = [...latest.keys()].sort(); const missing = auditors.map(({ auditorId }) => auditorId).filter((id) => !latest.has(id));
+  const latest = latestVotes(candidate.votes, new Set(auditors.map(({ auditorId }) => auditorId))); const reviewedBy = [...latest.keys()].sort();
+  // Peer review never shows an auditor its own findings, so the sole author of a candidate is not a missing reviewer.
+  const missing = auditors.map(({ auditorId }) => auditorId).filter((id) => !latest.has(id) && candidate.sourceFindingIds.some((source) => source.split("/", 1)[0] !== id));
   const accepts = [...latest.values()].filter(({ disposition }) => disposition === "accept"); const rejects = [...latest.values()].filter(({ disposition }) => disposition === "reject"); const verification = [...latest.values()].filter(({ disposition }) => disposition === "needs_verification");
   const evidenceBackedAccept = accepts.filter(({ citedEvidenceIds }) => citedEvidenceIds.length > 0); const evidenceBackedReject = rejects.filter(({ citedEvidenceIds }) => citedEvidenceIds.length > 0);
   const representedGroups = new Set(evidenceBackedAccept.map(({ authorId }) => groups.get(authorId)).filter((value): value is string => value !== undefined));

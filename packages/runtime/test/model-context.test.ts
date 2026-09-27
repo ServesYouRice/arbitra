@@ -29,6 +29,14 @@ describe("later-stage source allocation", () => {
     expect(result.coverage.omittedPaths).toEqual(["a.ts"]);
   });
 
+  it("tells the model whether any source was left out", () => {
+    const input = { decision: { candidateId: "C1" }, repository: [{ path: "a.ts", content: "short" }, { path: "z.ts", content: "danger" }] };
+    const whole = allocateModelContext(input, (value) => bytes(value) <= 100);
+    expect(whole.input).toMatchObject({ contextCoverage: { complete: true, fullPaths: ["a.ts", "z.ts"], omittedPaths: [] } });
+    expect(whole.coverage).toEqual({ fullPaths: ["a.ts", "z.ts"], excerptPaths: [], omittedPaths: [] });
+    expect(allocateModelContext(input, (value) => bytes(value) <= 6).input).toMatchObject({ contextCoverage: { complete: false, omittedPaths: ["z.ts"] } });
+  });
+
   it("fails rather than discarding required evidence or plan data", () => {
     expect(() => allocateModelContext({ canonicalIssues: ["required"], repository: [] }, () => false)).toThrow("MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED");
     expect(withinStringBudget({ source: "x".repeat(1000) }, 100)).toBe(false);

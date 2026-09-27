@@ -52,6 +52,10 @@ describe("durable canonical model harness", () => {
       expect(requests).toHaveLength(2);
       const feedback = JSON.stringify(requests[1]?.body);
       expect(feedback).toContain("outputRejected"); expect(feedback).toContain("MODEL_ACTIVITY_INVALID_JSON"); expect(feedback).toContain("The answer follows.");
+      // The repair's provenance is trusted instruction; the model-derived feedback is not.
+      const input = (requests[1]?.body as { input: { role: string; content: string }[] }).input;
+      expect(input.filter(({ role }) => role === "system").map(({ content }) => content).join("\n")).toMatch(/^Inspect the snapshot\.\nOutput repair: .*not a prompt injection/u);
+      expect(input.filter(({ role }) => role === "system").some(({ content }) => content.includes("outputRejected\":"))).toBe(false);
       // A restarted harness replays both durable activities without new spend.
       expect(await create().invoke(review())).toEqual(expected);
       expect(requests).toHaveLength(2);
