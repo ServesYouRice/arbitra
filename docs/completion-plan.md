@@ -82,13 +82,13 @@ Evidence is in `docs/qa/`.
 | P03 | Partial | Live transport conformance on Gemini native and the compatible endpoint (40 observations) and on all three subscription CLIs; on subscriptions, every public workflow through the CLI: Testing plan and execute (handoff applied), Feature automatic and interactive (operator revision, resume from a fresh process), a three-vendor Audit (all seeded defects accepted, nothing else); two exported Feature plans accepted by fresh Claude Code executors; 26 live defects fixed ([`qa/p03`](qa/p03/README.md), [`qa/p03-subscription`](qa/p03-subscription/README.md)) | OpenAI Responses/Chat and Anthropic Messages API protocols live (need API credit, which the owner does not use); refusal/context-limit elicitation |
 | P04 | **Complete** | Real engine: isolation, limits, timeout/cancel/output, drift, unavailable image, orphan recovery, parallel checks, source preservation, change-set application and stale rejection; public Testing executor with scripted and live model writers; two engine-exposed defects fixed ([`qa/p04`](qa/p04/README.md)) | — |
 | P05 | **Complete** | — | — |
-| P06 | Interim | Protocol prespecified before any run; driver over the public runtime with durable corpus provenance; 4 of 15 runs completed before the free-tier quota ran out (single auditor recall 5/7, three same-family auditors 6/7, difference +0.14 [0, 0.43]); decision **insufficient evidence**; full pipeline failed 2/2 on peer-review output, now degrades instead ([`qa/p06`](qa/p06/README.md)) | Remaining 11 runs (resume plan in the README); heterogeneous model families need other funded providers |
+| P06 | Interim; version 2 started | Version 1 (Gemini API): 4 of 15 runs, decision **insufficient evidence** ([`qa/p06`](qa/p06/README.md)). Version 2.0.0 on subscription models (Claude Sonnet 5, Codex, Antigravity: three families) prespecified in 9fbd2de; 1 of 15 runs completed before the Claude five-hour window reached 94% ([`qa/p06-subscription`](qa/p06-subscription/README.md)) | The remaining 14 version-2 runs and their analysis |
 | P07 | **Complete** | Every repair case, including the critical success/failure ones, rerun with real containers ([`qa/p04`](qa/p04/README.md)) | — |
 | P08 | Implemented | All inventory stages now compose (global outline hierarchically, Feature drafting/exploration, Testing risk partitions) with resume tests; limits in `docs/harness.md` | Live context limits (P03) |
 | P09 | **Complete** | — | — |
 | P10 | **Complete** | 51/51 Playwright runs on Linux arm64 as well as macOS; one product race fixed (live state published after the event log) ([`qa/p10-linux`](qa/p10-linux/README.md)) | — |
 | P11 | **Complete** | Feature/Testing replay exercised end to end through the orchestrator, CLI and HTTP with changed protocol, model, scope, requirements, authorization and verification | — |
-| P12 | Implemented, conformance passed | `credentialKind: subscription_login` runs the writer on the host's Claude login; the conformance run passed against the real Claude Code 2.1.283 (leased write, events, usage, planted `CLAUDE.md` ignored, cleanup) and the matrix entry is `conformance_verified` ([`qa/p12`](qa/p12/README.md)) | Crash recovery, tool limits and unknown usage under real execution (opt-in live cases being added) |
+| P12 | **Complete** | `credentialKind: subscription_login` runs the writer on the host's Claude login. Against the real Claude Code 2.1.283: the conformance run (leased write, events, usage, planted `CLAUDE.md` ignored, cleanup), and the tool-call limit, cancellation, crash recovery and timeout paths with process-tree termination, scratch cleanup and unknown usage charged in full. The matrix entry is `conformance_verified` ([`qa/p12`](qa/p12/README.md)) | — |
 | P13 | **Complete** | Live advisor path on Gemini native and compatible chat: limits, identity, measured usage, replay without spend ([`qa/p13-live`](qa/p13-live/README.md)) | — |
 | P14 | **Complete** | — | — |
 | P15 | Implemented | Operator CLI/HTTP for uncertain submissions; live batch runner; every driver refused live before job creation (OpenAI/Anthropic credit, Gemini free tier has no batch) ([`qa/p15-live`](qa/p15-live/README.md)) | Live validation of each driver on a funded account |
@@ -281,7 +281,7 @@ changed models/protocols and CLI/server parity.
 
 ## P12 — Implement native harness adapters
 
-- [ ] Complete P12.
+- [x] Complete P12.
 
 **Implementation.** Implement the [HarnessAdapter port](../packages/harness/src/adapter.ts)
 with an explicit supported harness/version/mode matrix, starting with a concrete native
