@@ -27,6 +27,7 @@ afterEach(async () => {
 });
 const signal = () => new AbortController().signal;
 const native = { harnessId: "claude-code", stages: ["testing-writer"], apiKeyEnvVar: "FIXTURE_NATIVE_KEY", timeoutMs: 20_000, maximumTurns: 8, maximumToolCalls: 8, maximumTokensPerRun: 50_000 };
+const login = { harnessId: "claude-code", stages: ["testing-writer"], credentialKind: "subscription_login", timeoutMs: 20_000, maximumTurns: 8, maximumToolCalls: 8, maximumTokensPerRun: 50_000 };
 const written = "test('session', () => {});\n";
 
 async function fixture(scenario: StandInScenario) {
@@ -73,6 +74,53 @@ describe("native Testing writer", () => {
     const report = JSON.parse(await readFile(f.report, "utf8")) as { envKeys: string[]; env: Record<string, string> };
     expect(report.env["CLAUDE_CODE_OAUTH_TOKEN"]).toBe("native-credential");
     expect(report.envKeys).not.toContain("ANTHROPIC_API_KEY");
+  });
+
+  it.each([
+    ["without a host CLAUDE_CONFIG_DIR", {}],
+    ["with the host CLAUDE_CONFIG_DIR", { CLAUDE_CONFIG_DIR: "/fixture/claude-config" }],
+  ] as const)("uses the host's own login and no credential variable when credentialKind is subscription_login (%s)", async (_name, extra) => {
+    const before = await scratchDirectories();
+    const f = await fixture({ apiKeySource: "none", steps: [{ tool: "Read", input: { file_path: "session.ts" } }, { write: "session.test.ts", content: written }] });
+    const config = runConfigSchema.parse({ ...f.config, harness: { mode: "native", native: login } });
+    const home = await mkdtemp(join(f.root, "home-"));
+    const host: NativeWriterHost = { environment: { ...f.host.environment, HOME: home, USER: "fixture-user", ANTHROPIC_API_KEY: "host-key", CLAUDE_CODE_OAUTH_TOKEN: "host-token", ...extra } };
+    expect(await f.invoke(f, { config, host })).toEqual({ summary: "Stand-in wrote the requested test", limitations: [] });
+    expect((await f.workspace.verificationInput(f.task.id)).writes.map(({ path }) => path)).toEqual(["session.test.ts"]);
+    const report = JSON.parse(await readFile(f.report, "utf8")) as { cwd: string; envKeys: string[]; env: Record<string, string | undefined>; argv: string[]; files: string[] };
+    // macOS CoreFoundation adds __CF_USER_TEXT_ENCODING inside the child itself; it is not passed.
+    expect(report.envKeys.filter((key) => key !== "__CF_USER_TEXT_ENCODING")).toEqual(["CLAUDE_CODE_DISABLE_AUTO_MEMORY", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", ...Object.keys(extra), "DISABLE_AUTOUPDATER", "DISABLE_ERROR_REPORTING", "DISABLE_TELEMETRY",
+      "HOME", "NO_COLOR", "PATH", "TEMP", "TMP", "TMPDIR", "USER", "USERPROFILE"].sort());
+    expect(report.env).toEqual({ HOME: home, CLAUDE_CONFIG_DIR: "CLAUDE_CONFIG_DIR" in extra ? extra.CLAUDE_CONFIG_DIR : undefined, ANTHROPIC_API_KEY: undefined, CLAUDE_CODE_OAUTH_TOKEN: undefined });
+    expect(report.argv).toEqual(expect.arrayContaining(["--allowedTools", "Read,Glob,Grep,Edit(./session.test.ts),Write(./session.test.ts)"]));
+    expect(report.argv.slice(-7)).toEqual(["--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--setting-sources", "", "--safe-mode", "--no-session-persistence"]);
+    // The scratch copy, control-file exclusion and cleanup are unchanged by the host login.
+    expect(report.cwd).toMatch(/arbitra-native-[0-9a-f-]{36}-[A-Za-z0-9]{6}\/work$/u);
+    expect(report.files).toContain("session.ts"); expect(report.files).not.toContain("CLAUDE.md");
+    expect(await exists(report.cwd)).toBe(false);
+    expect(await scratchDirectories()).toEqual(before);
+    expect((await traces(f))[0]).toMatchObject({ harnessId: "native:claude-code", outcome: "success" });
+    f.partitions.release(f.lease); await f.workspace.close();
+  });
+
+  it("stops the host's own login at init when it is an API key, admitting nothing", async () => {
+    const f = await fixture({ apiKeySource: "/login managed key", steps: [{ write: "session.test.ts", content: written }] });
+    const config = runConfigSchema.parse({ ...f.config, harness: { mode: "native", native: login } });
+    expect(await f.invoke(f, { config, host: { environment: { ...f.host.environment, HOME: f.root } } }))
+      .toEqual({ summary: "Native harness run admitted no changes", limitations: ["native_harness_failure:NATIVE_HARNESS_API_KEY_IN_USE"] });
+    expect((await f.workspace.verificationInput(f.task.id)).writes).toEqual([]);
+    f.partitions.release(f.lease); await f.workspace.close();
+  });
+
+  it("refuses the host's own login below Claude Code 2.1.0, without a host home, and misplaced or missing credential variables before any spend", async () => {
+    const f = await fixture({ version: "2.0.14", steps: [] });
+    const config = runConfigSchema.parse({ ...f.config, harness: { mode: "native", native: login } });
+    await expect(f.invoke(f, { config, host: { environment: { ...f.host.environment, HOME: f.root } } })).rejects.toThrow("NATIVE_HARNESS_SUBSCRIPTION_LOGIN_VERSION_UNSUPPORTED:claude-code@2.0.14");
+    await expect(f.invoke(f, { config })).rejects.toThrow("NATIVE_HARNESS_HOST_HOME_MISSING");
+    await expect(f.invoke(f, { config: runConfigSchema.parse({ ...config, harness: { mode: "native", native: { ...login, apiKeyEnvVar: "FIXTURE_NATIVE_KEY" } } }) })).rejects.toThrow("NATIVE_HARNESS_CREDENTIAL_VARIABLE_FORBIDDEN");
+    await expect(f.invoke(f, { config: runConfigSchema.parse({ ...config, harness: { mode: "native", native: { ...login, credentialKind: "oauth_token" } } }) })).rejects.toThrow("NATIVE_HARNESS_CREDENTIAL_VARIABLE_REQUIRED");
+    expect((await f.store.listArtifacts()).some(({ kind }) => kind === "model-token-budget" || kind.startsWith("native-writer-run-"))).toBe(false);
+    f.partitions.release(f.lease); await f.workspace.close();
   });
 
   it("runs isolated, admits leased writes through the lease and records harness identity and usage", async () => {
@@ -241,5 +289,25 @@ describe("native harness preflight", () => {
     const present = await environmentDiagnostics(config, { credential: (name) => name === "ARBITRA_CLAUDE_CODE_EXECUTABLE" ? "/opt/claude/bin/claude" : "secret-value" });
     expect(present.map(({ code }) => code).filter((code) => code.startsWith("NATIVE_"))).toEqual([]);
     expect(JSON.stringify(present)).not.toContain("secret-value");
+  });
+
+  it("requires a credential variable for api_key and oauth_token and refuses one for the host's own login", async () => {
+    const execute = await template();
+    const { harnessId, stages, timeoutMs, maximumTurns, maximumToolCalls, maximumTokensPerRun } = native;
+    const bounds = { harnessId, stages, timeoutMs, maximumTurns, maximumToolCalls, maximumTokensPerRun };
+    const credentialCodes = (value: unknown) => configurationDiagnostics(runConfigSchema.parse({ ...execute, harness: { mode: "native", native: value } }))
+      .filter(({ code }) => code.startsWith("NATIVE_HARNESS_CREDENTIAL")).map(({ code, path }) => [code, path]);
+    expect(credentialCodes(bounds)).toEqual([["NATIVE_HARNESS_CREDENTIAL_VARIABLE_REQUIRED", "harness.native.apiKeyEnvVar"]]);
+    expect(credentialCodes({ ...bounds, credentialKind: "oauth_token" })).toEqual([["NATIVE_HARNESS_CREDENTIAL_VARIABLE_REQUIRED", "harness.native.apiKeyEnvVar"]]);
+    expect(credentialCodes({ ...native, credentialKind: "subscription_login" })).toEqual([["NATIVE_HARNESS_CREDENTIAL_VARIABLE_FORBIDDEN", "harness.native.apiKeyEnvVar"]]);
+    expect(credentialCodes(login)).toEqual([]);
+    expect(credentialCodes(native)).toEqual([]);
+    const token = await environmentDiagnostics(runConfigSchema.parse({ ...execute, harness: { mode: "native", native: { ...native, credentialKind: "oauth_token" } } }), { credential: () => undefined });
+    expect(token.find(({ code }) => code === "NATIVE_HARNESS_CREDENTIAL_MISSING:FIXTURE_NATIVE_KEY")?.message).toContain("CLAUDE_CODE_OAUTH_TOKEN");
+    const config = runConfigSchema.parse({ ...execute, harness: { mode: "native", native: login } });
+    const host: Record<string, string> = { ARBITRA_CLAUDE_CODE_EXECUTABLE: "/opt/claude/bin/claude", HOME: "/Users/me" };
+    expect((await environmentDiagnostics(config, { credential: (name) => host[name] })).map(({ code }) => code).filter((code) => code.startsWith("NATIVE_"))).toEqual([]);
+    expect((await environmentDiagnostics(config, { credential: (name) => name === "HOME" ? undefined : host[name] })).filter(({ code }) => code.startsWith("NATIVE_")).map(({ code, path }) => [code, path]))
+      .toEqual([["NATIVE_HARNESS_HOST_HOME_MISSING", "$environment"]]);
   });
 });

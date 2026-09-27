@@ -19,16 +19,21 @@ import { featureFixture } from "./feature-fixture.js";
  *   ARBITRA_NATIVE_HARNESS_CONFORMANCE=1
  *   ARBITRA_CLAUDE_CODE_EXECUTABLE=/absolute/path/to/claude
  *   ARBITRA_NATIVE_CONFORMANCE_MODEL=<model id the CLI accepts>
- *   ARBITRA_NATIVE_CONFORMANCE_API_KEY_ENV=<name of the variable holding the key> (default ANTHROPIC_API_KEY)
- *   ARBITRA_NATIVE_CONFORMANCE_CREDENTIAL_KIND=oauth_token when that variable holds a subscription
- *     token from `claude setup-token` instead of an API key (default api_key)
- * It checks the translation layer's assumptions (A1–A8 in translation.ts) end to end and
+ *   ARBITRA_NATIVE_CONFORMANCE_CREDENTIAL_KIND=api_key (default), oauth_token when the key
+ *     variable holds a subscription token from `claude setup-token`, or subscription_login to use
+ *     the host's own `claude` login (Claude Code 2.1.0 or later) with no key variable at all
+ *   ARBITRA_NATIVE_CONFORMANCE_API_KEY_ENV=<name of the variable holding the key or token>
+ *     (default ANTHROPIC_API_KEY; not read for subscription_login)
+ * It checks the translation layer's assumptions (A1–A9 in translation.ts) end to end and
  * prints the evidence to record. Without the variables it is skipped, never passed.
  */
 const executable = process.env["ARBITRA_CLAUDE_CODE_EXECUTABLE"];
 const keyVariable = process.env["ARBITRA_NATIVE_CONFORMANCE_API_KEY_ENV"] ?? "ANTHROPIC_API_KEY";
 const model = process.env["ARBITRA_NATIVE_CONFORMANCE_MODEL"];
-const enabled = process.env["ARBITRA_NATIVE_HARNESS_CONFORMANCE"] === "1" && executable !== undefined && model !== undefined && (process.env[keyVariable]?.length ?? 0) > 0;
+const requestedKind = process.env["ARBITRA_NATIVE_CONFORMANCE_CREDENTIAL_KIND"];
+const credentialKind = requestedKind === "oauth_token" || requestedKind === "subscription_login" ? requestedKind : "api_key";
+const enabled = process.env["ARBITRA_NATIVE_HARNESS_CONFORMANCE"] === "1" && executable !== undefined && model !== undefined
+  && (credentialKind === "subscription_login" || (process.env[keyVariable]?.length ?? 0) > 0);
 
 const roots: string[] = [];
 afterAll(async () => { await Promise.all(roots.map((root) => rm(root, { recursive: true, force: true }))); });
@@ -41,7 +46,8 @@ describe.skipIf(!enabled)("native harness conformance: Claude Code (actual proce
     const reviewer = f.config.models["reviewer"];
     if (reviewer === undefined || model === undefined) throw new Error("FIXTURE_PROFILE_ABSENT");
     const config = runConfigSchema.parse({ ...f.config, mode: "testing", models: { ...f.config.models, reviewer: { ...reviewer, modelId: model } },
-      harness: { mode: "native", native: { harnessId: "claude-code", stages: ["testing-writer"], apiKeyEnvVar: keyVariable, credentialKind: process.env["ARBITRA_NATIVE_CONFORMANCE_CREDENTIAL_KIND"] === "oauth_token" ? "oauth_token" : "api_key", timeoutMs: 300_000, maximumTurns: 12, maximumToolCalls: 24, maximumTokensPerRun: 400_000 } },
+      harness: { mode: "native", native: { harnessId: "claude-code", stages: ["testing-writer"], ...(credentialKind === "subscription_login" ? {} : { apiKeyEnvVar: keyVariable }), credentialKind,
+        timeoutMs: 300_000, maximumTurns: 12, maximumToolCalls: 24, maximumTokensPerRun: 400_000 } },
       workflow: { modelExecution: f.config.workflow["modelExecution"] } });
     const store = new RunStore(join(root, ".runs"), "conformance");
     const partitions = new WritePartitions([{ id: "tests", paths: ["session.test.ts"] }]);
@@ -59,7 +65,7 @@ describe.skipIf(!enabled)("native harness conformance: Claude Code (actual proce
     const events = (await store.listArtifacts()).find(({ kind }) => kind.startsWith("native-writer-events-"));
     const recorded = events === undefined ? null : await store.artifacts.get<{ events: { type: string }[]; failure: string | null; harness: unknown }>(events.ref);
     const writes = (await workspace.verificationInput(task.id)).writes;
-    console.log(JSON.stringify({ evidence: "native-harness-conformance", translation: CLAUDE_CODE_TRANSLATION, harness: recorded?.harness, result, failure: recorded?.failure,
+    console.log(JSON.stringify({ evidence: "native-harness-conformance", translation: CLAUDE_CODE_TRANSLATION, credentialKind, harness: recorded?.harness, result, failure: recorded?.failure,
       eventTypes: [...new Set(recorded?.events.map(({ type }) => type))], trace: trace === undefined ? null : { harnessId: trace.harnessId, harnessVersion: trace.harnessVersion, outcome: trace.outcome, tokenUsage: trace.tokenUsage, toolCallCount: trace.toolCallCount, error: trace.error },
       writes: writes.map(({ path }) => path) }, null, 2));
     expect(trace).toMatchObject({ harnessId: "native:claude-code", outcome: "success" });

@@ -36,6 +36,15 @@
  *     NotebookEdit (write); Bash, BashOutput, KillShell (shell); WebFetch, WebSearch
  *     (network); Task (subagents); `mcp__*` (MCP). File tools take `file_path`
  *     (`notebook_path` for notebooks); Glob, Grep and LS take `path`.
+ *  A9 `subscription_login` (2.1.0 or later): with no credential variable the CLI uses the
+ *     host's own login (macOS keychain, keyed by `USER`, or `.credentials.json` in the
+ *     config directory), found through the host `HOME` and the host `CLAUDE_CONFIG_DIR`
+ *     when set. Because that home is the host's, `--setting-sources ""` ignores settings
+ *     files, `--safe-mode` disables CLAUDE.md, skills, plugins, hooks and MCP,
+ *     `--mcp-config '{"mcpServers":{}}'` with `--strict-mcp-config` loads no MCP server,
+ *     `--no-session-persistence` keeps no transcript and `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`
+ *     writes no memory. `system/init` reports `apiKeySource: "none"` for a subscription
+ *     login; any other value means an API key would be used.
  */
 import type { HarnessUsage } from "../../adapter.js";
 
@@ -79,9 +88,11 @@ export interface ClaudeCodeInvocation {
   /** Permitted tool names; write tools are scoped to the exact leased paths. */
   readonly tools: readonly string[];
   readonly writablePaths: readonly string[];
+  /** The host's own login (A9): host settings, memory, skills, plugins, hooks and MCP are switched off by argument. */
+  readonly subscriptionLogin?: boolean;
 }
 
-/** A2–A4. The prompt is sent on stdin, never in argv. */
+/** A2–A4, A9. The prompt is sent on stdin, never in argv. */
 export function claudeCodeArguments(invocation: ClaudeCodeInvocation): readonly string[] {
   const allowed: string[] = [];
   for (const tool of invocation.tools) {
@@ -98,26 +109,40 @@ export function claudeCodeArguments(invocation: ClaudeCodeInvocation): readonly 
     "--allowedTools", allowed.join(","),
     "--disallowedTools", denied.join(","),
     "--strict-mcp-config",
+    ...(invocation.subscriptionLogin === true ? ["--mcp-config", "{\"mcpServers\":{}}", "--setting-sources", "", "--safe-mode", "--no-session-persistence"] : []),
   ]);
 }
 
+type HostEnvironment = Readonly<Record<string, string | undefined>>;
 export interface ClaudeCodeEnvironmentInput {
-  readonly host: Readonly<Record<string, string | undefined>>;
+  readonly host: HostEnvironment;
   readonly home: string; readonly configDirectory: string; readonly temporaryDirectory: string;
   readonly credentialTarget: string; readonly credential: string;
 }
 
+const passthrough = (host: HostEnvironment, keys: readonly string[]) => Object.fromEntries(keys.flatMap((key) => host[key] === undefined ? [] : [[key, host[key] as string]]));
+const PASSTHROUGH = Object.freeze(["PATH", "Path", "SystemRoot", "SYSTEMROOT", "WINDIR", "LANG"]);
+const quiet = (temporaryDirectory: string) => ({ TMPDIR: temporaryDirectory, TEMP: temporaryDirectory, TMP: temporaryDirectory,
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1", DISABLE_TELEMETRY: "1", DISABLE_ERROR_REPORTING: "1", NO_COLOR: "1" });
+
 /** A5. Only these keys reach the native process; host credentials, proxies and tokens do not. */
 export function claudeCodeEnvironment(input: ClaudeCodeEnvironmentInput): Readonly<Record<string, string>> {
-  const passthrough = Object.fromEntries(["PATH", "Path", "SystemRoot", "SYSTEMROOT", "WINDIR", "LANG"].flatMap((key) => input.host[key] === undefined ? [] : [[key, input.host[key] as string]]));
-  return Object.freeze({
-    ...passthrough,
-    HOME: input.home, USERPROFILE: input.home, CLAUDE_CONFIG_DIR: input.configDirectory,
-    TMPDIR: input.temporaryDirectory, TEMP: input.temporaryDirectory, TMP: input.temporaryDirectory,
-    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1", DISABLE_TELEMETRY: "1", DISABLE_ERROR_REPORTING: "1",
-    NO_COLOR: "1",
-    [input.credentialTarget]: input.credential,
-  });
+  return Object.freeze({ ...passthrough(input.host, PASSTHROUGH), HOME: input.home, USERPROFILE: input.home, CLAUDE_CONFIG_DIR: input.configDirectory, ...quiet(input.temporaryDirectory), [input.credentialTarget]: input.credential });
+}
+
+/** A9. The host home the CLI finds its own login under (USERPROFILE on Windows). */
+export function claudeCodeHostHome(host: HostEnvironment): string {
+  const home = [host["HOME"], host["USERPROFILE"]].find((value) => value !== undefined && value !== "");
+  if (home === undefined) throw new Error("NATIVE_HARNESS_HOST_HOME_MISSING");
+  return home;
+}
+
+/** A9. The host's own login and no credential variable: host credentials, proxies and tokens still never cross. */
+export function claudeCodeHostLoginEnvironment(input: { readonly host: HostEnvironment; readonly temporaryDirectory: string }): Readonly<Record<string, string>> {
+  const home = claudeCodeHostHome(input.host); const config = input.host["CLAUDE_CONFIG_DIR"];
+  // USER and LOGNAME name the macOS keychain account the login is stored under, as for the subscription CLI transport.
+  return Object.freeze({ ...passthrough(input.host, [...PASSTHROUGH, "USER", "LOGNAME"]), HOME: input.host["HOME"] || home, USERPROFILE: input.host["USERPROFILE"] || home,
+    ...(config === undefined || config === "" ? {} : { CLAUDE_CONFIG_DIR: config }), ...quiet(input.temporaryDirectory), CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" });
 }
 
 /** Paths a tool call names, for detection of reads outside the scratch copy and writes outside the lease (A8). */
@@ -135,7 +160,7 @@ export function claudeCodeToolPaths(input: unknown): readonly string[] {
 }
 
 export type ClaudeCodeEvent =
-  | { readonly kind: "init"; readonly sessionId: string | null; readonly model: string | null; readonly mcpServers: number; readonly tools: readonly string[] | null }
+  | { readonly kind: "init"; readonly sessionId: string | null; readonly model: string | null; readonly mcpServers: number; readonly tools: readonly string[] | null; readonly apiKeySource: string | null }
   | { readonly kind: "assistant"; readonly messageId: string | null; readonly text: string | null; readonly toolUses: readonly { readonly id: string; readonly name: string; readonly input: unknown }[]; readonly usage: HarnessUsage | null; readonly parentToolUseId: string | null }
   | { readonly kind: "tool_results"; readonly results: readonly { readonly toolUseId: string; readonly isError: boolean; readonly content: string }[] }
   | { readonly kind: "result"; readonly subtype: string; readonly isError: boolean; readonly text: string | null; readonly turns: number | null; readonly usage: HarnessUsage | null; readonly costUsd: number | null; readonly sessionId: string | null }
@@ -160,7 +185,8 @@ export function parseClaudeCodeEvent(line: string): ClaudeCodeEvent {
     if (servers !== undefined && !Array.isArray(servers)) throw new NativeEventError("init_mcp_servers");
     const tools = event["tools"];
     return { kind: "init", sessionId: optionalString(event["session_id"], "init_session_id"), model: optionalString(event["model"], "init_model"),
-      mcpServers: Array.isArray(servers) ? servers.length : 0, tools: Array.isArray(tools) && tools.every((tool) => typeof tool === "string") ? tools as string[] : null };
+      mcpServers: Array.isArray(servers) ? servers.length : 0, tools: Array.isArray(tools) && tools.every((tool) => typeof tool === "string") ? tools as string[] : null,
+      apiKeySource: typeof event["apiKeySource"] === "string" ? event["apiKeySource"] : null };
   }
   if (type === "assistant") {
     const message = record(event["message"], "assistant_message");

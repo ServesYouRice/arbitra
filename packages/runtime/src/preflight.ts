@@ -151,7 +151,7 @@ function nativeHarnessDiagnostics(config: RunConfig, diagnostics: PreflightDiagn
   }
   const native = config.harness.native;
   if (native === undefined) {
-    diagnostics.push(error("NATIVE_HARNESS_CONFIGURATION_REQUIRED", "harness.native", `Native mode needs harness.native {harnessId, stages: ["testing-writer"], apiKeyEnvVar, timeoutMs, maximumTurns, maximumToolCalls, maximumTokensPerRun}. Supported: ${SUPPORTED_NATIVE}.`));
+    diagnostics.push(error("NATIVE_HARNESS_CONFIGURATION_REQUIRED", "harness.native", `Native mode needs harness.native {harnessId, stages: ["testing-writer"], apiKeyEnvVar (or credentialKind: "subscription_login"), timeoutMs, maximumTurns, maximumToolCalls, maximumTokensPerRun}. Supported: ${SUPPORTED_NATIVE}.`));
     return;
   }
   const support = NATIVE_HARNESS_SUPPORT.find(({ harnessId }) => harnessId === native.harnessId);
@@ -163,6 +163,13 @@ function nativeHarnessDiagnostics(config: RunConfig, diagnostics: PreflightDiagn
     if (!(support.stages as readonly string[]).includes(stage)) diagnostics.push(error(`NATIVE_HARNESS_STAGE_UNSUPPORTED:${stage}`, "harness.native.stages", `${support.harnessId} supports only ${support.stages.join(", ")}. Discovery, review and planning always run canonical.`));
   }
   if (!native.stages.includes(NATIVE_TESTING_WRITER_STAGE)) diagnostics.push(error("NATIVE_HARNESS_STAGE_UNSUPPORTED:none", "harness.native.stages", "List \"testing-writer\"; no other native stage is supported."));
+  const kind = native.credentialKind ?? "api_key";
+  if (kind === "subscription_login" && native.apiKeyEnvVar !== undefined) {
+    diagnostics.push(error("NATIVE_HARNESS_CREDENTIAL_VARIABLE_FORBIDDEN", "harness.native.apiKeyEnvVar", `credentialKind "subscription_login" uses the host's own ${support.harnessId} login and passes no credential, so ${native.apiKeyEnvVar} would never be used. Remove apiKeyEnvVar, or set credentialKind to "api_key" or "oauth_token" to pass that variable instead.`));
+  }
+  if (kind !== "subscription_login" && native.apiKeyEnvVar === undefined) {
+    diagnostics.push(error("NATIVE_HARNESS_CREDENTIAL_VARIABLE_REQUIRED", "harness.native.apiKeyEnvVar", `credentialKind "${kind}"${native.credentialKind === undefined ? " (the default)" : ""} needs apiKeyEnvVar naming the host variable that holds the ${kind === "oauth_token" ? "token from `claude setup-token`" : "API key"}. To use the host's own ${support.harnessId} login instead, set credentialKind to "subscription_login".`));
+  }
   for (const { tool, reason } of unenforceableNativeTools(support, native.tools ?? support.defaultTools)) {
     const why = reason === "shell" ? "an unbounded shell cannot be confined to the write lease" : reason === "network" ? "network access cannot be enforced or recorded" : reason === "subagent" ? "subagents are a nested tool loop arbitra cannot bound" : reason === "mcp" ? "MCP servers are external tools outside the lease" : "arbitra cannot classify or bound it";
     diagnostics.push(error(`NATIVE_HARNESS_TOOL_UNENFORCEABLE:${tool}`, "harness.native.tools", `${tool} is refused: ${why}. Permitted: ${support.defaultTools.join(", ")}.`));
@@ -369,12 +376,18 @@ export async function environmentDiagnostics(config: RunConfig, options: Environ
   const nativeSupport = native === undefined ? undefined : NATIVE_HARNESS_SUPPORT.find(({ harnessId }) => harnessId === native.harnessId);
   if (native !== undefined && nativeSupport !== undefined) {
     const executable = options.credential(nativeSupport.executableEnvVar);
+    const kind = native.credentialKind ?? "api_key";
+    const login = kind === "subscription_login";
     if (executable === undefined || !isAbsolute(executable)) {
-      diagnostics.push(error("NATIVE_HARNESS_EXECUTABLE_MISSING", "$environment", `Set ${nativeSupport.executableEnvVar} to the absolute path of the ${nativeSupport.displayName} executable. The path is host configuration, never run configuration; its version is probed before each native run and must be ${nativeSupport.versionRange.minimum} or later and below ${nativeSupport.versionRange.below}.`));
+      diagnostics.push(error("NATIVE_HARNESS_EXECUTABLE_MISSING", "$environment", `Set ${nativeSupport.executableEnvVar} to the absolute path of the ${nativeSupport.displayName} executable. The path is host configuration, never run configuration; its version is probed before each native run and must be ${login ? nativeSupport.subscriptionLogin.minimumVersion : nativeSupport.versionRange.minimum} or later${login ? " (subscription_login)" : ""} and below ${nativeSupport.versionRange.below}.`));
     }
-    const credential = options.credential(native.apiKeyEnvVar);
-    if (credential === undefined || credential.length === 0) {
-      diagnostics.push(error(`NATIVE_HARNESS_CREDENTIAL_MISSING:${native.apiKeyEnvVar}`, "harness.native.apiKeyEnvVar", `Environment variable ${native.apiKeyEnvVar} is not set. It is passed to the native process as ${nativeSupport.credentialTarget} and is its only credential.`));
+    // A variable with subscription_login is a configuration error (NATIVE_HARNESS_CREDENTIAL_VARIABLE_FORBIDDEN); it is never read.
+    const credential = native.apiKeyEnvVar === undefined || login ? undefined : options.credential(native.apiKeyEnvVar);
+    if (native.apiKeyEnvVar !== undefined && !login && (credential === undefined || credential.length === 0)) {
+      diagnostics.push(error(`NATIVE_HARNESS_CREDENTIAL_MISSING:${native.apiKeyEnvVar}`, "harness.native.apiKeyEnvVar", `Environment variable ${native.apiKeyEnvVar} is not set. It is passed to the native process as ${nativeSupport.credentialTargets[kind] ?? nativeSupport.credentialTarget} and is its only credential.`));
+    }
+    if (login && [options.credential("HOME"), options.credential("USERPROFILE")].every((home) => home === undefined || home.length === 0)) {
+      diagnostics.push(error("NATIVE_HARNESS_HOST_HOME_MISSING", "$environment", `credentialKind "subscription_login" uses the host's own ${nativeSupport.harnessId} login, found through HOME (USERPROFILE on Windows), and neither is set. Run arbitra as the user who signed in to \`claude\`.`));
     }
   }
   const sandbox = sandboxRequirement(config);
