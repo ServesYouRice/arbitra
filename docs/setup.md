@@ -397,6 +397,10 @@ The source checkout is never modified. The operator supplies it explicitly:
   globs and control-plane paths are rejected (`TESTING_WRITE_PATH_INVALID`). Every granted
   path must appear in the `sourcePaths` of a command-bound check
   (`TESTING_WRITE_WITHOUT_VERIFICATION_CHECK`), or its changes could never be verified.
+  One check (say `npm run test`) may list the files of several tasks. While a task is
+  verified, granted files that no task has created yet are left out of that check's
+  sources; any other missing source fails with `TESTING_CHECK_SOURCE_MISSING:<path>`. The
+  final verification sees every created file.
 - `authorization.tasks[]` grants exact planned task IDs. Real models do not plan the same
   tasks twice, so run `testing-plan` first, inspect the task IDs and write paths in its
   handoff, then start execution as a replay of that run

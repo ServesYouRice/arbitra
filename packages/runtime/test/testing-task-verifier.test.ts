@@ -53,6 +53,21 @@ it("verifies newly written bytes, reuses the same attempt and executes fresh att
   expect(second.status).toBe("passed"); expect(second.checks[0]?.executionId).not.toBe(first.checks[0]?.executionId); expect(calls).toBe(2);
 });
 
+it("lets a shared check wait for granted files other tasks have not created yet, and nothing else", async () => {
+  const f = await fixture(); await f.write();
+  const check = { id: "tests", executable: "/usr/bin/npm", arguments: ["run", "test"], sourcePaths: ["new.test.ts", "other.test.ts"] };
+  const policy = testingVerificationPolicySchema.parse({ ...f.policy, execution: { ...f.policy.execution, checks: [check] } });
+  const execute = (paths: string[]) => testingExecutionSchema.parse({ ...f.settings, mode: "execute", execution: { authorization: { maximumParallelTasks: 1, partitions: [{ id: "tests", paths }], tasks: [{ taskId: f.task.id, partitionId: "tests", exclusive: false }] },
+    verification: policy, models: { fast: "model", balanced: "model", frontier: "model" }, maximumAttempts: 1 } });
+  const seen: string[][] = [];
+  const sandbox: TestSandbox = { async recover() {}, async run(_snapshot, _execution, selected) { seen.push([...selected.sourcePaths]); return f.result; } };
+  // other.test.ts is granted to another task and does not exist yet: the check runs on what exists.
+  expect(await new TestingTaskVerifier(f.store, f.snapshot, execute(["new.test.ts", "other.test.ts"]), policy, sandbox).verify(f.task, "shared", f.workspace, signal())).toMatchObject({ status: "passed" });
+  expect(seen).toEqual([["new.test.ts"]]);
+  // A missing source nobody is allowed to write is still refused.
+  await expect(new TestingTaskVerifier(f.store, f.snapshot, execute(["new.test.ts"]), policy, sandbox).verify(f.task, "ungranted", f.workspace, signal())).rejects.toThrow("TESTING_CHECK_SOURCE_MISSING:other.test.ts");
+});
+
 it.each(["failure", "timeout", "unavailable", "cleanup", "budget"])("classifies %s without promoting infrastructure failures", async (scenario) => {
   const f = await fixture(); await f.write(); let calls = 0;
   const sandbox: TestSandbox = { async recover() {}, async run() { calls += 1; return { ...f.result, exitCode: 1,
