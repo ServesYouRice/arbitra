@@ -25,17 +25,22 @@ endpoint and role binding, and the preflight checks that run before any spend.
 - Runs can be replayed with mode-specific reuse contracts, and gates and human checkpoints
   are durable and versioned across CLI, HTTP and the web UI.
 
+Models run through API keys or, per role, through the vendors' own CLIs signed in with a
+Claude, ChatGPT or Google AI subscription ([setup](docs/setup.md#subscription-clis-instead-of-api-keys)).
+
 **Beta means:** everything above passes CI with injected providers and sandboxes, and the
-web UI passes browser acceptance on Chromium, Firefox and WebKit. **None of it has run
-against live providers, a real Docker engine or a native harness binary yet.** Batch
-drivers and the native Claude Code adapter are declared but unverified. See
+web UI passes browser acceptance on Chromium, Firefox and WebKit. Every public workflow
+has also run live on subscription models, Gemini has run on its API, Docker acceptance ran
+on a real engine, and the native Claude Code adapter passed conformance against the real
+CLI. The OpenAI and Anthropic API protocols and the batch drivers have not run live. See
 [project status](docs/project-status.md) for measured evidence and the
-[completion plan](docs/completion-plan.md#status-september-25-2026) for what remains.
+[completion plan](docs/completion-plan.md#status-september-27-2026) for what remains.
 
 One thing is worth knowing before reading further: **the premise is unmeasured on real
 models.** `packages/testing/src/metrics/premise.ts` scores a run against a ground-truth
-fixture, but the default suites run scripted auditors. A live evaluation runner and
-recorded real-model measurements remain part of the completion plan. Every premise report
+fixture, but the default suites run scripted auditors. The live evaluation (completion
+plan P06) has an interim result only: 4 of 15 runs, insufficient evidence either way (see
+[`docs/qa/p06`](docs/qa/p06/README.md)). Every premise report
 carries `interpretation: "smoke_test_only_not_proof"`. See
 [`docs/evaluation.md`](docs/evaluation.md).
 
@@ -158,9 +163,10 @@ There are two kinds, and they are kept apart deliberately:
   (`audit-balanced`, `audit-deep`, `diff-fast`, `diff-review`, `feature-simple`,
   `testing-plan`). They show every run-configuration field and preset. They carry no
   `workflow.modelExecution`, so runtime preflight rejects them for model runs.
-- **Model-backed templates** — six files in [`examples/model-backed/`](examples/model-backed):
+- **Model-backed templates** — eleven files in [`examples/model-backed/`](examples/model-backed):
   mixed-provider and compatible-endpoint Audit, interactive and automatic Feature,
-  Testing plan and Testing execute. Together they cover all four wire protocols. They
+  Testing plan and Testing execute on API keys, covering all four wire protocols, and the
+  same five modes on subscription CLIs (`subscription-*.json`). They
   pass runtime configuration preflight, and `pnpm run smoke:examples` runs each one
   unmodified through the public runtime with fixture transports, so no credential,
   network or Docker engine is needed.

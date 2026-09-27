@@ -1,7 +1,7 @@
 # Completion plan
 
 Updated September 25, 2026 against commit 0c6fb12 (branch `beta`). Original baseline: 77149ef.
-See [status](#status-september-25-2026) for each item.
+See [status](#status-september-27-2026) for each item.
 
 This plan covers every unfinished implementation, validation and usability step identified
 in the project review and the previous execution queue. The
@@ -54,27 +54,32 @@ previously deferred extensions and evaluation; P19 closes the whole queue.
 | P18 | Local embedding clustering evaluation and adoption decision | P05, P06 |
 | P19 | Final defect review and completion evidence | P01–P18 |
 
-## Status, September 25, 2026
+## Status, September 27, 2026
 
-GitHub Actions ran `pnpm run ci` and `pnpm build` on commit 0c6fb12 and both passed, on
+GitHub Actions ran `pnpm run ci` and `pnpm build` on commit 2690ebe and both passed, on
 `ubuntu-latest` and on `macos-latest`. The same suite also passed locally: on macOS 26
 (arm64), and in a clean `node:22-bookworm` Linux container.
 
-Live environments used in this pass:
+Live environments used so far:
 
 - **Docker:** Docker Desktop 29.8.0 (`linux/arm64`).
-- **Gemini:** a free-tier key, native and through its OpenAI-compatible endpoint.
-- **Claude Code:** the Claude Code 2.1.281 binary.
+- **Subscriptions, since September 26, through the subscription CLI transports:**
+  - Claude Code 2.1.283, on a Claude login;
+  - Codex 0.154.0, on a ChatGPT login;
+  - the Antigravity CLI 1.2.11, on a Google AI login.
 
-The OpenAI and Anthropic keys authenticate but have no API credit. Every call to them is
-recorded as `unavailable` (QUOTA), and so is the native Claude Code run, which needs Anthropic
-credit or a subscription token. Evidence is in `docs/qa/`.
+  The owner tests only on subscriptions, never on API credit.
+- **Gemini, earlier:** a free-tier API key, native and through its OpenAI-compatible endpoint.
+
+The OpenAI and Anthropic API keys have no credit, so the OpenAI and Anthropic API protocols
+have no live evidence, and under the owner's policy will not get any from this account.
+Evidence is in `docs/qa/`.
 
 | ID | Status | Evidence here | Outstanding before the checkbox |
 |---|---|---|---|
 | P01 | **Complete** | Same commit green on Linux and macOS CI; zero-discovery fails; measured per-suite limits (harness, web added after live CI failures) | — |
 | P02 | **Complete** | Templates now also set `maximumOutputRepairs: 1` | — |
-| P03 | Partial | Live transport conformance on Gemini native and the compatible endpoint (40 provenance-bearing observations); live Testing plan, Feature (automatic) and Testing execute pass through the CLI, including resume from a fresh process and verified handoff application; 14 live defects fixed ([`qa/p03`](qa/p03/README.md)) | OpenAI/Anthropic protocols and a mixed-provider run (need credit); live Audit and interactive Feature to completion (Gemini free-tier daily quota ran out); exported-plan handoff to a fresh executor; refusal/context-limit elicitation |
+| P03 | Partial | Live transport conformance on Gemini native and the compatible endpoint (40 observations) and on all three subscription CLIs; on subscriptions, every public workflow through the CLI: Testing plan and execute (handoff applied), Feature automatic and interactive (operator revision, resume from a fresh process), a three-vendor Audit (all seeded defects accepted, nothing else); two exported Feature plans accepted by fresh Claude Code executors; 26 live defects fixed ([`qa/p03`](qa/p03/README.md), [`qa/p03-subscription`](qa/p03-subscription/README.md)) | OpenAI Responses/Chat and Anthropic Messages API protocols live (need API credit, which the owner does not use); refusal/context-limit elicitation |
 | P04 | **Complete** | Real engine: isolation, limits, timeout/cancel/output, drift, unavailable image, orphan recovery, parallel checks, source preservation, change-set application and stale rejection; public Testing executor with scripted and live model writers; two engine-exposed defects fixed ([`qa/p04`](qa/p04/README.md)) | — |
 | P05 | **Complete** | — | — |
 | P06 | Interim | Protocol prespecified before any run; driver over the public runtime with durable corpus provenance; 4 of 15 runs completed before the free-tier quota ran out (single auditor recall 5/7, three same-family auditors 6/7, difference +0.14 [0, 0.43]); decision **insufficient evidence**; full pipeline failed 2/2 on peer-review output, now degrades instead ([`qa/p06`](qa/p06/README.md)) | Remaining 11 runs (resume plan in the README); heterogeneous model families need other funded providers |
@@ -83,14 +88,14 @@ credit or a subscription token. Evidence is in `docs/qa/`.
 | P09 | **Complete** | — | — |
 | P10 | **Complete** | 51/51 Playwright runs on Linux arm64 as well as macOS; one product race fixed (live state published after the event log) ([`qa/p10-linux`](qa/p10-linux/README.md)) | — |
 | P11 | **Complete** | Feature/Testing replay exercised end to end through the orchestrator, CLI and HTTP with changed protocol, model, scope, requirements, authorization and verification | — |
-| P12 | Implemented | Adapter runs the real `claude` 2.1.281 binary to the provider call; the account then refuses for credit. Subscription tokens are now supported (`credentialKind: oauth_token`) | Conformance run with an Anthropic API key with credit or a `claude setup-token` token |
+| P12 | Implemented, conformance passed | `credentialKind: subscription_login` runs the writer on the host's Claude login; the conformance run passed against the real Claude Code 2.1.283 (leased write, events, usage, planted `CLAUDE.md` ignored, cleanup) and the matrix entry is `conformance_verified` ([`qa/p12`](qa/p12/README.md)) | Crash recovery, tool limits and unknown usage under real execution (opt-in live cases being added) |
 | P13 | **Complete** | Live advisor path on Gemini native and compatible chat: limits, identity, measured usage, replay without spend ([`qa/p13-live`](qa/p13-live/README.md)) | — |
 | P14 | **Complete** | — | — |
 | P15 | Implemented | Operator CLI/HTTP for uncertain submissions; live batch runner; every driver refused live before job creation (OpenAI/Anthropic credit, Gemini free tier has no batch) ([`qa/p15-live`](qa/p15-live/README.md)) | Live validation of each driver on a funded account |
 | P16 | **Complete** | — | — |
 | P17 | **Complete** | — | — |
 | P18 | Decided (provisional) | Prespecified criteria; local MiniLM candidate evaluated offline; **reject, keep existing clustering** ([`qa/p18`](qa/p18/README.md)) | Rerun on P06 real-model findings (criterion 1 needs a real-model corpus) |
-| P19 | Pending | Cross-cutting fixes in this pass: quota classification, output repair, evidence re-anchoring, peer-review degradation, writer tool-loop handling | Final review after live acceptance |
+| P19 | Pending | Cross-cutting fixes so far: quota classification, output repair (with trusted provenance), evidence re-anchoring and citation widening, peer-review degradation and repairable vote changes, writer tool-loop handling, complete-context marking, sole-author review coverage | Final review after live acceptance |
 
 ## P01 — Repair test discovery and platform reliability
 
