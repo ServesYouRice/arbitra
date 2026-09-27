@@ -66,8 +66,8 @@ The Gemini live runs found 14 runtime defects in provider classification, Gemini
 
 See [WORK-REMAINING](../WORK-REMAINING.md) and the [status table](completion-plan.md#status-september-27-2026).
 The API-protocol and batch items need funded provider accounts, which the owner does not
-use for testing. The premise evaluation (P06) needs a new protocol version to move to
-subscription models. Then the embedding decision is rerun on real-model findings (P18),
+use for testing. The premise evaluation (P06) now runs on subscription models under
+protocol 2.0.0 and is part-way through its 15 runs. Then the embedding decision is rerun on real-model findings (P18),
 and the final review takes place (P19).
 
 Earlier assessments are preserved in [historical notes](history/implementation-log-through-2026-09-23.md)
