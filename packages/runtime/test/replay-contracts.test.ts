@@ -50,14 +50,14 @@ it("does not let a protocol the source never pinned invalidate a stage, but reco
   expect(unknown.at(-1)).toMatchObject({ decision: "regenerate", reasons: ["changed:protocols"] });
 });
 
-it("never reuses Testing execution and binds planning to the write grant and verification", async () => {
+it("never reuses Testing execution and keeps analysis and planning independent of execution settings", async () => {
   const f = await testingReplayFixture(await root());
   const same = await decide("testing", f.config, f.config);
   expect(summary(same)).toEqual([["analysis", "reuse", []], ["planning", "reuse", []], ["execution", "regenerate", ["side_effecting_stage_requires_fresh_evidence"]]]);
   const testing = f.config.workflow["testing"] as { execution: { verification: { execution: { maximumRuns: number } } } };
   const verification = runConfigSchema.parse({ ...f.config, workflow: { ...f.config.workflow, testing: { ...testing, execution: { ...testing.execution, verification: { ...testing.execution.verification, execution: { ...testing.execution.verification.execution, maximumRuns: 8 } } } } } });
   const changed = await decide("testing", f.config, verification);
-  expect(changed.map(({ decision }) => decision)).toEqual(["regenerate", "regenerate", "regenerate"]);
+  expect(changed.map(({ decision }) => decision)).toEqual(["reuse", "reuse", "regenerate"]);
   expect(changed[2]?.reasons).toEqual(expect.arrayContaining(["side_effecting_stage_requires_fresh_evidence", "changed:settings"]));
   const analystModel = runConfigSchema.parse({ ...f.config, models: { ...f.config.models, planner: { ...f.config.models["planner"], modelId: "next-model" } } });
   expect((await decide("testing", f.config, analystModel))[0]).toMatchObject({ decision: "regenerate", reasons: ["changed:models"] });

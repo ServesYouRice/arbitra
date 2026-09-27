@@ -45,21 +45,16 @@ export const FEATURE_REPLAY_STAGES: readonly StageDefinition[] = Object.freeze([
 ]);
 
 /**
- * The Testing replay contract: analysis → planning → execution. Planning is bound to the
- * write authorization it planned against. Execution writes files and runs checks, so it is
- * never reused: an execution replay always gets a new worktree and fresh evidence.
+ * The Testing replay contract: analysis → planning → execution. Analysis and planning never
+ * see execution settings, so an execute replay reuses the plan the operator inspected and
+ * granted. Execution writes files and runs checks, so it is never reused: an execution
+ * replay always gets a new worktree and fresh evidence.
  */
 export const TESTING_REPLAY_STAGES: readonly StageDefinition[] = Object.freeze([
-  // Analysis activities are keyed by the complete Testing settings, including any execution
-  // grant, so the contract binds the stage to all of them rather than claiming reuse it
-  // could not deliver.
   { stage: "analysis", matches: under("testing/risk", "testing/selection"), reusable: true, protocols: ["testing-risk", "testing-audit"],
-    roles: (config) => [testing(config).roles.analyst], settings: (config) => testing(config) },
+    roles: (config) => [testing(config).roles.analyst], settings: (config) => { const settings = testing(config); return { goal: settings.goal, roles: settings.roles, commands: settings.commands }; } },
   { stage: "planning", matches: under("testing/planner"), reusable: true, protocols: ["planner"],
-    roles: (config) => [testing(config).roles.planner], settings: (config) => {
-      const settings = testing(config);
-      return { goal: settings.goal, authorization: settings.mode === "execute" ? settings.execution.authorization : null };
-    } },
+    roles: (config) => [testing(config).roles.planner], settings: (config) => ({ goal: testing(config).goal }) },
   { stage: "execution", matches: under("testing/writer"), reusable: false, protocols: ["testing-writer"], present: (config) => testing(config).mode === "execute",
     roles: (config) => { const settings = testing(config); return settings.mode === "execute" ? Object.values(settings.execution.models) : []; },
     settings: (config) => { const settings = testing(config); return settings.mode === "execute" ? settings.execution : null; } },

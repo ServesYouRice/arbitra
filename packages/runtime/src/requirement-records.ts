@@ -57,12 +57,10 @@ export interface TestingPlannerContext {
   readonly requirements: RequirementsContract;
   readonly analysis: { readonly inputFingerprint: string; readonly inventory: unknown; readonly commands: readonly unknown[]; readonly risk: TestingRisk; readonly gaps: readonly TestGap[]; readonly limitations: readonly string[] } & Readonly<Record<string, unknown>>;
   readonly routing: readonly { readonly gapIds: readonly string[] }[];
-  readonly trustedWriteAuthorization?: unknown;
 }
 
 export function testingPlannerRecords(context: TestingPlannerContext): PlannerRecordSet {
   const { requirements, analysis, routing } = context;
-  const authorization = context.trustedWriteAuthorization === undefined ? {} : { trustedWriteAuthorization: context.trustedWriteAuthorization };
   return { mode: "testing", ids: requirementRecordIds(requirements),
     scoped: (ids) => {
       const selected = new Set(ids);
@@ -71,14 +69,14 @@ export function testingPlannerRecords(context: TestingPlannerContext): PlannerRe
       return { canonicalIssues: [], projectContext: { requirements: { ...scopedRequirements(requirements, ids), assumptions: requirements.assumptions },
         analysis: { ...analysis, gaps, risk: { ...analysis.risk, surfaces: analysis.risk.surfaces.filter(({ id }) => surfaceIds.has(id)) },
           gapIndex: analysis.gaps.map(({ id, surfaceId, category, priority }) => ({ id, surfaceId, category, priority })) },
-        routing: routing.filter(({ gapIds }) => gapIds.some((id) => selected.has(id))), ...authorization } };
+        routing: routing.filter(({ gapIds }) => gapIds.some((id) => selected.has(id))) } };
     },
     outlineContext: {
       requirements: { featureRequest: requirements.featureRequest, assumptions: requirements.assumptions, outOfScope: requirements.outOfScope, decision: requirements.decision, requirementIndex: requirementIndex(requirements) },
       analysis: { inputFingerprint: analysis.inputFingerprint, inventory: analysis.inventory, commands: analysis.commands, limitations: analysis.limitations,
         gapIndex: analysis.gaps.map(({ id, surfaceId, category, priority, suggestedPaths }) => ({ id, surfaceId, category, priority, suggestedPaths })),
         surfaceIndex: analysis.risk.surfaces.map(({ id, paths, severity, categories }) => ({ id, paths, severity, categories })) },
-      routing, ...authorization,
+      routing,
     },
     addressed: (task) => task.addresses.requirements,
     diagnostics: requirementDiagnostics(requirements, "testing") };

@@ -397,11 +397,15 @@ The source checkout is never modified. The operator supplies it explicitly:
   globs and control-plane paths are rejected (`TESTING_WRITE_PATH_INVALID`). Every granted
   path must appear in the `sourcePaths` of a command-bound check
   (`TESTING_WRITE_WITHOUT_VERIFICATION_CHECK`), or its changes could never be verified.
-- `authorization.tasks[]` grants exact planned task IDs. Execution re-plans in the same
-  run, so run `testing-plan` first, inspect the task IDs and write paths in its handoff,
-  and grant those. If the plan does not match the grants, the run fails before any
-  worktree is created with `TESTING_WRITE_AUTHORIZATION_INCOMPLETE`, naming the ungranted
-  and unknown task IDs. Planning tokens have already been spent by then.
+- `authorization.tasks[]` grants exact planned task IDs. Real models do not plan the same
+  tasks twice, so run `testing-plan` first, inspect the task IDs and write paths in its
+  handoff, then start execution as a replay of that run
+  (`replay <run-id> --request execute.json` with `{"mode":"testing","configuration":<the
+  execute configuration>,"execution":{"mode":"execute","authorization":{...}}}`). Analysis
+  and planning are reused without model calls, so the grant names exactly the plan you
+  inspected. A direct `testing-execute` run plans afresh; if that plan does not match the
+  grants, it fails before any worktree is created with
+  `TESTING_WRITE_AUTHORIZATION_INCOMPLETE`, naming the ungranted and unknown task IDs.
 - `verification.bindings[]` bind each planned command to an allowlisted check and state
   its authorization (`repository_script`, `allowlisted` or `operator_approved`).
 

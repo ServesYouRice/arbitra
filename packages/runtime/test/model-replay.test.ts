@@ -158,26 +158,24 @@ it("replays Testing planning without dispatching writers or checks, even from an
   expect(f.checks()).toBe(2);
   await cleanup(core, source.runId);
   const before = await runDigest(path, source.runId); const sent = f.sent.length;
-  // Analysis and planning were bound to the execution grant, so a plan-only replay of an
-  // execution run regenerates them; it still never reaches a writer or a check.
-  f.responses.push(...f.analysis, f.plan);
+  // Analysis and planning never see execution settings, so a plan-only replay of an
+  // execution run reuses them without a provider call; it never reaches a writer or a check.
   const replayed = await core.replay(source.runId, { mode: "testing", execution: { mode: "plan" } });
   expect(replayed.state).toBe("COMPLETED");
-  expect(f.sent.slice(sent)).toEqual(["planning", "planning", "planning"]);
+  expect(f.sent.slice(sent)).toEqual([]);
   expect(f.checks()).toBe(2);
   expect((await core.status(replayed.runId)).workflow?.id).toBe("testing-plan");
   expect(await core.summary(replayed.runId)).toMatchObject({ outcome: { passed: true, testsExecuted: false }, execution: null, replay: { execution: { mode: "plan" } } });
   expect((await core.artifacts(replayed.runId)).some(({ kind }) => kind === "testing-workspace" || kind.startsWith("testing-execution"))).toBe(false);
   const value = await report(core, replayed.runId);
-  expect(value.stages.map(({ stage: name, decision }) => [name, decision])).toEqual([["analysis", "regenerate"], ["planning", "regenerate"]]);
-  expect(stage(value, "planning").reasons).toEqual(expect.arrayContaining(["changed:settings", "changed:upstream"]));
-  expect(await budget(path, replayed.runId)).toHaveLength(3);
+  expect(value.stages.map(({ stage: name, decision }) => [name, decision])).toEqual([["analysis", "reuse"], ["planning", "reuse"]]);
+  expect(await budget(path, replayed.runId)).toHaveLength(0);
   expect(await runDigest(path, source.runId)).toBe(before);
 
   // The planning replay is itself a compatible source for another planning replay.
   const again = await core.replay(replayed.runId, { mode: "testing", execution: { mode: "plan" } });
   expect(again.state).toBe("COMPLETED");
-  expect(f.sent.slice(sent)).toHaveLength(3);
+  expect(f.sent.slice(sent)).toHaveLength(0);
   expect((await report(core, again.runId)).stages.map(({ decision }) => decision)).toEqual(["reuse", "reuse"]);
 });
 
@@ -213,11 +211,12 @@ it("requires fresh explicit write authority and runs execution replay in its own
   expect(sourceEvidence.length).toBeGreaterThan(0);
   expect(await runDigest(path, source.runId)).toBe(before);
 
-  // Changing the write grant invalidates analysis and planning as well as execution.
-  f.responses.push(...f.analysis, f.plan, ...f.writer);
+  // A different write grant keeps the inspected plan: only execution runs again.
+  f.responses.push(...f.writer);
   const widened = await core.replay(source.runId, { mode: "testing", execution: { mode: "execute", authorization: { ...f.authorization, maximumParallelTasks: 2 } } });
   expect(widened.state).toBe("COMPLETED");
-  expect(stage(await report(core, widened.runId), "planning")).toMatchObject({ decision: "regenerate", reasons: ["changed:settings", "changed:upstream"] });
+  expect(stage(await report(core, widened.runId), "planning")).toMatchObject({ decision: "reuse" });
+  expect(stage(await report(core, widened.runId), "execution")).toMatchObject({ decision: "regenerate" });
   await cleanup(core, widened.runId);
   expect(await runDigest(path, source.runId)).toBe(before);
 });
