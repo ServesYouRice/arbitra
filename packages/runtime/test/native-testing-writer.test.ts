@@ -258,11 +258,11 @@ describe("native harness preflight", () => {
   }
   const codes = (config: unknown) => configurationDiagnostics(runConfigSchema.parse(config)).filter(({ severity }) => severity === "error").map(({ code }) => code);
 
-  it("checks writer model compatibility and flags the unverified matrix entry", async () => {
+  it("checks writer model compatibility and does not flag the conformance-verified matrix entry", async () => {
     // The template's frontier writer is an OpenAI profile, which Claude Code cannot serve.
     const diagnostics = configurationDiagnostics(runConfigSchema.parse({ ...(await template()), harness: { mode: "native", native } }));
     expect(diagnostics.filter(({ severity }) => severity === "error").map(({ code, path }) => [code, path])).toEqual([["NATIVE_HARNESS_MODEL_INCOMPATIBLE:analyst", "workflow.testing.execution.models.frontier"]]);
-    expect(diagnostics.filter(({ severity }) => severity === "warning").map(({ code }) => code)).toContain("NATIVE_HARNESS_UNVERIFIED");
+    expect(diagnostics.filter(({ severity }) => severity === "warning").map(({ code }) => code)).not.toContain("NATIVE_HARNESS_UNVERIFIED");
   });
 
   it("refuses Audit discovery, Feature, planning-only runs, unsupported harnesses, stages and unenforceable tools", async () => {

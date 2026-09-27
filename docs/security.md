@@ -149,8 +149,8 @@ Not enforced: the native process runs as the host user without an OS sandbox, so
 outside the scratch copy are detected from tool events rather than prevented, and host
 managed settings still apply to the CLI. Its network use is limited to what the harness
 itself does with its permitted tools (no network tools are granted); it is not isolated at
-the network layer. The adapter is `declared_unverified` until conformance against the real
-CLI is recorded.
+the network layer. Conformance against the real CLI is recorded in
+[qa/p12](qa/p12/README.md).
 
 Normal completion, cancellation and timeout independently force-remove the container
 and its anonymous volumes before removing the staged files. Cleanup failure stops the

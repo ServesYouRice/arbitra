@@ -311,8 +311,8 @@ Use `scope` to narrow what is read.
 `harness.mode` defaults to `canonical`. `native` is accepted only for a Testing execute run,
 and only the Testing writer runs natively; analysis, planning and verification stay
 canonical. The single supported harness is Claude Code (headless `claude -p`, versions
-`>=2.0.0 <3.0.0`), declared but **not yet conformance-verified** against the real CLI
-(preflight warns `NATIVE_HARNESS_UNVERIFIED`). See
+`>=2.0.0 <3.0.0`), conformance-verified against the real CLI 2.1.283 on a subscription
+login ([evidence](qa/p12/README.md)). See
 [harness.md](harness.md#native-harness-adapters) for the matrix and enforcement.
 
 ```json
@@ -492,7 +492,7 @@ See [Feature mode](workflows.md#feature-mode) for revision and the equivalent HT
 | `NATIVE_HARNESS_TOOL_UNENFORCEABLE:<tool>` | configuration | Remove shell, network, subagent, MCP or unknown tools from `harness.native.tools` |
 | `NATIVE_HARNESS_CREDENTIAL_VARIABLE_REQUIRED`, `NATIVE_HARNESS_CREDENTIAL_VARIABLE_FORBIDDEN` | configuration | Name `harness.native.apiKeyEnvVar` for `api_key` (the default) and `oauth_token`; omit it for `subscription_login` |
 | `NATIVE_HARNESS_MODEL_INCOMPATIBLE:<id>`, `NATIVE_HARNESS_ADVISOR_UNSUPPORTED`, `NATIVE_HARNESS_CONTROL_PATH_IN_LEASE` | configuration | Use writer profiles the harness serves; remove advisors; never grant `CLAUDE.md`, `.claude/` or `.mcp.json` |
-| `NATIVE_HARNESS_UNVERIFIED` | configuration (warning) | The matrix entry has no recorded real-CLI conformance yet |
+| `NATIVE_HARNESS_UNVERIFIED` | configuration (warning) | The matrix entry has no recorded real-CLI conformance yet (not raised for Claude Code, which is verified) |
 | `BUDGETS_NOT_ENFORCED` | configuration | Set `budgets` to `{}`; limit spend with `workflow.modelExecution.maximumTokens` (error for model-backed runs, warning for scripted Audit) |
 | `SECURITY_SETTINGS_NOT_ENFORCED`, `CONTEXT_POLICIES_NOT_ENFORCED` | configuration (warning) | Set the section to `{}`; exclude paths with `scope.exclude` or narrow `scope` |
 | `UNKNOWN_WORKFLOW_PRESET`, `WORKFLOW_PRESET_MODE_MISMATCH` | configuration | Use a preset that executes the configured mode |
