@@ -9,6 +9,7 @@ import type { PinnedProtocol } from "@arbitra/protocols/registry.js";
 
 import { createHash } from "node:crypto";
 import { allocateDiscoveryScopes } from "./discovery-scope.js";
+import { widenToQuote } from "./evidence-grounding.js";
 import type { DiscoveryUnit, DiscoveryUnitHooks } from "./incremental-audit.js";
 
 const PROTOCOL = "runtime-independent-discovery@2";
@@ -56,19 +57,32 @@ async function discoverScopeWithModel(options: ModelDiscoveryOptions): Promise<r
   const acceptedIds = new Set(validation.accepted.map(({ finding }) => finding.sourceFindingId));
   const accepted: SourceFinding[] = [];
   const quoteRejections: string[] = [];
+  const widenedLocations: { sourceFindingId: string; locationId: string; from: [number, number]; to: [number, number] }[] = [];
   const byPath = new Map(snapshot.files.map((file) => [file.path, file]));
   for (const finding of findings) {
     if (!acceptedIds.has(finding.sourceFindingId)) continue;
-    const grounded = finding.evidence.every((evidence) => evidence.locationIds.some((id) => {
-      const location = finding.locations.find((item) => item.id === id);
-      if (location === undefined) return false;
+    const locations = finding.locations.map((location) => ({ ...location }));
+    const quotes = (location: (typeof locations)[number], text: string): boolean => {
       const file = byPath.get(location.path);
-      return file !== undefined && redactSecrets(file.lines.slice(location.startLine - 1, location.endLine).join("\n")).text.includes(evidence.text);
-    }));
-    if (grounded) accepted.push(finding);
+      return file !== undefined && redactSecrets(file.lines.slice(location.startLine - 1, location.endLine).join("\n")).text.includes(text);
+    };
+    const grounded = finding.evidence.every((evidence) => {
+      const cited = evidence.locationIds.flatMap((id) => locations.filter((item) => item.id === id));
+      if (cited.some((location) => quotes(location, evidence.text))) return true;
+      for (const location of cited) {
+        const file = byPath.get(location.path);
+        const range = file === undefined ? null : widenToQuote(location, evidence.text, file);
+        if (range === null || !quotes({ ...location, ...range }, evidence.text)) continue;
+        widenedLocations.push({ sourceFindingId: finding.sourceFindingId, locationId: location.id, from: [location.startLine, location.endLine], to: [range.startLine, range.endLine] });
+        Object.assign(location, range);
+        return true;
+      }
+      return false;
+    });
+    if (grounded) accepted.push({ ...finding, locations });
     else quoteRejections.push(finding.sourceFindingId);
   }
-  await store.publish(`discovery-validation-${artifactAuditorId}`, { summaries: validation.summaries, quoteRejections, acceptedCount: accepted.length, rejectedCount: validation.rejected.length + quoteRejections.length,
+  await store.publish(`discovery-validation-${artifactAuditorId}`, { summaries: validation.summaries, quoteRejections, ...(widenedLocations.length === 0 ? {} : { widenedLocations }), acceptedCount: accepted.length, rejectedCount: validation.rejected.length + quoteRejections.length,
     truncated: discovery.truncated, unexaminedDueToBudget: discovery.unexaminedDueToBudget, limitations: discovery.limitations }, auditorId);
   await store.publish(`findings-${artifactAuditorId}`, accepted, auditorId);
   await options.units?.complete(unit, accepted);

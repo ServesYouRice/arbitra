@@ -3,8 +3,9 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"; name="$1"; run="$2"; work="$root/.runs/live/work/$name"
 cd "$work/repo"; set -a; . "$root/.env"; set +a
+awake=(); if command -v caffeinate >/dev/null 2>&1; then awake=(caffeinate -is); fi
 status=0
-node "$root/apps/cli/dist/src/bin.js" resume "$run" --json 2>>"$work/stderr.log" >"$work/result.json" || status=$?
+${awake[@]+"${awake[@]}"} node "$root/apps/cli/dist/src/bin.js" resume "$run" --json 2>>"$work/stderr.log" >"$work/result.json" || status=$?
 python3 - "$work" "$status" "$run" <<'PY'
 import json, re, sys
 work, status, run = sys.argv[1:]

@@ -102,6 +102,20 @@ describe("independent model discovery", () => {
     expect(JSON.parse((await store.readArtifact(descriptor.artifactId)).content)).toMatchObject({ acceptedCount: 1, rejectedCount: 2, quoteRejections: ["auditor-a/2"] });
   });
 
+  it("widens a cited range that stops short of its exact quotation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbitra-discovery-widen-")); directories.push(root);
+    const store = new RunStore(root, "run-widen");
+    const lines = ["/** A session is valid strictly before its expiry instant. */", "export function isExpired(session, now) {", "  return now > session.expiresAt;", "}"];
+    const file = { path: "src/a.ts", lines, lineStartBytes: lines.map((_, index) => lines.slice(0, index).reduce((sum, line) => sum + line.length + 1, 0)), byteLength: lines.join("\n").length };
+    const short = { ...finding("1", lines.join("\n")), locations: [{ id: "L1", path: "src/a.ts", startLine: 2, endLine: 4 }] };
+    const invented = { ...finding("2", "/** A session is valid until its expiry instant. */"), locations: [{ id: "L1", path: "src/a.ts", startLine: 2, endLine: 4 }] };
+    const activities: Pick<ModelActivities, "invoke"> = { async invoke(input) { return input.schema.parse({ findings: [short, invented], truncated: false, unexaminedDueToBudget: [], limitations: [] }); } };
+    const result = await discoverWithModel({ auditorId: "auditor-a", modelProfileId: "model", snapshot: { root: "fixture", files: [file] }, activities, store, signal: new AbortController().signal });
+    expect(result.map(({ sourceFindingId, locations }) => [sourceFindingId, locations[0]?.startLine, locations[0]?.endLine])).toEqual([["auditor-a/1", 1, 4]]);
+    const descriptor = (await store.listArtifacts()).find(({ kind }) => kind === "discovery-validation-auditor-a");
+    expect(JSON.parse((await store.readArtifact(descriptor?.artifactId ?? "")).content)).toMatchObject({ acceptedCount: 1, quoteRejections: ["auditor-a/2"], widenedLocations: [{ sourceFindingId: "auditor-a/1", locationId: "L1", from: [2, 4], to: [1, 4] }] });
+  });
+
   it("does not expose stored peer findings to independent discovery", async () => {
     const { run, store, prompts } = await setup([]);
     await store.publish("findings-peer", { secretPeerClaim: "PEER_REASONING_SENTINEL" });

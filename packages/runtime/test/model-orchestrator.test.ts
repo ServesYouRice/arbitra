@@ -14,7 +14,7 @@ import type { TestSandbox } from "../src/test-sandbox.js";
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
-async function fixture(options: { revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; conflictResolution?: "retain_original" | "proposal-1"; ambiguousClustering?: boolean; oversizedRepository?: boolean } = {}) {
+async function fixture(options: { revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; ambiguousClustering?: boolean; oversizedRepository?: boolean } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "arbitra-model-run-")); directories.push(directory);
   const manyIssues = options.largePeerContext === true || options.largePlannerContext === true;
   await writeFile(join(directory, "a.ts"), "const value = null;\n".repeat(manyIssues ? 4 : options.ambiguousClustering === true ? 3 : 1), "utf8");
@@ -46,6 +46,7 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
     execution.modelEndpoints["planner-model"] = "auditor-a"; execution.roles.planner = "planner-model";
   }
   const requests: { stage: string; url: string }[] = [];
+  const reviewInputs: { url: string; repair: boolean; input: { round: number; yourEarlierVotes?: { votes: Record<string, { vote: string; citedEvidenceIds: string[] }> } } }[] = [];
   let failVerification = false;
   let failCritic = false;
   let failExpansion = false;
@@ -96,6 +97,12 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
       output = { operations: Object.values(input.candidates).map(({ candidateId, sources }, index) => ({ operationId: `new:vote-${index}`, candidateId, authorId: "self", round: input.round, type: request.url.includes("auditor-b") ? "reject" : "accept", citedEvidenceIds: sources.flatMap(({ evidence }) => evidence.map(({ id }) => id)), reason: "Fixture review of supplied evidence" })), locations: [], findings: [] };
       if (options.largePlannerContext === true && input.round === 1 && request.url.includes("auditor-a")) {
         (output as { operations: unknown[] }).operations.push(...Object.values(input.candidates).map(({ candidateId, sources }, index) => ({ operationId: `new:supplement-${index}`, candidateId, authorId: "self", round: 1, type: "supplement_remediation", citedEvidenceIds: sources.flatMap(({ evidence }) => evidence.map(({ id }) => id)), text: `Original detail ${candidateId}: ` + "Preserve guard. ".repeat(1200) })));
+      }
+      const repair = JSON.stringify(request.body).includes("PEER_VOTE_CHANGED_WITHOUT_NEW_EVIDENCE");
+      reviewInputs.push({ url: request.url, repair, input: JSON.parse(user) as (typeof reviewInputs)[number]["input"] });
+      // A reviewer that changes its earlier reject to accept on the same evidence.
+      if (options.voteFlip !== undefined && request.url.includes("auditor-b") && input.round > 1 && !(repair && options.voteFlip === "repairs")) {
+        output = { ...(output as object), operations: (output as { operations: { type: string }[] }).operations.map((operation) => ({ ...operation, type: "accept" })) };
       }
       // A reviewer whose reply always claims another author's authority.
       if (options.invalidReview === true && request.url.includes("auditor-c")) output = { ...(output as object), operations: (output as { operations: { authorId: string }[] }).operations.map((operation) => ({ ...operation, authorId: "auditor-a" })) };
@@ -168,7 +175,7 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
     return { status: 200, headers: {}, body: response };
   };
   const create = (testSandbox?: TestSandbox) => new Orchestrator({ repository: directory, stateDirectory: join(directory, ".runs"), providerOptions: { client: { send }, credential: () => "fixture-credential" }, ...(testSandbox === undefined ? {} : { testSandbox }) });
-  return { create, config, requests, failRevisionPatch: (value: boolean) => { failRevisionPatch = value; }, failExpansion: (value: boolean) => { failExpansion = value; }, failCritic: (value: boolean) => { failCritic = value; }, failVerification: (value: boolean) => { failVerification = value; }, blockDiscovery: (callback: () => void) => { blockDiscovery = callback; } };
+  return { create, config, requests, reviewInputs, failRevisionPatch: (value: boolean) => { failRevisionPatch = value; }, failExpansion: (value: boolean) => { failExpansion = value; }, failCritic: (value: boolean) => { failCritic = value; }, failVerification: (value: boolean) => { failVerification = value; }, blockDiscovery: (callback: () => void) => { blockDiscovery = callback; } };
 }
 
 describe("composed model audits", () => {
@@ -490,6 +497,34 @@ describe("composed model audits", () => {
     const value = JSON.parse((await core.artifact(result.runId, canonical?.artifactId ?? "") as { content: string }).content) as { limitations: string[]; coverage: { complete: boolean } };
     expect(value.limitations.some((limitation) => limitation.startsWith("peer_review_output_rejected:"))).toBe(true);
     expect(value.coverage.complete).toBe(false);
+  });
+
+  it("shows a reviewer its earlier votes and has it repair a vote changed on the same evidence", async () => {
+    const { create, config, reviewInputs } = await fixture({ voteFlip: "repairs" });
+    (config.workflow["modelExecution"] as { maximumOutputRepairs: number }).maximumOutputRepairs = 1;
+    const core = create(); const result = await core.run(config);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
+    expect(reviewInputs.filter(({ input }) => input.round === 1).every(({ input }) => input.yourEarlierVotes === undefined)).toBe(true);
+    const later = reviewInputs.filter(({ url, input, repair }) => url.includes("auditor-b") && input.round === 2 && !repair);
+    expect(later.length).toBeGreaterThan(0);
+    expect(later.every(({ input }) => Object.values(input.yourEarlierVotes?.votes ?? {}).length > 0 && Object.values(input.yourEarlierVotes?.votes ?? {}).every(({ vote, citedEvidenceIds }) => vote === "reject" && citedEvidenceIds.length > 0))).toBe(true);
+    expect(reviewInputs.some(({ url, repair }) => url.includes("auditor-b") && repair)).toBe(true);
+    expect((await core.artifacts(result.runId)).some(({ kind }) => kind.startsWith("peer-review-rejected-"))).toBe(false);
+  });
+
+  it("sets aside a vote changed on the same evidence instead of failing the run", async () => {
+    const { create, config } = await fixture({ voteFlip: "persists" });
+    const core = create(); const result = await core.run(config);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
+    const artifacts = await core.artifacts(result.runId);
+    const rejected = artifacts.find(({ kind }) => kind.startsWith("peer-review-rejected-"));
+    if (rejected === undefined) throw new Error("REJECTED_REVIEW_ABSENT");
+    expect(JSON.parse((await core.artifact(result.runId, rejected.artifactId) as { content: string }).content)).toMatchObject({ round: 2, auditorId: "auditor-b", reason: expect.stringContaining("PEER_VOTE_CHANGED_WITHOUT_NEW_EVIDENCE") });
+    const canonical = artifacts.find(({ kind }) => kind === "canonical-issues");
+    const value = JSON.parse((await core.artifact(result.runId, canonical?.artifactId ?? "") as { content: string }).content) as { limitations: string[] };
+    expect(value.limitations.some((limitation) => limitation.startsWith("peer_review_output_rejected:"))).toBe(true);
   });
 
   it("carries typed structural edits and counter-evidence through verification and planning", async () => {

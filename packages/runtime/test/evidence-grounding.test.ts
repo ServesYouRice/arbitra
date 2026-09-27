@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { anchorLineEvidence } from "../src/evidence-grounding.js";
+import { anchorLineEvidence, widenToQuote } from "../src/evidence-grounding.js";
 
 const lines = ["// sessions", "", "/** doc */", "export function isExpired(session, now) {", "  return now > session.expiresAt;", "}", "", "throw new Error(\"EXPIRED\");", "}", "", "}"];
 const file = { path: "src/session.js", lines, byteLength: 0, lineStartBytes: [] };
@@ -29,4 +29,14 @@ it("refuses distant or ambiguous anchors and missing files", () => {
 it("takes the quoted text as authoritative when the stated range has the wrong length", () => {
   const text = lines.slice(3, 6).join("\n");
   expect(anchorLineEvidence(evidence(3, 6, text), file)).toEqual(evidence(4, 6, text));
+});
+
+it("widens a cited range to its one nearby quotation and never elsewhere", () => {
+  // Observed live: the quote starts with the doc comment one line above the cited function.
+  expect(widenToQuote({ startLine: 4, endLine: 6 }, lines.slice(2, 6).join("\n"), file)).toEqual({ startLine: 3, endLine: 6 });
+  expect(widenToQuote({ startLine: 3, endLine: 4 }, "  return now > session.expiresAt;", file)).toEqual({ startLine: 3, endLine: 5 });
+  expect(widenToQuote({ startLine: 4, endLine: 6 }, "return now >= session.expiresAt;", file)).toBeNull();
+  // "}" occurs several times near line 9: ambiguous.
+  expect(widenToQuote({ startLine: 8, endLine: 8 }, "}", file)).toBeNull();
+  expect(widenToQuote({ startLine: 20, endLine: 20 }, "x", { ...file, lines: [...Array.from({ length: 20 }, () => "y"), "z", "x"].reverse() })).toBeNull();
 });

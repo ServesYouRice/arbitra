@@ -21,7 +21,7 @@ import { SeededRng } from "@arbitra/core/services/rng.js";
 import { peerReviewRound } from "@arbitra/workflow/nodes/peer-review/round.js";
 import { peerReviewView } from "./peer-review-view.js";
 import { peerOperationsResultSchema } from "@arbitra/schemas/peer-operations.js";
-import { translatePeerOperations, type PeerOperationBatch } from "./model-peer-operations.js";
+import { assertChangedVotesCiteNewEvidence, EARLIER_VOTES_RULE, earlierPeerVotes, translatePeerOperations, type PeerOperationBatch } from "./model-peer-operations.js";
 import { ModelPeerBoard } from "./model-peer-board.js";
 import { boardEvidenceSchema } from "@arbitra/schemas/board-operation.js";
 import { allocateModelContext, withinStringBudget } from "./model-context.js";
@@ -149,16 +149,20 @@ export class ModelAuditPipeline {
         const requestFor = (part: PeerReviewBatch) => {
           const scopeId = part.kind === "review" && part.candidateIds.length === candidateIds.length ? undefined : createHash("sha256").update(JSON.stringify(part)).digest("hex").slice(0, 24);
           const scopedView = { ...view, candidates: Object.fromEntries(Object.entries(view.candidates).filter(([id]) => part.candidateIds.includes(id))) };
+          const earlier = earlierPeerVotes(scopedView, candidates, auditorId);
           const input: ModelStageInput<ReturnType<typeof peerOperationsResultSchema.parse>> = {
           activityId: `peer-review/${round}/${auditorId}${scopeId === undefined ? "" : `/${scopeId}`}`, modelProfileId: auditorId, signal,
           protocol: "peer-review", instruction: part.kind === "merge_check"
             ? "Compare the supplied candidate pair for a shared root cause requiring a merge. Return at most one typed merge operation, or an empty operations array if they should remain separate. Use authorId self, the supplied round, new:<unique-name> IDs, anonymous findingRef source references and supplied evidence IDs. Do not vote, split, add findings, or add evidence; locations and findings must be empty. This is a cross-batch duplicate check following full candidate review."
             : "Review every supplied candidate against the source and return typed board operations. Use authorId self and the supplied round. Use new:<unique-name> for operation IDs, new candidate IDs, new evidence IDs and new location IDs. For merge and split, candidate sourceFindingIds are the anonymous source findingRef values of the candidates involved. New findings use self/<unique-name> as sourceFindingId; an add_missing_finding candidate lists exactly those self/<unique-name> IDs from your findings array and carries exactly their evidence. Supply new evidence with exact source quotations and declared locations. Do not emit add_candidate or verification metadata. Do not vote on a newly created candidate until a later round. Preserve counter-evidence and dissent; use needs_verification for insufficient evidence.",
-          input: { round, candidates: part.segment === undefined ? scopedView.candidates : segmentedCandidates(scopedView.candidates, part.segment), repository: this.repository() },
+          input: { round, candidates: part.segment === undefined ? scopedView.candidates : segmentedCandidates(scopedView.candidates, part.segment),
+            // Round 1 has no earlier votes, so its input (and replay identity) is unchanged.
+            ...(part.kind === "merge_check" || Object.keys(earlier).length === 0 ? {} : { yourEarlierVotes: { rule: EARLIER_VOTES_RULE, votes: earlier } }), repository: this.repository() },
           schema: { parse(value: unknown) {
             const parsed = peerOperationsResultSchema.parse(value);
             if (part.kind === "merge_check" && (parsed.operations.length > 1 || parsed.operations.some(({ type }) => type !== "merge") || parsed.findings.length > 0 || parsed.locations.length > 0)) throw new Error("INVALID_PEER_PAIR_OPERATIONS");
-            translatePeerOperations(parsed, scopedView, context.snapshot, auditorId, round, scopeId);
+            const batch = translatePeerOperations(parsed, scopedView, context.snapshot, auditorId, round, scopeId);
+            assertChangedVotesCiteNewEvidence(batch.operations, candidates, auditorId);
             return parsed;
           } }, jsonSchema: PEER_OPERATIONS_OUTPUT_SCHEMA,
           };
