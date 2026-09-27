@@ -4,19 +4,17 @@ Updated September 27, 2026 against commit b560162 (branch `beta`).
 
 The maintained execution queue is the [completion plan](docs/completion-plan.md). Every item is recorded in its [status table](docs/completion-plan.md#status-september-27-2026).
 
-- **Complete:** P01, P02, P04, P05, P07, P09–P11, P13, P14, P16 and P17.
-- **Implemented, conformance passed, live limits being added:** P12.
+- **Complete:** P01, P02, P04, P05, P07, P09–P14, P16 and P17.
 - **Implemented, evidence still outstanding:** P08 and P15.
 - **Accepted live except the API protocols:** P03.
-- **Interim result (insufficient evidence; resumable plan in [docs/qa/p06](docs/qa/p06/README.md)):** P06.
+- **Started on subscriptions (protocol 2.0.0, 1 of 15 runs; [docs/qa/p06-subscription](docs/qa/p06-subscription/README.md)):** P06. The Gemini-API version 1 interim result is kept, unpooled.
 - **Decided provisionally (reject), to be rerun on P06 data:** P18.
 - **Pending:** P19.
 
 ## What is left, by what it needs
 
 1. **Nothing but time, on subscriptions:**
-   - **P12:** opt-in live cases for crash recovery, tool limits and unknown usage against the real CLI. They are being added to `packages/runtime/test/native-harness.conformance.test.ts`; run them as in step 4 of the pick-up guide.
-   - **P06:** a new protocol version that moves the premise evaluation onto subscription models (the committed protocol is prespecified with Gemini API models), committed before any run, then its runs.
+   - **P06:** resume the version 2.0.0 driver (step 5 of the pick-up guide) until its 15 runs finish, then analyse. It paused because the Claude five-hour window reached 94%; check the window before resuming (`rate_limit_event` in any `claude -p --output-format stream-json --verbose` call).
    - **P18:** rerun on the P06 findings.
    - **P19:** the final review.
 2. **Funded API accounts, which the owner does not use for testing:**
@@ -62,7 +60,7 @@ Live configurations come from `tooling/live/bindings.subscription.json`. The API
    ```
 
    See [qa/p12](docs/qa/p12/README.md).
-5. **Premise evaluation (P06).** The saved run state is **local only**, in `.claude/worktrees/agent-a6beaf6fd1302766f/.runs/p06`; keep that folder. The resume commands are in [qa/p06](docs/qa/p06/README.md). Moving P06 to subscription models needs a new protocol version, committed before any run.
+5. **Premise evaluation (P06).** Version 2.0.0 runs on subscriptions. Its state is **local only**, in `.runs/p06-subscription`; keep that folder. The resume command is in [qa/p06-subscription](docs/qa/p06-subscription/README.md), and it is safe to repeat. Version 1's state is in `.claude/worktrees/agent-a6beaf6fd1302766f/.runs/p06`; it is not resumed under the subscription-only policy.
 6. **Then:** rerun P18 on the P06 findings, then the P19 review.
 
 ## Open findings to fix or decide
