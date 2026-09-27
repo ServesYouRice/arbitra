@@ -205,7 +205,7 @@ describe("Testing replay end to end", () => {
     expect(await runDigest(path, source.runId)).toBe(before);
   });
 
-  it("regenerates every stage under changed verification and runs fresh checks", async () => {
+  it("keeps the inspected plan under changed verification and runs fresh checks", async () => {
     const path = await root("e2e-testing-verification-");
     const f = await testingReplayFixture(path); const core = f.orchestrator();
     const source = await core.run(f.config); expect(source.state).toBe("COMPLETED");
@@ -215,14 +215,14 @@ describe("Testing replay end to end", () => {
       const execution = testing["execution"] as { verification: { execution: Record<string, unknown> } };
       return { ...testing, execution: { ...execution, verification: { ...execution.verification, execution: { ...execution.verification.execution, maximumRuns: 8 } } } };
     });
-    f.responses.push(...f.analysis, f.plan, ...f.writer);
+    f.responses.push(...f.writer);
     const replayed = await core.replay(source.runId, { mode: "testing", configuration: verification, execution: { mode: "execute", authorization: f.authorization } });
     expect(replayed.state).toBe("COMPLETED");
-    expect(f.sent.slice(sent)).toEqual(["planning", "planning", "planning", "writer", "writer"]);
+    expect(f.sent.slice(sent)).toEqual(["writer", "writer"]);
     const value = await report(core, replayed.runId);
     expect(value.stages.map(({ stage: name, decision, reasons }) => [name, decision, reasons])).toEqual([
-      ["analysis", "regenerate", ["changed:settings"]], ["planning", "regenerate", ["changed:upstream"]],
-      ["execution", "regenerate", ["side_effecting_stage_requires_fresh_evidence", "changed:settings", "changed:upstream"]],
+      ["analysis", "reuse", []], ["planning", "reuse", []],
+      ["execution", "regenerate", ["side_effecting_stage_requires_fresh_evidence", "changed:settings"]],
     ]);
     expect(f.checks()).toBe(checks + 2);
     expect(await core.summary(replayed.runId)).toMatchObject({ replay: { execution: { mode: "execute", authority: "replay_request" } } });

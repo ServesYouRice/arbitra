@@ -476,8 +476,9 @@ Its identity binds several components:
 
 - the repository snapshot digest and scope;
 - the harness;
-- its own settings: the Feature request and requirements mode, the complete Testing
-  settings for analysis, and the write authorization for planning;
+- its own settings: the Feature request and requirements mode; for Testing analysis the
+  goal, roles and declared commands; for Testing planning the goal. Execution settings,
+  including the write grant, bind only the execution stage;
 - the model profiles and endpoints of its roles, plus the output limit;
 - the pinned protocol versions and hashes, and prompt overrides;
 - the identity of the preceding stage.
@@ -532,9 +533,10 @@ supplied configuration. The contract records the grant's digest with authority
 and checks run again, so its change set and completion rest on fresh evidence. A source
 run in plan mode has no execution settings to reuse. An `execute` replay of it needs a
 `configuration` that supplies them; otherwise it fails with
-`REPLAY_EXECUTION_CONFIGURATION_REQUIRED`. Testing analysis activities are keyed by the
-complete Testing settings, so changing the write grant also regenerates analysis and
-planning.
+`REPLAY_EXECUTION_CONFIGURATION_REQUIRED`. Analysis and planning never see execution
+settings (the planner is not shown the write grant), so an execute replay of a plan run
+reuses exactly the plan the operator inspected and granted, and a changed grant or
+verification policy regenerates only execution.
 
 Resuming a replay run uses its stored contract and never re-decides reuse from the
 current configuration. A replay run whose contract is missing, corrupt or names another
