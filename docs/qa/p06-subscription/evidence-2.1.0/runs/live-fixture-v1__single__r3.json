@@ -1,0 +1,321 @@
+{
+  "schemaVersion": 1,
+  "status": "completed",
+  "key": "live-fixture-v1/single/r3",
+  "fixtureId": "live-fixture-v1",
+  "condition": "single",
+  "repetition": 3,
+  "protocolId": "arbitra-p06-premise",
+  "protocolVersion": "2.1.0",
+  "wallClockMs": 82102,
+  "segments": [
+    {
+      "startedAt": "2026-09-28T12:42:05.064Z",
+      "endedAt": "2026-09-28T12:43:27.167Z",
+      "wallClockMs": 82102,
+      "state": "COMPLETED",
+      "kind": "start"
+    }
+  ],
+  "record": {
+    "runId": "run-c6ddde9b-231b-4a4b-8293-b258a7ed411d",
+    "state": "COMPLETED",
+    "snapshot": {
+      "repositoryDigest": "6d4eb759565376aababed8b1db4ed04c314fb3de0025b12e8aab18b07740eaf8",
+      "gitHead": "2f106c376a4d62c7f59e337110a4eb9b808b25d9"
+    },
+    "identity": {
+      "protocol": {
+        "id": "production-audit",
+        "version": "1.0.0",
+        "hash": "89a666a6f6f5c39ab1228aeee9d1deffd0489e8d30e687be5c6f53c626bd4ed9"
+      },
+      "harness": {
+        "id": "arbitra-canonical",
+        "version": "1.0.0",
+        "policyHash": "95dd5ec436f68d658e5c15c22dcf653f631e43d176fb384827a055e9119d153e"
+      },
+      "models": [
+        {
+          "auditorId": "auditor-a",
+          "modelId": "claude-sonnet-5",
+          "modelProfileVersion": "fda23f1761d94f8350afbf519daf36d925e8b82724144cb7e6c81a9985cfeebf",
+          "transportId": "claude-code-cli",
+          "transportVersion": "claude-code/2.1.283"
+        }
+      ]
+    },
+    "auditors": [
+      {
+        "auditorId": "auditor-a",
+        "modelId": "claude-sonnet-5",
+        "independenceGroup": "anthropic-sonnet",
+        "transport": "claude-code-cli",
+        "findings": [
+          {
+            "sourceFindingId": "auditor-a/cart-parseQuantity-nan",
+            "auditorId": "auditor-a",
+            "category": "CORRECTNESS",
+            "title": "parseQuantity does not validate or provide a radix, allowing NaN/invalid quantities into cart math",
+            "severity": "medium",
+            "problem": "parseQuantity passes the raw customer-entered text directly to parseInt without a radix argument and without checking the result. Non-numeric or malformed input (e.g. \"abc\", \"\", \"1e5\", \"-3\") yields NaN or a negative number, which is returned to the caller unchecked.",
+            "recommendedFix": "Validate input with Number.isInteger after parsing, reject/clamp NaN and negative values, and specify a radix, e.g. `const n = parseInt(text, 10); if (!Number.isInteger(n) || n < 0) throw new Error('INVALID_QUANTITY'); return n;`",
+            "locations": [
+              {
+                "path": "src/cart.js",
+                "startLine": 16,
+                "endLine": 18
+              }
+            ],
+            "evidence": [
+              {
+                "text": "export function parseQuantity(text) {\n  return parseInt(text);\n}"
+              }
+            ]
+          },
+          {
+            "sourceFindingId": "auditor-a/cart-applyDiscount-unclamped-percent",
+            "auditorId": "auditor-a",
+            "category": "CORRECTNESS",
+            "title": "applyDiscount does not validate that percent is within the documented 0-100 range",
+            "severity": "medium",
+            "problem": "The docstring states percent should be 0-100, but applyDiscount performs no bounds checking. A percent value below 0 increases the total; a value above 100 makes the result negative.",
+            "recommendedFix": "Clamp or validate percent: `if (percent < 0 || percent > 100) throw new Error('INVALID_DISCOUNT_PERCENT');` before computing, or clamp with Math.min/Math.max.",
+            "locations": [
+              {
+                "path": "src/cart.js",
+                "startLine": 10,
+                "endLine": 13
+              }
+            ],
+            "evidence": [
+              {
+                "text": "export function applyDiscount(totalCents, percent) {\n  return Math.round(totalCents - (totalCents * percent) / 100);\n}"
+              }
+            ]
+          },
+          {
+            "sourceFindingId": "auditor-a/test-coverage-gaps",
+            "auditorId": "auditor-a",
+            "category": "TESTING",
+            "title": "applyDiscount, parseQuantity, and all of session.js lack test coverage",
+            "severity": "low",
+            "problem": "The only test file present exercises solely the subtotal() function. applyDiscount() and parseQuantity() in cart.js, and the entire session.js module (createSession, isExpired, refresh), have no automated tests in the provided snapshot.",
+            "recommendedFix": "Add unit tests for applyDiscount (including boundary/invalid percent values), parseQuantity (including invalid input), and session.js (expiry boundary, refresh behavior on expired sessions).",
+            "locations": [
+              {
+                "path": "test/cart.test.js",
+                "startLine": 1,
+                "endLine": 9
+              },
+              {
+                "path": "src/session.js",
+                "startLine": 1,
+                "endLine": 18
+              }
+            ],
+            "evidence": [
+              {
+                "text": "import { subtotal } from \"../src/cart.js\";"
+              },
+              {
+                "text": "export function refresh(session, now) {\n  if (isExpired(session, now)) throw new Error(\"SESSION_EXPIRED\");\n  return { ...session, expiresAt: now + SESSION_TTL_MS };\n}"
+              }
+            ]
+          }
+        ],
+        "rejectedFindings": [],
+        "quoteRejectedCount": 0,
+        "repairedCount": 0,
+        "truncated": false,
+        "usage": {
+          "requests": 1,
+          "failedRequests": 0,
+          "inputTokens": 7922,
+          "outputTokens": 2817,
+          "unknownUsageRequests": 0,
+          "attemptDurationMs": 24697,
+          "repairTurns": 0
+        }
+      }
+    ],
+    "sourceFindings": [
+      {
+        "sourceFindingId": "auditor-a/cart-applyDiscount-unclamped-percent",
+        "auditorId": "auditor-a",
+        "category": "CORRECTNESS",
+        "title": "applyDiscount does not validate that percent is within the documented 0-100 range",
+        "severity": "medium",
+        "problem": "The docstring states percent should be 0-100, but applyDiscount performs no bounds checking. A percent value below 0 increases the total; a value above 100 makes the result negative.",
+        "recommendedFix": "Clamp or validate percent: `if (percent < 0 || percent > 100) throw new Error('INVALID_DISCOUNT_PERCENT');` before computing, or clamp with Math.min/Math.max.",
+        "locations": [
+          {
+            "path": "src/cart.js",
+            "startLine": 10,
+            "endLine": 13
+          }
+        ],
+        "evidence": [
+          {
+            "text": "export function applyDiscount(totalCents, percent) {\n  return Math.round(totalCents - (totalCents * percent) / 100);\n}"
+          }
+        ]
+      },
+      {
+        "sourceFindingId": "auditor-a/test-coverage-gaps",
+        "auditorId": "auditor-a",
+        "category": "TESTING",
+        "title": "applyDiscount, parseQuantity, and all of session.js lack test coverage",
+        "severity": "low",
+        "problem": "The only test file present exercises solely the subtotal() function. applyDiscount() and parseQuantity() in cart.js, and the entire session.js module (createSession, isExpired, refresh), have no automated tests in the provided snapshot.",
+        "recommendedFix": "Add unit tests for applyDiscount (including boundary/invalid percent values), parseQuantity (including invalid input), and session.js (expiry boundary, refresh behavior on expired sessions).",
+        "locations": [
+          {
+            "path": "test/cart.test.js",
+            "startLine": 1,
+            "endLine": 9
+          },
+          {
+            "path": "src/session.js",
+            "startLine": 1,
+            "endLine": 18
+          }
+        ],
+        "evidence": [
+          {
+            "text": "import { subtotal } from \"../src/cart.js\";"
+          },
+          {
+            "text": "export function refresh(session, now) {\n  if (isExpired(session, now)) throw new Error(\"SESSION_EXPIRED\");\n  return { ...session, expiresAt: now + SESSION_TTL_MS };\n}"
+          }
+        ]
+      },
+      {
+        "sourceFindingId": "auditor-a/cart-parseQuantity-nan",
+        "auditorId": "auditor-a",
+        "category": "CORRECTNESS",
+        "title": "parseQuantity does not validate or provide a radix, allowing NaN/invalid quantities into cart math",
+        "severity": "medium",
+        "problem": "parseQuantity passes the raw customer-entered text directly to parseInt without a radix argument and without checking the result. Non-numeric or malformed input (e.g. \"abc\", \"\", \"1e5\", \"-3\") yields NaN or a negative number, which is returned to the caller unchecked.",
+        "recommendedFix": "Validate input with Number.isInteger after parsing, reject/clamp NaN and negative values, and specify a radix, e.g. `const n = parseInt(text, 10); if (!Number.isInteger(n) || n < 0) throw new Error('INVALID_QUANTITY'); return n;`",
+        "locations": [
+          {
+            "path": "src/cart.js",
+            "startLine": 16,
+            "endLine": 18
+          }
+        ],
+        "evidence": [
+          {
+            "text": "export function parseQuantity(text) {\n  return parseInt(text);\n}"
+          }
+        ]
+      }
+    ],
+    "issues": [
+      {
+        "candidateId": "C-7d21a89c914f",
+        "title": "applyDiscount does not validate that percent is within the documented 0-100 range",
+        "description": "The docstring states percent should be 0-100, but applyDiscount performs no bounds checking. A percent value below 0 increases the total; a value above 100 makes the result negative.",
+        "severity": "medium",
+        "disposition": "single_source",
+        "verificationOutcome": "CONFIRMED",
+        "sourceFindingIds": [
+          "auditor-a/cart-applyDiscount-unclamped-percent"
+        ]
+      },
+      {
+        "candidateId": "C-deb33e1d0e05",
+        "title": "applyDiscount, parseQuantity, and all of session.js lack test coverage",
+        "description": "The only test file present exercises solely the subtotal() function. applyDiscount() and parseQuantity() in cart.js, and the entire session.js module (createSession, isExpired, refresh), have no automated tests in the provided snapshot.",
+        "severity": "low",
+        "disposition": "single_source",
+        "verificationOutcome": "CONFIRMED",
+        "sourceFindingIds": [
+          "auditor-a/test-coverage-gaps"
+        ]
+      },
+      {
+        "candidateId": "C-f0217f838a14",
+        "title": "parseQuantity does not validate or provide a radix, allowing NaN/invalid quantities into cart math",
+        "description": "parseQuantity passes the raw customer-entered text directly to parseInt without a radix argument and without checking the result. Non-numeric or malformed input (e.g. \"abc\", \"\", \"1e5\", \"-3\") yields NaN or a negative number, which is returned to the caller unchecked.",
+        "severity": "medium",
+        "disposition": "single_source",
+        "verificationOutcome": "STILL_NEEDS_VERIFICATION",
+        "sourceFindingIds": [
+          "auditor-a/cart-parseQuantity-nan"
+        ]
+      }
+    ],
+    "verification": [
+      {
+        "candidateId": "C-7d21a89c914f",
+        "method": "single_model_question",
+        "result": "CONFIRMED"
+      },
+      {
+        "candidateId": "C-deb33e1d0e05",
+        "method": "single_model_question",
+        "result": "CONFIRMED"
+      },
+      {
+        "candidateId": "C-f0217f838a14",
+        "method": "bounded_deterministic_check",
+        "result": "STILL_NEEDS_VERIFICATION"
+      }
+    ],
+    "plan": {
+      "acceptedIssueIds": [],
+      "addressedIssueIds": [],
+      "taskCount": 0
+    },
+    "critic": null,
+    "usage": {
+      "requests": 5,
+      "failedRequests": 0,
+      "inputTokens": 38341,
+      "outputTokens": 5963,
+      "unknownUsageRequests": 0,
+      "attemptDurationMs": 81122,
+      "repairTurns": 0
+    },
+    "usageByNode": {
+      "auditor-a": {
+        "requests": 1,
+        "failedRequests": 0,
+        "inputTokens": 7922,
+        "outputTokens": 2817,
+        "unknownUsageRequests": 0,
+        "attemptDurationMs": 24697,
+        "repairTurns": 0
+      },
+      "planner": {
+        "requests": 1,
+        "failedRequests": 0,
+        "inputTokens": 12725,
+        "outputTokens": 1217,
+        "unknownUsageRequests": 0,
+        "attemptDurationMs": 12108,
+        "repairTurns": 0
+      },
+      "semantic-clustering": {
+        "requests": 1,
+        "failedRequests": 0,
+        "inputTokens": 5034,
+        "outputTokens": 919,
+        "unknownUsageRequests": 0,
+        "attemptDurationMs": 9091,
+        "repairTurns": 0
+      },
+      "verification": {
+        "requests": 2,
+        "failedRequests": 0,
+        "inputTokens": 12660,
+        "outputTokens": 1010,
+        "unknownUsageRequests": 0,
+        "attemptDurationMs": 35226,
+        "repairTurns": 0
+      }
+    }
+  }
+}

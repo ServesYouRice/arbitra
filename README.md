@@ -37,13 +37,15 @@ work is [deferred](#deferred-to-a-later-phase-the-paid-api-bundle). See
 [project status](docs/project-status.md) for measured evidence and the
 [completion plan](docs/completion-plan.md#status-september-27-2026) for what remains.
 
-One thing is worth knowing before reading further: **the premise is unmeasured on real
-models.** `packages/testing/src/metrics/premise.ts` scores a run against a ground-truth
-fixture, but the default suites run scripted auditors. The live evaluation (completion
-plan P06) has no result yet. Version 1, on Gemini's free tier, stopped at 4 of 15 runs
-with insufficient evidence either way ([`docs/qa/p06`](docs/qa/p06/README.md)). Version 2,
-on subscription models, runs as protocol 2.1.0, after 2.0.0 closed at run 2 of 15 on its per-run
-token cap ([`docs/qa/p06-subscription`](docs/qa/p06-subscription/README.md)).
+One thing is worth knowing before reading further: **the premise is measured, and the
+answer so far is "insufficient evidence".** The live evaluation (completion plan P06,
+protocol 2.1.0) ran Claude Sonnet 5, GPT-5.6 Luna and Gemini 3.8 Flash on three small fixtures
+with 10 planted defects. One Claude run found 25 of 30 defect chances, and three pooled runs
+found all 10 defects, whether they were repeated Claude runs or three model families. Under
+the prespecified rule, no comparison is decisive at that size
+([`docs/qa/p06-subscription`](docs/qa/p06-subscription/README.md)). The default suites run
+scripted auditors, and `packages/testing/src/metrics/premise.ts` scores a run against a
+ground-truth fixture.
 Every premise report carries `interpretation: "smoke_test_only_not_proof"`. See
 [`docs/evaluation.md`](docs/evaluation.md).
 
