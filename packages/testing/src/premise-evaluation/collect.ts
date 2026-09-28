@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { ModelActivityTraceRecord } from "@arbitra/schemas/model-trace.js";
 
 /**
@@ -57,7 +59,10 @@ export interface UsageSummary {
 
 export interface RunIdentity {
   readonly protocol: { readonly id: string; readonly version: string; readonly hash: string };
+  /** When auditors run under different harness policies, policyHash combines `auditorHarnessPolicies`. */
   readonly harness: { readonly id: string; readonly version: string; readonly policyHash: string };
+  /** Each auditor's harness policy, present when they differ: the policy includes each model's own context limit. */
+  readonly auditorHarnessPolicies?: Readonly<Record<string, string>>;
   readonly models: readonly { readonly auditorId: string; readonly modelId: string; readonly modelProfileVersion: string; readonly transportId: string; readonly transportVersion: string }[];
 }
 
@@ -160,10 +165,19 @@ function identityOf(traces: readonly ModelActivityTraceRecord[], auditorIds: rea
   const discovery = traces.filter(({ nodeId, outcome }) => auditorIds.includes(nodeId) && outcome === "success");
   const first = discovery[0];
   if (first === undefined) throw new Error(`P06_DISCOVERY_TRACE_ABSENT:${runId}`);
-  for (const trace of discovery) if (trace.protocolHash !== first.protocolHash || trace.harnessPolicyHash !== first.harnessPolicyHash) throw new Error(`P06_MIXED_DISCOVERY_IDENTITY:${runId}`);
+  // One protocol and harness per run, and one policy per auditor. Policies may differ between
+  // auditors, because each includes its model's context limit (observed live: P06 v2.1 run 2).
+  const policies = new Map<string, string>();
+  for (const trace of discovery) {
+    if (trace.protocolHash !== first.protocolHash || trace.harnessId !== first.harnessId || trace.harnessVersion !== first.harnessVersion || (policies.get(trace.nodeId) ?? trace.harnessPolicyHash) !== trace.harnessPolicyHash) throw new Error(`P06_MIXED_DISCOVERY_IDENTITY:${runId}`);
+    policies.set(trace.nodeId, trace.harnessPolicyHash);
+  }
+  const auditorPolicies = Object.fromEntries([...policies].sort(([left], [right]) => left.localeCompare(right)));
+  const shared = new Set(policies.values()).size === 1;
   return Object.freeze({
     protocol: Object.freeze({ id: first.protocolId, version: first.protocolVersion, hash: first.protocolHash }),
-    harness: Object.freeze({ id: first.harnessId, version: first.harnessVersion, policyHash: first.harnessPolicyHash }),
+    harness: Object.freeze({ id: first.harnessId, version: first.harnessVersion, policyHash: shared ? first.harnessPolicyHash : createHash("sha256").update(JSON.stringify(auditorPolicies)).digest("hex") }),
+    ...(shared ? {} : { auditorHarnessPolicies: Object.freeze(auditorPolicies) }),
     models: Object.freeze(auditorIds.map((auditorId) => {
       const trace = discovery.find(({ nodeId }) => nodeId === auditorId);
       if (trace === undefined) throw new Error(`P06_DISCOVERY_TRACE_ABSENT:${runId}:${auditorId}`);
