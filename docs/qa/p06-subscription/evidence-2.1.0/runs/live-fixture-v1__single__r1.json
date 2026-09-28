@@ -1,0 +1,254 @@
+{
+  "schemaVersion": 1,
+  "status": "completed",
+  "key": "live-fixture-v1/single/r1",
+  "fixtureId": "live-fixture-v1",
+  "condition": "single",
+  "repetition": 1,
+  "protocolId": "arbitra-p06-premise",
+  "protocolVersion": "2.1.0",
+  "wallClockMs": 47929,
+  "segments": [
+    {
+      "startedAt": "2026-09-28T12:30:09.056Z",
+      "endedAt": "2026-09-28T12:30:56.987Z",
+      "wallClockMs": 47929,
+      "state": "COMPLETED",
+      "kind": "start"
+    }
+  ],
+  "record": {
+    "runId": "run-c31b5119-659f-4181-9280-e558d40c1235",
+    "state": "COMPLETED",
+    "snapshot": {
+      "repositoryDigest": "6d4eb759565376aababed8b1db4ed04c314fb3de0025b12e8aab18b07740eaf8",
+      "gitHead": "2f106c376a4d62c7f59e337110a4eb9b808b25d9"
+    },
+    "identity": {
+      "protocol": {
+        "id": "production-audit",
+        "version": "1.0.0",
+        "hash": "89a666a6f6f5c39ab1228aeee9d1deffd0489e8d30e687be5c6f53c626bd4ed9"
+      },
+      "harness": {
+        "id": "arbitra-canonical",
+        "version": "1.0.0",
+        "policyHash": "95dd5ec436f68d658e5c15c22dcf653f631e43d176fb384827a055e9119d153e"
+      },
+      "models": [
+        {
+          "auditorId": "auditor-a",
+          "modelId": "claude-sonnet-5",
+          "modelProfileVersion": "fda23f1761d94f8350afbf519daf36d925e8b82724144cb7e6c81a9985cfeebf",
+          "transportId": "claude-code-cli",
+          "transportVersion": "claude-code/2.1.283"
+        }
+      ]
+    },
+    "auditors": [
+      {
+        "auditorId": "auditor-a",
+        "modelId": "claude-sonnet-5",
+        "independenceGroup": "anthropic-sonnet",
+        "transport": "claude-code-cli",
+        "findings": [
+          {
+            "sourceFindingId": "auditor-a/parseQuantity-unvalidated-nan",
+            "auditorId": "auditor-a",
+            "category": "CORRECTNESS",
+            "title": "parseQuantity does not validate input, allowing NaN to corrupt cart totals",
+            "severity": "high",
+            "problem": "parseQuantity uses parseInt(text) with no radix argument and no validation of the result. If the customer-supplied text is not a valid integer (e.g. empty string, 'abc', or a decimal like '2.5'), parseInt returns NaN or a truncated value with no error raised. There is no check for NaN, negative numbers, or zero.",
+            "recommendedFix": "Validate the parsed result: use Number.isInteger checks after parseInt(text, 10), reject or clamp NaN/negative/zero values, and throw or return an explicit error for invalid input rather than silently propagating NaN.",
+            "locations": [
+              {
+                "path": "src/cart.js",
+                "startLine": 16,
+                "endLine": 18
+              }
+            ],
+            "evidence": [
+              {
+                "text": "export function parseQuantity(text) {\n  return parseInt(text);\n}"
+              }
+            ]
+          },
+          {
+            "sourceFindingId": "auditor-a/missing-test-coverage-session-and-cart-helpers",
+            "auditorId": "auditor-a",
+            "category": "TESTING",
+            "title": "No test coverage for session.js and most of cart.js exports",
+            "severity": "low",
+            "problem": "The only test file present exercises just the `subtotal` function. `applyDiscount` and `parseQuantity` in cart.js, and all exported functions in session.js (`createSession`, `isExpired`, `refresh`, including the expiry boundary behavior), have no automated tests.",
+            "recommendedFix": "Add unit tests for applyDiscount (including rounding edge cases), parseQuantity, createSession, isExpired (boundary at exact expiresAt), and refresh (including the throw path).",
+            "locations": [
+              {
+                "path": "test/cart.test.js",
+                "startLine": 1,
+                "endLine": 9
+              },
+              {
+                "path": "src/session.js",
+                "startLine": 1,
+                "endLine": 18
+              }
+            ],
+            "evidence": [
+              {
+                "text": "import { subtotal } from \"../src/cart.js\";"
+              },
+              {
+                "text": "export function isExpired(session, now) {\n  return now > session.expiresAt;\n}"
+              }
+            ]
+          }
+        ],
+        "rejectedFindings": [],
+        "quoteRejectedCount": 0,
+        "repairedCount": 0,
+        "truncated": false,
+        "usage": {
+          "requests": 1,
+          "failedRequests": 0,
+          "inputTokens": 7922,
+          "outputTokens": 2451,
+          "unknownUsageRequests": 0,
+          "attemptDurationMs": 21645,
+          "repairTurns": 0
+        }
+      }
+    ],
+    "sourceFindings": [
+      {
+        "sourceFindingId": "auditor-a/missing-test-coverage-session-and-cart-helpers",
+        "auditorId": "auditor-a",
+        "category": "TESTING",
+        "title": "No test coverage for session.js and most of cart.js exports",
+        "severity": "low",
+        "problem": "The only test file present exercises just the `subtotal` function. `applyDiscount` and `parseQuantity` in cart.js, and all exported functions in session.js (`createSession`, `isExpired`, `refresh`, including the expiry boundary behavior), have no automated tests.",
+        "recommendedFix": "Add unit tests for applyDiscount (including rounding edge cases), parseQuantity, createSession, isExpired (boundary at exact expiresAt), and refresh (including the throw path).",
+        "locations": [
+          {
+            "path": "test/cart.test.js",
+            "startLine": 1,
+            "endLine": 9
+          },
+          {
+            "path": "src/session.js",
+            "startLine": 1,
+            "endLine": 18
+          }
+        ],
+        "evidence": [
+          {
+            "text": "import { subtotal } from \"../src/cart.js\";"
+          },
+          {
+            "text": "export function isExpired(session, now) {\n  return now > session.expiresAt;\n}"
+          }
+        ]
+      },
+      {
+        "sourceFindingId": "auditor-a/parseQuantity-unvalidated-nan",
+        "auditorId": "auditor-a",
+        "category": "CORRECTNESS",
+        "title": "parseQuantity does not validate input, allowing NaN to corrupt cart totals",
+        "severity": "high",
+        "problem": "parseQuantity uses parseInt(text) with no radix argument and no validation of the result. If the customer-supplied text is not a valid integer (e.g. empty string, 'abc', or a decimal like '2.5'), parseInt returns NaN or a truncated value with no error raised. There is no check for NaN, negative numbers, or zero.",
+        "recommendedFix": "Validate the parsed result: use Number.isInteger checks after parseInt(text, 10), reject or clamp NaN/negative/zero values, and throw or return an explicit error for invalid input rather than silently propagating NaN.",
+        "locations": [
+          {
+            "path": "src/cart.js",
+            "startLine": 16,
+            "endLine": 18
+          }
+        ],
+        "evidence": [
+          {
+            "text": "export function parseQuantity(text) {\n  return parseInt(text);\n}"
+          }
+        ]
+      }
+    ],
+    "issues": [
+      {
+        "candidateId": "C-a93d961bd648",
+        "title": "No test coverage for session.js and most of cart.js exports",
+        "description": "The only test file present exercises just the `subtotal` function. `applyDiscount` and `parseQuantity` in cart.js, and all exported functions in session.js (`createSession`, `isExpired`, `refresh`, including the expiry boundary behavior), have no automated tests.",
+        "severity": "low",
+        "disposition": "single_source",
+        "verificationOutcome": "CONFIRMED",
+        "sourceFindingIds": [
+          "auditor-a/missing-test-coverage-session-and-cart-helpers"
+        ]
+      },
+      {
+        "candidateId": "C-e607eb1f195d",
+        "title": "parseQuantity does not validate input, allowing NaN to corrupt cart totals",
+        "description": "parseQuantity uses parseInt(text) with no radix argument and no validation of the result. If the customer-supplied text is not a valid integer (e.g. empty string, 'abc', or a decimal like '2.5'), parseInt returns NaN or a truncated value with no error raised. There is no check for NaN, negative numbers, or zero.",
+        "severity": "high",
+        "disposition": "single_source",
+        "verificationOutcome": "CONFIRMED",
+        "sourceFindingIds": [
+          "auditor-a/parseQuantity-unvalidated-nan"
+        ]
+      }
+    ],
+    "verification": [
+      {
+        "candidateId": "C-a93d961bd648",
+        "method": "single_model_question",
+        "result": "CONFIRMED"
+      },
+      {
+        "candidateId": "C-e607eb1f195d",
+        "method": "single_model_question",
+        "result": "CONFIRMED"
+      }
+    ],
+    "plan": {
+      "acceptedIssueIds": [],
+      "addressedIssueIds": [],
+      "taskCount": 0
+    },
+    "critic": null,
+    "usage": {
+      "requests": 4,
+      "failedRequests": 0,
+      "inputTokens": 33386,
+      "outputTokens": 4614,
+      "unknownUsageRequests": 0,
+      "attemptDurationMs": 47033,
+      "repairTurns": 0
+    },
+    "usageByNode": {
+      "auditor-a": {
+        "requests": 1,
+        "failedRequests": 0,
+        "inputTokens": 7922,
+        "outputTokens": 2451,
+        "unknownUsageRequests": 0,
+        "attemptDurationMs": 21645,
+        "repairTurns": 0
+      },
+      "planner": {
+        "requests": 1,
+        "failedRequests": 0,
+        "inputTokens": 12728,
+        "outputTokens": 1108,
+        "unknownUsageRequests": 0,
+        "attemptDurationMs": 12457,
+        "repairTurns": 0
+      },
+      "verification": {
+        "requests": 2,
+        "failedRequests": 0,
+        "inputTokens": 12736,
+        "outputTokens": 1055,
+        "unknownUsageRequests": 0,
+        "attemptDurationMs": 12931,
+        "repairTurns": 0
+      }
+    }
+  }
+}

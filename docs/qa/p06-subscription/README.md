@@ -17,6 +17,9 @@ The schedule started on September 28 at 13:54 CEST. Results are recorded here as
 |---|---|---|---|---|---|---|
 | premise-v1/single/r1 | run-b8dde1fc-a159-4aaf-8a12-b83bf7159869 | completed | 4 | 36,258 / 7,824 | 0 | 71 s |
 | premise-v1/heterogeneous/r1 | run-5ea6417b-4c39-4f49-ba13-a9480d0002b1 | completed | 29 | 544,035 / 71,886 | 0 | 655 s |
+| expanded-evaluation-v1/single/r1 | run-d53833f4-7add-4e3c-8483-33ab7b597c92 | completed | 5 | 43,886 / 8,706 | 0 | 492 s |
+| expanded-evaluation-v1/heterogeneous/r1 | run-732ca064-7b06-4e42-a1f4-438e633b8976 | completed | 12 | 291,716 / 42,980 | 0 | 407 s |
+| live-fixture-v1/single/r1 | run-c31b5119-659f-4181-9280-e558d40c1235 | completed | 4 | 33,386 / 4,614 | 0 | 48 s |
 
 - **The context cap worked as intended.** The critic's review of the revised plan took one call, and the whole three-auditor run used 29 requests and about 0.62M known tokens, against 2.0.0's 92 requests and 2.86M when its run stopped.
 - **The collector crashed after run 2 completed** with `P06_MIXED_DISCOVERY_IDENTITY`. Each harness policy includes its model's context limit, so under 2.1.0 the three auditors' policies differ, and the collector expected one per run. Fixed in bdfd65c, which also makes the driver collect a finished run instead of resuming it. The ledger segment the crash left open was closed by hand from the run's own completion time (12:07:05 UTC); the run was then collected without any further model call.
