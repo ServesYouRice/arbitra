@@ -7,7 +7,8 @@
  * treats every other invariant (cf. TASK-004, which makes the determinism
  * rules a lint failure so they cannot erode).
  *
- * Fails on a colour literal anywhere outside the token file.
+ * Fails on a colour literal in any linted file except the token file and
+ * stories. eslint.config.js applies it to apps/web/src scripts.
  */
 
 const COLOR_LITERAL =

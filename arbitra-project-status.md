@@ -1,6 +1,6 @@
 # Project status
 
-Updated September 27, 2026. The maintained assessment is in
+Updated September 28, 2026. The maintained assessment is in
 [docs/project-status.md](docs/project-status.md), and per-item status is in the
 [completion plan](docs/completion-plan.md#status-september-27-2026).
 

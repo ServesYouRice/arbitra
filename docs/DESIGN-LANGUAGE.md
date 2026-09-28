@@ -4,8 +4,8 @@
 > [Mark studies 01–05](https://claude.ai/code/artifact/27be5a4a-1bed-4d87-a626-265ab44fd794) — thirty-seven candidates, and why this one won.
 
 This document is normative for `apps/web`, the CLI's human-readable output, and the
-Markdown rendered into `implementation/`. It is derived from `docs/MASTER-BUILD-PROMPT.md`;
-where the two disagree, the spec is right and this document is stale.
+Markdown rendered into `implementation/`. It was derived from the original build
+specification, which is not in this repository; the § references point to it.
 
 Machine-readable companions live beside it in `docs/brand/`:
 
@@ -13,10 +13,11 @@ Machine-readable companions live beside it in `docs/brand/`:
 |---|---|---|
 | `tokens.css` | `apps/web/src/tokens.css` | Colour, type scale, space scale, density |
 | `glyphs.ts` | `packages/schemas/src/glyphs.ts` | Node + state glyphs, one source of truth |
-| `no-raw-color.cjs` | `tooling/eslint-rules/` | Fails the build on a colour literal outside `tokens.css` |
+| `no-raw-color.cjs` | `tooling/eslint-rules/` | Fails `pnpm lint` on a colour literal in web scripts |
 
-Destinations are noted rather than scaffolded: `packages/` does not exist until TASK-001
-creates the workspace, and creating it early would collide with that task.
+Each file is shipped at its destination, byte for byte. `pnpm run design:check`
+(`examples/design-check.test.ts`) fails if the shipped glyph table differs from this copy,
+or if the shipped tokens add or drop a token name.
 
 Nothing here is a mood choice. Every rule below traces to a property of the product.
 
@@ -109,8 +110,9 @@ Columns are separated by a 1px hairline, never a gap and never a shadow. Panel p
 ## Glyphs
 
 Taken verbatim from the spec's closed taxonomy (§8) and shipped as **one typed module**
-(`docs/brand/glyphs.ts`) that the CLI, the renderer and the graph view all import — two
-copies of the glyph table is the same class of defect as two orchestrators.
+(`docs/brand/glyphs.ts`, shipped as `packages/schemas/src/glyphs.ts`) that the Markdown
+renderer and the graph view import — two copies of the glyph table is the same class of
+defect as two orchestrators.
 
 ```text
 ■  DETERMINISTIC   application code; no model            --steel
@@ -190,8 +192,7 @@ is the signal, which is also the argument the product makes.
 ## Enforcement
 
 R2 is only real if it is mechanical, which is how this project treats every other
-invariant. `docs/brand/no-raw-color.cjs` fails the build on any colour literal outside
-`tokens.css`, alongside the existing determinism lint (TASK-004).
-
-Land `tokens.css` in `apps/web` **before TASK-045 begins**, so the UI is built against the
-palette rather than retrofitted to it.
+invariant. `no-raw-color.cjs`, installed as `tooling/eslint-rules/no-raw-color.cjs`, fails
+`pnpm lint` on a colour literal in `apps/web/src` scripts, alongside the existing
+determinism lint (TASK-004). `pnpm run design:check` fails on a hex colour in any stylesheet
+other than `tokens.css`. Both run in `pnpm run ci`.

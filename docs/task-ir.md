@@ -20,9 +20,10 @@ Every link is a persisted ID reference, never a relationship re-derived by a rea
 | requirement → validation → task | `planIR.traceability.requirementLinks` |
 | task → evidence | `planTaskIR.expectedEvidence` and `verification.commands` |
 
-`packages/workflow/src/nodes/planner/traceability.ts` builds these links, and the Planner
-fails hard rather than emitting a plan where a task maps to no assertion or an accepted
-issue is covered by no task. `apps/web/src/views/plan/traceability.ts` walks the same chain
+The planner writes these links, and `packages/workflow/src/nodes/planner/traceability.ts`
+(`validateTraceability`) checks them. The Planner fails hard (`PlannerTraceabilityError`)
+rather than emitting a plan where a task maps to no assertion or an accepted issue is
+covered by no task. `apps/web/src/views/plan/traceability.ts` walks the same chain
 in both directions in the UI.
 
 ## Validation Contract
@@ -45,6 +46,7 @@ one item. An assertion with no evidence is not an assertion.
 `packages/schemas/src/task-ir.ts` — strict, so an unknown field is an error.
 
 ```yaml
+schemaVersion: 1
 id: TASK-014                       # ^TASK-[0-9]+$
 title: string
 
@@ -115,7 +117,7 @@ prose from quietly becoming policy.
 `packages/schemas/src/plan.ts` wraps the above:
 
 ```text
-id · title · mode · reasoningOutcome · implementationStrategy · dependencies
+schemaVersion · id · title · mode · reasoningOutcome · implementationStrategy · dependencies
 acceptedIssueIds · unresolvedQuestions · validationContract · tasks · taskGraph
 traceability · routingRecommendations · rolloutConcerns · migrationConcerns · premiseReport
 ```
@@ -132,10 +134,11 @@ be emitted claiming the multi-model premise was proved. See [`evaluation.md`](ev
 
 ## Capability routing
 
-`routing.capability` and `routing.effort` are chosen by
-`packages/core/src/routing/difficulty.ts` across `DIFFICULTY_DIMENSIONS`, with `reason`
-recording why. `planIR.routingRecommendations` carries the same decision at plan level, so
-a reviewer can see where the router and the task disagree.
+The planner writes `routing.capability` and `routing.effort`, with `reason` recording why,
+and `planIR.routingRecommendations` carries the same decision at plan level. Traceability
+fails a task with no recommendation or no reason (`ROUTING_RECOMMENDATION_MISSING`). The
+deterministic pipeline uses `balanced`/`medium`. `packages/core/src/routing/difficulty.ts`
+scores a task across `DIFFICULTY_DIMENSIONS`, but no pipeline calls it yet.
 
 ## Advisors
 
@@ -153,7 +156,7 @@ disables the advisor (`not_configured`, `tier_not_configured`, `zero_uses`) and 
 proceeds without advice. Preflight rejects advisor profiles that are absent, below their
 tier, without an endpoint, or whose context/output limits cannot hold the policy.
 
-**Durable uses.** Each use is journaled in `advisor-ledger-<task>` (state `dispatched`)
+**Durable uses.** Each use is journaled in `advisor-ledger-<task hash>` (state `dispatched`)
 with its pinned request artifact *before* the provider request, then settled as
 `completed`, `failed` or `cancelled`. A question is identified by the executor's request
 ID (the writer uses its attempt ID): asking again replays the recorded outcome. Completed
@@ -166,7 +169,7 @@ resetting the allowance. Exhaustion (`uses` or `tokens`) and a context that cann
 
 **Usage.** Advisor calls go through the shared provider registry, rate scheduler and run
 token budget. They are traced separately under `harnessId: "advisor-direct"`, the
-advisor's model and a `<node>/advisor/<task>/use-<n>` activity ID, with `advisorTokens` set
+advisor's model and a `<node>/advisor/<task hash>/use-<n>` activity ID, with `advisorTokens` set
 from measured usage. Unknown usage stays `null`, is charged to both the run budget and the
 per-task advisor cap at its admission estimate, and therefore still bounds later uses.
 
@@ -185,8 +188,9 @@ discovery activity with `ADVISOR_DISABLED_IN_DISCOVERY` before journaling anythi
 `ModelActivities` independently rejects advisor-marked requests for discovery activities,
 tool-bearing advisor requests and harness turns.
 
-Coverage is fixture-based (`packages/runtime/test/model-advisors.test.ts`); a live-provider
-advisor exercise remains outstanding.
+Coverage is fixture-based (`packages/runtime/test/model-advisors.test.ts`), plus an opt-in
+live test (`model-advisors.live.test.ts`, `ARBITRA_LIVE_ADVISOR=1`) that passed on Gemini
+native and compatible chat ([`qa/p13-live`](qa/p13-live/README.md)).
 
 ## Rendering
 

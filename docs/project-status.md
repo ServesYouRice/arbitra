@@ -1,11 +1,12 @@
 # Project status
 
-Updated September 27, 2026 against commit b560162 (branch `beta`).
+Updated September 28, 2026 against commit f1616f1 (branch `beta`).
 
 arbitra is a beta runtime for model-backed Audit, Feature planning, Testing planning and
 guarded Testing execution. These share the CLI/server orchestrator, canonical harness,
-durable model activities and run budget. The implementation queue is done except the
-premise evaluation. Docker, Linux and browser acceptance are complete. Every public
+durable model activities and run budget. Every implementation item is done. What remains
+is live API-protocol and batch validation, the premise evaluation, the P18 rerun on its
+data, and the final review. Docker, Linux and browser acceptance are complete. Every public
 workflow has now run live on subscriptions (Claude Code, Codex and the Antigravity CLI)
 through the subscription CLI transports, and Gemini also ran natively and through its
 OpenAI-compatible endpoint. The OpenAI and Anthropic API protocols have no live evidence,
@@ -48,10 +49,11 @@ not the duration of each task.
 | September 23, latest | 77149ef | Public Testing executor, model writers, durable retries, parallel dispatch, final checks, verified handoff and cleanup/recovery |
 | September 24–25 | 391d3e4 … 64f887e (`beta`) | Completion-plan items P01, P02, P05, P07–P17 implemented; artifact publish race and ignored `budgets` fixed |
 | September 26–27 | 65d7941 … b560162 (`beta`) | Subscription CLI transports (Claude Code, Codex, Antigravity CLI) as a product feature; native writer on the host subscription login; live handoff harness; 12 defects from the subscription runs fixed |
+| September 27–28 | f2e9b1f … f1616f1 (`beta`) | Subscription live acceptance recorded (three-vendor Audit, interactive Feature, two plan handoffs); P12 completed with live failure paths; P06 version 2 prespecified and started |
 
 ## Verification evidence
 
-- **CI:** commit 0c6fb12 passed `pnpm run ci` and `pnpm build` on GitHub Actions on both `ubuntu-latest` and `macos-latest`. The same suite also passed locally: on macOS 26 (arm64), and in a clean `node:22-bookworm` Linux container.
+- **CI:** commit f1616f1 passed `pnpm run ci` and `pnpm build` on GitHub Actions on both `ubuntu-latest` and `macos-latest`. The same suite also passed locally: on macOS 26 (arm64), and in a clean `node:22-bookworm` Linux container.
 - **Docker:** the Docker boundary and the Testing repair cases ran against a real engine. See [`qa/p04`](qa/p04/README.md).
 - **Browsers:** acceptance ran on Linux arm64 as well as macOS, 51/51 runs on each. See [`qa/p10`](qa/p10/README.md), [`qa/p10-linux`](qa/p10-linux/README.md) and [`qa/p16`](qa/p16/README.md).
 - **Live providers:** Gemini native and the OpenAI-compatible chat protocol passed transport conformance ([`qa/p03`](qa/p03/README.md)). On subscriptions, every public workflow passed through the CLI, two exported Feature plans were accepted by fresh Claude Code executors, and a three-vendor Audit found every seeded defect ([`qa/p03-subscription`](qa/p03-subscription/README.md), [`qa/subscription-cli`](qa/subscription-cli/README.md)).
@@ -60,7 +62,7 @@ not the duration of each task.
 - **Batch drivers:** every driver was refused before a job was created. See [`qa/p15-live`](qa/p15-live/README.md).
 - **Embedding decision:** recorded in [`qa/p18`](qa/p18/README.md).
 
-The Gemini live runs found 14 runtime defects in provider classification, Gemini encoding, evidence grounding, output parsing and repair, planner and peer contracts, and writer loops. All are fixed with regressions and listed in [`qa/p03`](qa/p03/README.md). The subscription runs found 12 more, from a changed peer vote failing a run to a repair request reported as a prompt injection; they are listed in [`qa/p03-subscription`](qa/p03-subscription/README.md). Two further defects were exposed by the real Docker engine and one by Linux browsers; those are fixed too.
+The Gemini live runs found 13 runtime defects in provider classification, Gemini encoding, evidence grounding, output parsing and repair, planner and peer contracts, and writer loops. All are fixed with regressions and listed in [`qa/p03`](qa/p03/README.md), with one quality finding from human review (a generated test that pins a seeded defect). The subscription runs found 12 more, from a changed peer vote failing a run to a repair request reported as a prompt injection; they are listed in [`qa/p03-subscription`](qa/p03-subscription/README.md). Two further defects were exposed by the real Docker engine and one by Linux browsers; those are fixed too.
 
 ## Remaining work
 

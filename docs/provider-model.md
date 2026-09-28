@@ -122,7 +122,9 @@ Anthropic uses native thinking fields, and Gemini uses native `thinkingConfig` f
 Only supply fields supported by the selected model. Mock contract tests do not establish
 live model capabilities. Configured CLI/server workflows invoke these transports through
 the canonical harness; Audit with no configured models uses scripted auditors.
-Live conformance remains an explicit [completion task](completion-plan.md#p03--build-and-run-live-provider-acceptance).
+Gemini native, its compatible chat endpoint and three subscription CLIs have live evidence.
+Live conformance of the OpenAI Responses, OpenAI Chat and Anthropic Messages API protocols
+remains a [completion task](completion-plan.md#p03--build-and-run-live-provider-acceptance).
 
 ## Effort
 
@@ -163,8 +165,8 @@ every provider.
 ## Budget, scheduling and continuation
 
 `packages/providers/src/registry.ts` binds endpoint IDs to transport implementations.
-It supports OpenAI Responses, OpenAI Chat, Anthropic Messages, and Gemini Native in the
-same registry. Multiple compatible services can share a protocol while retaining separate
+It supports OpenAI Responses, OpenAI Chat, Anthropic Messages, Gemini Native and the four
+subscription CLI transports in the same registry. Multiple compatible services can share a protocol while retaining separate
 URLs and environment-variable credential references. Custom transport factories can be
 supplied for other protocols; unknown protocols fail explicitly.
 
@@ -189,7 +191,8 @@ configured. Feature composition uses these same endpoint bindings and budgets, w
 separate role selections in `workflow.feature`; see [Feature mode](workflows.md#feature-mode).
 Testing composition uses `workflow.testing.roles` for its frontier analyst and planner,
 with the same endpoint bindings, budgets and durable harness. See
-[Testing mode](workflows.md#testing-mode). Native harness composition remains unavailable.
+[Testing mode](workflows.md#testing-mode). The Testing writer can also run natively on
+Claude Code; see [harness.md](harness.md#native-harness-adapters).
 
 `packages/runtime/src/model-activities.ts` durably records request fingerprints, parsed
 results, per-attempt provider traces and actual token usage. Completed calls are reused
@@ -244,7 +247,8 @@ Growing tool histories archive complete older exchanges into activity-local arti
 preserving the original prompt and valid tool-call/result pairing. Archived content is
 available through the read-only artifact tool and remains recorded in the run.
 Peer review partitions oversized candidate sets using the actual compiled prompt budget
-(and at most 20 candidates per primary batch). Each candidate receives one full review
+(and at most as many candidates per primary batch as the output capacity admits at 160
+tokens each). Each candidate receives one full review
 per selected reviewer. Pairs separated by batching receive additional merge-only checks,
 so batching does not silently remove duplicate-detection opportunities. These checks can
 grow quadratically and share the run token budget; exhaustion suspends the run. Complete
@@ -347,8 +351,10 @@ including every tool loop, stays on the interactive path.
 
 Each driver carries a `BatchCapabilityDeclaration`. **All three are
 `declared_unverified`, with `liveValidation: null`:** they were written against the
-provider documentation linked in each declaration and exercised only against injected
-HTTP fakes. No live batch submission has been made. The environment-gated conformance
+provider documentation linked in each declaration and exercised against injected HTTP
+fakes. A live runner submitted through all three, and every account refused before a job
+was created (no credit, or no batch on the Gemini free tier;
+[qa/p15-live](qa/p15-live/README.md)). The environment-gated conformance
 test requires a `batch:<driverId>` entry per driver, and live validation of every driver
 remains outstanding ([P15](completion-plan.md#p15--add-provider-batch-execution)). Every
 batch trace and submission records the declaration status, so an unverified driver is
@@ -388,9 +394,9 @@ and is bounded by `maximumAttempts`; `errored` and `missing` items are not resub
 orchestrator operations:
 
 ```text
-orchestrator batches <run-id>
-orchestrator resolve-batch <run-id> <submission-id> <version> provider_job <provider-job-id> --by=<actor>
-orchestrator resolve-batch <run-id> <submission-id> <version> not_submitted|abandon --by=<actor>
+node apps/cli/dist/src/bin.js batches <run-id>
+node apps/cli/dist/src/bin.js resolve-batch <run-id> <submission-id> <version> provider_job <provider-job-id> --by=<actor>
+node apps/cli/dist/src/bin.js resolve-batch <run-id> <submission-id> <version> not_submitted|abandon --by=<actor>
 GET  /runs/:id/batches
 POST /runs/:id/batches/:submissionId/resolve   {"version": "<64 hex>", "decision": "provider_job", "providerJobId": "batch_abc", "by": "operator"}
 ```
@@ -439,17 +445,19 @@ been cancelled. `ModelActivities.reconcileBatches` collects results that arrive 
 cancellation or the deadline and records their usage. A resumed activity reuses a late
 result (`late: true` in provenance) instead of submitting again.
 
-## Not implemented
+## Not yet validated live
 
-- **Live advisor validation.** The bounded advisor runtime ([Task IR](task-ir.md#advisors))
-  calls advisors through the normal registry and durable activities, but has been
-  exercised against injected HTTP only.
-- **Live batch validation.** The batch lane and drivers are implemented and tested
-  against injected HTTP only. See [Batch lane](#batch-lane).
+- **Live batch validation.** The batch lane and drivers are implemented. A live run was
+  refused by every provider before job creation, so no driver is verified live. See
+  [Batch lane](#batch-lane).
 
-Both are included in the [completion plan](completion-plan.md), along with live-provider
-conformance. The current environment-gated conformance test reads external report
-booleans; it neither issues live requests nor verifies the report's provenance.
+This is included in the [completion plan](completion-plan.md) (P15), along with live
+conformance of the OpenAI and Anthropic API protocols (P03). The bounded advisor runtime
+([Task IR](task-ir.md#advisors)) has been exercised live on Gemini
+([qa/p13-live](qa/p13-live/README.md)). The environment-gated gate
+(`real-provider.conformance.test.ts`) reads the provenance-bearing observations written by
+the live conformance runners, and requires a passed live observation per capability and per
+batch driver.
 
 ## Large planning and critic contexts
 
