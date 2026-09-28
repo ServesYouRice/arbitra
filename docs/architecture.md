@@ -243,9 +243,10 @@ every view.
 
 The [completion plan](completion-plan.md) records dependencies and acceptance criteria:
 
-- **Live evidence for the OpenAI and Anthropic API protocols (P03) and the real-model
-  premise evaluation (P06) remain outstanding.** Every public workflow has run live on
-  subscriptions. Injected-provider tests do not establish model quality. See
+- **The real-model premise evaluation (P06) remains outstanding, and live evidence for
+  the OpenAI and Anthropic API protocols (P03) is deferred** to the
+  [paid-API bundle](completion-plan.md#deferred-the-paid-api-bundle). Every public workflow
+  has run live on subscriptions. Injected-provider tests do not establish model quality. See
   [`evaluation.md`](evaluation.md).
 - Final Testing verification can reopen invalidated earlier work for bounded, durable repair
   under the original write grants (see [Testing mode](workflows.md#testing-mode)). The repair
@@ -277,7 +278,7 @@ now differs; all unfinished work is included in the completion plan.
 | Advisor runtime | Implemented for Testing writers in `packages/runtime/src/model-advisors.ts`: operator-capped, durably journaled advisor uses with no tools, traced under the advisor identity. Exercised live on Gemini native and compatible chat (P13, [qa/p13-live](qa/p13-live/README.md)). See [`task-ir.md`](task-ir.md#advisors) |
 | Feature workflow extensions | Requirements/review/planning/revision, web contract view, expanded subgraphs and mode-specific replay are implemented. Automatic and interactive Feature ran live on subscriptions ([qa/p03-subscription](qa/p03-subscription/README.md)); requirements revision still makes one call (P08) |
 | Incremental / repeat audit execution | Opt-in incremental Audit in `packages/runtime/src/incremental-audit.ts`. It reuses byte-identical discovery units and identity-matched downstream stages from a completed base, with fallback, provenance and saved-work/coverage reporting. Tested with injected fake providers only; live-provider exercise remains. See [Incremental Audit](workflows.md#incremental-audit) |
-| Provider batch API path | Opt-in batch lane and OpenAI/Anthropic/Gemini drivers in `packages/providers/src/batch/`, tested against injected HTTP; a live run was refused by every provider before job creation, so every driver is declared-unverified and live validation needs a funded account (P15). See [`provider-model.md`](provider-model.md#batch-lane) |
+| Provider batch API path | Opt-in batch lane and OpenAI/Anthropic/Gemini drivers in `packages/providers/src/batch/`, tested against injected HTTP; a live run was refused by every provider before job creation, so every driver is declared-unverified. Live validation needs a funded account and is deferred to the [paid-API bundle](completion-plan.md#deferred-the-paid-api-bundle) (P15). See [`provider-model.md`](provider-model.md#batch-lane) |
 | Drag-and-drop workflow canvas editor | Implemented: `apps/web/src/columns/graph/GraphEditor.tsx` edits operator-authored graphs; versions are content-addressed and validated server-side, and runs execute and resume the saved version. Audit mode only (P16) |
 | Local embedding clustering | `packages/workflow/src/clustering/deterministic.ts` is the deterministic path; §25.4 metrics would have to justify replacing it. A local MiniLM candidate was evaluated offline and provisionally rejected (P18, [qa/p18](qa/p18/README.md)) |
 

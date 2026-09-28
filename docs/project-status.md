@@ -5,8 +5,9 @@ Updated September 28, 2026 against commit f1616f1 (branch `beta`).
 arbitra is a beta runtime for model-backed Audit, Feature planning, Testing planning and
 guarded Testing execution. These share the CLI/server orchestrator, canonical harness,
 durable model activities and run budget. Every implementation item is done. What remains
-is live API-protocol and batch validation, the premise evaluation, the P18 rerun on its
-data, and the final review. Docker, Linux and browser acceptance are complete. Every public
+in this phase is the premise evaluation, the P18 rerun on its data, and the final review.
+Live API-protocol, context-limit and batch validation is deferred to a later phase as the
+[paid-API bundle](completion-plan.md#deferred-the-paid-api-bundle). Docker, Linux and browser acceptance are complete. Every public
 workflow has now run live on subscriptions (Claude Code, Codex and the Antigravity CLI)
 through the subscription CLI transports, and Gemini also ran natively and through its
 OpenAI-compatible endpoint. The OpenAI and Anthropic API protocols have no live evidence,
@@ -22,7 +23,7 @@ quality or a vendor capability guarantee.
 | Area | Current behavior | Remaining boundary |
 |---|---|---|
 | Setup | Model-backed templates for every mode and all four protocols; [`setup.md`](setup.md); preflight diagnostics before any run or spend; unenforced `budgets` refused for model-backed runs | Live credentials and spend are the operator's |
-| Providers and harness | Four wire protocols plus compatible endpoints; subscription CLI transports (Claude Code, Codex, Antigravity CLI, Gemini CLI for Code Assist accounts) selectable per role; canonical tool loop; bounded output repair; quota-aware error classes; durable attempts, usage, budgets and cancellation; output-limit detection; opt-in batch lane (OpenAI, Anthropic, Gemini); native Claude Code adapter for the Testing writer, on an API key, a token or the host subscription login | Subscription CLIs, Gemini and the native adapter live; OpenAI/Anthropic API protocols and batch drivers need funded accounts |
+| Providers and harness | Four wire protocols plus compatible endpoints; subscription CLI transports (Claude Code, Codex, Antigravity CLI, Gemini CLI for Code Assist accounts) selectable per role; canonical tool loop; bounded output repair; quota-aware error classes; durable attempts, usage, budgets and cancellation; output-limit detection; opt-in batch lane (OpenAI, Anthropic, Gemini); native Claude Code adapter for the Testing writer, on an API key, a token or the host subscription login | Subscription CLIs, Gemini and the native adapter live; OpenAI/Anthropic API protocols and batch drivers deferred to the [paid-API bundle](completion-plan.md#deferred-the-paid-api-bundle) |
 | Audit | Independent discovery, review, verification, planning, criticism, revision; staged composition for oversized contexts; opt-in incremental reuse from a prior run; operator-authored saved graphs | Live three-vendor Audit found every seeded defect; a blocking plan question cannot be answered and resumed in Audit; oversized limits validated with scripted providers only |
 | Feature | Requirements checkpoints, exploration, review, planning, revision and handoff; staged review/planning/critique; mode-specific replay; web contract view | Interactive mode passed live after an operator revision; requirements models can adopt an existing bug as the contract, which review and the checkpoint must catch |
 | Testing | Risk analysis, gap selection, plans, guarded execution, bounded repair after final invalidation, bounded advisors, replay, web execution view | Generated tests are verified to pass, not to be right (a live test pinned a seeded defect) |
@@ -67,8 +68,9 @@ The Gemini live runs found 13 runtime defects in provider classification, Gemini
 ## Remaining work
 
 See [WORK-REMAINING](../WORK-REMAINING.md) and the [status table](completion-plan.md#status-september-27-2026).
-The API-protocol and batch items need funded provider accounts, which the owner does not
-use for testing. The premise evaluation (P06) now runs on subscription models under
+The API-protocol, context-limit and batch evidence needs funded provider accounts, which
+the owner does not use for testing, so it is deferred out of this phase as the
+[paid-API bundle](completion-plan.md#deferred-the-paid-api-bundle). The premise evaluation (P06) now runs on subscription models under
 protocol 2.0.0 and is part-way through its 15 runs. Then the embedding decision is rerun on real-model findings (P18),
 and the final review takes place (P19).
 

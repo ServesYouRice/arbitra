@@ -257,7 +257,7 @@ deterministic clustering merges findings with the same path, overlapping lines a
 category, and any other duplicate remains visible rather than being dropped. Output reserves
 are conservative estimates, not measured token counts. The staged Feature and Testing paths
 are covered by injected-provider fixtures; live-provider behavior at real context limits
-still requires P03 evidence.
+is deferred to the [paid-API bundle](completion-plan.md#deferred-the-paid-api-bundle) (P08).
 
 ## Model × harness
 

@@ -32,17 +32,36 @@ Claude, ChatGPT or Google AI subscription ([setup](docs/setup.md#subscription-cl
 web UI passes browser acceptance on Chromium, Firefox and WebKit. Every public workflow
 has also run live on subscription models, Gemini has run on its API, Docker acceptance ran
 on a real engine, and the native Claude Code adapter passed conformance against the real
-CLI. The OpenAI and Anthropic API protocols and the batch drivers have not run live. See
+CLI. The OpenAI and Anthropic API protocols and the batch drivers have not run live; that
+work is [deferred](#deferred-to-a-later-phase-the-paid-api-bundle). See
 [project status](docs/project-status.md) for measured evidence and the
 [completion plan](docs/completion-plan.md#status-september-27-2026) for what remains.
 
 One thing is worth knowing before reading further: **the premise is unmeasured on real
 models.** `packages/testing/src/metrics/premise.ts` scores a run against a ground-truth
 fixture, but the default suites run scripted auditors. The live evaluation (completion
-plan P06) has an interim result only: 4 of 15 runs, insufficient evidence either way (see
-[`docs/qa/p06`](docs/qa/p06/README.md)). Every premise report
-carries `interpretation: "smoke_test_only_not_proof"`. See
+plan P06) has no result yet. Version 1, on Gemini's free tier, stopped at 4 of 15 runs
+with insufficient evidence either way ([`docs/qa/p06`](docs/qa/p06/README.md)). Version 2,
+on subscription models, is in progress ([`docs/qa/p06-subscription`](docs/qa/p06-subscription/README.md)).
+Every premise report carries `interpretation: "smoke_test_only_not_proof"`. See
 [`docs/evaluation.md`](docs/evaluation.md).
+
+### Deferred to a later phase: the paid-API bundle
+
+Three pieces of live validation need funded API accounts. The current maintainer tests only
+on subscriptions, so they are deferred out of this phase and bundled for anyone who wants to
+take them on later:
+
+- **P03, API part:** live runs of the OpenAI Responses, OpenAI Chat and Anthropic Messages
+  protocols, including refusals and context limits.
+- **P08, live limits:** how oversized-context handling behaves at real models' context and
+  output limits.
+- **P15, live batches:** each batch driver (OpenAI, Anthropic, Gemini) run on a funded
+  account.
+
+The code for all three is in place and covered by injected-provider tests; only the live
+evidence is missing. The [completion plan](docs/completion-plan.md#deferred-the-paid-api-bundle)
+lists what exists, the acceptance criteria and how to run each part.
 
 ## Requirements
 

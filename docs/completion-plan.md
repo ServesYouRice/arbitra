@@ -30,7 +30,9 @@ The original 49-task completion count is not reused for this plan.
 
 This is an execution order, not a calendar estimate. P01–P06 establish reliable live
 evidence; P07–P11 finish recovery, scale and operator workflows; P12–P18 complete the
-previously deferred extensions and evaluation; P19 closes the whole queue.
+previously deferred extensions and evaluation; P19 closes the whole queue. The parts of
+P03, P08 and P15 that need funded API accounts are
+[deferred](#deferred-the-paid-api-bundle) out of this phase.
 
 ## Queue and dependencies
 
@@ -54,7 +56,27 @@ previously deferred extensions and evaluation; P19 closes the whole queue.
 | P16 | Workflow canvas editing and runtime dispatch | P09, P10 |
 | P17 | Persistent trace query index | P01 |
 | P18 | Local embedding clustering evaluation and adoption decision | P05, P06 |
-| P19 | Final defect review and completion evidence | P01–P18 |
+| P19 | Final defect review and completion evidence | P01–P18, except the deferred [paid-API bundle](#deferred-the-paid-api-bundle) |
+
+## Deferred: the paid-API bundle
+
+Decided September 28, 2026. The owner tests only on subscriptions and does not fund API
+accounts, so the work below is deferred out of this phase. It is not done here, and P19
+closes the phase without it. Whoever takes it on later needs funded OpenAI, Anthropic and
+Gemini API accounts. Each item's acceptance criteria stay as written; the three checkboxes
+stay open.
+
+| Item | Deferred part | Already in place |
+|---|---|---|
+| P03 | Live conformance of the OpenAI Responses, OpenAI Chat and Anthropic Messages protocols, including refusal and context-limit elicitation | Gemini native and the compatible endpoint verified live ([`qa/p03`](qa/p03/README.md)); every public workflow accepted live on subscriptions ([`qa/p03-subscription`](qa/p03-subscription/README.md)) |
+| P08 | Behavior at real models' context and output limits | Every inventoried stage composes and resumes, validated with scripted providers; limits in [`harness.md`](harness.md) |
+| P15 | Live validation of each batch driver (OpenAI, Anthropic, Gemini) | Batch lane, drivers and uncertain-submission handling, tested against injected HTTP; every live attempt was refused before job creation ([`qa/p15-live`](qa/p15-live/README.md)) |
+
+To pick it up:
+
+- **API protocols:** run `packages/providers/test/conformance/live-transport.conformance.test.ts` as described in [`qa/p03`](qa/p03/README.md). For the public workflows, generate configurations from the API-key bindings: `node tooling/live/configure.mjs tooling/live/bindings.claude-primary.json <directory>`, then run `tooling/live/run.sh` as in [WORK-REMAINING](../WORK-REMAINING.md).
+- **Batch drivers:** run `live-batch.conformance.test.ts` with the commands in [`qa/p15-live`](qa/p15-live/README.md).
+- **Gate:** `real-provider.conformance.test.ts` passes only with a passed live observation per capability and per batch driver.
 
 ## Status, September 27, 2026
 
@@ -81,23 +103,23 @@ Evidence is in `docs/qa/`.
 |---|---|---|---|
 | P01 | **Complete** | Same commit green on Linux and macOS CI; zero-discovery fails; measured per-suite limits (harness, web added after live CI failures) | — |
 | P02 | **Complete** | Templates now also set `maximumOutputRepairs: 1` | — |
-| P03 | Partial | Live transport conformance on Gemini native and the compatible endpoint (40 observations) and on all three subscription CLIs; on subscriptions, every public workflow through the CLI: Testing plan and execute (handoff applied), Feature automatic and interactive (operator revision, resume from a fresh process), a three-vendor Audit (all seeded defects accepted, nothing else); two exported Feature plans accepted by fresh Claude Code executors; 25 live defects fixed ([`qa/p03`](qa/p03/README.md), [`qa/p03-subscription`](qa/p03-subscription/README.md)) | OpenAI Responses/Chat and Anthropic Messages API protocols live (need API credit, which the owner does not use); refusal/context-limit elicitation |
+| P03 | Accepted on subscriptions; API part deferred | Live transport conformance on Gemini native and the compatible endpoint (40 observations) and on all three subscription CLIs; on subscriptions, every public workflow through the CLI: Testing plan and execute (handoff applied), Feature automatic and interactive (operator revision, resume from a fresh process), a three-vendor Audit (all seeded defects accepted, nothing else); two exported Feature plans accepted by fresh Claude Code executors; 25 live defects fixed ([`qa/p03`](qa/p03/README.md), [`qa/p03-subscription`](qa/p03-subscription/README.md)) | Deferred to the [paid-API bundle](#deferred-the-paid-api-bundle): OpenAI Responses/Chat and Anthropic Messages API protocols live; refusal/context-limit elicitation |
 | P04 | **Complete** | Real engine: isolation, limits, timeout/cancel/output, drift, unavailable image, orphan recovery, parallel checks, source preservation, change-set application and stale rejection; public Testing executor with scripted and live model writers; two engine-exposed defects fixed ([`qa/p04`](qa/p04/README.md)) | — |
 | P05 | **Complete** | — | — |
 | P06 | Interim; version 2 started | Version 1 (Gemini API): 4 of 15 runs, decision **insufficient evidence** ([`qa/p06`](qa/p06/README.md)). Version 2.0.0 on subscription models (Claude Sonnet 5, Codex, Antigravity: three families) prespecified in 9fbd2de; 1 of 15 runs completed before the Claude five-hour window reached 94% ([`qa/p06-subscription`](qa/p06-subscription/README.md)) | The remaining 14 version-2 runs and their analysis |
 | P07 | **Complete** | Every repair case, including the critical success/failure ones, rerun with real containers ([`qa/p04`](qa/p04/README.md)) | — |
-| P08 | Implemented | All inventory stages now compose (global outline hierarchically, Feature drafting/exploration, Testing risk partitions) with resume tests; limits in `docs/harness.md` | Live context limits (P03) |
+| P08 | Implemented; live limits deferred | All inventory stages now compose (global outline hierarchically, Feature drafting/exploration, Testing risk partitions) with resume tests; limits in `docs/harness.md` | Deferred to the [paid-API bundle](#deferred-the-paid-api-bundle): live context limits |
 | P09 | **Complete** | — | — |
 | P10 | **Complete** | 51/51 Playwright runs on Linux arm64 as well as macOS; one product race fixed (live state published after the event log) ([`qa/p10-linux`](qa/p10-linux/README.md)) | — |
 | P11 | **Complete** | Feature/Testing replay exercised end to end through the orchestrator, CLI and HTTP with changed protocol, model, scope, requirements, authorization and verification | — |
 | P12 | **Complete** | `credentialKind: subscription_login` runs the writer on the host's Claude login. Against the real Claude Code 2.1.283: the conformance run (leased write, events, usage, planted `CLAUDE.md` ignored, cleanup), and the tool-call limit, cancellation, crash recovery and timeout paths with process-tree termination, scratch cleanup and unknown usage charged in full. The matrix entry is `conformance_verified` ([`qa/p12`](qa/p12/README.md)) | — |
 | P13 | **Complete** | Live advisor path on Gemini native and compatible chat: limits, identity, measured usage, replay without spend ([`qa/p13-live`](qa/p13-live/README.md)) | — |
 | P14 | **Complete** | — | — |
-| P15 | Implemented | Operator CLI/HTTP for uncertain submissions; live batch runner; every driver refused live before job creation (OpenAI/Anthropic credit, Gemini free tier has no batch) ([`qa/p15-live`](qa/p15-live/README.md)) | Live validation of each driver on a funded account |
+| P15 | Implemented; live drivers deferred | Operator CLI/HTTP for uncertain submissions; live batch runner; every driver refused live before job creation (OpenAI/Anthropic credit, Gemini free tier has no batch) ([`qa/p15-live`](qa/p15-live/README.md)) | Deferred to the [paid-API bundle](#deferred-the-paid-api-bundle): live validation of each driver on a funded account |
 | P16 | **Complete** | — | — |
 | P17 | **Complete** | — | — |
 | P18 | Decided (provisional) | Prespecified criteria; local MiniLM candidate evaluated offline; **reject, keep existing clustering** ([`qa/p18`](qa/p18/README.md)) | Rerun on P06 real-model findings (criterion 1 needs a real-model corpus) |
-| P19 | Pending | Cross-cutting fixes so far: quota classification, output repair (with trusted provenance), evidence re-anchoring and citation widening, peer-review degradation and repairable vote changes, writer tool-loop handling, complete-context marking, sole-author review coverage | Final review after live acceptance |
+| P19 | Pending | Cross-cutting fixes so far: quota classification, output repair (with trusted provenance), evidence re-anchoring and citation widening, peer-review degradation and repairable vote changes, writer tool-loop handling, complete-context marking, sole-author review coverage | Final review after P06 and P18; the [paid-API bundle](#deferred-the-paid-api-bundle) is outside this phase |
 
 ## P01 — Repair test discovery and platform reliability
 
@@ -134,6 +156,9 @@ The setup does not enable live spend or write authority implicitly.
 ## P03 — Build and run live-provider acceptance
 
 - [ ] Complete P03.
+
+**Deferred remainder.** The API-protocol part is in the [paid-API bundle](#deferred-the-paid-api-bundle),
+outside this phase. The rest of this item was accepted live on subscriptions.
 
 **Implementation.** Add an opt-in runner using the production provider registry and
 orchestrator. The existing [conformance test](../packages/providers/test/conformance/real-provider.conformance.test.ts)
@@ -221,6 +246,9 @@ Repeat the critical success/failure cases with the real sandbox.
 ## P08 — Finish oversized-context handling
 
 - [ ] Complete P08.
+
+**Deferred remainder.** Live context and output limits are in the
+[paid-API bundle](#deferred-the-paid-api-bundle), outside this phase.
 
 **Implementation.** Inventory every remaining explicit size failure across discovery,
 Audit records/global indexes/re-review pairs, Feature requirements/exploration/revision,
@@ -329,6 +357,9 @@ report saved work and any coverage degradation. Test restart and partially reusa
 
 - [ ] Complete P15.
 
+**Deferred remainder.** Live validation of each driver is in the
+[paid-API bundle](#deferred-the-paid-api-bundle), outside this phase.
+
 **Implementation.** Add an explicit batch lane and provider-specific drivers behind the
 registry for services whose verified capabilities support batching. Persist submission
 identity, provider job IDs, per-item results, polling/cancellation and budget accounting.
@@ -393,6 +424,8 @@ support matrices and this checklist with the final implementation.
 cannot silently disappear. Repeat affected live-provider, Docker, native/batch and
 browser acceptance after their final changes. Retain a completion report with evidence
 for P01–P18, experimental conclusions, residual limits and unsupported combinations.
+The [paid-API bundle](#deferred-the-paid-api-bundle) is outside this phase: the report lists
+it as deferred, with its open acceptance.
 No item is marked complete solely because its interface exists or a prerequisite ran.
 
 ## Mapping from the previous execution queue

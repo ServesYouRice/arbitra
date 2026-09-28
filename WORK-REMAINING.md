@@ -5,8 +5,8 @@ Updated September 28, 2026 against commit f1616f1 (branch `beta`).
 The maintained execution queue is the [completion plan](docs/completion-plan.md). Every item is recorded in its [status table](docs/completion-plan.md#status-september-27-2026).
 
 - **Complete:** P01, P02, P04, P05, P07, P09–P14, P16 and P17.
-- **Implemented, evidence still outstanding:** P08 and P15.
-- **Accepted live except the API protocols:** P03.
+- **Deferred, not part of this phase ([paid-API bundle](docs/completion-plan.md#deferred-the-paid-api-bundle)):** the API-protocol part of P03, and the live evidence for P08 and P15. All three are implemented.
+- **Accepted live on subscriptions:** the rest of P03.
 - **Started on subscriptions (protocol 2.0.0, 1 of 15 runs; [docs/qa/p06-subscription](docs/qa/p06-subscription/README.md)):** P06. The Gemini-API version 1 interim result is kept, unpooled.
 - **Decided provisionally (reject), to be rerun on P06 data:** P18.
 - **Pending:** P19.
@@ -17,12 +17,10 @@ The maintained execution queue is the [completion plan](docs/completion-plan.md)
    - **P06:** resume the version 2.0.0 driver (step 5 of the pick-up guide) until its 15 runs finish, then analyse. It paused because the Claude five-hour window reached 94%; check the window before resuming (`rate_limit_event` in any `claude -p --output-format stream-json --verbose` call).
    - **P18:** rerun on the P06 findings.
    - **P19:** the final review.
-2. **Funded API accounts, which the owner does not use for testing:**
+2. **Deferred to a later phase: the [paid-API bundle](docs/completion-plan.md#deferred-the-paid-api-bundle).** It needs funded API accounts, which the owner does not use, so it is not done in this phase. A later maintainer may take it on:
    - the OpenAI Responses, OpenAI Chat and Anthropic Messages protocols live (P03);
-   - each P15 batch driver;
-   - P08's live context limits.
-
-   These stay open unless another operator runs them.
+   - P08's live context limits;
+   - each P15 batch driver.
 
 ## Live-testing policy
 
