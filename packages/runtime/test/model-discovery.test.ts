@@ -128,4 +128,9 @@ describe("independent model discovery", () => {
     await expect((await setup([finding("1"), finding("1")])).run()).rejects.toThrow("INVALID_DISCOVERY_FINDING_ID");
     await expect((await setup([{ ...finding("1"), evidence: [] }])).run()).rejects.toThrow("DISCOVERY_EVIDENCE_REQUIRED");
   });
+
+  it("refuses a blocker below high severity inside the call, so the reply is repaired instead of the finding dropped", async () => {
+    await expect((await setup([{ ...finding("1"), productionBlocker: true }])).run()).rejects.toThrow("DISCOVERY_BLOCKER_SEVERITY_INVALID");
+    expect((await (await setup([{ ...finding("1"), severity: "high", productionBlocker: true }])).run()).map(({ sourceFindingId }) => sourceFindingId)).toEqual(["auditor-a/1"]);
+  });
 });

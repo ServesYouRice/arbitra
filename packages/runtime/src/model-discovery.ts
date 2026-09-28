@@ -198,6 +198,9 @@ function discoveryRequest(options: ModelDiscoveryOptions): ModelActivityRequest<
         if (!finding.sourceFindingId.startsWith(`${artifactAuditorId}/`) || seen.has(finding.sourceFindingId)) throw new Error("INVALID_DISCOVERY_FINDING_ID");
         seen.add(finding.sourceFindingId);
         if (finding.locations.length === 0 || finding.evidence.length === 0 || finding.evidence.some(({ text, locationIds }) => !text.trim() || locationIds.length === 0)) throw new Error("DISCOVERY_EVIDENCE_REQUIRED");
+        // Refused here so the reply is repaired; finding validation would drop the whole finding
+        // (observed live: a correct medium-severity finding marked as a blocker, in every P06 run).
+        if (finding.productionBlocker && finding.severity !== "critical" && finding.severity !== "high") throw new Error(`DISCOVERY_BLOCKER_SEVERITY_INVALID: productionBlocker may be true only for high or critical severity; ${finding.sourceFindingId} is ${finding.severity}`);
       }
       return parsed;
     } },
