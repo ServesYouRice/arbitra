@@ -112,7 +112,7 @@ export interface Decision {
 
 const ACCEPTED_PIPELINE_REPORT = new Set(["accepted", "single_source"]);
 
-export function analyse(protocol: EvaluationProtocol, truths: ReadonlyMap<string, PremiseGroundTruth>, saved: readonly (EvaluationRecord | (Omit<EvaluationRecord, "record"> & { readonly record: RecordedRun | null }))[], mode: "real_models" | "scripted"): AnalysisReport {
+export function analyse(protocol: EvaluationProtocol, truths: ReadonlyMap<string, PremiseGroundTruth>, saved: readonly (EvaluationRecord | (Omit<EvaluationRecord, "record"> & { readonly record: RecordedRun | null }))[], mode: "real_models" | "scripted", families: readonly string[] = []): AnalysisReport {
   const confidence = protocol.analysis.confidence;
   const abandoned = saved.filter(({ status }) => status === "abandoned");
   const records = saved.filter((item): item is EvaluationRecord => item.record !== null && (item.status !== "abandoned" || item.record.auditors.length > 0));
@@ -170,13 +170,15 @@ export function analyse(protocol: EvaluationProtocol, truths: ReadonlyMap<string
     verification: verificationSummary(verificationRows, confidence),
     plan: planSummary(planRows, confidence),
     comparisons: Object.freeze(comparisons),
-    decision: decide(comparisons, conditions),
+    decision: decide(comparisons, conditions, families),
     limitations: Object.freeze([
-      "All auditors are Gemini models (one family): condition C compares variants and endpoints of one family, so the premise about heterogeneous model families remains untested.",
+      families.length > 1
+        ? `The heterogeneous auditors span ${families.length} model families (${families.join(", ")}), not matched for strength or cost: condition C tests these models, not model families in general.`
+        : "All auditors belong to one model family: condition C compares variants and endpoints of one family, so the premise about heterogeneous model families remains untested.",
       `${truths.size} small fixtures with ${defects} defects and ${decoys} decoys: intervals are wide and fixture effects dominate.`,
       "Units within a fixture are not independent (shared code, shared run); Wilson intervals treat them as independent and are optimistic.",
       "Matching is a prespecified location-and-keyword rubric; unlisted findings count as false positives even when they may describe real issues (reviewed separately in the README).",
-      "Free-tier quota and provider availability bounded the number of repetitions; missing runs are listed rather than imputed.",
+      "Usage quotas and provider availability can bound the number of repetitions; missing runs are listed rather than imputed.",
     ]),
   });
 }
@@ -339,15 +341,17 @@ function verdict(comparison: Comparison | undefined): Decision["heterogeneousOve
   return "insufficient_evidence";
 }
 
-function decide(comparisons: readonly Comparison[], conditions: readonly ConditionSummary[]): Decision {
+function decide(comparisons: readonly Comparison[], conditions: readonly ConditionSummary[], families: readonly string[]): Decision {
   const find = (left: AnalysisCondition, right: AnalysisCondition) => comparisons.find((item) => item.left === left && item.right === right);
   const heterogeneous = verdict(find("C", "B")); const repeated = verdict(find("B", "A")); const pipeline = verdict(find("D", "A_pipeline"));
   const recall = (condition: AnalysisCondition) => conditions.find((item) => item.condition === condition)?.recall.estimate ?? null;
   const statement = [
-    `Heterogeneous (same-family) auditors versus repeated runs of one model: ${heterogeneous.replaceAll("_", " ")} (recall C ${String(recall("C"))} vs B ${String(recall("B"))}).`,
+    `Heterogeneous (${families.length > 1 ? `${families.length}-family` : "same-family"}) auditors versus repeated runs of one model: ${heterogeneous.replaceAll("_", " ")} (recall C ${String(recall("C"))} vs B ${String(recall("B"))}).`,
     `Repeated isolated runs versus one run: ${repeated.replaceAll("_", " ")} (recall B ${String(recall("B"))} vs A ${String(recall("A"))}).`,
     `Full reconciliation/verification pipeline versus the single-auditor pipeline: ${pipeline.replaceAll("_", " ")} (recall D ${String(recall("D"))} vs A_pipeline ${String(recall("A_pipeline"))}).`,
-    "Heterogeneous model families were not available, so the multi-family premise itself is untested by this evaluation.",
+    families.length > 1
+      ? "The families are not matched for strength or cost, so a null or negative result does not show that equally strong families would not help."
+      : "Heterogeneous model families were not available, so the multi-family premise itself is untested by this evaluation.",
   ].join(" ");
   return Object.freeze({ heterogeneousOverRepeated: heterogeneous, repeatedOverSingle: repeated, pipelineOverSinglePipeline: pipeline, rule: DECISION_RULE, statement });
 }

@@ -18,7 +18,7 @@ import { redactSecrets } from "@arbitra/security/redaction";
 
 import { analyse, type EvaluationRecord } from "./analysis.js";
 import { corpusImport, persistCorpus } from "./corpus.js";
-import { abandonRun, executeProtocol } from "./driver.js";
+import { abandonRun, executeProtocol, readConfiguration } from "./driver.js";
 import { loadGroundTruth, loadProtocol } from "./protocol.js";
 
 const [command, ...rest] = process.argv.slice(2);
@@ -48,7 +48,9 @@ if (command === "run") {
   const runs = join(evidence, "runs");
   const records = readdirSync(runs).filter((name) => name.endsWith(".json")).sort().map((name) => JSON.parse(readFileSync(join(runs, name), "utf8")) as Omit<EvaluationRecord, "record"> & { readonly record: EvaluationRecord["record"] | null; readonly protocolId: string; readonly protocolVersion: string })
     .filter((record) => record.protocolId === protocol.protocolId && record.protocolVersion === protocol.version);
-  const report = analyse(protocol, truths, records, "real_models");
+  // Distinct model families of the heterogeneous configuration decide how the report states the premise it tests.
+  const families = [...new Set(Object.values(readConfiguration(root, protocol).models).map(({ family }) => family))].sort();
+  const report = analyse(protocol, truths, records, "real_models", families);
   const corpus = await persistCorpus(join(evidence, "corpus"), corpusImport(protocol, truths, records.filter((item): item is typeof item & EvaluationRecord => item.record !== null), "real_models", "2026-09-25T00:00:00Z"), Date.now);
   const output = { ...report, corpus: { appended: corpus.appended, unchanged: corpus.unchanged, independenceReport: corpus.independenceReport.ref, outcomeReport: corpus.outcomeReport.ref, independenceSummary: corpus.independenceReport.report.summary, outcomeSummary: corpus.outcomeReport.report.summary } };
   const text = JSON.stringify(output, null, 2);
