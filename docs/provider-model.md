@@ -355,8 +355,8 @@ provider documentation linked in each declaration and exercised against injected
 fakes. A live runner submitted through all three, and every account refused before a job
 was created (no credit, or no batch on the Gemini free tier;
 [qa/p15-live](qa/p15-live/README.md)). The environment-gated conformance
-test requires a `batch:<driverId>` entry per driver, and live validation of every driver
-remains outstanding ([P15](completion-plan.md#p15--add-provider-batch-execution)). Every
+test requires a `batch:<driverId>` entry per driver. Live validation of every driver is
+deferred to the [paid-API bundle](completion-plan.md#deferred-the-paid-api-bundle) (P15). Every
 batch trace and submission records the declaration status, so an unverified driver is
 never presented as a verified capability. Gemini file-based output is not supported.
 
@@ -451,7 +451,8 @@ result (`late: true` in provenance) instead of submitting again.
   refused by every provider before job creation, so no driver is verified live. See
   [Batch lane](#batch-lane).
 
-This is included in the [completion plan](completion-plan.md) (P15), along with live
+This is deferred to a later phase as part of the
+[paid-API bundle](completion-plan.md#deferred-the-paid-api-bundle) (P15), along with live
 conformance of the OpenAI and Anthropic API protocols (P03). The bounded advisor runtime
 ([Task IR](task-ir.md#advisors)) has been exercised live on Gemini
 ([qa/p13-live](qa/p13-live/README.md)). The environment-gated gate

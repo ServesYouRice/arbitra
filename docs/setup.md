@@ -119,7 +119,8 @@ The smoke checks cover:
 They prove configuration, preflight and runtime wiring. They do not measure model quality,
 provider conformance or real Docker isolation. Those are covered separately: provider
 conformance in [P03](completion-plan.md#p03--build-and-run-live-provider-acceptance)
-(partial), and the real Docker boundary in [P04](qa/p04/README.md) (complete).
+(accepted on subscriptions; the API protocols are
+[deferred](completion-plan.md#deferred-the-paid-api-bundle)), and the real Docker boundary in [P04](qa/p04/README.md) (complete).
 
 Without any configuration you can also run the scripted Audit, which uses deterministic
 detectors and no provider:
