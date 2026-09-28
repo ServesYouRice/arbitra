@@ -1,0 +1,98 @@
+{
+  "//": "P06 v2.1 (arbitra-p06-premise@2.1.0): as 2.0.0, on the owner's subscription logins through the vendor CLIs, with one configuration change: maximumContextTokens is 1,000,000, so each model's own context limit applies. Under 2.0.0's 128,000 cap the critic's review of a revised plan split into 154 Antigravity calls and spent the 3M-token run cap (qa/p06-subscription, run 2). auditor-a (Claude Sonnet 5) is the strong single model; auditor-b (Codex) and auditor-c (Antigravity) add two other model families. auditor-a also verifies, so the lower-limit Codex and Antigravity subscriptions carry only discovery, peer review and (auditor-c) criticism.",
+  "endpoints": [
+    {
+      "id": "claude-b",
+      "providerId": "anthropic",
+      "transport": "claude-code-cli",
+      "endpoint": "cli://claude-code",
+      "auth": "subscription_login"
+    },
+    {
+      "id": "codex",
+      "providerId": "openai",
+      "transport": "codex-cli",
+      "endpoint": "cli://codex",
+      "auth": "subscription_login"
+    },
+    {
+      "id": "antigravity",
+      "providerId": "google",
+      "transport": "antigravity-cli",
+      "endpoint": "cli://antigravity",
+      "auth": "subscription_login"
+    }
+  ],
+  "profiles": {
+    "claude-b": {
+      "modelId": "claude-sonnet-5",
+      "family": "claude",
+      "independenceGroup": "anthropic-sonnet",
+      "limits": {
+        "contextTokens": 200000,
+        "maxOutputTokens": 32000
+      }
+    },
+    "codex": {
+      "modelId": "gpt-5.6-luna",
+      "family": "gpt",
+      "independenceGroup": "openai",
+      "limits": {
+        "contextTokens": 272000,
+        "maxOutputTokens": 128000
+      }
+    },
+    "antigravity": {
+      "modelId": "gemini-3.8-flash-low",
+      "family": "gemini",
+      "independenceGroup": "google",
+      "limits": {
+        "contextTokens": 1000000,
+        "maxOutputTokens": 65536
+      }
+    }
+  },
+  "rateLimit": {
+    "rpm": 10,
+    "tpm": 2000000,
+    "maxConcurrent": 2
+  },
+  "providerRateLimits": {
+    "openai": {
+      "rpm": 6,
+      "tpm": 1000000,
+      "maxConcurrent": 1
+    },
+    "google": {
+      "rpm": 6,
+      "tpm": 1000000,
+      "maxConcurrent": 1
+    }
+  },
+  "assign": {
+    "audit-mixed-providers": {
+      "auditor-a": "claude-b",
+      "auditor-b": "codex",
+      "auditor-c": "antigravity"
+    }
+  },
+  "overrides": {
+    "audit-mixed-providers": {
+      "workflow": {
+        "modelExecution": {
+          "maximumTokens": 3000000,
+          "maximumRetries": 2,
+          "maximumOutputRepairs": 2,
+          "timeoutMs": 600000,
+          "maximumOutputTokens": 32000,
+          "maximumContextTokens": 1000000,
+          "roles": {
+            "planner": "auditor-a",
+            "verifier": "auditor-a",
+            "critic": "auditor-c"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,20 +1,20 @@
 # Remaining work
 
-Updated September 28, 2026 against commit cfc1cc8 (branch `beta`).
+Updated September 28, 2026 against commit 1e5011d (branch `beta`).
 
 The maintained execution queue is the [completion plan](docs/completion-plan.md). Every item is recorded in its [status table](docs/completion-plan.md#status-september-27-2026).
 
 - **Complete:** P01, P02, P04, P05, P07, P09–P14, P16 and P17.
 - **Deferred, not part of this phase ([paid-API bundle](docs/completion-plan.md#deferred-the-paid-api-bundle)):** the API-protocol part of P03, and the live evidence for P08 and P15. All three are implemented.
 - **Accepted live on subscriptions:** the rest of P03.
-- **Stopped at run 2 of 15 on subscriptions (protocol 2.0.0; [docs/qa/p06-subscription](docs/qa/p06-subscription/README.md)):** P06. Run 2 reached the per-run token cap, and a protocol decision is pending. The Gemini-API version 1 interim result is kept, unpooled.
+- **Running on subscriptions under protocol 2.1.0 ([docs/qa/p06-subscription](docs/qa/p06-subscription/README.md)):** P06. Version 2.0.0 closed at run 2 of 15 on its per-run token cap. The Gemini-API version 1 interim result is kept, unpooled.
 - **Decided provisionally (reject), to be rerun on P06 data:** P18.
 - **Pending:** P19.
 
 ## What is left, by what it needs
 
 1. **Nothing but time, on subscriptions:**
-   - **P06:** decide how to continue after run 2 reached the per-run token cap: abandon it and continue 2.0.0, or prespecify 2.1.0 ([qa/p06-subscription](docs/qa/p06-subscription/README.md)). Then run the schedule to its end (step 5 of the pick-up guide) and analyse. Pace on the Claude five-hour window (`rate_limit_event` in any `claude -p --output-format stream-json --verbose` call); the owner can reset the weekly limit when needed.
+   - **P06:** run the version 2.1.0 schedule to its end (step 5 of the pick-up guide), then analyse. Pace on the Claude five-hour window (`rate_limit_event` in any `claude -p --output-format stream-json --verbose` call); the owner can reset the weekly limit when needed.
    - **P18:** rerun on the P06 findings.
    - **P19:** the final review.
 2. **Deferred to a later phase: the [paid-API bundle](docs/completion-plan.md#deferred-the-paid-api-bundle).** It needs funded API accounts, which the owner does not use, so it is not done in this phase. A later maintainer may take it on:
@@ -58,7 +58,7 @@ Live configurations come from `tooling/live/bindings.subscription.json`. The API
    ```
 
    See [qa/p12](docs/qa/p12/README.md).
-5. **Premise evaluation (P06).** Version 2.0.0 runs on subscriptions. Its state is **local only**, in `.runs/p06-subscription`; keep that folder. The resume and abandon commands are in [qa/p06-subscription](docs/qa/p06-subscription/README.md), with the decision pending after run 2; resuming is safe to repeat. Version 1's state is in `.claude/worktrees/agent-a6beaf6fd1302766f/.runs/p06`; it is not resumed under the subscription-only policy.
+5. **Premise evaluation (P06).** Version 2.1.0 runs on subscriptions. Its state is **local only**, in `.runs/p06-subscription-2.1.0`; keep that folder (2.0.0's, closed, is in `.runs/p06-subscription`). The run command is in [qa/p06-subscription](docs/qa/p06-subscription/README.md), and it is safe to repeat. Version 1's state is in `.claude/worktrees/agent-a6beaf6fd1302766f/.runs/p06`; it is not resumed under the subscription-only policy.
 6. **Then:** rerun P18 on the P06 findings, then the P19 review.
 
 ## Open findings to fix or decide

@@ -1,6 +1,6 @@
 # Project status
 
-Updated September 28, 2026 against commit cfc1cc8 (branch `beta`).
+Updated September 28, 2026 against commit 1e5011d (branch `beta`).
 
 arbitra is a beta runtime for model-backed Audit, Feature planning, Testing planning and
 guarded Testing execution. These share the CLI/server orchestrator, canonical harness,
@@ -51,7 +51,7 @@ not the duration of each task.
 | September 24–25 | 391d3e4 … 64f887e (`beta`) | Completion-plan items P01, P02, P05, P07–P17 implemented; artifact publish race and ignored `budgets` fixed |
 | September 26–27 | 65d7941 … b560162 (`beta`) | Subscription CLI transports (Claude Code, Codex, Antigravity CLI) as a product feature; native writer on the host subscription login; live handoff harness; 12 defects from the subscription runs fixed |
 | September 27–28 | f2e9b1f … f1616f1 (`beta`) | Subscription live acceptance recorded (three-vendor Audit, interactive Feature, two plan handoffs); P12 completed with live failure paths; P06 version 2 prespecified and started |
-| September 28 | cfc1cc8, 52c3b0d (`beta`) | Staged plan-revision patches repaired instead of failing the run; paid-API bundle deferred out of this phase; P06 version 2 run 2 recorded |
+| September 28 | cfc1cc8 … 1e5011d (`beta`) | Staged plan-revision patches and blocker-severity discovery findings repaired instead of failing a run or dropping a finding; paid-API bundle deferred out of this phase; P06 version 2.0.0 closed at run 2 and version 2.1.0 prespecified |
 
 ## Verification evidence
 
@@ -72,8 +72,8 @@ See [WORK-REMAINING](../WORK-REMAINING.md) and the [status table](completion-pla
 The API-protocol, context-limit and batch evidence needs funded provider accounts, which
 the owner does not use for testing, so it is deferred out of this phase as the
 [paid-API bundle](completion-plan.md#deferred-the-paid-api-bundle). The premise evaluation (P06) runs on subscription models under
-protocol 2.0.0. It stopped at run 2 of 15 on the per-run token cap and needs a protocol decision
-before it continues ([`qa/p06-subscription`](qa/p06-subscription/README.md)). Then the embedding decision is rerun on real-model findings (P18),
+protocol 2.1.0, after version 2.0.0 closed at run 2 of 15 on its per-run token cap
+([`qa/p06-subscription`](qa/p06-subscription/README.md)). Then the embedding decision is rerun on real-model findings (P18),
 and the final review takes place (P19).
 
 Earlier assessments are preserved in [historical notes](history/implementation-log-through-2026-09-23.md)

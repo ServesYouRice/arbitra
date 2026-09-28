@@ -4,7 +4,25 @@ The premise evaluation runs on the owner's subscriptions through the vendor CLIs
 
 | Version | Protocol | Status |
 |---|---|---|
+| 2.1.0 | [PROTOCOL-2.1.0.md](PROTOCOL-2.1.0.md) | **Current.** Prespecified on September 28, 2026, before any run |
 | 2.0.0 | [PROTOCOL.md](PROTOCOL.md) | **Closed at run 2 of 15** on September 28, 2026 |
+
+## Version 2.1.0
+
+Version 2.1.0 raises the context cap to each model's own limit, so the critic reviews a revised plan in one call, and resizes the budget from 2.0.0's run 2. It runs on the runtime with the three fixes 2.0.0 exposed. Everything that decides what is scored is unchanged ([PROTOCOL-2.1.0.md](PROTOCOL-2.1.0.md)).
+
+No run has finished yet. Results will be recorded here as the schedule advances.
+
+To run or resume, from the repository root:
+
+```bash
+pnpm build
+caffeinate -is node packages/testing/dist/src/premise-evaluation/cli.js run \
+  --protocol docs/qa/p06-subscription/protocol-2.1.0.json \
+  --state .runs/p06-subscription-2.1.0 --evidence docs/qa/p06-subscription/evidence-2.1.0
+```
+
+The ledger and run state are local only, in `.runs/p06-subscription-2.1.0`; keep that folder. The driver stops at the first incomplete run, so it is safe to invoke repeatedly; `--max-runs N` limits one invocation. When the schedule is done, run `cli.js analyse` with the same `--protocol` and `--evidence`, then record the results here.
 
 ## Version 2.0.0: closed at run 2
 
