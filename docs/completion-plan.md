@@ -1,6 +1,6 @@
 # Completion plan
 
-Updated September 28, 2026 against commit f1616f1 (branch `beta`). Original baseline: 77149ef.
+Updated September 28, 2026 against commit cfc1cc8 (branch `beta`). Original baseline: 77149ef.
 See [status](#status-september-27-2026) for each item.
 
 This plan covers every unfinished implementation, validation and usability step identified
@@ -106,7 +106,7 @@ Evidence is in `docs/qa/`.
 | P03 | Accepted on subscriptions; API part deferred | Live transport conformance on Gemini native and the compatible endpoint (40 observations) and on all three subscription CLIs; on subscriptions, every public workflow through the CLI: Testing plan and execute (handoff applied), Feature automatic and interactive (operator revision, resume from a fresh process), a three-vendor Audit (all seeded defects accepted, nothing else); two exported Feature plans accepted by fresh Claude Code executors; 25 live defects fixed ([`qa/p03`](qa/p03/README.md), [`qa/p03-subscription`](qa/p03-subscription/README.md)) | Deferred to the [paid-API bundle](#deferred-the-paid-api-bundle): OpenAI Responses/Chat and Anthropic Messages API protocols live; refusal/context-limit elicitation |
 | P04 | **Complete** | Real engine: isolation, limits, timeout/cancel/output, drift, unavailable image, orphan recovery, parallel checks, source preservation, change-set application and stale rejection; public Testing executor with scripted and live model writers; two engine-exposed defects fixed ([`qa/p04`](qa/p04/README.md)) | — |
 | P05 | **Complete** | — | — |
-| P06 | Interim; version 2 started | Version 1 (Gemini API): 4 of 15 runs, decision **insufficient evidence** ([`qa/p06`](qa/p06/README.md)). Version 2.0.0 on subscription models (Claude Sonnet 5, Codex, Antigravity: three families) prespecified in 9fbd2de; 1 of 15 runs completed before the Claude five-hour window reached 94% ([`qa/p06-subscription`](qa/p06-subscription/README.md)) | The remaining 14 version-2 runs and their analysis |
+| P06 | Interim; version 2 stopped at run 2 | Version 1 (Gemini API): 4 of 15 runs, decision **insufficient evidence** ([`qa/p06`](qa/p06/README.md)). Version 2.0.0 on subscription models (Claude Sonnet 5, Codex, Antigravity: three families) prespecified in 9fbd2de; 1 of 15 runs completed. Run 2 failed on a revision defect (fixed in cfc1cc8), then was suspended at the per-run token cap: the critic's review of the revised plan split into 154 Antigravity calls ([`qa/p06-subscription`](qa/p06-subscription/README.md)) | A decision to continue 2.0.0 or prespecify 2.1.0, then the remaining runs and their analysis |
 | P07 | **Complete** | Every repair case, including the critical success/failure ones, rerun with real containers ([`qa/p04`](qa/p04/README.md)) | — |
 | P08 | Implemented; live limits deferred | All inventory stages now compose (global outline hierarchically, Feature drafting/exploration, Testing risk partitions) with resume tests; limits in `docs/harness.md` | Deferred to the [paid-API bundle](#deferred-the-paid-api-bundle): live context limits |
 | P09 | **Complete** | — | — |
