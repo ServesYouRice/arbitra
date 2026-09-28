@@ -5,7 +5,7 @@ Updated September 28, 2026 against commit 1e5011d (branch `beta`).
 arbitra is a beta runtime for model-backed Audit, Feature planning, Testing planning and
 guarded Testing execution. These share the CLI/server orchestrator, canonical harness,
 durable model activities and run budget. Every implementation item is done. What remains
-in this phase is the P18 rerun on the premise evaluation's data, and the final review.
+in this phase is the final review (P19).
 Live API-protocol, context-limit and batch validation is deferred to a later phase as the
 [paid-API bundle](completion-plan.md#deferred-the-paid-api-bundle). Docker, Linux and browser acceptance are complete. Every public
 workflow has now run live on subscriptions (Claude Code, Codex and the Antigravity CLI)
@@ -51,7 +51,7 @@ not the duration of each task.
 | September 24–25 | 391d3e4 … 64f887e (`beta`) | Completion-plan items P01, P02, P05, P07–P17 implemented; artifact publish race and ignored `budgets` fixed |
 | September 26–27 | 65d7941 … b560162 (`beta`) | Subscription CLI transports (Claude Code, Codex, Antigravity CLI) as a product feature; native writer on the host subscription login; live handoff harness; 12 defects from the subscription runs fixed |
 | September 27–28 | f2e9b1f … f1616f1 (`beta`) | Subscription live acceptance recorded (three-vendor Audit, interactive Feature, two plan handoffs); P12 completed with live failure paths; P06 version 2 prespecified and started |
-| September 28 | cfc1cc8 … 1e5011d (`beta`) | Staged plan-revision patches and blocker-severity discovery findings repaired instead of failing a run or dropping a finding; paid-API bundle deferred out of this phase; P06 version 2.0.0 closed at run 2, version 2.1.0 prespecified and completed (insufficient evidence) |
+| September 28 | cfc1cc8 … 1e5011d (`beta`) | Staged plan-revision patches and blocker-severity discovery findings repaired instead of failing a run or dropping a finding; paid-API bundle deferred out of this phase; P06 version 2.0.0 closed at run 2, version 2.1.0 prespecified and completed (insufficient evidence); P18 rerun on real-model findings (do not adopt) |
 
 ## Verification evidence
 
@@ -63,7 +63,7 @@ not the duration of each task.
 - **Advisors:** the live advisor path is recorded in [`qa/p13-live`](qa/p13-live/README.md).
 - **Batch drivers:** every driver was refused before a job was created. See [`qa/p15-live`](qa/p15-live/README.md).
 - **Premise evaluation:** protocol 2.1.0 ran all 15 runs on three model families. One Claude Sonnet 5 run found 25 of 30 planted-defect chances; three pooled runs found all 10 defects, whether repeated Claude runs or three families. Every prespecified comparison was insufficient evidence ([`qa/p06-subscription`](qa/p06-subscription/README.md)).
-- **Embedding decision:** recorded in [`qa/p18`](qa/p18/README.md).
+- **Embedding decision:** do not adopt the local embedding candidate. On P06's real-model findings it cut clustering errors by 7% (25% required), on a corpus just below the evidence minimum (94 of 100 same-label pairs); see [`qa/p18`](qa/p18/README.md).
 
 The Gemini live runs found 13 runtime defects in provider classification, Gemini encoding, evidence grounding, output parsing and repair, planner and peer contracts, and writer loops. All are fixed with regressions and listed in [`qa/p03`](qa/p03/README.md), with one quality finding from human review (a generated test that pins a seeded defect). The subscription runs found 12 more, from a changed peer vote failing a run to a repair request reported as a prompt injection; they are listed in [`qa/p03-subscription`](qa/p03-subscription/README.md). Two further defects were exposed by the real Docker engine and one by Linux browsers; those are fixed too.
 
@@ -73,8 +73,8 @@ See [WORK-REMAINING](../WORK-REMAINING.md) and the [status table](completion-pla
 The API-protocol, context-limit and batch evidence needs funded provider accounts, which
 the owner does not use for testing, so it is deferred out of this phase as the
 [paid-API bundle](completion-plan.md#deferred-the-paid-api-bundle). The premise evaluation (P06) is complete: under protocol 2.1.0 on subscription models, every
-comparison was insufficient evidence ([`qa/p06-subscription`](qa/p06-subscription/README.md)). Then the embedding decision is rerun on real-model findings (P18),
-and the final review takes place (P19).
+comparison was insufficient evidence ([`qa/p06-subscription`](qa/p06-subscription/README.md)). The embedding decision was rerun on those real-model findings (P18): do not adopt, keep the
+existing clustering. What remains is the final review (P19).
 
 Earlier assessments are preserved in [historical notes](history/implementation-log-through-2026-09-23.md)
 and the [pre-integration assessment](history/project-status-before-model-integration.md).

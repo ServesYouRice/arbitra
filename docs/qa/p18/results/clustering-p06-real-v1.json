@@ -1,0 +1,2431 @@
+{
+  "generatedAt": "2026-09-28T21:17:56.218Z",
+  "commit": "598c939f97df733cefdf41155f44784cf12fb974",
+  "dirty": false,
+  "host": {
+    "cpu": "Apple M4",
+    "cores": 10,
+    "memoryBytes": 17179869184,
+    "loadAverage": [
+      6.21728515625,
+      5.22509765625,
+      4.6923828125
+    ]
+  },
+  "corpusPath": "packages/testing/corpora/clustering/p06-real-v1.json",
+  "resources": {
+    "coldLoadMs": 208,
+    "modelBytes": 90387606,
+    "rssGrowthBytes": 572096512,
+    "dependencyBytes": 481575023,
+    "networkRequests": 0,
+    "marginalCostUsd": 0,
+    "baselineRssBytes": 64765952,
+    "peakRssBytes": 636862464,
+    "artifactPath": ".cache/Xenova/all-MiniLM-L6-v2/751bff37182d3f1213fa05d7196b954e230abad9/onnx/model.onnx",
+    "coldLoadNote": "pipeline construction + one warm-up embed from the local cache; OS file cache may already hold the artifact"
+  },
+  "scalingProbe": {
+    "findings": 200,
+    "embedAndClusterMs": 4579,
+    "peakRssBytes": 2357559296,
+    "ambiguousPairs": 814,
+    "note": "descriptive only; relabelled duplicates of corpus findings"
+  },
+  "report": {
+    "schemaVersion": 1,
+    "protocolVersion": "p18-protocol-v1",
+    "corpus": {
+      "corpusId": "clustering-p06-real-v1",
+      "version": 1,
+      "mode": "real_models",
+      "sha256": "46e6bd0f179c44f4f82adb658fd7ffa989e1cd36162c5f7f590dafaf8940f2e1",
+      "fixtures": [
+        {
+          "fixtureId": "premise-v1",
+          "version": 1,
+          "groundTruth": "../premise/ground-truth.json",
+          "groundTruthSha256": "fbc179b1a5bc3dc945c067b98dc244a75b71d17522e697b2ef3751bb8d29576c"
+        },
+        {
+          "fixtureId": "expanded-evaluation-v1",
+          "version": 1,
+          "groundTruth": "../expanded/ground-truth.json",
+          "groundTruthSha256": "a12c1fe9fdf9439cc0c1cc89bba0c48531cd88c2025cebc9f36abeacfee81226"
+        },
+        {
+          "fixtureId": "live-fixture-v1",
+          "version": 1,
+          "groundTruth": "../../../../docs/qa/p06/ground-truth/live-fixture-v1.json",
+          "groundTruthSha256": "3464c1df7a792acffe95017f7b86311ef469e280626d10c32415effb9d4d83a6"
+        }
+      ]
+    },
+    "embedder": {
+      "model": "Xenova/all-MiniLM-L6-v2",
+      "revision": "751bff37182d3f1213fa05d7196b954e230abad9",
+      "artifact": "onnx/model.onnx",
+      "artifactSha256": "759c3cd2b7fe7e93933ad23c4c9181b7396442a2ed746ec7c1d46192c469c46e",
+      "runtime": "@huggingface/transformers@4.3.0 onnxruntime-node@1.30.0 node@22.23.2 darwin-arm64",
+      "dtype": "fp32",
+      "pooling": "mean",
+      "normalized": true,
+      "dimensions": 384
+    },
+    "settings": {
+      "textTemplate": "finding-text-v1",
+      "thresholdGrid": [
+        0.3,
+        0.35,
+        0.4,
+        0.45,
+        0.5,
+        0.55,
+        0.6,
+        0.65,
+        0.7,
+        0.75,
+        0.8,
+        0.85,
+        0.9,
+        0.95
+      ],
+      "maximumEscalatedPairs": 20,
+      "bootstrapResamples": 10000,
+      "bootstrapSeed": 18,
+      "repeats": 5,
+      "falseMergeWeight": 2
+    },
+    "evidence": {
+      "fixtures": 3,
+      "runs": 21,
+      "findings": 149,
+      "groundTruthClusters": 84,
+      "multiMemberClusters": 36,
+      "samePairs": 94,
+      "differentPairs": 658,
+      "ambiguousPairs": 39,
+      "escalatedPairs": 39
+    },
+    "thresholds": {
+      "e1": {
+        "expanded-evaluation-v1": 0.65,
+        "live-fixture-v1": 0.75,
+        "premise-v1": 0.65
+      },
+      "e2": {
+        "expanded-evaluation-v1": 0.6,
+        "live-fixture-v1": 0.65,
+        "premise-v1": 0.6
+      }
+    },
+    "thresholdSweep": [
+      {
+        "threshold": 0.3,
+        "e1WeightedErrors": 100,
+        "e2WeightedErrors": 168
+      },
+      {
+        "threshold": 0.35,
+        "e1WeightedErrors": 94,
+        "e2WeightedErrors": 72
+      },
+      {
+        "threshold": 0.4,
+        "e1WeightedErrors": 80,
+        "e2WeightedErrors": 68
+      },
+      {
+        "threshold": 0.45,
+        "e1WeightedErrors": 80,
+        "e2WeightedErrors": 40
+      },
+      {
+        "threshold": 0.5,
+        "e1WeightedErrors": 80,
+        "e2WeightedErrors": 16
+      },
+      {
+        "threshold": 0.55,
+        "e1WeightedErrors": 80,
+        "e2WeightedErrors": 16
+      },
+      {
+        "threshold": 0.6,
+        "e1WeightedErrors": 80,
+        "e2WeightedErrors": 2
+      },
+      {
+        "threshold": 0.65,
+        "e1WeightedErrors": 80,
+        "e2WeightedErrors": 5
+      },
+      {
+        "threshold": 0.7,
+        "e1WeightedErrors": 82,
+        "e2WeightedErrors": 8
+      },
+      {
+        "threshold": 0.75,
+        "e1WeightedErrors": 82,
+        "e2WeightedErrors": 14
+      },
+      {
+        "threshold": 0.8,
+        "e1WeightedErrors": 84,
+        "e2WeightedErrors": 38
+      },
+      {
+        "threshold": 0.85,
+        "e1WeightedErrors": 86,
+        "e2WeightedErrors": 60
+      },
+      {
+        "threshold": 0.9,
+        "e1WeightedErrors": 86,
+        "e2WeightedErrors": 83
+      },
+      {
+        "threshold": 0.95,
+        "e1WeightedErrors": 88,
+        "e2WeightedErrors": 94
+      }
+    ],
+    "configurations": {
+      "deterministic": {
+        "score": {
+          "findings": 149,
+          "samePairs": 94,
+          "differentPairs": 658,
+          "falseMerges": 40,
+          "falseSplits": 8,
+          "weightedErrors": 88,
+          "defectLossMerges": 0,
+          "pairPrecision": 0.6825,
+          "pairRecall": 0.9149,
+          "candidates": 79,
+          "contaminatedCandidates": 9,
+          "redundantCandidates": 4
+        },
+        "perRun": [
+          {
+            "runId": "run-db89e63d-3d36-4c53-a5b2-b56e35878e49",
+            "fixtureId": "expanded-evaluation-v1",
+            "score": {
+              "findings": 6,
+              "samePairs": 6,
+              "differentPairs": 9,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": 1,
+              "pairRecall": 1,
+              "candidates": 2,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-6975a7e8-0bc9-4a00-be09-7d8cf8a95a1c",
+            "fixtureId": "expanded-evaluation-v1",
+            "score": {
+              "findings": 2,
+              "samePairs": 0,
+              "differentPairs": 1,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 2,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-ccceb104-bb39-488f-8674-35e2dd00c5f9",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 14,
+              "samePairs": 11,
+              "differentPairs": 80,
+              "falseMerges": 6,
+              "falseSplits": 0,
+              "weightedErrors": 12,
+              "defectLossMerges": 0,
+              "pairPrecision": 0.6471,
+              "pairRecall": 1,
+              "candidates": 5,
+              "contaminatedCandidates": 1,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-a4803ff7-0159-4a44-9a49-7831cd07d60d",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 4,
+              "samePairs": 0,
+              "differentPairs": 6,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 4,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-408bbcaf-28ac-4e6f-986e-9d7758cfd382",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 17,
+              "samePairs": 16,
+              "differentPairs": 120,
+              "falseMerges": 9,
+              "falseSplits": 2,
+              "weightedErrors": 20,
+              "defectLossMerges": 0,
+              "pairPrecision": 0.6087,
+              "pairRecall": 0.875,
+              "candidates": 6,
+              "contaminatedCandidates": 1,
+              "redundantCandidates": 1
+            }
+          },
+          {
+            "runId": "run-caed40f7-8b03-4762-9196-d3e0a9b57979",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 5,
+              "samePairs": 0,
+              "differentPairs": 10,
+              "falseMerges": 1,
+              "falseSplits": 0,
+              "weightedErrors": 2,
+              "defectLossMerges": 0,
+              "pairPrecision": 0,
+              "pairRecall": null,
+              "candidates": 4,
+              "contaminatedCandidates": 1,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-732ca064-7b06-4e42-a1f4-438e633b8976",
+            "fixtureId": "expanded-evaluation-v1",
+            "score": {
+              "findings": 9,
+              "samePairs": 9,
+              "differentPairs": 27,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": 1,
+              "pairRecall": 1,
+              "candidates": 3,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-35b12e95-5a7c-4646-b75f-4b8f9c546868",
+            "fixtureId": "expanded-evaluation-v1",
+            "score": {
+              "findings": 9,
+              "samePairs": 7,
+              "differentPairs": 29,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": 1,
+              "pairRecall": 1,
+              "candidates": 4,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-d53833f4-7add-4e3c-8483-33ab7b597c92",
+            "fixtureId": "expanded-evaluation-v1",
+            "score": {
+              "findings": 3,
+              "samePairs": 0,
+              "differentPairs": 3,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 3,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-c1525c91-bfa2-448f-a332-9ae4e6fcae89",
+            "fixtureId": "expanded-evaluation-v1",
+            "score": {
+              "findings": 3,
+              "samePairs": 0,
+              "differentPairs": 3,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 3,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-7ebb06bc-0465-4697-982a-db08ea8bfb0e",
+            "fixtureId": "expanded-evaluation-v1",
+            "score": {
+              "findings": 3,
+              "samePairs": 0,
+              "differentPairs": 3,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 3,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-fb146faf-e581-496d-a25c-7341ef93c8bb",
+            "fixtureId": "live-fixture-v1",
+            "score": {
+              "findings": 7,
+              "samePairs": 4,
+              "differentPairs": 17,
+              "falseMerges": 0,
+              "falseSplits": 2,
+              "weightedErrors": 2,
+              "defectLossMerges": 0,
+              "pairPrecision": 1,
+              "pairRecall": 0.5,
+              "candidates": 5,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 1
+            }
+          },
+          {
+            "runId": "run-cd17bdbe-f695-4ab2-a320-e206d92ef8a5",
+            "fixtureId": "live-fixture-v1",
+            "score": {
+              "findings": 8,
+              "samePairs": 5,
+              "differentPairs": 23,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": 1,
+              "pairRecall": 1,
+              "candidates": 4,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-c31b5119-659f-4181-9280-e558d40c1235",
+            "fixtureId": "live-fixture-v1",
+            "score": {
+              "findings": 2,
+              "samePairs": 0,
+              "differentPairs": 1,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 2,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-e634b0d7-5603-4de0-81de-ba3ae753d5f5",
+            "fixtureId": "live-fixture-v1",
+            "score": {
+              "findings": 1,
+              "samePairs": 0,
+              "differentPairs": 0,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 1,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-c6ddde9b-231b-4a4b-8293-b258a7ed411d",
+            "fixtureId": "live-fixture-v1",
+            "score": {
+              "findings": 3,
+              "samePairs": 0,
+              "differentPairs": 3,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 3,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-5ea6417b-4c39-4f49-ba13-a9480d0002b1",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 18,
+              "samePairs": 18,
+              "differentPairs": 135,
+              "falseMerges": 9,
+              "falseSplits": 2,
+              "weightedErrors": 20,
+              "defectLossMerges": 0,
+              "pairPrecision": 0.64,
+              "pairRecall": 0.8889,
+              "candidates": 6,
+              "contaminatedCandidates": 1,
+              "redundantCandidates": 1
+            }
+          },
+          {
+            "runId": "run-3ed9eb8a-7c32-4b25-a78b-d78cb230a9f6",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 19,
+              "samePairs": 18,
+              "differentPairs": 153,
+              "falseMerges": 12,
+              "falseSplits": 2,
+              "weightedErrors": 26,
+              "defectLossMerges": 0,
+              "pairPrecision": 0.5714,
+              "pairRecall": 0.8889,
+              "candidates": 6,
+              "contaminatedCandidates": 2,
+              "redundantCandidates": 1
+            }
+          },
+          {
+            "runId": "run-b8dde1fc-a159-4aaf-8a12-b83bf7159869",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 5,
+              "samePairs": 0,
+              "differentPairs": 10,
+              "falseMerges": 1,
+              "falseSplits": 0,
+              "weightedErrors": 2,
+              "defectLossMerges": 0,
+              "pairPrecision": 0,
+              "pairRecall": null,
+              "candidates": 4,
+              "contaminatedCandidates": 1,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-e05bfaf1-f7b2-42a9-8a75-9065eb656437",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 5,
+              "samePairs": 0,
+              "differentPairs": 10,
+              "falseMerges": 1,
+              "falseSplits": 0,
+              "weightedErrors": 2,
+              "defectLossMerges": 0,
+              "pairPrecision": 0,
+              "pairRecall": null,
+              "candidates": 4,
+              "contaminatedCandidates": 1,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-d6f9bc1d-bfc9-4de6-8d47-8267cc2264e1",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 6,
+              "samePairs": 0,
+              "differentPairs": 15,
+              "falseMerges": 1,
+              "falseSplits": 0,
+              "weightedErrors": 2,
+              "defectLossMerges": 0,
+              "pairPrecision": 0,
+              "pairRecall": null,
+              "candidates": 5,
+              "contaminatedCandidates": 1,
+              "redundantCandidates": 0
+            }
+          }
+        ],
+        "versusDeterministic": {
+          "difference": 0,
+          "lower": 0,
+          "upper": 0,
+          "units": 84,
+          "resamples": 10000,
+          "seed": 18
+        }
+      },
+      "embeddingEscalation": {
+        "score": {
+          "findings": 149,
+          "samePairs": 94,
+          "differentPairs": 658,
+          "falseMerges": 40,
+          "falseSplits": 2,
+          "weightedErrors": 82,
+          "defectLossMerges": 0,
+          "pairPrecision": 0.697,
+          "pairRecall": 0.9787,
+          "candidates": 76,
+          "contaminatedCandidates": 9,
+          "redundantCandidates": 1
+        },
+        "perRun": [
+          {
+            "runId": "run-db89e63d-3d36-4c53-a5b2-b56e35878e49",
+            "fixtureId": "expanded-evaluation-v1",
+            "score": {
+              "findings": 6,
+              "samePairs": 6,
+              "differentPairs": 9,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": 1,
+              "pairRecall": 1,
+              "candidates": 2,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-6975a7e8-0bc9-4a00-be09-7d8cf8a95a1c",
+            "fixtureId": "expanded-evaluation-v1",
+            "score": {
+              "findings": 2,
+              "samePairs": 0,
+              "differentPairs": 1,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 2,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-ccceb104-bb39-488f-8674-35e2dd00c5f9",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 14,
+              "samePairs": 11,
+              "differentPairs": 80,
+              "falseMerges": 6,
+              "falseSplits": 0,
+              "weightedErrors": 12,
+              "defectLossMerges": 0,
+              "pairPrecision": 0.6471,
+              "pairRecall": 1,
+              "candidates": 5,
+              "contaminatedCandidates": 1,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-a4803ff7-0159-4a44-9a49-7831cd07d60d",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 4,
+              "samePairs": 0,
+              "differentPairs": 6,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 4,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-408bbcaf-28ac-4e6f-986e-9d7758cfd382",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 17,
+              "samePairs": 16,
+              "differentPairs": 120,
+              "falseMerges": 9,
+              "falseSplits": 0,
+              "weightedErrors": 18,
+              "defectLossMerges": 0,
+              "pairPrecision": 0.64,
+              "pairRecall": 1,
+              "candidates": 5,
+              "contaminatedCandidates": 1,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-caed40f7-8b03-4762-9196-d3e0a9b57979",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 5,
+              "samePairs": 0,
+              "differentPairs": 10,
+              "falseMerges": 1,
+              "falseSplits": 0,
+              "weightedErrors": 2,
+              "defectLossMerges": 0,
+              "pairPrecision": 0,
+              "pairRecall": null,
+              "candidates": 4,
+              "contaminatedCandidates": 1,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-732ca064-7b06-4e42-a1f4-438e633b8976",
+            "fixtureId": "expanded-evaluation-v1",
+            "score": {
+              "findings": 9,
+              "samePairs": 9,
+              "differentPairs": 27,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": 1,
+              "pairRecall": 1,
+              "candidates": 3,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-35b12e95-5a7c-4646-b75f-4b8f9c546868",
+            "fixtureId": "expanded-evaluation-v1",
+            "score": {
+              "findings": 9,
+              "samePairs": 7,
+              "differentPairs": 29,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": 1,
+              "pairRecall": 1,
+              "candidates": 4,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-d53833f4-7add-4e3c-8483-33ab7b597c92",
+            "fixtureId": "expanded-evaluation-v1",
+            "score": {
+              "findings": 3,
+              "samePairs": 0,
+              "differentPairs": 3,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 3,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-c1525c91-bfa2-448f-a332-9ae4e6fcae89",
+            "fixtureId": "expanded-evaluation-v1",
+            "score": {
+              "findings": 3,
+              "samePairs": 0,
+              "differentPairs": 3,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 3,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-7ebb06bc-0465-4697-982a-db08ea8bfb0e",
+            "fixtureId": "expanded-evaluation-v1",
+            "score": {
+              "findings": 3,
+              "samePairs": 0,
+              "differentPairs": 3,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 3,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-fb146faf-e581-496d-a25c-7341ef93c8bb",
+            "fixtureId": "live-fixture-v1",
+            "score": {
+              "findings": 7,
+              "samePairs": 4,
+              "differentPairs": 17,
+              "falseMerges": 0,
+              "falseSplits": 2,
+              "weightedErrors": 2,
+              "defectLossMerges": 0,
+              "pairPrecision": 1,
+              "pairRecall": 0.5,
+              "candidates": 5,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 1
+            }
+          },
+          {
+            "runId": "run-cd17bdbe-f695-4ab2-a320-e206d92ef8a5",
+            "fixtureId": "live-fixture-v1",
+            "score": {
+              "findings": 8,
+              "samePairs": 5,
+              "differentPairs": 23,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": 1,
+              "pairRecall": 1,
+              "candidates": 4,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-c31b5119-659f-4181-9280-e558d40c1235",
+            "fixtureId": "live-fixture-v1",
+            "score": {
+              "findings": 2,
+              "samePairs": 0,
+              "differentPairs": 1,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 2,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-e634b0d7-5603-4de0-81de-ba3ae753d5f5",
+            "fixtureId": "live-fixture-v1",
+            "score": {
+              "findings": 1,
+              "samePairs": 0,
+              "differentPairs": 0,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 1,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-c6ddde9b-231b-4a4b-8293-b258a7ed411d",
+            "fixtureId": "live-fixture-v1",
+            "score": {
+              "findings": 3,
+              "samePairs": 0,
+              "differentPairs": 3,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 3,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-5ea6417b-4c39-4f49-ba13-a9480d0002b1",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 18,
+              "samePairs": 18,
+              "differentPairs": 135,
+              "falseMerges": 9,
+              "falseSplits": 0,
+              "weightedErrors": 18,
+              "defectLossMerges": 0,
+              "pairPrecision": 0.6667,
+              "pairRecall": 1,
+              "candidates": 5,
+              "contaminatedCandidates": 1,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-3ed9eb8a-7c32-4b25-a78b-d78cb230a9f6",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 19,
+              "samePairs": 18,
+              "differentPairs": 153,
+              "falseMerges": 12,
+              "falseSplits": 0,
+              "weightedErrors": 24,
+              "defectLossMerges": 0,
+              "pairPrecision": 0.6,
+              "pairRecall": 1,
+              "candidates": 5,
+              "contaminatedCandidates": 2,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-b8dde1fc-a159-4aaf-8a12-b83bf7159869",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 5,
+              "samePairs": 0,
+              "differentPairs": 10,
+              "falseMerges": 1,
+              "falseSplits": 0,
+              "weightedErrors": 2,
+              "defectLossMerges": 0,
+              "pairPrecision": 0,
+              "pairRecall": null,
+              "candidates": 4,
+              "contaminatedCandidates": 1,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-e05bfaf1-f7b2-42a9-8a75-9065eb656437",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 5,
+              "samePairs": 0,
+              "differentPairs": 10,
+              "falseMerges": 1,
+              "falseSplits": 0,
+              "weightedErrors": 2,
+              "defectLossMerges": 0,
+              "pairPrecision": 0,
+              "pairRecall": null,
+              "candidates": 4,
+              "contaminatedCandidates": 1,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-d6f9bc1d-bfc9-4de6-8d47-8267cc2264e1",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 6,
+              "samePairs": 0,
+              "differentPairs": 15,
+              "falseMerges": 1,
+              "falseSplits": 0,
+              "weightedErrors": 2,
+              "defectLossMerges": 0,
+              "pairPrecision": 0,
+              "pairRecall": null,
+              "candidates": 5,
+              "contaminatedCandidates": 1,
+              "redundantCandidates": 0
+            }
+          }
+        ],
+        "versusDeterministic": {
+          "difference": -6,
+          "lower": -14,
+          "upper": 0,
+          "units": 84,
+          "resamples": 10000,
+          "seed": 18
+        }
+      },
+      "embeddingOnly": {
+        "score": {
+          "findings": 149,
+          "samePairs": 94,
+          "differentPairs": 658,
+          "falseMerges": 0,
+          "falseSplits": 5,
+          "weightedErrors": 5,
+          "defectLossMerges": 0,
+          "pairPrecision": 1,
+          "pairRecall": 0.9468,
+          "candidates": 87,
+          "contaminatedCandidates": 0,
+          "redundantCandidates": 3
+        },
+        "perRun": [
+          {
+            "runId": "run-db89e63d-3d36-4c53-a5b2-b56e35878e49",
+            "fixtureId": "expanded-evaluation-v1",
+            "score": {
+              "findings": 6,
+              "samePairs": 6,
+              "differentPairs": 9,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": 1,
+              "pairRecall": 1,
+              "candidates": 2,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-6975a7e8-0bc9-4a00-be09-7d8cf8a95a1c",
+            "fixtureId": "expanded-evaluation-v1",
+            "score": {
+              "findings": 2,
+              "samePairs": 0,
+              "differentPairs": 1,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 2,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-ccceb104-bb39-488f-8674-35e2dd00c5f9",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 14,
+              "samePairs": 11,
+              "differentPairs": 80,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": 1,
+              "pairRecall": 1,
+              "candidates": 6,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-a4803ff7-0159-4a44-9a49-7831cd07d60d",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 4,
+              "samePairs": 0,
+              "differentPairs": 6,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 4,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-408bbcaf-28ac-4e6f-986e-9d7758cfd382",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 17,
+              "samePairs": 16,
+              "differentPairs": 120,
+              "falseMerges": 0,
+              "falseSplits": 2,
+              "weightedErrors": 2,
+              "defectLossMerges": 0,
+              "pairPrecision": 1,
+              "pairRecall": 0.875,
+              "candidates": 7,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 1
+            }
+          },
+          {
+            "runId": "run-caed40f7-8b03-4762-9196-d3e0a9b57979",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 5,
+              "samePairs": 0,
+              "differentPairs": 10,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 5,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-732ca064-7b06-4e42-a1f4-438e633b8976",
+            "fixtureId": "expanded-evaluation-v1",
+            "score": {
+              "findings": 9,
+              "samePairs": 9,
+              "differentPairs": 27,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": 1,
+              "pairRecall": 1,
+              "candidates": 3,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-35b12e95-5a7c-4646-b75f-4b8f9c546868",
+            "fixtureId": "expanded-evaluation-v1",
+            "score": {
+              "findings": 9,
+              "samePairs": 7,
+              "differentPairs": 29,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": 1,
+              "pairRecall": 1,
+              "candidates": 4,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-d53833f4-7add-4e3c-8483-33ab7b597c92",
+            "fixtureId": "expanded-evaluation-v1",
+            "score": {
+              "findings": 3,
+              "samePairs": 0,
+              "differentPairs": 3,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 3,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-c1525c91-bfa2-448f-a332-9ae4e6fcae89",
+            "fixtureId": "expanded-evaluation-v1",
+            "score": {
+              "findings": 3,
+              "samePairs": 0,
+              "differentPairs": 3,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 3,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-7ebb06bc-0465-4697-982a-db08ea8bfb0e",
+            "fixtureId": "expanded-evaluation-v1",
+            "score": {
+              "findings": 3,
+              "samePairs": 0,
+              "differentPairs": 3,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 3,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-fb146faf-e581-496d-a25c-7341ef93c8bb",
+            "fixtureId": "live-fixture-v1",
+            "score": {
+              "findings": 7,
+              "samePairs": 4,
+              "differentPairs": 17,
+              "falseMerges": 0,
+              "falseSplits": 2,
+              "weightedErrors": 2,
+              "defectLossMerges": 0,
+              "pairPrecision": 1,
+              "pairRecall": 0.5,
+              "candidates": 5,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 1
+            }
+          },
+          {
+            "runId": "run-cd17bdbe-f695-4ab2-a320-e206d92ef8a5",
+            "fixtureId": "live-fixture-v1",
+            "score": {
+              "findings": 8,
+              "samePairs": 5,
+              "differentPairs": 23,
+              "falseMerges": 0,
+              "falseSplits": 1,
+              "weightedErrors": 1,
+              "defectLossMerges": 0,
+              "pairPrecision": 1,
+              "pairRecall": 0.8,
+              "candidates": 5,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 1
+            }
+          },
+          {
+            "runId": "run-c31b5119-659f-4181-9280-e558d40c1235",
+            "fixtureId": "live-fixture-v1",
+            "score": {
+              "findings": 2,
+              "samePairs": 0,
+              "differentPairs": 1,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 2,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-e634b0d7-5603-4de0-81de-ba3ae753d5f5",
+            "fixtureId": "live-fixture-v1",
+            "score": {
+              "findings": 1,
+              "samePairs": 0,
+              "differentPairs": 0,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 1,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-c6ddde9b-231b-4a4b-8293-b258a7ed411d",
+            "fixtureId": "live-fixture-v1",
+            "score": {
+              "findings": 3,
+              "samePairs": 0,
+              "differentPairs": 3,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 3,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-5ea6417b-4c39-4f49-ba13-a9480d0002b1",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 18,
+              "samePairs": 18,
+              "differentPairs": 135,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": 1,
+              "pairRecall": 1,
+              "candidates": 6,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-3ed9eb8a-7c32-4b25-a78b-d78cb230a9f6",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 19,
+              "samePairs": 18,
+              "differentPairs": 153,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": 1,
+              "pairRecall": 1,
+              "candidates": 7,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-b8dde1fc-a159-4aaf-8a12-b83bf7159869",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 5,
+              "samePairs": 0,
+              "differentPairs": 10,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 5,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-e05bfaf1-f7b2-42a9-8a75-9065eb656437",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 5,
+              "samePairs": 0,
+              "differentPairs": 10,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 5,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-d6f9bc1d-bfc9-4de6-8d47-8267cc2264e1",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 6,
+              "samePairs": 0,
+              "differentPairs": 15,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 6,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          }
+        ],
+        "versusDeterministic": {
+          "difference": -83,
+          "lower": -129,
+          "upper": -41,
+          "units": 84,
+          "resamples": 10000,
+          "seed": 18
+        }
+      },
+      "oracleEscalation": {
+        "score": {
+          "findings": 149,
+          "samePairs": 94,
+          "differentPairs": 658,
+          "falseMerges": 40,
+          "falseSplits": 0,
+          "weightedErrors": 80,
+          "defectLossMerges": 0,
+          "pairPrecision": 0.7015,
+          "pairRecall": 1,
+          "candidates": 75,
+          "contaminatedCandidates": 9,
+          "redundantCandidates": 0
+        },
+        "perRun": [
+          {
+            "runId": "run-db89e63d-3d36-4c53-a5b2-b56e35878e49",
+            "fixtureId": "expanded-evaluation-v1",
+            "score": {
+              "findings": 6,
+              "samePairs": 6,
+              "differentPairs": 9,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": 1,
+              "pairRecall": 1,
+              "candidates": 2,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-6975a7e8-0bc9-4a00-be09-7d8cf8a95a1c",
+            "fixtureId": "expanded-evaluation-v1",
+            "score": {
+              "findings": 2,
+              "samePairs": 0,
+              "differentPairs": 1,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 2,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-ccceb104-bb39-488f-8674-35e2dd00c5f9",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 14,
+              "samePairs": 11,
+              "differentPairs": 80,
+              "falseMerges": 6,
+              "falseSplits": 0,
+              "weightedErrors": 12,
+              "defectLossMerges": 0,
+              "pairPrecision": 0.6471,
+              "pairRecall": 1,
+              "candidates": 5,
+              "contaminatedCandidates": 1,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-a4803ff7-0159-4a44-9a49-7831cd07d60d",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 4,
+              "samePairs": 0,
+              "differentPairs": 6,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 4,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-408bbcaf-28ac-4e6f-986e-9d7758cfd382",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 17,
+              "samePairs": 16,
+              "differentPairs": 120,
+              "falseMerges": 9,
+              "falseSplits": 0,
+              "weightedErrors": 18,
+              "defectLossMerges": 0,
+              "pairPrecision": 0.64,
+              "pairRecall": 1,
+              "candidates": 5,
+              "contaminatedCandidates": 1,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-caed40f7-8b03-4762-9196-d3e0a9b57979",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 5,
+              "samePairs": 0,
+              "differentPairs": 10,
+              "falseMerges": 1,
+              "falseSplits": 0,
+              "weightedErrors": 2,
+              "defectLossMerges": 0,
+              "pairPrecision": 0,
+              "pairRecall": null,
+              "candidates": 4,
+              "contaminatedCandidates": 1,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-732ca064-7b06-4e42-a1f4-438e633b8976",
+            "fixtureId": "expanded-evaluation-v1",
+            "score": {
+              "findings": 9,
+              "samePairs": 9,
+              "differentPairs": 27,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": 1,
+              "pairRecall": 1,
+              "candidates": 3,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-35b12e95-5a7c-4646-b75f-4b8f9c546868",
+            "fixtureId": "expanded-evaluation-v1",
+            "score": {
+              "findings": 9,
+              "samePairs": 7,
+              "differentPairs": 29,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": 1,
+              "pairRecall": 1,
+              "candidates": 4,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-d53833f4-7add-4e3c-8483-33ab7b597c92",
+            "fixtureId": "expanded-evaluation-v1",
+            "score": {
+              "findings": 3,
+              "samePairs": 0,
+              "differentPairs": 3,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 3,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-c1525c91-bfa2-448f-a332-9ae4e6fcae89",
+            "fixtureId": "expanded-evaluation-v1",
+            "score": {
+              "findings": 3,
+              "samePairs": 0,
+              "differentPairs": 3,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 3,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-7ebb06bc-0465-4697-982a-db08ea8bfb0e",
+            "fixtureId": "expanded-evaluation-v1",
+            "score": {
+              "findings": 3,
+              "samePairs": 0,
+              "differentPairs": 3,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 3,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-fb146faf-e581-496d-a25c-7341ef93c8bb",
+            "fixtureId": "live-fixture-v1",
+            "score": {
+              "findings": 7,
+              "samePairs": 4,
+              "differentPairs": 17,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": 1,
+              "pairRecall": 1,
+              "candidates": 4,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-cd17bdbe-f695-4ab2-a320-e206d92ef8a5",
+            "fixtureId": "live-fixture-v1",
+            "score": {
+              "findings": 8,
+              "samePairs": 5,
+              "differentPairs": 23,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": 1,
+              "pairRecall": 1,
+              "candidates": 4,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-c31b5119-659f-4181-9280-e558d40c1235",
+            "fixtureId": "live-fixture-v1",
+            "score": {
+              "findings": 2,
+              "samePairs": 0,
+              "differentPairs": 1,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 2,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-e634b0d7-5603-4de0-81de-ba3ae753d5f5",
+            "fixtureId": "live-fixture-v1",
+            "score": {
+              "findings": 1,
+              "samePairs": 0,
+              "differentPairs": 0,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 1,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-c6ddde9b-231b-4a4b-8293-b258a7ed411d",
+            "fixtureId": "live-fixture-v1",
+            "score": {
+              "findings": 3,
+              "samePairs": 0,
+              "differentPairs": 3,
+              "falseMerges": 0,
+              "falseSplits": 0,
+              "weightedErrors": 0,
+              "defectLossMerges": 0,
+              "pairPrecision": null,
+              "pairRecall": null,
+              "candidates": 3,
+              "contaminatedCandidates": 0,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-5ea6417b-4c39-4f49-ba13-a9480d0002b1",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 18,
+              "samePairs": 18,
+              "differentPairs": 135,
+              "falseMerges": 9,
+              "falseSplits": 0,
+              "weightedErrors": 18,
+              "defectLossMerges": 0,
+              "pairPrecision": 0.6667,
+              "pairRecall": 1,
+              "candidates": 5,
+              "contaminatedCandidates": 1,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-3ed9eb8a-7c32-4b25-a78b-d78cb230a9f6",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 19,
+              "samePairs": 18,
+              "differentPairs": 153,
+              "falseMerges": 12,
+              "falseSplits": 0,
+              "weightedErrors": 24,
+              "defectLossMerges": 0,
+              "pairPrecision": 0.6,
+              "pairRecall": 1,
+              "candidates": 5,
+              "contaminatedCandidates": 2,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-b8dde1fc-a159-4aaf-8a12-b83bf7159869",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 5,
+              "samePairs": 0,
+              "differentPairs": 10,
+              "falseMerges": 1,
+              "falseSplits": 0,
+              "weightedErrors": 2,
+              "defectLossMerges": 0,
+              "pairPrecision": 0,
+              "pairRecall": null,
+              "candidates": 4,
+              "contaminatedCandidates": 1,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-e05bfaf1-f7b2-42a9-8a75-9065eb656437",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 5,
+              "samePairs": 0,
+              "differentPairs": 10,
+              "falseMerges": 1,
+              "falseSplits": 0,
+              "weightedErrors": 2,
+              "defectLossMerges": 0,
+              "pairPrecision": 0,
+              "pairRecall": null,
+              "candidates": 4,
+              "contaminatedCandidates": 1,
+              "redundantCandidates": 0
+            }
+          },
+          {
+            "runId": "run-d6f9bc1d-bfc9-4de6-8d47-8267cc2264e1",
+            "fixtureId": "premise-v1",
+            "score": {
+              "findings": 6,
+              "samePairs": 0,
+              "differentPairs": 15,
+              "falseMerges": 1,
+              "falseSplits": 0,
+              "weightedErrors": 2,
+              "defectLossMerges": 0,
+              "pairPrecision": 0,
+              "pairRecall": null,
+              "candidates": 5,
+              "contaminatedCandidates": 1,
+              "redundantCandidates": 0
+            }
+          }
+        ],
+        "versusDeterministic": {
+          "difference": -8,
+          "lower": -16,
+          "upper": -2,
+          "units": 84,
+          "resamples": 10000,
+          "seed": 18
+        }
+      }
+    },
+    "latency": {
+      "deterministic": {
+        "samples": 105,
+        "medianMs": 0.4414,
+        "p95Ms": 4.8224,
+        "maxMs": 7.5037
+      },
+      "embeddingEscalation": {
+        "samples": 105,
+        "medianMs": 95.6593,
+        "p95Ms": 332.5878,
+        "maxMs": 403.778
+      },
+      "maximumRunFindings": 19
+    },
+    "reproducible": true,
+    "semanticCalls": {
+      "e1": 39,
+      "oracle": 39
+    },
+    "ambiguousPairs": [
+      {
+        "runId": "run-ccceb104-bb39-488f-8674-35e2dd00c5f9",
+        "leftId": "auditor-a/auth-bypass",
+        "rightId": "auditor-b/prompt-injection-auth",
+        "signals": [
+          "same_path",
+          "same_failure_mechanism"
+        ],
+        "structuralScore": 3,
+        "cosine": 0.3333,
+        "sameLabel": false,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-ccceb104-bb39-488f-8674-35e2dd00c5f9",
+        "leftId": "auditor-b/auth-bypass",
+        "rightId": "auditor-c/prompt-injection-auth-file",
+        "signals": [
+          "same_path",
+          "overlapping_lines"
+        ],
+        "structuralScore": 4,
+        "cosine": 0.2544,
+        "sameLabel": false,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-408bbcaf-28ac-4e6f-986e-9d7758cfd382",
+        "leftId": "auditor-a/inventory-reserve-race-condition",
+        "rightId": "auditor-b/inventory-reservation-race",
+        "signals": [
+          "same_path",
+          "overlapping_lines"
+        ],
+        "structuralScore": 4,
+        "cosine": 0.7525,
+        "sameLabel": true,
+        "escalated": true,
+        "e1Merged": true
+      },
+      {
+        "runId": "run-408bbcaf-28ac-4e6f-986e-9d7758cfd382",
+        "leftId": "auditor-a/inventory-reserve-race-condition",
+        "rightId": "auditor-c/inventory-toctou-race",
+        "signals": [
+          "same_path",
+          "overlapping_lines"
+        ],
+        "structuralScore": 4,
+        "cosine": 0.5809,
+        "sameLabel": true,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-408bbcaf-28ac-4e6f-986e-9d7758cfd382",
+        "leftId": "auditor-a/prompt-injection-auth-comment",
+        "rightId": "auditor-c/auth-header-bypass",
+        "signals": [
+          "same_path",
+          "same_failure_mechanism"
+        ],
+        "structuralScore": 3,
+        "cosine": 0.2146,
+        "sameLabel": false,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-408bbcaf-28ac-4e6f-986e-9d7758cfd382",
+        "leftId": "auditor-b/auth-prompt-injection-comment",
+        "rightId": "auditor-c/auth-header-bypass",
+        "signals": [
+          "same_path",
+          "same_failure_mechanism"
+        ],
+        "structuralScore": 3,
+        "cosine": 0.2463,
+        "sameLabel": false,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-408bbcaf-28ac-4e6f-986e-9d7758cfd382",
+        "leftId": "auditor-b/auth-support-mode-bypass",
+        "rightId": "auditor-c/prompt-injection-auth",
+        "signals": [
+          "same_path",
+          "overlapping_lines"
+        ],
+        "structuralScore": 4,
+        "cosine": 0.2388,
+        "sameLabel": false,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-408bbcaf-28ac-4e6f-986e-9d7758cfd382",
+        "leftId": "auditor-c/auth-header-bypass",
+        "rightId": "auditor-c/prompt-injection-auth",
+        "signals": [
+          "same_path",
+          "same_failure_mechanism"
+        ],
+        "structuralScore": 3,
+        "cosine": 0.3358,
+        "sameLabel": false,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-fb146faf-e581-496d-a25c-7341ef93c8bb",
+        "leftId": "auditor-a/parseQuantity-no-radix-no-validation",
+        "rightId": "auditor-b/discount-range-enforcement",
+        "signals": [
+          "same_path",
+          "same_category",
+          "same_failure_mechanism"
+        ],
+        "structuralScore": 4,
+        "cosine": 0.2454,
+        "sameLabel": false,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-fb146faf-e581-496d-a25c-7341ef93c8bb",
+        "leftId": "auditor-a/parseQuantity-no-radix-no-validation",
+        "rightId": "auditor-c/parse-quantity-radix-missing",
+        "signals": [
+          "same_path",
+          "overlapping_lines"
+        ],
+        "structuralScore": 4,
+        "cosine": 0.6858,
+        "sameLabel": true,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-fb146faf-e581-496d-a25c-7341ef93c8bb",
+        "leftId": "auditor-b/discount-range-enforcement",
+        "rightId": "auditor-b/quantity-input-validation",
+        "signals": [
+          "same_path",
+          "same_category"
+        ],
+        "structuralScore": 2,
+        "cosine": 0.3019,
+        "sameLabel": false,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-fb146faf-e581-496d-a25c-7341ef93c8bb",
+        "leftId": "auditor-b/quantity-input-validation",
+        "rightId": "auditor-c/parse-quantity-radix-missing",
+        "signals": [
+          "same_path",
+          "overlapping_lines"
+        ],
+        "structuralScore": 4,
+        "cosine": 0.4887,
+        "sameLabel": true,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-cd17bdbe-f695-4ab2-a320-e206d92ef8a5",
+        "leftId": "auditor-a/cart-applyDiscount-unbounded-percent",
+        "rightId": "auditor-a/cart-parseQuantity-nan",
+        "signals": [
+          "same_path",
+          "same_category",
+          "same_failure_mechanism"
+        ],
+        "structuralScore": 4,
+        "cosine": 0.307,
+        "sameLabel": false,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-cd17bdbe-f695-4ab2-a320-e206d92ef8a5",
+        "leftId": "auditor-a/cart-applyDiscount-unbounded-percent",
+        "rightId": "auditor-b/quantity-input-validation",
+        "signals": [
+          "same_path",
+          "same_category"
+        ],
+        "structuralScore": 2,
+        "cosine": 0.2534,
+        "sameLabel": false,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-cd17bdbe-f695-4ab2-a320-e206d92ef8a5",
+        "leftId": "auditor-a/cart-applyDiscount-unbounded-percent",
+        "rightId": "auditor-c/parse-quantity-radix-missing",
+        "signals": [
+          "same_path",
+          "same_failure_mechanism"
+        ],
+        "structuralScore": 3,
+        "cosine": 0.3594,
+        "sameLabel": false,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-cd17bdbe-f695-4ab2-a320-e206d92ef8a5",
+        "leftId": "auditor-a/cart-parseQuantity-nan",
+        "rightId": "auditor-b/discount-range-validation",
+        "signals": [
+          "same_path",
+          "same_category",
+          "same_failure_mechanism"
+        ],
+        "structuralScore": 4,
+        "cosine": 0.3713,
+        "sameLabel": false,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-cd17bdbe-f695-4ab2-a320-e206d92ef8a5",
+        "leftId": "auditor-b/discount-range-validation",
+        "rightId": "auditor-b/quantity-input-validation",
+        "signals": [
+          "same_path",
+          "same_category"
+        ],
+        "structuralScore": 2,
+        "cosine": 0.3068,
+        "sameLabel": false,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-cd17bdbe-f695-4ab2-a320-e206d92ef8a5",
+        "leftId": "auditor-b/discount-range-validation",
+        "rightId": "auditor-c/parse-quantity-radix-missing",
+        "signals": [
+          "same_path",
+          "same_failure_mechanism"
+        ],
+        "structuralScore": 3,
+        "cosine": 0.3099,
+        "sameLabel": false,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-cd17bdbe-f695-4ab2-a320-e206d92ef8a5",
+        "leftId": "auditor-b/quantity-input-validation",
+        "rightId": "auditor-c/parse-quantity-radix-missing",
+        "signals": [
+          "same_path",
+          "overlapping_lines"
+        ],
+        "structuralScore": 4,
+        "cosine": 0.7096,
+        "sameLabel": true,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-c6ddde9b-231b-4a4b-8293-b258a7ed411d",
+        "leftId": "auditor-a/cart-applyDiscount-unclamped-percent",
+        "rightId": "auditor-a/cart-parseQuantity-nan",
+        "signals": [
+          "same_path",
+          "same_category"
+        ],
+        "structuralScore": 2,
+        "cosine": 0.393,
+        "sameLabel": false,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-5ea6417b-4c39-4f49-ba13-a9480d0002b1",
+        "leftId": "auditor-a/payments-duplicate-capture-retry",
+        "rightId": "auditor-c/payments-duplicate-capture",
+        "signals": [
+          "same_path",
+          "overlapping_lines"
+        ],
+        "structuralScore": 4,
+        "cosine": 0.9295,
+        "sameLabel": true,
+        "escalated": true,
+        "e1Merged": true
+      },
+      {
+        "runId": "run-5ea6417b-4c39-4f49-ba13-a9480d0002b1",
+        "leftId": "auditor-a/prompt-injection-auth-comment",
+        "rightId": "auditor-b/auth-privilege-bypass",
+        "signals": [
+          "same_path",
+          "same_failure_mechanism"
+        ],
+        "structuralScore": 3,
+        "cosine": 0.2514,
+        "sameLabel": false,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-5ea6417b-4c39-4f49-ba13-a9480d0002b1",
+        "leftId": "auditor-a/prompt-injection-auth-comment",
+        "rightId": "auditor-c/auth-header-bypass",
+        "signals": [
+          "same_path",
+          "same_failure_mechanism"
+        ],
+        "structuralScore": 3,
+        "cosine": 0.213,
+        "sameLabel": false,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-5ea6417b-4c39-4f49-ba13-a9480d0002b1",
+        "leftId": "auditor-b/auth-privilege-bypass",
+        "rightId": "auditor-b/auth-prompt-injection",
+        "signals": [
+          "same_path",
+          "same_failure_mechanism"
+        ],
+        "structuralScore": 3,
+        "cosine": 0.1542,
+        "sameLabel": false,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-5ea6417b-4c39-4f49-ba13-a9480d0002b1",
+        "leftId": "auditor-b/auth-privilege-bypass",
+        "rightId": "auditor-c/prompt-injection-auth-comment",
+        "signals": [
+          "same_path",
+          "same_failure_mechanism"
+        ],
+        "structuralScore": 3,
+        "cosine": 0.3359,
+        "sameLabel": false,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-5ea6417b-4c39-4f49-ba13-a9480d0002b1",
+        "leftId": "auditor-b/auth-prompt-injection",
+        "rightId": "auditor-c/auth-header-bypass",
+        "signals": [
+          "same_path",
+          "same_failure_mechanism"
+        ],
+        "structuralScore": 3,
+        "cosine": 0.1336,
+        "sameLabel": false,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-5ea6417b-4c39-4f49-ba13-a9480d0002b1",
+        "leftId": "auditor-b/payment-duplicate-capture",
+        "rightId": "auditor-c/payments-duplicate-capture",
+        "signals": [
+          "same_path",
+          "overlapping_lines"
+        ],
+        "structuralScore": 4,
+        "cosine": 0.8774,
+        "sameLabel": true,
+        "escalated": true,
+        "e1Merged": true
+      },
+      {
+        "runId": "run-5ea6417b-4c39-4f49-ba13-a9480d0002b1",
+        "leftId": "auditor-c/auth-header-bypass",
+        "rightId": "auditor-c/prompt-injection-auth-comment",
+        "signals": [
+          "same_path",
+          "same_failure_mechanism"
+        ],
+        "structuralScore": 3,
+        "cosine": 0.2555,
+        "sameLabel": false,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-3ed9eb8a-7c32-4b25-a78b-d78cb230a9f6",
+        "leftId": "auditor-a/auth-header-bypass",
+        "rightId": "auditor-b/inventory-negative-quantity",
+        "signals": [
+          "same_failure_mechanism"
+        ],
+        "structuralScore": 2,
+        "cosine": 0.1691,
+        "sameLabel": false,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-3ed9eb8a-7c32-4b25-a78b-d78cb230a9f6",
+        "leftId": "auditor-a/inventory-reserve-race-condition",
+        "rightId": "auditor-b/inventory-negative-quantity",
+        "signals": [
+          "same_path",
+          "overlapping_lines"
+        ],
+        "structuralScore": 4,
+        "cosine": 0.5915,
+        "sameLabel": false,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-3ed9eb8a-7c32-4b25-a78b-d78cb230a9f6",
+        "leftId": "auditor-a/inventory-reserve-race-condition",
+        "rightId": "auditor-b/inventory-race-condition",
+        "signals": [
+          "same_path",
+          "overlapping_lines"
+        ],
+        "structuralScore": 4,
+        "cosine": 0.8132,
+        "sameLabel": true,
+        "escalated": true,
+        "e1Merged": true
+      },
+      {
+        "runId": "run-3ed9eb8a-7c32-4b25-a78b-d78cb230a9f6",
+        "leftId": "auditor-a/migration-not-null-no-default-backfill-risk",
+        "rightId": "auditor-b/migration-not-null-existing-rows",
+        "signals": [
+          "same_path",
+          "overlapping_lines"
+        ],
+        "structuralScore": 4,
+        "cosine": 0.836,
+        "sameLabel": true,
+        "escalated": true,
+        "e1Merged": true
+      },
+      {
+        "runId": "run-3ed9eb8a-7c32-4b25-a78b-d78cb230a9f6",
+        "leftId": "auditor-a/prompt-injection-auth-comment",
+        "rightId": "auditor-b/auth-support-mode-bypass",
+        "signals": [
+          "same_path",
+          "same_failure_mechanism"
+        ],
+        "structuralScore": 3,
+        "cosine": 0.1845,
+        "sameLabel": false,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-3ed9eb8a-7c32-4b25-a78b-d78cb230a9f6",
+        "leftId": "auditor-a/prompt-injection-auth-comment",
+        "rightId": "auditor-c/auth-header-bypass",
+        "signals": [
+          "same_path",
+          "same_failure_mechanism"
+        ],
+        "structuralScore": 3,
+        "cosine": 0.2011,
+        "sameLabel": false,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-3ed9eb8a-7c32-4b25-a78b-d78cb230a9f6",
+        "leftId": "auditor-b/auth-support-mode-bypass",
+        "rightId": "auditor-b/prompt-injection-source-comment",
+        "signals": [
+          "same_path",
+          "same_failure_mechanism"
+        ],
+        "structuralScore": 3,
+        "cosine": 0.2173,
+        "sameLabel": false,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-3ed9eb8a-7c32-4b25-a78b-d78cb230a9f6",
+        "leftId": "auditor-b/auth-support-mode-bypass",
+        "rightId": "auditor-c/auth-prompt-injection",
+        "signals": [
+          "same_path",
+          "same_failure_mechanism"
+        ],
+        "structuralScore": 3,
+        "cosine": 0.2364,
+        "sameLabel": false,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-3ed9eb8a-7c32-4b25-a78b-d78cb230a9f6",
+        "leftId": "auditor-b/migration-not-null-existing-rows",
+        "rightId": "auditor-c/migration-not-null-without-default",
+        "signals": [
+          "same_path",
+          "overlapping_lines"
+        ],
+        "structuralScore": 4,
+        "cosine": 0.7881,
+        "sameLabel": true,
+        "escalated": true,
+        "e1Merged": true
+      },
+      {
+        "runId": "run-3ed9eb8a-7c32-4b25-a78b-d78cb230a9f6",
+        "leftId": "auditor-b/prompt-injection-source-comment",
+        "rightId": "auditor-c/auth-header-bypass",
+        "signals": [
+          "same_path",
+          "same_failure_mechanism"
+        ],
+        "structuralScore": 3,
+        "cosine": 0.2436,
+        "sameLabel": false,
+        "escalated": true,
+        "e1Merged": false
+      },
+      {
+        "runId": "run-3ed9eb8a-7c32-4b25-a78b-d78cb230a9f6",
+        "leftId": "auditor-c/auth-header-bypass",
+        "rightId": "auditor-c/auth-prompt-injection",
+        "signals": [
+          "same_path",
+          "same_failure_mechanism"
+        ],
+        "structuralScore": 3,
+        "cosine": 0.2721,
+        "sameLabel": false,
+        "escalated": true,
+        "e1Merged": false
+      }
+    ]
+  },
+  "decision": {
+    "outcome": "INSUFFICIENT_EVIDENCE",
+    "criteria": [
+      {
+        "id": "1-evidence",
+        "passed": false,
+        "detail": "mode=real_models fixtures=3/2 multiMemberClusters=36/30 samePairs=94/100 ambiguousPairs=39/30"
+      },
+      {
+        "id": "2-benefit",
+        "passed": false,
+        "detail": "W(D)=88 W(E1)=82 reduction=0.0682 diff=-6 95%CI=[-14, 0]"
+      },
+      {
+        "id": "3-no-defect-loss",
+        "passed": true,
+        "detail": "defectLossMerges D=0 E1=0"
+      },
+      {
+        "id": "4-downstream",
+        "passed": true,
+        "detail": "contaminated D=9 E1=9 redundantRemoved=3"
+      },
+      {
+        "id": "5-latency",
+        "passed": true,
+        "detail": "warmP95=332.5878ms/750 maxRunFindings=19/25 coldLoad=208ms/20000"
+      },
+      {
+        "id": "6-resources",
+        "passed": true,
+        "detail": "model=90387606/150000000 rssGrowth=572096512/700000000 dependencies=481575023/500000000"
+      },
+      {
+        "id": "7-cost-locality",
+        "passed": true,
+        "detail": "networkRequests=0 marginalCostUsd=0"
+      },
+      {
+        "id": "8-reproducible",
+        "passed": true,
+        "detail": "repeats=5 identicalAssignments=true"
+      }
+    ],
+    "reasons": [
+      "evidence sufficiency minimums not met"
+    ]
+  }
+}

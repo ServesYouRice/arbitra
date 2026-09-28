@@ -259,8 +259,9 @@ output through `redactSecrets` (`packages/security/src/redaction.ts`), failing c
   justify replacing it. Those metrics are recorded now
   (`clustering/escalate.ts`), which is the point. The P18 evaluation of a pinned local
   embedding model against a prespecified protocol rejected adoption on the authored
-  corpus (weighted clustering error rose from 36 to 49); see
-  [qa/p18](qa/p18/README.md). It is to be rerun on real-model findings.
+  corpus (weighted clustering error rose from 36 to 49). On P06's real-model findings it
+  cut the error by only 7% (25% required), on a corpus below the evidence minimum, so the
+  deterministic path stays; see [qa/p18](qa/p18/README.md).
 
 ## Runtime operational metrics
 
