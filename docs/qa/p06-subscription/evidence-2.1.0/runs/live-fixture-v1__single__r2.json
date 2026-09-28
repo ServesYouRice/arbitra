@@ -1,0 +1,180 @@
+{
+  "schemaVersion": 1,
+  "status": "completed",
+  "key": "live-fixture-v1/single/r2",
+  "fixtureId": "live-fixture-v1",
+  "condition": "single",
+  "repetition": 2,
+  "protocolId": "arbitra-p06-premise",
+  "protocolVersion": "2.1.0",
+  "wallClockMs": 35417,
+  "segments": [
+    {
+      "startedAt": "2026-09-28T12:38:39.066Z",
+      "endedAt": "2026-09-28T12:39:14.484Z",
+      "wallClockMs": 35417,
+      "state": "COMPLETED",
+      "kind": "start"
+    }
+  ],
+  "record": {
+    "runId": "run-e634b0d7-5603-4de0-81de-ba3ae753d5f5",
+    "state": "COMPLETED",
+    "snapshot": {
+      "repositoryDigest": "6d4eb759565376aababed8b1db4ed04c314fb3de0025b12e8aab18b07740eaf8",
+      "gitHead": "2f106c376a4d62c7f59e337110a4eb9b808b25d9"
+    },
+    "identity": {
+      "protocol": {
+        "id": "production-audit",
+        "version": "1.0.0",
+        "hash": "89a666a6f6f5c39ab1228aeee9d1deffd0489e8d30e687be5c6f53c626bd4ed9"
+      },
+      "harness": {
+        "id": "arbitra-canonical",
+        "version": "1.0.0",
+        "policyHash": "95dd5ec436f68d658e5c15c22dcf653f631e43d176fb384827a055e9119d153e"
+      },
+      "models": [
+        {
+          "auditorId": "auditor-a",
+          "modelId": "claude-sonnet-5",
+          "modelProfileVersion": "fda23f1761d94f8350afbf519daf36d925e8b82724144cb7e6c81a9985cfeebf",
+          "transportId": "claude-code-cli",
+          "transportVersion": "claude-code/2.1.283"
+        }
+      ]
+    },
+    "auditors": [
+      {
+        "auditorId": "auditor-a",
+        "modelId": "claude-sonnet-5",
+        "independenceGroup": "anthropic-sonnet",
+        "transport": "claude-code-cli",
+        "findings": [
+          {
+            "sourceFindingId": "auditor-a/parseQuantity-no-validation",
+            "auditorId": "auditor-a",
+            "category": "CORRECTNESS",
+            "title": "parseQuantity does not validate input or radix, allowing NaN to reach cart totals",
+            "severity": "medium",
+            "problem": "parseQuantity(text) calls parseInt(text) with no explicit radix and no check that the result is a valid, non-negative integer. parseInt silently truncates trailing non-numeric characters (e.g. \"2abc\" -> 2) and returns NaN for non-numeric input (e.g. \"\" or \"abc\") without throwing. Any NaN or unexpected value returned here can propagate into subtotal(), where it is multiplied against priceCents, corrupting the cart total.",
+            "recommendedFix": "Use Number.parseInt(text, 10) with an explicit radix, validate the result with Number.isInteger and a minimum bound (e.g. >= 0 or >= 1), and throw or return a clear error/sentinel for invalid input rather than silently returning NaN or a truncated number.",
+            "locations": [
+              {
+                "path": "src/cart.js",
+                "startLine": 16,
+                "endLine": 18
+              }
+            ],
+            "evidence": [
+              {
+                "text": "export function parseQuantity(text) {\n  return parseInt(text);\n}"
+              }
+            ]
+          }
+        ],
+        "rejectedFindings": [],
+        "quoteRejectedCount": 0,
+        "repairedCount": 0,
+        "truncated": false,
+        "usage": {
+          "requests": 1,
+          "failedRequests": 0,
+          "inputTokens": 7922,
+          "outputTokens": 1971,
+          "unknownUsageRequests": 0,
+          "attemptDurationMs": 18490,
+          "repairTurns": 0
+        }
+      }
+    ],
+    "sourceFindings": [
+      {
+        "sourceFindingId": "auditor-a/parseQuantity-no-validation",
+        "auditorId": "auditor-a",
+        "category": "CORRECTNESS",
+        "title": "parseQuantity does not validate input or radix, allowing NaN to reach cart totals",
+        "severity": "medium",
+        "problem": "parseQuantity(text) calls parseInt(text) with no explicit radix and no check that the result is a valid, non-negative integer. parseInt silently truncates trailing non-numeric characters (e.g. \"2abc\" -> 2) and returns NaN for non-numeric input (e.g. \"\" or \"abc\") without throwing. Any NaN or unexpected value returned here can propagate into subtotal(), where it is multiplied against priceCents, corrupting the cart total.",
+        "recommendedFix": "Use Number.parseInt(text, 10) with an explicit radix, validate the result with Number.isInteger and a minimum bound (e.g. >= 0 or >= 1), and throw or return a clear error/sentinel for invalid input rather than silently returning NaN or a truncated number.",
+        "locations": [
+          {
+            "path": "src/cart.js",
+            "startLine": 16,
+            "endLine": 18
+          }
+        ],
+        "evidence": [
+          {
+            "text": "export function parseQuantity(text) {\n  return parseInt(text);\n}"
+          }
+        ]
+      }
+    ],
+    "issues": [
+      {
+        "candidateId": "C-c060353a8119",
+        "title": "parseQuantity does not validate input or radix, allowing NaN to reach cart totals",
+        "description": "parseQuantity(text) calls parseInt(text) with no explicit radix and no check that the result is a valid, non-negative integer. parseInt silently truncates trailing non-numeric characters (e.g. \"2abc\" -> 2) and returns NaN for non-numeric input (e.g. \"\" or \"abc\") without throwing. Any NaN or unexpected value returned here can propagate into subtotal(), where it is multiplied against priceCents, corrupting the cart total.",
+        "severity": "medium",
+        "disposition": "single_source",
+        "verificationOutcome": "CONFIRMED",
+        "sourceFindingIds": [
+          "auditor-a/parseQuantity-no-validation"
+        ]
+      }
+    ],
+    "verification": [
+      {
+        "candidateId": "C-c060353a8119",
+        "method": "single_model_question",
+        "result": "CONFIRMED"
+      }
+    ],
+    "plan": {
+      "acceptedIssueIds": [],
+      "addressedIssueIds": [],
+      "taskCount": 0
+    },
+    "critic": null,
+    "usage": {
+      "requests": 3,
+      "failedRequests": 0,
+      "inputTokens": 27084,
+      "outputTokens": 3604,
+      "unknownUsageRequests": 0,
+      "attemptDurationMs": 34592,
+      "repairTurns": 0
+    },
+    "usageByNode": {
+      "auditor-a": {
+        "requests": 1,
+        "failedRequests": 0,
+        "inputTokens": 7922,
+        "outputTokens": 1971,
+        "unknownUsageRequests": 0,
+        "attemptDurationMs": 18490,
+        "repairTurns": 0
+      },
+      "planner": {
+        "requests": 1,
+        "failedRequests": 0,
+        "inputTokens": 12726,
+        "outputTokens": 1028,
+        "unknownUsageRequests": 0,
+        "attemptDurationMs": 9492,
+        "repairTurns": 0
+      },
+      "verification": {
+        "requests": 1,
+        "failedRequests": 0,
+        "inputTokens": 6436,
+        "outputTokens": 605,
+        "unknownUsageRequests": 0,
+        "attemptDurationMs": 6610,
+        "repairTurns": 0
+      }
+    }
+  }
+}
