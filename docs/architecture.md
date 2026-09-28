@@ -42,6 +42,8 @@ Dependencies point downward. Nothing below imports anything above it.
 ```text
 apps/cli · apps/server · apps/web        interfaces
         │
+packages/runtime                         composition: Orchestrator, model pipelines, sandbox, CLI/HTTP cores
+        │
 packages/core                            orchestration: runner, preflight, prompt, render, replay
         │
 packages/workflow                        typed nodes: discovery, clustering, consensus, verification, planner
@@ -127,8 +129,9 @@ unrecognised disposition fails closed at `2`. Every command can emit JSON with `
 
 `validate` runs `Orchestrator.preflight` (`packages/runtime/src/preflight.ts`). It
 reports configuration diagnostics, which fail validation with exit `1`, separately from
-environment diagnostics: credential variables, placeholder model identities, and the local
-Docker engine and image. `run`, `start` and `estimate` apply the same configuration checks.
+environment diagnostics: credential variables, subscription CLI install, version and login,
+the native harness executable, placeholder model identities, and the local Docker engine and
+image. `run`, `start` and `estimate` apply the same configuration checks.
 `run`/`start` also refuse environment errors before a run directory, snapshot or provider
 request exists (exit `2`, reason `preflight_failed`; HTTP `400`). See the
 [preflight reference](setup.md#preflight-reference).
@@ -224,7 +227,8 @@ Browser acceptance runs through `pnpm --filter @arbitra/web e2e` (Playwright, Ch
 and WebKit). It is not part of `pnpm test`. The scenarios start the real control plane from
 `apps/server/fixtures/e2e-server.ts` over a temporary state directory. Runs come from the real
 orchestrator with scripted provider and sandbox ports (`apps/server/fixtures/scripted-runs.ts`).
-Results and screenshots are recorded in [`qa/p10/`](qa/p10/README.md).
+Results and screenshots are recorded in [`qa/p10/`](qa/p10/README.md) (macOS) and
+[`qa/p10-linux/`](qa/p10-linux/README.md) (Linux arm64).
 
 Trace list and detail responses are served from a persistent per-run index
 (`packages/persistence/src/trace-index.ts`) that catches up incrementally from the
@@ -239,23 +243,27 @@ every view.
 
 The [completion plan](completion-plan.md) records dependencies and acceptance criteria:
 
-- **Live-provider/Docker acceptance and real-model premise evaluation remain outstanding.**
-  Injected-provider tests do not establish model quality. See [`evaluation.md`](evaluation.md).
+- **Live evidence for the OpenAI and Anthropic API protocols (P03) and the real-model
+  premise evaluation (P06) remain outstanding.** Every public workflow has run live on
+  subscriptions. Injected-provider tests do not establish model quality. See
+  [`evaluation.md`](evaluation.md).
 - Final Testing verification can reopen invalidated earlier work for bounded, durable repair
-  under the original write grants (see [Testing mode](workflows.md#testing-mode)). The critical
-  repair cases have not yet been repeated against the real Docker sandbox.
-- Individually oversized records, the single global planner outline and several one-call
-  stages (Feature requirements/exploration, Testing risk analysis) can still fail explicitly;
-  see [context and output capacity](harness.md#context-and-output-capacity).
+  under the original write grants (see [Testing mode](workflows.md#testing-mode)). The repair
+  cases, including the critical ones, have run against real containers
+  ([qa/p04](qa/p04/README.md)).
+- Individually oversized records and Feature requirements revision, which still makes one
+  call, can fail explicitly; see
+  [context and output capacity](harness.md#context-and-output-capacity).
 - Durable Feature requirements checkpoints and generic gate/human checkpoints work through
   CLI/HTTP and the web Feature contract view. Generic checkpoints apply to registered graphs;
   the shipped presets do not contain those nodes. Feature/Testing replay has
   mode-specific contracts through CLI/HTTP ([workflows](workflows.md#feature-and-testing-replay)).
 - The trace browser and its persistent large-history query index are implemented, and the
   trace browser is covered by browser acceptance (see [`qa/p10/`](qa/p10/README.md)).
-  Evaluation corpora are durable, but no live evaluation driver feeds them yet.
-- Browser acceptance and CI have run on macOS only so far; see
-  [verification evidence](project-status.md#verification-evidence).
+  Evaluation corpora are durable, and the P06 driver
+  (`packages/testing/src/premise-evaluation/`) imports live observations into them.
+- Browser acceptance has run on macOS and Linux arm64, and CI on `ubuntu-latest` and
+  `macos-latest`; see [verification evidence](project-status.md#verification-evidence).
 
 ## v1.1 extension points
 
@@ -264,14 +272,14 @@ now differs; all unfinished work is included in the completion plan.
 
 | Deferred feature | Extension point |
 |---|---|
-| Autonomous Testing execution | Implemented through opt-in `testing-execute`: planning, authority preflight, parallel writers, serial checks, final verification, bounded repair and durable handoff. The web Testing view covers authority, attempts, checks and repair. Real-sandbox repair and live-provider/Docker QA remain; plan items P04/P07 |
+| Autonomous Testing execution | Implemented through opt-in `testing-execute`: planning, authority preflight, parallel writers, serial checks, final verification, bounded repair and durable handoff. The web Testing view covers authority, attempts, checks and repair. Repair and Docker QA ran against real containers (P04/P07), and plan and execute ran live on subscriptions ([qa/p03-subscription](qa/p03-subscription/README.md)) |
 | Native harness adapters | Claude Code headless adapter (`packages/harness/src/native/`) for the Testing writer only, status `conformance_verified`: tested against a scripted stand-in process and, live, against Claude Code 2.1.283 on a subscription login (P12, [qa/p12](qa/p12/README.md)). See [harness.md](harness.md#native-harness-adapters) |
-| Advisor runtime | Implemented for Testing writers in `packages/runtime/src/model-advisors.ts`: operator-capped, durably journaled advisor uses with no tools, traced under the advisor identity. Tested with injected transports only; live-provider exercise remains (P13). See [`task-ir.md`](task-ir.md#advisors) |
-| Feature workflow extensions | Requirements/review/planning/revision, web contract view, expanded subgraphs and mode-specific replay are implemented without live-provider evidence; oversized requirements generation and exploration still fail explicitly (P08) |
+| Advisor runtime | Implemented for Testing writers in `packages/runtime/src/model-advisors.ts`: operator-capped, durably journaled advisor uses with no tools, traced under the advisor identity. Exercised live on Gemini native and compatible chat (P13, [qa/p13-live](qa/p13-live/README.md)). See [`task-ir.md`](task-ir.md#advisors) |
+| Feature workflow extensions | Requirements/review/planning/revision, web contract view, expanded subgraphs and mode-specific replay are implemented. Automatic and interactive Feature ran live on subscriptions ([qa/p03-subscription](qa/p03-subscription/README.md)); requirements revision still makes one call (P08) |
 | Incremental / repeat audit execution | Opt-in incremental Audit in `packages/runtime/src/incremental-audit.ts`. It reuses byte-identical discovery units and identity-matched downstream stages from a completed base, with fallback, provenance and saved-work/coverage reporting. Tested with injected fake providers only; live-provider exercise remains. See [Incremental Audit](workflows.md#incremental-audit) |
-| Provider batch API path | Opt-in batch lane and OpenAI/Anthropic/Gemini drivers in `packages/providers/src/batch/`, tested against injected HTTP only; every driver is declared-unverified and live validation remains (P15). See [`provider-model.md`](provider-model.md#batch-lane) |
+| Provider batch API path | Opt-in batch lane and OpenAI/Anthropic/Gemini drivers in `packages/providers/src/batch/`, tested against injected HTTP; a live run was refused by every provider before job creation, so every driver is declared-unverified and live validation needs a funded account (P15). See [`provider-model.md`](provider-model.md#batch-lane) |
 | Drag-and-drop workflow canvas editor | Implemented: `apps/web/src/columns/graph/GraphEditor.tsx` edits operator-authored graphs; versions are content-addressed and validated server-side, and runs execute and resume the saved version. Audit mode only (P16) |
-| Local embedding clustering | `packages/workflow/src/clustering/deterministic.ts` is the deterministic path; §25.4 metrics would have to justify replacing it |
+| Local embedding clustering | `packages/workflow/src/clustering/deterministic.ts` is the deterministic path; §25.4 metrics would have to justify replacing it. A local MiniLM candidate was evaluated offline and provisionally rejected (P18, [qa/p18](qa/p18/README.md)) |
 
 Data for these is recorded now, per §2.4: inspection and exposure footprints, immutable
 snapshot identity, Git base/head/range, hotspots, the activity journal, the issue op log,

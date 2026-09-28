@@ -49,7 +49,8 @@ with your own Claude, ChatGPT or Google subscription instead of API keys (see
 | `subscription-testing-plan.json` | Testing / `testing-plan` | Claude Code (analyst), Codex (planner) |
 | `subscription-testing-execute.json` | Testing / `testing-execute` | Codex (analyst), Claude Code (writer) |
 
-Together they cover all four wire protocols and all three subscription CLIs;
+Together they cover all four wire protocols and three of the four subscription CLIs (Claude
+Code, Codex and the Antigravity CLI);
 `audit-mixed-providers` is the mixed-provider configuration. Every template names a placeholder model (`replace-with-your-model-id`)
 and uses dedicated `ARBITRA_*` variable names, so an unrelated provider key already
 exported in your shell cannot enable a run.
@@ -116,9 +117,9 @@ The smoke checks cover:
 - all four wire protocols across the set.
 
 They prove configuration, preflight and runtime wiring. They do not measure model quality,
-provider conformance or real Docker isolation; those remain completion-plan items
-([P03](completion-plan.md#p03--build-and-run-live-provider-acceptance),
-[P04](completion-plan.md#p04--validate-the-actual-docker-boundary)).
+provider conformance or real Docker isolation. Those are covered separately: provider
+conformance in [P03](completion-plan.md#p03--build-and-run-live-provider-acceptance)
+(partial), and the real Docker boundary in [P04](qa/p04/README.md) (complete).
 
 Without any configuration you can also run the scripted Audit, which uses deterministic
 detectors and no provider:
@@ -198,10 +199,10 @@ CLI's own agent tools are disabled, and any sign that it used one fails the call
 
 | Transport | CLI | Endpoint | Sign in (once, in a terminal) | Executable |
 |---|---|---|---|---|
-| `claude-code-cli` | Claude Code 2.1.x | `cli://claude-code` | `claude auth login` with a Claude Pro or Max account; or `claude setup-token` for `auth: "oauth_token"` | `ARBITRA_CLAUDE_CODE_EXECUTABLE`, else `claude` on PATH, `~/.claude/local`, `~/.local/bin`, npm global bins, or the newest VS Code/Cursor/Windsurf extension binary |
+| `claude-code-cli` | Claude Code 2.1–2.x | `cli://claude-code` | `claude auth login` with a Claude Pro or Max account; or `claude setup-token` for `auth: "oauth_token"` | `ARBITRA_CLAUDE_CODE_EXECUTABLE`, else `claude` on PATH, `~/.claude/local`, `~/.local/bin`, npm global bins, or the newest VS Code/Cursor/Windsurf extension binary |
 | `codex-cli` | Codex CLI 0.150–0.199 | `cli://codex` | `codex login`, choose Sign in with ChatGPT (an API-key login is refused) | `ARBITRA_CODEX_EXECUTABLE`, else `codex` on PATH, npm global bins, or `/Applications/ChatGPT.app/Contents/Resources/codex` on macOS |
 | `antigravity-cli` | Antigravity CLI (`agy`) 0.1–1.x | `cli://antigravity` | run `agy` once and sign in with the Google account that holds your Google AI subscription (kept in the OS keyring) | `ARBITRA_ANTIGRAVITY_EXECUTABLE`, else `agy` on PATH, `~/.local/bin/agy` (the installer's location), or `%LOCALAPPDATA%\Microsoft\WinGet\Links\agy.exe` |
-| `gemini-cli` | Gemini CLI 0.60+ | `cli://gemini` | run `gemini`, Login with Google using a Gemini Code Assist Standard or Enterprise account, and export `GOOGLE_CLOUD_PROJECT` | `ARBITRA_GEMINI_EXECUTABLE`, else `gemini` on PATH or npm global bins |
+| `gemini-cli` | Gemini CLI 0.60–0.x | `cli://gemini` | run `gemini`, Login with Google using a Gemini Code Assist Standard or Enterprise account, and export `GOOGLE_CLOUD_PROJECT` | `ARBITRA_GEMINI_EXECUTABLE`, else `gemini` on PATH or npm global bins |
 
 An executable override must be an absolute path. If it names a JavaScript entry point
 (`.js`, `.cjs`, `.mjs`, for example an npm package's `cli.js`), arbitra runs it with its own

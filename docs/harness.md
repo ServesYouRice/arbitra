@@ -263,8 +263,9 @@ still requires P03 evidence.
 
 Model and harness are independently selectable where compatibility is known. A model does
 not have to use its vendor's harness, and the canonical harness is the default for every
-mode. `harness.profileId` in the run configuration selects a profile; `harness.mode`
-selects `canonical` or `native`.
+mode. `harness.mode` in the run configuration selects `canonical` or `native`.
+`harness.profileId` is accepted but not read: the stage fixes the canonical profile
+(`arbitra-canonical`, or `arbitra-canonical-testing-writer` for Testing writers).
 
 ## Native harness adapters
 
@@ -294,7 +295,8 @@ Anything not in the matrix is refused before a run exists: Audit
 `NATIVE_HARNESS_VERSION_UNSUPPORTED` from the pre-run `--version` probe, and
 `NATIVE_HARNESS_SUBSCRIPTION_LOGIN_VERSION_UNSUPPORTED` below 2.1.0 for the host login), and any tool that
 cannot be bounded (`NATIVE_HARNESS_TOOL_UNENFORCEABLE`: shell, network, subagent, MCP or
-unknown tools). Permitted tools are Read, Glob, Grep, LS, Edit, MultiEdit and Write.
+unknown tools). Permitted tools are Read, Glob, Grep, LS, Edit, MultiEdit, Write and
+NotebookEdit; the default grant is Read, Glob, Grep, Edit and Write.
 
 The native profile (`native:claude-code`) declares `managesContextInternally: true` and
 `writeFiles: true`, so the port itself rejects it for Audit (`AUDIT_INTERNAL_CONTEXT_FORBIDDEN`)

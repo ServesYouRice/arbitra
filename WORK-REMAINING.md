@@ -1,6 +1,6 @@
 # Remaining work
 
-Updated September 27, 2026 against commit b560162 (branch `beta`).
+Updated September 28, 2026 against commit f1616f1 (branch `beta`).
 
 The maintained execution queue is the [completion plan](docs/completion-plan.md). Every item is recorded in its [status table](docs/completion-plan.md#status-september-27-2026).
 

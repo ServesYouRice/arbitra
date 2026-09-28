@@ -93,7 +93,9 @@ source snapshot and invokes a local Linux Docker engine with a digest-pinned ima
 no image pulls, no network, read-only mounts, an unprivileged user, dropped capabilities,
 and CPU, memory, process, time and output limits. Commands use structured executable
 and argument allowlists; host shell evaluation is disabled. An empty Docker CLI
-configuration and a restricted environment exclude operator Docker contexts and credentials.
+configuration and a restricted environment exclude operator Docker credentials and
+configuration. Only the local engine socket is taken from `DOCKER_HOST` or the current
+Docker context and passed as `--host`; a `tcp://` or `ssh://` engine is refused.
 The restrictions use Docker's documented [container run options](https://docs.docker.com/reference/cli/docker/container/run/).
 
 Audit workflows opt in through `verification.execution`. The coordinator in
@@ -106,8 +108,9 @@ Check dependencies must already exist in the pinned image. An exit code is a pro
 result, not proof of a finding.
 
 Before a run starts, preflight asks the sandbox adapter whether the engine is a running
-Linux engine and whether the pinned image is already present locally. It uses only
-`docker info` and `docker image inspect`, with an empty CLI configuration, and never pulls.
+Linux engine and whether the pinned image is already present locally. Besides the one-time
+endpoint lookup, it uses only `docker info` and `docker image inspect`, with an empty CLI
+configuration, and never pulls.
 For Testing execution, an absent engine or image blocks the start; for Audit checks it
 is a warning. Preflight also rejects write grants that are not exact file paths
 or that no command-bound check covers.
@@ -119,6 +122,27 @@ dispatch. The model receives lease-mediated file tools, not shell access; change
 invalidate their previous authorization. Final verification checks the whole workspace
 before exact verified changes are exported. Planning success alone cannot pass an execution
 gate. See [Testing mode](workflows.md#testing-mode) for the execution configuration.
+
+Normal completion, cancellation and timeout independently force-remove the container
+and its anonymous volumes before removing the staged files. Cleanup failure stops the
+adapter; persistent failure retains staged files. Abrupt host-process termination can
+leave a container and staging directory behind. On resume, the coordinator removes
+saved unfinished containers before dispatching another check. Recovery uses a fresh
+Docker configuration and validates the saved temporary directory before deletion.
+Failed recovery stops verification. Tests cover the process boundary with an injected
+Docker CLI and real bounded Node subprocesses. The same paths, including orphan recovery,
+passed against a real Linux engine ([qa/p04](qa/p04/README.md)).
+
+`packages/security/src/command-policy.ts` classifies every command a plan proposes
+(`classifyCommand`, `classifyPlannedCommand`) into `derived_repository_script`,
+`allowlisted` or `requires_approval`, and `assertCommandExecutable` throws
+`CommandRequiresApprovalError` rather than running one that needs a human. The
+classification is re-resolved against the repository at execution time; a derived script
+that has changed or disappeared becomes `requires_approval`.
+
+Task IR carries the policy with the command (`taskCommandSchema` in
+`packages/schemas/src/task-ir.ts`), so an executing agent cannot receive a command without
+also receiving its execution policy.
 
 ## Native harness boundary
 
@@ -133,8 +157,11 @@ configuration, so a configuration submitted over HTTP cannot choose a program to
 The child environment is rebuilt from an allowlist (`claudeCodeEnvironment` in
 `packages/harness/src/native/claude-code/translation.ts`): PATH, a scratch
 `HOME`/`CLAUDE_CONFIG_DIR`/`TMPDIR`, flags that disable non-essential traffic, and exactly
-one credential, the value of the configured `apiKeyEnvVar`. Other host credentials, tokens
-and proxies are not passed.
+one credential, the value of the configured `apiKeyEnvVar`. With
+`credentialKind: "subscription_login"` no credential is passed: the CLI uses the host's own
+login through the host `HOME` (and `USER`/`LOGNAME` for the macOS keychain), and host
+settings are switched off by flags (see [harness.md](harness.md#shape-of-a-native-run)).
+Other host credentials, tokens and proxies are not passed.
 
 Tool authority is refused at preflight when it cannot be enforced: shell, network, subagent,
 MCP and unknown tools (`NATIVE_HARNESS_TOOL_UNENFORCEABLE`). At run time, streamed tool
@@ -151,28 +178,6 @@ managed settings still apply to the CLI. Its network use is limited to what the 
 itself does with its permitted tools (no network tools are granted); it is not isolated at
 the network layer. Conformance against the real CLI is recorded in
 [qa/p12](qa/p12/README.md).
-
-Normal completion, cancellation and timeout independently force-remove the container
-and its anonymous volumes before removing the staged files. Cleanup failure stops the
-adapter; persistent failure retains staged files. Abrupt host-process termination can
-leave a container and staging directory behind. On resume, the coordinator removes
-saved unfinished containers before dispatching another check. Recovery uses a fresh
-Docker configuration and validates the saved temporary directory before deletion.
-Failed recovery stops verification. Tests cover the process boundary with an injected
-Docker CLI and real bounded Node subprocesses; live Docker validation requires a
-running Linux engine and remains an outstanding acceptance task in the
-[completion plan](completion-plan.md#p04--validate-the-actual-docker-boundary).
-
-`packages/security/src/command-policy.ts` classifies every command a plan proposes
-(`classifyCommand`, `classifyPlannedCommand`) into `derived_repository_script`,
-`allowlisted` or `requires_approval`, and `assertCommandExecutable` throws
-`CommandRequiresApprovalError` rather than running one that needs a human. The
-classification is re-resolved against the repository at execution time; a derived script
-that has changed or disappeared becomes `requires_approval`.
-
-Task IR carries the policy with the command (`taskCommandSchema` in
-`packages/schemas/src/task-ir.ts`), so an executing agent cannot receive a command without
-also receiving its execution policy.
 
 ## Secrets
 
@@ -213,9 +218,10 @@ of dishonesty as a fabricated metric:
 
 - A model provider that returns malicious content is trusted to the extent that its output
   is parsed; the defence is schema validation and evidence-range checking, not attestation.
-- Native harness mode is **not implemented**; if it were, the tool loop would run outside
-  `packages/harness/src/canonical/adapter.ts` and the guarantees above would need restating
-  for that path. See [`harness.md`](harness.md).
+- Native harness mode (the Testing writer only) runs its tool loop inside Claude Code,
+  outside `packages/harness/src/canonical/adapter.ts`. Its guarantees and limits are
+  restated in [Native harness boundary](#native-harness-boundary) and
+  [`harness.md`](harness.md#limits-of-enforcement).
 - Suppression candidates are an *uncertainty signal*. A determined injection that an
   auditor both read and cited would not raise one.
 - The repository snapshot is trusted to be what Git reported. arbitra detects drift; it

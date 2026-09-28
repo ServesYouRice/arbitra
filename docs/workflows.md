@@ -41,10 +41,11 @@ is allowed to see and what it must return.
 
 ### Context policy
 
-`packages/workflow/src/context-policy.ts` declares `CONTEXT_MODES` and
-`CONTEXT_TRUST_LEVELS` with a `DEFAULT_CONTEXT_POLICY`. This is what keeps discovery
-independent: an auditor in independent mode does not receive another auditor's findings,
-so agreement between them means something. Weakening a context policy to "help" a model is
+`packages/workflow/src/context-policy.ts` declares `CONTEXT_MODES` (`none`,
+`selected_artifacts`, `summary`, `delta`, `recent_turns`, `full_context`) and
+`CONTEXT_TRUST_LEVELS` with a `DEFAULT_CONTEXT_POLICY`. Discovery stays independent: an
+auditor does not receive another auditor's findings, so agreement between them means
+something. Weakening a context policy to "help" a model is
 how a multi-auditor run quietly becomes a single-auditor run with extra cost.
 
 ### Gates and human checkpoints
@@ -91,7 +92,7 @@ Run status lists each dispatched human node as a `kind: "human"` checkpoint with
 current version through either interface:
 
 ```text
-orchestrator respond-checkpoint <run-id> <checkpoint-id> <version> approve|reject
+node apps/cli/dist/src/bin.js respond-checkpoint <run-id> <checkpoint-id> <version> approve|reject
 POST /runs/:id/checkpoints/:checkpointId   {"version": "<64 hex>", "decision": "approve"}
 ```
 
@@ -130,9 +131,11 @@ every check. Each diagnostic has a stable code and a path:
 | Privileged changes | `UNAUTHORIZED_CHANGE` |
 
 Some changes are privileged: control-plane protocol sources (non-empty
-`prompt.protocolLayers`, or `protocol*` / `controlPlane` keys in a node's config), write
-authority (`write*`, `authorization`, `apply*` keys), Testing execution (a node named
-`execute`, or `testing`, `execution` or `sandbox` keys), and reusing a shipped preset ID.
+`prompt.protocolLayers`, or a node config key `protocol`, `protocols`, `protocolSource(s)`,
+`protocolOverride(s)` or `controlPlane`), write authority (`write`, `writes`,
+`writeAuthority`, `allowWrites`, `authorization(s)`, `apply`, `applyChanges`), Testing
+execution (a node named `execute`, or a `testing`, `testingExecution`, `execution` or
+`sandbox` key), and reusing a shipped preset ID. Keys match exactly, ignoring case.
 Each category needs its own explicit authorization (`authorize: ["write_authority", …]`).
 Without one, the change is rejected. The record keeps only the authorizations the graph uses.
 An authorization lets a graph be saved and dispatched. It never gives a run authority it does
@@ -148,8 +151,8 @@ only from a Testing configuration's own execution authorization.
 `workflow.graph` requires audit mode and cannot be combined with `workflow.preset`. It never
 means "latest". `estimate` and `start` load the version and validate it again against the
 run's configuration, before any run exists. Failures are preflight configuration
-diagnostics (HTTP 400, also listed by `preflight`): `WORKFLOW_GRAPH_VERSION_ABSENT` or
-`WORKFLOW_GRAPH_ID_MISMATCH` at `workflow.graph`, or each validator code at
+diagnostics (HTTP 400, also listed by `preflight`): `WORKFLOW_GRAPH_VERSION_ABSENT` at `workflow.graph`,
+`WORKFLOW_GRAPH_ID_MISMATCH` at `workflow.graph.id`, or each validator code at
 `workflow.graph(<id>).<path>`. The run context records `workflowGraph`
 (`id`, `version`). The runner's stored definition is the saved graph itself. Resume and Audit
 replay re-check that the definition's content address equals the recorded version and that
@@ -167,9 +170,9 @@ GET  /workflows/:id/versions/:version        one immutable version
 POST /workflows/validate  {"graph", "configurationId"?, "authorize"?}   diagnostics; writes nothing
 POST /workflows           {"graph", "parentVersion"?, "configurationId"?, "authorize"?}
 
-orchestrator workflow list | show <id> [version]
-orchestrator workflow validate <graph.json> [--configuration=<id>] [--authorize=<category,...>]
-orchestrator workflow save <graph.json> [--parent=<version>] [--configuration=<id>] [--authorize=<category,...>]
+node apps/cli/dist/src/bin.js workflow list | show <id> [version]
+node apps/cli/dist/src/bin.js workflow validate <graph.json> [--configuration=<id>] [--authorize=<category,...>]
+node apps/cli/dist/src/bin.js workflow save <graph.json> [--parent=<version>] [--configuration=<id>] [--authorize=<category,...>]
 ```
 
 In the web app, the graph column has two modes: a read-only run view and an editor. The
@@ -194,11 +197,16 @@ evidence is in [`docs/qa/p16/`](qa/p16/README.md).
    ─ ◆ planner ─ ◇ critic required? ─ ◆ critic ─ ■ renderer
 ```
 
+This is the logical pipeline. The executable `audit-deep` graph is preflight, three
+auditors, one consensus loop, a verification subgraph, planner and critic
+([`graphs.ts`](../packages/runtime/src/graphs.ts)); the other stages run inside those
+nodes' executors.
+
 **Routing.** `packages/core/src/preflight/complexity-gate.ts` recommends an
 `OrchestrationIntensity` from repository signals, and
-`packages/core/src/routing/difficulty.ts` scores tasks across `DIFFICULTY_DIMENSIONS`. The
-router is deterministic: it decides whether more models are worth paying for, and records
-why.
+`packages/core/src/routing/difficulty.ts` scores tasks across `DIFFICULTY_DIMENSIONS`. Both
+are deterministic, but no shipped pipeline calls them yet: the preset decides how many
+auditors run, and the planner writes each task's routing.
 
 **Depth.** `packages/workflow/src/nodes/discovery/depth.ts` allocates auditor scopes for
 `fast`, `balanced` and `deep` (`allocateDiscoveryScopes`), including hotspot-weighted
@@ -275,11 +283,11 @@ Interactive high-impact defaults pause the run in `BLOCKED`. Inspect, revise, ap
 and resume through the CLI:
 
 ```text
-orchestrator run feature-config.json
-orchestrator requirements <run-id>
-orchestrator revise-requirements <run-id> <artifact-id> draft.json
-orchestrator approve-requirements <run-id> <current-artifact-id> <ambiguity-id>...
-orchestrator resume <run-id>
+node apps/cli/dist/src/bin.js run feature-config.json
+node apps/cli/dist/src/bin.js requirements <run-id>
+node apps/cli/dist/src/bin.js revise-requirements <run-id> <artifact-id> draft.json
+node apps/cli/dist/src/bin.js approve-requirements <run-id> <current-artifact-id> <ambiguity-id>...
+node apps/cli/dist/src/bin.js resume <run-id>
 ```
 
 The localhost API exposes `GET /runs/:id/requirements`,
@@ -343,7 +351,8 @@ remaining explicit limits.
 
 ## Testing mode
 
-The shared CLI/server runtime supports plan-only Testing. Configure `mode: "testing"`,
+The shared CLI/server runtime runs Testing in plan mode, and in execute mode when
+authorized (see below). For a plan run, configure `mode: "testing"`,
 the canonical harness, model endpoint bindings in `workflow.modelExecution`, and:
 
 ```json
@@ -437,8 +446,10 @@ or `task_attempts_exhausted`). It also blocks when the workspace returns to inva
 (`repair_oscillation`). Incomplete final checks, including exhausted sandbox budgets, also block;
 they are not repaired. Cancellation stops the run, and a later resume can continue it. Only
 the exact final bytes that pass fresh verification are exported. Repair is covered with
-injected sandbox/provider ports. Its real-Docker repetition is still outstanding.
-Native harness execution and live-provider/Docker acceptance QA remain open.
+injected sandbox/provider ports, and every repair case has also run against real containers
+([qa/p04](qa/p04/README.md)). Testing plan and execute have run live on the subscription
+CLIs ([qa/p03-subscription](qa/p03-subscription/README.md)); the OpenAI and Anthropic API
+protocols still have no live evidence.
 The [completion plan](completion-plan.md) also tracks oversized contexts and the remaining extensions.
 
 ## Feature and Testing replay
@@ -553,8 +564,10 @@ requests, write grants and verification; stale and unapproved requirements contr
 missing and corrupt source outputs, protocol pins and replay contracts; failed Feature
 and Testing execution replays resumed as the same run; fresh worktrees and checks for
 every execution replay; byte-level source immutability; and matching Feature and Testing
-decisions over the CLI port and HTTP. Replay under live providers and real Docker has not
-been exercised.
+decisions over the CLI port and HTTP. A Testing execute replay of a plan run has run live
+on the subscription CLIs, with checks in real Docker
+([qa/p03-subscription](qa/p03-subscription/README.md#testing)). Feature replay has not been
+exercised live.
 
 ## Incremental Audit
 
@@ -564,13 +577,13 @@ An incremental run reuses work from a base that audited a changed snapshot. It i
 default and is always requested explicitly:
 
 ```text
-orchestrator run audit.json --incremental <base-run-id>
+node apps/cli/dist/src/bin.js run audit.json --incremental <base-run-id>
 POST /runs   {"configurationId": "…", "incremental": {"baseRunId": "<base-run-id>"}}
 workflow.incremental: {"baseRunId": "<base-run-id>"}      (in the saved configuration)
 ```
 
 The CLI flag and the HTTP field override the saved configuration's value. The request
-becomes part of the run's stored configuration. `orchestrator incremental <run-id>`,
+becomes part of the run's stored configuration. `node apps/cli/dist/src/bin.js incremental <run-id>`,
 `GET /runs/:id/incremental` and the run summary's `incremental` field report the outcome.
 `scope.exclude` (repository-relative path prefixes) removes paths from the snapshot for
 any scope kind.

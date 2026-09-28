@@ -1,9 +1,10 @@
 /* arbitra design tokens
- * Destination: apps/web/src/tokens.css — land this BEFORE TASK-045 begins.
+ * Shipped as apps/web/src/tokens.css; docs/brand/tokens.css is the normative copy.
  * Normative reference: docs/DESIGN-LANGUAGE.md
  *
  * Rules enforced elsewhere:
- *   - no-raw-color.cjs fails the build on a hex literal outside this file
+ *   - no-raw-color.cjs fails `pnpm lint` on a colour literal in apps/web/src
+ *     scripts; `pnpm run design:check` fails on a hex colour in any other stylesheet
  *   - every colour is defined in ALL THREE theme states; none may exist
  *     only inside a media query or a [data-theme] block
  */

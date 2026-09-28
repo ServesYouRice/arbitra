@@ -28,12 +28,13 @@ network access outside an activity. Time comes from `services/clock.ts`, randomn
 ```text
 attempt_start   id, attempt, providerRequestId?
 attempt_error   the failure, kept; a failed attempt is data, not noise
-activity_end    the terminal record and its artifact reference
+end             the terminal record and its artifact reference (`ActivityEndRecord`)
 ```
 
-`providerRequestId` is recorded at attempt start so a crash between "provider accepted the
-request" and "we recorded the response" is recoverable rather than ambiguous — that window
-is exactly where double-billing happens.
+`attempt_start` has an optional `providerRequestId`, but no current caller sets it. A
+provider's request ID is known only after it responds, and it is recorded in the model
+trace. A crash between "provider accepted the request" and "we recorded the response" can
+therefore repeat the request; see [recovery boundaries](#recovery-boundaries).
 
 `journal-load.ts` replays the log to reconstruct state. A partially written trailing record
 is truncated rather than trusted: the log is the truth, and a torn tail is not part of it.
@@ -86,12 +87,12 @@ runtime, so a cancelled run stops paying rather than finishing quietly in the ba
 | Failure point | What happens on restart |
 |---|---|
 | Before `attempt_start` | The activity has not begun; it runs. |
-| After `attempt_start`, before the provider responds | `providerRequestId` is journalled; the attempt is recoverable rather than blindly retried. |
-| After the response, before `activity_end` | The attempt is journalled as incomplete; the retry is bounded and visible. |
-| After `activity_end` | The result is replayed from the artifact store. Nothing is re-paid. |
+| After `attempt_start`, before the provider responds | The attempt is retried; the original budget reservation stays charged. |
+| After the response, before `end` | The attempt is journalled as incomplete; the retry is bounded and visible. |
+| After `end` | The result is replayed from the artifact store. Nothing is re-paid. |
 | Mid-write to the journal | The torn trailing record is truncated on load; the log stays consistent. |
 | Mid-write to the evaluation corpus journal | Records after the last `commit`, and any torn line, are truncated on load; the import is retried idempotently. |
-| `index.db` deleted | `packages/persistence/src/index-db/rebuild.ts` rebuilds it from the journal and traces, producing an identical query result. The index is a cache, never a source of truth. |
+| `index.db` deleted | `packages/persistence/src/index-db/rebuild.ts` rebuilds it from the runs' trace logs, producing an identical query result. The index is a cache, never a source of truth. |
 | `model-activity.index.db` deleted, stale or corrupt | The next trace query re-derives it from the committed trace log; responses and trace IDs are unchanged. |
 
 ## Configuration drift
@@ -129,8 +130,8 @@ checkpoint state of its own; the previous in-memory registry was removed. See
 
 `packages/core/src/checkpoints.ts` is unrelated to graph nodes. It is the security
 envelope's rule for when tainted writes or `requires_approval` commands need a checkpoint.
-Dedicated web requirements controls remain P10. The web inspector answers only pending
-generic human checkpoints.
+The web Feature contract view (`apps/web/src/views/feature/`) inspects, revises and approves
+requirements; the web inspector answers pending generic human checkpoints.
 
 ## Resume versus replay
 
@@ -181,7 +182,7 @@ activity — the full identity tuple, token usage, cost, cache hit rate, tool ca
 count, continuation state, and `outcome` as `success` · `refusal` · `error` · `cancelled`,
 with refusals kept separate from errors.
 
-`index-db/rebuild.ts` builds the SQLite query index from those traces and the journal. It
+`index-db/rebuild.ts` builds the SQLite query index from those traces. It
 is disposable by design: delete it and it comes back identical.
 
 The trace browser uses a second, per-run derived index:

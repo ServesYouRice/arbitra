@@ -116,9 +116,9 @@ result      { additionalAuditorUniqueContribution[], premiseSignal, interpretati
 limitations []
 ```
 
-`premiseSignal` is `positive` only when an auditor after the first contributed a true
-finding no earlier auditor found; `negative` when later auditors contributed only false
-positives; `null` otherwise. `interpretation` is the literal
+`premiseSignal` is `"positive"` when an auditor after the first found a true defect no
+other auditor found; `"negative"` when none did and a later auditor reported a false
+positive; the string `"null"` otherwise. `interpretation` is the literal
 `"smoke_test_only_not_proof"` and cannot be set to anything else by the type.
 
 ### Live evaluation is still outstanding
@@ -135,12 +135,17 @@ corpus.
 The first live results are interim. The run was stopped by quota, and every model was a
 Gemini model, so the results say nothing about different model families. See
 [docs/qa/p06/README.md](qa/p06/README.md).
+
+Version 2.0.0 ([docs/qa/p06-subscription](qa/p06-subscription/README.md)) runs three model
+families (Claude, GPT and Gemini) through the subscription CLIs. 1 of its 15 runs has
+completed, and it is paused by the Claude usage window. Its results are not pooled with
+version 1.
 The default suites run scripted auditors
 (`packages/testing/src/scripted-auditor.ts`) over `packages/testing/src/fake-transport.ts`.
 
 So the shipped premise measurement demonstrates that the **measurement** is deterministic
-and correct. It does not demonstrate that multi-model auditing works. Every report says so
-in its own `limitations`:
+and correct. It does not demonstrate that multi-model auditing works. Every scripted report
+says so in its own `limitations`:
 
 > One small fixture cannot prove or disprove the multi-auditor premise.
 > Scripted auditors test deterministic measurement and orchestration, not real-model
@@ -219,9 +224,10 @@ unredacted secret, it fails with `CorpusReportMismatchError`. Adjudications reco
 export do not alter the rebuilt report; they are returned as `supersededJudgments`
 (`reportedVersion` → `currentVersion`), so a changed historical judgment is always explicit.
 
-Nothing in the CLI, server or runtime constructed the in-memory corpora, so there is no
-composition wiring to replace yet; a production evaluation driver that feeds these stores is
-[P06](completion-plan.md#p06--measure-the-real-model-premise). The existing real-handoff
+Nothing in the CLI, server or runtime constructed the in-memory corpora, so there was no
+composition wiring to replace. The
+[P06](completion-plan.md#p06--measure-the-real-model-premise) driver
+(`packages/testing/src/premise-evaluation/`) feeds the durable store. The existing real-handoff
 script uses scripted Audit responses to construct its plan before invoking an external
 coding agent; it does not establish live multi-model Audit quality. Completion requires
 saved real-run evidence and reproducible scoring, and does not require a positive result.
@@ -269,5 +275,6 @@ contribution, and measured independence remain unavailable without an evaluation
 Protocol comparisons accept exact identities and optional runIds, refuse different
 protocol identities, and report missing matching activity explicitly. The trace browser
 is implemented through the runtime, HTTP routes and web Traces view; it exposes attempt
-identity, usage, failures and immutable redacted artifacts. Browser acceptance QA and
-indexing very large histories remain in the [completion plan](completion-plan.md).
+identity, usage, failures and immutable redacted artifacts. Browser acceptance (P10) and
+the persistent trace index (P17) are complete; see the
+[completion plan](completion-plan.md#status-september-27-2026).

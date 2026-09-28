@@ -3,7 +3,7 @@
  *
  * Destination: packages/schemas/src/glyphs.ts
  *
- * The CLI, the Markdown renderer and the graph view all import from here.
+ * The Markdown renderer and the graph view import from here.
  * Two copies of this table is the same class of defect as two orchestrators.
  *
  * The node taxonomy is CLOSED (spec §8). Adding a seventh kind is a spec
