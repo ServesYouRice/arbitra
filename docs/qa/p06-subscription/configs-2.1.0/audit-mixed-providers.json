@@ -1,0 +1,235 @@
+{
+  "schemaVersion": 1,
+  "mode": "audit",
+  "scope": {
+    "kind": "repository"
+  },
+  "auditDepth": "deep",
+  "consensusPolicy": "full",
+  "maxConsensusRounds": 2,
+  "verification": {
+    "deterministicFirst": true,
+    "maxModelQuestionsPerRound": 2
+  },
+  "models": {
+    "auditor-a": {
+      "schemaVersion": 1,
+      "provider": "anthropic",
+      "modelId": "claude-sonnet-5",
+      "transport": "claude-code-cli",
+      "servedBy": null,
+      "family": "claude",
+      "independenceGroup": "anthropic-sonnet",
+      "capabilityTier": "frontier",
+      "supports": {
+        "tools": true,
+        "parallelToolCalls": false,
+        "structuredOutput": true,
+        "reasoning": false,
+        "promptCaching": false,
+        "batch": false,
+        "vision": false
+      },
+      "limits": {
+        "contextTokens": 200000,
+        "maxOutputTokens": 32000
+      },
+      "effort": {
+        "supported": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "collapse": {
+          "xhigh": "high"
+        },
+        "params": {}
+      },
+      "quirks": {
+        "systemPromptSupport": "full",
+        "fewShotPolicy": "neutral",
+        "promptStyle": "markdown",
+        "documentPlacement": "leading",
+        "historyPolicy": "verbatim",
+        "samplingDefaults": {
+          "temperature": null,
+          "topP": null,
+          "topK": null
+        },
+        "greedyDecodingSafe": true,
+        "toolLoopLimit": 8,
+        "prefillSupported": false
+      },
+      "structuredOutputDialect": "prompt_json"
+    },
+    "auditor-b": {
+      "schemaVersion": 1,
+      "provider": "openai",
+      "modelId": "gpt-5.6-luna",
+      "transport": "codex-cli",
+      "servedBy": null,
+      "family": "gpt",
+      "independenceGroup": "openai",
+      "capabilityTier": "frontier",
+      "supports": {
+        "tools": true,
+        "parallelToolCalls": false,
+        "structuredOutput": true,
+        "reasoning": false,
+        "promptCaching": false,
+        "batch": false,
+        "vision": false
+      },
+      "limits": {
+        "contextTokens": 272000,
+        "maxOutputTokens": 128000
+      },
+      "effort": {
+        "supported": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "collapse": {
+          "xhigh": "high"
+        },
+        "params": {}
+      },
+      "quirks": {
+        "systemPromptSupport": "full",
+        "fewShotPolicy": "neutral",
+        "promptStyle": "xml",
+        "documentPlacement": "leading",
+        "historyPolicy": "verbatim",
+        "samplingDefaults": {
+          "temperature": null,
+          "topP": null,
+          "topK": null
+        },
+        "greedyDecodingSafe": true,
+        "toolLoopLimit": 8,
+        "prefillSupported": true
+      },
+      "structuredOutputDialect": "prompt_json"
+    },
+    "auditor-c": {
+      "schemaVersion": 1,
+      "provider": "google",
+      "modelId": "gemini-3.8-flash-low",
+      "transport": "antigravity-cli",
+      "servedBy": null,
+      "family": "gemini",
+      "independenceGroup": "google",
+      "capabilityTier": "frontier",
+      "supports": {
+        "tools": true,
+        "parallelToolCalls": false,
+        "structuredOutput": true,
+        "reasoning": false,
+        "promptCaching": false,
+        "batch": false,
+        "vision": false
+      },
+      "limits": {
+        "contextTokens": 1000000,
+        "maxOutputTokens": 65536
+      },
+      "effort": {
+        "supported": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "collapse": {
+          "xhigh": "high"
+        },
+        "params": {}
+      },
+      "quirks": {
+        "systemPromptSupport": "full",
+        "fewShotPolicy": "neutral",
+        "promptStyle": "markdown",
+        "documentPlacement": "leading",
+        "historyPolicy": "verbatim",
+        "samplingDefaults": {
+          "temperature": null,
+          "topP": null,
+          "topK": null
+        },
+        "greedyDecodingSafe": true,
+        "toolLoopLimit": 8,
+        "prefillSupported": false
+      },
+      "structuredOutputDialect": "prompt_json"
+    }
+  },
+  "harness": {
+    "mode": "canonical"
+  },
+  "workflow": {
+    "preset": "audit-deep",
+    "modelExecution": {
+      "endpoints": [
+        {
+          "id": "claude-b",
+          "providerId": "anthropic",
+          "transport": "claude-code-cli",
+          "endpoint": "cli://claude-code",
+          "auth": "subscription_login"
+        },
+        {
+          "id": "codex",
+          "providerId": "openai",
+          "transport": "codex-cli",
+          "endpoint": "cli://codex",
+          "auth": "subscription_login"
+        },
+        {
+          "id": "antigravity",
+          "providerId": "google",
+          "transport": "antigravity-cli",
+          "endpoint": "cli://antigravity",
+          "auth": "subscription_login"
+        }
+      ],
+      "modelEndpoints": {
+        "auditor-a": "claude-b",
+        "auditor-b": "codex",
+        "auditor-c": "antigravity"
+      },
+      "roles": {
+        "planner": "auditor-a",
+        "verifier": "auditor-a",
+        "critic": "auditor-c"
+      },
+      "maximumOutputTokens": 32000,
+      "maximumContextTokens": 1000000,
+      "maximumTokens": 3000000,
+      "timeoutMs": 600000,
+      "maximumRetries": 2,
+      "maximumOutputRepairs": 2,
+      "rateLimits": {
+        "anthropic": {
+          "rpm": 10,
+          "tpm": 2000000,
+          "maxConcurrent": 2
+        },
+        "openai": {
+          "rpm": 6,
+          "tpm": 1000000,
+          "maxConcurrent": 1
+        },
+        "google": {
+          "rpm": 6,
+          "tpm": 1000000,
+          "maxConcurrent": 1
+        }
+      }
+    }
+  },
+  "budgets": {},
+  "security": {},
+  "protocols": {},
+  "promptOverrides": {},
+  "contextPolicies": {}
+}

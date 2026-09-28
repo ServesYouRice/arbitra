@@ -42,8 +42,8 @@ models.** `packages/testing/src/metrics/premise.ts` scores a run against a groun
 fixture, but the default suites run scripted auditors. The live evaluation (completion
 plan P06) has no result yet. Version 1, on Gemini's free tier, stopped at 4 of 15 runs
 with insufficient evidence either way ([`docs/qa/p06`](docs/qa/p06/README.md)). Version 2,
-on subscription models, stopped at run 2 of 15 on its per-run token cap and needs a protocol
-decision ([`docs/qa/p06-subscription`](docs/qa/p06-subscription/README.md)).
+on subscription models, runs as protocol 2.1.0, after 2.0.0 closed at run 2 of 15 on its per-run
+token cap ([`docs/qa/p06-subscription`](docs/qa/p06-subscription/README.md)).
 Every premise report carries `interpretation: "smoke_test_only_not_proof"`. See
 [`docs/evaluation.md`](docs/evaluation.md).
 
