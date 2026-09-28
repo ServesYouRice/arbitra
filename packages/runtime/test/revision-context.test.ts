@@ -101,6 +101,21 @@ describe("bounded atomic planner revisions", () => {
     expect(calls).toHaveLength(1);
   });
 
+  it("refuses an atomic patch inside the call, so the harness can repair it instead of failing the run", async () => {
+    const { input, port } = await fixture();
+    const refusals: string[] = [];
+    const result = await reviseWithContext({ ...input, blockingCritique: input.blockingCritique.slice(0, 1) }, { ...port, call: async (stage) => {
+      const patch = await port.call(stage) as PlanRevisionPatch;
+      // Observed live: a patch added a task that no lineage entry named.
+      const unnamed = structuredClone(patch); unnamed.tasks.push({ ...requiredAt(patch.tasks, 0), id: "TASK-004" });
+      try { stage.schema.parse(unnamed); } catch (error) { refusals.push(String(error)); }
+      return stage.schema.parse(patch);
+    } });
+    expect(refusals).toEqual([expect.stringContaining("REVISION_NEW_TASK_LINEAGE_ABSENT")]);
+    expect(refusals[0]).toContain("unnamed: TASK-004");
+    expect(result.plan.tasks.map(({ id }) => id)).toEqual(["TASK-002", "TASK-003"]);
+  });
+
   it("rejects missing complete-plan resolutions before accepting the one-call result", async () => {
     const { input, port } = await fixture();
     await expect(reviseWithContext(input, { ...port, fits: async () => true, call: async () => ({ plan: input.originalPlan, resolutions: [] }) })).rejects.toThrow("REVISION_DID_NOT_RESOLVE_EVERY_BLOCKING_CRITIQUE_ITEM");
