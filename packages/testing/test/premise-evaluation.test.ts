@@ -118,6 +118,11 @@ describe("P06 premise evaluation driver (scripted providers, no credentials)", (
     expect(report.comparisons.map(({ left, right }) => `${left}-${right}`)).toEqual(["C-B", "B-A", "C-A", "D-A_pipeline"]);
     expect(report.decision.heterogeneousOverRepeated).toBe("insufficient_evidence");
     expect(report.decision.statement).toContain("untested");
+    // A multi-family configuration is reported as such, not with the single-family caveat.
+    const multiFamily = analyse(protocol, truths, saved, "scripted", ["claude", "gemini", "gpt"]);
+    expect(multiFamily.decision.statement).toContain("Heterogeneous (3-family) auditors");
+    expect(multiFamily.decision.statement).not.toContain("untested");
+    expect(multiFamily.limitations[0]).toContain("3 model families (claude, gemini, gpt)");
 
     const bundle = corpusImport(protocol, truths, saved, "scripted", "2026-09-25T00:00:00Z");
     expect(bundle.runs?.map(({ runId }) => runId)).toContain("p06-driver-test-1.0.0-smoke-fixture-single-repetitions-1-2");
