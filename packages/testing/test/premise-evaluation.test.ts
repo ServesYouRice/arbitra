@@ -152,6 +152,38 @@ describe("P06 premise evaluation driver (scripted providers, no credentials)", (
     expect(second.stoppedReason).toBeNull();
   }, 120_000);
 
+  it("collects a run that completed before its record was written instead of resuming it", async () => {
+    const { root, protocol, state, evidence } = await workspace({ schedule: [{ fixtureId: "smoke-fixture", condition: "single", repetition: 1 }] });
+    const provider = premiseProvider();
+    await executeProtocol({ root, protocol, stateRoot: state, evidenceDirectory: evidence, providerOptions: provider.providerOptions });
+    // Observed live: the driver stopped while collecting a completed run, leaving its entry running.
+    const ledgerPath = join(state, "ledger.json");
+    const ledger = JSON.parse(await readFile(ledgerPath, "utf8")) as { runs: Record<string, { status: string; segments: { endedAt: string | null; wallClockMs: number | null; state: string | null }[] }> };
+    const entry = ledger.runs["smoke-fixture/single/r1"]; if (entry === undefined) throw new Error("FIXTURE_ENTRY_ABSENT");
+    entry.status = "running"; entry.segments = entry.segments.map((segment) => ({ ...segment, endedAt: null, wallClockMs: null, state: null }));
+    await writeFile(ledgerPath, JSON.stringify(ledger));
+    await rm(join(evidence, "runs", "smoke-fixture__single__r1.json"));
+    const calls = provider.calls.length;
+    const result = await executeProtocol({ root, protocol, stateRoot: state, evidenceDirectory: evidence, providerOptions: provider.providerOptions });
+    expect(result.completed).toEqual(["smoke-fixture/single/r1"]);
+    expect(provider.calls).toHaveLength(calls);
+    expect((await records(evidence)).map(({ key }) => key)).toEqual(["smoke-fixture/single/r1"]);
+  }, 120_000);
+
+  it("records each auditor's harness policy when models have different context limits", async () => {
+    const { root, protocol, state, evidence } = await workspace({ schedule: [{ fixtureId: "smoke-fixture", condition: "heterogeneous", repetition: 1 }] });
+    // A model whose own limit is below the run's context cap gets its own harness policy (observed live: P06 v2.1).
+    const config = JSON.parse(await readFile(join(root, "config.json"), "utf8")) as RunConfig;
+    const auditorB = config.models["auditor-b"]; if (auditorB === undefined) throw new Error("FIXTURE_PROFILE_ABSENT");
+    await writeFile(join(root, "config.json"), JSON.stringify({ ...config, models: { ...config.models, "auditor-b": { ...auditorB, limits: { ...auditorB.limits, contextTokens: 100_000 } } } }));
+    const result = await executeProtocol({ root, protocol, stateRoot: state, evidenceDirectory: evidence, providerOptions: premiseProvider().providerOptions });
+    expect(result.stoppedReason).toBeNull();
+    const identity = (await records(evidence))[0]?.record.identity;
+    expect(Object.keys(identity?.auditorHarnessPolicies ?? {})).toEqual(["auditor-a", "auditor-b", "auditor-c"]);
+    expect(new Set(Object.values(identity?.auditorHarnessPolicies ?? {})).size).toBe(2);
+    expect(identity?.harness.policyHash).toMatch(/^[0-9a-f]{64}$/u);
+  }, 120_000);
+
   it("retires an unresumable run as an adverse result, keeps its discovery and continues the schedule", async () => {
     const { root, protocol, state, evidence } = await workspace({ schedule: [{ fixtureId: "smoke-fixture", condition: "single", repetition: 1 }, { fixtureId: "smoke-fixture", condition: "single", repetition: 2 }] });
     const failing = failingPlanner(premiseProvider().providerOptions);

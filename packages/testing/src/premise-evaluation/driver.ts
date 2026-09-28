@@ -100,7 +100,9 @@ export async function executeProtocol(options: DriverOptions): Promise<DriverRes
         assertNoLeak(paths.checkout, truth);
         orchestrator = new Orchestrator({ repository: paths.checkout, stateDirectory: paths.state, ...(options.providerOptions === undefined ? {} : { providerOptions: options.providerOptions }) });
         entry = existing; entry.segments.push(segment); entry.status = "running";
-        await orchestrator.resume(entry.runId);
+        // A run that completed before its record was written (the driver stopped while collecting
+        // it) is collected, not resumed: a completed run cannot resume.
+        if ((await orchestrator.status(entry.runId)).state !== "COMPLETED") await orchestrator.resume(entry.runId);
       }
     } catch (error) {
       ledger.stoppedReason = `start_failed:${key}:${message(error)}`;
