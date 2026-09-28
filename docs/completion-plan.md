@@ -106,7 +106,7 @@ Evidence is in `docs/qa/`.
 | P03 | Accepted on subscriptions; API part deferred | Live transport conformance on Gemini native and the compatible endpoint (40 observations) and on all three subscription CLIs; on subscriptions, every public workflow through the CLI: Testing plan and execute (handoff applied), Feature automatic and interactive (operator revision, resume from a fresh process), a three-vendor Audit (all seeded defects accepted, nothing else); two exported Feature plans accepted by fresh Claude Code executors; 25 live defects fixed ([`qa/p03`](qa/p03/README.md), [`qa/p03-subscription`](qa/p03-subscription/README.md)) | Deferred to the [paid-API bundle](#deferred-the-paid-api-bundle): OpenAI Responses/Chat and Anthropic Messages API protocols live; refusal/context-limit elicitation |
 | P04 | **Complete** | Real engine: isolation, limits, timeout/cancel/output, drift, unavailable image, orphan recovery, parallel checks, source preservation, change-set application and stale rejection; public Testing executor with scripted and live model writers; two engine-exposed defects fixed ([`qa/p04`](qa/p04/README.md)) | — |
 | P05 | **Complete** | — | — |
-| P06 | Version 2.1.0 prespecified | Version 1 (Gemini API): 4 of 15 runs, decision **insufficient evidence** ([`qa/p06`](qa/p06/README.md)). Version 2.0.0 on subscription models (Claude Sonnet 5, Codex, Antigravity: three families) closed at run 2 of 15: the critic's review of a revised plan split into 154 Antigravity calls and spent the per-run token cap; interim, insufficient evidence. Version 2.1.0 (context cap at each model's limit, budgets resized, runtime fixes cfc1cc8 and e87b2da) prespecified before any run ([`qa/p06-subscription`](qa/p06-subscription/README.md)) | The 15 version-2.1.0 runs and their analysis |
+| P06 | **Complete** | Version 2.1.0 on subscription models (Claude Sonnet 5, GPT-5.6 Luna, Gemini 3.8 Flash: three families), prespecified in dfd5b23, ran all 15 runs. Decision **insufficient evidence** for C − B, B − A and D − A_pipeline over 10 defect units: recall A 25/30, B 10/10, C 20/20, D 19/20; precision C 54/58, D 20/23. Adverse and earlier results kept, unpooled: version 1 (Gemini API, 4 runs, [`qa/p06`](qa/p06/README.md)) and 2.0.0 (closed at run 2 on the per-run token cap) ([`qa/p06-subscription`](qa/p06-subscription/README.md)) | — |
 | P07 | **Complete** | Every repair case, including the critical success/failure ones, rerun with real containers ([`qa/p04`](qa/p04/README.md)) | — |
 | P08 | Implemented; live limits deferred | All inventory stages now compose (global outline hierarchically, Feature drafting/exploration, Testing risk partitions) with resume tests; limits in `docs/harness.md` | Deferred to the [paid-API bundle](#deferred-the-paid-api-bundle): live context limits |
 | P09 | **Complete** | — | — |
@@ -210,7 +210,7 @@ credentials or changing historical judgments silently.
 
 ## P06 — Measure the real-model premise
 
-- [ ] Complete P06.
+- [x] Complete P06.
 
 **Implementation.** Connect the public runtime to an evaluation driver and the existing
 [premise scorer](../packages/testing/src/metrics/premise.ts). Use multiple repositories

@@ -1,0 +1,615 @@
+{
+  "schemaVersion": 1,
+  "status": "completed",
+  "key": "live-fixture-v1/heterogeneous/r2",
+  "fixtureId": "live-fixture-v1",
+  "condition": "heterogeneous",
+  "repetition": 2,
+  "protocolId": "arbitra-p06-premise",
+  "protocolVersion": "2.1.0",
+  "wallClockMs": 436713,
+  "segments": [
+    {
+      "startedAt": "2026-09-28T13:06:52.783Z",
+      "endedAt": "2026-09-28T13:14:09.496Z",
+      "wallClockMs": 436713,
+      "state": "COMPLETED",
+      "kind": "start"
+    }
+  ],
+  "record": {
+    "runId": "run-cd17bdbe-f695-4ab2-a320-e206d92ef8a5",
+    "state": "COMPLETED",
+    "snapshot": {
+      "repositoryDigest": "6d4eb759565376aababed8b1db4ed04c314fb3de0025b12e8aab18b07740eaf8",
+      "gitHead": "2f106c376a4d62c7f59e337110a4eb9b808b25d9"
+    },
+    "identity": {
+      "protocol": {
+        "id": "production-audit",
+        "version": "1.0.0",
+        "hash": "89a666a6f6f5c39ab1228aeee9d1deffd0489e8d30e687be5c6f53c626bd4ed9"
+      },
+      "harness": {
+        "id": "arbitra-canonical",
+        "version": "1.0.0",
+        "policyHash": "e34b1602e6440d534004c3ba5c8af2bb7c42223482045b804ecd2a7f2c31a349"
+      },
+      "auditorHarnessPolicies": {
+        "auditor-a": "95dd5ec436f68d658e5c15c22dcf653f631e43d176fb384827a055e9119d153e",
+        "auditor-b": "0054d8fa112ff2dd96a9eeab1245e9611580529617082d9974bd09cdf3b617f3",
+        "auditor-c": "8c38b5110ad40b48651d23ab8f154e36469efd256f8cc779bca8836f783e7db9"
+      },
+      "models": [
+        {
+          "auditorId": "auditor-a",
+          "modelId": "claude-sonnet-5",
+          "modelProfileVersion": "fda23f1761d94f8350afbf519daf36d925e8b82724144cb7e6c81a9985cfeebf",
+          "transportId": "claude-code-cli",
+          "transportVersion": "claude-code/2.1.283"
+        },
+        {
+          "auditorId": "auditor-b",
+          "modelId": "gpt-5.6-luna",
+          "modelProfileVersion": "e900cb058cf38de9adc6264cf4cb16ca9d7ad23306e945f5c7dbb89440433bbc",
+          "transportId": "codex-cli",
+          "transportVersion": "codex/0.154.0"
+        },
+        {
+          "auditorId": "auditor-c",
+          "modelId": "gemini-3.8-flash-low",
+          "modelProfileVersion": "73ec029c5a211f55bcbebf7e1a463bd259c5c879f96068a28b5729f40659157b",
+          "transportId": "antigravity-cli",
+          "transportVersion": "antigravity/1.2.12"
+        }
+      ]
+    },
+    "auditors": [
+      {
+        "auditorId": "auditor-a",
+        "modelId": "claude-sonnet-5",
+        "independenceGroup": "anthropic-sonnet",
+        "transport": "claude-code-cli",
+        "findings": [
+          {
+            "sourceFindingId": "auditor-a/cart-parseQuantity-nan",
+            "auditorId": "auditor-a",
+            "category": "CORRECTNESS",
+            "title": "parseQuantity accepts invalid input and silently produces NaN, corrupting cart totals",
+            "severity": "high",
+            "problem": "parseQuantity(text) calls parseInt(text) with no radix argument and no validation of the result. Non-numeric or malformed input (e.g. empty string, whitespace, non-digit text) yields NaN, and even partially-numeric input like '08x' is parsed leniently without any error signaled to the caller.",
+            "recommendedFix": "Use parseInt(text, 10), validate the result with Number.isInteger and reject/throw or clamp to a safe default (e.g. 0 or 1) when NaN or negative; consider also rejecting non-integer or negative quantities explicitly.",
+            "locations": [
+              {
+                "path": "src/cart.js",
+                "startLine": 16,
+                "endLine": 18
+              }
+            ],
+            "evidence": [
+              {
+                "text": "export function parseQuantity(text) {\n  return parseInt(text);\n}"
+              }
+            ]
+          },
+          {
+            "sourceFindingId": "auditor-a/cart-applyDiscount-unbounded-percent",
+            "auditorId": "auditor-a",
+            "category": "CORRECTNESS",
+            "title": "applyDiscount does not validate or clamp the percent argument",
+            "severity": "medium",
+            "problem": "The doc comment states percent should be 0-100, but applyDiscount performs no validation or clamping of the percent parameter before using it in the calculation.",
+            "recommendedFix": "Clamp percent to the documented [0, 100] range (or throw a validation error) at the top of applyDiscount before performing the calculation.",
+            "locations": [
+              {
+                "path": "src/cart.js",
+                "startLine": 10,
+                "endLine": 13
+              }
+            ],
+            "evidence": [
+              {
+                "text": "/** Apply a percentage discount (0-100) to a total in cents. */\nexport function applyDiscount(totalCents, percent) {\n  return Math.round(totalCents - (totalCents * percent) / 100);\n}"
+              }
+            ]
+          },
+          {
+            "sourceFindingId": "auditor-a/testing-gap-session-and-discount",
+            "auditorId": "auditor-a",
+            "category": "TESTING",
+            "title": "No test coverage for session.js or applyDiscount/parseQuantity in cart.js",
+            "severity": "low",
+            "problem": "The only test file present exercises solely the subtotal() function. applyDiscount and parseQuantity in src/cart.js, and all exports of src/session.js (createSession, isExpired, refresh, including the session-expiry boundary condition), have zero test coverage.",
+            "recommendedFix": "Add unit tests for applyDiscount (including boundary/out-of-range percent), parseQuantity (including invalid input), and session.js (createSession, isExpired at exact expiresAt boundary, and refresh including its throw-on-expired path).",
+            "locations": [
+              {
+                "path": "test/cart.test.js",
+                "startLine": 1,
+                "endLine": 9
+              }
+            ],
+            "evidence": [
+              {
+                "text": "import { subtotal } from \"../src/cart.js\";"
+              }
+            ]
+          }
+        ],
+        "rejectedFindings": [],
+        "quoteRejectedCount": 0,
+        "repairedCount": 0,
+        "truncated": false,
+        "usage": {
+          "requests": 1,
+          "failedRequests": 0,
+          "inputTokens": 7921,
+          "outputTokens": 2843,
+          "unknownUsageRequests": 0,
+          "attemptDurationMs": 26152,
+          "repairTurns": 0
+        }
+      },
+      {
+        "auditorId": "auditor-b",
+        "modelId": "gpt-5.6-luna",
+        "independenceGroup": "openai",
+        "transport": "codex-cli",
+        "findings": [
+          {
+            "sourceFindingId": "auditor-b/session-expiry-boundary",
+            "auditorId": "auditor-b",
+            "category": "CORRECTNESS",
+            "title": "Sessions remain valid at their expiry instant",
+            "severity": "medium",
+            "problem": "The comment specifies that a session is valid strictly before its expiry instant, but isExpired uses a strict greater-than comparison. At exactly session.expiresAt, the session is treated as not expired.",
+            "recommendedFix": "Use now >= session.expiresAt, then add boundary tests for times immediately before, exactly at, and immediately after expiry.",
+            "locations": [
+              {
+                "path": "src/session.js",
+                "startLine": 9,
+                "endLine": 12
+              }
+            ],
+            "evidence": [
+              {
+                "text": "/** A session is valid strictly before its expiry instant. */\nexport function isExpired(session, now) {\n  return now > session.expiresAt;\n}"
+              }
+            ]
+          },
+          {
+            "sourceFindingId": "auditor-b/discount-range-validation",
+            "auditorId": "auditor-b",
+            "category": "CORRECTNESS",
+            "title": "Discount percentage bounds are not enforced",
+            "severity": "medium",
+            "problem": "The function documents percent as being in the range 0-100 but performs no validation. Negative percentages increase the total, and percentages above 100 produce negative totals.",
+            "recommendedFix": "Validate that percent is finite and within 0-100 before calculating, and reject invalid values explicitly.",
+            "locations": [
+              {
+                "path": "src/cart.js",
+                "startLine": 10,
+                "endLine": 13
+              }
+            ],
+            "evidence": [
+              {
+                "text": "/** Apply a percentage discount (0-100) to a total in cents. */\nexport function applyDiscount(totalCents, percent) {\n  return Math.round(totalCents - (totalCents * percent) / 100);\n}"
+              }
+            ]
+          },
+          {
+            "sourceFindingId": "auditor-b/quantity-input-validation",
+            "auditorId": "auditor-b",
+            "category": "CORRECTNESS",
+            "title": "Quantity parsing accepts malformed customer input",
+            "severity": "medium",
+            "problem": "parseInt accepts numeric prefixes and returns NaN for some invalid inputs. The function does not enforce a complete, finite, positive integer quantity.",
+            "recommendedFix": "Parse with an explicit radix and validate the complete input as a finite positive integer, rejecting malformed values rather than coercing them.",
+            "locations": [
+              {
+                "path": "src/cart.js",
+                "startLine": 15,
+                "endLine": 18
+              }
+            ],
+            "evidence": [
+              {
+                "text": "/** Parse a quantity typed by the customer. */\nexport function parseQuantity(text) {\n  return parseInt(text);\n}"
+              }
+            ]
+          }
+        ],
+        "rejectedFindings": [],
+        "quoteRejectedCount": 0,
+        "repairedCount": 0,
+        "truncated": false,
+        "usage": {
+          "requests": 1,
+          "failedRequests": 0,
+          "inputTokens": 9839,
+          "outputTokens": 1363,
+          "unknownUsageRequests": 0,
+          "attemptDurationMs": 29491,
+          "repairTurns": 0
+        }
+      },
+      {
+        "auditorId": "auditor-c",
+        "modelId": "gemini-3.8-flash-low",
+        "independenceGroup": "google",
+        "transport": "antigravity-cli",
+        "findings": [
+          {
+            "sourceFindingId": "auditor-c/session-expiry-boundary-inconsistency",
+            "auditorId": "auditor-c",
+            "category": "CORRECTNESS",
+            "title": "Off-by-one boundary check in session expiration",
+            "severity": "low",
+            "problem": "The docstring states that a session is valid strictly before its expiry instant (`valid strictly before its expiry instant`), which means it is expired at `now >= session.expiresAt`. However, `isExpired` evaluates `now > session.expiresAt`, considering the session valid at the exact expiration timestamp `now === session.expiresAt`.",
+            "recommendedFix": "Update `isExpired` to return `now >= session.expiresAt;` to align implementation with the documented contract.",
+            "locations": [
+              {
+                "path": "src/session.js",
+                "startLine": 9,
+                "endLine": 12
+              }
+            ],
+            "evidence": [
+              {
+                "text": "/** A session is valid strictly before its expiry instant. */\nexport function isExpired(session, now) {\n  return now > session.expiresAt;\n}"
+              }
+            ]
+          },
+          {
+            "sourceFindingId": "auditor-c/parse-quantity-radix-missing",
+            "auditorId": "auditor-c",
+            "category": "RELIABILITY",
+            "title": "Missing radix parameter in parseInt for quantity parsing",
+            "severity": "low",
+            "problem": "Calling `parseInt(text)` without specifying a radix defaults to decimal in modern ECMAScript for numeric strings without prefixes, but does not guard against invalid non-numeric characters, negative numbers, floats, or unexpected strings (such as leading zeros or whitespace), and returns `NaN` or truncated integers without validation.",
+            "recommendedFix": "Specify radix 10 (`parseInt(text, 10)`) and validate that the result is an integer greater than zero.",
+            "locations": [
+              {
+                "path": "src/cart.js",
+                "startLine": 16,
+                "endLine": 18
+              }
+            ],
+            "evidence": [
+              {
+                "text": "export function parseQuantity(text) {\n  return parseInt(text);\n}"
+              }
+            ]
+          }
+        ],
+        "rejectedFindings": [],
+        "quoteRejectedCount": 0,
+        "repairedCount": 0,
+        "truncated": false,
+        "usage": {
+          "requests": 1,
+          "failedRequests": 0,
+          "inputTokens": 28886,
+          "outputTokens": 842,
+          "unknownUsageRequests": 0,
+          "attemptDurationMs": 11277,
+          "repairTurns": 0
+        }
+      }
+    ],
+    "sourceFindings": [
+      {
+        "sourceFindingId": "auditor-a/testing-gap-session-and-discount",
+        "auditorId": "auditor-a",
+        "category": "TESTING",
+        "title": "No test coverage for session.js or applyDiscount/parseQuantity in cart.js",
+        "severity": "low",
+        "problem": "The only test file present exercises solely the subtotal() function. applyDiscount and parseQuantity in src/cart.js, and all exports of src/session.js (createSession, isExpired, refresh, including the session-expiry boundary condition), have zero test coverage.",
+        "recommendedFix": "Add unit tests for applyDiscount (including boundary/out-of-range percent), parseQuantity (including invalid input), and session.js (createSession, isExpired at exact expiresAt boundary, and refresh including its throw-on-expired path).",
+        "locations": [
+          {
+            "path": "test/cart.test.js",
+            "startLine": 1,
+            "endLine": 9
+          }
+        ],
+        "evidence": [
+          {
+            "text": "import { subtotal } from \"../src/cart.js\";"
+          }
+        ]
+      },
+      {
+        "sourceFindingId": "auditor-b/session-expiry-boundary",
+        "auditorId": "auditor-b",
+        "category": "CORRECTNESS",
+        "title": "Sessions remain valid at their expiry instant",
+        "severity": "medium",
+        "problem": "The comment specifies that a session is valid strictly before its expiry instant, but isExpired uses a strict greater-than comparison. At exactly session.expiresAt, the session is treated as not expired.",
+        "recommendedFix": "Use now >= session.expiresAt, then add boundary tests for times immediately before, exactly at, and immediately after expiry.",
+        "locations": [
+          {
+            "path": "src/session.js",
+            "startLine": 9,
+            "endLine": 12
+          }
+        ],
+        "evidence": [
+          {
+            "text": "/** A session is valid strictly before its expiry instant. */\nexport function isExpired(session, now) {\n  return now > session.expiresAt;\n}"
+          }
+        ]
+      },
+      {
+        "sourceFindingId": "auditor-c/session-expiry-boundary-inconsistency",
+        "auditorId": "auditor-c",
+        "category": "CORRECTNESS",
+        "title": "Off-by-one boundary check in session expiration",
+        "severity": "low",
+        "problem": "The docstring states that a session is valid strictly before its expiry instant (`valid strictly before its expiry instant`), which means it is expired at `now >= session.expiresAt`. However, `isExpired` evaluates `now > session.expiresAt`, considering the session valid at the exact expiration timestamp `now === session.expiresAt`.",
+        "recommendedFix": "Update `isExpired` to return `now >= session.expiresAt;` to align implementation with the documented contract.",
+        "locations": [
+          {
+            "path": "src/session.js",
+            "startLine": 9,
+            "endLine": 12
+          }
+        ],
+        "evidence": [
+          {
+            "text": "/** A session is valid strictly before its expiry instant. */\nexport function isExpired(session, now) {\n  return now > session.expiresAt;\n}"
+          }
+        ]
+      },
+      {
+        "sourceFindingId": "auditor-a/cart-applyDiscount-unbounded-percent",
+        "auditorId": "auditor-a",
+        "category": "CORRECTNESS",
+        "title": "applyDiscount does not validate or clamp the percent argument",
+        "severity": "medium",
+        "problem": "The doc comment states percent should be 0-100, but applyDiscount performs no validation or clamping of the percent parameter before using it in the calculation.",
+        "recommendedFix": "Clamp percent to the documented [0, 100] range (or throw a validation error) at the top of applyDiscount before performing the calculation.",
+        "locations": [
+          {
+            "path": "src/cart.js",
+            "startLine": 10,
+            "endLine": 13
+          }
+        ],
+        "evidence": [
+          {
+            "text": "/** Apply a percentage discount (0-100) to a total in cents. */\nexport function applyDiscount(totalCents, percent) {\n  return Math.round(totalCents - (totalCents * percent) / 100);\n}"
+          }
+        ]
+      },
+      {
+        "sourceFindingId": "auditor-b/discount-range-validation",
+        "auditorId": "auditor-b",
+        "category": "CORRECTNESS",
+        "title": "Discount percentage bounds are not enforced",
+        "severity": "medium",
+        "problem": "The function documents percent as being in the range 0-100 but performs no validation. Negative percentages increase the total, and percentages above 100 produce negative totals.",
+        "recommendedFix": "Validate that percent is finite and within 0-100 before calculating, and reject invalid values explicitly.",
+        "locations": [
+          {
+            "path": "src/cart.js",
+            "startLine": 10,
+            "endLine": 13
+          }
+        ],
+        "evidence": [
+          {
+            "text": "/** Apply a percentage discount (0-100) to a total in cents. */\nexport function applyDiscount(totalCents, percent) {\n  return Math.round(totalCents - (totalCents * percent) / 100);\n}"
+          }
+        ]
+      },
+      {
+        "sourceFindingId": "auditor-a/cart-parseQuantity-nan",
+        "auditorId": "auditor-a",
+        "category": "CORRECTNESS",
+        "title": "parseQuantity accepts invalid input and silently produces NaN, corrupting cart totals",
+        "severity": "high",
+        "problem": "parseQuantity(text) calls parseInt(text) with no radix argument and no validation of the result. Non-numeric or malformed input (e.g. empty string, whitespace, non-digit text) yields NaN, and even partially-numeric input like '08x' is parsed leniently without any error signaled to the caller.",
+        "recommendedFix": "Use parseInt(text, 10), validate the result with Number.isInteger and reject/throw or clamp to a safe default (e.g. 0 or 1) when NaN or negative; consider also rejecting non-integer or negative quantities explicitly.",
+        "locations": [
+          {
+            "path": "src/cart.js",
+            "startLine": 16,
+            "endLine": 18
+          }
+        ],
+        "evidence": [
+          {
+            "text": "export function parseQuantity(text) {\n  return parseInt(text);\n}"
+          }
+        ]
+      },
+      {
+        "sourceFindingId": "auditor-b/quantity-input-validation",
+        "auditorId": "auditor-b",
+        "category": "CORRECTNESS",
+        "title": "Quantity parsing accepts malformed customer input",
+        "severity": "medium",
+        "problem": "parseInt accepts numeric prefixes and returns NaN for some invalid inputs. The function does not enforce a complete, finite, positive integer quantity.",
+        "recommendedFix": "Parse with an explicit radix and validate the complete input as a finite positive integer, rejecting malformed values rather than coercing them.",
+        "locations": [
+          {
+            "path": "src/cart.js",
+            "startLine": 15,
+            "endLine": 18
+          }
+        ],
+        "evidence": [
+          {
+            "text": "/** Parse a quantity typed by the customer. */\nexport function parseQuantity(text) {\n  return parseInt(text);\n}"
+          }
+        ]
+      },
+      {
+        "sourceFindingId": "auditor-c/parse-quantity-radix-missing",
+        "auditorId": "auditor-c",
+        "category": "RELIABILITY",
+        "title": "Missing radix parameter in parseInt for quantity parsing",
+        "severity": "low",
+        "problem": "Calling `parseInt(text)` without specifying a radix defaults to decimal in modern ECMAScript for numeric strings without prefixes, but does not guard against invalid non-numeric characters, negative numbers, floats, or unexpected strings (such as leading zeros or whitespace), and returns `NaN` or truncated integers without validation.",
+        "recommendedFix": "Specify radix 10 (`parseInt(text, 10)`) and validate that the result is an integer greater than zero.",
+        "locations": [
+          {
+            "path": "src/cart.js",
+            "startLine": 16,
+            "endLine": 18
+          }
+        ],
+        "evidence": [
+          {
+            "text": "export function parseQuantity(text) {\n  return parseInt(text);\n}"
+          }
+        ]
+      }
+    ],
+    "issues": [
+      {
+        "candidateId": "C-1bfac8e454a0",
+        "title": "No test coverage for session.js or applyDiscount/parseQuantity in cart.js",
+        "description": "The only test file present exercises solely the subtotal() function. applyDiscount and parseQuantity in src/cart.js, and all exports of src/session.js (createSession, isExpired, refresh, including the session-expiry boundary condition), have zero test coverage.",
+        "severity": "low",
+        "disposition": "accepted",
+        "verificationOutcome": null,
+        "sourceFindingIds": [
+          "auditor-a/testing-gap-session-and-discount"
+        ]
+      },
+      {
+        "candidateId": "C-89ccd6d09c58",
+        "title": "Sessions remain valid at their expiry instant",
+        "description": "The comment specifies that a session is valid strictly before its expiry instant, but isExpired uses a strict greater-than comparison. At exactly session.expiresAt, the session is treated as not expired.",
+        "severity": "medium",
+        "disposition": "accepted",
+        "verificationOutcome": null,
+        "sourceFindingIds": [
+          "auditor-b/session-expiry-boundary",
+          "auditor-c/session-expiry-boundary-inconsistency"
+        ]
+      },
+      {
+        "candidateId": "C-f09e20c011c5",
+        "title": "applyDiscount does not validate or clamp the percent argument",
+        "description": "The doc comment states percent should be 0-100, but applyDiscount performs no validation or clamping of the percent parameter before using it in the calculation.",
+        "severity": "medium",
+        "disposition": "accepted",
+        "verificationOutcome": null,
+        "sourceFindingIds": [
+          "auditor-a/cart-applyDiscount-unbounded-percent",
+          "auditor-b/discount-range-validation"
+        ]
+      },
+      {
+        "candidateId": "C-f268e4b54992",
+        "title": "parseQuantity accepts invalid input and silently produces NaN, corrupting cart totals",
+        "description": "parseQuantity(text) calls parseInt(text) with no radix argument and no validation of the result. Non-numeric or malformed input (e.g. empty string, whitespace, non-digit text) yields NaN, and even partially-numeric input like '08x' is parsed leniently without any error signaled to the caller.",
+        "severity": "medium",
+        "disposition": "accepted",
+        "verificationOutcome": null,
+        "sourceFindingIds": [
+          "auditor-a/cart-parseQuantity-nan",
+          "auditor-b/quantity-input-validation",
+          "auditor-c/parse-quantity-radix-missing"
+        ]
+      }
+    ],
+    "verification": [],
+    "plan": {
+      "acceptedIssueIds": [
+        "C-1bfac8e454a0",
+        "C-89ccd6d09c58",
+        "C-f09e20c011c5",
+        "C-f268e4b54992"
+      ],
+      "addressedIssueIds": [
+        "C-1bfac8e454a0",
+        "C-89ccd6d09c58",
+        "C-f09e20c011c5",
+        "C-f268e4b54992"
+      ],
+      "taskCount": 4
+    },
+    "critic": {
+      "items": 2,
+      "blocking": 0
+    },
+    "usage": {
+      "requests": 18,
+      "failedRequests": 0,
+      "inputTokens": 331582,
+      "outputTokens": 41980,
+      "unknownUsageRequests": 0,
+      "attemptDurationMs": 471554,
+      "repairTurns": 1
+    },
+    "usageByNode": {
+      "auditor-a": {
+        "requests": 1,
+        "failedRequests": 0,
+        "inputTokens": 7921,
+        "outputTokens": 2843,
+        "unknownUsageRequests": 0,
+        "attemptDurationMs": 26152,
+        "repairTurns": 0
+      },
+      "auditor-b": {
+        "requests": 1,
+        "failedRequests": 0,
+        "inputTokens": 9839,
+        "outputTokens": 1363,
+        "unknownUsageRequests": 0,
+        "attemptDurationMs": 29491,
+        "repairTurns": 0
+      },
+      "auditor-c": {
+        "requests": 1,
+        "failedRequests": 0,
+        "inputTokens": 28886,
+        "outputTokens": 842,
+        "unknownUsageRequests": 0,
+        "attemptDurationMs": 11277,
+        "repairTurns": 0
+      },
+      "critic": {
+        "requests": 2,
+        "failedRequests": 0,
+        "inputTokens": 75436,
+        "outputTokens": 3930,
+        "unknownUsageRequests": 0,
+        "attemptDurationMs": 29025,
+        "repairTurns": 0
+      },
+      "peer-review": {
+        "requests": 3,
+        "failedRequests": 0,
+        "inputTokens": 74042,
+        "outputTokens": 3076,
+        "unknownUsageRequests": 0,
+        "attemptDurationMs": 48916,
+        "repairTurns": 0
+      },
+      "planner": {
+        "requests": 3,
+        "failedRequests": 0,
+        "inputTokens": 101393,
+        "outputTokens": 25384,
+        "unknownUsageRequests": 0,
+        "attemptDurationMs": 279419,
+        "repairTurns": 1
+      },
+      "semantic-clustering": {
+        "requests": 7,
+        "failedRequests": 0,
+        "inputTokens": 34065,
+        "outputTokens": 4542,
+        "unknownUsageRequests": 0,
+        "attemptDurationMs": 47274,
+        "repairTurns": 0
+      }
+    }
+  }
+}

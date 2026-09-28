@@ -136,10 +136,11 @@ The first live results are interim. The run was stopped by quota, and every mode
 Gemini model, so the results say nothing about different model families. See
 [docs/qa/p06/README.md](qa/p06/README.md).
 
-Version 2.0.0 ([docs/qa/p06-subscription](qa/p06-subscription/README.md)) runs three model
-families (Claude, GPT and Gemini) through the subscription CLIs. 1 of its 15 runs has
-completed, and it is paused by the Claude usage window. Its results are not pooled with
-version 1.
+Version 2 ([docs/qa/p06-subscription](qa/p06-subscription/README.md)) runs three model
+families (Claude, GPT and Gemini) through the subscription CLIs. Protocol 2.0.0 closed at run 2
+on its per-run token cap. Protocol 2.1.0 completed all 15 runs on September 28, 2026, and every
+prespecified comparison was insufficient evidence. No version's results are pooled with
+another's.
 The default suites run scripted auditors
 (`packages/testing/src/scripted-auditor.ts`) over `packages/testing/src/fake-transport.ts`.
 

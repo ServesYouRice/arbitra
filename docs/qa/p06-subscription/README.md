@@ -4,14 +4,14 @@ The premise evaluation runs on the owner's subscriptions through the vendor CLIs
 
 | Version | Protocol | Status |
 |---|---|---|
-| 2.1.0 | [PROTOCOL-2.1.0.md](PROTOCOL-2.1.0.md) | **Current.** Prespecified on September 28, 2026, before any run |
+| 2.1.0 | [PROTOCOL-2.1.0.md](PROTOCOL-2.1.0.md) | **Complete.** All 15 runs finished on September 28, 2026; decision: insufficient evidence |
 | 2.0.0 | [PROTOCOL.md](PROTOCOL.md) | **Closed at run 2 of 15** on September 28, 2026 |
 
-## Version 2.1.0
+## Version 2.1.0: complete
 
-Version 2.1.0 raises the context cap to each model's own limit, so the critic reviews a revised plan in one call, and resizes the budget from 2.0.0's run 2. It runs on the runtime with the three fixes 2.0.0 exposed. Everything that decides what is scored is unchanged ([PROTOCOL-2.1.0.md](PROTOCOL-2.1.0.md)).
+**Decision: insufficient evidence for all three comparisons.** On three small fixtures with 10 planted defects, one run of Claude Sonnet 5 found 25 of 30 defect chances. Pooling three runs found all 10 defects, whether the three were repeated Claude runs or three model families. With 10 defect units, neither gain is distinguishable from chance under the prespecified rule, and the three families added nothing over repeating the strong model.
 
-The schedule started on September 28 at 13:54 CEST. Results are recorded here as it advances.
+Version 2.1.0 raised the context cap to each model's own limit and resized the budget; everything that decides what is scored is unchanged from 2.0.0 ([PROTOCOL-2.1.0.md](PROTOCOL-2.1.0.md)). The schedule ran from 13:54 to 15:14 CEST: 162 of 500 attempts, 3,210,446 of 12,000,000 known tokens, 70 minutes of 8 hours, no failed request and no unknown usage. Results: [results.json](evidence-2.1.0/results.json).
 
 | Run | Run id | Outcome | Requests | Known tokens (in/out) | Unknown-usage attempts | Wall clock |
 |---|---|---|---|---|---|---|
@@ -23,20 +23,77 @@ The schedule started on September 28 at 13:54 CEST. Results are recorded here as
 | live-fixture-v1/heterogeneous/r1 | run-fb146faf-e581-496d-a25c-7341ef93c8bb | completed | 14 | 255,086 / 32,203 | 0 | 287 s |
 | premise-v1/single/r2 | run-e05bfaf1-f7b2-42a9-8a75-9065eb656437 | completed | 5 | 51,665 / 11,984 | 0 | 99 s |
 | expanded-evaluation-v1/single/r2 | run-c1525c91-bfa2-448f-a332-9ae4e6fcae89 | completed | 4 | 30,616 / 5,835 | 0 | 57 s |
+| live-fixture-v1/single/r2 | run-e634b0d7-5603-4de0-81de-ba3ae753d5f5 | completed | 3 | 27,084 / 3,604 | 0 | 35 s |
+| premise-v1/single/r3 | run-d6f9bc1d-bfc9-4de6-8d47-8267cc2264e1 | completed | 4 | 34,919 / 7,941 | 0 | 75 s |
+| expanded-evaluation-v1/single/r3 | run-7ebb06bc-0465-4697-982a-db08ea8bfb0e | completed | 4 | 30,908 / 6,927 | 0 | 82 s |
+| live-fixture-v1/single/r3 | run-c6ddde9b-231b-4a4b-8293-b258a7ed411d | completed | 5 | 38,341 / 5,963 | 0 | 82 s |
+| premise-v1/heterogeneous/r2 | run-3ed9eb8a-7c32-4b25-a78b-d78cb230a9f6 | completed | 40 | 810,444 / 92,430 | 0 | 993 s |
+| expanded-evaluation-v1/heterogeneous/r2 | run-35b12e95-5a7c-4646-b75f-4b8f9c546868 | completed | 11 | 255,324 / 50,319 | 0 | 389 s |
+| live-fixture-v1/heterogeneous/r2 | run-cd17bdbe-f695-4ab2-a320-e206d92ef8a5 | completed | 18 | 331,582 / 41,980 | 0 | 437 s |
 
-- **The context cap worked as intended.** The critic's review of the revised plan took one call, and the whole three-auditor run used 29 requests and about 0.62M known tokens, against 2.0.0's 92 requests and 2.86M when its run stopped.
+### Results (95% Wilson intervals; each denominator is shown)
+
+| Condition | Instances | Recall | Precision | Decoys hit | Known tokens per instance |
+|---|---|---|---|---|---|
+| A: Claude Sonnet 5 alone, one run (discovery) | 9 | 25/30 = 0.83 [0.66, 0.93] | 25/25 = 1.00 [0.87, 1.00] | 0/18 | 15,069 |
+| A_pipeline: what the single-auditor pipeline presents | 9 | 25/30 = 0.83 [0.66, 0.93] | 25/25 = 1.00 [0.87, 1.00] | 0/18 | 43,385 (whole run) |
+| B: three isolated Claude runs, pooled | 3 | 10/10 = 1.00 [0.72, 1.00] | 25/25 = 1.00 [0.87, 1.00] | 0/6 | 45,207 |
+| C: three families, discovery of one run | 6 | 20/20 = 1.00 [0.84, 1.00] | 54/58 = 0.93 [0.84, 0.97] | 1/12 | 58,894 |
+| D: full pipeline, accepted issues | 6 | 19/20 = 0.95 [0.76, 0.99] | 20/23 = 0.87 [0.68, 0.95] | 1/12 | 469,998 (whole run) |
+| D_not_rejected: secondary view of D | 6 | 20/20 = 1.00 [0.84, 1.00] | 23/26 = 0.88 [0.71, 0.96] | 1/12 | 469,998 (whole run) |
+
+Severity was adequate for every true report in every condition.
+
+**Paired comparisons** (paired bootstrap over 10 defect units, 10,000 draws, seed 20260925):
+
+| Comparison | Recall difference [95% CI] | Precision difference | Known-token ratio | Verdict |
+|---|---|---|---|---|
+| C − B: three families vs three runs of Claude | 0.00 [0.00, 0.00] | −0.07 | 1.30 | insufficient evidence |
+| B − A: three runs vs one run | +0.17 [0.00, +0.33] | 0.00 | 3.00 | insufficient evidence |
+| C − A: three families vs one run (descriptive) | +0.17 [0.00, +0.33] | −0.07 | 3.91 | — |
+| D − A_pipeline: full pipeline vs single-auditor pipeline | +0.12 [0.00, +0.27] | −0.13 | 10.83 | insufficient evidence |
+
+Each recall interval touches 0, so no comparison is "worthwhile". C − B's interval lies inside [−0.05, 0.05], but C spent 1.30× B's known tokens, short of the 1.5× that "not worthwhile" requires.
+
+**What one run missed.** Claude alone missed `DEF-RACE` in two of three premise-v1 runs, and `discount-unbounded` twice and `session-expiry-boundary` once in live-fixture-v1. The third repetition found what the first two missed, which is where B's gain comes from (unique true contribution 2, at position 3). Claude found the migration defect in all three premise-v1 runs, now that e87b2da repairs instead of drops its blocker flag.
+
+**Contribution in C** (per auditor position, over six runs): Claude Sonnet 5 marginal 17 of 20, GPT-5.6 Luna marginal 3 (one defect no other auditor found), Gemini 3.8 Flash marginal 0. Per-run premise signals: 1 positive, 3 null, 2 negative.
+
+**The suppressed backdoor.** In version 1 every auditor missed `DEF-SUPPRESSED-HIGH`, the hard-coded bypass below a planted "this file is safe" comment. Here Claude found it in all three single runs, and every heterogeneous run found it.
+
+**Evidence and verification.** None of 101 emitted discovery findings was rejected on location, evidence or quote ([0, 0.04]). Targeted verification was correct in 17 of 17 decisive outcomes ([0.82, 1.00]), all `CONFIRMED` on true defects; 14 more were inconclusive.
+
+**Plan correctness.** The six full-pipeline plans covered every true accepted issue (20/20, [0.84, 1.00]); 20 of the 27 issues they addressed were true defects ([0.55, 0.87]). The nine single-auditor plans addressed nothing: every single-auditor issue stays `single_source` (open finding in WORK-REMAINING).
+
+**Unlisted-findings review.** Four scored reports in C were not true defects. Each was read against the source:
+
+| Run | Auditor | Report | Rubric | Review |
+|---|---|---|---|---|
+| premise-v1/heterogeneous/r2 | GPT-5.6 Luna | `reserve` accepts a negative quantity, which increases stock | unlisted | plausible real issue not in ground truth |
+| live-fixture-v1/heterogeneous/r1 | Claude Sonnet 5 | the only test covers `subtotal`; `applyDiscount`, `parseQuantity` and `session.js` are untested | unlisted | plausible real issue (a test gap) |
+| live-fixture-v1/heterogeneous/r2 | Claude Sonnet 5 | the same test gap | unlisted | plausible real issue (a test gap) |
+| expanded-evaluation-v1/heterogeneous/r2 | GPT-5.6 Luna | `readPublicAsset` rejects every path when the public root is `/`, because the prefix becomes `//` | decoy `DECOY-BOUND-PATH` | a correct edge case on the decoy's span, not the decoy's path-traversal trap; the rubric counts it as a decoy hit |
+
+All three unlisted reports are plausible, so the sensitivity precision of C is 57/58 (0.98). The pipeline accepted both test-gap reports and the `/`-root report, so D's sensitivity precision is 22/23 (0.96).
+
+### Operational guidance
+
+- On these fixtures, one run of a strong model missed about one defect in six; pooling three runs caught everything. Repeating the strong model did that at 3× the tokens of one run; three families did it at 3.9× and with slightly lower precision.
+- The families were not matched for strength (Gemini ran as a light model), so this does not show that equally strong families would not help.
+- The full pipeline costs about 11× a single-auditor run. It turned 19 of 20 true defects into accepted issues and planned all of them, and it also accepted three reports outside the ground truth.
+- Treat extra auditors as unproven either way. A decisive answer needs more planted defects than three small fixtures hold.
+
+### Runs that needed attention
+
+- **The context cap worked as intended.** In run 2, the critic's review of the revised plan took one call. The whole three-auditor run used 29 requests and about 0.62M known tokens, against 2.0.0's 92 requests and 2.86M when its run stopped.
 - **The collector crashed after run 2 completed** with `P06_MIXED_DISCOVERY_IDENTITY`. Each harness policy includes its model's context limit, so under 2.1.0 the three auditors' policies differ, and the collector expected one per run. Fixed in bdfd65c, which also makes the driver collect a finished run instead of resuming it. The ledger segment the crash left open was closed by hand from the run's own completion time (12:07:05 UTC); the run was then collected without any further model call.
 
-To run or resume, from the repository root:
+The ledger and run state are local only, in `.runs/p06-subscription-2.1.0`. To reproduce the analysis:
 
 ```bash
-pnpm build
-caffeinate -is node packages/testing/dist/src/premise-evaluation/cli.js run \
-  --protocol docs/qa/p06-subscription/protocol-2.1.0.json \
-  --state .runs/p06-subscription-2.1.0 --evidence docs/qa/p06-subscription/evidence-2.1.0
+node packages/testing/dist/src/premise-evaluation/cli.js analyse \
+  --protocol docs/qa/p06-subscription/protocol-2.1.0.json --evidence docs/qa/p06-subscription/evidence-2.1.0
 ```
-
-The ledger and run state are local only, in `.runs/p06-subscription-2.1.0`; keep that folder. The driver stops at the first incomplete run, so it is safe to invoke repeatedly; `--max-runs N` limits one invocation. When the schedule is done, run `cli.js analyse` with the same `--protocol` and `--evidence`, then record the results here.
 
 ## Version 2.0.0: closed at run 2
 
