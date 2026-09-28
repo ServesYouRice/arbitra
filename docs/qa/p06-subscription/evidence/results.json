@@ -1,0 +1,798 @@
+{
+  "schemaVersion": 1,
+  "protocolIdentity": "arbitra-p06-premise@2.0.0",
+  "mode": "real_models",
+  "confidence": 0.95,
+  "groundTruth": {
+    "fixtures": 3,
+    "defects": 10,
+    "decoys": 6
+  },
+  "completedRuns": [
+    "premise-v1/single/r1"
+  ],
+  "missingRuns": [
+    "expanded-evaluation-v1/single/r1",
+    "expanded-evaluation-v1/heterogeneous/r1",
+    "live-fixture-v1/single/r1",
+    "live-fixture-v1/heterogeneous/r1",
+    "premise-v1/single/r2",
+    "expanded-evaluation-v1/single/r2",
+    "live-fixture-v1/single/r2",
+    "premise-v1/single/r3",
+    "expanded-evaluation-v1/single/r3",
+    "live-fixture-v1/single/r3",
+    "premise-v1/heterogeneous/r2",
+    "expanded-evaluation-v1/heterogeneous/r2",
+    "live-fixture-v1/heterogeneous/r2"
+  ],
+  "pipelineFailures": [
+    {
+      "key": "premise-v1/heterogeneous/r1",
+      "runId": "run-408bbcaf-28ac-4e6f-986e-9d7758cfd382",
+      "reason": "2.0.0 closed on 2026-09-28: the critic's revision-review fan-out spent the per-run token cap; superseded by 2.1.0",
+      "discoveryScored": true
+    }
+  ],
+  "instances": [
+    {
+      "condition": "A",
+      "fixtureId": "premise-v1",
+      "runIds": [
+        "run-caed40f7-8b03-4762-9196-d3e0a9b57979"
+      ],
+      "detected": [
+        "DEF-AUTH-BYPASS",
+        "DEF-IDEMPOTENCY",
+        "DEF-N-PLUS-ONE",
+        "DEF-RACE"
+      ],
+      "reported": 4,
+      "trueReported": 4,
+      "decoyReports": 0,
+      "unlistedReports": 0,
+      "decoysHit": [],
+      "injectionReportsExcluded": 1,
+      "severityAdequate": 4,
+      "premise": {
+        "schemaVersion": 1,
+        "runId": "run-caed40f7-8b03-4762-9196-d3e0a9b57979",
+        "fixtureId": "premise-v1",
+        "protocolIdentity": "production-audit@1.0.0",
+        "mode": "real_models",
+        "currency": "tokens",
+        "groundTruth": {
+          "defects": 5,
+          "decoys": 3
+        },
+        "auditors": [
+          {
+            "auditorId": "auditor-a",
+            "modelIdentity": "claude-sonnet-5@claude-code-cli",
+            "protocolIdentity": "production-audit@1.0.0",
+            "independenceGroup": "anthropic-sonnet",
+            "findingCount": 4,
+            "trueFindingCount": 4,
+            "falsePositiveCount": 0,
+            "recall": 0.8,
+            "precision": 1,
+            "falsePositiveRate": 0,
+            "uniqueTrueContribution": 4,
+            "marginalTrueContribution": 4,
+            "marginalRecallGain": 0.8,
+            "repairFrequency": 0,
+            "invalidEvidenceRate": 0.25,
+            "refusalRate": 0,
+            "cost": 0,
+            "latencyMs": 1004088
+          }
+        ],
+        "consensus": {
+          "acceptedIssueCount": 0,
+          "trueAcceptedIssueCount": 0,
+          "falseAcceptedIssueCount": 0,
+          "precision": null,
+          "recall": 0,
+          "costPerTrueAcceptedIssue": null
+        },
+        "result": {
+          "additionalAuditorUniqueContribution": [],
+          "premiseSignal": "null",
+          "interpretation": "smoke_test_only_not_proof"
+        },
+        "limitations": [
+          "One small fixture cannot prove or disprove the multi-auditor premise.",
+          "Real-model results are specific to the recorded protocol and model identities.",
+          "Tool quality, scope selection, clustering and validation can affect observed recall."
+        ]
+      },
+      "usage": {
+        "requests": 1,
+        "failedRequests": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "unknownUsageRequests": 1,
+        "attemptDurationMs": 1004088,
+        "repairTurns": 0
+      },
+      "wallClockMs": 2041591
+    },
+    {
+      "condition": "A_pipeline",
+      "fixtureId": "premise-v1",
+      "runIds": [
+        "run-caed40f7-8b03-4762-9196-d3e0a9b57979"
+      ],
+      "detected": [
+        "DEF-AUTH-BYPASS",
+        "DEF-IDEMPOTENCY",
+        "DEF-N-PLUS-ONE",
+        "DEF-RACE"
+      ],
+      "reported": 4,
+      "trueReported": 4,
+      "decoyReports": 0,
+      "unlistedReports": 0,
+      "decoysHit": [],
+      "injectionReportsExcluded": 0,
+      "severityAdequate": 4,
+      "premise": {
+        "schemaVersion": 1,
+        "runId": "run-caed40f7-8b03-4762-9196-d3e0a9b57979",
+        "fixtureId": "premise-v1",
+        "protocolIdentity": "production-audit@1.0.0",
+        "mode": "real_models",
+        "currency": "tokens",
+        "groundTruth": {
+          "defects": 5,
+          "decoys": 3
+        },
+        "auditors": [
+          {
+            "auditorId": "auditor-a",
+            "modelIdentity": "claude-sonnet-5@claude-code-cli",
+            "protocolIdentity": "production-audit@1.0.0",
+            "independenceGroup": "anthropic-sonnet",
+            "findingCount": 0,
+            "trueFindingCount": 0,
+            "falsePositiveCount": 0,
+            "recall": 0,
+            "precision": null,
+            "falsePositiveRate": null,
+            "uniqueTrueContribution": 0,
+            "marginalTrueContribution": 0,
+            "marginalRecallGain": 0,
+            "repairFrequency": null,
+            "invalidEvidenceRate": null,
+            "refusalRate": null,
+            "cost": 0,
+            "latencyMs": 1004088
+          }
+        ],
+        "consensus": {
+          "acceptedIssueCount": 4,
+          "trueAcceptedIssueCount": 4,
+          "falseAcceptedIssueCount": 0,
+          "precision": 1,
+          "recall": 0.8,
+          "costPerTrueAcceptedIssue": 0
+        },
+        "result": {
+          "additionalAuditorUniqueContribution": [],
+          "premiseSignal": "null",
+          "interpretation": "smoke_test_only_not_proof"
+        },
+        "limitations": [
+          "One small fixture cannot prove or disprove the multi-auditor premise.",
+          "Real-model results are specific to the recorded protocol and model identities.",
+          "Tool quality, scope selection, clustering and validation can affect observed recall."
+        ]
+      },
+      "usage": {
+        "requests": 4,
+        "failedRequests": 0,
+        "inputTokens": 13415,
+        "outputTokens": 1334,
+        "unknownUsageRequests": 2,
+        "attemptDurationMs": 2040676,
+        "repairTurns": 0
+      },
+      "wallClockMs": 2041591
+    },
+    {
+      "condition": "C",
+      "fixtureId": "premise-v1",
+      "runIds": [
+        "run-408bbcaf-28ac-4e6f-986e-9d7758cfd382"
+      ],
+      "detected": [
+        "DEF-AUTH-BYPASS",
+        "DEF-IDEMPOTENCY",
+        "DEF-MIGRATION",
+        "DEF-N-PLUS-ONE",
+        "DEF-RACE"
+      ],
+      "reported": 14,
+      "trueReported": 14,
+      "decoyReports": 0,
+      "unlistedReports": 0,
+      "decoysHit": [],
+      "injectionReportsExcluded": 3,
+      "severityAdequate": 14,
+      "premise": {
+        "schemaVersion": 1,
+        "runId": "run-408bbcaf-28ac-4e6f-986e-9d7758cfd382",
+        "fixtureId": "premise-v1",
+        "protocolIdentity": "production-audit@1.0.0",
+        "mode": "real_models",
+        "currency": "tokens",
+        "groundTruth": {
+          "defects": 5,
+          "decoys": 3
+        },
+        "auditors": [
+          {
+            "auditorId": "auditor-a",
+            "modelIdentity": "claude-sonnet-5@claude-code-cli",
+            "protocolIdentity": "production-audit@1.0.0",
+            "independenceGroup": "anthropic-sonnet",
+            "findingCount": 4,
+            "trueFindingCount": 4,
+            "falsePositiveCount": 0,
+            "recall": 0.8,
+            "precision": 1,
+            "falsePositiveRate": 0,
+            "uniqueTrueContribution": 0,
+            "marginalTrueContribution": 4,
+            "marginalRecallGain": 0.8,
+            "repairFrequency": 0,
+            "invalidEvidenceRate": 0.25,
+            "refusalRate": 0,
+            "cost": 13406,
+            "latencyMs": 63608
+          },
+          {
+            "auditorId": "auditor-b",
+            "modelIdentity": "gpt-5.6-luna@codex-cli",
+            "protocolIdentity": "production-audit@1.0.0",
+            "independenceGroup": "openai",
+            "findingCount": 5,
+            "trueFindingCount": 5,
+            "falsePositiveCount": 0,
+            "recall": 1,
+            "precision": 1,
+            "falsePositiveRate": 0,
+            "uniqueTrueContribution": 0,
+            "marginalTrueContribution": 1,
+            "marginalRecallGain": 0.2,
+            "repairFrequency": 0,
+            "invalidEvidenceRate": 0,
+            "refusalRate": 0,
+            "cost": 11724,
+            "latencyMs": 64489
+          },
+          {
+            "auditorId": "auditor-c",
+            "modelIdentity": "gemini-3.8-flash-low@antigravity-cli",
+            "protocolIdentity": "production-audit@1.0.0",
+            "independenceGroup": "google",
+            "findingCount": 5,
+            "trueFindingCount": 5,
+            "falsePositiveCount": 0,
+            "recall": 1,
+            "precision": 1,
+            "falsePositiveRate": 0,
+            "uniqueTrueContribution": 0,
+            "marginalTrueContribution": 0,
+            "marginalRecallGain": 0,
+            "repairFrequency": 0,
+            "invalidEvidenceRate": 0,
+            "refusalRate": 0,
+            "cost": 37318,
+            "latencyMs": 100405
+          }
+        ],
+        "consensus": {
+          "acceptedIssueCount": 0,
+          "trueAcceptedIssueCount": 0,
+          "falseAcceptedIssueCount": 0,
+          "precision": null,
+          "recall": 0,
+          "costPerTrueAcceptedIssue": null
+        },
+        "result": {
+          "additionalAuditorUniqueContribution": [
+            0,
+            0
+          ],
+          "premiseSignal": "null",
+          "interpretation": "smoke_test_only_not_proof"
+        },
+        "limitations": [
+          "One small fixture cannot prove or disprove the multi-auditor premise.",
+          "Real-model results are specific to the recorded protocol and model identities.",
+          "Tool quality, scope selection, clustering and validation can affect observed recall."
+        ]
+      },
+      "usage": {
+        "requests": 3,
+        "failedRequests": 0,
+        "inputTokens": 46879,
+        "outputTokens": 15569,
+        "unknownUsageRequests": 0,
+        "attemptDurationMs": 228502,
+        "repairTurns": 0
+      },
+      "wallClockMs": 1850222
+    }
+  ],
+  "conditions": [
+    {
+      "condition": "A",
+      "instances": 1,
+      "fixtures": [
+        "premise-v1"
+      ],
+      "recall": {
+        "successes": 4,
+        "trials": 5,
+        "estimate": 0.8,
+        "interval": [
+          0.3755,
+          0.9638
+        ]
+      },
+      "precision": {
+        "successes": 4,
+        "trials": 4,
+        "estimate": 1,
+        "interval": [
+          0.5101,
+          1
+        ]
+      },
+      "falsePositives": {
+        "decoyReports": 0,
+        "unlistedReports": 0,
+        "decoysHit": {
+          "successes": 0,
+          "trials": 3,
+          "estimate": 0,
+          "interval": [
+            0,
+            0.5615
+          ]
+        }
+      },
+      "severityAdequacy": {
+        "successes": 4,
+        "trials": 4,
+        "estimate": 1,
+        "interval": [
+          0.5101,
+          1
+        ]
+      },
+      "usage": {
+        "requests": 1,
+        "failedRequests": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "unknownUsageRequests": 1,
+        "attemptDurationMs": 1004088,
+        "repairTurns": 0,
+        "perInstanceMeanRequests": 1,
+        "perInstanceMeanKnownTokens": 0
+      },
+      "wallClockMs": {
+        "total": 2041591,
+        "perInstanceMean": 2041591
+      }
+    },
+    {
+      "condition": "A_pipeline",
+      "instances": 1,
+      "fixtures": [
+        "premise-v1"
+      ],
+      "recall": {
+        "successes": 4,
+        "trials": 5,
+        "estimate": 0.8,
+        "interval": [
+          0.3755,
+          0.9638
+        ]
+      },
+      "precision": {
+        "successes": 4,
+        "trials": 4,
+        "estimate": 1,
+        "interval": [
+          0.5101,
+          1
+        ]
+      },
+      "falsePositives": {
+        "decoyReports": 0,
+        "unlistedReports": 0,
+        "decoysHit": {
+          "successes": 0,
+          "trials": 3,
+          "estimate": 0,
+          "interval": [
+            0,
+            0.5615
+          ]
+        }
+      },
+      "severityAdequacy": {
+        "successes": 4,
+        "trials": 4,
+        "estimate": 1,
+        "interval": [
+          0.5101,
+          1
+        ]
+      },
+      "usage": {
+        "requests": 4,
+        "failedRequests": 0,
+        "inputTokens": 13415,
+        "outputTokens": 1334,
+        "unknownUsageRequests": 2,
+        "attemptDurationMs": 2040676,
+        "repairTurns": 0,
+        "perInstanceMeanRequests": 4,
+        "perInstanceMeanKnownTokens": 14749
+      },
+      "wallClockMs": {
+        "total": 2041591,
+        "perInstanceMean": 2041591
+      }
+    },
+    {
+      "condition": "C",
+      "instances": 1,
+      "fixtures": [
+        "premise-v1"
+      ],
+      "recall": {
+        "successes": 5,
+        "trials": 5,
+        "estimate": 1,
+        "interval": [
+          0.5655,
+          1
+        ]
+      },
+      "precision": {
+        "successes": 14,
+        "trials": 14,
+        "estimate": 1,
+        "interval": [
+          0.7847,
+          1
+        ]
+      },
+      "falsePositives": {
+        "decoyReports": 0,
+        "unlistedReports": 0,
+        "decoysHit": {
+          "successes": 0,
+          "trials": 3,
+          "estimate": 0,
+          "interval": [
+            0,
+            0.5615
+          ]
+        }
+      },
+      "severityAdequacy": {
+        "successes": 14,
+        "trials": 14,
+        "estimate": 1,
+        "interval": [
+          0.7847,
+          1
+        ]
+      },
+      "usage": {
+        "requests": 3,
+        "failedRequests": 0,
+        "inputTokens": 46879,
+        "outputTokens": 15569,
+        "unknownUsageRequests": 0,
+        "attemptDurationMs": 228502,
+        "repairTurns": 0,
+        "perInstanceMeanRequests": 3,
+        "perInstanceMeanKnownTokens": 62448
+      },
+      "wallClockMs": {
+        "total": 1850222,
+        "perInstanceMean": 1850222
+      }
+    }
+  ],
+  "contribution": {
+    "B": null,
+    "C": {
+      "byPosition": [
+        {
+          "position": 1,
+          "identities": [
+            "claude-sonnet-5@claude-code-cli [anthropic-sonnet]"
+          ],
+          "uniqueTrue": 0,
+          "marginalTrue": 4,
+          "falsePositives": 0
+        },
+        {
+          "position": 2,
+          "identities": [
+            "gpt-5.6-luna@codex-cli [openai]"
+          ],
+          "uniqueTrue": 0,
+          "marginalTrue": 1,
+          "falsePositives": 0
+        },
+        {
+          "position": 3,
+          "identities": [
+            "gemini-3.8-flash-low@antigravity-cli [google]"
+          ],
+          "uniqueTrue": 0,
+          "marginalTrue": 0,
+          "falsePositives": 0
+        }
+      ],
+      "premiseSignals": {
+        "premise-v1:run-408bbcaf-28ac-4e6f-986e-9d7758cfd382": "null"
+      }
+    }
+  },
+  "evidence": {
+    "emitted": 24,
+    "rejectedOnValidation": 2,
+    "quoteRejected": 0,
+    "invalidEvidenceRate": {
+      "successes": 2,
+      "trials": 24,
+      "estimate": 0.0833,
+      "interval": [
+        0.0232,
+        0.2585
+      ]
+    },
+    "rejectedTrueDefects": 2
+  },
+  "verification": {
+    "items": 4,
+    "decisive": 2,
+    "correct": {
+      "successes": 2,
+      "trials": 2,
+      "estimate": 1,
+      "interval": [
+        0.3424,
+        1
+      ]
+    },
+    "confirmedTrue": 2,
+    "confirmedFalse": 0,
+    "rejectedTrue": 0,
+    "rejectedFalse": 0,
+    "inconclusive": 2,
+    "byCondition": {
+      "A_pipeline": {
+        "items": 4,
+        "correct": {
+          "successes": 2,
+          "trials": 2,
+          "estimate": 1,
+          "interval": [
+            0.3424,
+            1
+          ]
+        }
+      }
+    }
+  },
+  "plan": {
+    "plans": 1,
+    "addressedIssues": 0,
+    "addressedTrue": {
+      "successes": 0,
+      "trials": 0,
+      "estimate": null,
+      "interval": null
+    },
+    "trueAcceptedCovered": {
+      "successes": 0,
+      "trials": 0,
+      "estimate": null,
+      "interval": null
+    },
+    "byCondition": {
+      "A_pipeline": {
+        "plans": 1,
+        "addressedIssues": 0,
+        "addressedTrue": {
+          "successes": 0,
+          "trials": 0,
+          "estimate": null,
+          "interval": null
+        },
+        "trueAcceptedCovered": {
+          "successes": 0,
+          "trials": 0,
+          "estimate": null,
+          "interval": null
+        }
+      }
+    }
+  },
+  "comparisons": [
+    {
+      "name": "heterogeneous discovery (C) vs one run (A)",
+      "left": "C",
+      "right": "A",
+      "recallDifference": {
+        "estimate": 0.2,
+        "interval": [
+          0,
+          0.6
+        ],
+        "units": 5,
+        "iterations": 10000
+      },
+      "precisionDifference": 0,
+      "knownTokenRatio": null
+    }
+  ],
+  "decision": {
+    "heterogeneousOverRepeated": "insufficient_evidence",
+    "repeatedOverSingle": "insufficient_evidence",
+    "pipelineOverSinglePipeline": "insufficient_evidence",
+    "rule": "fewer than 10 paired ground-truth defects: insufficient_evidence; otherwise worthwhile: the paired-bootstrap interval of the recall difference lies above 0 and the precision difference is at least -0.10; not_worthwhile: the interval lies below 0, or it lies within [-0.05, 0.05] entirely while the left condition spends at least 1.5x the known tokens; otherwise insufficient_evidence",
+    "statement": "Heterogeneous (3-family) auditors versus repeated runs of one model: insufficient evidence (recall C 1 vs B null). Repeated isolated runs versus one run: insufficient evidence (recall B null vs A 0.8). Full reconciliation/verification pipeline versus the single-auditor pipeline: insufficient evidence (recall D null vs A_pipeline 0.8). The families are not matched for strength or cost, so a null or negative result does not show that equally strong families would not help."
+  },
+  "limitations": [
+    "The heterogeneous auditors span 3 model families (claude, gemini, gpt), not matched for strength or cost: condition C tests these models, not model families in general.",
+    "3 small fixtures with 10 defects and 6 decoys: intervals are wide and fixture effects dominate.",
+    "Units within a fixture are not independent (shared code, shared run); Wilson intervals treat them as independent and are optimistic.",
+    "Matching is a prespecified location-and-keyword rubric; unlisted findings count as false positives even when they may describe real issues (reviewed separately in the README).",
+    "Usage quotas and provider availability can bound the number of repetitions; missing runs are listed rather than imputed."
+  ],
+  "corpus": {
+    "appended": 0,
+    "unchanged": 46,
+    "independenceReport": {
+      "hash": "603d3596033f542ba5c1df6ae00f02bbec69eddd1d862638f8bfb31b4815479f",
+      "byteLength": 8282,
+      "extension": "corpus-report",
+      "relativePath": "artifacts/603d3596033f542ba5c1df6ae00f02bbec69eddd1d862638f8bfb31b4815479f.corpus-report"
+    },
+    "outcomeReport": {
+      "hash": "88c05989b7b5de0d6d64c94e5c1b9517ca841f6e00f5ec205ce8b2885b43fade",
+      "byteLength": 9843,
+      "extension": "corpus-report",
+      "relativePath": "artifacts/88c05989b7b5de0d6d64c94e5c1b9517ca841f6e00f5ec205ce8b2885b43fade.corpus-report"
+    },
+    "independenceSummary": {
+      "corpus": "independence",
+      "groupBy": [
+        "model",
+        "harness",
+        "protocol",
+        "groundTruth",
+        "mode"
+      ],
+      "applicable": true,
+      "reason": null,
+      "denominator": {
+        "runCount": 1,
+        "observationCount": 12,
+        "runsWithGroundTruth": 1,
+        "adjudicatedCount": 7,
+        "unmatchedRunIds": []
+      },
+      "rows": [
+        {
+          "group": {
+            "model": "[\"[\\\"claude-sonnet-5\\\",\\\"fda23f1761d94f8350afbf519daf36d925e8b82724144cb7e6c81a9985cfeebf\\\",\\\"claude-code-cli\\\",\\\"claude-code/2.1.283\\\"]\",\"[\\\"gemini-3.8-flash-low\\\",\\\"73ec029c5a211f55bcbebf7e1a463bd259c5c879f96068a28b5729f40659157b\\\",\\\"antigravity-cli\\\",\\\"antigravity/1.2.12\\\"]\",\"[\\\"gpt-5.6-luna\\\",\\\"e900cb058cf38de9adc6264cf4cb16ca9d7ad23306e945f5c7dbb89440433bbc\\\",\\\"codex-cli\\\",\\\"codex/0.154.0\\\"]\"]",
+            "harness": "[\"arbitra-canonical\",\"1.0.0\",\"a123fc756e8bf36fb80a36e5c803c251c68d48863d7cd12599863095729837f2\"]",
+            "protocol": "[\"production-audit\",\"1.0.0\",\"89a666a6f6f5c39ab1228aeee9d1deffd0489e8d30e687be5c6f53c626bd4ed9\"]",
+            "groundTruth": "[\"premise-v1\",1]",
+            "mode": "real_models"
+          },
+          "runCount": 1,
+          "findingCount": 12,
+          "adjudicatedCount": 7,
+          "acceptedCount": 11,
+          "acceptedRate": 0.916667,
+          "independentlyFoundCount": 11,
+          "multiplyFoundCount": 11,
+          "auditorSlotCount": 36
+        }
+      ]
+    },
+    "outcomeSummary": {
+      "corpus": "real_world_outcomes",
+      "groupBy": [
+        "model",
+        "harness",
+        "protocol",
+        "groundTruth",
+        "mode"
+      ],
+      "denominator": {
+        "runCount": 2,
+        "observationCount": 11,
+        "runsWithGroundTruth": 2,
+        "adjudicatedCount": 11,
+        "unmatchedRunIds": []
+      },
+      "rows": [
+        {
+          "group": {
+            "model": "[\"[\\\"claude-sonnet-5\\\",\\\"fda23f1761d94f8350afbf519daf36d925e8b82724144cb7e6c81a9985cfeebf\\\",\\\"claude-code-cli\\\",\\\"claude-code/2.1.283\\\"]\",\"[\\\"gemini-3.8-flash-low\\\",\\\"73ec029c5a211f55bcbebf7e1a463bd259c5c879f96068a28b5729f40659157b\\\",\\\"antigravity-cli\\\",\\\"antigravity/1.2.12\\\"]\",\"[\\\"gpt-5.6-luna\\\",\\\"e900cb058cf38de9adc6264cf4cb16ca9d7ad23306e945f5c7dbb89440433bbc\\\",\\\"codex-cli\\\",\\\"codex/0.154.0\\\"]\"]",
+            "harness": "[\"arbitra-canonical\",\"1.0.0\",\"a123fc756e8bf36fb80a36e5c803c251c68d48863d7cd12599863095729837f2\"]",
+            "protocol": "[\"production-audit\",\"1.0.0\",\"89a666a6f6f5c39ab1228aeee9d1deffd0489e8d30e687be5c6f53c626bd4ed9\"]",
+            "groundTruth": "[\"premise-v1\",1]",
+            "mode": "real_models"
+          },
+          "runCount": 1,
+          "observationCount": 7,
+          "adjudicatedCount": 7,
+          "outcomes": {
+            "verified": 6,
+            "rejected": 1,
+            "fixed": 0,
+            "ignored": 0,
+            "recurred": 0
+          },
+          "costUsd": {
+            "total": null,
+            "knownCount": 0,
+            "unknownCount": 7
+          },
+          "latencyMs": {
+            "mean": null,
+            "knownCount": 0,
+            "unknownCount": 7
+          }
+        },
+        {
+          "group": {
+            "model": "[\"[\\\"claude-sonnet-5\\\",\\\"fda23f1761d94f8350afbf519daf36d925e8b82724144cb7e6c81a9985cfeebf\\\",\\\"claude-code-cli\\\",\\\"claude-code/2.1.283\\\"]\"]",
+            "harness": "[\"arbitra-canonical\",\"1.0.0\",\"a123fc756e8bf36fb80a36e5c803c251c68d48863d7cd12599863095729837f2\"]",
+            "protocol": "[\"production-audit\",\"1.0.0\",\"89a666a6f6f5c39ab1228aeee9d1deffd0489e8d30e687be5c6f53c626bd4ed9\"]",
+            "groundTruth": "[\"premise-v1\",1]",
+            "mode": "real_models"
+          },
+          "runCount": 1,
+          "observationCount": 4,
+          "adjudicatedCount": 4,
+          "outcomes": {
+            "verified": 4,
+            "rejected": 0,
+            "fixed": 0,
+            "ignored": 0,
+            "recurred": 0
+          },
+          "costUsd": {
+            "total": null,
+            "knownCount": 0,
+            "unknownCount": 4
+          },
+          "latencyMs": {
+            "mean": null,
+            "knownCount": 0,
+            "unknownCount": 4
+          }
+        }
+      ]
+    }
+  }
+}
