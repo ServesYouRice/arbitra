@@ -118,7 +118,7 @@ Evidence is in `docs/qa/`.
 | P15 | Implemented; live drivers deferred | Operator CLI/HTTP for uncertain submissions; live batch runner; every driver refused live before job creation (OpenAI/Anthropic credit, Gemini free tier has no batch) ([`qa/p15-live`](qa/p15-live/README.md)) | Deferred to the [paid-API bundle](#deferred-the-paid-api-bundle): live validation of each driver on a funded account |
 | P16 | **Complete** | — | — |
 | P17 | **Complete** | — | — |
-| P18 | Decided (provisional) | Prespecified criteria; local MiniLM candidate evaluated offline; **reject, keep existing clustering** ([`qa/p18`](qa/p18/README.md)) | Rerun on P06 real-model findings (criterion 1 needs a real-model corpus) |
+| P18 | **Complete** | Prespecified criteria; local MiniLM candidate evaluated offline on two corpora. Authored findings: **reject** (W 36 → 49). P06 real-model findings (149 in 21 runs): **insufficient evidence** (94 of 100 same-label pairs; `E1` cut W only 7%, 25% required). Decision: **do not adopt; keep existing clustering** ([`qa/p18`](qa/p18/README.md)). The rerun also found `structural-v1` merging prompt-injection reports with the defect beside them (open finding) | — |
 | P19 | Pending | Cross-cutting fixes so far: quota classification, output repair (with trusted provenance), evidence re-anchoring and citation widening, peer-review degradation and repairable vote changes, writer tool-loop handling, complete-context marking, sole-author review coverage | Final review after P06 and P18; the [paid-API bundle](#deferred-the-paid-api-bundle) is outside this phase |
 
 ## P01 — Repair test discovery and platform reliability
@@ -399,7 +399,7 @@ The trace browser retains its current identity and artifact guarantees.
 
 ## P18 — Evaluate local embedding clustering
 
-- [ ] Complete P18.
+- [x] Complete P18.
 
 **Implementation.** Compare deterministic clustering and bounded semantic escalation
 with a locally evaluated embedding candidate on the versioned corpus from P05/P06.

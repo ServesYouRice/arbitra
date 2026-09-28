@@ -1,13 +1,82 @@
 # P18 — local embedding clustering: result and decision
 
-**Decision: REJECT. Keep the existing clustering** (`structural-v1` plus bounded
+**Decision: do not adopt. Keep the existing clustering** (`structural-v1` plus bounded
 semantic escalation). No adapter and no runtime dependency are added.
 
-The rule that decided it, prespecified in [PROTOCOL.md](PROTOCOL.md): the embedding
-candidate `E1` did not reduce the weighted error at all. `W` rose from 36 to 49.
-The evidence-sufficiency criterion also fails, so this corpus could not have supported
-adoption even with a positive result. **Rerun this evaluation on P06 real-model findings
-before treating the question as closed**; see [Rerunning](#rerunning).
+The protocol ([PROTOCOL.md](PROTOCOL.md), `p18-protocol-v1`) was applied, unchanged, to two corpora:
+
+| Corpus | Findings | Outcome | Deciding rule |
+| --- | --- | --- | --- |
+| `clustering-p06-real-v1`: P06 real-model findings (September 28, 2026) | 149 in 21 runs | INSUFFICIENT EVIDENCE: retain existing clustering | criterion 1 fails (94 of 100 same-label pairs); `E1` cut `W` by 7%, against the 25% required |
+| `clustering-authored-v1`: hand-authored findings (September 25, 2026) | 58 in 4 runs | REJECT | `W(E1) ≥ W(D)`: 49 against 36 |
+
+Neither corpus shows a defensible benefit from the embedding candidate `E1`. The real-model
+rerun also found a structural weakness in `D` that no escalation candidate can reach; see
+[What the real findings show](#what-the-real-findings-show).
+
+## Rerun on P06 real-model findings (September 28, 2026)
+
+| Item | Value |
+| --- | --- |
+| Recorded run | commit `598c939` (clean tree), 2026-09-28T21:17:56Z; raw output [results/clustering-p06-real-v1.json](results/clustering-p06-real-v1.json) |
+| Corpus | `clustering-p06-real-v1` v1, sha256 `46e6bd0f…f2e1`, mode `real_models`: 21 runs, 149 findings, 84 ground-truth clusters (36 with ≥ 2 members), 94 same-label and 658 different-label pairs. Built by [`p06-corpus.mjs`](../../../tooling/embedding-eval/p06-corpus.mjs) from every P06 run record with recorded discovery, and committed before the comparison ran |
+| Labels | the P06 rubric for defects and decoys (118 findings); `NOISE:injection-<file>` for prompt-injection reports (28); three findings labelled by hand (`NOISE:test-coverage-gap` twice, `NOISE:negative-quantity`) |
+| Fixtures | `premise-v1`, `expanded-evaluation-v1`, `live-fixture-v1` |
+| Model and settings | as for the authored corpus below; the pinned artifact was verified again before use |
+| Host | Apple M4, 10 cores, 16 GiB; load average 4.5 to 6.2 during the run |
+
+### Clustering errors (pooled, held-out thresholds)
+
+| Config | FM | FS | W = 2·FM + FS | ΔW [95% CI] | Pair precision | Pair recall | Candidates | Contaminated | Redundant |
+| --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| `D` deterministic | 40 | 8 | 88 | — | 0.683 | 0.915 | 79 | 9 | 4 |
+| **`E1` embedding escalation (candidate)** | 40 | 2 | **82** | **−6 [−14, 0]** | 0.697 | 0.979 | 76 | 9 | 1 |
+| `E2` embedding only | 0 | 5 | 5 | −83 [−129, −41] | 1.000 | 0.947 | 87 | 0 | 3 |
+| `S*` oracle escalation (upper bound) | 40 | 0 | 80 | −8 [−16, −2] | 0.701 | 1.000 | 75 | 9 | 0 |
+
+No configuration made a defect-loss merge. The held-out thresholds were τ = 0.65 for
+`premise-v1` and `expanded-evaluation-v1` and 0.75 for `live-fixture-v1` (`E2`: 0.60, 0.60
+and 0.65).
+
+| # | Criterion | Result | Measured |
+| --- | --- | --- | --- |
+| 1 | Evidence sufficiency | **fail** | mode `real_models`; fixtures 3 of 2; multi-member clusters 36 of 30; same-label pairs **94 of 100**; ambiguous pairs 39 of 30 |
+| 2 | Benefit (≥ 25% and CI < 0) | **fail** | W 88 → 82 (6.8% reduction); ΔW −6 [−14, 0] |
+| 3 | No defect loss | pass | 0 vs 0 |
+| 4 | Downstream | pass | contaminated 9 vs 9; 3 redundant removed |
+| 5 | Latency | pass | warm p95 333 ms (limit 750); cold load 0.21 s |
+| 6 | Resources | pass | model 90.4 MB; peak RSS growth 572 MB (limit 700); dependencies 482 MB (limit 500) |
+| 7 | Cost and locality | pass | $0; 0 network requests |
+| 8 | Reproducibility | pass | 5 repeats, identical assignments |
+
+Criteria 5–8 pass and `W(E1) < W(D)`, so no REJECT rule triggers. Criterion 1 fails, so the
+outcome is INSUFFICIENT EVIDENCE, and the existing clustering is retained.
+
+### What the real findings show
+
+- **`D`'s false merges come from one structural pattern.** In 8 of the 9 `premise-v1` runs,
+  `structural-v1` put the prompt-injection report about the planted comment on `src/auth.ts`
+  line 2 into the same candidate as the `DEF-AUTH-BYPASS` findings. Those findings cite spans
+  such as lines 1–5, which include the comment's line. Once more, it merged the
+  negative-quantity report with `DEF-RACE` on the same `src/inventory.ts` span. These 9
+  contaminated candidates hold all 40 false-merge pairs. No escalation resolver can undo a
+  structural merge, so `E1` and even the oracle `S*` keep FM 40.
+- **`E1`'s small gain came from splits.** It resolved 6 of `D`'s 8 false splits without a new
+  false merge; the oracle would have resolved all 8.
+- **`E2` nearly solved this corpus:** no false merges and 5 false splits, because an injection
+  report reads nothing like the bypass beside it. Under the protocol, `E2` explains the
+  decision and cannot change it. Evaluating it as a candidate, or making `structural-v1`
+  category-aware, needs a new protocol version and a larger corpus.
+- **The corpus is still small.** Most multi-member clusters are two or three reports of one
+  planted defect in one run, so same-label pairs stopped at 94.
+
+The structural false merge is a product finding for the final review: a prompt-injection report
+can share a candidate with the real defect it sits beside. It is listed in
+[WORK-REMAINING](../../../WORK-REMAINING.md).
+
+## Authored corpus (September 25, 2026)
+
+The sections below record the first evaluation, on the hand-authored corpus.
 
 ## Provenance
 
