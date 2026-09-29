@@ -5,7 +5,7 @@ import { modelVerificationResultSchema, modelCritiqueSchema, modelClusteringResu
 import { revisePlanOnce } from "@arbitra/workflow/nodes/revision.js";
 import type { RevisionResolution } from "@arbitra/workflow/nodes/revision.js";
 import { computeConsensus, type ConsensusState, type ConsensusCandidate } from "@arbitra/workflow/consensus/engine.js";
-import { canonicaliseIssues, type CanonicalIssueSet } from "@arbitra/workflow/nodes/canonical-issues.js";
+import { canonicaliseIssues, isPlannable, SINGLE_SOURCE_PLANNED_LIMITATION, type CanonicalIssueSet } from "@arbitra/workflow/nodes/canonical-issues.js";
 import { plannerNode } from "@arbitra/workflow/nodes/planner/node.js";
 import { criticNode, type StructuredCritique } from "@arbitra/workflow/nodes/critic/node.js";
 import { verifyItems, type VerificationIssueOperation } from "@arbitra/workflow/nodes/verification/engine.js";
@@ -326,7 +326,9 @@ export class ModelAuditPipeline {
   }
 
   async plan(issues: CanonicalIssueSet, signal: AbortSignal): Promise<PlanIR> {
-    const accepted = issues.issues.filter(({ disposition }) => disposition === "accepted");
+    const accepted = issues.issues.filter(isPlannable);
+    // A plan that carries single-auditor issues says so: no second auditor checked them.
+    const planPremise = accepted.some(({ disposition }) => disposition === "verified_single_source") ? { ...premiseReport, limitations: [...premiseReport.limitations, SINGLE_SOURCE_PLANNED_LIMITATION] } : premiseReport;
     const acceptedSourceIds = new Set(accepted.flatMap(({ sourceFindingIds }) => sourceFindingIds));
     const sources = await readStage<readonly AuditFinding[]>(this.context.store, "source-findings");
     const preferredPaths = [...new Set(sources.filter(({ sourceFindingId }) => acceptedSourceIds.has(sourceFindingId)).flatMap(({ locations }) => locations.map(({ path }) => path)))];
@@ -343,16 +345,16 @@ export class ModelAuditPipeline {
           },
           call: (stage) => { plannerCalls += 1; return this.call(stageInput(stage)); },
           publish: (kind, value) => this.context.store.publish(kind, value),
-        }, { maximumBriefRecords, fullSchema: traceablePlanSchema("audit", null, request.input.canonicalIssues.filter(({ disposition }) => disposition === "accepted").map(({ candidateId }) => candidateId)) }); });
+        }, { maximumBriefRecords, fullSchema: traceablePlanSchema("audit", null, request.input.canonicalIssues.filter(isPlannable).map(({ candidateId }) => candidateId)) }); });
       } },
     });
     const { plan, modelCalls } = await planner.run({
       projectContext: { fileCount: this.context.snapshot.files.length, sourceLocations: sources.filter(({ sourceFindingId }) => acceptedSourceIds.has(sourceFindingId)).flatMap(({ locations }) => locations), unresolvedPeerOperations: await readStage(this.context.store, "peer-operation-conflicts") },
       canonicalIssues: accepted,
       repositoryContext: this.context.snapshot.files.map(({ path, lines }) => ({ ref: path, trust: "repo", content: lines.join("\n") })),
-      constraints: ["audit_mode_is_read_only"], workflowGoal: "Resolve accepted issues while preserving intended behavior.", premiseReport,
+      constraints: ["audit_mode_is_read_only"], workflowGoal: "Resolve accepted issues while preserving intended behavior.", premiseReport: planPremise,
     });
-    if (plan.mode !== "audit" || JSON.stringify(plan.premiseReport) !== JSON.stringify(premiseReport)) throw new Error("MODEL_PLAN_PROVENANCE_MISMATCH");
+    if (plan.mode !== "audit" || JSON.stringify(plan.premiseReport) !== JSON.stringify(planPremise)) throw new Error("MODEL_PLAN_PROVENANCE_MISMATCH");
     await this.context.store.publish("planner-result", { logicalModelCalls: modelCalls });
     await this.context.store.publish("plan-ir", plan);
     return plan;
@@ -413,7 +415,7 @@ export class ModelAuditPipeline {
       const revised = await revisePlanOnce("Resolve accepted issues while preserving intended behavior.", plan, feedback.items, { modelProfileId: this.#roles.planner }, {
         revise: async (request) => {
           const stageInput = (stage: PlannerStage): ModelStageInput<unknown> => ({ ...stage, modelProfileId: this.#roles.planner, protocol: "planner", signal });
-          return replanOnOutputLimit(() => reviseWithContext({ ...request, canonicalIssues: issues.issues.filter(({ disposition }) => disposition === "accepted"), repository: this.repository() }, {
+          return replanOnOutputLimit(() => reviseWithContext({ ...request, canonicalIssues: issues.issues.filter(isPlannable), repository: this.repository() }, {
             fits: async (stage) => {
               try { await this.prepareCall(stageInput(stage)); return true; }
               catch (error) { if (isCapacityError(error)) return false; throw error; }

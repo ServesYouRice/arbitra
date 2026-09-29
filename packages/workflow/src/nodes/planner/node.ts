@@ -1,3 +1,4 @@
+import { isPlannable } from "../canonical-issues.js";
 import { validateTraceability, type TraceablePlan, type TraceabilityDiagnostic } from "./traceability.js";
 
 export interface PlannerCanonicalIssue { readonly candidateId: string; readonly disposition: string; readonly claim: { readonly trust: "untrusted_data"; readonly title: string; readonly description: string }; readonly sourceFindingIds: readonly string[] }
@@ -13,7 +14,7 @@ export function plannerNode<TPlan extends TraceablePlan>(config: PlannerNodeConf
   return Object.freeze({ async run(input: PlannerInput) {
     validateInput(input); const protocol = Object.freeze({ protocolId: "planner" as const, protocolVersion: config.protocolVersion, protocolHash: config.protocolHash });
     const raw = await config.runtime.plan(Object.freeze({ session: "single_coherent_planner" as const, input: freezeInput(input), protocol, outputSchema: "PlanIR" as const, forbiddenInputs: Object.freeze(["raw_audit_transcripts"] as const) }));
-    const plan = config.schema.parse(withoutSelfReferences(raw)); const accepted = input.canonicalIssues.filter(({ disposition }) => disposition === "accepted").map(({ candidateId }) => candidateId).sort(); const diagnostics = validateTraceability(plan, accepted);
+    const plan = config.schema.parse(withoutSelfReferences(raw)); const accepted = input.canonicalIssues.filter(isPlannable).map(({ candidateId }) => candidateId).sort(); const diagnostics = validateTraceability(plan, accepted);
     if (diagnostics.length > 0) throw new PlannerTraceabilityError(diagnostics);
     // Logical planner requests can each contain tool turns or reuse durable output;
     // provider attempts and spend remain authoritative in the activity trace log.

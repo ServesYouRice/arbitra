@@ -49,6 +49,6 @@ function IssueRowView({ row, expanded, onToggle, selectedFindingId, onSelectFind
     {!expanded ? null : <div className="issue-row__evidence"><p className="state" data-state="tainted">{row.description}</p>{row.evidence.length === 0 ? <p className="state" data-state="unexamined">no persisted evidence for this issue</p> : <ul aria-label={`evidence for ${row.candidateId}`}>{row.evidence.map(({ id, text, locationIds }) => <li key={id}>{id} · {text} · {locationIds.join(", ") || "no location"}</li>)}</ul>}</div>}
   </li>;
 }
-function consensusStateToken(state: IssueRow["consensusState"]): string { return state === "accepted" ? "verified" : state === "rejected" ? "refuted" : state === "single_source" ? "unexamined" : "dissent"; }
+function consensusStateToken(state: IssueRow["consensusState"]): string { return state === "accepted" ? "verified" : state === "rejected" ? "refuted" : state === "single_source" || state === "verified_single_source" ? "unexamined" : "dissent"; }
 const FILTER_LABELS = Object.freeze({ severity: "severity", status: "status", auditor: "auditor", category: "category", consensusState: "consensus state", verificationOutcome: "verification outcome" });
 const SHARED_ARTIFACT_API = new ArtifactApi();

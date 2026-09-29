@@ -114,7 +114,8 @@ with `degraded_coverage`, even when no findings are produced; that is not a proc
 
 Audit presets select three auditors (`audit-deep`), two (`audit-balanced` and
 `diff-review`), or one (`diff-fast`). `diff-fast` skips peer review and verifies its
-single-source findings deterministically. Repository, module, staged, working-tree and
+single-source findings; the plan addresses the ones verification confirms, and says that no
+second auditor checked them. Repository, module, staged, working-tree and
 revision-range scopes are supported. Resume checks the original repository snapshot;
 replay creates a separate run from recorded discovery findings and leaves its source
 unchanged.
