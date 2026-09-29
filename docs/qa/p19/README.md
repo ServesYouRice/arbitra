@@ -8,7 +8,7 @@ commit.
 | # | Finding | Fix | Status |
 |---|---|---|---|
 | 1 | Structural clustering merged a prompt-injection report with the defect beside it | `structural-v2`: `PROMPT_INJECTION` clusters only with its own category | **Fixed** in `d9e8dcd` |
-| 2 | The critic's review of a large plan fans out into one call per cross-batch pair | Pack pair checks into as few calls as fit | Planned |
+| 2 | The critic's review of a large plan fans out into one call per cross-batch pair | Pack pair checks into as few calls as fit | **Fixed** (see git log) |
 | 3 | Tasks that write the same file are ordered only by `conflictsWith` | Deterministic, repairable ordering check | Planned |
 | 4 | Single-auditor plans address nothing | Plan issues that targeted verification confirmed (`verified_single_source`) | Planned |
 | 5 | Failed requests are charged their full estimate | Release reservations for failures that provably consumed nothing | Planned |

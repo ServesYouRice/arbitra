@@ -116,11 +116,15 @@ truncated. When they do not fit, the stage is recomposed:
 - **Batched records with global indexes.** Each batch carries complete records plus an
   index of every other record identity and relationship. Merged results are validated for
   exact coverage (every record decided exactly once).
-- **Exhaustive pair coverage.** Record batches are followed by pair checks for every pair
-  separated by the partition (`peerReviewBatches`). When two complete records cannot share a
-  context, one stays complete and the other is read as exact consecutive segments of its
-  canonical JSON (`segmentText`, at most 16 segments); concatenating the segments restores the
-  record byte-for-byte.
+- **Exhaustive pair coverage.** Record batches are followed by pair checks that cover every
+  pair separated by the partition. Peer review checks one pair per call (`peerReviewBatches`),
+  because each call may propose at most one merge. The critic packs pairs instead
+  (`criticContextParts`): each packed call holds as many records as fit and lists the pairs
+  it covers, so every pair is checked exactly once in far fewer calls. A revised plan once
+  needed 152 one-pair checks; packing covers the same pairs in 6. When two complete records
+  cannot share a context, one stays complete and the other is read as exact consecutive
+  segments of its canonical JSON (`segmentText`, at most 16 segments); concatenating the
+  segments restores the record byte-for-byte.
 - **One global planner.** `planWithContext` reads complete records in brief batches, owns a
   single global outline (validation, decomposition, dependencies, requirement links), then
   expands each task against its complete original records. Audit plans trace accepted issues;

@@ -387,7 +387,7 @@ export class ModelAuditPipeline {
             try { await this.prepareCall(requestFor(part)); return true; }
             catch (error) { if (isCapacityError(error)) return false; throw error; }
           }, revisionContext, maximumRecords);
-          await this.context.store.publish(phase === "initial" ? "critic-context-batches" : "critic-revision-context-batches", parts.map(({ kind, recordIds, segment }) => ({ kind, recordIds, ...(segment === undefined ? {} : { segment }) })));
+          await this.context.store.publish(phase === "initial" ? "critic-context-batches" : "critic-revision-context-batches", parts.map(({ kind, recordIds, segment, pairs }) => ({ kind, recordIds, ...(segment === undefined ? {} : { segment }), ...(pairs === undefined ? {} : { pairs }) })));
           criticCalls = 0;
           const local = [];
           for (const part of parts) {
