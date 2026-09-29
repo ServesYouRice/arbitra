@@ -3,12 +3,14 @@
 # fixture repository (completion plan P03). API credentials come from the repository's .env when present;
 # subscription CLI endpoints use the CLI's own login on this host.
 #   tooling/live/run.sh <configs-dir> <config-name> [cli args after the config path...]
+# ARBITRA_LIVE_FIXTURE names another fixture repository to copy (default: tooling/live/fixture-repo).
 # Prints the CLI policy, the run state and, for a failed run, the recorded failure reason.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 configs="$(cd "$1" && pwd)"; name="$2"; shift 2
 work="$root/.runs/live/work/$name"
-rm -rf "$work" && mkdir -p "$work" && cp -R "$root/tooling/live/fixture-repo" "$work/repo"
+fixture="${ARBITRA_LIVE_FIXTURE:-$root/tooling/live/fixture-repo}"
+rm -rf "$work" && mkdir -p "$work" && cp -R "$fixture" "$work/repo"
 cd "$work/repo" && git init -q && git add -A && git -c user.email=live@arbitra.invalid -c user.name=live commit -qm fixture
 if [ -f "$root/.env" ]; then set -a; . "$root/.env"; set +a; fi
 # A sleeping Mac freezes the run: stage timeouts count only awake time, so wall-clock durations
