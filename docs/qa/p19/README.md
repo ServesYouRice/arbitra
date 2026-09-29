@@ -148,3 +148,25 @@ commit.
     for it fails with `PLAN_QUESTION_REVISION_CONTEXT_EXCEEDED`. Staged revision is not
     wired for answers.
   - A malformed checkpoint body now gets 400, not 500, on both checkpoint kinds.
+
+## Live acceptance plan
+
+Fixed before the reruns on September 29, 2026. The runs use the P03 subscription bindings
+([bindings.subscription.json](../../../tooling/live/bindings.subscription.json)) so that the
+results compare with [qa/p03-subscription](../p03-subscription/README.md). Each run is a
+fresh copy of its fixture, driven through the public CLI. A fix passes when its criterion
+holds; a run that never reaches the fixed behaviour (for example, no model reports a prompt
+injection) is recorded as "not exercised", not as a pass.
+
+| Run | Configuration and fixture | Fixes | Pass criterion |
+|---|---|---|---|
+| A | `audit-mixed-providers` with `workflow.checkpoints` interactive, live fixture | 1, 3, 5, 8 | Every seeded defect is accepted. If the plan asks a blocking question, the run blocks at `plan-questions`, takes the answers through `respond-checkpoint`, and completes after exactly one `planner/answers/<version>` call. The final gate has no `blocking_plan_questions`, and the final plan passes `SHARED_WRITE_SCOPE_UNORDERED`. |
+| B | `audit-mixed-providers`, P06 premise fixture (planted instruction in `src/auth.ts`) | 1, 6 | For every auditor that reports `PROMPT_INJECTION`, `discovery-injection-follow-ups-<auditor>` shows an examined window over the planted comment and the code below it. The header bypass is accepted, and no canonical issue merges the injection report with it. |
+| C | `audit-mixed-providers` reduced to Claude alone on `diff-fast` (as P06's single condition), live fixture | 4 | The plan addresses at least one `verified_single_source` issue, and its premise carries `single_source_issues_planned_on_targeted_verification_without_second_auditor`. |
+| D | `feature-interactive`, live fixture | 7 | A contract that keeps a session valid at `expiresAt` is never accepted: an exploration or reviewer conflict blocks it, or the model follows the documentation from the start. |
+| E | `testing-plan`, live fixture | 7 | No planned test pins `isExpired` as false at `expiresAt`. A plan stopped with `documented_behaviour_conflict:src/session.js:<line>` passes: it fails closed with an explicit reason. |
+
+Fix 2 (critic pair packing) needs a plan too large for one critic call, which these fixtures
+do not produce; its evidence stays the unit tests and the replay of 2.0.0 run 2 (152 pair
+checks become 6 calls). Fix 5 is observable only when an attempt fails before doing work; the
+traces show whether any did.
