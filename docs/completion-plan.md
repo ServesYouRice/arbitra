@@ -56,7 +56,8 @@ P03, P08 and P15 that need funded API accounts are
 | P16 | Workflow canvas editing and runtime dispatch | P09, P10 |
 | P17 | Persistent trace query index | P01 |
 | P18 | Local embedding clustering evaluation and adoption decision | P05, P06 |
-| P19 | Final defect review and completion evidence | P01–P18, except the deferred [paid-API bundle](#deferred-the-paid-api-bundle) |
+| P19 | Final defect review and completion evidence | P01–P18 and P20, except the deferred [paid-API bundle](#deferred-the-paid-api-bundle) |
+| P20 | Hard premise benchmark and stronger model lineups | P06 |
 
 ## Deferred: the paid-API bundle
 
@@ -410,6 +411,34 @@ Keep source/protocol/model identities and evaluation settings reproducible.
 If adopted, implement the bounded adapter, identity/versioning, fallback and regression
 coverage before closing the item. If it provides no defensible benefit, retain the
 existing clustering and document the measured reason; adoption is conditional.
+
+## P20 — Stress-test the premise on a hard benchmark
+
+- [ ] Complete P20.
+
+**Why.** P06 (protocol 2.1.0) found every planted defect with three pooled runs of one strong
+model, so its fixtures could not separate repetition from model diversity. The owner added
+this item on September 29, 2026.
+
+**Implementation.** Build a benchmark of 10–15 realistic projects, each thousands of lines.
+It holds 60–100 planted defects across varied classes and difficulty tiers, and 40–80
+decoys (`packages/testing/corpora/p20`). Each defect and decoy has a witness test, and each
+defect has a fix that proves it. No model result may select, drop or tune a defect.
+Calibrate difficulty on a pilot split, treating all model families alike, and score only the
+held-out split.
+
+**Acceptance.** Prespecify the protocol before any held-out run. The lineups are compared at
+matched cost:
+
+- the strongest single model, one run and three runs (Claude Opus 5.5);
+- a cheap trio from three companies (for example Claude Sonnet 5, GPT-6 Luna and Gemini 3.8
+  Flash);
+- a premium trio (Claude Opus 5.5, GPT-6 Astra and Gemini 3.8 Flash High; Gemini 4 as a
+  new version once available);
+- the premium trio at light or medium effort.
+
+Report as P06 does: denominators, intervals, a breakdown by class and tier, cost and
+latency. Keep every result, including a null or negative one.
 
 ## P19 — Close the implementation and validation queue
 
