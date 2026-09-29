@@ -33,7 +33,8 @@ import { RequirementsCheckpoint } from "./requirements-checkpoint.js";
 import { ModelProtocols } from "./model-protocols.js";
 import { readRequirementsProposal } from "./requirements-revision.js";
 import { GraphCheckpoints, validateGraphCheckpoints, type CheckpointView, type GatePolicyRegistry } from "@arbitra/core/runner/graph-checkpoints.js";
-import { checkpointPolicySchema, checkpointResponseSchema, type CheckpointPolicy } from "@arbitra/schemas/checkpoint-policy.js";
+import { checkpointPolicySchema, checkpointResponseSchema, PLAN_QUESTIONS_CHECKPOINT_ID, type CheckpointPolicy } from "@arbitra/schemas/checkpoint-policy.js";
+import { PlanQuestionsCheckpoint, type PlanQuestionsCheckpointResource } from "./plan-questions.js";
 import { batchResolutionRequestSchema } from "@arbitra/schemas/provider-execution.js";
 import { ModelActivities } from "./model-activities.js";
 import { graphCheckpointStore } from "./graph-checkpoint-store.js";
@@ -92,7 +93,7 @@ export interface PreflightReport {
 }
 
 export type RequirementsCheckpointResource = { readonly artifactId: string; readonly kind: "requirements"; readonly pendingAmbiguityIds: readonly string[]; readonly revisionProposalArtifactId?: string };
-export type RunCheckpointResource = RequirementsCheckpointResource | CheckpointView;
+export type RunCheckpointResource = RequirementsCheckpointResource | CheckpointView | PlanQuestionsCheckpointResource;
 
 export interface RunResource {
   readonly runId: string;
@@ -505,6 +506,10 @@ export class Orchestrator {
       if (current !== null) checkpoints.push({ artifactId: current.artifactId, kind: "requirements", pendingAmbiguityIds: current.pendingAmbiguityIds,
         ...(current.revisionProposal === undefined ? {} : { revisionProposalArtifactId: current.revisionProposal.artifactId }) });
     }
+    if (stored?.modelConfiguration?.mode === "audit") {
+      const questions = await new PlanQuestionsCheckpoint(store).view();
+      if (questions !== null) checkpoints.push(questions);
+    }
     const policy = stored?.checkpointPolicy;
     if (workflow !== undefined) checkpoints.push(...await this.#checkpoints(store, policy).list(workflow));
     const workflowGraph = stored?.workflowGraph === undefined || workflow === undefined ? undefined : Object.freeze({ ...stored.workflowGraph, executedVersion: WorkflowGraphStore.versionOf(workflow) });
@@ -516,14 +521,24 @@ export class Orchestrator {
    * and idle, the version must be current, and each version accepts one decision. The
    * decision is durable; execution continues only through an explicit resume.
    */
-  async respondCheckpoint(runId: string, checkpointId: string, value: unknown): Promise<{ readonly accepted: true; readonly runId: string; readonly state: RunState; readonly checkpoint: CheckpointView }> {
-    const response = checkpointResponseSchema.parse(value);
+  async respondCheckpoint(runId: string, checkpointId: string, value: unknown): Promise<{ readonly accepted: true; readonly runId: string; readonly state: RunState; readonly checkpoint: CheckpointView | PlanQuestionsCheckpointResource }> {
+    // Plan questions take answers, not a decision: one complete set per plan version.
+    const parsed = checkpointId === PLAN_QUESTIONS_CHECKPOINT_ID ? null : checkpointResponseSchema.safeParse(value);
+    if (parsed?.success === false) throw Object.assign(new Error("CHECKPOINT_RESPONSE_INVALID: a checkpoint response is {version, decision}"), { statusCode: 400 });
+    const response = parsed === null ? null : parsed.data;
     if (this.#live.has(runId) || this.#resuming.has(runId)) throw Object.assign(new Error(`RUN_ALREADY_LIVE:${runId}`), { statusCode: 409 });
     this.#resuming.add(runId);
     try {
       const status = await this.status(runId);
       if (status.state !== "BLOCKED") throw Object.assign(new Error("CHECKPOINT_RESPONSE_REQUIRES_BLOCKED_RUN"), { statusCode: 409 });
       const store = new RunStore(this.#runsDirectory, runId);
+      if (response === null) {
+        const questions = new PlanQuestionsCheckpoint(store);
+        await questions.respond(value);
+        const checkpoint = await questions.view();
+        if (checkpoint === null) throw new Error(`CHECKPOINT_NOT_FOUND:${checkpointId}`);
+        return Object.freeze({ accepted: true as const, runId, state: status.state as RunState, checkpoint });
+      }
       const checkpoints = this.#checkpoints(store, (await store.loadContext()).checkpointPolicy);
       await checkpoints.respond(checkpointId, response.version, response.decision);
       const workflow = (await store.definitions().load(runId)).graph;
@@ -845,6 +860,7 @@ export class Orchestrator {
     if ((await store.loadEvents()).length > 0) {
       const workflow = (await store.definitions().load(runId)).graph;
       for (const reason of await this.#checkpoints(store, (await store.loadContext()).checkpointPolicy).gateReasons(workflow)) if (!reasons.includes(reason)) reasons.push(reason);
+      if ((await new PlanQuestionsCheckpoint(store).view())?.status === "pending") reasons.push(`checkpoint_pending:${PLAN_QUESTIONS_CHECKPOINT_ID}`);
     }
     return Object.freeze({ gateStatus: reasons.length === 0 ? "passed" : "failed", reasons: Object.freeze(reasons) });
   }

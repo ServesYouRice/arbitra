@@ -155,8 +155,9 @@ validate and save operator-authored graphs as immutable content-addressed versio
 [Operator-authored graphs](workflows.md#operator-authored-graphs).
 
 `POST /runs/:id/checkpoints/:checkpointId` records one versioned decision for a generic
-`human` node through the orchestrator. The server holds no checkpoint state. See
-[Gates and human checkpoints](workflows.md#gates-and-human-checkpoints).
+`human` node through the orchestrator, or, for the reserved `plan-questions` checkpoint, one
+set of answers to an interactive Audit plan's blocking questions. The server holds no
+checkpoint state. See [Gates and human checkpoints](workflows.md#gates-and-human-checkpoints).
 
 `GET /runs/:id/batches` lists a run's provider batch submissions, including uncertain ones
 and their recorded evidence. `POST /runs/:id/batches/:submissionId/resolve` records one

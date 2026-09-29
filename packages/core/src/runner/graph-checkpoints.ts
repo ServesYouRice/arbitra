@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { CHECKPOINT_DECISIONS, CHECKPOINT_ID_PATTERN, type CheckpointDecisionValue, type CheckpointPolicy } from "@arbitra/schemas/checkpoint-policy.js";
+import { CHECKPOINT_DECISIONS, CHECKPOINT_ID_PATTERN, PLAN_QUESTIONS_CHECKPOINT_ID, type CheckpointDecisionValue, type CheckpointPolicy } from "@arbitra/schemas/checkpoint-policy.js";
 import { canonicalJson } from "../config/config-store.js";
 import { RunCheckpointError } from "./suspension.js";
 import type { NodeExecutionContext, NodeExecutor, RunnerGraph, RunnerNode } from "./workflow-runner.js";
@@ -85,6 +85,7 @@ export function validateGraphCheckpoints(graph: RunnerGraph, policy: CheckpointP
   for (const node of graph.nodes) {
     if (node.kind !== "gate" && node.kind !== "human") continue;
     if (!CHECKPOINT_ID_PATTERN.test(node.id)) throw new Error(`INVALID_CHECKPOINT_NODE_ID:${node.id}`);
+    if (node.id === PLAN_QUESTIONS_CHECKPOINT_ID) throw new Error(`RESERVED_CHECKPOINT_ID:${node.id}`);
     if (node.kind === "gate") gatePolicyFor(node, gatePolicies);
     else {
       humans.add(node.id);

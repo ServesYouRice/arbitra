@@ -5,7 +5,9 @@ import type { WorkflowJson } from "../columns/graph/layout.js";
 /** A generic human checkpoint; answer its current `version`, then resume the run. */
 export interface HumanCheckpointResource { readonly kind: "human"; readonly checkpointId: string; readonly version: string; readonly mode: "interactive" | "automatic"; readonly status: "pending" | "approved" | "rejected"; readonly prompt: string; readonly decisions: readonly ("approve" | "reject")[] }
 export interface RequirementsCheckpointResource { readonly kind: "requirements"; readonly artifactId: string; readonly pendingAmbiguityIds: readonly string[] }
-export type CheckpointResource = HumanCheckpointResource | RequirementsCheckpointResource;
+/** An interactive Audit's blocking plan questions; answer every one for the current `version`, then resume. */
+export interface PlanQuestionsCheckpointResource { readonly kind: "plan-questions"; readonly checkpointId: "plan-questions"; readonly version: string; readonly status: "pending" | "answered"; readonly questions: readonly { readonly id: string; readonly question: string; readonly blastRadius: string }[] }
+export type CheckpointResource = HumanCheckpointResource | RequirementsCheckpointResource | PlanQuestionsCheckpointResource;
 export interface RunResource { readonly runId: string; readonly state: string; readonly resumable: boolean; readonly checkpoints: readonly CheckpointResource[]; readonly eventsCursor?: string; readonly preservedArtifacts?: number; readonly workflow?: WorkflowJson; /** Present when the run executes a saved operator-authored graph. */ readonly workflowGraph?: { readonly id: string; readonly version: string; readonly executedVersion: string } }
 export interface EstimateResource { readonly estimate: unknown; readonly gate: string }
 export class RunApi {
@@ -17,6 +19,7 @@ export class RunApi {
   resume(runId: string): Promise<RunResource> { return this.request(`/runs/${encodeURIComponent(runId)}/resume`, { method: "POST" }); }
   cancel(runId: string): Promise<RunResource> { return this.request(`/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" }); }
   respondCheckpoint(runId: string, checkpointId: string, version: string, decision: "approve" | "reject"): Promise<{ readonly accepted: true }> { return this.request(`/runs/${encodeURIComponent(runId)}/checkpoints/${encodeURIComponent(checkpointId)}`, { method: "POST", body: JSON.stringify({ version, decision }) }); }
+  answerPlanQuestions(runId: string, version: string, answers: readonly { readonly questionId: string; readonly answer: string }[]): Promise<{ readonly accepted: true }> { return this.request(`/runs/${encodeURIComponent(runId)}/checkpoints/plan-questions`, { method: "POST", body: JSON.stringify({ version, answers }) }); }
   eventsUrl(runId: string): string { return `${this.baseUrl}/runs/${encodeURIComponent(runId)}/events`; }
   // Bodiless POSTs (resume, cancel) must not declare a JSON body: the server rejects an empty
   // `application/json` body with 400, which the browser QA found silently broke both controls.

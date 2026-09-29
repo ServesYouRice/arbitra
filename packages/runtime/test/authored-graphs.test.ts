@@ -44,6 +44,8 @@ describe("authored graph validation", () => {
     expect(codes({ ...graph, nodes: [...graph.nodes, { id: "summariser", kind: "model", label: "Summariser", goal: goal("x") }], edges: [...graph.edges, defaultEdge("s", "planner", "summariser")] })).toEqual(["UNKNOWN_MODEL_ROLE"]);
     expect(codes({ ...graph, nodes: [...graph.nodes, { id: "gate", kind: "gate", label: "Gate", goal: goal("x") }], edges: [...graph.edges, defaultEdge("g", "planner", "gate")] })).toEqual(["GATE_POLICY_REQUIRED"]);
     expect(codes({ ...graph, nodes: [...graph.nodes, { id: "gate", kind: "gate", label: "Gate", goal: goal("x"), config: { policy: "pass" } }], edges: [...graph.edges, defaultEdge("g", "planner", "gate")] })).toEqual([]);
+    // The interactive Audit's plan-questions checkpoint is not a node; no gate or human node may claim its ID.
+    expect(codes({ ...graph, nodes: [...graph.nodes, { id: "plan-questions", kind: "gate", label: "Gate", goal: goal("x"), config: { policy: "pass" } }], edges: [...graph.edges, defaultEdge("g", "planner", "plan-questions")] })).toEqual(["RESERVED_CHECKPOINT_ID"]);
     const escalated = { ...graph, edges: graph.edges.map((edge) => edge.id === "p-a" ? edge : edge.from === "auditor-a" ? { ...edge, context: { ...edge.context, policy: { ...edge.context.policy, trust: "system" as const } } } : edge) };
     expect(codes(escalated)).toEqual(["CONTEXT_TRUST_ESCALATION"]);
   });
