@@ -37,7 +37,7 @@ describe("the shell mounts every run-level view", () => {
     stub();
     render(<Workspace />);
     fireEvent.click(tab(screen.getByLabelText("workspace views"), "plan"));
-    expect(await screen.findByText("Authorization repair · mode audit · 1 accepted canonical issues · 1 tasks")).toBeTruthy();
+    expect(await screen.findByText("Authorization repair · mode audit · 1 planned canonical issues · 1 tasks")).toBeTruthy();
     fireEvent.click(screen.getByText("TASK-001"));
     expect(screen.getByLabelText("forward links").textContent).toContain("validation · VAL-001");
   });

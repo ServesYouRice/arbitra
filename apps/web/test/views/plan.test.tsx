@@ -15,7 +15,7 @@ describe("plan view and traceability navigation", () => {
   it("shows canonical issue counts, validation contract, tasks, routing, dependency graph, critic feedback and premise honesty", async () => {
     stubArtifacts();
     render(<PlanView api={new ArtifactApi()} runId="run-1" />);
-    expect(await screen.findByText("Authorization repair · mode audit · 1 accepted canonical issues · 1 tasks")).toBeTruthy();
+    expect(await screen.findByText("Authorization repair · mode audit · 1 planned canonical issues · 1 tasks")).toBeTruthy();
     expect(screen.getByText(/premise · null · smoke_test_only_not_proof · one repository, one run/).dataset.state).toBe("unexamined");
     expect(screen.getByText(/Unauthorized users cannot change another user's role\. · evidence authorization regression test/)).toBeTruthy();
     expect(screen.getByText(/Enforce the role guard · frontier \/ high · recommended frontier \/ high · security critical/)).toBeTruthy();

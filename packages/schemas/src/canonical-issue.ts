@@ -24,7 +24,7 @@ export const canonicalIssueSchema = z.object({
   }).strict(),
   severity: z.enum(["critical", "high", "medium", "low", "informational"]),
   blocker: z.boolean(),
-  disposition: z.enum(["accepted", "rejected", "needs_verification", "non_consensus", "single_source"]),
+  disposition: z.enum(["accepted", "rejected", "needs_verification", "non_consensus", "single_source", "verified_single_source"]),
   consensusClaim: z.string().nullable(),
   supportCount: z.number().int().nonnegative(),
   reviewDenominator: z.number().int().positive(),

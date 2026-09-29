@@ -3,7 +3,7 @@ import { redactSecrets } from "@arbitra/security/redaction";
 import { cluster, type ClusterOptions } from "@arbitra/workflow/clustering/escalate.js";
 import type { ValidatedClusterInput } from "@arbitra/workflow/clustering/types.js";
 import { computeConsensus, DEFAULT_CONSENSUS_POLICY, type ConsensusBoard, type ConsensusCandidate, type ConsensusPolicy, type ConsensusState, type ConsensusVote } from "@arbitra/workflow/consensus/engine.js";
-import { canonicaliseIssues, type CanonicalIssueSet } from "@arbitra/workflow/nodes/canonical-issues.js";
+import { canonicaliseIssues, isPlannable, SINGLE_SOURCE_PLANNED_LIMITATION, type CanonicalIssueSet } from "@arbitra/workflow/nodes/canonical-issues.js";
 import { validateFindings, type AuditorFootprint, type ValidationSnapshot } from "@arbitra/workflow/nodes/validate-findings.js";
 import { verifyItems, type VerificationOperationSink, type VerificationResult } from "@arbitra/workflow/nodes/verification/engine.js";
 import type { VerificationAttempt, VerificationItem, VerificationTools } from "@arbitra/workflow/nodes/verification/ladder.js";
@@ -262,14 +262,14 @@ export async function canonicalise(context: AuditContext, convergence: Convergen
 }
 
 export async function plan(context: AuditContext, issues: CanonicalIssueSet): Promise<Plan> {
-  const accepted = issues.issues.filter(({ disposition }) => disposition === "accepted");
+  const accepted = issues.issues.filter(isPlannable);
   const input: PlannerInput = Object.freeze({
     projectContext: { root: context.snapshot.root, fileCount: context.snapshot.files.length },
     canonicalIssues: Object.freeze(accepted.map(({ candidateId, disposition, claim, sourceFindingIds }) => Object.freeze({ candidateId, disposition, claim, sourceFindingIds }))),
     repositoryContext: Object.freeze([]),
     constraints: Object.freeze(["audit_mode_is_read_only"]),
     workflowGoal: "Resolve every accepted canonical issue without changing behaviour.",
-    premiseReport: SCRIPTED_PREMISE_REPORT,
+    premiseReport: accepted.some(({ disposition }) => disposition === "verified_single_source") ? Object.freeze({ ...SCRIPTED_PREMISE_REPORT, limitations: Object.freeze([...SCRIPTED_PREMISE_REPORT.limitations, SINGLE_SOURCE_PLANNED_LIMITATION]) }) : SCRIPTED_PREMISE_REPORT,
   });
 
   const node = plannerNode<Plan>({
@@ -284,7 +284,7 @@ export async function plan(context: AuditContext, issues: CanonicalIssueSet): Pr
 }
 
 export async function critique(context: AuditContext, produced: Plan, issues: CanonicalIssueSet): Promise<StructuredCritique | null> {
-  const accepted = issues.issues.filter(({ disposition }) => disposition === "accepted");
+  const accepted = issues.issues.filter(isPlannable);
   if (!context.criticEnabled) {
     await context.store.publish("critic-feedback", { summary: "critic disabled by configuration", items: [] });
     return null;
@@ -367,7 +367,7 @@ function buildPlan(input: PlannerInput): Plan {
     }),
     routingRecommendations: Object.freeze(tasks.map(({ id }) => Object.freeze({ taskId: id, capability: "balanced", effort: "medium", reason: Object.freeze(["single_issue_scope"]) }))),
     unresolvedQuestions: Object.freeze([]),
-    premiseReport: SCRIPTED_PREMISE_REPORT,
+    premiseReport: { ...SCRIPTED_PREMISE_REPORT, limitations: input.premiseReport.limitations },
   });
 }
 

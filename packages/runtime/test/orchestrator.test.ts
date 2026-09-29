@@ -88,6 +88,14 @@ describe("a run over the fixture repository", () => {
     if (operations === undefined) throw new Error("operations absent");
     const artifact = await core.artifact(result.runId, operations.artifactId) as { content: string };
     expect(JSON.parse(artifact.content)).toEqual([]);
+    // Issues its targeted verification confirmed are planned, and the plan says no second auditor checked them.
+    const read = async (kind: string) => { const entry = (await core.artifacts(result.runId)).find((item) => item.kind === kind); if (entry === undefined) throw new Error(`${kind} absent`); return JSON.parse((await core.artifact(result.runId, entry.artifactId) as { content: string }).content) as unknown; };
+    const issues = await read("canonical-issues") as { issues: readonly { candidateId: string; disposition: string }[] };
+    const verified = issues.issues.filter(({ disposition }) => disposition === "verified_single_source").map(({ candidateId }) => candidateId).sort();
+    expect(verified.length).toBeGreaterThan(0);
+    const planned = await read("plan-ir") as { acceptedIssueIds: readonly string[]; premiseReport: { limitations: readonly string[] } };
+    expect([...planned.acceptedIssueIds].sort()).toEqual(verified);
+    expect(planned.premiseReport.limitations).toContain("single_source_issues_planned_on_targeted_verification_without_second_auditor");
   });
   it("rejects uncomposed execution modes rather than silently substituting an audit", async () => {
     const core = orchestrator();

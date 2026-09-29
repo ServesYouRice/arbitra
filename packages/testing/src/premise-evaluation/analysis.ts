@@ -110,7 +110,7 @@ export interface Decision {
   readonly statement: string;
 }
 
-const ACCEPTED_PIPELINE_REPORT = new Set(["accepted", "single_source"]);
+const ACCEPTED_PIPELINE_REPORT = new Set(["accepted", "single_source", "verified_single_source"]);
 
 export function analyse(protocol: EvaluationProtocol, truths: ReadonlyMap<string, PremiseGroundTruth>, saved: readonly (EvaluationRecord | (Omit<EvaluationRecord, "record"> & { readonly record: RecordedRun | null }))[], mode: "real_models" | "scripted", families: readonly string[] = []): AnalysisReport {
   const confidence = protocol.analysis.confidence;
@@ -265,7 +265,7 @@ function collectPlan(condition: string, item: EvaluationRecord, fixture: Fixture
   if (item.record.plan === null) return;
   const matches = issueMatches(item, fixture);
   const truthById = new Map([...matches].map(([id, match]) => [id, match.classification === "true_defect"]));
-  rows.push({ condition, addressed: item.record.plan.addressedIssueIds.filter((id) => truthById.has(id)), truthById, trueAccepted: item.record.issues.filter(({ candidateId, disposition }) => disposition === "accepted" && truthById.get(candidateId) === true).map(({ candidateId }) => candidateId) });
+  rows.push({ condition, addressed: item.record.plan.addressedIssueIds.filter((id) => truthById.has(id)), truthById, trueAccepted: item.record.issues.filter(({ candidateId, disposition }) => (disposition === "accepted" || disposition === "verified_single_source") && truthById.get(candidateId) === true).map(({ candidateId }) => candidateId) });
 }
 
 function verificationSummary(rows: readonly { condition: string; result: string; isTrue: boolean }[], confidence: number): VerificationSummary {

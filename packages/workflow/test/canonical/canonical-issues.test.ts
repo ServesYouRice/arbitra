@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canonicaliseIssues, type CanonicalisationBoard } from "../../src/nodes/canonical-issues.js";
+import { canonicaliseIssues, isPlannable, type CanonicalisationBoard } from "../../src/nodes/canonical-issues.js";
 
 const candidate = (candidateId = "C-1", severity: "high" | "medium" = "high") => ({ candidateId, claim: { title: "Unsafe premise", description: "The premise is contradicted by the repository." }, sourceFindingIds: [`F-${candidateId}`], severity, blocker: false, counterEvidence: [{ id: "E-counter", text: "A guard exists on one route.", locationIds: ["L-2"] }] });
 const consensus = (overrides: Partial<CanonicalisationBoard["consensus"]["candidates"][number]> = {}): CanonicalisationBoard["consensus"]["candidates"][number] => ({ candidateId: "C-1", outcome: "accepted", supportCount: 2, reviewDenominator: 3, dissent: [{ authorId: "auditor-c", disposition: "reject", citedEvidenceIds: ["E-counter"], reason: "A route guard is counter-evidence." }], coverage: { reviewedBy: ["auditor-a", "auditor-b", "auditor-c"], missingReviewers: [] }, reason: "Evidence-backed acceptance met policy.", ...overrides });
@@ -26,6 +26,19 @@ describe("canonical issue projection", () => {
     const artifact = canonicaliseIssues({ candidates: { "C-1": candidate(), "C-2": candidate("C-2", "medium") }, consensus: { auditorCount: 1, candidates: [consensus({ reviewDenominator: 1, supportCount: 1, dissent: [], coverage: { reviewedBy: ["auditor-a"], missingReviewers: [] } }), consensus({ candidateId: "C-2", reviewDenominator: 1, supportCount: 1, dissent: [], coverage: { reviewedBy: ["auditor-a"], missingReviewers: [] } })] } }, [], coverage);
     expect(artifact.issues.every(({ disposition, singleSource, consensusClaim }) => disposition === "single_source" && singleSource && consensusClaim === null)).toBe(true);
     expect(artifact.summary.singleSourceCount).toBe(2);
+  });
+
+  it("plans a one-auditor issue that targeted verification confirmed, and says no second auditor checked it", () => {
+    // Observed live: every single-auditor issue stayed single_source, so the plan addressed nothing.
+    const one = (candidateId: string) => consensus({ candidateId, reviewDenominator: 1, supportCount: 1, dissent: [], coverage: { reviewedBy: ["auditor-a"], missingReviewers: [] } });
+    const artifact = canonicaliseIssues({ candidates: { "C-1": candidate(), "C-2": candidate("C-2"), "C-3": candidate("C-3") }, consensus: { auditorCount: 1, candidates: [one("C-1"), one("C-2"), one("C-3")] } },
+      [{ candidateId: "C-1", outcome: "CONFIRMED" }, { candidateId: "C-2", outcome: "REJECTED" }], coverage);
+    expect(artifact.issues.map(({ candidateId, disposition, singleSource, consensusClaim }) => [candidateId, disposition, singleSource, consensusClaim])).toEqual([["C-1", "verified_single_source", true, null], ["C-2", "single_source", true, null], ["C-3", "single_source", true, null]]);
+    expect(artifact.issues.filter(isPlannable).map(({ candidateId }) => candidateId)).toEqual(["C-1"]);
+    expect(artifact.limitations).toContain("single_source_issues_planned_without_second_auditor:1");
+    expect(artifact.summary.acceptedCount).toBe(0);
+    const three = canonicaliseIssues({ candidates: { "C-1": candidate() }, consensus: { auditorCount: 3, candidates: [consensus({ outcome: "needs_verification" })] } }, [{ candidateId: "C-1", outcome: "CONFIRMED" }], coverage);
+    expect(three.issues[0]?.disposition).toBe("accepted"); expect(three.limitations).toEqual([]);
   });
 
   it("carries verification, security gaps, honest nulls and derived limitations", () => {

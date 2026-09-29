@@ -244,7 +244,12 @@ whether the stage was worth building.
 
 **Canonical issues.** `packages/workflow/src/nodes/canonical-issues.ts` emits support
 count, review denominator, dissent, counter-evidence, coverage, minority findings,
-suppression candidates, unexamined surfaces and recorded limitations.
+suppression candidates, unexamined surfaces and recorded limitations. The planner receives
+`accepted` issues and, in a one-auditor run, `verified_single_source` issues: those whose
+targeted verification returned `CONFIRMED`. The plan's premise report then carries
+`single_source_issues_planned_on_targeted_verification_without_second_auditor`, because no
+second auditor checked them. Unverified one-auditor issues stay `single_source` and are
+not planned.
 
 **Planner and critic.** `packages/workflow/src/nodes/planner/` produces the Validation
 Contract, Task DAG and capability routing (see [`task-ir.md`](task-ir.md)).

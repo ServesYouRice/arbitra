@@ -1,5 +1,5 @@
 export type Severity = "critical" | "high" | "medium" | "low" | "informational";
-export type Disposition = "accepted" | "rejected" | "needs_verification" | "non_consensus" | "single_source";
+export type Disposition = "accepted" | "rejected" | "needs_verification" | "non_consensus" | "single_source" | "verified_single_source";
 export type VerificationOutcome = "CONFIRMED" | "REJECTED" | "STILL_NEEDS_VERIFICATION";
 export interface PersistedEvidence { readonly id: string; readonly text: string; readonly locationIds: readonly string[] }
 export interface PersistedVote { readonly authorId: string; readonly disposition: "accept" | "reject" | "needs_verification"; readonly citedEvidenceIds: readonly string[]; readonly reason: string }
