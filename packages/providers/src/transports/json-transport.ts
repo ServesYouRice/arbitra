@@ -1,8 +1,11 @@
 import {
-  FetchHttpClient, TransportError, type HttpClient, type HttpResponse, type ProviderTransport,
+  FetchHttpClient, noUsage, TransportError, type HttpClient, type HttpResponse, type ProviderTransport,
   type StructuredOutputTier, type TransportConfiguration, type TransportId, type TransportRequest,
   type TransportResponse, type TransportToolCall, type TransportUsage,
 } from "../transport-contract.js";
+
+/** Connection failures that happen before any request byte reaches the provider. */
+const NOT_CONNECTED: ReadonlySet<string> = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "EHOSTUNREACH", "ENETUNREACH", "UND_ERR_CONNECT_TIMEOUT"]);
 
 export interface ProtocolCodec {
   readonly id: TransportId;
@@ -38,13 +41,13 @@ export class JsonProtocolTransport implements ProviderTransport {
   async send(request: TransportRequest, signal: AbortSignal): Promise<TransportResponse> {
     if (signal.aborted) throw new TransportError("CANCELLED", "Provider request cancelled", false);
     const apiKey = this.credential(this.apiKeyEnvironmentName);
-    if (apiKey === undefined || apiKey.length === 0) throw new TransportError("AUTH", `Credential environment variable ${this.apiKeyEnvironmentName} is not set`, false);
+    if (apiKey === undefined || apiKey.length === 0) throw new TransportError("AUTH", `Credential environment variable ${this.apiKeyEnvironmentName} is not set`, false, null, noUsage("credential_missing"));
     let url: string; let body: unknown;
     try {
       url = new URL(typeof this.codec.path === "string" ? this.codec.path : this.codec.path(request), this.endpoint).toString();
       body = this.codec.encode(request);
     } catch (error) {
-      throw new TransportError("INVALID_REQUEST", error instanceof Error ? error.message : "Invalid provider request", false);
+      throw new TransportError("INVALID_REQUEST", error instanceof Error ? error.message : "Invalid provider request", false, null, noUsage("request_not_encoded"));
     }
     let response: HttpResponse;
     try {
@@ -54,7 +57,10 @@ export class JsonProtocolTransport implements ProviderTransport {
     } catch (error) {
       if (signal.aborted || (error instanceof Error && error.name === "AbortError")) throw new TransportError("CANCELLED", "Provider request cancelled", false);
       if (error instanceof TransportError) throw error;
-      throw new TransportError("HTTP", error instanceof Error ? error.message : String(error), true);
+      // A connection that was never established cannot have reached the model.
+      const cause = (error as { cause?: { code?: unknown }; code?: unknown }).cause?.code ?? (error as { code?: unknown }).code;
+      const refused = typeof cause === "string" && NOT_CONNECTED.has(cause);
+      throw new TransportError("HTTP", error instanceof Error ? error.message : String(error), true, null, refused ? noUsage(`connection_not_established:${cause}`) : undefined);
     }
     assertHttpSuccess(response);
     try { return this.codec.parse(response.body, request, response.headers); }
@@ -114,14 +120,17 @@ function assertHttpSuccess(value: HttpResponse): void {
   // Google reports per-minute throttles and exhausted daily or zero allowances with the same
   // 429 RESOURCE_EXHAUSTED "exceeded your current quota" text; only its QuotaFailure details
   // tell them apart (observed live on a free-tier key). A windowed throttle is a rate limit.
-  if (isQuotaRefusal(value.status, value.body)) throw new TransportError("QUOTA", `Provider account has no usable credit or quota${suffix}`, false);
+  // Refusals answered before any work consumed nothing; other failures keep their estimate charged.
+  if (isQuotaRefusal(value.status, value.body)) throw new TransportError("QUOTA", `Provider account has no usable credit or quota${suffix}`, false, null, noUsage("provider_quota_refused"));
   if (value.status === 429) {
     const header = Object.entries(value.headers).find(([name]) => name.toLowerCase() === "retry-after")?.[1];
-    throw new TransportError("RATE_LIMIT", `Provider rate limit${suffix}`, true, retryAfterMilliseconds(header) ?? googleRetryDelay(value.body));
+    throw new TransportError("RATE_LIMIT", `Provider rate limit${suffix}`, true, retryAfterMilliseconds(header) ?? googleRetryDelay(value.body), noUsage("http_429_rate_limited"));
   }
   if (value.status === 408 || value.status === 504) throw new TransportError("TIMEOUT", "Provider request timed out", true);
-  if (value.status === 401 || value.status === 403) throw new TransportError("AUTH", `Provider rejected credentials${suffix}`, false);
-  throw new TransportError("HTTP", `Provider HTTP ${value.status}${suffix}`, value.status >= 500);
+  if (value.status === 401 || value.status === 403) throw new TransportError("AUTH", `Provider rejected credentials${suffix}`, false, null, noUsage("http_auth_refused"));
+  // A 503/529 carrying the provider's own error body is an overload refusal; a bare one may come from a proxy.
+  const refusedUnprocessed = [400, 404, 413, 422].includes(value.status) || ((value.status === 503 || value.status === 529) && detail !== null);
+  throw new TransportError("HTTP", `Provider HTTP ${value.status}${suffix}`, value.status >= 500, null, refusedUnprocessed ? noUsage(`http_${value.status}_refused`) : undefined);
 }
 
 /**

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runNativeProcess, type NativeProcessPort, type NativeProcessResult } from "../../process.js";
 import { versionInRange } from "../../semver.js";
-import { TransportError, type ProviderTransport, type TransportConfiguration, type TransportId, type TransportRequest, type TransportResponse } from "../../transport-contract.js";
+import { noUsage, TransportError, type ProviderTransport, type TransportConfiguration, type TransportId, type TransportRequest, type TransportResponse } from "../../transport-contract.js";
 import { resetTime } from "./classify.js";
 import { CLI_DIALECTS, type CliDialect, type CliInvocationContext } from "./dialects.js";
 import { childPath, resolveCliExecutable, type CliExecutable, type HostLookup } from "./discovery.js";
@@ -80,7 +80,7 @@ export class CliTransport implements ProviderTransport {
   async send(request: TransportRequest, signal: AbortSignal): Promise<TransportResponse> {
     if (signal.aborted) throw new TransportError("CANCELLED", "Provider request cancelled", false);
     const oauthToken = this.#auth === "oauth_token" ? this.#lookup(this.#oauthTokenEnv ?? "") ?? "" : null;
-    if (oauthToken === "") throw new TransportError("AUTH", `Credential environment variable ${this.#oauthTokenEnv ?? ""} is not set`, false);
+    if (oauthToken === "") throw new TransportError("AUTH", `Credential environment variable ${this.#oauthTokenEnv ?? ""} is not set`, false, null, noUsage("credential_missing"));
     const { executable, version } = await this.#resolve();
     const nativeSchema = this.dialect.nativeSchema(request);
     const prompt = serializeCliPrompt(request, { nativeSchema, systemInArguments: true });
@@ -125,17 +125,17 @@ export class CliTransport implements ProviderTransport {
     if (result.stopped === "cancelled" || signal.aborted) throw new TransportError("CANCELLED", "Provider request cancelled", false);
     if (result.stopped === "timeout") throw new TransportError("TIMEOUT", `${this.#support.displayName} did not finish within ${this.#timeoutMs}ms`, true);
     if (result.stopped === "output_limit") throw new TransportError("OUTPUT_LIMIT", `MODEL_OUTPUT_LIMIT_REACHED: ${this.#support.displayName} wrote more than ${this.#maximumOutputBytes} bytes`, false);
-    throw new TransportError("INVALID_REQUEST", `CLI_SPAWN_FAILED: ${this.#support.displayName} could not be started`, false);
+    throw new TransportError("INVALID_REQUEST", `CLI_SPAWN_FAILED: ${this.#support.displayName} could not be started`, false, null, noUsage("cli_not_started"));
   }
 
   #resolve(): Promise<{ readonly executable: CliExecutable; readonly version: string }> {
     this.#executable ??= (async () => {
       const resolution = await resolveCliExecutable(this.#support, { platform: this.#platform, lookup: this.#lookup, nodeExecutable: this.#node });
-      if (!resolution.found) throw new TransportError("INVALID_REQUEST", `CLI_NOT_INSTALLED: ${resolution.detail}. ${this.#support.installInstruction}`, false);
+      if (!resolution.found) throw new TransportError("INVALID_REQUEST", `CLI_NOT_INSTALLED: ${resolution.detail}. ${this.#support.installInstruction}`, false, null, noUsage("cli_unavailable"));
       const version = await probeCliVersion(resolution.executable, this.#support, this.#probeOptions());
-      if (version === null) throw new TransportError("INVALID_REQUEST", `CLI_VERSION_UNREADABLE: ${this.#support.displayName} at ${resolution.executable.path} did not report a version`, false);
+      if (version === null) throw new TransportError("INVALID_REQUEST", `CLI_VERSION_UNREADABLE: ${this.#support.displayName} at ${resolution.executable.path} did not report a version`, false, null, noUsage("cli_unavailable"));
       if (!versionInRange(version, this.#support.versionRange)) {
-        throw new TransportError("INVALID_REQUEST", `CLI_VERSION_UNSUPPORTED: ${this.#support.displayName} ${version} is outside the supported range ${this.#support.versionRange.minimum} to below ${this.#support.versionRange.below}`, false);
+        throw new TransportError("INVALID_REQUEST", `CLI_VERSION_UNSUPPORTED: ${this.#support.displayName} ${version} is outside the supported range ${this.#support.versionRange.minimum} to below ${this.#support.versionRange.below}`, false, null, noUsage("cli_unavailable"));
       }
       return { executable: resolution.executable, version };
     })();

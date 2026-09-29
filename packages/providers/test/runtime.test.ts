@@ -4,7 +4,7 @@ import { ContinuationStateStore } from "../src/continuation/store.js";
 import { ProviderInvocationFailure, ProviderInvocationRuntime, type RuntimeTimer } from "../src/runtime.js";
 import { RateLimitScheduler } from "../src/scheduler.js";
 import { DurableTokenBudget } from "../src/token-budget.js";
-import { TransportError, type ProviderTransport, type TransportResponse } from "../src/transport-contract.js";
+import { noUsage, TransportError, type ProviderTransport, type TransportResponse } from "../src/transport-contract.js";
 
 describe("provider invocation runtime", () => {
   it("suspends a retry before dispatch when the preceding attempt consumed the remaining budget", async () => {
@@ -19,6 +19,21 @@ describe("provider invocation runtime", () => {
     await expect(runtime.invoke(request(), context({ maximumRetries: 2 }))).rejects.toMatchObject({ state: "SUSPENDED_BUDGET" });
     expect(send).toHaveBeenCalledTimes(1);
     expect(traces).toHaveBeenCalledWith(expect.objectContaining({ outcome: "retry", usage: null }));
+  });
+
+  it("releases an attempt that provably consumed nothing, so its retry still fits the budget", async () => {
+    // Observed live: refused attempts kept their full estimate charged and suspended the run on budget.
+    let calls = 0;
+    const send = vi.fn(async () => { calls += 1; if (calls === 1) throw new TransportError("RATE_LIMIT", "throttled before processing", true, 0, noUsage("http_429_rate_limited")); return successfulResponse(); });
+    const traces = vi.fn();
+    const runtime = new ProviderInvocationRuntime({
+      transports: { fixture: { id: "fixture", send } }, scheduler: scheduler(),
+      budget: new DurableTokenBudget(10, { async load() { return null; }, async save() {} }),
+      continuation: new ContinuationStateStore({ async load() { return null; }, async save() {} }, { enabled: false, now: () => 0 }),
+      traces: { record: traces }, timer: { timeout: () => () => {}, sleep: async () => {} },
+    });
+    await expect(runtime.invoke(request(), context({ maximumRetries: 1 }))).resolves.toBeDefined();
+    expect(traces).toHaveBeenCalledWith(expect.objectContaining({ outcome: "retry", released: "http_429_rate_limited" }));
   });
 
   it("does not dispatch when cancelled during asynchronous budget persistence", async () => {

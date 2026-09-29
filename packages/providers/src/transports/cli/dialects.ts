@@ -1,6 +1,6 @@
 import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { TransportError, type TransportRequest, type TransportUsage } from "../../transport-contract.js";
+import { noUsage, TransportError, withUsageEvidence, type TransportRequest, type TransportUsage } from "../../transport-contract.js";
 import type { CliPrompt } from "./prompt.js";
 import { classifyCliFailure } from "./classify.js";
 import { requireCliTransportSupport, type CliAuthMode, type CliTransportSupport } from "./support.js";
@@ -145,7 +145,12 @@ export const claudeCodeDialect: CliDialect = {
       finish(exitCode, stderr) {
         if (result === null) throw incomplete(CLAUDE, exitCode, `${rejected ?? ""}\n${stderr}`);
         const reply = text(result["result"]) ?? lastText ?? "";
-        if (result["is_error"] === true || exitCode !== 0) throw classifyCliFailure(CLAUDE, `${rejected ?? ""}\n${reply}\n${String(result["api_error_status"] ?? "")}\n${stderr}`, exitCode);
+        if (result["is_error"] === true || exitCode !== 0) {
+          const failure = classifyCliFailure(CLAUDE, `${rejected ?? ""}\n${reply}\n${String(result["api_error_status"] ?? "")}\n${stderr}`, exitCode);
+          // A usage-limit refusal before any assistant output, with no usage reported, consumed nothing.
+          const refusedUnprocessed = failure.code === "QUOTA" && rejected !== null && lastText === null && [record(result["usage"])?.["input_tokens"], record(result["usage"])?.["output_tokens"]].every((value) => value === undefined || value === 0);
+          throw refusedUnprocessed ? withUsageEvidence(failure, noUsage("cli_usage_limit_refused")) : failure;
+        }
         const usage = record(result["usage"]);
         const input = count(usage?.["input_tokens"]); const read = count(usage?.["cache_read_input_tokens"]); const write = count(usage?.["cache_creation_input_tokens"]);
         const complete = usage !== null && (usage["cache_read_input_tokens"] === undefined || read !== null) && (usage["cache_creation_input_tokens"] === undefined || write !== null);

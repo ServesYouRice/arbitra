@@ -7,12 +7,16 @@ import { sessionContinuationState } from "./continuation/types.js";
 export interface InvocationBudget {
   reserve(activityId: string, estimatedTokens: number): BudgetReservation | Promise<BudgetReservation>;
   recordActual(activityId: string, usage: TransportResponse["usage"], reservationId?: string): void | Promise<void>;
+  /** Charge zero for an attempt that provably consumed nothing. Optional: without it every failure stays charged. */
+  release?(activityId: string, reservationId: string, rule: string): void | Promise<void>;
 }
 export interface BudgetReservation { readonly allowed: boolean; readonly reason?: string; readonly reservationId?: string; }
 export interface InvocationTrace {
   readonly activityId: string; readonly providerId: string; readonly modelId: string; readonly transportId: string;
   readonly attempt: number; readonly outcome: "completed" | "retry" | "failed"; readonly errorCode: string | null;
   readonly usage: TransportResponse["usage"] | null;
+  /** Present on a failed attempt whose reservation was released: the rule that proved it consumed nothing. */
+  readonly released?: string;
 }
 export interface TraceSink { record(trace: InvocationTrace): void; }
 export interface RuntimeTimer {
@@ -78,10 +82,12 @@ export class ProviderInvocationRuntime {
       if (!reservation.allowed) throw new ProviderBudgetSuspendedError(reservation.reason ?? "Provider budget preflight refused dispatch");
       let lease: SchedulerLease | undefined;
       let retryDelay: number | null = null;
+      let dispatched = false;
       try {
         lease = await this.options.scheduler.acquire(context.providerId, context.estimatedTokens, context.signal);
         if (context.signal.aborted) throw new TransportError("CANCELLED", "Provider request cancelled before dispatch", false);
         attempts = attempt;
+        dispatched = true;
         const result = await sendWithTimeout(transport, effectiveRequest, context.signal, context.timeoutMs, this.timer);
         await this.options.budget.recordActual(context.activityId, result.usage, reservation.reservationId);
         if (result.continuation !== null) await this.options.continuation.save(context.activityId, sessionContinuationState({
@@ -93,8 +99,14 @@ export class ProviderInvocationRuntime {
       } catch (error) {
         lastError = error;
         const retryable = error instanceof TransportError && error.retryable && attempt <= context.maximumRetries;
-        this.options.traces.record(trace(context, attempt, retryable ? "retry" : "failed",
-          error instanceof TransportError ? error.code : "UNKNOWN", null));
+        // Release the reservation only when the attempt provably consumed nothing; otherwise it stays charged.
+        const evidence = !dispatched ? { consumption: "none" as const, rule: "not_dispatched" } : error instanceof TransportError ? error.evidence : null;
+        let released: string | undefined;
+        if (evidence?.consumption === "none" && reservation.reservationId !== undefined && this.options.budget.release !== undefined) {
+          try { await this.options.budget.release(context.activityId, reservation.reservationId, evidence.rule); released = evidence.rule; } catch { released = undefined; }
+        }
+        this.options.traces.record({ ...trace(context, attempt, retryable ? "retry" : "failed",
+          error instanceof TransportError ? error.code : "UNKNOWN", null), ...(released === undefined ? {} : { released }) });
         if (!retryable) break;
         const retryAfter = boundedTimerDelay(error.retryAfterMs ?? Math.min(this.maximumBackoffMs, 1_000 * (2 ** (attempt - 1))));
         if (error.code === "RATE_LIMIT") this.options.scheduler.respectRetryAfter(context.providerId, retryAfter);

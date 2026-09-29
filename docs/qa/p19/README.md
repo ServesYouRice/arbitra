@@ -11,7 +11,7 @@ commit.
 | 2 | The critic's review of a large plan fans out into one call per cross-batch pair | Pack pair checks into as few calls as fit | **Fixed** (see git log) |
 | 3 | Tasks that write the same file are ordered only by `conflictsWith` | Deterministic, repairable ordering check | **Fixed** (see git log) |
 | 4 | Single-auditor plans address nothing | Plan issues that targeted verification confirmed (`verified_single_source`) | **Fixed** (see git log) |
-| 5 | Failed requests are charged their full estimate | Release reservations for failures that provably consumed nothing | Planned |
+| 5 | Failed requests are charged their full estimate | Release reservations for failures that provably consumed nothing | **Fixed** (see git log) |
 | 6 | A planted comment can hide the defect below it | Discovery rule plus a bounded follow-up pass after each prompt-injection finding | Planned |
 | 7 | Models adopt a seeded bug as the intended behaviour | Report and block documented-behaviour conflicts in Feature and Testing | Planned |
 | 8 | An Audit cannot answer a blocking plan question | Interactive plan-questions checkpoint, then one revision with the answers | Planned |

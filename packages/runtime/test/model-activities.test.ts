@@ -10,7 +10,7 @@ import { RunStore } from "../src/run-store.js";
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
-async function fixture(maximumTokens = 10_000) {
+async function fixture(maximumTokens = 10_000, maximumRetries = 0) {
   const root = await mkdtemp(join(tmpdir(), "arbitra-model-activities-"));
   directories.push(root);
   const example = JSON.parse(await readFile(new URL("../../../examples/audit-balanced.json", import.meta.url), "utf8")) as Record<string, unknown>;
@@ -21,7 +21,7 @@ async function fixture(maximumTokens = 10_000) {
     modelExecution: {
       endpoints: [{ id: "primary", providerId: model.provider, transport: model.transport, endpoint: "https://fixture.example/v1", apiKeyEnvVar: "FIXTURE_KEY" }],
       modelEndpoints: { "auditor-a": "primary" }, maximumOutputTokens: 10, maximumTokens,
-      maximumRetries: 0, timeoutMs: 1_000, rateLimits: { [model.provider]: { rpm: 100, tpm: 100_000, maxConcurrent: 4 } },
+      maximumRetries, timeoutMs: 1_000, rateLimits: { [model.provider]: { rpm: 100, tpm: 100_000, maxConcurrent: 4 } },
     },
   } });
   const store = new RunStore(root, "run-1");
@@ -68,6 +68,14 @@ describe("durable model activities", () => {
     await expect(create().invoke({ ...request(), protocol: "changed" })).rejects.toThrow("MODEL_ACTIVITY_INPUT_CHANGED");
     await expect(create().invoke(request())).rejects.toMatchObject({ state: "SUSPENDED_BUDGET" });
     expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases a refused attempt so its retry completes within a budget the estimate alone would exhaust", async () => {
+    // Observed live: six 503 retries were charged 350k of a 600k run cap although none produced tokens.
+    const { create, send } = await fixture(100, 1);
+    send.mockResolvedValueOnce({ status: 503, headers: {}, body: { error: { message: "The model is overloaded", type: "overloaded_error" } } });
+    await expect(create().invoke(request())).resolves.toEqual({ answer: "ok" });
+    expect(send).toHaveBeenCalledTimes(2);
   });
 
   it("does not persist invalid JSON as a completed result and retains both attempts", async () => {
