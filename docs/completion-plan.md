@@ -119,7 +119,7 @@ Evidence is in `docs/qa/`.
 | P16 | **Complete** | — | — |
 | P17 | **Complete** | — | — |
 | P18 | **Complete** | Prespecified criteria; local MiniLM candidate evaluated offline on two corpora. Authored findings: **reject** (W 36 → 49). P06 real-model findings (149 in 21 runs): **insufficient evidence** (94 of 100 same-label pairs; `E1` cut W only 7%, 25% required). Decision: **do not adopt; keep existing clustering** ([`qa/p18`](qa/p18/README.md)). The rerun also found `structural-v1` merging prompt-injection reports with the defect beside them (open finding) | — |
-| P19 | Pending | Cross-cutting fixes so far: quota classification, output repair (with trusted provenance), evidence re-anchoring and citation widening, peer-review degradation and repairable vote changes, writer tool-loop handling, complete-context marking, sole-author review coverage | Final review after P06 and P18; the [paid-API bundle](#deferred-the-paid-api-bundle) is outside this phase |
+| P19 | Pending | Cross-cutting fixes so far: quota classification, output repair (with trusted provenance), evidence re-anchoring and citation widening, peer-review degradation and repairable vote changes, writer tool-loop handling, complete-context marking, sole-author review coverage | Final review: fix the open findings in [WORK-REMAINING](../WORK-REMAINING.md#open-findings-to-fix-or-decide) (the owner's choice, September 29), rerun affected live acceptance, write the completion report; the [paid-API bundle](#deferred-the-paid-api-bundle) is outside this phase |
 
 ## P01 — Repair test discovery and platform reliability
 

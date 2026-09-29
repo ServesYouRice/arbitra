@@ -1,7 +1,13 @@
 import { createHash } from "node:crypto";
 import type { AmbiguousPair, ClusterOperation, ClusteringStrategy, FindingCluster, StrategyResult, ValidatedClusterInput } from "./types.js";
 
-export const deterministicClusteringStrategy: ClusteringStrategy = Object.freeze({ id: "structural-v1", cluster: deterministicCluster });
+export const deterministicClusteringStrategy: ClusteringStrategy = Object.freeze({ id: "structural-v2", cluster: deterministicCluster });
+
+/** A prompt-injection report is about repository text aimed at the auditor, never the defect beside
+ * it, so it clusters only with other such reports (observed: the P18 real-model corpus merged it with
+ * the auth bypass below the planted comment in 8 of 9 runs). Other categories stay a scored signal:
+ * real duplicates are filed under different categories. */
+const ISOLATED_CATEGORIES: ReadonlySet<string> = new Set(["PROMPT_INJECTION"]);
 
 export function deterministicCluster(inputs: readonly ValidatedClusterInput[]): StrategyResult {
   const findings = [...inputs].sort((a, b) => a.finding.sourceFindingId.localeCompare(b.finding.sourceFindingId));
@@ -13,6 +19,7 @@ export function deterministicCluster(inputs: readonly ValidatedClusterInput[]): 
     for (let right = left + 1; right < findings.length; right += 1) {
       const b = requiredFinding(findings, right);
       if (fingerprint(a) === fingerprint(b)) { union(parent, a.sourceFindingId, b.sourceFindingId); operations.push(Object.freeze({ type: "merge", sourceFindingIds: Object.freeze([a.sourceFindingId, b.sourceFindingId]), reason: "exact" })); deterministicPairsResolved += 1; continue; }
+      if (a.category !== b.category && (ISOLATED_CATEGORIES.has(a.category) || ISOLATED_CATEGORIES.has(b.category))) { deterministicPairsResolved += 1; continue; }
       const result = signals(a, b);
       if (result.score >= 5) { union(parent, a.sourceFindingId, b.sourceFindingId); operations.push(Object.freeze({ type: "merge", sourceFindingIds: Object.freeze([a.sourceFindingId, b.sourceFindingId]), reason: "structural" })); deterministicPairsResolved += 1; }
       else if (result.score <= 1) deterministicPairsResolved += 1;

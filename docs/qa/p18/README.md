@@ -70,9 +70,17 @@ outcome is INSUFFICIENT EVIDENCE, and the existing clustering is retained.
 - **The corpus is still small.** Most multi-member clusters are two or three reports of one
   planted defect in one run, so same-label pairs stopped at 94.
 
-The structural false merge is a product finding for the final review: a prompt-injection report
-can share a candidate with the real defect it sits beside. It is listed in
-[WORK-REMAINING](../../../WORK-REMAINING.md).
+The structural false merge was a product finding for the final review: a prompt-injection report
+could share a candidate with the real defect it sits beside.
+
+**Fixed after P18 (September 29, 2026).** Clustering is now `structural-v2`: a `PROMPT_INJECTION`
+report clusters only with other such reports. P18's numbers above measured `structural-v1` at
+commit `598c939`. Replayed on the same corpus (descriptive and in-sample, not a P18 result), the
+fix takes `D` from FM 40 and W 88 to FM 3 and W 14, with one contaminated candidate left (the
+same-category negative-quantity report merged with `DEF-RACE`); the authored corpus is
+unchanged. The P18 harness calls the current default strategy, so a rerun now measures
+`structural-v2`: a new comparison needs `p18-protocol-v2` and `--out`, so this record is not
+overwritten.
 
 ## Authored corpus (September 25, 2026)
 

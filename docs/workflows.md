@@ -216,10 +216,13 @@ coverage.
 finding whose evidence range does not exist in the snapshot, before any model is asked
 about it. A model cannot argue a finding into existence.
 
-**Clustering.** `packages/workflow/src/clustering/deterministic.ts` clusters findings
-deterministically; `clustering/escalate.ts` records escalated pairs
+**Clustering.** `packages/workflow/src/clustering/deterministic.ts` (`structural-v2`) clusters
+findings deterministically; `clustering/escalate.ts` records escalated pairs
 (`SemanticClusteringDecision`, `recordSplit`) so the cost of a semantic path — if §25.4
-metrics ever justify one — is measured rather than assumed.
+metrics ever justify one — is measured rather than assumed. A `PROMPT_INJECTION` report
+clusters only with other such reports: it describes repository text aimed at the auditor,
+never the defect beside it. Other category differences stay a scored signal, because real
+duplicates are filed under different categories.
 
 **Issue board.** `packages/core/src/issue-board/operations.ts` and `projection.ts` build the
 board from an append-only operation log (`packages/persistence/src/issue-ops.ts`). The
