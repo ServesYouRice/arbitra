@@ -13,7 +13,7 @@ The maintained execution queue is the [completion plan](docs/completion-plan.md)
 ## What is left, by what it needs
 
 1. **Nothing but time, on subscriptions:**
-   - **P19:** the final review. On September 29 the owner chose to fix every feasible open finding below in this phase, then rerun the affected live acceptance on subscriptions and write the completion report. Fixed so far: prompt-injection reports no longer cluster with the defect beside them (`structural-v2`).
+   - **P19:** the final review. On September 29 the owner chose to fix every feasible open finding below in this phase, then rerun the affected live acceptance on subscriptions and write the completion report. Fixed so far: prompt-injection reports no longer cluster with the defect beside them (`structural-v2`); the critic packs pair checks into as few calls as fit.
 2. **Deferred to a later phase: the [paid-API bundle](docs/completion-plan.md#deferred-the-paid-api-bundle).** It needs funded API accounts, which the owner does not use, so it is not done in this phase. A later maintainer may take it on:
    - the OpenAI Responses, OpenAI Chat and Anthropic Messages protocols live (P03);
    - P08's live context limits;
@@ -66,6 +66,5 @@ Live configurations come from `tooling/live/bindings.subscription.json`. The API
 - **Failed requests drain the budget.** A request that fails with no usage is charged its full admission estimate.
 - **Single-auditor plans never address a finding.** With the `diff-fast` preset, every issue stays `single_source`, so the plan addresses nothing.
 - **Light Gemini auditors missed a hard-coded admin bypass** under a planted "this file is safe" comment (P06 version 1). It did not recur in version 2.1: Claude found it in every single run, and every three-family run found it.
-- **A staged critic review fans out into pair checks.** When a review does not fit in one call, it costs one call per task and record pair that fell into different batches: 152 in P06 version 2's run 2. On CLI transports with a fixed per-call prompt (about 24k tokens on Antigravity), that spent a 3M-token run cap.
 
 See [project status](docs/project-status.md) for implemented capabilities and measured evidence. Evidence per item is in [docs/qa](docs/qa/); the subscription runs are in [qa/p03-subscription](docs/qa/p03-subscription/README.md). Update task status only in the completion plan.

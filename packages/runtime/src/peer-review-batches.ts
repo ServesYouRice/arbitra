@@ -15,19 +15,8 @@ export function segmentText(text: string, segment: Pick<PeerReviewSegment, "inde
 /** Partition full reviews, then cover every pair separated by the partition.
  * Pair checks only propose merges, so they cannot duplicate candidate votes. */
 export async function peerReviewBatches(candidateIds: readonly string[], fits: (batch: PeerReviewBatch) => Promise<boolean>, maximumCandidates = 20): Promise<readonly PeerReviewBatch[]> {
-  if (!Number.isSafeInteger(maximumCandidates) || maximumCandidates < 1) throw new Error("INVALID_PEER_BATCH_LIMIT");
-  if (new Set(candidateIds).size !== candidateIds.length) throw new Error("DUPLICATE_PEER_BATCH_CANDIDATE");
-  const result: PeerReviewBatch[] = [];
-  let current: string[] = [];
-  for (const id of candidateIds) {
-    const proposed = [...current, id];
-    if (proposed.length <= maximumCandidates && await fits({ kind: "review", candidateIds: proposed })) { current = proposed; continue; }
-    if (current.length > 0) result.push({ kind: "review", candidateIds: current });
-    if (!await fits({ kind: "review", candidateIds: [id] })) throw new Error(`PEER_CANDIDATE_CONTEXT_LIMIT_EXCEEDED:${id}`);
-    current = [id];
-  }
-  if (current.length > 0) result.push({ kind: "review", candidateIds: current });
-  const primary = [...result];
+  const primary = (await reviewPartition(candidateIds, (ids) => fits({ kind: "review", candidateIds: ids }), maximumCandidates)).map((ids): PeerReviewBatch => ({ kind: "review", candidateIds: ids }));
+  const result: PeerReviewBatch[] = [...primary];
   for (let a = 0; a < primary.length; a += 1) {
     for (const right of primary.slice(a + 1)) for (const leftId of primary[a]?.candidateIds ?? []) for (const rightId of right.candidateIds) {
       const batch: PeerReviewBatch = { kind: "merge_check", candidateIds: [leftId, rightId] };
@@ -40,8 +29,25 @@ export async function peerReviewBatches(candidateIds: readonly string[], fits: (
   return result;
 }
 
+/** Greedy in-order partition into review batches of complete records that fit. */
+export async function reviewPartition(candidateIds: readonly string[], fits: (candidateIds: readonly string[]) => Promise<boolean>, maximumCandidates = 20): Promise<readonly (readonly string[])[]> {
+  if (!Number.isSafeInteger(maximumCandidates) || maximumCandidates < 1) throw new Error("INVALID_PEER_BATCH_LIMIT");
+  if (new Set(candidateIds).size !== candidateIds.length) throw new Error("DUPLICATE_PEER_BATCH_CANDIDATE");
+  const result: string[][] = [];
+  let current: string[] = [];
+  for (const id of candidateIds) {
+    const proposed = [...current, id];
+    if (proposed.length <= maximumCandidates && await fits(proposed)) { current = proposed; continue; }
+    if (current.length > 0) result.push(current);
+    if (!await fits([id])) throw new Error(`PEER_CANDIDATE_CONTEXT_LIMIT_EXCEEDED:${id}`);
+    current = [id];
+  }
+  if (current.length > 0) result.push(current);
+  return result;
+}
+
 /** Keep one record complete and read the other in the fewest exact segments that fit. */
-async function segmentedPair(leftId: string, rightId: string, fits: (batch: PeerReviewBatch) => Promise<boolean>): Promise<readonly PeerReviewBatch[] | null> {
+export async function segmentedPair(leftId: string, rightId: string, fits: (batch: PeerReviewBatch) => Promise<boolean>): Promise<readonly PeerReviewBatch[] | null> {
   for (let count = 2; count <= MAXIMUM_PAIR_SEGMENTS; count += 1) {
     for (const split of [rightId, leftId]) {
       const batches = Array.from({ length: count }, (_, index): PeerReviewBatch => ({ kind: "merge_check", candidateIds: [leftId, rightId], segment: { candidateId: split, index, count } }));

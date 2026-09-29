@@ -88,7 +88,7 @@ export async function modelFeatureCritic(store: RunStore, config: RunConfig, sna
         try { await allocate(part.input as Record<string, unknown>, partId(part)); return true; }
         catch (error) { if (isCapacityError(error)) return false; throw error; }
       }, priorRevision === null ? null : { priorCritique: priorRevision.priorCritique, proposedResolutions: priorRevision.proposedResolutions }, maximumRecords, supplemental);
-      await store.publish(options.revised ? "feature-critic-revision-context-batches" : "feature-critic-context-batches", parts.map((part) => ({ activityId: partId(part), kind: part.kind, recordIds: part.recordIds, ...(part.segment === undefined ? {} : { segment: part.segment }) })), "critic");
+      await store.publish(options.revised ? "feature-critic-revision-context-batches" : "feature-critic-context-batches", parts.map((part) => ({ activityId: partId(part), kind: part.kind, recordIds: part.recordIds, ...(part.segment === undefined ? {} : { segment: part.segment }), ...(part.pairs === undefined ? {} : { pairs: part.pairs }) })), "critic");
       const local: StructuredCritique[] = [];
       for (const part of parts) {
         const allocated = await allocate(part.input as Record<string, unknown>, partId(part));

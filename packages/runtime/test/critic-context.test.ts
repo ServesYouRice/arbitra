@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { planIRSchema, type PlanIR } from "@arbitra/schemas/plan.js";
-import { criticContextParts } from "../src/critic-context.js";
+import { criticContextParts, criticPartIdentity } from "../src/critic-context.js";
 
 async function plan() {
   const original = planIRSchema.parse(JSON.parse(await readFile(new URL("../../schemas/test/golden/plan-ir.valid.json", import.meta.url), "utf8")));
@@ -67,6 +67,25 @@ describe("critic context partitioning", () => {
     const text = segments.map(({ input }) => (input as { segmentedRecord: { exactJsonText: string } }).segmentedRecord.exactJsonText).join("");
     expect(text).toBe(JSON.stringify(requirements.find(({ id }) => `requirements:${id}` === record)));
     for (const { input } of segments) expect((input as { requirements: unknown[] }).requirements).toEqual([other]);
+  });
+
+  it("packs cross-batch pair checks into as few calls as fit, covering each pair exactly once", async () => {
+    // Observed live: a revised plan's review split into 2 batches and 152 one-pair checks.
+    const original = await plan(); const task = original.tasks[0]; if (task === undefined) throw new Error("FIXTURE_TASK_ABSENT");
+    const six = { ...original, tasks: Array.from({ length: 6 }, (_, index) => ({ ...task, id: `TASK-00${index + 1}` })) };
+    const fits = async ({ recordIds }: { recordIds: readonly string[] }) => recordIds.length <= 4;
+    const parts = await criticContextParts(six, [], [], fits);
+    const [a, b] = parts.filter(({ kind }) => kind === "review").map(({ recordIds }) => recordIds);
+    if (a === undefined || b === undefined) throw new Error("EXPECTED_TWO_REVIEW_BATCHES");
+    const checks = parts.filter(({ kind }) => kind === "pair_check");
+    const coveredPairs = checks.flatMap((part) => part.pairs ?? [part.recordIds as readonly [string, string]]).map((pair) => JSON.stringify(pair)).sort();
+    expect(coveredPairs).toEqual(a.flatMap((left) => b.map((right) => JSON.stringify([left, right]))).sort());
+    expect(checks.length).toBeLessThan(a.length * b.length);
+    expect(checks.every(({ recordIds }) => recordIds.length <= 4)).toBe(true);
+    expect(new Set(parts.map((part) => criticPartIdentity(part))).size).toBe(parts.length);
+    const single = checks.find(({ pairs }) => pairs === undefined);
+    if (single !== undefined) expect(criticPartIdentity(single)).toBe(JSON.stringify(["pair_check", single.recordIds]));
+    expect((await criticContextParts(six, [], [], fits)).map((part) => criticPartIdentity(part))).toEqual(parts.map((part) => criticPartIdentity(part)));
   });
 
   it("retains the one-call path when the plan fits", async () => {
