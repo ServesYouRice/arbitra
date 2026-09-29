@@ -216,6 +216,10 @@ coverage.
 finding whose evidence range does not exist in the snapshot, before any model is asked
 about it. A model cannot argue a finding into existence.
 
+**Planted instructions.** Each `PROMPT_INJECTION` finding an auditor reports gets one
+bounded follow-up discovery of the code around it, so the report cannot stand in for the
+audit. See [security](security.md#injection-scanning-and-suppression-candidates).
+
 **Clustering.** `packages/workflow/src/clustering/deterministic.ts` (`structural-v2`) clusters
 findings deterministically; `clustering/escalate.ts` records escalated pairs
 (`SemanticClusteringDecision`, `recordSplit`) so the cost of a semantic path — if §25.4

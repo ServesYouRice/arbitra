@@ -12,7 +12,7 @@ commit.
 | 3 | Tasks that write the same file are ordered only by `conflictsWith` | Deterministic, repairable ordering check | **Fixed** (see git log) |
 | 4 | Single-auditor plans address nothing | Plan issues that targeted verification confirmed (`verified_single_source`) | **Fixed** (see git log) |
 | 5 | Failed requests are charged their full estimate | Release reservations for failures that provably consumed nothing | **Fixed** (see git log) |
-| 6 | A planted comment can hide the defect below it | Discovery rule plus a bounded follow-up pass after each prompt-injection finding | Planned |
+| 6 | A planted comment can hide the defect below it | Discovery rule plus a bounded follow-up pass after each prompt-injection finding | **Fixed** (see git log) |
 | 7 | Models adopt a seeded bug as the intended behaviour | Report and block documented-behaviour conflicts in Feature and Testing | Planned |
 | 8 | An Audit cannot answer a blocking plan question | Interactive plan-questions checkpoint, then one revision with the answers | Planned |
 
@@ -87,10 +87,20 @@ commit.
   instruction.
 - **Follow-up.** After an auditor's discovery, run a bounded follow-up discovery for each
   `PROMPT_INJECTION` finding:
-  - it covers the next 40 lines, with at most 3 follow-ups per auditor;
+  - it reads an exact line window from 10 lines before the reported text to 40 lines after
+    it, and nearby reports share one window;
+  - each auditor runs at most 3 follow-ups;
   - its scope is `injection-<hash>`;
   - it inherits round-zero isolation and durable identity;
-  - windows over the cap are recorded as unexamined.
+  - windows over the cap or over the discovery budget are recorded as unexamined.
+- **As built.** The follow-up's findings join the auditor's `findings-<auditor>`, and its
+  counts and coverage join `discovery-validation-<auditor>`.
+  `discovery-injection-follow-ups-<auditor>` records each window, its status and its
+  findings. With no prompt-injection report, discovery makes the same calls as before.
+- **Not a trigger: the deterministic scanner.** It flags 14 of this repository's 372
+  TypeScript source files: the 2 planted test fixtures and 12 benign files. So the follow-up
+  depends on the auditor reporting the text; in the observed failure, every pass did report
+  it.
 
 ### 7. Documented-behaviour conflicts
 - **Schema.** Add a defaulted `documentedBehaviourConflicts` field to outputs that already exist:
