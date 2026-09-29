@@ -41,6 +41,7 @@ describe("generic checkpoint policy validation", () => {
     expect(() => validateGraphCheckpoints(graph(human), { mode: "interactive", decisions: { other: "approve" } }, policies)).toThrow("UNKNOWN_CHECKPOINT_NODE:other");
     expect(() => validateGraphCheckpoints(graph(human), { mode: "sometimes" } as never, policies)).toThrow("UNKNOWN_CHECKPOINT_POLICY");
     expect(() => validateGraphCheckpoints(graph({ ...human, id: "bad/id" }), { mode: "interactive", decisions: {} }, policies)).toThrow("INVALID_CHECKPOINT_NODE_ID");
+    expect(() => validateGraphCheckpoints(graph({ ...human, id: "plan-questions" }), { mode: "interactive", decisions: {} }, policies)).toThrow("RESERVED_CHECKPOINT_ID:plan-questions");
     // Graphs without gate/human nodes need no policy.
     expect(() => validateGraphCheckpoints(graph({ id: "a", kind: "deterministic", label: "A", goal: "a" }), undefined, {})).not.toThrow();
   });

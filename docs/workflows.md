@@ -103,6 +103,35 @@ Approval completes the node. Rejection fails the run as a policy outcome: the pu
 gate reports `checkpoint_rejected:<node>`, and the CLI exits `1`, not `2`. Until an operator decides,
 the public gate reports `checkpoint_pending:<node>`, and `run`/`resume`/`status` exit `3`.
 
+**Plan questions.** With an interactive policy, an Audit plan that leaves blocking questions
+open waits for answers instead of failing its gate. Observed live: an Audit plan correctly
+left "throw or clamp?" open and failed, and nothing could answer it and resume.
+
+- The planner node publishes the plan and blocks at the reserved checkpoint
+  `plan-questions`. Run status lists it as `kind: "plan-questions"` with its `version` (a hash
+  of the exact plan), `status` (`pending` or `answered`) and the blocking `questions`. Until
+  it is answered, the public gate reports `checkpoint_pending:plan-questions` and
+  `blocking_plan_questions`.
+- The operator answers every question once, for the current version:
+
+  ```text
+  node apps/cli/dist/src/bin.js respond-checkpoint <run-id> plan-questions <version> answers.json
+  POST /runs/:id/checkpoints/plan-questions   {"version": "<64 hex>", "answers": [{"questionId": "Q-1", "answer": "Throw a typed error."}]}
+  ```
+
+  `answers.json` holds `{"answers": [...]}`. The web run controls show one field per
+  question. A missing, unknown or repeated question ID is refused with 400. A stale version
+  or a second set of answers for the same version is refused with 409.
+- On `resume`, the stored planner activities replay. Exactly one new activity,
+  `planner/answers/<version>`, revises the plan with the answers. The runtime, not the
+  model, then removes the answered questions. `plan-question-resolutions` records each
+  round: the version, the activity and the operator's answers. If the revised plan asks new
+  blocking questions, the run waits again under a new version.
+- A revision that cannot fit the planner's context fails with
+  `PLAN_QUESTION_REVISION_CONTEXT_EXCEEDED:<version>`. No graph may use `plan-questions`
+  as a gate or human node ID (`RESERVED_CHECKPOINT_ID`). Automatic mode and runs without a
+  checkpoint policy keep the old behaviour: blocking questions fail the gate.
+
 ### Operator-authored graphs
 
 An operator can edit a graph and save it as a version, then run that version. The graph

@@ -180,6 +180,7 @@ function checkpointFailure(graph: RunnerGraph, policy: ReturnType<typeof checkpo
       CHECKPOINT_POLICY_REQUIRED: "A human node needs the run configuration's workflow.checkpoints policy.",
       AUTOMATIC_CHECKPOINT_DECISION_REQUIRED: "An automatic checkpoint policy needs an explicit operator decision for every human node.",
       UNKNOWN_CHECKPOINT_NODE: "The checkpoint policy decides a human node this graph does not contain.",
+      RESERVED_CHECKPOINT_ID: "plan-questions is reserved for the checkpoint where an interactive Audit answers its plan's blocking questions.",
     };
     return { code, message: `${explained[code] ?? "Invalid checkpoint configuration."} (${message})` };
   }

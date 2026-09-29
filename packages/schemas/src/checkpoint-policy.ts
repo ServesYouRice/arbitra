@@ -29,3 +29,16 @@ export type CheckpointPolicy = z.infer<typeof checkpointPolicySchema>;
 /** Operator response to one generic checkpoint version. */
 export const checkpointResponseSchema = z.strictObject({ version: z.string().regex(/^[a-f0-9]{64}$/u), decision: checkpointDecisionSchema });
 export type CheckpointResponse = z.infer<typeof checkpointResponseSchema>;
+
+/**
+ * The reserved checkpoint where an interactive Audit waits for answers to its plan's blocking
+ * questions. It is not a graph node, so no authored graph may use its ID.
+ */
+export const PLAN_QUESTIONS_CHECKPOINT_ID = "plan-questions";
+
+/** Operator answers to every blocking question of one plan-questions version, given once. */
+export const planQuestionAnswersSchema = z.strictObject({
+  version: z.string().regex(/^[a-f0-9]{64}$/u),
+  answers: z.array(z.strictObject({ questionId: z.string().min(1), answer: z.string().refine((value) => value.trim().length > 0, "Expected a nonempty answer") })).min(1),
+});
+export type PlanQuestionAnswers = z.infer<typeof planQuestionAnswersSchema>;

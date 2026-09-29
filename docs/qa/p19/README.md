@@ -14,7 +14,7 @@ commit.
 | 5 | Failed requests are charged their full estimate | Release reservations for failures that provably consumed nothing | **Fixed** (see git log) |
 | 6 | A planted comment can hide the defect below it | Discovery rule plus a bounded follow-up pass after each prompt-injection finding | **Fixed** (see git log) |
 | 7 | Models adopt a seeded bug as the intended behaviour | Report and block documented-behaviour conflicts in Feature and Testing | **Fixed** (see git log) |
-| 8 | An Audit cannot answer a blocking plan question | Interactive plan-questions checkpoint, then one revision with the answers | Planned |
+| 8 | An Audit cannot answer a blocking plan question | Interactive plan-questions checkpoint, then one revision with the answers | **Fixed** (see git log) |
 
 ## Designs
 
@@ -140,3 +140,11 @@ commit.
   (`planner/answers/<version>`) revises the plan with the answers. The runtime removes the
   answered questions and records `plan-question-resolutions`, with provenance.
 - Model-facing schemas are unchanged. The checkpoint id `plan-questions` is reserved.
+- **As built.**
+  - The checkpoint lives in `packages/runtime/src/plan-questions.ts`. Answers are stored
+    create-once per version in the run's records. The version is a hash of the exact plan.
+  - The web run controls show one answer field per question.
+  - The answers revision is one call with the planner's traceable schema. A plan too large
+    for it fails with `PLAN_QUESTION_REVISION_CONTEXT_EXCEEDED`. Staged revision is not
+    wired for answers.
+  - A malformed checkpoint body now gets 400, not 500, on both checkpoint kinds.

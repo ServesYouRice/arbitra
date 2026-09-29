@@ -4,6 +4,7 @@ import type { RunConfig } from "@arbitra/schemas/config.js";
 import type { ReplayOverrides } from "@arbitra/core/replay/index.js";
 import type { ReplayRequest } from "@arbitra/schemas/replay.js";
 import type { BatchResolutionRequest } from "@arbitra/schemas/provider-execution.js";
+import { PLAN_QUESTIONS_CHECKPOINT_ID } from "@arbitra/schemas/checkpoint-policy.js";
 import type { Orchestrator } from "./orchestrator.js";
 import { PreflightError } from "./preflight.js";
 import { withIncrementalBase } from "./incremental-audit.js";
@@ -61,9 +62,13 @@ export function orchestratorCore(orchestrator: Orchestrator) {
     async applyRequirementsRevision(runId: string, artifactId: string): Promise<CoreCommandResult> {
       return { disposition: "passed", value: await orchestrator.applyRequirementsRevision(runId, artifactId) };
     },
-    /** Record one decision for the current version of a generic human checkpoint. */
+    /** Record one decision for the current version of a generic human checkpoint. For the
+     * plan-questions checkpoint, `decision` is a JSON file of `{"answers": [{questionId, answer}]}`. */
     async respondCheckpoint(runId: string, checkpointId: string, version: string, decision: string): Promise<CoreCommandResult> {
-      return { disposition: "passed", value: await orchestrator.respondCheckpoint(runId, checkpointId, { version, decision }) };
+      if (checkpointId !== PLAN_QUESTIONS_CHECKPOINT_ID) return { disposition: "passed", value: await orchestrator.respondCheckpoint(runId, checkpointId, { version, decision }) };
+      const file: unknown = JSON.parse(await readFile(resolve(decision), "utf8"));
+      const answers = typeof file === "object" && file !== null && !Array.isArray(file) ? (file as { answers?: unknown }).answers : undefined;
+      return { disposition: "passed", value: await orchestrator.respondCheckpoint(runId, checkpointId, { version, answers }) };
     },
     /** The run's batch submissions. Unresolved uncertain submissions suspend (exit 3) until an operator decides. */
     async batches(runId: string): Promise<CoreCommandResult> {

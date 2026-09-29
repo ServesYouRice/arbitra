@@ -3,7 +3,7 @@ import { runConfigSchema } from "./config.js";
 import { traceQuerySchema } from "./trace-browser.js";
 import { requirementsApprovalSchema } from "./feature-execution.js";
 import { requirementsDraftSchema } from "./requirements.js";
-import { CHECKPOINT_ID_PATTERN, checkpointResponseSchema } from "./checkpoint-policy.js";
+import { CHECKPOINT_ID_PATTERN, checkpointResponseSchema, planQuestionAnswersSchema } from "./checkpoint-policy.js";
 import { replayRequestSchema } from "./replay.js";
 import { incrementalAuditSchema } from "./incremental.js";
 import { BATCH_SUBMISSION_ID_PATTERN, batchResolutionRequestSchema } from "./provider-execution.js";
@@ -56,7 +56,8 @@ export const HTTP_ROUTE_SCHEMAS = Object.freeze({
   "POST /runs/:id/resume": { params: idParams, response: jsonResponse },
   "GET /runs/:id/events": { params: idParams },
   "POST /runs/:id/cancel": { params: idParams, response: jsonResponse },
-  "POST /runs/:id/checkpoints/:checkpointId": { params: checkpointParams, body: z.toJSONSchema(checkpointResponseSchema, { target: "draft-7" }), response: jsonResponse },
+  // A generic human checkpoint takes a decision; the reserved plan-questions checkpoint takes answers.
+  "POST /runs/:id/checkpoints/:checkpointId": { params: checkpointParams, body: z.toJSONSchema(z.union([checkpointResponseSchema, planQuestionAnswersSchema]), { target: "draft-7" }), response: jsonResponse },
   "GET /runs/:id/artifacts": { params: idParams, response: jsonResponse },
   "GET /runs/:id/artifacts/:artifactId": { params: artifactParams, response: jsonResponse },
   "GET /runs/:id/metrics": { params: idParams, response: jsonResponse },

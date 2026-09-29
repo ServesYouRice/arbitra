@@ -40,7 +40,7 @@ export async function executeCommand(
     }
     case "respond-checkpoint": {
       const [checkpointId, version, decision] = positional.slice(1);
-      if (core.respondCheckpoint === undefined || checkpointId === undefined || version === undefined || decision === undefined || positional.length !== 4) throw new Error("USAGE: respond-checkpoint <run-id> <checkpoint-id> <version> <approve|reject>");
+      if (core.respondCheckpoint === undefined || checkpointId === undefined || version === undefined || decision === undefined || positional.length !== 4) throw new Error("USAGE: respond-checkpoint <run-id> <checkpoint-id> <version> <approve|reject>, or respond-checkpoint <run-id> plan-questions <version> <answers.json>");
       return core.respondCheckpoint(subject, checkpointId, version, decision);
     }
     case "requirements": {

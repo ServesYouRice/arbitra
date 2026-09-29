@@ -7,6 +7,7 @@ import { planIRSchema } from "@arbitra/schemas/plan.js";
 import type { HttpRequest, HttpResponse } from "@arbitra/providers/transport-contract.js";
 import { Orchestrator } from "../src/orchestrator.js";
 import { controlPlaneCore } from "../src/control-plane-core.js";
+import { orchestratorCore } from "../src/cli-core.js";
 import { taskOutline } from "../src/planner-context.js";
 import type { PlannerBrief, PlannerTaskOutline } from "@arbitra/schemas/planner-composition.js";
 import type { TestSandbox } from "../src/test-sandbox.js";
@@ -14,7 +15,7 @@ import type { TestSandbox } from "../src/test-sandbox.js";
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
-async function fixture(options: { revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; ambiguousClustering?: boolean; oversizedRepository?: boolean } = {}) {
+async function fixture(options: { revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; ambiguousClustering?: boolean; oversizedRepository?: boolean; planQuestion?: boolean } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "arbitra-model-run-")); directories.push(directory);
   const manyIssues = options.largePeerContext === true || options.largePlannerContext === true;
   await writeFile(join(directory, "a.ts"), "const value = null;\n".repeat(manyIssues ? 4 : options.ambiguousClustering === true ? 3 : 1), "utf8");
@@ -148,7 +149,14 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
       const input = JSON.parse(user) as { canonicalIssues: { candidateId: string }[]; premiseReport: unknown };
       const acceptedIssueIds = input.canonicalIssues.map(({ candidateId }) => candidateId);
       output = { ...planTemplate, acceptedIssueIds, tasks: planTemplate.tasks.map((task) => ({ ...task, addresses: { ...task.addresses, issues: acceptedIssueIds } })),
-        traceability: { ...planTemplate.traceability, issueToValidation: acceptedIssueIds.map((issueId) => ({ issueId, validationIds: ["VAL-001"] })) }, premiseReport: input.premiseReport };
+        traceability: { ...planTemplate.traceability, issueToValidation: acceptedIssueIds.map((issueId) => ({ issueId, validationIds: ["VAL-001"] })) }, premiseReport: input.premiseReport,
+        ...(options.planQuestion === true ? { unresolvedQuestions: [{ id: "Q-null", question: "Throw or default when the value is null?", blocking: true, blastRadius: "high" }] } : {}) };
+    } else if (system.startsWith("Revise the supplied Plan IR to apply the operator's answers")) {
+      requests.push({ stage: "plan-answers", url: request.url });
+      const input = JSON.parse(user) as { plan: ReturnType<typeof planIRSchema.parse>; operatorAnswers: { questionId: string; answer: string }[] };
+      expect(input.operatorAnswers).toEqual([{ questionId: "Q-null", question: "Throw or default when the value is null?", answer: "Throw a typed error." }]);
+      // The reply keeps the answered question; the runtime removes it.
+      output = { ...input.plan, title: "Answered plan" };
     } else if (system.startsWith("Apply one atomic revision")) {
       requests.push({ stage: "revision-patch", url: request.url });
       if (failRevisionPatch && requests.filter(({ stage }) => stage === "revision-patch").length === 2) return { status: 503, headers: {}, body: {} };
@@ -330,6 +338,43 @@ describe("composed model audits", () => {
     const descriptor = (await resumed.artifacts(result.runId)).find(({ kind }) => kind === "plan-ir");
     if (descriptor === undefined) throw new Error("PLAN_ABSENT");
     expect(JSON.parse((await resumed.artifact(result.runId, descriptor.artifactId) as { content: string }).content).title).toBe("Revised plan");
+  });
+
+  it("waits for answers to blocking plan questions, then applies them with one planner call", async () => {
+    // Observed live: an Audit plan correctly left "throw or clamp?" open and failed its gate, with no way to answer it.
+    const { create, config, requests } = await fixture({ planQuestion: true });
+    const interactive = { ...config, workflow: { ...config.workflow, checkpoints: { mode: "interactive" } } };
+    const core = create(); const result = await core.run(interactive);
+    expect(result.state).toBe("BLOCKED");
+    const status = await core.status(result.runId);
+    const pending = status.checkpoints.find((checkpoint) => checkpoint.kind === "plan-questions");
+    if (pending?.kind !== "plan-questions") throw new Error("PLAN_QUESTIONS_CHECKPOINT_ABSENT");
+    expect(pending).toMatchObject({ checkpointId: "plan-questions", status: "pending", questions: [{ id: "Q-null", blastRadius: "high" }] });
+    expect((await core.gate(result.runId)).reasons).toEqual(expect.arrayContaining(["checkpoint_pending:plan-questions", "blocking_plan_questions"]));
+    await expect(core.respondCheckpoint(result.runId, "plan-questions", { version: pending.version, answers: [{ questionId: "Q-other", answer: "Clamp." }] })).rejects.toThrow("PLAN_QUESTION_ANSWERS_INVALID");
+    await expect(core.respondCheckpoint(result.runId, "plan-questions", { version: "0".repeat(64), answers: [{ questionId: "Q-null", answer: "Clamp." }] })).rejects.toThrow("STALE_CHECKPOINT");
+    // The CLI reads the answers from a file: respond-checkpoint <run> plan-questions <version> answers.json
+    const answersDirectory = await mkdtemp(join(tmpdir(), "arbitra-plan-answers-")); directories.push(answersDirectory);
+    await writeFile(join(answersDirectory, "answers.json"), JSON.stringify({ answers: [{ questionId: "Q-null", answer: "Throw a typed error." }] }), "utf8");
+    const answered = await orchestratorCore(core).respondCheckpoint(result.runId, "plan-questions", pending.version, join(answersDirectory, "answers.json"));
+    expect(answered.value).toMatchObject({ accepted: true, checkpoint: { status: "answered" } });
+    await expect(core.respondCheckpoint(result.runId, "plan-questions", { version: pending.version, answers: [{ questionId: "Q-null", answer: "Clamp." }] })).rejects.toThrow("CHECKPOINT_ALREADY_DECIDED");
+    const planned = requests.filter(({ stage }) => stage === "planner").length;
+    const resumed = create(); await resumed.resume(result.runId);
+    expect((await resumed.wait(result.runId)).state).toBe("COMPLETED");
+    // The stored planner activities replayed; exactly one new call applied the answers.
+    expect(requests.filter(({ stage }) => stage === "planner")).toHaveLength(planned);
+    expect(requests.filter(({ stage }) => stage === "plan-answers")).toHaveLength(1);
+    const read = async (kind: string) => {
+      const descriptor = (await resumed.artifacts(result.runId)).find((entry) => entry.kind === kind);
+      if (descriptor === undefined) throw new Error(`ARTIFACT_ABSENT:${kind}`);
+      return JSON.parse((await resumed.artifact(result.runId, descriptor.artifactId) as { content: string }).content) as Record<string, unknown>;
+    };
+    expect(await read("plan-ir")).toMatchObject({ title: "Answered plan", unresolvedQuestions: [] });
+    expect(await read("plan-question-resolutions")).toMatchObject({ rounds: [{ version: pending.version, activityId: `planner/answers/${pending.version}`, answeredBy: "operator", answers: [{ questionId: "Q-null", answer: "Throw a typed error." }] }] });
+    const gate = await resumed.gate(result.runId);
+    expect(gate.reasons).not.toContain("blocking_plan_questions");
+    expect(gate.reasons).not.toContain("checkpoint_pending:plan-questions");
   });
 
   it.each(["invalid_traceability", "missing_resolution"] as const)("rejects invalid planner revisions: %s", async (revision) => {
