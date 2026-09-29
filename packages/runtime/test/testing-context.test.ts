@@ -54,7 +54,7 @@ it("rejects fabricated risk evidence, unrelated paths and incomplete candidate a
   const { snapshot, inventory } = await fixture();
   const surface = { id: "auth", paths: ["auth.ts"], categories: ["authorization"], severity: "high", failureModes: ["unauthorized access"], evidence: [{ path: "auth.ts", startLine: 1, endLine: 1, text: "export const authorized = false;" }] };
   const risk = { summary: "Authorization", surfaces: [surface], reviewedTestPaths: ["auth.test.ts"], reviewedSourcePaths: ["auth.ts"], limitations: [] };
-  expect(validateTestingRisk(risk, snapshot, inventory)).toEqual(risk);
+  expect(validateTestingRisk(risk, snapshot, inventory)).toEqual({ ...risk, documentedBehaviourConflicts: [] });
   expect(() => validateTestingRisk({ ...risk, surfaces: [{ ...surface, paths: ["auth.test.ts"] }] }, snapshot, inventory)).toThrow("TESTING_RISK_SOURCE_INVALID");
   expect(() => validateTestingRisk({ ...risk, reviewedTestPaths: ["missing.test.ts"] }, snapshot, inventory)).toThrow("TESTING_REVIEWED_PATH_INVALID");
   // A metadata file is not source; the refusal names it and the allowed files so a repair can act.

@@ -5,7 +5,7 @@ import type { RequirementsContract } from "@arbitra/workflow/nodes/requirements/
 
 const requirements: RequirementsContract = { schemaVersion: 1, featureRequest: "Feature", assumptions: [{ id: "ASM", statement: "Keep compatibility", confidence: "high" }], ambiguities: [], acceptance: [{ id: "ACC", assertion: "Feature works" }], outOfScope: [], decision: { mode: "automatic", acceptedDefaults: [] } };
 const snapshot = { root: "unused", files: [{ path: "a.ts", lines: ["const version = 1;"], byteLength: 18, lineStartBytes: [0] }] };
-const review = (): FeatureReview => ({ summary: "Reviewed", decisions: ["ASM", "ACC"].map((requirementId) => ({ requirementId, disposition: "accept", reason: "Consistent with request", proposedChange: null, evidence: [{ path: "a.ts", startLine: 1, endLine: 1, text: "const version = 1;" }] })), limitations: [] });
+const review = (): FeatureReview => ({ summary: "Reviewed", decisions: ["ASM", "ACC"].map((requirementId) => ({ requirementId, disposition: "accept", reason: "Consistent with request", proposedChange: null, evidence: [{ path: "a.ts", startLine: 1, endLine: 1, text: "const version = 1;" }] })), limitations: [], documentedBehaviourConflicts: [] });
 const reviewer = (id: string, result = review()) => ({ reviewerId: id, independenceGroup: id, review: result });
 
 describe("Feature requirements review consensus", () => {
@@ -56,6 +56,15 @@ describe("Feature requirements review consensus", () => {
       expect(() => validateFeatureReview({ ...review(), decisions }, requirements, snapshot)).toThrow();
     }
     expect(() => validateFeatureReview({ ...review(), decisions: review().decisions.map((decision) => ({ ...decision, evidence: [{ path: "a.ts", startLine: 1, endLine: 1, text: "forged" }] })) }, requirements, snapshot)).toThrow("FEATURE_REVIEW_UNGROUNDED_EVIDENCE");
+  });
+  it("never accepts a requirement that a reviewer or the exploration names in a documented-behaviour conflict", () => {
+    const conflict = { requirementIds: ["ACC"], documentation: { path: null, startLine: null, endLine: null, text: "Feature" }, code: { path: "a.ts", startLine: 1, endLine: 1, text: "const version = 1;" }, explanation: "The request contradicts the code." };
+    const flagged = { ...review(), documentedBehaviourConflicts: [conflict] };
+    const result = featureReviewConsensus(requirements, snapshot, [reviewer("a", flagged), reviewer("b")]);
+    expect(result.blockingRequirementIds).toEqual(["ACC"]);
+    expect(result.decisions.find(({ requirementId }) => requirementId === "ACC")).toMatchObject({ disposition: "unresolved", documentedBehaviourConflicts: [{ reportedBy: "a" }] });
+    expect(featureReviewConsensus(requirements, snapshot, [reviewer("a"), reviewer("b")], [conflict]).blockingRequirementIds).toEqual(["ACC"]);
+    expect(() => validateFeatureReview({ ...flagged, documentedBehaviourConflicts: [{ ...conflict, code: { ...conflict.code, text: "const version = 2;" } }] }, requirements, snapshot)).toThrow("DOCUMENTED_BEHAVIOUR_CONFLICT_UNGROUNDED");
   });
   it("rejects a single reviewer or duplicated independence groups", () => {
     expect(() => featureReviewConsensus(requirements, snapshot, [reviewer("a")])).toThrow("FEATURE_REVIEW_INDEPENDENCE_REQUIRED");

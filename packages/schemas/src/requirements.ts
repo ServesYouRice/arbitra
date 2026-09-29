@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { requirementBehaviourConflictSchema } from "./documented-behaviour.js";
 
 const text = z.string().refine((value) => value.trim().length > 0, "Expected nonempty text");
 const assumption = z.strictObject({ id: text, statement: text, confidence: z.enum(["low", "medium", "high"]) });
@@ -73,5 +74,6 @@ export const featureExplorationSchema = z.strictObject({
   preflight: featurePreflightSchema,
   evidence: z.array(z.strictObject({ surfaceId: text, path: text, startLine: z.number().int().positive(), endLine: z.number().int().positive(), text })),
   limitations: z.array(text),
+  documentedBehaviourConflicts: z.array(requirementBehaviourConflictSchema).default([]),
 });
 export type FeatureExploration = z.infer<typeof featureExplorationSchema>;

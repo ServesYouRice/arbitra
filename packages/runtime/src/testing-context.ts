@@ -1,6 +1,7 @@
 import type { TestingExecution, TestingRisk } from "@arbitra/schemas/testing.js";
 import { testingRiskSchema, testingEvidenceSchema, testingSelectionSchema } from "@arbitra/schemas/testing.js";
 import { anchorLineEvidence } from "./evidence-grounding.js";
+import { groundBehaviourConflicts } from "./documented-behaviour.js";
 import type { RepositorySnapshot } from "./repository.js";
 import { testInventory, type TestSystemReport, type TestGap } from "@arbitra/workflow/nodes/test-inventory.js";
 
@@ -28,7 +29,8 @@ function assertPathSubset(code: string, field: string, paths: readonly string[],
   throw new Error(`${code}: ${field} ${invalid.length > 0 ? `lists ${list(invalid)}, which ${invalid.length === 1 ? "is" : "are"} not among the ${kind}` : `repeats ${list(duplicates)}`}; allowed: ${allowed.length === 0 ? "none" : list(allowed)}`);
 }
 
-export function validateTestingRisk(value: unknown, snapshot: RepositorySnapshot, inventory: TestSystemReport): TestingRisk {
+/** `goal` is the request a documentation quotation with a null path may cite. */
+export function validateTestingRisk(value: unknown, snapshot: RepositorySnapshot, inventory: TestSystemReport, goal?: string): TestingRisk {
   const risk = testingRiskSchema.parse(value);
   if (new Set(risk.surfaces.map(({ id }) => id)).size !== risk.surfaces.length) throw new Error("DUPLICATE_TEST_RISK_SURFACE");
   // The code stays first; the rest tells a repair which paths were wrong and which are allowed.
@@ -40,6 +42,7 @@ export function validateTestingRisk(value: unknown, snapshot: RepositorySnapshot
     for (const evidence of surface.evidence) if (!surface.paths.includes(evidence.path)) throw new Error("TESTING_RISK_EVIDENCE_UNRELATED");
     if (surface.paths.some((path) => !surface.evidence.some((evidence) => evidence.path === path))) throw new Error("TESTING_RISK_EVIDENCE_MISSING");
   }
+  risk.documentedBehaviourConflicts = groundBehaviourConflicts(risk.documentedBehaviourConflicts, snapshot, goal);
   return risk;
 }
 

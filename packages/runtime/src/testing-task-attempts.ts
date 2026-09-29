@@ -5,6 +5,7 @@ import { taskIRSchema, type TaskIR } from "@arbitra/schemas/task-ir.js";
 import { testingTaskVerificationSchema, testingVerificationPolicySchema, type TestingVerificationPolicy, type TestingTaskVerification } from "@arbitra/schemas/testing-verification.js";
 import type { VerificationExecutionRecord } from "./verification-execution.js";
 import type { RunStore } from "./run-store.js";
+import { DOCUMENTED_BEHAVIOUR_CONFLICT } from "./documented-behaviour.js";
 
 export interface TestingTaskAttempt {
   readonly id: string; readonly ordinal: number; readonly capability: "fast" | "balanced" | "frontier";
@@ -37,6 +38,7 @@ export class TestingTaskAttempts {
       const ledger = await this.load();
       const previous = ledger.attempts.at(-1);
       if (previous?.state === "reserved") return previous;
+      if (await this.haltReason(ledger) !== null) return null;
       const invalidation = ledger.invalidations?.findLast(({ attemptId }) => attemptId === previous?.id);
       if (previous?.result === "passed" && invalidation === undefined || ledger.attempts.length >= this.maximumAttempts) return null;
       const failures = ledger.attempts.filter(({ result }) => result === "failed").length + (ledger.invalidations?.length ?? 0);
@@ -112,13 +114,26 @@ export class TestingTaskAttempts {
     });
   }
 
-  status(): Promise<{ state: "pending" | "running" | "completed" | "blocked"; attempts: readonly TestingTaskAttempt[]; deterministicFailures: number }> {
+  status(): Promise<{ state: "pending" | "running" | "completed" | "blocked"; attempts: readonly TestingTaskAttempt[]; deterministicFailures: number; haltedReason: string | null }> {
     return this.serial(async () => {
       const ledger = await this.load(); const last = ledger.attempts.at(-1);
       const invalidated = ledger.invalidations?.some(({ attemptId }) => attemptId === last?.id) ?? false;
-      return { state: last?.state === "reserved" ? "running" : last?.result === "passed" && !invalidated ? "completed" : ledger.attempts.length >= this.maximumAttempts ? "blocked" : "pending",
-        attempts: ledger.attempts, deterministicFailures: ledger.attempts.filter(({ result }) => result === "failed").length + (ledger.invalidations?.length ?? 0) };
+      const haltedReason = await this.haltReason(ledger);
+      return { state: last?.state === "reserved" ? "running" : last?.result === "passed" && !invalidated ? "completed" : haltedReason !== null || ledger.attempts.length >= this.maximumAttempts ? "blocked" : "pending",
+        attempts: ledger.attempts, deterministicFailures: ledger.attempts.filter(({ result }) => result === "failed").length + (ledger.invalidations?.length ?? 0), haltedReason };
     });
+  }
+
+  /** A writer that reported a documented-behaviour conflict ends its task: an operator must decide
+   * the contradiction, and another attempt would meet the same one. Derived from the recorded
+   * verification, so a restarted run halts exactly where it stopped. */
+  private async haltReason(ledger: Ledger): Promise<string | null> {
+    const last = ledger.attempts.at(-1);
+    if (last?.state !== "verified" || last.result !== "incomplete" || last.verificationArtifactId === undefined) return null;
+    const descriptor = (await this.store.listArtifacts()).find(({ artifactId }) => artifactId === last.verificationArtifactId);
+    if (descriptor === undefined) throw new Error("TESTING_VERIFICATION_ARTIFACT_REQUIRED");
+    const verification = testingTaskVerificationSchema.parse(await this.store.artifacts.get(descriptor.ref));
+    return verification.reasons.some((reason) => reason.startsWith(`writer_limitation:${DOCUMENTED_BEHAVIOUR_CONFLICT}:`)) ? DOCUMENTED_BEHAVIOUR_CONFLICT : null;
   }
 
   private async validateEvidence(verification: TestingTaskVerification): Promise<void> {

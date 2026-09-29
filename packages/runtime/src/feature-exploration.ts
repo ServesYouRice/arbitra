@@ -2,6 +2,7 @@ import { featureExplorationSchema, requirementsContractSchema, type FeatureExplo
 import { createHash } from "node:crypto";
 import type { RequirementsContract } from "@arbitra/workflow/nodes/requirements/index.js";
 import { anchorLineEvidence } from "./evidence-grounding.js";
+import { groundRequirementConflicts } from "./documented-behaviour.js";
 import { NEW_FILES_ARE_NOT_SURFACES } from "./prompt-conventions.js";
 import type { PlannerCompositionPort, PlannerStage } from "./planner-context.js";
 import type { RepositorySnapshot } from "./repository.js";
@@ -27,6 +28,7 @@ export function validateFeatureExploration(value: unknown, requirements: Require
     if (anchored === null) throw new Error("FEATURE_EXPLORATION_UNGROUNDED_EVIDENCE");
     return anchored;
   });
+  exploration.documentedBehaviourConflicts = groundRequirementConflicts(exploration.documentedBehaviourConflicts, requirementIds, snapshot, contract.featureRequest);
   return exploration;
 }
 
@@ -70,7 +72,8 @@ export async function exploreWithContext(requirements: RequirementsContract, sna
   }
   const evidence = [...new Map(parts.flatMap((part) => part.evidence).map((entry) => [JSON.stringify(entry), entry])).values()];
   const sum = (select: (part: FeatureExploration) => number) => parts.reduce((total, part) => total + select(part), 0);
-  const merged = validateFeatureExploration({ summary: parts.map(({ summary }) => summary).join("\n"), evidence, limitations: [...new Set(parts.flatMap(({ limitations }) => limitations))],
+  const conflicts = [...new Map(parts.flatMap((part) => part.documentedBehaviourConflicts).map((entry) => [JSON.stringify(entry), entry])).values()];
+  const merged = validateFeatureExploration({ summary: parts.map(({ summary }) => summary).join("\n"), evidence, limitations: [...new Set(parts.flatMap(({ limitations }) => limitations))], documentedBehaviourConflicts: conflicts,
     preflight: { affectedSurfaces: [...surfaces.values()], securitySensitiveSurfaceCount: Math.min(surfaces.size, sum(({ preflight }) => preflight.securitySensitiveSurfaceCount)),
       migrationInvolvement: parts.some(({ preflight }) => preflight.migrationInvolvement), architectureBreadth: sum(({ preflight }) => preflight.architectureBreadth), testingComplexity: sum(({ preflight }) => preflight.testingComplexity) } }, requirements, snapshot);
   await port.publish("exploration-composition", { kind: "requirement_batches_merged_by_surface", batches: batches.length, surfaces: surfaces.size, metrics: "conservative_upper_bound_of_batch_metrics" });

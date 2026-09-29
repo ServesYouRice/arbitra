@@ -70,7 +70,16 @@ export class FeaturePipeline {
     const { roles } = this.settings;
     const options = { signal, transport: this.transport, harness: this.harness };
     let explored = await modelFeatureExploration(this.store, this.config, this.snapshot, stages.checkpoint, { ...options, modelProfileId: roles.exploration });
-    let reviewRequired = explored.routing.stages.includes("targeted_review") || (await this.store.listArtifacts()).some(({ kind }) => kind === "feature-requirements-revisions");
+    // A documented-behaviour conflict leaves its requirements unresolved: review decides them, or
+    // without reviewers the operator does at the requirements checkpoint.
+    const conflicts = explored.exploration.documentedBehaviourConflicts;
+    if (conflicts.length > 0 && roles.reviewers.length === 0) {
+      const current = await stages.checkpoint.current();
+      if (current === null) throw new Error("REQUIREMENTS_CHECKPOINT_ABSENT");
+      await this.store.publish("feature-requirements-blocker", { artifactId: current.artifactId, reason: "documented_behaviour_conflict", conflicts }, "feature");
+      throw new RunCheckpointError(current.artifactId);
+    }
+    let reviewRequired = explored.routing.stages.includes("targeted_review") || conflicts.length > 0 || (await this.store.listArtifacts()).some(({ kind }) => kind === "feature-requirements-revisions");
     while (reviewRequired) {
       const revisionContext = await requirementsRevisionContext(this.store, await stages.checkpoint.requireResolved());
       const consensus = await modelFeatureReview(this.store, this.config, this.snapshot, stages.checkpoint, { ...options, reviewerIds: roles.reviewers, exploration: explored.exploration, ...(revisionContext === undefined ? {} : { revisionContext }) });

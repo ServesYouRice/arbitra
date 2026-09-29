@@ -20,6 +20,7 @@ import { testingPlannerRecords, type TestingPlannerContext } from "./requirement
 import { harnessStagePort } from "./staged-model-port.js";
 import { modelTestingAnalysis } from "./model-testing-analysis.js";
 import { isTestingWritePath } from "./testing-context.js";
+import { conflictReason } from "./documented-behaviour.js";
 import { readStage } from "./pipeline.js";
 import type { RepositorySnapshot } from "./repository.js";
 import type { RunStore } from "./run-store.js";
@@ -81,7 +82,8 @@ export class TestingPipeline {
 
   async run(signal: AbortSignal): Promise<TestingOutcome> {
     const analysis = await modelTestingAnalysis(this.store, this.config, this.snapshot, { signal, harness: this.harness, transport: this.transport });
-    const reasons = [...analysis.limitations];
+    // A test written against contradicted documentation would pin one side of the contradiction.
+    const reasons = [...analysis.limitations, ...new Set(analysis.risk.documentedBehaviourConflicts.map(conflictReason))];
     let plan: PlanIR | null = null;
     if (analysis.gaps.length > 0 && analysis.commands.length === 0) reasons.push("no_repository_test_command");
     if (analysis.gaps.length > 0 && reasons.length === 0) {

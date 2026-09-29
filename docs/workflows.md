@@ -311,6 +311,26 @@ requirements review also blocks, allowing an operator draft revision followed by
 exploration/review. Automatic mode records defaults without operator checkpoints but
 does not override disputed review.
 
+**Documented behaviour.** Current code shows what the code does, not what it should do.
+Observed live: the requirements model adopted a seeded expiry bug as the contract twice, and
+Haiku reviewers accepted it both times. The requirements model, exploration and reviewers now
+carry `DOCUMENTED_BEHAVIOUR_RULE`. Exploration and each reviewer report every contradiction
+between documentation (a doc comment, a README or the request) and the code that a requirement
+adopts or leaves undecided, as `documentedBehaviourConflicts`. Each conflict gives:
+
+- the requirement IDs it bears on;
+- an exact quotation of the documentation: a repository excerpt, or the request with a null
+  path;
+- an exact quotation of the contradicting code.
+
+Both quotations are grounded inside the model call, so a misquote is repaired, not dropped.
+A requirement that any reviewer or the exploration names is never accepted. It blocks like
+disputed review: the bounded revision addresses it, or the operator decides it at the
+requirements checkpoint. An exploration conflict makes review mandatory. Without reviewers,
+the run blocks at the checkpoint instead (`feature-requirements-blocker`, reason
+`documented_behaviour_conflict`). A requirement that deliberately keeps or changes the
+documented behaviour is not a conflict.
+
 `maximumRequirementsRevisions` defaults to one proposal per run and accepts 0–3; zero
 keeps operator-only revision. A complete independent review with unresolved requirements
 can trigger a proposal from the configured requirements model. Proposals retain explicit
@@ -384,6 +404,13 @@ and supported manifests within the selected source scope. Risk surfaces require 
 source evidence; every candidate must be selected or explicitly rejected with a reason.
 A test category elsewhere in the repository does not establish coverage of a surface.
 Unreviewed source/test paths and model-reported limitations fail the planning gate.
+So does a documented-behaviour conflict the analyst reports (grounded as in Feature; a null
+path quotes the goal): planning stops with `documented_behaviour_conflict:<path>:<line>`,
+because a test planned against the contradiction would pin one side of it. A writer that meets
+such a contradiction reports it instead of writing a test that pins the code. Its attempt fails
+verification, and the task halts at once with `documented_behaviour_conflict:<task>`, so the
+change set is withheld: another attempt would meet the same contradiction. A native writer's
+reply cannot be repaired, so its conflicts halt the task without being grounded.
 
 Package `test` and `test:*` scripts provide command candidates. For other frameworks,
 `commands` accepts `{command, evidence: {path, startLine, endLine, text}}`; the exact
