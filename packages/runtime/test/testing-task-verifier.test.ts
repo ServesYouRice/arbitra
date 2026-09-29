@@ -127,6 +127,19 @@ it("recovers interrupted sandbox resources before dispatching a new attempt", as
   expect(await verifier().verify(f.task, "two", f.workspace, signal())).toMatchObject({ status: "passed" }); expect(calls).toBe(2);
 });
 
+it("halts a task whose writer reported a documented-behaviour conflict, even when its checks pass", async () => {
+  const f = await fixture(); await f.write(); let calls = 0;
+  const verifier = new TestingTaskVerifier(f.store, f.snapshot, f.settings, f.policy, { async recover() {}, async run() { calls += 1; return f.result; } });
+  const ledger = () => new TestingTaskAttempts(f.store, f.task, f.policy);
+  const attempt = await ledger().reserve(); if (attempt === null) throw new Error("ATTEMPT_ABSENT");
+  const verification = await verifier.verify(f.task, attempt.id, f.workspace, signal(), ["documented_behaviour_conflict:source.ts:1"]);
+  expect(verification).toMatchObject({ status: "incomplete", reasons: ["writer_limitation:documented_behaviour_conflict:source.ts:1"], checks: [{ status: "passed" }] });
+  await ledger().recordVerification(attempt.id, verification.artifactId);
+  // Derived from the recorded verification, so a restarted ledger halts at the same attempt.
+  expect(await ledger().status()).toMatchObject({ state: "blocked", haltedReason: "documented_behaviour_conflict" });
+  expect(await ledger().reserve()).toBeNull(); expect(calls).toBe(1);
+});
+
 it("reserves durable attempts and promotes directly to frontier after two deterministic failures", async () => {
   const f = await fixture(); f.task.routing.capability = "fast"; await f.write(); let calls = 0;
   const sandbox: TestSandbox = { async recover() {}, async run() { calls += 1; return { ...f.result, exitCode: calls < 3 ? 1 : 0 }; } };

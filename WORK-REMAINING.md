@@ -13,7 +13,7 @@ The maintained execution queue is the [completion plan](docs/completion-plan.md)
 ## What is left, by what it needs
 
 1. **Nothing but time, on subscriptions:**
-   - **P19:** the final review. On September 29 the owner chose to fix every feasible open finding below in this phase, then rerun the affected live acceptance on subscriptions and write the completion report. Fixed so far: prompt-injection reports no longer cluster with the defect beside them (`structural-v2`); the critic packs pair checks into as few calls as fit; Audit and Feature plans must order tasks that write the same files; one-auditor plans address the issues verification confirmed; attempts that provably consumed nothing are no longer charged; each prompt-injection report gets a bounded follow-up look at the code beside it.
+   - **P19:** the final review. On September 29 the owner chose to fix every feasible open finding below in this phase, then rerun the affected live acceptance on subscriptions and write the completion report. Fixed so far: prompt-injection reports no longer cluster with the defect beside them (`structural-v2`); the critic packs pair checks into as few calls as fit; Audit and Feature plans must order tasks that write the same files; one-auditor plans address the issues verification confirmed; attempts that provably consumed nothing are no longer charged; each prompt-injection report gets a bounded follow-up look at the code beside it; Feature and Testing report and block on documented-behaviour conflicts instead of adopting the code's behaviour.
 2. **Deferred to a later phase: the [paid-API bundle](docs/completion-plan.md#deferred-the-paid-api-bundle).** It needs funded API accounts, which the owner does not use, so it is not done in this phase. A later maintainer may take it on:
    - the OpenAI Responses, OpenAI Chat and Anthropic Messages protocols live (P03);
    - P08's live context limits;
@@ -60,7 +60,6 @@ Live configurations come from `tooling/live/bindings.subscription.json`. The API
 
 ## Open findings to fix or decide
 
-- **Models adopt a seeded bug as the intended behaviour.** A live Testing writer pinned the `isExpired` defect as correct. The Feature requirements model wrote the same wrong contract twice. Haiku reviewers accepted it both times, and a Codex reviewer caught it once. A step that checks tests and contracts against documented behaviour would help.
 - **Audit cannot answer a blocking plan question.** A live Audit plan correctly left "throw or clamp?" open and failed its gate. Unlike Feature, an Audit run has no checkpoint to answer it and resume.
 
 See [project status](docs/project-status.md) for implemented capabilities and measured evidence. Evidence per item is in [docs/qa](docs/qa/); the subscription runs are in [qa/p03-subscription](docs/qa/p03-subscription/README.md). Update task status only in the completion plan.

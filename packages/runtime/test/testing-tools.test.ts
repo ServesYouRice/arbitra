@@ -136,7 +136,7 @@ it("pins writer context across interrupted writes and rejects changed attempt bi
   await restarted.workspace.close();
 });
 
-it.each(["pass", "exhausted", "limitations"])("runs bounded writer attempts and replays terminal state: %s", async (scenario) => {
+it.each(["pass", "exhausted", "limitations", "conflict"])("runs bounded writer attempts and replays terminal state: %s", async (scenario) => {
   const f = await fixture(); f.partitions.release(f.lease);
   const plan = planIRSchema.parse(JSON.parse(await readFile(new URL("../../schemas/test/golden/plan-ir.valid.json", import.meta.url), "utf8")));
   const task = plan.tasks[0]; if (task === undefined) throw new Error("TASK_ABSENT");
@@ -147,7 +147,9 @@ it.each(["pass", "exhausted", "limitations"])("runs bounded writer attempts and 
   let calls = 0; let checks = 0;
   const provider = { credential: () => "fixture-key", client: { async send() {
     calls += 1;
-    return { status: 200, headers: {}, body: { ...(calls === 1 ? { output: [{ type: "function_call", call_id: "write", name: "testing_write_file", arguments: JSON.stringify({ path: "session.test.ts", expectedHash: null, content: "test('session', () => {});\n" }) }] } : { output_text: JSON.stringify({ summary: "Reviewed test", limitations: scenario === "limitations" ? ["Missing edge case"] : [] }) }), usage: { input_tokens: 10, output_tokens: 10 } } };
+    return { status: 200, headers: {}, body: { ...(calls === 1 ? { output: [{ type: "function_call", call_id: "write", name: "testing_write_file", arguments: JSON.stringify({ path: "session.test.ts", expectedHash: null, content: "test('session', () => {});\n" }) }] } : { output_text: JSON.stringify({ summary: "Reviewed test", limitations: scenario === "limitations" ? ["Missing edge case"] : [],
+      // A writer that finds the documentation contradicting the code reports it instead of pinning either side.
+      ...(scenario === "conflict" ? { documentedBehaviourConflicts: [{ documentation: { path: "session.ts", startLine: 1, endLine: 1, text: "version" }, code: { path: "session.ts", startLine: 1, endLine: 1, text: "export const version = 1;" }, explanation: "Fixture contradiction" }] } : {}) }) }), usage: { input_tokens: 10, output_tokens: 10 } } };
   } } };
   const settings = testingExecutionSchema.parse({ mode: "plan", goal: "Test session", roles: { analyst: "planner", planner: "planner" } });
   const verifier = new TestingTaskVerifier(f.store, f.snapshot, settings, policy, { async recover() {}, async run() {
@@ -161,8 +163,10 @@ it.each(["pass", "exhausted", "limitations"])("runs bounded writer attempts and 
   expect(result.state).toBe(scenario === "pass" ? "completed" : "blocked");
   expect(result.attempts.map(({ capability, result: status }) => [capability, status])).toEqual(scenario === "pass" ? [["fast", "failed"], ["fast", "failed"], ["frontier", "passed"]]
     : scenario === "exhausted" ? [["fast", "failed"], ["fast", "failed"], ["frontier", "failed"], ["frontier", "failed"]]
-      : [["fast", "incomplete"], ["fast", "incomplete"], ["fast", "incomplete"], ["fast", "incomplete"]]);
-  const expectedChecks = scenario === "pass" ? 3 : 4;
+      : scenario === "conflict" ? [["fast", "incomplete"]] : [["fast", "incomplete"], ["fast", "incomplete"], ["fast", "incomplete"], ["fast", "incomplete"]]);
+  // A conflict halts the task at once: another attempt would meet the same contradiction.
+  expect(result.haltedReason).toBe(scenario === "conflict" ? "documented_behaviour_conflict" : null);
+  const expectedChecks = scenario === "pass" ? 3 : scenario === "conflict" ? 1 : 4;
   expect(checks).toBe(expectedChecks); expect(calls).toBe(expectedChecks + 1); expect(f.partitions.active()).toEqual([]);
   expect(await runTestingTask(input)).toEqual(result); expect(checks).toBe(expectedChecks); expect(calls).toBe(expectedChecks + 1);
   await expect(runTestingTask({ ...input, maximumAttempts: 5 })).rejects.toThrow("TESTING_TASK_RUNNER_CONFIGURATION_CHANGED");

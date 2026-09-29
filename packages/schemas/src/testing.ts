@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { testingPlanExecutionOptionsSchema } from "./testing-executor.js";
+import { documentedBehaviourConflictSchema } from "./documented-behaviour.js";
 
 const text = z.string().refine((value) => value.trim().length > 0, "Expected nonempty text");
 export const testCategorySchema = z.enum(["unit", "integration", "end-to-end", "contract", "authorization", "security-sensitive", "regression", "failure-path", "concurrency", "race-condition", "migration", "recovery", "retry", "idempotency", "frontend-interaction", "accessibility", "api"]);
@@ -20,6 +21,7 @@ export const testingRiskSchema = z.strictObject({
   reviewedTestPaths: z.array(text),
   reviewedSourcePaths: z.array(text),
   limitations: z.array(text),
+  documentedBehaviourConflicts: z.array(documentedBehaviourConflictSchema).default([]),
 });
 export type TestingRisk = z.infer<typeof testingRiskSchema>;
 export const testingSelectionSchema = z.strictObject({

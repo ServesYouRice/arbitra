@@ -158,7 +158,7 @@ export class TestingPlanExecutor {
           const task = inputs[index]?.task; if (task === undefined) throw new Error("TESTING_BATCH_TASK_ABSENT");
           const state = result.state === "completed" ? "completed" : "blocked";
           tasks.push({ taskId: task.id, state });
-          if (state === "blocked") reasons.push(`${result.state === "blocked" ? "task_attempts_exhausted" : "batch_blocked"}:${task.id}`);
+          if (state === "blocked") reasons.push(`${result.state === "blocked" ? result.haltedReason ?? "task_attempts_exhausted" : "batch_blocked"}:${task.id}`);
         }
         if (reasons.length > 0) break;
       }

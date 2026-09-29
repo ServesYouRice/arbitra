@@ -4,7 +4,7 @@ import type { RequirementsContract } from "@arbitra/schemas/requirements.js";
 import type { RequirementsCheckpoint } from "./requirements-checkpoint.js";
 import type { RunStore } from "./run-store.js";
 import type { RepositorySnapshot } from "./repository.js";
-import { featureReviewConsensus, type FeatureReviewerResult } from "./feature-review.js";
+import { featureReviewConsensus, type FeatureReviewRecord } from "./feature-review.js";
 
 export function validateRequirementsRevision(value: unknown, contract: RequirementsContract, blockingIds: readonly string[]): RequirementsRevision {
   const revised = requirementsRevisionSchema.parse(value);
@@ -45,9 +45,9 @@ export async function applyRequirementsProposal(store: RunStore, checkpoint: Req
   if (current?.artifactId !== proposal.baseArtifactId) throw new Error("STALE_REQUIREMENTS_CHECKPOINT");
   const reviewArtifact = await store.readArtifact(proposal.reviewArtifactId);
   if (!reviewArtifact.descriptor.kind.startsWith("requirements-revision-review-")) throw new Error("INVALID_REQUIREMENTS_REVISION_REVIEW");
-  const reviewed = JSON.parse(reviewArtifact.content) as { inputFingerprint: string; reviewers: FeatureReviewerResult[] };
+  const reviewed = JSON.parse(reviewArtifact.content) as FeatureReviewRecord;
   if (reviewed.inputFingerprint !== proposal.inputFingerprint) throw new Error("REQUIREMENTS_REVISION_REVIEW_STALE");
-  const consensus = featureReviewConsensus(current.contract, snapshot, reviewed.reviewers);
+  const consensus = featureReviewConsensus(current.contract, snapshot, reviewed.reviewers, reviewed.explorationConflicts);
   if (consensus.blockingRequirementIds.length === 0 || consensus.limitations.length > 0) throw new Error("REQUIREMENTS_REVISION_REVIEW_INVALID");
   const revision = validateRequirementsRevision(proposal.revision, current.contract, consensus.blockingRequirementIds);
   // Checkpoint revision serializes the comparison and commit and clears approvals.

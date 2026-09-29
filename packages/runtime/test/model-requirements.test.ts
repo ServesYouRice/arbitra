@@ -67,7 +67,7 @@ it.each(["clean", "resolved", "persistent", "missing", "unknown", "duplicate", "
   expect(kinds.some((kind) => kind.startsWith("harness-"))).toBe(true);
   output = plannerOptions.exploration;
   const explored = await modelFeatureExploration(store, config, snapshot, restarted.checkpoint, options);
-  expect(explored.exploration).toEqual(plannerOptions.exploration);
+  expect(explored.exploration).toEqual({ ...plannerOptions.exploration, documentedBehaviourConflicts: [] });
   expect(explored.routing.targetedSurfaceIds).toEqual(["sessions"]);
   expect(await modelFeatureExploration(new RunStore(root, "run"), config, snapshot, restarted.checkpoint, options)).toEqual(explored);
   await expect(modelFeaturePlan(store, config, snapshot, restarted.checkpoint, plannerOptions)).rejects.toThrow("FEATURE_PLAN_REVIEW_REQUIRED");

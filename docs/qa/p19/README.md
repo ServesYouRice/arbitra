@@ -13,7 +13,7 @@ commit.
 | 4 | Single-auditor plans address nothing | Plan issues that targeted verification confirmed (`verified_single_source`) | **Fixed** (see git log) |
 | 5 | Failed requests are charged their full estimate | Release reservations for failures that provably consumed nothing | **Fixed** (see git log) |
 | 6 | A planted comment can hide the defect below it | Discovery rule plus a bounded follow-up pass after each prompt-injection finding | **Fixed** (see git log) |
-| 7 | Models adopt a seeded bug as the intended behaviour | Report and block documented-behaviour conflicts in Feature and Testing | Planned |
+| 7 | Models adopt a seeded bug as the intended behaviour | Report and block documented-behaviour conflicts in Feature and Testing | **Fixed** (see git log) |
 | 8 | An Audit cannot answer a blocking plan question | Interactive plan-questions checkpoint, then one revision with the answers | Planned |
 
 ## Designs
@@ -117,6 +117,19 @@ commit.
     `documented_behaviour_conflict:*` reason. A conflict a writer reports withholds the change
     set.
 - No new node kind and no protocol asset edit.
+- **As built.**
+  - Conflicts are grounded inside each model call (`groundBehaviourConflicts`), so a
+    misquote is repaired, and grounded again when stored replies are validated.
+  - Feature: the review record keeps the exploration's conflicts, so every later consensus
+    (plan gate, revision, applying a proposal) sees them. An exploration conflict makes
+    review mandatory; with no reviewers configured, the run blocks at the requirements
+    checkpoint.
+  - The requirements model and the revision model also carry the rule.
+  - An exploration without conflicts keeps its old fingerprint, so recorded runs still
+    replay.
+  - Testing: a writer's conflict becomes a writer limitation. The attempt ledger derives the
+    halt from the recorded verification, so a restart halts at the same attempt. The native
+    writer's conflicts halt the task ungrounded, because its reply cannot be repaired.
 
 ### 8. Audit plan-questions checkpoint
 - In interactive checkpoint mode, the Audit planner node pauses (`RunCheckpointError`) when the
