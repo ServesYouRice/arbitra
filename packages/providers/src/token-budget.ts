@@ -6,6 +6,8 @@ export interface TokenReservation {
   readonly activityId: string;
   readonly estimatedTokens: number;
   readonly usage: TransportUsage | null;
+  /** Released: the attempt provably consumed nothing (the rule says why), so it is charged zero. */
+  readonly settlement?: { readonly kind: "released"; readonly rule: string };
 }
 export interface TokenBudgetState {
   readonly schemaVersion: 1;
@@ -18,7 +20,8 @@ export interface TokenBudgetBackend {
   save(state: TokenBudgetState): Promise<void>;
 }
 
-/** Unknown usage stays charged at its admission estimate, including interrupted attempts. */
+/** Unknown usage stays charged at its admission estimate, including interrupted attempts. Only an
+ * attempt that provably consumed nothing (a released reservation) is charged zero. */
 export class DurableTokenBudget implements InvocationBudget {
   private state: TokenBudgetState | undefined;
   private writes: Promise<unknown> = Promise.resolve();
@@ -46,11 +49,28 @@ export class DurableTokenBudget implements InvocationBudget {
       const state = await this.load();
       const reservation = state.reservations.find(({ id }) => id === reservationId);
       if (reservation === undefined || reservation.activityId !== activityId) throw new Error("UNKNOWN_TOKEN_RESERVATION");
+      if (reservation.settlement !== undefined) throw new Error("TOKEN_RESERVATION_RELEASED");
       if (reservation.usage !== null) {
         if (JSON.stringify(reservation.usage) !== JSON.stringify(usage)) throw new Error("TOKEN_USAGE_ALREADY_RECORDED");
         return;
       }
       await this.commit({ ...state, reservations: state.reservations.map((item) => item.id === reservationId ? { ...item, usage: { ...usage } } : item) });
+    });
+  }
+
+  /** Charge zero for an attempt that provably consumed nothing; idempotent for the same rule. */
+  release(activityId: string, reservationId: string, rule: string): Promise<void> {
+    return this.serial(async () => {
+      if (rule.trim() === "") throw new Error("INVALID_TOKEN_RELEASE_RULE");
+      const state = await this.load();
+      const reservation = state.reservations.find(({ id }) => id === reservationId);
+      if (reservation === undefined || reservation.activityId !== activityId) throw new Error("UNKNOWN_TOKEN_RESERVATION");
+      if (reservation.usage !== null) throw new Error("TOKEN_USAGE_ALREADY_RECORDED");
+      if (reservation.settlement !== undefined) {
+        if (reservation.settlement.rule !== rule) throw new Error("TOKEN_RESERVATION_RELEASED");
+        return;
+      }
+      await this.commit({ ...state, reservations: state.reservations.map((item) => item.id === reservationId ? { ...item, settlement: { kind: "released" as const, rule } } : item) });
     });
   }
 
@@ -78,6 +98,7 @@ export class DurableTokenBudget implements InvocationBudget {
 }
 
 function charge(reservation: TokenReservation): number {
+  if (reservation.settlement?.kind === "released") return 0;
   const usage = reservation.usage;
   // Cache counts are subdivisions of input tokens, not additional usage.
   if (usage === null || usage.inputTokens === null || usage.outputTokens === null) {
@@ -102,5 +123,6 @@ function validateState(value: unknown, maximumTokens: number): asserts value is 
     if (typeof item !== "object" || item === null || item.id !== `reservation-${index + 1}` || typeof item.activityId !== "string" || item.activityId.trim() === "") throw new Error("INVALID_TOKEN_BUDGET_STATE");
     positiveInteger(item.estimatedTokens, "INVALID_TOKEN_BUDGET_STATE");
     if (item.usage !== null) validateUsage(item.usage);
+    if (item.settlement !== undefined && (typeof item.settlement !== "object" || item.settlement === null || item.settlement.kind !== "released" || typeof item.settlement.rule !== "string" || item.settlement.rule.trim() === "" || item.usage !== null)) throw new Error("INVALID_TOKEN_BUDGET_STATE");
   }
 }

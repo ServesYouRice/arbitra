@@ -139,6 +139,8 @@ describe.each(VENDORS)("%s subscription CLI transport", { timeout: 30_000 }, (ve
     const error = await failure(send(f.transport));
     expect(error).toMatchObject({ code: "QUOTA", retryable: false });
     expect(error.message).toContain("CLI_USAGE_LIMIT_REACHED");
+    // Claude Code refuses before any assistant output, so the attempt provably consumed nothing.
+    expect((error as { evidence?: unknown }).evidence).toEqual(vendor === "claude-code" ? { consumption: "none", rule: "cli_usage_limit_refused" } : { consumption: "unknown" });
     const recorded = await f.ledger.current(f.support.transport, Date.now());
     expect(recorded?.transport).toBe(f.support.transport);
     if (vendor !== "gemini") expect(recorded?.resetsAt).toBeGreaterThan(Date.now());

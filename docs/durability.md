@@ -88,6 +88,7 @@ runtime, so a cancelled run stops paying rather than finishing quietly in the ba
 |---|---|
 | Before `attempt_start` | The activity has not begun; it runs. |
 | After `attempt_start`, before the provider responds | The attempt is retried; the original budget reservation stays charged. |
+| The provider refused the attempt before any work (for example HTTP 429, or a 503 with the provider's error body) | The reservation is released with its rule recorded, so the retry is not charged for it. |
 | After the response, before `end` | The attempt is journalled as incomplete; the retry is bounded and visible. |
 | After `end` | The result is replayed from the artifact store. Nothing is re-paid. |
 | Mid-write to the journal | The torn trailing record is truncated on load; the log stays consistent. |

@@ -242,7 +242,8 @@ export class ModelActivities {
       const endpoint = this.#execution.endpoints.find(({ id }) => id === endpointId);
       const refusal = result?.response.refusal ?? null;
       const outcome = input.signal.aborted ? "cancelled" : refusal !== null ? "refusal" : failure !== null ? "error" : "success";
-      const usage = traces.length > 1 ? null : result?.response.usage ?? null;
+      // Known only when every failed attempt provably consumed nothing (its reservation was released).
+      const usage = traces.some((entry) => entry.outcome !== "completed" && entry.released === undefined) ? null : result?.response.usage ?? null;
       const fullTrace: ModelActivityTraceRecord = {
         schemaVersion: 1, runId: this.store.runId, nodeId: input.activityId.split("/")[0] ?? input.activityId, activityId: input.activityId, attempt: executions,
         modelId: profile.modelId, modelProfileVersion: hash(profile), transportId: profile.transport, transportVersion: result?.response.transportVersion ?? "1.0.0",

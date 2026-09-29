@@ -200,6 +200,12 @@ after restart; changed requests under an existing activity ID are rejected. Call
 stateless with explicit context, so an interrupted retry does not append the same prompt
 to an opaque provider conversation. `DurableTokenBudget` saves reservations before
 dispatch, reserves retries separately, and retains estimated charges for unknown usage.
+An attempt that provably consumed nothing is released and charged zero, with the rule
+recorded on the reservation and in the attempt's trace: it was never dispatched; the
+credential, CLI or login was missing; the connection was never established; or the provider
+refused it before any work (HTTP 429, quota, 401/403, 400/404/413/422, a 503/529 carrying the
+provider's own error body, or a Claude Code usage-limit refusal with no output). Timeouts,
+other 5xx, dropped streams and malformed replies stay charged.
 Estimates are admission limits, not actual billed usage; monetary cost remains unknown.
 The shared `inputTokens` value includes cache reads/writes. Anthropic's disjoint input
 buckets are summed in its codec according to the

@@ -16,6 +16,25 @@ describe("durable token budget", () => {
     expect(await new DurableTokenBudget(10, disk).reserve("a", 6)).toMatchObject({ allowed: false });
   });
 
+  it("charges zero for a released reservation across restart, and never settles it twice", async () => {
+    const disk = backend();
+    const budget = new DurableTokenBudget(10, disk);
+    const refused = await budget.reserve("a", 8);
+    if (refused.reservationId === undefined) throw new Error("FIXTURE_RESERVATION_ABSENT");
+    await budget.release("a", refused.reservationId, "http_429_rate_limited");
+    await budget.release("a", refused.reservationId, "http_429_rate_limited");
+    await expect(budget.recordActual("a", usage, refused.reservationId)).rejects.toThrow("TOKEN_RESERVATION_RELEASED");
+    await expect(budget.release("a", refused.reservationId, "another_rule")).rejects.toThrow("TOKEN_RESERVATION_RELEASED");
+    const measured = await budget.reserve("a", 8);
+    if (measured.reservationId === undefined) throw new Error("FIXTURE_RESERVATION_ABSENT");
+    await budget.recordActual("a", usage, measured.reservationId);
+    await expect(budget.release("a", measured.reservationId, "late")).rejects.toThrow("TOKEN_USAGE_ALREADY_RECORDED");
+    expect(await new DurableTokenBudget(10, disk).reserve("next", 5)).toMatchObject({ allowed: true });
+    expect((await new DurableTokenBudget(10, disk).snapshot()).reservations[0]).toMatchObject({ settlement: { kind: "released", rule: "http_429_rate_limited" } });
+    const settledTwice = { schemaVersion: 1, maximumTokens: 10, reservations: [{ id: "reservation-1", activityId: "a", estimatedTokens: 5, usage, settlement: { kind: "released", rule: "x" } }] };
+    await expect(new DurableTokenBudget(10, { async load() { return settledTwice; }, async save() {} }).reserve("b", 1)).rejects.toThrow("INVALID_TOKEN_BUDGET_STATE");
+  });
+
   it("settles each retry separately using actual usage without double charging cache tokens", async () => {
     const disk = backend();
     const budget = new DurableTokenBudget(20, disk);

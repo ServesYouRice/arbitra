@@ -53,13 +53,26 @@ export interface ProviderTransport {
 }
 /** `QUOTA`: the account cannot pay for the call (exhausted credits or quota); retrying cannot help. */
 export type TransportErrorCode = "AUTH" | "INVALID_REQUEST" | "MALFORMED_RESPONSE" | "RATE_LIMIT" | "QUOTA" | "TIMEOUT" | "CANCELLED" | "HTTP" | "OUTPUT_LIMIT";
+/**
+ * Whether a failed attempt provably consumed no tokens. Only failures that happen before the
+ * provider could process the request (no credential, no connection, a refusal answered before any
+ * work) say `none`; everything else is `unknown`, which keeps the attempt's estimate charged.
+ */
+export type UsageEvidence = { readonly consumption: "none"; readonly rule: string } | { readonly consumption: "unknown" };
+export const USAGE_UNKNOWN: UsageEvidence = Object.freeze({ consumption: "unknown" });
+export function noUsage(rule: string): UsageEvidence { return Object.freeze({ consumption: "none", rule }); }
 export class TransportError extends Error {
   constructor(
     readonly code: TransportErrorCode,
     message: string,
     readonly retryable: boolean,
     readonly retryAfterMs: number | null = null,
+    readonly evidence: UsageEvidence = USAGE_UNKNOWN,
   ) { super(message); this.name = "TransportError"; }
+}
+/** The same failure, with its usage evidence stated. */
+export function withUsageEvidence(error: TransportError, evidence: UsageEvidence): TransportError {
+  return new TransportError(error.code, error.message, error.retryable, error.retryAfterMs, evidence);
 }
 
 export interface TransportConfiguration {

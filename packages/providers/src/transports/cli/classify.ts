@@ -1,4 +1,4 @@
-import { TransportError } from "../../transport-contract.js";
+import { noUsage, TransportError } from "../../transport-contract.js";
 import type { CliTransportSupport } from "./support.js";
 
 /**
@@ -12,11 +12,11 @@ export function classifyCliFailure(support: CliTransportSupport, text: string, e
   if (support.vendor === "gemini" && exitCode === 41 || AUTH_PATTERN.test(text)) {
     const ineligible = /IneligibleTier|no longer supported for Gemini Code Assist|UNSUPPORTED_CLIENT/iu.test(text);
     if (ineligible) return new TransportError("AUTH", `CLI_ACCOUNT_INELIGIBLE: ${support.displayName} no longer serves this Google account's tier (personal Google logins were retired from the Gemini CLI on June 18, 2026). Use the antigravity-cli transport for a personal Google AI subscription, or sign in with a Gemini Code Assist Standard or Enterprise account and export GOOGLE_CLOUD_PROJECT${suffix}`, false);
-    return new TransportError("AUTH", `CLI_NOT_LOGGED_IN: ${support.displayName} is not signed in to a subscription. ${support.loginInstruction}${suffix}`, false);
+    return new TransportError("AUTH", `CLI_NOT_LOGGED_IN: ${support.displayName} is not signed in to a subscription. ${support.loginInstruction}${suffix}`, false, null, noUsage("cli_not_logged_in"));
   }
   if (MODEL_PATTERN.test(text)) {
     const effort = /requires? --effort/iu.test(text) ? " This model needs an effort level: add effort.params entries such as {\"effort\": \"medium\"} to the profile" : "";
-    return new TransportError("INVALID_REQUEST", `CLI_MODEL_UNAVAILABLE: ${support.displayName} refused the configured model for this subscription.${effort}${suffix}`, false);
+    return new TransportError("INVALID_REQUEST", `CLI_MODEL_UNAVAILABLE: ${support.displayName} refused the configured model for this subscription.${effort}${suffix}`, false, null, noUsage("cli_model_unavailable"));
   }
   if (OUTPUT_LIMIT_PATTERN.test(text)) return new TransportError("OUTPUT_LIMIT", `MODEL_OUTPUT_LIMIT_REACHED: ${support.displayName} stopped at the output ceiling${suffix}`, false);
   if (QUOTA_PATTERN.test(text)) {

@@ -46,6 +46,23 @@ describe.each(adapters)("$name transport contract", ({ name, create, body }) => 
     await expect(transport.send(request(), signal())).resolves.toMatchObject({ text: "hello" });
   });
 
+  it("states which failures provably consumed nothing, so their budget reservation can be released", async () => {
+    // Observed live: six 503 retries were charged 350k of a 600k run cap although none produced tokens.
+    const transport = create(new ScriptedHttpClient([
+      http(429, {}), http(401, {}), http(400, { error: { message: "bad request" } }), http(503, { error: { message: "The model is overloaded", type: "overloaded_error", status: "UNAVAILABLE" } }),
+      http(503, {}), http(500, { error: { message: "internal" } }), http(504, {}),
+    ]));
+    const evidence = async (target: ProviderTransport = transport) => target.send(request(), signal()).then(() => { throw new Error("EXPECTED_FAILURE"); }, (error: unknown) => (error as { evidence: unknown }).evidence);
+    expect(await evidence()).toEqual({ consumption: "none", rule: "http_429_rate_limited" });
+    expect(await evidence()).toEqual({ consumption: "none", rule: "http_auth_refused" });
+    expect(await evidence()).toEqual({ consumption: "none", rule: "http_400_refused" });
+    expect(await evidence()).toEqual({ consumption: "none", rule: "http_503_refused" });
+    for (let index = 0; index < 3; index += 1) expect(await evidence()).toEqual({ consumption: "unknown" });
+    const failing = (code: string): HttpClient => ({ async send() { throw Object.assign(new TypeError("fetch failed"), { cause: { code } }); } });
+    expect(await evidence(create(failing("ECONNREFUSED")))).toEqual({ consumption: "none", rule: "connection_not_established:ECONNREFUSED" });
+    expect(await evidence(create(failing("ECONNRESET")))).toEqual({ consumption: "unknown" });
+  });
+
   it("classifies exhausted credit as non-retryable QUOTA and keeps a redacted provider error detail", async () => {
     const client = new ScriptedHttpClient([
       http(429, { error: { message: "You have no credits remaining.", type: "insufficient_quota", code: "credit_balance_exhausted" } }),
