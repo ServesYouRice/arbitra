@@ -24,7 +24,7 @@ describe("output capacity accounting", () => {
     const template = planIRSchema.parse(JSON.parse(await readFile(new URL("../../schemas/test/golden/plan-ir.valid.json", import.meta.url), "utf8")));
     const baseTask = template.tasks[0]; if (baseTask === undefined) throw new Error("FIXTURE_TASK_ABSENT");
     const issues: PlannerInput["canonicalIssues"] = [1, 2, 3, 4].map((index) => ({ candidateId: `C-${index}`, disposition: "accepted", sourceFindingIds: [`s-${index}`], claim: { trust: "untrusted_data", title: `Issue ${index}`, description: `Complete issue ${index}` } }));
-    const tasks = issues.map(({ candidateId }, index) => ({ ...baseTask, id: `TASK-${index + 1}`, addresses: { ...baseTask.addresses, issues: [candidateId] } }));
+    const tasks = issues.map(({ candidateId }, index) => ({ ...baseTask, id: `TASK-${index + 1}`, scope: { ...baseTask.scope, likelyFiles: baseTask.scope.likelyFiles.map((path) => `part-${index + 1}/${path}`) }, addresses: { ...baseTask.addresses, issues: [candidateId] } }));
     const plan: PlanIR = { ...template, acceptedIssueIds: issues.map(({ candidateId }) => candidateId), tasks, taskGraph: [],
       traceability: { ...template.traceability, issueToValidation: issues.map(({ candidateId }) => ({ issueId: candidateId, validationIds: ["VAL-001"] })) },
       routingRecommendations: tasks.map(({ id, routing }) => ({ taskId: id, capability: routing.capability, effort: routing.effort, reason: routing.reason })) };

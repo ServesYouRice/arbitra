@@ -9,7 +9,7 @@ import type { PlannerStage } from "../src/planner-context.js";
 async function fixture() {
   const plan = planIRSchema.parse(JSON.parse(await readFile(new URL("../../schemas/test/golden/plan-ir.valid.json", import.meta.url), "utf8")));
   const task = plan.tasks[0]; if (task === undefined) throw new Error("FIXTURE_TASK_ABSENT");
-  plan.tasks.push({ ...task, id: "TASK-002", implementationGuidance: ["Unchanged detailed task body"] });
+  plan.tasks.push({ ...task, id: "TASK-002", scope: { ...task.scope, likelyFiles: task.scope.likelyFiles.map((path) => `other/${path}`) }, implementationGuidance: ["Unchanged detailed task body"] });
   plan.routingRecommendations.push({ ...requiredAt(plan.routingRecommendations, 0), taskId: "TASK-002" });
   const issue: CanonicalIssue = { candidateId: "C-001", claim: { trust: "untrusted_data", title: "Original issue", description: "Complete original description" }, severity: "high", blocker: false, disposition: "accepted", consensusClaim: null, supportCount: 2, reviewDenominator: 3, dissent: [], counterEvidence: [], sourceFindingIds: ["source-1"], verificationOutcome: "CONFIRMED", coverage: { reviewedBy: [], missingReviewers: [] }, singleSource: false };
   const input: ModelRevisionInput = { originalPlan: plan, originalGoal: "Fix accepted issue", plannerConfiguration: { modelProfileId: "planner" }, canonicalIssues: [issue], repository: [],

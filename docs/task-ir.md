@@ -23,7 +23,11 @@ Every link is a persisted ID reference, never a relationship re-derived by a rea
 The planner writes these links, and `packages/workflow/src/nodes/planner/traceability.ts`
 (`validateTraceability`) checks them. The Planner fails hard (`PlannerTraceabilityError`)
 rather than emitting a plan where a task maps to no assertion or an accepted issue is
-covered by no task. `apps/web/src/views/plan/traceability.ts` walks the same chain
+covered by no task. In Audit and Feature plans, two tasks whose write scopes overlap must
+also be ordered by a dependency path (`SHARED_WRITE_SCOPE_UNORDERED`): a handoff renders only
+`dependsOn` and `blocks`, and `conflictsWith` orders nothing. Testing execution serialises
+shared writes itself, so its plans are exempt. Planner calls refuse these violations inside the
+call, so the bounded output repair can fix them. `apps/web/src/views/plan/traceability.ts` walks the same chain
 in both directions in the UI.
 
 ## Validation Contract

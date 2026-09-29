@@ -49,6 +49,22 @@ describe("one global planner with bounded issue reading and task expansion", () 
     expect(artifacts.get("planner-composition")).toMatchObject({ issueBatches: 3, taskExpansions: 3, logicalModelCalls: 7 });
   });
 
+  it("refuses an outline whose tasks write the same files unordered inside the call, so the harness can repair it", async () => {
+    const { input, port } = await fixture();
+    const refusals: string[] = [];
+    await planWithContext(input, { ...port, call: async (stage) => {
+      const value = await port.call(stage);
+      if (stage.activityId !== "planner/outline") return value;
+      // Observed live: two tasks shared files and were related only by conflictsWith.
+      const outline = value as PlannerOutline;
+      const unordered = { ...outline, tasks: outline.tasks.map((task) => ({ ...task, dependencies: { dependsOn: [], blocks: [], conflictsWith: [] } })), taskGraph: [] };
+      try { stage.schema.parse(unordered); } catch (error) { refusals.push(String(error)); }
+      return stage.schema.parse(value);
+    } });
+    expect(refusals).toEqual([expect.stringContaining("SHARED_WRITE_SCOPE_UNORDERED")]);
+    expect(refusals[0]).toContain("Tasks TASK-1 and TASK-2 both write");
+  });
+
   it("preserves the original one-call activity when all mandatory input fits", async () => {
     const { plan, input, port, calls } = await fixture();
     expect(await planWithContext(input, { ...port, fits: async () => true })).toEqual(plan);
@@ -130,7 +146,7 @@ describe("hierarchical global outline when all briefs cannot share one outline",
         if (stage.activityId.startsWith("planner/outline/section/")) {
           f.calls.push(stage);
           const [issueId = ""] = sectionIds(stage); const briefs = (stage.input as { issueBriefs: PlannerBrief["issues"] }).issueBriefs;
-          const task = { ...taskOutline(template), id: "TASK-001", addresses: { ...template.addresses, issues: [issueId], validation: ["VAL-001"] }, dependencies: { dependsOn: [], blocks: [], conflictsWith: [] } };
+          const task = { ...taskOutline(template), id: "TASK-001", scope: { ...template.scope, likelyFiles: [`src/${issueId}.ts`] }, addresses: { ...template.addresses, issues: [issueId], validation: ["VAL-001"] }, dependencies: { dependsOn: [], blocks: [], conflictsWith: [] } };
           return { ...f.plan, id: `section-${issueId}`, acceptedIssueIds: [issueId], tasks: [task], taskGraph: [], rolloutConcerns: [`Rollout ${issueId}`],
             validationContract: { schemaVersion: 1, validation: [{ id: "VAL-001", assertion: `${issueId} is closed`, evidence: ["regression test"] }] },
             traceability: { issueToValidation: [{ issueId, validationIds: ["VAL-001"] }], requirementLinks: { schemaVersion: 1, links: [] } },

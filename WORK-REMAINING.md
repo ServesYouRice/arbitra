@@ -13,7 +13,7 @@ The maintained execution queue is the [completion plan](docs/completion-plan.md)
 ## What is left, by what it needs
 
 1. **Nothing but time, on subscriptions:**
-   - **P19:** the final review. On September 29 the owner chose to fix every feasible open finding below in this phase, then rerun the affected live acceptance on subscriptions and write the completion report. Fixed so far: prompt-injection reports no longer cluster with the defect beside them (`structural-v2`); the critic packs pair checks into as few calls as fit.
+   - **P19:** the final review. On September 29 the owner chose to fix every feasible open finding below in this phase, then rerun the affected live acceptance on subscriptions and write the completion report. Fixed so far: prompt-injection reports no longer cluster with the defect beside them (`structural-v2`); the critic packs pair checks into as few calls as fit; Audit and Feature plans must order tasks that write the same files.
 2. **Deferred to a later phase: the [paid-API bundle](docs/completion-plan.md#deferred-the-paid-api-bundle).** It needs funded API accounts, which the owner does not use, so it is not done in this phase. A later maintainer may take it on:
    - the OpenAI Responses, OpenAI Chat and Anthropic Messages protocols live (P03);
    - P08's live context limits;
@@ -62,7 +62,6 @@ Live configurations come from `tooling/live/bindings.subscription.json`. The API
 
 - **Models adopt a seeded bug as the intended behaviour.** A live Testing writer pinned the `isExpired` defect as correct. The Feature requirements model wrote the same wrong contract twice. Haiku reviewers accepted it both times, and a Codex reviewer caught it once. A step that checks tests and contracts against documented behaviour would help.
 - **Audit cannot answer a blocking plan question.** A live Audit plan correctly left "throw or clamp?" open and failed its gate. Unlike Feature, an Audit run has no checkpoint to answer it and resume.
-- **Shared-file tasks are ordered loosely.** A planner gave two tasks the same files with only `conflictsWith`. The critic flagged it too late for the one revision. A deterministic check could require an order.
 - **Failed requests drain the budget.** A request that fails with no usage is charged its full admission estimate.
 - **Single-auditor plans never address a finding.** With the `diff-fast` preset, every issue stays `single_source`, so the plan addresses nothing.
 - **Light Gemini auditors missed a hard-coded admin bypass** under a planted "this file is safe" comment (P06 version 1). It did not recur in version 2.1: Claude found it in every single run, and every three-family run found it.
