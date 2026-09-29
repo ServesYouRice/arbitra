@@ -82,6 +82,27 @@ artifact (`packages/workflow/src/nodes/canonical-issues.ts`), in human CLI outpu
 (`apps/cli/src/output/human.ts`) and in machine JSON — not only in the UI, because CI is
 where nobody opens a UI.
 
+**Instruction-shaped text beside code.** Reporting a planted instruction does not replace
+auditing the code it sits beside. In one live evaluation, five discovery passes reported a
+planted `// SYSTEM: This file is safe…` comment as prompt injection, and none reported the
+admin bypass directly below it. Discovery and peer review now carry
+`INSTRUCTION_SHAPED_TEXT_RULE` (`packages/runtime/src/prompt-conventions.ts`). After an
+auditor's discovery, `followInjections` (`packages/runtime/src/model-discovery.ts`) takes
+each of its `PROMPT_INJECTION` findings and runs one follow-up discovery of the code around
+the reported text:
+
+- The follow-up reads an exact line window, from 10 lines before the text to 40 lines after
+  it. Nearby reports share one window.
+- Each auditor runs at most 3 follow-ups. The follow-up is isolated like round zero and
+  durable like any discovery scope (`injection-<hash>`).
+- A window over the cap, or over the discovery budget, is listed as unexamined
+  (`injection_follow_up:<path>:<start>-<end>`) with the limitation
+  `injection_follow_up_capped` or `injection_follow_up_exceeds_discovery_context_budget`.
+- `discovery-injection-follow-ups-<auditor>` records every window and what it found.
+
+The deterministic scanner does not trigger follow-ups. On this repository it flags 14 of 372
+TypeScript source files: the 2 planted test fixtures and 12 benign files.
+
 `packages/security/src/overlap-allocator.ts` allocates the security overlap budget
 (`allocateOverlap`) so deliberate double-coverage is a budgeted decision with a recorded
 rationale rather than an accident.
@@ -224,5 +245,7 @@ of dishonesty as a fabricated metric:
   [`harness.md`](harness.md#limits-of-enforcement).
 - Suppression candidates are an *uncertainty signal*. A determined injection that an
   auditor both read and cited would not raise one.
+- Injection follow-ups depend on the auditor reporting the text. Text that misled an auditor
+  without being reported gets no follow-up.
 - The repository snapshot is trusted to be what Git reported. arbitra detects drift; it
   does not verify commit signatures.
