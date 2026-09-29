@@ -52,7 +52,7 @@ async function fixture(failExpansion: boolean) {
   const template = planIRSchema.parse(JSON.parse(await readFile(new URL("../../schemas/test/golden/plan-ir.valid.json", import.meta.url), "utf8")));
   const base = template.tasks[0]; const route = template.routingRecommendations[0];
   if (base === undefined || route === undefined) throw new Error("FIXTURE_PLAN_ABSENT");
-  const tasks = ACCEPTANCE.map(({ id }, index) => ({ ...base, id: `TASK-00${index + 1}`, addresses: { issues: [], validation: [`VAL-00${index + 1}`], requirements: [id] } }));
+  const tasks = ACCEPTANCE.map(({ id }, index) => ({ ...base, id: `TASK-00${index + 1}`, scope: { ...base.scope, likelyFiles: base.scope.likelyFiles.map((path) => `part-${index + 1}/${path}`) }, addresses: { issues: [], validation: [`VAL-00${index + 1}`], requirements: [id] } }));
   const plan: PlanIR = { ...template, mode: "feature", acceptedIssueIds: [], tasks, taskGraph: [], unresolvedQuestions: [],
     premiseReport: { status: "unavailable", interpretation: "smoke_test_only_not_proof", limitations: ["real_model_premise_requires_ground_truth_evaluation"] },
     validationContract: { schemaVersion: 1, validation: ACCEPTANCE.map(({ id }, index) => ({ id: `VAL-00${index + 1}`, assertion: `${id} holds`, evidence: ["regression test"] })) },

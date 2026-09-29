@@ -132,7 +132,7 @@ it.each(["clean", "resolved", "persistent", "missing", "unknown", "duplicate", "
   const finalCritique = scenario === "persistent" ? output : { summary: "Checked revision and original feedback", items: [] };
   if (followup && scenario !== "degraded") responses.push(revision, scenario === "restart" ? new Error("fixture final review interrupted") : finalCritique);
   const runPlanning = () => modelFeaturePlanning(new RunStore(root, "run"), config, snapshot, restarted.checkpoint, criticOptions);
-  const error = ({ missing: "REVISION_DID_NOT_RESOLVE_EVERY_BLOCKING_CRITIQUE_ITEM", unknown: "REVISION_DID_NOT_RESOLVE_EVERY_BLOCKING_CRITIQUE_ITEM", duplicate: "REVISION_DID_NOT_RESOLVE_EVERY_BLOCKING_CRITIQUE_ITEM", traceability: "FEATURE_REVISION_TRACEABILITY_INVALID", premise: "FEATURE_PLAN_PREMISE_CHANGED", question: "FEATURE_REVISION_QUESTION_DROPPED" } as Record<string, string>)[scenario];
+  const error = ({ missing: "REVISION_DID_NOT_RESOLVE_EVERY_BLOCKING_CRITIQUE_ITEM", unknown: "REVISION_DID_NOT_RESOLVE_EVERY_BLOCKING_CRITIQUE_ITEM", duplicate: "REVISION_DID_NOT_RESOLVE_EVERY_BLOCKING_CRITIQUE_ITEM", traceability: "FEATURE_REQUIREMENT_LINK_INVALID", premise: "FEATURE_PLAN_PREMISE_CHANGED", question: "FEATURE_REVISION_QUESTION_DROPPED" } as Record<string, string>)[scenario];
   if (error !== undefined) {
     await expect(runPlanning()).rejects.toThrow(error);
     expect(calls).toBe(before + 1);

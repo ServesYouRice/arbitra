@@ -138,5 +138,6 @@ function validateRevisionPlan(plan: PlanIR, input: ModelRevisionInput, records?:
   const originalPremise = planIRSchema.shape.premiseReport.parse(input.originalPlan.premiseReport);
   if (plan.mode !== (records?.mode ?? "audit") || JSON.stringify(plan.premiseReport) !== JSON.stringify(originalPremise)) throw new Error("MODEL_REVISION_PROVENANCE_MISMATCH");
   const diagnostics = records === undefined ? validateTraceability(plan, input.canonicalIssues.map(({ candidateId }) => candidateId)) : records.diagnostics(plan);
-  if (diagnostics.length > 0) throw new Error(`MODEL_REVISION_TRACEABILITY_INVALID:${diagnostics.map(({ code }) => code).join(",")}`);
+  // The codes lead (callers match them); each rule's message follows, so a repair can act on it.
+  if (diagnostics.length > 0) throw new Error(`MODEL_REVISION_TRACEABILITY_INVALID:${diagnostics.map(({ code }) => code).join(",")}\n${diagnostics.map((entry) => "message" in entry ? `${entry.code}: ${String(entry.message)}` : entry.code).join("\n")}`);
 }

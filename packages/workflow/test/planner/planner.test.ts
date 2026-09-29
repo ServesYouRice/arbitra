@@ -74,6 +74,25 @@ describe("single coherent Planner", () => {
   });
 });
 
+describe("shared write scope ordering", () => {
+  it("requires a dependency path between Audit or Feature tasks that write the same files", async () => {
+    const base = (await planSchema()).parse(plan()); const first = requiredAt(base.tasks, 0);
+    // Observed live: two tasks shared files and were related only by conflictsWith.
+    const second = { ...first, id: "TASK-002", dependencies: { dependsOn: [], blocks: [], conflictsWith: [first.id] } };
+    const unordered = { ...base, tasks: [first, second], routingRecommendations: [...base.routingRecommendations, { taskId: second.id }] };
+    expect(validateTraceability(unordered)).toEqual([expect.objectContaining({ code: "SHARED_WRITE_SCOPE_UNORDERED", message: expect.stringContaining("TASK-001 and TASK-002 both write src/auth.ts, test/auth.test.ts") })]);
+    const ordered = { ...unordered, tasks: [first, { ...second, dependencies: { dependsOn: [first.id], blocks: [], conflictsWith: [] } }], taskGraph: [{ from: first.id, to: second.id }] };
+    expect(validateTraceability(ordered)).toEqual([]);
+    const third = { ...first, id: "TASK-003", dependencies: { dependsOn: [second.id], blocks: [], conflictsWith: [] } };
+    expect(validateTraceability({ ...ordered, tasks: [...ordered.tasks, third], taskGraph: [...ordered.taskGraph, { from: second.id, to: third.id }], routingRecommendations: [...ordered.routingRecommendations, { taskId: third.id }] })).toEqual([]);
+    expect(validateTraceability({ ...unordered, tasks: [first, { ...second, scope: { ...second.scope, likelyFiles: ["src/other.ts"] } }] })).toEqual([]);
+    expect(validateTraceability({ ...unordered, tasks: [first, { ...second, scope: { ...second.scope, likelyFiles: ["src/auth.ts", "src/other.ts"] }, filesNotToTouch: ["./src/auth.ts"] }] })).toEqual([]);
+    expect(validateTraceability({ ...unordered, tasks: [first, { ...second, scope: { ...second.scope, likelyFiles: ["SRC/"] } }] })).toContainEqual(expect.objectContaining({ code: "SHARED_WRITE_SCOPE_UNORDERED" }));
+    // Testing execution serialises shared writes with leases, so its plans are not refused.
+    expect(validateTraceability({ ...unordered, mode: "testing" })).toEqual([]);
+  });
+});
+
 describe("fourteen-dimensional difficulty routing", () => {
   it("uses all dimensions, never file count, and independently recommends capability and effort", async () => {
     const { DIFFICULTY_DIMENSIONS, scoreDifficulty } = await difficultyModule();

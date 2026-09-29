@@ -26,7 +26,7 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
   if (options.largeCriticContext === true) {
     const task = planTemplate.tasks[0]; const routing = planTemplate.routingRecommendations[0];
     if (task === undefined || routing === undefined) throw new Error("FIXTURE_PLAN_ABSENT");
-    planTemplate.tasks = Array.from({ length: 4 }, (_, index) => ({ ...task, id: `TASK-${index}`, implementationGuidance: ["Review this implementation detail. ".repeat(800)] }));
+    planTemplate.tasks = Array.from({ length: 4 }, (_, index) => ({ ...task, id: `TASK-${index}`, scope: { ...task.scope, likelyFiles: task.scope.likelyFiles.map((path) => `part-${index}/${path}`) }, implementationGuidance: ["Review this implementation detail. ".repeat(800)] }));
     planTemplate.routingRecommendations = planTemplate.tasks.map(({ id }) => ({ ...routing, taskId: id }));
   }
   const providers = ["openai", "anthropic", "google"];
