@@ -830,8 +830,9 @@ export class Orchestrator {
 
   /**
    * Every recorded run, newest first. A run whose records cannot be read is listed with the
-   * reason, not dropped. An entry is recomputed only when its run's files or liveness change:
-   * the UI polls this while runs are active, and most runs are finished.
+   * reason, not dropped. An entry is recomputed only when its run's files or liveness change,
+   * or while the run is blocked: the UI polls this while runs are active, and most runs are
+   * finished.
    */
   async listRuns(): Promise<readonly RunListItem[]> {
     const ids = await this.runIds();
@@ -845,7 +846,9 @@ export class Orchestrator {
     const times = await new RunStore(this.#runsDirectory, runId).times();
     const stamp = `${times.createdAt ?? ""}|${times.updatedAt ?? ""}|${times.artifactsAt ?? ""}|${this.#isLive(runId)}`;
     const cached = this.#listCache.get(runId);
-    if (cached !== undefined && cached.stamp === stamp) return cached.item;
+    // A blocked run's decisions can land outside the stamped files (plan-question answers are
+    // create-once records), so its entry is always read afresh. Blocked runs are few.
+    if (cached !== undefined && cached.stamp === stamp && cached.item.state !== "BLOCKED") return cached.item;
     const item = await this.#runListItem(runId);
     this.#listCache.set(runId, { stamp, item });
     return item;
