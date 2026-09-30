@@ -365,7 +365,9 @@ mandatory. Without reviewers, the run blocks at the checkpoint instead
 Observed live: before this distinction, exploration and a reviewer reported the expiry
 contradiction against requirements that already required the fix, and blocked a correct
 contract. A requirement that deliberately changes the documented behaviour is not a
-conflict.
+conflict. Reviewers are also told to judge each requirement, not the current code: in the same
+live rerun, a reviewer voted to revise a correct requirement and proposed the code fix as the
+change.
 
 `maximumRequirementsRevisions` defaults to one proposal per run and accepts 0–3; zero
 keeps operator-only revision. A complete independent review with unresolved requirements

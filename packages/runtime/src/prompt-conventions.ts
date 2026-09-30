@@ -31,5 +31,12 @@ export function documentedBehaviourConflicts(request: "request" | "goal" | null)
   return `Report each such contradiction in documentedBehaviourConflicts, quoting the documentation and the contradicting code exactly${request === null ? " from repository files" : ` (quote the ${request} with a null path and null lines)`}, or return an empty array.`;
 }
 
+/**
+ * Reviewers judge the contract; changing the code is the plan's work. Observed live: with the
+ * documented-behaviour rule, a reviewer voted to revise a correct requirement and proposed the
+ * code fix as the change, which blocked the contract.
+ */
+export const REVIEW_REQUIREMENTS_NOT_CODE = "Judge each requirement, not the current code: a requirement the code does not satisfy yet is the feature's work, not a reason to revise it. A proposedChange rewrites the requirement, never the code.";
+
 /** Feature conflicts name requirements and say what those requirements do with the contradiction. */
 export const REQUIREMENT_BEHAVIOUR_CONFLICTS = "In each conflict, requirementIds names the requirements it bears on, and contractPosition says what they do with it: adopts_code when they keep the code's contradicting behaviour, undecided when they leave it open, follows_documentation when they require the documented behaviour, so the implementation must change the code. Only adopts_code and undecided block a requirement. A requirement that deliberately changes the documented behaviour is not a conflict.";
