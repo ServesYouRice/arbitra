@@ -70,6 +70,14 @@ describe("Feature requirements review consensus", () => {
     expect(featureReviewConsensus(requirements, snapshot, [reviewer("a", { ...review(), documentedBehaviourConflicts: [follows] }), reviewer("b")], [follows]).blockingRequirementIds).toEqual([]);
     expect(featureReviewConsensus(requirements, snapshot, [reviewer("a"), reviewer("b")], [{ ...conflict, contractPosition: "undecided" }]).blockingRequirementIds).toEqual(["ACC"]);
   });
+  it("accepts evidence quoting the request with a null path and names repeated decisions for a repair", () => {
+    // Observed live: reviewers quoted the request this way and a line-only schema refused every repair.
+    const fromRequest = { path: null, startLine: null, endLine: null, text: "Feature" };
+    expect(validateFeatureReview({ ...review(), decisions: review().decisions.map((decision) => ({ ...decision, evidence: [fromRequest] })) }, requirements, snapshot).decisions[0]?.evidence).toEqual([fromRequest]);
+    expect(() => validateFeatureReview({ ...review(), decisions: review().decisions.map((decision) => ({ ...decision, evidence: [{ ...fromRequest, text: "Another feature" }] })) }, requirements, snapshot)).toThrow("FEATURE_REVIEW_UNGROUNDED_EVIDENCE: evidence for ASM has a null path");
+    expect(() => validateFeatureReview({ ...review(), decisions: [...review().decisions, ...review().decisions.slice(1)] }, requirements, snapshot)).toThrow("decided more than once: ACC");
+  });
+
   it("rejects a single reviewer or duplicated independence groups", () => {
     expect(() => featureReviewConsensus(requirements, snapshot, [reviewer("a")])).toThrow("FEATURE_REVIEW_INDEPENDENCE_REQUIRED");
     expect(() => featureReviewConsensus(requirements, snapshot, [reviewer("a"), { ...reviewer("b"), independenceGroup: "a" }])).toThrow("FEATURE_REVIEW_INDEPENDENCE_REQUIRED");
