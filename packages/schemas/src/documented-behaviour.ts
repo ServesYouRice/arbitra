@@ -25,6 +25,12 @@ function locatedTogether(value: { readonly documentation: { readonly path: strin
 export const documentedBehaviourConflictSchema = z.strictObject(conflictShape).superRefine(locatedTogether);
 export type DocumentedBehaviourConflict = z.infer<typeof documentedBehaviourConflictSchema>;
 
-/** A Feature conflict also names the requirements that adopt the code's behaviour or leave it undecided. */
-export const requirementBehaviourConflictSchema = z.strictObject({ requirementIds: z.array(text).min(1), ...conflictShape }).superRefine(locatedTogether);
+/**
+ * A Feature conflict also names the requirements it bears on and what they do with it. Only a
+ * contract that adopts the code's behaviour or leaves it open is wrong: one that follows the
+ * documentation is the feature's work (observed live: exploration and a reviewer reported the
+ * expiry contradiction against requirements that already required the fix, blocking a correct
+ * contract).
+ */
+export const requirementBehaviourConflictSchema = z.strictObject({ requirementIds: z.array(text).min(1), contractPosition: z.enum(["adopts_code", "undecided", "follows_documentation"]), ...conflictShape }).superRefine(locatedTogether);
 export type RequirementBehaviourConflict = z.infer<typeof requirementBehaviourConflictSchema>;

@@ -58,13 +58,17 @@ describe("Feature requirements review consensus", () => {
     expect(() => validateFeatureReview({ ...review(), decisions: review().decisions.map((decision) => ({ ...decision, evidence: [{ path: "a.ts", startLine: 1, endLine: 1, text: "forged" }] })) }, requirements, snapshot)).toThrow("FEATURE_REVIEW_UNGROUNDED_EVIDENCE");
   });
   it("never accepts a requirement that a reviewer or the exploration names in a documented-behaviour conflict", () => {
-    const conflict = { requirementIds: ["ACC"], documentation: { path: null, startLine: null, endLine: null, text: "Feature" }, code: { path: "a.ts", startLine: 1, endLine: 1, text: "const version = 1;" }, explanation: "The request contradicts the code." };
+    const conflict = { requirementIds: ["ACC"], contractPosition: "adopts_code" as const, documentation: { path: null, startLine: null, endLine: null, text: "Feature" }, code: { path: "a.ts", startLine: 1, endLine: 1, text: "const version = 1;" }, explanation: "The request contradicts the code." };
     const flagged = { ...review(), documentedBehaviourConflicts: [conflict] };
     const result = featureReviewConsensus(requirements, snapshot, [reviewer("a", flagged), reviewer("b")]);
     expect(result.blockingRequirementIds).toEqual(["ACC"]);
     expect(result.decisions.find(({ requirementId }) => requirementId === "ACC")).toMatchObject({ disposition: "unresolved", documentedBehaviourConflicts: [{ reportedBy: "a" }] });
     expect(featureReviewConsensus(requirements, snapshot, [reviewer("a"), reviewer("b")], [conflict]).blockingRequirementIds).toEqual(["ACC"]);
     expect(() => validateFeatureReview({ ...flagged, documentedBehaviourConflicts: [{ ...conflict, code: { ...conflict.code, text: "const version = 2;" } }] }, requirements, snapshot)).toThrow("DOCUMENTED_BEHAVIOUR_CONFLICT_UNGROUNDED");
+    // A requirement that follows the documentation leaves the fix to the implementation (observed live).
+    const follows = { ...conflict, contractPosition: "follows_documentation" as const };
+    expect(featureReviewConsensus(requirements, snapshot, [reviewer("a", { ...review(), documentedBehaviourConflicts: [follows] }), reviewer("b")], [follows]).blockingRequirementIds).toEqual([]);
+    expect(featureReviewConsensus(requirements, snapshot, [reviewer("a"), reviewer("b")], [{ ...conflict, contractPosition: "undecided" }]).blockingRequirementIds).toEqual(["ACC"]);
   });
   it("rejects a single reviewer or duplicated independence groups", () => {
     expect(() => featureReviewConsensus(requirements, snapshot, [reviewer("a")])).toThrow("FEATURE_REVIEW_INDEPENDENCE_REQUIRED");

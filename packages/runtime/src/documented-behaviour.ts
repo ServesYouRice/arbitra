@@ -38,6 +38,11 @@ export function groundRequirementConflicts(conflicts: readonly RequirementBehavi
 
 export const DOCUMENTED_BEHAVIOUR_CONFLICT = "documented_behaviour_conflict";
 
+/** A contract that follows the documentation leaves the code to change; only adopting the code or leaving it open is wrong. */
+export function blocksRequirements(conflict: RequirementBehaviourConflict): boolean {
+  return conflict.contractPosition !== "follows_documentation";
+}
+
 /** A stable reason naming the contradicting code. */
 export function conflictReason(conflict: DocumentedBehaviourConflict): string {
   return `${DOCUMENTED_BEHAVIOUR_CONFLICT}:${conflict.code.path}:${conflict.code.startLine}`;
