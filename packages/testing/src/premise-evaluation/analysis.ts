@@ -316,24 +316,29 @@ function summarise(condition: AnalysisCondition, list: readonly ConditionInstanc
  */
 function compare(name: string, left: AnalysisCondition, right: AnalysisCondition) {
   return (instances: readonly ConditionInstance[], truths: ReadonlyMap<string, PremiseGroundTruth>, protocol: EvaluationProtocol): Comparison[] => {
-    const leftOf = instances.filter(({ condition }) => condition === left); const rightOf = instances.filter(({ condition }) => condition === right);
-    const fixtures = [...new Set(leftOf.map(({ fixtureId }) => fixtureId))].filter((id) => rightOf.some(({ fixtureId }) => fixtureId === id)).sort();
-    if (fixtures.length === 0) return [];
-    const rate = (list: readonly ConditionInstance[], fixtureId: string, defect: string) => { const own = list.filter((instance) => instance.fixtureId === fixtureId); return own.filter(({ detected }) => detected.includes(defect)).length / own.length; };
-    const pairs = fixtures.flatMap((fixtureId) => (truths.get(fixtureId)?.items ?? []).filter(({ kind }) => kind === "defect").map(({ id }) => [rate(leftOf, fixtureId, id), rate(rightOf, fixtureId, id)] as const));
-    const precision = (list: readonly ConditionInstance[]) => { const own = list.filter(({ fixtureId }) => fixtures.includes(fixtureId)); const reported = own.reduce((sum, { reported: value }) => sum + value, 0); return reported === 0 ? null : own.reduce((sum, { trueReported }) => sum + trueReported, 0) / reported; };
-    const [pl, pr] = [precision(leftOf), precision(rightOf)];
-    const tokens = (list: readonly ConditionInstance[]) => { const own = list.filter(({ fixtureId }) => fixtures.includes(fixtureId)); return own.length === 0 ? 0 : own.reduce((sum, { usage }) => sum + usage.inputTokens + usage.outputTokens, 0) / own.length; };
-    const [tl, tr] = [tokens(leftOf), tokens(rightOf)];
-    return [Object.freeze({ name, left, right, recallDifference: pairedBootstrap(pairs, protocol.analysis.bootstrapIterations, protocol.analysis.seed, protocol.analysis.confidence), precisionDifference: pl === null || pr === null ? null : round(pl - pr), knownTokenRatio: tr === 0 ? null : round(tl / tr) })];
+    const result = pairedComparison(instances.filter(({ condition }) => condition === left), instances.filter(({ condition }) => condition === right), truths, protocol.analysis);
+    return result === null ? [] : [Object.freeze({ name, left, right, ...result })];
   };
+}
+
+/** The recall, precision and token comparison of two instance lists, or null when they share no fixture. */
+export function pairedComparison(leftOf: readonly ConditionInstance[], rightOf: readonly ConditionInstance[], truths: ReadonlyMap<string, PremiseGroundTruth>, analysis: EvaluationProtocol["analysis"]): Pick<Comparison, "recallDifference" | "precisionDifference" | "knownTokenRatio"> | null {
+  const fixtures = [...new Set(leftOf.map(({ fixtureId }) => fixtureId))].filter((id) => rightOf.some(({ fixtureId }) => fixtureId === id)).sort();
+  if (fixtures.length === 0) return null;
+  const rate = (list: readonly ConditionInstance[], fixtureId: string, defect: string) => { const own = list.filter((instance) => instance.fixtureId === fixtureId); return own.filter(({ detected }) => detected.includes(defect)).length / own.length; };
+  const pairs = fixtures.flatMap((fixtureId) => (truths.get(fixtureId)?.items ?? []).filter(({ kind }) => kind === "defect").map(({ id }) => [rate(leftOf, fixtureId, id), rate(rightOf, fixtureId, id)] as const));
+  const precision = (list: readonly ConditionInstance[]) => { const own = list.filter(({ fixtureId }) => fixtures.includes(fixtureId)); const reported = own.reduce((sum, { reported: value }) => sum + value, 0); return reported === 0 ? null : own.reduce((sum, { trueReported }) => sum + trueReported, 0) / reported; };
+  const [pl, pr] = [precision(leftOf), precision(rightOf)];
+  const tokens = (list: readonly ConditionInstance[]) => { const own = list.filter(({ fixtureId }) => fixtures.includes(fixtureId)); return own.length === 0 ? 0 : own.reduce((sum, { usage }) => sum + usage.inputTokens + usage.outputTokens, 0) / own.length; };
+  const [tl, tr] = [tokens(leftOf), tokens(rightOf)];
+  return { recallDifference: pairedBootstrap(pairs, analysis.bootstrapIterations, analysis.seed, analysis.confidence), precisionDifference: pl === null || pr === null ? null : round(pl - pr), knownTokenRatio: tr === 0 ? null : round(tl / tr) };
 }
 
 /** The prespecified decision rule (PROTOCOL.md §Decision). */
 export const MINIMUM_DECISION_UNITS = 10;
 export const DECISION_RULE = "fewer than 10 paired ground-truth defects: insufficient_evidence; otherwise worthwhile: the paired-bootstrap interval of the recall difference lies above 0 and the precision difference is at least -0.10; not_worthwhile: the interval lies below 0, or it lies within [-0.05, 0.05] entirely while the left condition spends at least 1.5x the known tokens; otherwise insufficient_evidence";
 
-function verdict(comparison: Comparison | undefined): Decision["heterogeneousOverRepeated"] {
+export function verdict(comparison: Pick<Comparison, "recallDifference" | "precisionDifference" | "knownTokenRatio"> | undefined): Decision["heterogeneousOverRepeated"] {
   if (comparison === undefined || comparison.recallDifference.interval === null || comparison.recallDifference.units < MINIMUM_DECISION_UNITS) return "insufficient_evidence";
   const [low, high] = comparison.recallDifference.interval;
   if (low > 0 && (comparison.precisionDifference ?? 0) >= -0.1) return "worthwhile";
