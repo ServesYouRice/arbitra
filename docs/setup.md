@@ -201,7 +201,7 @@ CLI's own agent tools are disabled, and any sign that it used one fails the call
 | Transport | CLI | Endpoint | Sign in (once, in a terminal) | Executable |
 |---|---|---|---|---|
 | `claude-code-cli` | Claude Code 2.1–2.x | `cli://claude-code` | `claude auth login` with a Claude Pro or Max account; or `claude setup-token` for `auth: "oauth_token"` | `ARBITRA_CLAUDE_CODE_EXECUTABLE`, else `claude` on PATH, `~/.claude/local`, `~/.local/bin`, npm global bins, or the newest VS Code/Cursor/Windsurf extension binary |
-| `codex-cli` | Codex CLI 0.150–0.199 | `cli://codex` | `codex login`, choose Sign in with ChatGPT (an API-key login is refused) | `ARBITRA_CODEX_EXECUTABLE`, else `codex` on PATH, npm global bins, or `/Applications/ChatGPT.app/Contents/Resources/codex` on macOS |
+| `codex-cli` | Codex CLI 0.150–0.199 | `cli://codex` | `codex login`, choose Sign in with ChatGPT (an API-key login is refused) | `ARBITRA_CODEX_EXECUTABLE`, else `codex` on PATH, npm global bins, or the ChatGPT app on macOS (`ChatGPT.app/Contents/Resources/codex-cli/bin/codex` since Codex 0.158, earlier `Contents/Resources/codex`; `~/Applications` before `/Applications`) |
 | `antigravity-cli` | Antigravity CLI (`agy`) 0.1–1.x | `cli://antigravity` | run `agy` once and sign in with the Google account that holds your Google AI subscription (kept in the OS keyring) | `ARBITRA_ANTIGRAVITY_EXECUTABLE`, else `agy` on PATH, `~/.local/bin/agy` (the installer's location), or `%LOCALAPPDATA%\Microsoft\WinGet\Links\agy.exe` |
 | `gemini-cli` | Gemini CLI 0.60–0.x | `cli://gemini` | run `gemini`, Login with Google using a Gemini Code Assist Standard or Enterprise account, and export `GOOGLE_CLOUD_PROJECT` | `ARBITRA_GEMINI_EXECUTABLE`, else `gemini` on PATH or npm global bins |
 

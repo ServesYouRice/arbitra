@@ -343,6 +343,17 @@ describe("executable discovery", () => {
       .toMatchObject({ found: true, executable: { source: "well_known", path: join(root, ".local", "bin", "agy") } });
   });
 
+  it("finds the Codex CLI inside the ChatGPT app, in its current and earlier layouts", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbitra-cli-codex-app-")); roots.push(root);
+    const resources = join(root, "Applications", "ChatGPT.app", "Contents", "Resources");
+    const find = () => resolveCliExecutable(requireCliTransportSupport("codex-cli"), { platform: "darwin", nodeExecutable: process.execPath, lookup: (name) => ({ HOME: root, PATH: join(root, "none") } as Record<string, string>)[name] });
+    await mkdir(resources, { recursive: true }); await writeFile(join(resources, "codex"), "#!/bin/sh\n", { mode: 0o755 });
+    expect(await find()).toMatchObject({ found: true, executable: { source: "well_known", path: join(resources, "codex") } });
+    // Codex 0.158 moved it; the current layout wins when both exist.
+    await mkdir(join(resources, "codex-cli", "bin"), { recursive: true }); await writeFile(join(resources, "codex-cli", "bin", "codex"), "#!/bin/sh\n", { mode: 0o755 });
+    expect(await find()).toMatchObject({ found: true, executable: { source: "well_known", path: join(resources, "codex-cli", "bin", "codex") } });
+  });
+
   it("runs a JavaScript entry-point override with the host's Node", async () => {
     const root = await mkdtemp(join(tmpdir(), "arbitra-cli-entry-")); roots.push(root);
     await writeFile(join(root, "cli.mjs"), "", { mode: 0o755 });
