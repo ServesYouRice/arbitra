@@ -90,8 +90,11 @@ async function wellKnownLocations(support: CliTransportSupport, host: DiscoveryH
       return [...(home === undefined ? [] : [join(home, ".claude", "local", `claude${exe}`), join(home, ".local", "bin", `claude${exe}`)]), ...commandIn(npmBins), ...bundled];
     }
     case "codex": {
-      const app = host.platform === "darwin" ? ["/Applications/ChatGPT.app/Contents/Resources/codex", ...(home === undefined ? [] : [join(home, "Applications", "ChatGPT.app", "Contents", "Resources", "codex")])] : [];
-      return [...commandIn(npmBins), ...app];
+      // The ChatGPT app ships the CLI at Resources/codex-cli/bin/codex since Codex 0.158 (observed
+      // live: discovery missed it there); earlier versions put it at Resources/codex. A per-user
+      // app install comes before the system-wide one, as user directories do on PATH.
+      const resources = host.platform !== "darwin" ? [] : [...(home === undefined ? [] : [join(home, "Applications")]), "/Applications"].map((root) => join(root, "ChatGPT.app", "Contents", "Resources"));
+      return [...commandIn(npmBins), ...resources.flatMap((directory) => [join(directory, "codex-cli", "bin", "codex"), join(directory, "codex")])];
     }
     case "gemini": return commandIn(npmBins);
     case "antigravity": {
