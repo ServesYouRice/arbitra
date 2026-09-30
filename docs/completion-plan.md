@@ -1,6 +1,6 @@
 # Completion plan
 
-Updated September 28, 2026 against commit 1e5011d (branch `beta`). Original baseline: 77149ef.
+Updated September 30, 2026 against commit f77024d (branch `beta`). Original baseline: 77149ef.
 See [status](#status-september-27-2026) for each item.
 
 This plan covers every unfinished implementation, validation and usability step identified
@@ -22,7 +22,7 @@ The original 49-task completion count is not reused for this plan.
 - Keep the shared orchestrator, six node kinds, durable identities, bounded budgets,
   discovery independence and operator-controlled write authority. New features must
   preserve these contracts rather than introduce a second workflow engine.
-- Dependencies below are required for final acceptance (P19). An item can be completed
+- Dependencies below are required for final acceptance (P21). An item can be completed
   while a dependency is still partial when its own evidence does not rely on the open
   part; the status table records what remains. Fixture-based implementation
   and other independent work can proceed while an external validation environment is
@@ -30,7 +30,8 @@ The original 49-task completion count is not reused for this plan.
 
 This is an execution order, not a calendar estimate. P01–P06 establish reliable live
 evidence; P07–P11 finish recovery, scale and operator workflows; P12–P18 complete the
-previously deferred extensions and evaluation; P19 closes the whole queue. The parts of
+previously deferred extensions and evaluation; P19 fixes what the final review found; P20
+stress-tests the premise; P21 closes the whole queue. The parts of
 P03, P08 and P15 that need funded API accounts are
 [deferred](#deferred-the-paid-api-bundle) out of this phase.
 
@@ -56,13 +57,14 @@ P03, P08 and P15 that need funded API accounts are
 | P16 | Workflow canvas editing and runtime dispatch | P09, P10 |
 | P17 | Persistent trace query index | P01 |
 | P18 | Local embedding clustering evaluation and adoption decision | P05, P06 |
-| P19 | Final defect review and completion evidence | P01–P18 and P20, except the deferred [paid-API bundle](#deferred-the-paid-api-bundle) |
+| P19 | Final defect review, fixes and live acceptance | P01–P18, except the deferred [paid-API bundle](#deferred-the-paid-api-bundle) |
 | P20 | Hard premise benchmark and stronger model lineups | P06 |
+| P21 | Completion report and final reconciliation | P01–P20, except the deferred [paid-API bundle](#deferred-the-paid-api-bundle) |
 
 ## Deferred: the paid-API bundle
 
 Decided September 28, 2026. The owner tests only on subscriptions and does not fund API
-accounts, so the work below is deferred out of this phase. It is not done here, and P19
+accounts, so the work below is deferred out of this phase. It is not done here, and P21
 closes the phase without it. Whoever takes it on later needs funded OpenAI, Anthropic and
 Gemini API accounts. Each item's acceptance criteria stay as written; the three checkboxes
 stay open.
@@ -111,16 +113,18 @@ Evidence is in `docs/qa/`.
 | P07 | **Complete** | Every repair case, including the critical success/failure ones, rerun with real containers ([`qa/p04`](qa/p04/README.md)) | — |
 | P08 | Implemented; live limits deferred | All inventory stages now compose (global outline hierarchically, Feature drafting/exploration, Testing risk partitions) with resume tests; limits in `docs/harness.md` | Deferred to the [paid-API bundle](#deferred-the-paid-api-bundle): live context limits |
 | P09 | **Complete** | — | — |
-| P10 | **Complete** | 51/51 Playwright runs on Linux arm64 as well as macOS; one product race fixed (live state published after the event log) ([`qa/p10-linux`](qa/p10-linux/README.md)) | — |
+| P10 | **Complete** | 51/51 Playwright runs on Linux arm64 as well as macOS; one product race fixed (live state published after the event log) ([`qa/p10-linux`](qa/p10-linux/README.md)). On September 29 the interface was restructured into pages (run list, run pages with a decision banner and per-mode tabs, a new-run form, a workflows page), merged from branch `ui-restructure`; browser acceptance rerun on macOS: 69 passed, 0 failed across three engines ([`qa/p10`](qa/p10/README.md)) | — |
 | P11 | **Complete** | Feature/Testing replay exercised end to end through the orchestrator, CLI and HTTP with changed protocol, model, scope, requirements, authorization and verification | — |
 | P12 | **Complete** | `credentialKind: subscription_login` runs the writer on the host's Claude login. Against the real Claude Code 2.1.283: the conformance run (leased write, events, usage, planted `CLAUDE.md` ignored, cleanup), and the tool-call limit, cancellation, crash recovery and timeout paths with process-tree termination, scratch cleanup and unknown usage charged in full. The matrix entry is `conformance_verified` ([`qa/p12`](qa/p12/README.md)) | — |
 | P13 | **Complete** | Live advisor path on Gemini native and compatible chat: limits, identity, measured usage, replay without spend ([`qa/p13-live`](qa/p13-live/README.md)) | — |
 | P14 | **Complete** | — | — |
 | P15 | Implemented; live drivers deferred | Operator CLI/HTTP for uncertain submissions; live batch runner; every driver refused live before job creation (OpenAI/Anthropic credit, Gemini free tier has no batch) ([`qa/p15-live`](qa/p15-live/README.md)) | Deferred to the [paid-API bundle](#deferred-the-paid-api-bundle): live validation of each driver on a funded account |
-| P16 | **Complete** | — | — |
+| P16 | **Complete** | Editor scenarios rerun on the restructured interface (its own Workflows page): 9 passed, 0 failed ([`qa/p16`](qa/p16/README.md)) | — |
 | P17 | **Complete** | — | — |
-| P18 | **Complete** | Prespecified criteria; local MiniLM candidate evaluated offline on two corpora. Authored findings: **reject** (W 36 → 49). P06 real-model findings (149 in 21 runs): **insufficient evidence** (94 of 100 same-label pairs; `E1` cut W only 7%, 25% required). Decision: **do not adopt; keep existing clustering** ([`qa/p18`](qa/p18/README.md)). The rerun also found `structural-v1` merging prompt-injection reports with the defect beside them (open finding) | — |
-| P19 | Pending | Cross-cutting fixes so far: quota classification, output repair (with trusted provenance), evidence re-anchoring and citation widening, peer-review degradation and repairable vote changes, writer tool-loop handling, complete-context marking, sole-author review coverage | Final review: fix the open findings in [WORK-REMAINING](../WORK-REMAINING.md#open-findings-to-fix-or-decide) (the owner's choice, September 29), rerun affected live acceptance, write the completion report; the [paid-API bundle](#deferred-the-paid-api-bundle) is outside this phase |
+| P18 | **Complete** | Prespecified criteria; local MiniLM candidate evaluated offline on two corpora. Authored findings: **reject** (W 36 → 49). P06 real-model findings (149 in 21 runs): **insufficient evidence** (94 of 100 same-label pairs; `E1` cut W only 7%, 25% required). Decision: **do not adopt; keep existing clustering** ([`qa/p18`](qa/p18/README.md)). The rerun also found `structural-v1` merging prompt-injection reports with the defect beside them (fixed in P19: `structural-v2`) | — |
+| P19 | **Complete** | Earlier cross-cutting fixes (quota classification, output repair, evidence re-anchoring, peer-review degradation, writer tool-loop handling, complete-context marking, sole-author coverage), then the owner's September 29 choice: all eight open findings fixed with regressions. The affected live acceptance passed on subscriptions on September 30 (Audit with an answered plan-questions checkpoint, planted-instruction follow-up, single-auditor planning, Feature and Testing on documented behaviour); the reruns found four more defects, all fixed. CI green on Linux and macOS at f77024d ([`qa/p19`](qa/p19/README.md)) | — |
+| P20 | In progress | Benchmark being built in the owner's private repository; lineup comparison tooling (`compare --lineups`) | Finish the benchmark; pilot shakedown; prespecified protocol; held-out runs; results summary here |
+| P21 | Pending | — | The completion report and final doc reconciliation, after P20 |
 
 ## P01 — Repair test discovery and platform reliability
 
@@ -446,21 +450,33 @@ matched cost:
 Report as P06 does: denominators, intervals, a breakdown by class and tier, cost and
 latency. Keep every result, including a null or negative one.
 
-## P19 — Close the implementation and validation queue
+## P19 — Final defect review, fixes and live acceptance
 
-- [ ] Complete P19.
+- [x] Complete P19.
 
 **Implementation.** Review the completed paths for defects in source/authority boundaries,
 failure handling, budgets, independence, traceability, persistence and concurrency.
-Resolve findings with focused regressions. Reconcile all public docs, runnable examples,
-support matrices and this checklist with the final implementation.
+Resolve findings with focused regressions, and keep the docs of each changed path current.
 
 **Acceptance.** Full CI/build pass on the supported platform matrix; required suites
 cannot silently disappear. Repeat affected live-provider, Docker, native/batch and
-browser acceptance after their final changes. Retain a completion report with evidence
-for P01–P18, experimental conclusions, residual limits and unsupported combinations.
-The [paid-API bundle](#deferred-the-paid-api-bundle) is outside this phase: the report lists
-it as deferred, with its open acceptance.
+browser acceptance after their final changes.
+
+**Split, September 30, 2026.** The owner moved the completion report, which waits for P20's
+results, into P21, so that P19's own work shows as done. Evidence: [`qa/p19`](qa/p19/README.md).
+
+## P21 — Write the completion report and reconcile the docs
+
+- [ ] Complete P21.
+
+**Implementation.** Reconcile all public docs, runnable examples, support matrices and this
+checklist with the final implementation, including P20's outcome.
+
+**Acceptance.** Retain a completion report with evidence for P01–P20, experimental
+conclusions (P06, P18, P20), residual limits and unsupported combinations. P20's per-defect
+detail stays in its private repository; the report carries its summary. The
+[paid-API bundle](#deferred-the-paid-api-bundle) is outside this phase: the report lists it as
+deferred, with its open acceptance.
 No item is marked complete solely because its interface exists or a prerequisite ran.
 
 ## Mapping from the previous execution queue

@@ -4,16 +4,17 @@ Updated September 29, 2026 (branch `beta`).
 
 The maintained execution queue is the [completion plan](docs/completion-plan.md). Every item is recorded in its [status table](docs/completion-plan.md#status-september-27-2026).
 
-- **Complete:** P01, P02, P04–P07, P09–P14 and P16–P18.
-- **In progress:** P19 (fixes tracked in [qa/p19](docs/qa/p19/README.md)) and P20, a hard premise benchmark built in parallel. P20's benchmark is kept in the owner's private repository `arbitra-p20` so its answer keys stay out of public training data; never add it here.
+- **Complete:** P01, P02, P04–P07, P09–P14 and P16–P19. P19's completion report moved to the new P21, which waits for P20.
+- **Merged from the other session (`ui-restructure`, September 29):** the web app restructured into pages (run list, run pages, new-run form, workflows page); browser acceptance rerun, 69 of 69 passed ([qa/p10](docs/qa/p10/README.md)).
+- **In progress:** P20, a hard premise benchmark. P20's benchmark is kept in the owner's private repository `arbitra-p20` so its answer keys stay out of public training data; never add it here.
 - **Deferred, not part of this phase ([paid-API bundle](docs/completion-plan.md#deferred-the-paid-api-bundle)):** the API-protocol part of P03, and the live evidence for P08 and P15. All three are implemented.
 - **Accepted live on subscriptions:** the rest of P03.
-- **Pending:** P19.
+- **Pending:** P21 (completion report, after P20).
 
 ## What is left, by what it needs
 
 1. **Nothing but time, on subscriptions:**
-   - **P19:** the final review. On September 29 the owner chose to fix every feasible open finding in this phase, then rerun the affected live acceptance on subscriptions and write the completion report. All eight are fixed: prompt-injection reports no longer cluster with the defect beside them (`structural-v2`); the critic packs pair checks into as few calls as fit; Audit and Feature plans must order tasks that write the same files; one-auditor plans address the issues verification confirmed; attempts that provably consumed nothing are no longer charged; each prompt-injection report gets a bounded follow-up look at the code beside it; Feature and Testing report and block on documented-behaviour conflicts instead of adopting the code's behaviour; an interactive Audit waits for answers to its plan's blocking questions and applies them in one planner call.
+   - **P19 (complete):** the final review. On September 29 the owner chose to fix every feasible open finding in this phase, then rerun the affected live acceptance on subscriptions. All eight are fixed: prompt-injection reports no longer cluster with the defect beside them (`structural-v2`); the critic packs pair checks into as few calls as fit; Audit and Feature plans must order tasks that write the same files; one-auditor plans address the issues verification confirmed; attempts that provably consumed nothing are no longer charged; each prompt-injection report gets a bounded follow-up look at the code beside it; Feature and Testing report and block on documented-behaviour conflicts instead of adopting the code's behaviour; an interactive Audit waits for answers to its plan's blocking questions and applies them in one planner call.
 2. **Deferred to a later phase: the [paid-API bundle](docs/completion-plan.md#deferred-the-paid-api-bundle).** It needs funded API accounts, which the owner does not use, so it is not done in this phase. A later maintainer may take it on:
    - the OpenAI Responses, OpenAI Chat and Anthropic Messages protocols live (P03);
    - P08's live context limits;
@@ -56,10 +57,10 @@ Live configurations come from `tooling/live/bindings.subscription.json`. The API
 
    See [qa/p12](docs/qa/p12/README.md).
 5. **Premise evaluation (P06): complete.** Version 2.1.0's results are in [qa/p06-subscription](docs/qa/p06-subscription/README.md). Its run state is local only, in `.runs/p06-subscription-2.1.0` (2.0.0's in `.runs/p06-subscription`); keep both. For live runs, pace on the Claude five-hour window (`rate_limit_event` in any `claude -p --output-format stream-json --verbose` call); the owner can reset the weekly limit when needed.
-6. **Then:** the P19 review.
+6. **Then:** P20's runs, then P21's completion report.
 
 ## Open findings to fix or decide
 
-None. All eight findings in [qa/p19](docs/qa/p19/README.md) are fixed, and the affected live acceptance passed on subscriptions on September 30 (runs A–E there). The reruns found four more defects; all are fixed. P19's completion report waits for P20.
+None. All eight findings in [qa/p19](docs/qa/p19/README.md) are fixed, and the affected live acceptance passed on subscriptions on September 30 (runs A–E there). The reruns found four more defects; all are fixed. The completion report is P21, after P20.
 
 See [project status](docs/project-status.md) for implemented capabilities and measured evidence. Evidence per item is in [docs/qa](docs/qa/); the subscription runs are in [qa/p03-subscription](docs/qa/p03-subscription/README.md). Update task status only in the completion plan.
