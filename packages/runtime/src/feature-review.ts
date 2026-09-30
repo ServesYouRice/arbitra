@@ -67,16 +67,29 @@ function withoutEmptyConflicts(exploration: unknown): unknown {
 
 export function validateFeatureReview(value: unknown, requirements: RequirementsContract, snapshot: RepositorySnapshot): FeatureReview {
   const contract = requirementsContractSchema.parse(requirements);
-  const review = featureReviewSchema.parse(value);
+  const review = groundFeatureReview(value, contract, snapshot);
   const ids = new Set([...contract.assumptions, ...contract.ambiguities, ...contract.acceptance].map(({ id }) => id));
   if (review.decisions.length !== ids.size || review.decisions.some(({ requirementId }) => !ids.has(requirementId))) throw new Error("FEATURE_REVIEW_REQUIREMENT_COVERAGE");
+  return review;
+}
+
+/** Every quotation in a review, grounded: decision evidence and conflicts quote the snapshot, or
+ * the request with a null path. Model calls parse with it, so a misquote is repaired. */
+export function groundFeatureReview(value: unknown, requirements: RequirementsContract, snapshot: RepositorySnapshot): FeatureReview {
+  const review = featureReviewSchema.parse(value);
+  const ids = new Set([...requirements.assumptions, ...requirements.ambiguities, ...requirements.acceptance].map(({ id }) => id));
   const files = new Map(snapshot.files.map((file) => [file.path, file]));
   for (const decision of review.decisions) decision.evidence = decision.evidence.map((evidence) => {
-    const anchored = anchorLineEvidence(evidence, files.get(evidence.path));
-    if (anchored === null) throw new Error("FEATURE_REVIEW_UNGROUNDED_EVIDENCE");
+    const { path, startLine, endLine } = evidence;
+    if (path === null || startLine === null || endLine === null) {
+      if (!requirements.featureRequest.includes(evidence.text)) throw new Error(`FEATURE_REVIEW_UNGROUNDED_EVIDENCE: evidence for ${decision.requirementId} has a null path, so its text must be an exact excerpt of the request`);
+      return evidence;
+    }
+    const anchored = anchorLineEvidence({ ...evidence, path, startLine, endLine }, files.get(path));
+    if (anchored === null) throw new Error(`FEATURE_REVIEW_UNGROUNDED_EVIDENCE: evidence for ${decision.requirementId} must quote whole lines of ${path} exactly`);
     return anchored;
   });
-  review.documentedBehaviourConflicts = groundRequirementConflicts(review.documentedBehaviourConflicts, ids, snapshot, contract.featureRequest);
+  review.documentedBehaviourConflicts = groundRequirementConflicts(review.documentedBehaviourConflicts, ids, snapshot, requirements.featureRequest);
   return review;
 }
 
