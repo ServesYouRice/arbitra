@@ -9,8 +9,8 @@ it("accepts an explicit incremental base on POST /runs and serves the incrementa
   const none = async () => ({});
   const core: ServerCore = {
     configurations: { list: async () => [], save: none, load: none, update: none, duplicate: none, validate: () => ({}), export: none },
-    repositories: { select: none },
-    runs: { estimate: none, async start(body) { started.push(body); return { runId: "run-2" }; }, status: none, resume: none, async *events() { /* none */ }, cancel: none, respondCheckpoint: none, artifacts: async () => [], artifact: none },
+    repositories: { select: none, selected: none },
+    runs: { list: async () => [], overview: none, estimate: none, preflight: none, async start(body) { started.push(body); return { runId: "run-2" }; }, status: none, resume: none, async *events() { /* none */ }, cancel: none, respondCheckpoint: none, artifacts: async () => [], artifact: none },
     incremental: { async report(runId) { reports.push(runId); if (runId === "run-absent") throw Object.assign(new Error("INCREMENTAL_CONTRACT_ABSENT:run-absent"), { statusCode: 404 }); return { baseRunId: "run-1", strategy: "incremental" }; } },
   };
   expect(INCREMENTAL_ROUTE_INVENTORY.every(([method, url]) => `${method} ${url}` in HTTP_ROUTE_SCHEMAS)).toBe(true);
