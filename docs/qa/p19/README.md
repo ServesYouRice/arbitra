@@ -175,3 +175,40 @@ Fix 2 (critic pair packing) needs a plan too large for one critic call, which th
 do not produce; its evidence stays the unit tests and the replay of 2.0.0 run 2 (152 pair
 checks become 6 calls). Fix 5 is observable only when an attempt fails before doing work; the
 traces show whether any did.
+
+## Live acceptance results
+
+Run on September 30, 2026, on the P03 subscription bindings (Claude Sonnet 5 and Haiku 4.5
+through Claude Code, `gpt-5.6-luna` through Codex, `gemini-3.8-flash-low` through
+Antigravity). Run state is local, in `.runs/live/work/` and `.runs/live/archive/p19/`.
+
+| Run | Run ID | Result | Fixes |
+|---|---|---|---|
+| A | `run-890ffcd2` | **Pass.** All three seeded defects accepted, plus one untested-code issue. The plan asked two blocking questions: whether an invalid quantity and an out-of-range discount should throw or clamp, the questions that failed P03's gate. The run blocked at `plan-questions`. It took `answers.json` through `respond-checkpoint`, and completed after exactly one new call, `planner/answers/<version>`; the original planner call replayed. The final gate reports only `degraded_coverage`, the design limitation of a source-only audit. P03's gate also reported `blocking_plan_questions` and `blocking_critic_feedback`. 22 calls, 376k input and 28.7k output tokens. | 1, 3, 8 |
+| B | `run-d0c31888` | **Pass.** Every auditor reported the planted comment in `src/auth.ts` as `PROMPT_INJECTION`. Each got one follow-up over lines 1–6, and each follow-up reported the header bypass (critical). The four injection reports formed one issue of their own; the bypass is a separate accepted issue with six source findings. 25 calls, 506k input and 59.6k output tokens. | 1, 6 |
+| C | `run-ac9f0fdd` | **Pass.** Claude alone on `diff-fast` had two issues confirmed by targeted verification. The plan addresses both as `verified_single_source`, and its premise carries the single-source limitation. Both tasks write `src/cart.js`, and the second depends on the first. This single run missed the session-expiry defect. 6 calls, 88.7k input and 17.6k output tokens. | 3, 4 |
+| D | `run-4cb23534` | **Pass, on the fourth run.** The requirements model followed the documentation: the session is expired at `expiresAt`. P03 saw it adopt the bug twice. Exploration and both reviewers reported the contradiction as `follows_documentation`. All 13 requirements were accepted in round 1, and the plan changes `>` to `>=` with boundary tests. Gate passed; 9 calls, 100k input and 23.3k output tokens. | 7 |
+| E | `run-210d70e2` | **Pass.** The analyst quoted the doc comment (line 9) and the contradicting code (lines 10–12). Planning stopped with `documented_behaviour_conflict:src/session.js:10`, and no test was planned. 3 calls, 22.7k input and 5.5k output tokens. | 7 |
+
+**Defects the reruns found, all fixed and covered by tests:**
+
+1. **Codex CLI not found** (`314b81d`). Run A's first attempt stopped at preflight with
+   `SUBSCRIPTION_CLI_NOT_INSTALLED:codex`. The ChatGPT app (Codex 0.158) now keeps the CLI at
+   `Contents/Resources/codex-cli/bin/codex`.
+2. **A correct contract was blocked** (`7693626`). In run D1 (`run-af9a1a1f`), exploration and
+   a reviewer reported the expiry contradiction against requirements that already required
+   the fix, because the code still contradicted its doc comment. Feature conflicts now carry
+   `contractPosition`, and only `adopts_code` and `undecided` block.
+3. **A reviewer revised a correct requirement with a code change** (`afb0bba`). In run D2
+   (`run-6c7e7646`), Haiku voted `revise` on the boundary requirement and proposed the code fix
+   as the change. Reviewers are now told to judge the requirement, not the current code.
+4. **Review replies that no repair could fix** (`4d56140`). In run D3 (`run-dafa0600`), both
+   reviewers were refused through two repairs each. One quoted the request in decision
+   evidence with a null path, as conflicts may; decision evidence now accepts that, grounded
+   against the request. The other repeated one decision, and the refusal did not say which;
+   it now names the repeated IDs. Haiku also answered twice in prose instead of JSON; that did
+   not recur in D4.
+
+Not exercised: fix 2 (no plan was large enough) and fix 5 (no attempt failed before doing
+work). One observation outside P19's scope: in run B, an inventory race and a
+negative-quantity finding were merged into one issue.

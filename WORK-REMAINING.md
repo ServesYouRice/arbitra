@@ -60,6 +60,6 @@ Live configurations come from `tooling/live/bindings.subscription.json`. The API
 
 ## Open findings to fix or decide
 
-None. All eight findings in [qa/p19](docs/qa/p19/README.md) are fixed; the affected live acceptance still has to be rerun on subscriptions before the P19 completion report.
+None. All eight findings in [qa/p19](docs/qa/p19/README.md) are fixed, and the affected live acceptance passed on subscriptions on September 30 (runs A–E there). The reruns found four more defects; all are fixed. P19's completion report waits for P20.
 
 See [project status](docs/project-status.md) for implemented capabilities and measured evidence. Evidence per item is in [docs/qa](docs/qa/); the subscription runs are in [qa/p03-subscription](docs/qa/p03-subscription/README.md). Update task status only in the completion plan.
