@@ -119,9 +119,9 @@ left "throw or clamp?" open and failed, and nothing could answer it and resume.
   POST /runs/:id/checkpoints/plan-questions   {"version": "<64 hex>", "answers": [{"questionId": "Q-1", "answer": "Throw a typed error."}]}
   ```
 
-  `answers.json` holds `{"answers": [...]}`. The web run controls show one field per
-  question. A missing, unknown or repeated question ID is refused with 400. A stale version
-  or a second set of answers for the same version is refused with 409.
+  `answers.json` holds `{"answers": [...]}`. In the web app, the run page's decision banner
+  shows one field per question. A missing, unknown or repeated question ID is refused with
+  400. A stale version or a second set of answers for the same version is refused with 409.
 - On `resume`, the stored planner activities replay. Exactly one new activity,
   `planner/answers/<version>`, revises the plan with the answers. The runtime, not the
   model, then removes the answered questions. `plan-question-resolutions` records each
@@ -204,17 +204,18 @@ node apps/cli/dist/src/bin.js workflow validate <graph.json> [--configuration=<i
 node apps/cli/dist/src/bin.js workflow save <graph.json> [--parent=<version>] [--configuration=<id>] [--authorize=<category,...>]
 ```
 
-In the web app, the graph column has two modes: a read-only run view and an editor. The
-editor starts from a preset template or a saved version. You can add, remove and connect
-nodes of the six kinds, and the inspector edits each node and edge. It shows the server's
-diagnostics as you edit, checked against the selected configuration. Undo and redo cover
-every edit, and saving creates a new version. Unsaved changes are marked. Leaving the editor,
-switching views, opening another graph or unloading the page asks first. Every operation
-works from the keyboard. The shortcuts are Ctrl/⌘+Z to undo, Ctrl/⌘+Shift+Z or Ctrl+Y to
-redo, Ctrl/⌘+S to save, and Delete to remove the selected node or edge. After a save, the
-editor shows the exact `workflow.graph` reference for a run configuration. A run's graph view
-shows the saved version it executes, and whether the executed graph matches it. Browser
-evidence is in [`docs/qa/p16/`](qa/p16/README.md).
+In the web app, the editor is the **Workflows** page (`?page=workflows`); a run's graph is
+read-only, on its Activity tab. The editor starts from a preset template or a saved version.
+You can add, remove and connect nodes of the six kinds, and its inspector edits each node
+and edge. It shows the server's diagnostics as you edit, checked against the configuration
+chosen above it. Undo and redo cover every edit, and saving creates a new version. Unsaved
+changes are marked. Leaving the page by a link or the back button, opening another graph or
+unloading the page asks first. Every operation works from the keyboard. The shortcuts are
+Ctrl/⌘+Z to undo, Ctrl/⌘+Shift+Z or Ctrl+Y to redo, Ctrl/⌘+S to save, and Delete to remove
+the selected node or edge. After a save, the editor shows the exact `workflow.graph`
+reference for a run configuration, and a link starts a new run that executes that version.
+A run's Activity tab shows the saved version it executes, and whether the executed graph
+matches it. Browser evidence is in [`docs/qa/p16/`](qa/p16/README.md).
 
 ## Audit mode
 
