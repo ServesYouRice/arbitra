@@ -108,6 +108,47 @@ export interface RunResource {
   readonly workflowGraph?: RunWorkflowGraphIdentity;
 }
 
+/** One run in the operator's run list: what it is, where it stands, and its gate once it has completed. */
+export interface RunListItem {
+  readonly runId: string;
+  /** Null only when the run's records cannot be read; `problem` then says why. */
+  readonly state: string | null;
+  /** The reason recorded with the latest state transition, such as why a run failed. */
+  readonly reason: string | null;
+  readonly mode: RunConfig["mode"] | null;
+  readonly workflowId: string | null;
+  readonly repository: string | null;
+  /** A scripted Audit runs deterministic detectors and makes no model calls. */
+  readonly executor: "models" | "scripted" | null;
+  /** When the run was created and when it last recorded an event (ISO-8601). */
+  readonly createdAt: string | null;
+  readonly updatedAt: string | null;
+  /**
+   * Whether this process is executing the run. A running state with `live: false` means the
+   * run is being executed elsewhere (such as the CLI) or was interrupted when its process
+   * stopped; nothing on disk tells the two apart, so resuming is the operator's call.
+   */
+  readonly live: boolean;
+  readonly replayOf: string | null;
+  /** Operator decisions the run is waiting on: pending human checkpoints and requirements approvals. */
+  readonly pendingDecisions: number;
+  /** The gate the CLI turns into an exit code; null until the run has completed. */
+  readonly gate: { readonly status: "passed" | "failed"; readonly reasons: readonly string[] } | null;
+  readonly problem: string | null;
+}
+
+/** A run's list entry plus the settings it was created with, read from its stored context. */
+export interface RunOverview extends RunListItem {
+  readonly scope: StoredRunContext["scope"];
+  readonly consensusPolicy: StoredRunContext["consensusPolicy"];
+  readonly maximumRounds: number;
+  readonly criticEnabled: boolean;
+  readonly checkpointMode: CheckpointPolicy["mode"] | null;
+  readonly workflowGraph: WorkflowGraphReference | null;
+  /** The validated configuration of a model-backed run; a scripted Audit stores none. */
+  readonly configuration: RunConfig | null;
+}
+
 /**
  * The composition root.
  *
@@ -123,6 +164,7 @@ export class Orchestrator {
   readonly #runsDirectory: string;
   readonly #newRunId: () => string;
   readonly #live = new Map<string, RunHandle>();
+  readonly #listCache = new Map<string, { readonly stamp: string; readonly item: RunListItem }>();
   readonly #resuming = new Set<string>();
   readonly #providerOptions: TransportFactoryOptions;
   readonly #testSandbox: TestSandbox | undefined;
@@ -786,6 +828,58 @@ export class Orchestrator {
 
   async runIds(): Promise<readonly string[]> { return listRunIds(this.#runsDirectory); }
 
+  /**
+   * Every recorded run, newest first. A run whose records cannot be read is listed with the
+   * reason, not dropped. An entry is recomputed only when its run's files or liveness change:
+   * the UI polls this while runs are active, and most runs are finished.
+   */
+  async listRuns(): Promise<readonly RunListItem[]> {
+    const ids = await this.runIds();
+    const items: RunListItem[] = [];
+    // Bounded fan-out: each entry reads several files, and a large run store must not exhaust descriptors.
+    for (let start = 0; start < ids.length; start += LIST_CONCURRENCY) items.push(...await Promise.all(ids.slice(start, start + LIST_CONCURRENCY).map((runId) => this.#cachedListItem(runId))));
+    return Object.freeze(items.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "") || a.runId.localeCompare(b.runId)));
+  }
+
+  async #cachedListItem(runId: string): Promise<RunListItem> {
+    const times = await new RunStore(this.#runsDirectory, runId).times();
+    const stamp = `${times.createdAt ?? ""}|${times.updatedAt ?? ""}|${times.artifactsAt ?? ""}|${this.#isLive(runId)}`;
+    const cached = this.#listCache.get(runId);
+    if (cached !== undefined && cached.stamp === stamp) return cached.item;
+    const item = await this.#runListItem(runId);
+    this.#listCache.set(runId, { stamp, item });
+    return item;
+  }
+
+  #isLive(runId: string): boolean { return this.#live.has(runId) || this.#resuming.has(runId); }
+
+  /** The list entry plus the settings the run was created with. */
+  async overview(runId: string): Promise<RunOverview> {
+    await this.#requireRun(runId);
+    const context = await new RunStore(this.#runsDirectory, runId).loadContext();
+    return Object.freeze({ ...await this.#runListItem(runId), scope: context.scope, consensusPolicy: context.consensusPolicy, maximumRounds: context.maximumRounds,
+      criticEnabled: context.criticEnabled, checkpointMode: context.checkpointPolicy?.mode ?? null, workflowGraph: context.workflowGraph ?? null, configuration: context.modelConfiguration ?? null });
+  }
+
+  async #runListItem(runId: string): Promise<RunListItem> {
+    const store = new RunStore(this.#runsDirectory, runId);
+    const { createdAt, updatedAt } = await store.times();
+    const times = { createdAt, updatedAt, live: this.#isLive(runId) };
+    try {
+      const context = await store.loadContext();
+      const status = await this.status(runId);
+      const transition = [...await store.loadEvents()].reverse().find((event): event is Extract<RunEvent, { t: "run_transition" }> => event.t === "run_transition");
+      // The gate fails every unfinished run with run_not_completed, which says nothing the state does not.
+      const gate = status.state === "COMPLETED" ? await this.gate(runId) : null;
+      return Object.freeze({ runId, state: status.state, reason: transition?.state === status.state ? transition.reason ?? null : null, mode: context.modelConfiguration?.mode ?? "audit",
+        workflowId: status.workflow?.id ?? null, repository: context.repository, executor: context.modelConfiguration === undefined ? "scripted" : "models", ...times,
+        replayOf: context.replaySourceRunId ?? null, pendingDecisions: pendingDecisions(status.checkpoints), gate: gate === null ? null : Object.freeze({ status: gate.gateStatus, reasons: gate.reasons }), problem: null });
+    } catch (error) {
+      return Object.freeze({ runId, state: null, reason: null, mode: null, workflowId: null, repository: null, executor: null, ...times, replayOf: null, pendingDecisions: 0, gate: null,
+        problem: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
   async modelTraces(runId: string) {
     await this.#requireRun(runId);
     return loadActivityTraces(this.#runsDirectory, runId);
@@ -1018,6 +1112,18 @@ export { AUDIT_DEEP_GRAPH, type RunnerGraph };
 export type PublicArtifact = Omit<ArtifactDescriptor, "ref">;
 function withoutRef(descriptor: ArtifactDescriptor): PublicArtifact {
   return Object.freeze({ artifactId: descriptor.artifactId, kind: descriptor.kind, mediaType: descriptor.mediaType, bytes: descriptor.bytes, redacted: descriptor.redacted, nodeId: descriptor.nodeId });
+}
+
+/** How many runs the run list reads at once. */
+const LIST_CONCURRENCY = 8;
+
+/**
+ * A pending human checkpoint is one decision. A requirements checkpoint is listed only while
+ * the run is blocked on it, and counts at least one even with no default left to approve: a
+ * revision proposal or an explicit resume still waits on the operator.
+ */
+function pendingDecisions(checkpoints: readonly RunCheckpointResource[]): number {
+  return checkpoints.reduce((count, checkpoint) => count + (checkpoint.kind === "requirements" ? Math.max(1, checkpoint.pendingAmbiguityIds.length) : checkpoint.status === "pending" ? 1 : 0), 0);
 }
 
 /** The run config's `workflow` section is free-form JSON, so the preset is read defensively. */

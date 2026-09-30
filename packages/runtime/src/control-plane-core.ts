@@ -3,6 +3,7 @@ import { protocolIdentity } from "@arbitra/persistence/index-db/rebuild.js";
 import { CrossProtocolComparisonError } from "@arbitra/persistence/metrics/queries.js";
 import { realpath, stat } from "node:fs/promises";
 import { resolve } from "node:path";
+import type { RunConfig } from "@arbitra/schemas/config.js";
 import type { Orchestrator } from "./orchestrator.js";
 import { withIncrementalBase } from "./incremental-audit.js";
 
@@ -48,10 +49,27 @@ export function controlPlaneCore(orchestrator: Orchestrator) {
         selectedRepository = await repositoryPath(path);
         return Object.freeze({ repository: selectedRepository, selected: true });
       },
+      /** The repository a run reads when its request names none. */
+      selected: async () => Object.freeze({ repository: selectedRepository }),
     },
 
     runs: {
+      list: () => orchestrator.listRuns(),
+      overview: (id: string) => orchestrator.overview(id),
       estimate: async (body: unknown) => { const request = await configured(body); return orchestrator.estimate(request.config, request.repository); },
+      /**
+       * Everything checkable about an unsaved configuration before a run exists: the
+       * orchestrator's preflight, and for a valid configuration the estimate over the
+       * repository it would read. Nothing is saved and no run is created.
+       */
+      preflight: async (body: unknown) => {
+        const request = body as { config?: unknown; repository?: unknown } | undefined;
+        const repository = request?.repository === undefined ? selectedRepository : await repositoryPath(request.repository);
+        const report = await orchestrator.preflight(request?.config);
+        if (!report.valid) return Object.freeze({ ...report, repository, estimate: null, estimateError: null });
+        try { return Object.freeze({ ...report, repository, estimate: await orchestrator.estimate(request?.config as RunConfig, repository), estimateError: null }); }
+        catch (error) { return Object.freeze({ ...report, repository, estimate: null, estimateError: error instanceof Error ? error.message : String(error) }); }
+      },
       start: async (body: unknown) => { const request = await configured(body); return orchestrator.start(request.config, request.repository); },
       status: (id: string) => orchestrator.status(id),
       resume: (id: string) => orchestrator.resume(id),
@@ -136,6 +154,10 @@ export function controlPlaneCore(orchestrator: Orchestrator) {
 async function repositoryPath(value: unknown): Promise<string> {
   if (typeof value !== "string" || value.trim() === "") throw new Error("REPOSITORY_PATH_REQUIRED");
   const path = resolve(value);
-  if (!(await stat(path)).isDirectory()) throw new Error(`REPOSITORY_NOT_DIRECTORY:${path}`);
+  const entry = await stat(path).catch((error: unknown) => {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") throw Object.assign(new Error(`REPOSITORY_NOT_FOUND:${path}`), { statusCode: 404 });
+    throw error;
+  });
+  if (!entry.isDirectory()) throw new Error(`REPOSITORY_NOT_DIRECTORY:${path}`);
   return realpath(path);
 }

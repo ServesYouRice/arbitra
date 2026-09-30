@@ -1,4 +1,4 @@
-import { link, mkdir, open, readFile, readdir, rename, truncate, unlink, writeFile } from "node:fs/promises";
+import { link, mkdir, open, readFile, readdir, rename, stat, truncate, unlink, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { ActivityJournal, type JournalRecord } from "@arbitra/persistence/journal.js";
@@ -179,6 +179,16 @@ export class RunStore {
   }
 
   /**
+   * When the run was created, when it last recorded an event, and when its artifact index last
+   * changed. The context is written exactly once, at creation, every event is appended to one
+   * log, and every published artifact (including recorded decisions) rewrites the index, so
+   * their file modification times are those moments; a missing file reports null.
+   */
+  async times(): Promise<{ readonly createdAt: string | null; readonly updatedAt: string | null; readonly artifactsAt: string | null }> {
+    return Object.freeze({ createdAt: await modifiedAt(this.#context), updatedAt: await modifiedAt(this.#events), artifactsAt: await modifiedAt(this.#index) });
+  }
+
+  /**
    * Publish a named artifact. The content-addressed store has no notion of a kind, and
    * the UI addresses artifacts by kind, so the mapping is recorded alongside it.
    */
@@ -255,6 +265,15 @@ export async function listRunIds(rootDirectory: string): Promise<readonly string
     return entries.filter((entry) => entry.isDirectory() && RUN_ID_PATTERN.test(entry.name)).map(({ name }) => name).sort();
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+async function modifiedAt(path: string): Promise<string | null> {
+  try {
+    return (await stat(path)).mtime.toISOString();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   }
 }
