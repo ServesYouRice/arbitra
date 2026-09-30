@@ -147,7 +147,8 @@ commit.
 - **As built.**
   - The checkpoint lives in `packages/runtime/src/plan-questions.ts`. Answers are stored
     create-once per version in the run's records. The version is a hash of the exact plan.
-  - The web run controls show one answer field per question.
+  - The web run controls showed one answer field per question. The web restructure moved
+    that form to the run page's decision banner.
   - The answers revision is one call with the planner's traceable schema. A plan too large
     for it fails with `PLAN_QUESTION_REVISION_CONTEXT_EXCEEDED`. Staged revision is not
     wired for answers.
