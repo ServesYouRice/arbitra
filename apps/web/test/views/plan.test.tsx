@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
+import { useState, type ReactElement } from "react";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ArtifactApi } from "../../src/api/artifacts.js";
-import { PlanView } from "../../src/views/plan/PlanView.js";
-import { backward, forward, type TraceGraph } from "../../src/views/plan/traceability.js";
+import { PlanView, routingText } from "../../src/views/plan/PlanView.js";
+import { TraceDetails } from "../../src/views/plan/TraceDetails.js";
+import { backward, findTraceNode, forward, type TraceGraph, type TraceLevel } from "../../src/views/plan/traceability.js";
 import { ARTIFACT_CONTENT, findings, issueSet, plan } from "./fixtures.js";
 import { fromPackageRoot } from "../package-root.js";
 
@@ -12,30 +14,48 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const graph: TraceGraph = { plan, issues: issueSet.issues, findings };
 
 describe("plan view and traceability navigation", () => {
-  it("shows canonical issue counts, validation contract, tasks, routing, dependency graph, critic feedback and premise honesty", async () => {
+  it("shows what blocks the plan first, then tasks, routing, the validation contract, dependencies and premise honesty", async () => {
     stubArtifacts();
     render(<PlanView api={new ArtifactApi()} runId="run-1" />);
     expect(await screen.findByText("Authorization repair · mode audit · 1 planned canonical issues · 1 tasks")).toBeTruthy();
     expect(screen.getByText(/premise · null · smoke_test_only_not_proof · one repository, one run/).dataset.state).toBe("unexamined");
-    expect(screen.getByText(/Unauthorized users cannot change another user's role\. · evidence authorization regression test/)).toBeTruthy();
-    expect(screen.getByText(/Enforce the role guard · frontier \/ high · recommended frontier \/ high · security critical/)).toBeTruthy();
-    expect(screen.getByText("TASK-001 → TASK-002")).toBeTruthy();
+    expect(screen.getByText("Q-1 · Is the invite flow in scope? · blast radius high · blocks the plan gate").dataset.state).toBe("refuted");
     expect(screen.getByText("One blocking gap in validation coverage.")).toBeTruthy();
     expect(screen.getByText(/validation_gap · blocking · No assertion covers the invite flow\./).dataset.state).toBe("refuted");
-    expect(screen.getByText(/Q-1 · Is the invite flow in scope\? · blast radius high/).dataset.state).toBe("refuted");
+    const row = within(screen.getByRole("table", { name: "plan tasks" })).getByRole("row", { name: /TASK-001/u });
+    expect(row.textContent).toContain("Enforce the role guard");
+    expect(row.textContent).toContain("frontier / high · security critical");
+    expect(screen.getByText(/Unauthorized users cannot change another user's role\. · evidence authorization regression test/)).toBeTruthy();
+    expect(screen.getByText("TASK-001 → TASK-002")).toBeTruthy();
+    const headings = screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent);
+    expect(headings.indexOf("unresolved questions")).toBeLessThan(headings.indexOf("tasks and capability routing"));
   });
 
-  it("reaches source evidence from a task in four clicks", async () => {
+  it("states a routing recommendation only where it differs from the task's routing", () => {
+    expect(routingText({ capability: "frontier", effort: "high", reason: [] }, { capability: "frontier", effort: "high", reason: ["security critical"] })).toBe("frontier / high · security critical");
+    expect(routingText({ capability: "balanced", effort: "medium", reason: ["scope"] }, { capability: "frontier", effort: "high", reason: ["security critical"] })).toBe("balanced / medium · recommended frontier / high · security critical");
+    expect(routingText({ capability: "fast", effort: "low", reason: [] }, null)).toBe("fast / low");
+  });
+
+  it("selects a task or an assertion for tracing", async () => {
     stubArtifacts();
-    render(<PlanView api={new ArtifactApi()} runId="run-1" />);
-    fireEvent.click(await screen.findByText("TASK-001"));
-    fireEvent.click(within(screen.getByLabelText("forward links")).getByText("validation · VAL-001"));
-    fireEvent.click(within(screen.getByLabelText("forward links")).getByText("issue · issue-1"));
-    fireEvent.click(within(screen.getByLabelText("forward links")).getByText("finding · reviewer-a/f-1"));
+    const select = vi.fn();
+    render(<PlanView api={new ArtifactApi()} runId="run-1" selected={{ level: "validation", id: "VAL-001" }} onSelect={select} />);
+    expect((await screen.findByRole("button", { name: "VAL-001" })).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "TASK-001" }));
+    expect(select).toHaveBeenCalledWith("task", "TASK-001");
+  });
+
+  it("reaches source evidence from a task in three steps, keeping the path in a trail", async () => {
+    stubArtifacts();
+    render(<Traced level="task" id="TASK-001" />);
+    fireEvent.click(await within(await screen.findByRole("region", { name: "forward links" })).findByText("validation · VAL-001"));
+    fireEvent.click(within(screen.getByRole("region", { name: "forward links" })).getByText("issue · issue-1"));
+    fireEvent.click(within(screen.getByRole("region", { name: "forward links" })).getByText("finding · reviewer-a/f-1"));
     const trail = screen.getByLabelText("traceability trail");
-    expect(within(trail).getByText("task · TASK-001")).toBeTruthy();
-    expect(within(screen.getByLabelText("forward links")).getByText("evidence · ev-1")).toBeTruthy();
-    expect(screen.getByLabelText("forward links").textContent).toContain("updateRole runs before the authorization guard");
+    expect([...trail.querySelectorAll("li")].map((item) => item.textContent?.split(" · ").slice(0, 2).join(" · "))).toEqual(["task · TASK-001", "validation · VAL-001", "issue · issue-1", "finding · reviewer-a/f-1"]);
+    expect(within(screen.getByRole("region", { name: "forward links" })).getByText("evidence · ev-1")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "forward links" }).textContent).toContain("updateRole runs before the authorization guard");
   });
 
   it("navigates the same chain backward from evidence to task", () => {
@@ -55,16 +75,15 @@ describe("plan view and traceability navigation", () => {
     expect(forward({ ...graph, findings: [] }, { level: "issue", id: "issue-1", label: "" })).toEqual([{ level: "finding", id: "reviewer-a/f-1", label: "source finding unavailable" }]);
   });
 
-  it("navigates backward through the rendered view and lets the trail be rewound", async () => {
+  it("navigates backward and rewinds the trail to an earlier step", async () => {
     stubArtifacts();
-    render(<PlanView api={new ArtifactApi()} runId="run-1" />);
-    fireEvent.click(await screen.findByText("VAL-001"));
-    fireEvent.click(within(screen.getByLabelText("backward links")).getByText("task · TASK-001"));
-    expect(within(screen.getByLabelText("traceability trail")).getByText("task · TASK-001")).toBeTruthy();
-    fireEvent.click(within(screen.getByLabelText("traceability trail")).getByText("validation · VAL-001"));
+    render(<Traced level="validation" id="VAL-001" />);
+    fireEvent.click(await within(await screen.findByRole("region", { name: "backward links" })).findByText("task · TASK-001"));
+    expect(screen.getByLabelText("traceability trail").querySelectorAll("li")).toHaveLength(2);
+    fireEvent.click(within(screen.getByLabelText("traceability trail")).getByRole("button", { name: "validation · VAL-001" }));
     expect(screen.getByLabelText("traceability trail").querySelectorAll("li")).toHaveLength(1);
-    fireEvent.click(screen.getByText("clear trail"));
-    expect(screen.getByText(/select a task or validation assertion to trace it/).dataset.state).toBe("unexamined");
+    expect(findTraceNode(graph, "evidence", "ev-1")).toEqual({ level: "evidence", id: "ev-1", label: "updateRole runs before the authorization guard" });
+    expect(findTraceNode(graph, "task", "TASK-404")).toBeNull();
   });
 
   it("labels absent plan and critic artifacts instead of rendering an empty plan", async () => {
@@ -95,6 +114,13 @@ describe("plan view and traceability navigation", () => {
     expect(source).not.toMatch(/consensus\(|tallyVotes|computeConsensus|@arbitra\/workflow/iu);
   });
 });
+
+/** TraceDetails as the run page uses it: the selection it reports becomes the one it shows. */
+function Traced({ level, id }: { readonly level: TraceLevel; readonly id: string }): ReactElement {
+  const [selected, setSelected] = useState({ level, id });
+  const [api] = useState(() => new ArtifactApi());
+  return <TraceDetails api={api} runId="run-1" level={selected.level} id={selected.id} onSelect={(next, value) => setSelected({ level: next, id: value })} />;
+}
 
 function stubArtifacts(): void {
   vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {

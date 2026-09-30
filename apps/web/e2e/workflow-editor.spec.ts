@@ -1,8 +1,8 @@
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
-import { accessibilityAudit, expectInert, viewTab } from "./support.js";
+import { expect, test, type APIRequestContext, type Locator, type Page, type TestInfo } from "@playwright/test";
+import { accessibilityAudit, expectInert, stateChip, viewTab } from "./support.js";
 
 /**
  * Browser acceptance for operator-authored workflow graphs (completion plan P16).
@@ -24,8 +24,9 @@ async function openEditor(page: Page): Promise<Locator> {
   await page.addInitScript(() => { (window as unknown as { __arbitraInjected?: unknown }).__arbitraInjected = undefined; });
   // The unsaved-changes guard is an in-page dialog; no native dialog may open.
   page.on("dialog", (dialog) => { nativeDialogs.push(dialog.message()); void dialog.dismiss(); });
-  await page.goto("/?view=graph");
-  await page.getByRole("group", { name: "graph mode" }).getByRole("button", { name: "edit graph" }).click();
+  // Arrive through the app, so the browser's back button has an in-app step to guard.
+  await page.goto("/");
+  await page.getByRole("navigation", { name: "main" }).getByRole("link", { name: "Workflows" }).click();
   // The region's name follows the graph ID, which the tests rename.
   const editor = page.getByRole("region", { name: /^workflow graph · editing /u });
   await expect(editor.getByRole("heading", { name: "workflow graph · editing audit-deep" })).toBeVisible();
@@ -48,15 +49,11 @@ async function typeNodeId(page: Page, input: Locator, id: string): Promise<void>
   await expect(input).toHaveValue(id);
 }
 
-async function saveConfiguration(page: Page, name: string, workflow: unknown): Promise<void> {
-  const configuration = page.getByRole("region", { name: "configuration" });
-  const saved = page.getByRole("combobox", { name: "saved configuration" });
-  await saved.selectOption("");
-  await configuration.getByLabel("name", { exact: true }).fill(name);
-  await configuration.getByLabel("validated JSON fallback").fill(JSON.stringify({ verification: {}, workflow, budgets: {}, security: {}, protocols: {}, promptOverrides: {}, contextPolicies: {} }));
-  await configuration.getByLabel("validated JSON fallback").blur();
-  await configuration.getByRole("button", { name: "save", exact: true }).click();
-  await expect(saved.locator("option:checked")).toHaveText(name);
+/** A saved configuration the editor can validate against; the Workflows page lists it when it loads. */
+async function createConfiguration(request: APIRequestContext, name: string, workflow: unknown): Promise<void> {
+  const response = await request.post("/configurations", { data: { name, config: { schemaVersion: 1, mode: "audit", scope: { kind: "repository" }, auditDepth: "balanced", consensusPolicy: "risk_weighted", maxConsensusRounds: 2,
+    verification: {}, models: {}, harness: { mode: "canonical" }, workflow, budgets: {}, security: {}, protocols: {}, promptOverrides: {}, contextPolicies: {} } } });
+  expect(response.status()).toBe(200);
 }
 
 test.describe("workflow canvas editing", () => {
@@ -87,7 +84,8 @@ test.describe("workflow canvas editing", () => {
 
     // Unsaved changes: the browser asks before unloading, and every in-app exit asks first.
     expect(await beforeUnloadBlocked(page)).toBe(true);
-    await viewTab(page, "issue board").click();
+    const main = page.getByRole("navigation", { name: "main" });
+    await main.getByRole("link", { name: "Runs" }).click();
     const guard = page.getByRole("alertdialog", { name: "unsaved graph changes" });
     await expect(guard).toBeVisible();
     await expect(guard.getByRole("button", { name: "keep editing" })).toBeFocused();
@@ -95,23 +93,30 @@ test.describe("workflow canvas editing", () => {
     await page.keyboard.press("Escape");
     await expect(guard).toHaveCount(0);
     await expect(editor).toBeVisible();
-    await page.getByRole("button", { name: "run view · read only" }).click();
+    await expect(page).toHaveURL(/page=workflows/u);
+    await main.getByRole("link", { name: "New run" }).click();
     await expect(guard).toBeVisible();
     await guard.getByRole("button", { name: "keep editing" }).click();
     await expect(editor).toBeVisible();
     await expect(nodeButton(editor, "human", "human")).toBeVisible();
+    // The browser's own back button is guarded the same way.
+    await page.goBack();
+    await expect(guard).toBeVisible();
+    await guard.getByRole("button", { name: "keep editing" }).click();
+    await expect(editor).toBeVisible();
     await shot(page, testInfo, "editor-02-edited");
-    await viewTab(page, "issue board").click();
+    await main.getByRole("link", { name: "Runs" }).click();
     await guard.getByRole("button", { name: "discard changes" }).click();
-    await expect(page.getByRole("region", { name: "issue board" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Runs" })).toBeVisible();
     expect(await beforeUnloadBlocked(page)).toBe(false);
   });
 
   test("keyboard-only editing; the server rejects invalid edges, unbounded loops, missing roles and unauthorized changes", async ({ page, request }, testInfo) => {
     const project = testInfo.project.name;
+    await createConfiguration(request, `keyboard-${project}`, { checkpoints: { mode: "interactive" } });
     const editor = await openEditor(page);
     // Validation checks model roles and checkpoint policy against the selected configuration.
-    await saveConfiguration(page, `keyboard-${project}`, { checkpoints: { mode: "interactive" } });
+    await page.getByLabel("check against configuration").selectOption({ label: `keyboard-${project}` });
     await expect(validation(editor)).toContainText("checked against configuration");
 
     await editor.getByLabel("graph id").focus();
@@ -239,18 +244,24 @@ test.describe("workflow canvas editing", () => {
     const record = await (await request.get(`/workflows/${graphId}/versions/${version}`)).json() as { graph: { nodes: { id: string }[] } };
     expect(record.graph.nodes.map(({ id }) => id)).toContain("signoff");
 
-    await saveConfiguration(page, `run-${project}`, { ...reference, checkpoints: { mode: "interactive" } });
+    // The saved version starts its run from the new-run page, with its reference filled in.
     const { repository } = await (await request.post("/__fixture/repositories/audit")).json() as { repository: string };
-    await page.getByRole("button", { name: "run view · read only" }).click();
-    const controls = page.getByRole("region", { name: "run controls" });
-    await controls.getByLabel("repository").fill(repository);
-    await controls.getByRole("button", { name: "start" }).click();
-    await expect(controls.getByText(/^run \S+ · BLOCKED · resumable$/u)).toBeVisible();
-    const runId = /^run (\S+) ·/u.exec(await controls.getByText(/^run \S+ · BLOCKED/u).innerText())?.[1] ?? "";
+    await page.getByRole("link", { name: "start an Audit run with this graph" }).click();
+    await expect(page.getByLabel("workflow", { exact: true })).toHaveValue(`graph:${graphId}:${version}`);
+    await expect(page.getByLabel("checkpoints", { exact: true })).toHaveValue("interactive");
+    await page.getByLabel("repository path").fill(repository);
+    await page.getByLabel("configuration name").fill(`run-${project}`);
+    await page.getByRole("button", { name: "save and start" }).click();
+    await expect(stateChip(page)).toHaveText("waiting for your decision BLOCKED");
+    const runId = new URL(page.url()).searchParams.get("run") ?? "";
+    expect(runId).toMatch(/^run-/u);
+    const banner = page.getByRole("region", { name: "This run is waiting for your decision" });
+    await expect(banner).toContainText("checkpoint · signoff");
+    await expect(banner).toContainText("Plan the accepted issues? <img src=x");
+    await viewTab(page, "Activity").click();
     const identity = page.getByLabel("executed graph identity");
     await expect(identity).toHaveText(`executes ${graphId} @ ${version} · executed graph matches the saved version`);
     await expect(page.getByRole("list", { name: "live run stages" })).toContainText("◫ human · New human");
-    await expect(controls.locator(".checkpoint")).toContainText("signoff · Plan the accepted issues? <img src=x");
     await expectInert(page);
     await shot(page, testInfo, "editor-05-saved-graph-blocked");
 
@@ -260,18 +271,19 @@ test.describe("workflow canvas editing", () => {
     const laterVersion = (await later.json() as { record: { version: string } }).record.version;
     expect(laterVersion).not.toBe(version);
 
-    await controls.locator(".checkpoint").getByRole("button", { name: "approve" }).click();
-    await expect(controls.locator(".checkpoint")).toHaveCount(0);
-    await controls.getByRole("button", { name: "resume" }).click();
-    await expect(controls.getByText(`run ${runId} · COMPLETED · not resumable`)).toBeVisible();
+    await banner.getByRole("button", { name: "approve" }).click();
+    await expect(banner.getByText("checkpoint signoff · approved")).toBeVisible();
+    await banner.getByRole("button", { name: "resume run" }).click();
+    await expect(stateChip(page)).toHaveText("finished COMPLETED");
     const status = await (await request.get(`/runs/${runId}`)).json() as { state: string; workflowGraph: unknown; workflow: unknown };
     expect(status).toMatchObject({ state: "COMPLETED", workflowGraph: { id: graphId, version, executedVersion: version }, workflow: record.graph });
+    // An old link to the graph view lands on the activity tab.
     await page.goto(`/?run=${encodeURIComponent(runId)}&view=graph`);
     await expect(page.getByLabel("executed graph identity")).toHaveText(`executes ${graphId} @ ${version} · executed graph matches the saved version`);
     await expect(page.getByRole("list", { name: "live run stages" })).toContainText("◫ human · New human");
-    await viewTab(page, "issue board").click();
+    await viewTab(page, "Issues").click();
     await expect(page.getByRole("region", { name: "issue board" }).getByText(/^\d+ of \d+ canonical issues shown$/u)).toBeVisible();
-    await viewTab(page, "workflow graph").click();
+    await viewTab(page, "Activity").click();
     await shot(page, testInfo, "editor-06-saved-graph-completed");
   });
 });

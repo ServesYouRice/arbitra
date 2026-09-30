@@ -12,12 +12,18 @@ export async function createRun(request: APIRequestContext, scenario: string): P
   return ((await response.json()) as { runId: string }).runId;
 }
 
+/** Open a run's page on one tab (`overview`, `issues`, `plan`, `requirements`, `execution`, `activity`, `evaluation`). */
 export async function open(page: Page, runId: string, view: string): Promise<void> {
-  // Model text in these runs tries to set this global; it must stay unset.
+  await guard(page);
+  await page.goto(view === "overview" ? `/?run=${encodeURIComponent(runId)}` : `/?run=${encodeURIComponent(runId)}&view=${view}`);
+  await expect(page.getByRole("navigation", { name: "run views" })).toBeVisible();
+}
+
+/** Model text in these runs tries to set a global and open dialogs; both must stay inert. */
+export async function guard(page: Page): Promise<void> {
+  if (dialogs.has(page)) return;
+  const seen: string[] = []; dialogs.set(page, seen); page.on("dialog", (dialog) => { seen.push(dialog.message()); void dialog.dismiss(); });
   await page.addInitScript(() => { (window as unknown as { __arbitraInjected?: unknown }).__arbitraInjected = undefined; });
-  if (!dialogs.has(page)) { const seen: string[] = []; dialogs.set(page, seen); page.on("dialog", (dialog) => { seen.push(dialog.message()); void dialog.dismiss(); }); }
-  await page.goto(`/?run=${encodeURIComponent(runId)}&view=${view}`);
-  await expect(page.getByRole("navigation", { name: "workspace views" })).toBeVisible();
 }
 
 export async function shot(page: Page, testInfo: TestInfo, name: string): Promise<void> {
@@ -35,7 +41,32 @@ export async function expectInert(page: Page): Promise<void> {
 }
 
 export function viewTab(page: Page, label: string) {
-  return page.getByRole("navigation", { name: "workspace views" }).getByRole("button", { name: label, exact: true });
+  return page.getByRole("navigation", { name: "run views" }).getByRole("link", { name: label, exact: true });
+}
+
+/** The run's state chip in the page header: its words, then the recorded state code. */
+export function stateChip(page: Page) {
+  return page.locator(".run-header__title .chip");
+}
+
+/**
+ * Every visible control whose centre another element covers. Found by browser QA: a fixed
+ * panel the width of the old inspector column sat invisibly over the form beside it and
+ * swallowed its clicks.
+ */
+export async function coveredControls(page: Page): Promise<readonly string[]> {
+  return page.evaluate(() => {
+    const covered: string[] = [];
+    for (const element of document.querySelectorAll("a[href], button, input, select, textarea, summary")) {
+      const box = element.getBoundingClientRect();
+      if (box.width === 0 || box.height === 0 || box.bottom < 0 || box.top > innerHeight || box.right < 0 || box.left > innerWidth) continue;
+      const x = Math.min(Math.max(box.left + box.width / 2, 0), innerWidth - 1);
+      const y = Math.min(Math.max(box.top + box.height / 2, 0), innerHeight - 1);
+      const top = document.elementFromPoint(x, y);
+      if (top !== null && top !== element && !element.contains(top) && !top.contains(element)) covered.push(`${element.tagName.toLowerCase()} "${(element.textContent ?? element.getAttribute("aria-label") ?? "").trim().slice(0, 40)}" under ${top.tagName.toLowerCase()}.${String(top.className).split(" ").join(".")}`);
+    }
+    return covered;
+  });
 }
 
 /**

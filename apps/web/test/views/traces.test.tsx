@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TraceEntry, TracePage } from "@arbitra/schemas/trace-browser.js";
-import { TraceView } from "../../src/views/traces/TraceView.js";
+import { AttemptDetails, TraceView } from "../../src/views/traces/TraceView.js";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const entry: TraceEntry = { traceId: "0", trace: {
@@ -79,5 +79,38 @@ describe("model trace inspection", () => {
     fireEvent.click(await screen.findByRole("button", { name: /attempt 2/ }));
     fireEvent.click(screen.getByRole("button", { name: "input 1" }));
     expect((await screen.findByRole("alert")).textContent).toContain("artifact unavailable · TRACE_API_404");
+  });
+
+  it("hands a selected attempt to the caller, which loads it by trace ID", async () => {
+    const paths: string[] = [];
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => { const path = String(input); paths.push(path); return json(path.endsWith("/traces/0") ? entry : page); });
+    const selected = vi.fn();
+    const view = render(<TraceView runId="run-1" selectedTraceId="0" onSelect={selected} />);
+    const button = await screen.findByRole("button", { name: "audit/a/turn/0 · attempt 2" });
+    expect(button.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(button);
+    expect(selected).toHaveBeenCalledWith("0");
+    expect(screen.queryByLabelText("attempt details")).toBeNull();
+    view.unmount();
+    render(<AttemptDetails runId="run-1" traceId="0" />);
+    expect((await screen.findByLabelText("attempt details")).textContent).toContain("profile-1");
+    expect(paths.at(-1)).toBe("/runs/run-1/traces/0");
+  });
+
+  it("shortens hashes in activity IDs on screen but keeps the full ID as the accessible name", async () => {
+    const hashed = { ...entry, trace: { ...entry.trace, activityId: `testing/risk/${"b9".repeat(32)}/turn-0` } };
+    vi.stubGlobal("fetch", async () => json({ ...page, entries: [hashed] }));
+    render(<TraceView runId="run-1" onSelect={() => undefined} />);
+    const button = await screen.findByRole("button", { name: `testing/risk/${"b9".repeat(32)}/turn-0 · attempt 2` });
+    expect(button.textContent).toBe("testing/risk/b9b9b9b9…/turn-0 · attempt 2");
+    expect(button.getAttribute("title")).toBe(`testing/risk/${"b9".repeat(32)}/turn-0`);
+  });
+
+  it("shows only why a run recorded no attempts, without filters or paging", async () => {
+    vi.stubGlobal("fetch", async () => json({ ...page, entries: [], total: 0 }));
+    render(<TraceView runId="run-1" emptyNote="no model attempts · scripted detectors make no model calls" />);
+    expect((await screen.findByText("no model attempts · scripted detectors make no model calls")).dataset.state).toBe("unexamined");
+    expect(screen.queryByLabelText("outcome")).toBeNull();
+    expect(screen.queryByRole("navigation", { name: "trace pages" })).toBeNull();
   });
 });

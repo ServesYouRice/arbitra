@@ -145,9 +145,27 @@ request exists (exit `2`, reason `preflight_failed`; HTTP `400`). See the
 `apps/server/src/main.ts` builds a Fastify instance bound to `127.0.0.1:4178`. Every route
 carries a canonical schema from `packages/schemas/src/http-control-plane.ts`; a route with
 no schema entry throws `MISSING_HTTP_SCHEMA` at registration rather than serving unvalidated
-input. Seventeen control-plane routes are listed in `apps/server/src/routes/inventory.ts`;
+input. Twenty-one control-plane routes are listed in `apps/server/src/routes/inventory.ts`;
 two evaluation routes (`GET /runs/:id/metrics`, `POST /runs/compare`) register only when a
 metric store is wired, and return 404 otherwise.
+
+Four of those routes exist for the operator UI and read only what runs recorded.
+`GET /runs` lists every run newest first: its state and the reason recorded with its latest
+transition, mode, workflow, repository, whether models or scripted detectors executed it,
+creation and last-event times (the modification times of its once-written `context.json` and
+its append-only `events.jsonl`), whether this process is executing it, the operator
+decisions it waits on, and, once it has completed, the same gate the CLI turns into an exit
+code (`Orchestrator.gate`). A running state with `live: false` means another process (such as
+the CLI) is executing the run or it was interrupted; no lock tells the two apart, so the UI
+says so and leaves resuming to the operator. A run whose records cannot be read is listed
+with the reason rather than dropped. An entry is recomputed only when the run's context,
+event log, artifact index or liveness changes, and at most eight runs are read at once. `GET /runs/:id/overview`
+adds the settings the run was created with from its stored context: scope, peer review policy
+and rounds, critic, checkpoint mode, saved graph, and the configuration of a model-backed run.
+`GET /repositories/selected` names the repository a run reads when it names none.
+`POST /preflight` runs `Orchestrator.preflight` on an unsaved configuration and, when it is
+valid, the estimate over the repository it would read; nothing is saved and no run exists
+afterwards.
 
 Five workflow routes (`GET /workflows`, `GET /workflows/:id`,
 `GET /workflows/:id/versions/:version`, `POST /workflows/validate`, `POST /workflows`) list,
@@ -195,34 +213,56 @@ a credential.
 
 ### Web
 
-`apps/web` renders the four-column shell from `docs/DESIGN-LANGUAGE.md`: Model Pool,
-workflow graph, prompt/context/contract, and inspector with run controls. The graph is a
-live run view built with ELK layout and React Flow. An edit mode (`GraphEditor.tsx`) edits
-operator-authored graphs and saves immutable versions that the server validates; see
-[Operator-authored graphs](workflows.md#operator-authored-graphs).
+`apps/web` is four addressable places (see [Pages, not columns](DESIGN-LANGUAGE.md#pages-not-columns)),
+routed from the query string by `apps/web/src/app/router.tsx` so a run, its tab and its
+selected item are a link and the back button walks them:
 
-Column two is the only fluid column, so it carries the run-level views behind a tab strip
-(`WORKSPACE_VIEWS` in `apps/web/src/shell/ArbitraWorkspace.tsx`): the workflow graph, the
-Issue Board (`views/issue-board/`), the Plan view with its bidirectional traceability trail
-(`views/plan/`), the Evaluation surface (`views/evaluation/`), and the trace browser
-(`views/traces/`). The trace browser shows full model/harness/protocol identity,
-requested/resolved effort, measured usage, outcome, refusal/error details and redacted
-input/output artifacts. It refreshes on run events or explicit request, keeps unknown
-measurements distinct from zero, and treats artifact content as untrusted text.
+- **Runs** (`pages/RunsPage.tsx`) lists `GET /runs`, newest first, and polls while a run is
+  active. Blocked runs are counted first, because they do nothing until someone acts.
+- **Run** (`pages/run/`) has a header with the state in words and code, the one lifecycle
+  action the state allows, what executed the run and its gate; a decision banner above every
+  tab while the run is blocked, holding the human-checkpoint decisions, one answer field per
+  blocking question an interactive Audit's plan left open, a link to requirements awaiting
+  approval, and the resume that follows them; the tabs the run's mode can fill; and one
+  details panel for the selected
+  node, issue, plan step, model attempt or artifact. The run's settings come from
+  `GET /runs/:id/overview`, never from a configuration being edited elsewhere.
+- **New run** (`pages/new-run/`) edits one configuration object, starting from a template
+  (the scripted smoke test, or one of `examples/model-backed/`), a saved configuration, a past
+  run's settings, an imported file, or a saved workflow graph. It lists every placeholder a
+  template leaves, runs `POST /preflight` for the diagnostics and the estimate, and starts a
+  run only after saving the configuration it runs from; the start button says which save
+  that is.
+- **Workflows** (`pages/WorkflowsPage.tsx`) hosts the graph editor (`graph/GraphEditor.tsx`),
+  which edits operator-authored graphs and saves immutable versions the server validates;
+  see [Operator-authored graphs](workflows.md#operator-authored-graphs). A saved version
+  links to a new run that executes it. Unsaved edits guard every way out: in-app links, the
+  back button and `beforeunload`.
 
-Two more views cover Feature and Testing runs. The Feature contract view (`views/feature/`)
-shows the requirements contract and pending high-impact defaults. The operator can approve,
-revise the draft, apply a model revision proposal and resume. It uses only the existing
-requirements routes and `POST /runs/:id/resume`. Every mutation names the contract artifact
-it was made against. A stale artifact returns 409, and the view says so and offers a reload.
-Approval never resumes the run. The Testing execution view (`views/testing/`) reads the
-Testing routes above. It shows authority, the plan beside execution, attempts, check results
-and repair rounds. A no-work result is labelled as no work, not as coverage. The operator
-can download the verified change set or plan handoff as JSON. The graph expands Feature and
-Testing subgraph nodes into the stages their run recorded (`columns/graph/recorded-stages.ts`).
-Stages are drawn with the same six node kinds, and unrecorded stages are omitted rather than
-guessed. Run controls also appear for a run opened by link without a saved configuration.
-Estimate and start stay disabled in that case.
+The run tabs reuse the views: the Issue Board (`views/issue-board/`), one line per canonical
+issue with its dissent on the row and its full record in the details panel; the Plan view
+(`views/plan/`), with blocking questions and critic objections first and bidirectional
+traceability in the details panel; the Feature contract (`views/feature/`); the Testing
+execution record (`views/testing/`); and Evaluation (`views/evaluation/`). Activity
+(`pages/run/ActivityTab.tsx`) holds the executed graph (`graph/GraphView.tsx`, ELK layout and
+React Flow), the trace browser (`views/traces/`) and every persisted artifact. A compiled
+prompt artifact is shown as what the model received: its provenance, then each prompt layer
+at the byte boundaries the compiler recorded.
+
+The trace browser shows full model/harness/protocol identity, requested/resolved effort,
+measured usage, outcome, refusal/error details and redacted input/output artifacts. It
+refreshes on run events or explicit request, keeps unknown measurements distinct from zero,
+and treats artifact content as untrusted text. The Feature contract view shows the
+requirements contract and pending high-impact defaults; the operator can approve, revise
+the draft and apply a model revision proposal through the existing requirements routes.
+Every mutation names the contract artifact it was made against. A stale artifact returns
+409, and the view says so and offers a reload. Approval never resumes the run; the resume is
+the banner's. The Testing execution view reads the Testing routes above. It shows authority,
+the plan beside execution, attempts, check results and repair rounds. A no-work result is
+labelled as no work, not as coverage. The operator can download the verified change set or
+plan handoff as JSON. The graph expands Feature and Testing subgraph nodes into the stages
+their run recorded (`graph/recorded-stages.ts`), drawn with the same six node kinds;
+unrecorded stages are omitted rather than guessed.
 
 Browser acceptance runs through `pnpm --filter @arbitra/web e2e` (Playwright, Chromium, Firefox
 and WebKit). It is not part of `pnpm test`. The scenarios start the real control plane from
@@ -236,9 +276,6 @@ Trace list and detail responses are served from a persistent per-run index
 committed trace log and re-reads only the served records from it, so a page no longer
 scans the whole log; the log stays authoritative and the index is rebuilt when stale or
 corrupt. See [durability](durability.md#traces-and-the-rebuildable-index).
-The Model Pool, contract
-column and inspector stay in place across the switch, so run controls remain reachable from
-every view.
 
 ## Known gaps
 
@@ -280,7 +317,7 @@ now differs; all unfinished work is included in the completion plan.
 | Feature workflow extensions | Requirements/review/planning/revision, web contract view, expanded subgraphs and mode-specific replay are implemented. Automatic and interactive Feature ran live on subscriptions ([qa/p03-subscription](qa/p03-subscription/README.md)); requirements revision still makes one call (P08) |
 | Incremental / repeat audit execution | Opt-in incremental Audit in `packages/runtime/src/incremental-audit.ts`. It reuses byte-identical discovery units and identity-matched downstream stages from a completed base, with fallback, provenance and saved-work/coverage reporting. Tested with injected fake providers only; live-provider exercise remains. See [Incremental Audit](workflows.md#incremental-audit) |
 | Provider batch API path | Opt-in batch lane and OpenAI/Anthropic/Gemini drivers in `packages/providers/src/batch/`, tested against injected HTTP; a live run was refused by every provider before job creation, so every driver is declared-unverified. Live validation needs a funded account and is deferred to the [paid-API bundle](completion-plan.md#deferred-the-paid-api-bundle) (P15). See [`provider-model.md`](provider-model.md#batch-lane) |
-| Drag-and-drop workflow canvas editor | Implemented: `apps/web/src/columns/graph/GraphEditor.tsx` edits operator-authored graphs; versions are content-addressed and validated server-side, and runs execute and resume the saved version. Audit mode only (P16) |
+| Drag-and-drop workflow canvas editor | Implemented: `apps/web/src/graph/GraphEditor.tsx` edits operator-authored graphs; versions are content-addressed and validated server-side, and runs execute and resume the saved version. Audit mode only (P16) |
 | Local embedding clustering | `packages/workflow/src/clustering/deterministic.ts` is the deterministic path; §25.4 metrics would have to justify replacing it. A local MiniLM candidate was evaluated offline on authored and P06 real-model findings and not adopted (P18, [qa/p18](qa/p18/README.md)) |
 
 Data for these is recorded now, per §2.4: inspection and exposure footprints, immutable

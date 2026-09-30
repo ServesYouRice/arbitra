@@ -14,6 +14,25 @@ export interface TestingViewProps {
   readonly refreshKey?: unknown;
 }
 
+export interface TestingOperatorState { readonly view: TestingOperatorView | null; readonly error: string | null; readonly reload: () => void }
+
+/** The read-only Testing operator view of a Testing run; reloaded as the run's state changes. */
+export function useTestingView(api: TestingApi, runId: string | null, run: RunResource | null, refreshKey: unknown): TestingOperatorState {
+  const testing = run?.workflow?.id === "testing-plan" || run?.workflow?.id === "testing-execute";
+  const [reload, setReload] = useState(0);
+  const [view, setView] = useState<TestingOperatorView | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    // A reload keeps the last view on screen until the new read answers.
+    setError(null);
+    if (runId === null || !testing) { setView(null); return; }
+    let active = true;
+    void api.view(runId).then((value) => { if (active) setView(value); }, (cause: unknown) => { if (active) setError(failure(cause)); });
+    return () => { active = false; };
+  }, [api, runId, testing, refreshKey, reload, run?.state]);
+  return { view, error, reload: () => setReload((value) => value + 1) };
+}
+
 /**
  * Testing configuration and authority review, plan versus execution, attempts, checks,
  * repair lineage and the verified change set, all from the read-only Testing routes.
@@ -24,24 +43,13 @@ export interface TestingViewProps {
  */
 export function TestingView({ runId, run, artifacts, api = SHARED_TESTING, artifactApi = SHARED_ARTIFACTS, refreshKey = null }: TestingViewProps): ReactElement {
   const testing = run?.workflow?.id === "testing-plan" || run?.workflow?.id === "testing-execute";
-  const [reload, setReload] = useState(0);
-  const [view, setView] = useState<TestingOperatorView | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    setView(null); setError(null);
-    if (runId === null || !testing) return;
-    let active = true;
-    void api.view(runId).then((value) => { if (active) setView(value); }, (cause: unknown) => { if (active) setError(failure(cause)); });
-    return () => { active = false; };
-  }, [api, runId, testing, refreshKey, reload, run?.state]);
-
+  const { view, error, reload } = useTestingView(api, runId, run, refreshKey);
   if (runId === null || run === null) return <Frame><p className="state" data-state="unexamined">select a Testing run to review its authority and execution</p></Frame>;
   if (!testing) return <Frame><p className="state" data-state="unexamined">not a Testing run · workflow {run.workflow?.id ?? "unavailable"}</p></Frame>;
-  if (error !== null) return <Frame><p className="state" data-state="degraded" role="alert">Testing view unavailable · {error}</p><button type="button" onClick={() => setReload((value) => value + 1)}>reload Testing view</button></Frame>;
+  if (error !== null) return <Frame><p className="state" data-state="degraded" role="alert">Testing view unavailable · {error}</p><button className="button" type="button" onClick={reload}>reload Testing view</button></Frame>;
   if (view === null) return <Frame><p role="status">loading Testing view</p></Frame>;
   const planHandoff = artifacts.find(({ kind }) => kind === "implementation");
   return <Frame>
-    <p className="operator-run">run {view.runId} · {view.runState} · mode {view.configuration.mode}</p>
     <Authority view={view} />
     <Planning view={view} />
     {view.configuration.mode === "execute" && !view.noWork ? <>
@@ -90,7 +98,7 @@ function Authority({ view }: { readonly view: TestingOperatorView }): ReactEleme
   </Section>;
 }
 
-function Planning({ view }: { readonly view: TestingOperatorView }): ReactElement {
+export function Planning({ view }: { readonly view: TestingOperatorView }): ReactElement {
   const { planning } = view;
   return <Section id="testing-planning-title" title="planning gate">
     {planning === null ? <p className="state" data-state="unexamined">no planning result recorded</p> : <>
@@ -152,7 +160,7 @@ function Repair({ view }: { readonly view: TestingOperatorView }): ReactElement 
   </Section>;
 }
 
-function Outcome({ view }: { readonly view: TestingOperatorView }): ReactElement {
+export function Outcome({ view }: { readonly view: TestingOperatorView }): ReactElement {
   const { execution } = view;
   return <Section id="testing-outcome-title" title="execution outcome">
     {execution === null ? <p className="state" data-state="unexamined">no execution outcome recorded</p> : <>
@@ -162,7 +170,7 @@ function Outcome({ view }: { readonly view: TestingOperatorView }): ReactElement
   </Section>;
 }
 
-function Handoff({ view, api, runId, planHandoff, artifactApi }: { readonly view: TestingOperatorView; readonly api: TestingApi; readonly runId: string; readonly planHandoff: ArtifactDescriptor | undefined; readonly artifactApi: ArtifactApi }): ReactElement {
+export function Handoff({ view, api, runId, planHandoff, artifactApi }: { readonly view: TestingOperatorView; readonly api: TestingApi; readonly runId: string; readonly planHandoff: ArtifactDescriptor | undefined; readonly artifactApi: ArtifactApi }): ReactElement {
   const [changeSet, setChangeSet] = useState<TestingVerifiedChangeSet | null>(null);
   const [error, setError] = useState<string | null>(null);
   const available = view.handoff.verifiedChangeSet;
@@ -172,14 +180,14 @@ function Handoff({ view, api, runId, planHandoff, artifactApi }: { readonly view
   };
   return <Section id="testing-handoff-title" title="handoff">
     {planHandoff === undefined ? <p className="state" data-state="unexamined">no plan handoff</p>
-      : <button type="button" onClick={() => { void artifactApi.load(runId, planHandoff.artifactId).then((artifact) => downloadJson(`${runId}-test-plan-handoff.json`, JSON.parse(artifact.content) as unknown), (cause: unknown) => setError(failure(cause))); }}>download plan handoff</button>}
+      : <button className="button" type="button" onClick={() => { void artifactApi.load(runId, planHandoff.artifactId).then((artifact) => downloadJson(`${runId}-test-plan-handoff.json`, JSON.parse(artifact.content) as unknown), (cause: unknown) => setError(failure(cause))); }}>download plan handoff</button>}
     {view.configuration.mode !== "execute" ? null : available === null
       ? <p className="state" data-state="unexamined">no verified change set · {view.noWork ? "no work was selected" : "withheld until fresh final verification passes"}</p>
       : <>
         <p className="state" data-state="verified">verified change set · {available.files} files · {available.changeSetArtifactId}</p>
         <div className="operator-actions">
-          <button type="button" onClick={() => { void retrieve(); }}>inspect verified change set</button>
-          <button type="button" onClick={() => { void retrieve().then((value) => { if (value !== null) downloadJson(`${runId}-verified-change-set.json`, value); }); }}>download verified change set</button>
+          <button className="button" type="button" onClick={() => { void retrieve(); }}>inspect verified change set</button>
+          <button className="button" type="button" onClick={() => { void retrieve().then((value) => { if (value !== null) downloadJson(`${runId}-verified-change-set.json`, value); }); }}>download verified change set</button>
         </div>
         <p className="operator-note">Apply a file only when the destination bytes match its expected hash; a null expected hash means the file must not exist yet.</p>
       </>}

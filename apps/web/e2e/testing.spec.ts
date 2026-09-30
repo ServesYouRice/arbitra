@@ -1,14 +1,15 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
-import { createRun, expectInert, open, shot, viewTab } from "./support.js";
+import { createRun, expectInert, open, shot, stateChip, viewTab } from "./support.js";
 
 test.describe("Testing execution review", () => {
   test("authority review, plan versus execution and verified change download", async ({ page, request }, testInfo) => {
     const runId = await createRun(request, "testing-pass");
-    await open(page, runId, "testing");
+    await open(page, runId, "execution");
     const view = page.getByRole("region", { name: "testing execution" });
-    await expect(view.getByText(`run ${runId} · COMPLETED · mode execute`)).toBeVisible();
+    await expect(stateChip(page)).toHaveText("finished COMPLETED");
+    await expect(page.getByText("gate passed").first()).toBeVisible();
     await expect(view.getByLabel("write partitions")).toContainText("tests/001.test.ts");
     await expect(view.getByLabel("check bindings")).toContainText("/usr/bin/node --test tests/001.test.ts");
     await expect(view.getByText("3 · runtime default")).toBeVisible();
@@ -30,7 +31,7 @@ test.describe("Testing execution review", () => {
 
   test("failed checks withhold the handoff", async ({ page, request }, testInfo) => {
     const runId = await createRun(request, "testing-failed");
-    await open(page, runId, "testing");
+    await open(page, runId, "execution");
     const view = page.getByRole("region", { name: "testing execution" });
     await expect(view.getByText("execution · failed · task_attempts_exhausted:TASK-001")).toBeVisible();
     await view.getByText("TASK-001 · 1 attempts · blocked").click();
@@ -44,7 +45,7 @@ test.describe("Testing execution review", () => {
 
   test("bounded repair is shown with its lineage and recorded subgraph stages", async ({ page, request }, testInfo) => {
     const runId = await createRun(request, "testing-repair");
-    await open(page, runId, "testing");
+    await open(page, runId, "execution");
     const view = page.getByRole("region", { name: "testing execution" });
     await expect(view.getByLabel("repair rounds")).toContainText("round 1 · reopened");
     await expect(view.getByLabel("repair rounds")).toContainText("failed TASK-001 · reopened TASK-001 · stale TASK-002");
@@ -57,7 +58,7 @@ test.describe("Testing execution review", () => {
     expect(payload.changeSet.files.find(({ path }) => path === "tests/001.test.ts")?.content).toBe("test('001 repaired', () => {});\n");
 
     // The execution subgraph expands into the stages this run recorded, keyboard first.
-    await viewTab(page, "workflow graph").click();
+    await viewTab(page, "Activity").click();
     const stages = page.getByRole("list", { name: "live run stages" });
     const expand = stages.getByRole("button", { name: "expand Guarded test execution · 6 recorded stages" });
     await expand.focus();
@@ -70,9 +71,19 @@ test.describe("Testing execution review", () => {
     await expect(stages.locator("li[data-stage-of='execute']")).toHaveCount(0);
   });
 
+  test("the overview states the Testing result and offers the verified handoff", async ({ page, request }) => {
+    const runId = await createRun(request, "testing-pass");
+    await open(page, runId, "overview");
+    const summary = page.getByRole("region", { name: "tests" });
+    await expect(summary.getByText("execution · passed")).toBeVisible();
+    await expect(summary.getByText(/^verified change set · 1 files/u)).toBeVisible();
+    await expect(summary.getByRole("button", { name: "download verified change set" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "how it ran" }).getByRole("table", { name: "model profiles" })).toContainText("analyst, planner");
+  });
+
   test("a no-work result stays explicit", async ({ page, request }, testInfo) => {
     const runId = await createRun(request, "testing-empty");
-    await open(page, runId, "testing");
+    await open(page, runId, "execution");
     const view = page.getByRole("region", { name: "testing execution" });
     await expect(view.getByText("no work · analysis selected no gaps, so nothing was written or executed · this is not evidence of test coverage")).toBeVisible();
     await expect(view.getByText("planning · passed · 0 selected gaps")).toBeVisible();

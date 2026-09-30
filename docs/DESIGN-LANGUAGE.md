@@ -95,17 +95,56 @@ space   4 · 8 · 12 · 20 · 32 · 52 · 84          (--s1 … --s7)
 | State stripe | 2–5px by severity |
 | Text measure | 66ch |
 
-### The four-column shell (§26)
+### Pages, not columns
 
-| Column | Width |
-|---|---|
-| 1 · Model Pool | 280px fixed |
-| 2 · Workflow Graph | fluid, min 420px |
-| 3 · Prompt / Context / Contract | 360px fixed |
-| 4 · Inspector and Run Controls | 320px, collapsible |
+The first interface was the four-column shell of §26: Model Pool, workflow graph,
+prompt/context/contract, and inspector with run controls. It set a run's record beside a
+draft of the next run's configuration and never said which panel described which, so R1
+failed at the level of the layout. Since 2026-09-29 the interface is four places, each with
+one job, and each addressable:
 
-Columns are separated by a 1px hairline, never a gap and never a shadow. Panel padding is
-`--s4`. Below 1180px column 4 becomes an overlay; below 900px columns 1 and 3 become tabs.
+| Place | Address | Holds |
+|---|---|---|
+| Runs | `/` | Every recorded run: its state, what ran it, its gate, the repository it read |
+| Run | `?run=<id>&view=<tab>&item=<kind>:<id>` | One run: header, the decisions it waits on, the tabs its mode has, one details panel |
+| New run | `?page=new-run&from=<start>` | One configuration: filled in, checked by the orchestrator's preflight, saved, started |
+| Workflows | `?page=workflows` | The workflow graph editor |
+
+A run page reads top to bottom:
+
+- **Header.** Mode and workflow as the page title, the state chip, and the one lifecycle
+  action the state allows (cancel, or resume). Beneath it the run ID, repository, times,
+  what executed it (models, or scripted detectors that make no model call) and the gate.
+- **Decision banner.** Present only while the run is blocked, above every tab, with the
+  decisions themselves and the resume that follows them.
+- **Tabs.** Only those the mode can fill. Audit: Overview · Issues · Plan · Activity ·
+  Evaluation. Feature: Overview · Requirements · Plan · Activity · Evaluation. Testing:
+  Overview · Plan · Execution · Activity · Evaluation.
+- **Details panel.** Whatever is selected (a node, an issue, a plan step, a model attempt,
+  an artifact), shown from the run's own records. It sits beside the tab, 360–440px, behind
+  a 1px hairline, and exists only while something is selected. Below 1180px it is a modal
+  drawer from the right; below 900px the page is a single column.
+
+Panel padding is `--s4`; page content stops at 1480px. Sections are separated by a hairline,
+never a gap alone and never a shadow.
+
+### Emphasis without hue
+
+R2 leaves no hue for "look here", so emphasis is weight, fill and the neutral ink:
+
+- **The primary action** of a place (approve, resume, save and start) is filled with
+  `--ink` and lettered in `--surface`. There is one per place. Every other action is a
+  hairline button.
+- **Links** are underlined `--ink`. **The current page and tab** carry an `--ink` rule.
+  Brass is never navigation.
+- **Waiting on the operator** (a blocked run, a pending approval) is an `--ink` stripe and
+  the human-checkpoint glyph ◫. It is not a seventh state: it says whose move it is.
+- **Every state is words and code.** A chip reads `waiting for your decision BLOCKED`; a gate
+  reason reads `coverage is incomplete degraded_coverage`. The words are a reading aid; the
+  code is the record.
+- **Prose is sans; data is mono.** Model-authored text and explanations use the body face;
+  identifiers, counts and paths use the data face. Hashes are cut to eight characters on
+  screen, with the full value one hover away.
 
 ## Glyphs
 
@@ -196,3 +235,11 @@ invariant. `no-raw-color.cjs`, installed as `tooling/eslint-rules/no-raw-color.c
 `pnpm lint` on a colour literal in `apps/web/src` scripts, alongside the existing
 determinism lint (TASK-004). `pnpm run design:check` fails on a hex colour in any stylesheet
 other than `tokens.css`. Both run in `pnpm run ci`.
+
+The web suite reads its own sources for the rest (`apps/web/test/design.test.ts`): every
+stylesheet uses token colours, square corners, no shadow and no gradient, and draws borders
+only as hairlines or state stripes; brass appears only on dissent and on a model's proposal
+awaiting the operator; a stylesheet that draws a border also styles forced-colours mode; the
+details panel becomes a drawer below 1180px; and the six glyphs come only from the shared
+table. The browser suite (`pnpm --filter @arbitra/web e2e`) checks at 1100px and 800px that
+no control is covered by another element, as one was in the four-column shell at those widths.

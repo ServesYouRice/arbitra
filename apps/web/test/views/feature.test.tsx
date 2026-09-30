@@ -52,7 +52,7 @@ describe("Feature contract controls", () => {
     expect(calls.some(({ path }) => path.endsWith("/resume"))).toBe(false);
   });
 
-  it("revises the draft, applies a proposal and resumes only on request", async () => {
+  it("revises the draft and applies a proposal, reporting each decision and never resuming", async () => {
     const proposal = { artifactId: "proposal-1", baseArtifactId: "contract-a", reviewArtifactId: "review", modelProfileId: "planner", revision: { draft: { ...contract("x", false).contract, ambiguities: [{ id: "migration", question: "Migrate?", proposedDefault: "Keep sessions (revised)", blastRadius: "high" as const }] }, lineage: [], addedRequirementIds: [], resolutions: [{ requirementId: "migration", resolution: "Clarified" }] } };
     const calls: { path: string; body: unknown }[] = [];
     vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -62,8 +62,8 @@ describe("Feature contract controls", () => {
       if (path.endsWith("/resume")) return json({ ...run, state: "RUNNING" });
       return json({}, 404);
     });
-    const resumed = vi.fn();
-    render(<FeatureView runId="run-1" run={run} artifacts={[]} onResumed={resumed} />);
+    const decided = vi.fn();
+    render(<FeatureView runId="run-1" run={run} artifacts={[]} onDecided={decided} />);
     expect((await screen.findByLabelText("proposed changes")).textContent).toContain("migration · proposedDefault · Keep sessions → Keep sessions (revised)");
     fireEvent.click(screen.getByRole("button", { name: "revise draft" }));
     const editor = screen.getByLabelText("draft JSON") as HTMLTextAreaElement;
@@ -75,9 +75,20 @@ describe("Feature contract controls", () => {
     await waitFor(() => expect(calls.some(({ path }) => path.endsWith("/revise"))).toBe(true));
     fireEvent.click(await screen.findByRole("button", { name: "apply proposal" }));
     await waitFor(() => expect(calls.find(({ path }) => path.endsWith("/apply-revision"))?.body).toEqual({ artifactId: "proposal-1" }));
-    expect(resumed).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "resume run" }));
-    await waitFor(() => expect(resumed).toHaveBeenCalledWith(expect.objectContaining({ state: "RUNNING" })));
+    await waitFor(() => expect(decided).toHaveBeenCalledTimes(2));
+    // Resume belongs to the run page's decision banner; this view has no way to resume.
+    expect(screen.queryByRole("button", { name: "resume run" })).toBeNull();
+    expect(calls.some(({ path }) => path.endsWith("/resume"))).toBe(false);
+  });
+
+  it("puts the decisions directly under the defaults they approve", async () => {
+    vi.stubGlobal("fetch", async () => json(contract("contract-a", false)));
+    render(<FeatureView runId="run-1" run={run} artifacts={[]} />);
+    const approve = await screen.findByRole("button", { name: "approve selected defaults" });
+    const checkbox = screen.getByLabelText("approve default for migration");
+    const assumptions = screen.getByText("assumptions · model-authored");
+    expect(checkbox.compareDocumentPosition(approve) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(approve.compareDocumentPosition(assumptions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("states when the selected run is not a Feature run", () => {

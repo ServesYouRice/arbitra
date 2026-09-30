@@ -1,0 +1,20 @@
+/* The new-run form: one column of sections, each a surface with a label title. */
+.new-run { display: grid; gap: var(--s4); max-width: 1080px; }
+.form-section { display: grid; gap: var(--s3); min-width: 0; }
+.field-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: var(--s3); align-items: start; }
+.scope, .roles { display: grid; gap: var(--s3); margin: 0; padding: var(--s3); border: var(--hairline) solid var(--line-soft); border-radius: var(--radius); min-width: 0; }
+.role-multiple { margin: 0; padding: 0; border: 0; }
+.role-multiple legend { padding: 0; color: var(--mute); }
+.import input { width: auto; }
+/* A template value still to fill in: a refuted stripe, because preflight will refuse it. */
+input.placeholder { border-inline-start: var(--stripe) solid var(--refuted); }
+tr[data-placeholder="true"] td:first-child { font-weight: 600; color: var(--ink); }
+.limits .field { align-content: start; }
+.form-section .table input { min-width: 16rem; }
+.diagnostics > li { display: grid; gap: var(--s1); padding-block: var(--s1); }
+.advanced > summary { list-style: none; cursor: pointer; }
+.advanced > summary::-webkit-details-marker { display: none; }
+.advanced > summary .panel-title::after { content: " · show"; }
+.advanced[open] > summary .panel-title::after { content: " · hide"; }
+.check { display: grid; gap: var(--s2); padding: var(--s3); border: var(--hairline) solid var(--line); background: var(--sunken); }
+@media (forced-colors: active) { .scope, .roles, .check, input.placeholder { border-color: CanvasText; } }
