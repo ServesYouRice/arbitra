@@ -351,6 +351,9 @@ describe("composed model audits", () => {
     if (pending?.kind !== "plan-questions") throw new Error("PLAN_QUESTIONS_CHECKPOINT_ABSENT");
     expect(pending).toMatchObject({ checkpointId: "plan-questions", status: "pending", questions: [{ id: "Q-null", blastRadius: "high" }] });
     expect((await core.gate(result.runId)).reasons).toEqual(expect.arrayContaining(["checkpoint_pending:plan-questions", "blocking_plan_questions"]));
+    // The run list counts the unanswered questions as the run's one pending decision.
+    const listed = async () => (await core.listRuns()).find(({ runId }) => runId === result.runId);
+    expect(await listed()).toMatchObject({ state: "BLOCKED", pendingDecisions: 1, gate: null });
     await expect(core.respondCheckpoint(result.runId, "plan-questions", { version: pending.version, answers: [{ questionId: "Q-other", answer: "Clamp." }] })).rejects.toThrow("PLAN_QUESTION_ANSWERS_INVALID");
     await expect(core.respondCheckpoint(result.runId, "plan-questions", { version: "0".repeat(64), answers: [{ questionId: "Q-null", answer: "Clamp." }] })).rejects.toThrow("STALE_CHECKPOINT");
     // The CLI reads the answers from a file: respond-checkpoint <run> plan-questions <version> answers.json
@@ -358,6 +361,8 @@ describe("composed model audits", () => {
     await writeFile(join(answersDirectory, "answers.json"), JSON.stringify({ answers: [{ questionId: "Q-null", answer: "Throw a typed error." }] }), "utf8");
     const answered = await orchestratorCore(core).respondCheckpoint(result.runId, "plan-questions", pending.version, join(answersDirectory, "answers.json"));
     expect(answered.value).toMatchObject({ accepted: true, checkpoint: { status: "answered" } });
+    // The answers are a create-once record that touches none of the files the list cache watches.
+    expect(await listed()).toMatchObject({ state: "BLOCKED", pendingDecisions: 0 });
     await expect(core.respondCheckpoint(result.runId, "plan-questions", { version: pending.version, answers: [{ questionId: "Q-null", answer: "Clamp." }] })).rejects.toThrow("CHECKPOINT_ALREADY_DECIDED");
     const planned = requests.filter(({ stage }) => stage === "planner").length;
     const resumed = create(); await resumed.resume(result.runId);
