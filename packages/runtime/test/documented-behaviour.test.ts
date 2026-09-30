@@ -30,7 +30,7 @@ describe("documented-behaviour conflicts", () => {
   it("refuses invented quotations, unknown requirements and partly located documentation", () => {
     expect(() => groundBehaviourConflicts([conflict(docComment, { path: "src/session.js", startLine: 3, endLine: 3, text: "return now >= session.expiresAt;" })], snapshot)).toThrow("DOCUMENTED_BEHAVIOUR_CONFLICT_UNGROUNDED: documentedBehaviourConflicts[0].code.text");
     expect(() => groundBehaviourConflicts([conflict({ ...docComment, text: "A session never expires." })], snapshot)).toThrow("documentedBehaviourConflicts[0].documentation.text");
-    expect(() => groundRequirementConflicts([{ requirementIds: ["AC-9"], ...conflict(docComment) }], new Set(["AC-1"]), snapshot, request)).toThrow("DOCUMENTED_BEHAVIOUR_CONFLICT_UNKNOWN_REQUIREMENT");
+    expect(() => groundRequirementConflicts([{ requirementIds: ["AC-9"], contractPosition: "adopts_code", ...conflict(docComment) }], new Set(["AC-1"]), snapshot, request)).toThrow("DOCUMENTED_BEHAVIOUR_CONFLICT_UNKNOWN_REQUIREMENT");
     expect(documentedBehaviourConflictSchema.safeParse({ documentation: { path: null, startLine: 1, endLine: null, text: "x" }, code: docComment, explanation: "x" }).success).toBe(false);
   });
 });

@@ -21,6 +21,7 @@ import { ModelActivities, type ActivityReplaySource } from "./model-activities.j
 import { modelRequirementsRevision } from "./model-requirements-revision.js";
 import { applyRequirementsProposal, requirementsRevisionContext } from "./requirements-revision.js";
 import { validateBatchLanes } from "./model-batch-lane.js";
+import { blocksRequirements } from "./documented-behaviour.js";
 
 export function validateModelFeature(config: RunConfig) {
   if (config.workflow["feature"] === undefined) throw new Error("FEATURE_EXECUTION_CONFIGURATION_REQUIRED");
@@ -72,7 +73,7 @@ export class FeaturePipeline {
     let explored = await modelFeatureExploration(this.store, this.config, this.snapshot, stages.checkpoint, { ...options, modelProfileId: roles.exploration });
     // A documented-behaviour conflict leaves its requirements unresolved: review decides them, or
     // without reviewers the operator does at the requirements checkpoint.
-    const conflicts = explored.exploration.documentedBehaviourConflicts;
+    const conflicts = explored.exploration.documentedBehaviourConflicts.filter(blocksRequirements);
     if (conflicts.length > 0 && roles.reviewers.length === 0) {
       const current = await stages.checkpoint.current();
       if (current === null) throw new Error("REQUIREMENTS_CHECKPOINT_ABSENT");

@@ -4,7 +4,7 @@ import { requirementsContractSchema, type FeatureExploration } from "@arbitra/sc
 import { featureComplexityGate, type RequirementsContract } from "@arbitra/workflow/nodes/requirements/index.js";
 import type { RunStore } from "./run-store.js";
 import { anchorLineEvidence } from "./evidence-grounding.js";
-import { groundRequirementConflicts } from "./documented-behaviour.js";
+import { blocksRequirements, groundRequirementConflicts } from "./documented-behaviour.js";
 import type { RepositorySnapshot } from "./repository.js";
 import { createHash } from "node:crypto";
 import { canonicalJson } from "@arbitra/core/config/config-store.js";
@@ -36,7 +36,7 @@ export async function reviewFeatureRounds(requirements: RequirementsContract, sn
     || reviewers.some(({ reviewerId, independenceGroup }) => reviewerId.trim() === "" || independenceGroup.trim() === "")) throw new Error("FEATURE_REVIEW_INDEPENDENCE_REQUIRED");
   let previous: readonly FeatureReviewerResult[] = [];
   // No reviewer round can accept a requirement the exploration names in a conflict.
-  const conflicted = new Set(explorationConflicts.flatMap(({ requirementIds }) => requirementIds));
+  const conflicted = new Set(explorationConflicts.filter(blocksRequirements).flatMap(({ requirementIds }) => requirementIds));
   for (let round = 1; round <= maximumRounds; round += 1) {
     const settled = await Promise.allSettled(reviewers.map(async (reviewer) => ({ ...reviewer,
       review: validateFeatureReview(await ports.review({ reviewerId: reviewer.reviewerId, round,
@@ -81,14 +81,15 @@ export function validateFeatureReview(value: unknown, requirements: Requirements
 }
 
 /** Preserve disagreement and proposals; reviews never mutate operator-approved defaults. A requirement
- * that any reviewer or the exploration names in a documented-behaviour conflict is never accepted. */
+ * that any reviewer or the exploration says adopts, or leaves open, behaviour its documentation
+ * contradicts is never accepted. */
 export function featureReviewConsensus(requirements: RequirementsContract, snapshot: RepositorySnapshot, reviewers: readonly FeatureReviewerResult[], explorationConflicts: readonly RequirementBehaviourConflict[] = []) {
   if (reviewers.length < 2 || reviewers.some(({ reviewerId, independenceGroup }) => reviewerId.trim() === "" || independenceGroup.trim() === "")
     || new Set(reviewers.map(({ reviewerId }) => reviewerId)).size !== reviewers.length
     || new Set(reviewers.map(({ independenceGroup }) => independenceGroup)).size !== reviewers.length) throw new Error("FEATURE_REVIEW_INDEPENDENCE_REQUIRED");
   const validated = reviewers.map((reviewer) => ({ ...reviewer, review: validateFeatureReview(reviewer.review, requirements, snapshot) }));
   const conflicts = [...validated.flatMap(({ reviewerId, review }) => review.documentedBehaviourConflicts.map((conflict) => ({ reportedBy: reviewerId, ...conflict }))),
-    ...explorationConflicts.map((conflict) => ({ reportedBy: "exploration", ...conflict }))];
+    ...explorationConflicts.map((conflict) => ({ reportedBy: "exploration", ...conflict }))].filter(blocksRequirements);
   const decisions = [...requirements.assumptions, ...requirements.ambiguities, ...requirements.acceptance].map(({ id }) => {
     const votes = validated.map(({ reviewerId, review }) => {
       const decision = review.decisions.find(({ requirementId }) => requirementId === id);

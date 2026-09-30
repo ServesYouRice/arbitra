@@ -41,7 +41,7 @@ it("repairs a misquoted documented-behaviour conflict and never accepts the requ
   await stages.open("Enforce expiry exactly at expiresAt.");
   expect(bodies[0]).toContain("Current code shows what the code does, not what it should do.");
 
-  const conflict = { requirementIds: ["AC1"], documentation: { path: "src/session.js", startLine: 1, endLine: 1, text: lines[0] ?? "" },
+  const conflict = { requirementIds: ["AC1"], contractPosition: "adopts_code", documentation: { path: "src/session.js", startLine: 1, endLine: 1, text: lines[0] ?? "" },
     code: { path: "src/session.js", startLine: 3, endLine: 3, text: "return now > session.expiresAt;" }, explanation: "AC1 keeps a session valid at expiresAt; the doc comment says it has expired." };
   const exploration = { summary: "Session expiry", preflight: { affectedSurfaces: [{ id: "expiry", paths: ["src/session.js"], riskCategories: [], relevantTo: ["AC1"] }], securitySensitiveSurfaceCount: 0, migrationInvolvement: false, architectureBreadth: 1, testingComplexity: 1 },
     evidence: [{ surfaceId: "expiry", path: "src/session.js", startLine: 2, endLine: 3, text: `${lines[1]}\n${lines[2]}` }], limitations: [] };

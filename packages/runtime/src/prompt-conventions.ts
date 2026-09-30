@@ -31,5 +31,5 @@ export function documentedBehaviourConflicts(request: "request" | "goal" | null)
   return `Report each such contradiction in documentedBehaviourConflicts, quoting the documentation and the contradicting code exactly${request === null ? " from repository files" : ` (quote the ${request} with a null path and null lines)`}, or return an empty array.`;
 }
 
-/** Feature conflicts name requirements, and a deliberate decision is not a conflict. */
-export const REQUIREMENT_BEHAVIOUR_CONFLICTS = "In each conflict, requirementIds names every requirement that adopts the code's behaviour or leaves the contradiction undecided. A requirement that deliberately keeps or changes the documented behaviour is not a conflict.";
+/** Feature conflicts name requirements and say what those requirements do with the contradiction. */
+export const REQUIREMENT_BEHAVIOUR_CONFLICTS = "In each conflict, requirementIds names the requirements it bears on, and contractPosition says what they do with it: adopts_code when they keep the code's contradicting behaviour, undecided when they leave it open, follows_documentation when they require the documented behaviour, so the implementation must change the code. Only adopts_code and undecided block a requirement. A requirement that deliberately changes the documented behaviour is not a conflict.";

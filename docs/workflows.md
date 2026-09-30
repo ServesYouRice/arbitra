@@ -348,17 +348,24 @@ between documentation (a doc comment, a README or the request) and the code that
 adopts or leaves undecided, as `documentedBehaviourConflicts`. Each conflict gives:
 
 - the requirement IDs it bears on;
+- `contractPosition`: `adopts_code` when those requirements keep the code's contradicting
+  behaviour, `undecided` when they leave it open, `follows_documentation` when they require
+  the documented behaviour, so the implementation must change the code;
 - an exact quotation of the documentation: a repository excerpt, or the request with a null
   path;
 - an exact quotation of the contradicting code.
 
 Both quotations are grounded inside the model call, so a misquote is repaired, not dropped.
-A requirement that any reviewer or the exploration names is never accepted. It blocks like
-disputed review: the bounded revision addresses it, or the operator decides it at the
-requirements checkpoint. An exploration conflict makes review mandatory. Without reviewers,
-the run blocks at the checkpoint instead (`feature-requirements-blocker`, reason
-`documented_behaviour_conflict`). A requirement that deliberately keeps or changes the
-documented behaviour is not a conflict.
+A requirement that any reviewer or the exploration reports as `adopts_code` or `undecided` is
+never accepted. It blocks like disputed review: the bounded revision addresses it, or the
+operator decides it at the requirements checkpoint. Such an exploration conflict makes review
+mandatory. Without reviewers, the run blocks at the checkpoint instead
+(`feature-requirements-blocker`, reason `documented_behaviour_conflict`). A
+`follows_documentation` conflict blocks nothing: fixing the code is the feature's work.
+Observed live: before this distinction, exploration and a reviewer reported the expiry
+contradiction against requirements that already required the fix, and blocked a correct
+contract. A requirement that deliberately changes the documented behaviour is not a
+conflict.
 
 `maximumRequirementsRevisions` defaults to one proposal per run and accepts 0–3; zero
 keeps operator-only revision. A complete independent review with unresolved requirements

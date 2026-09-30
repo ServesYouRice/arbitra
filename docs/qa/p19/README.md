@@ -124,6 +124,10 @@ commit.
     (plan gate, revision, applying a proposal) sees them. An exploration conflict makes
     review mandatory; with no reviewers configured, the run blocks at the requirements
     checkpoint.
+  - Feature conflicts carry `contractPosition`, and only `adopts_code` and `undecided`
+    block. The first live rerun (run D, below) showed why: without it, a contract that
+    already required the expiry fix was blocked, because the code still contradicted its
+    documentation.
   - The requirements model and the revision model also carry the rule.
   - An exploration without conflicts keeps its old fingerprint, so recorded runs still
     replay.
