@@ -5,7 +5,7 @@ Updated September 29, 2026 (branch `beta`).
 The maintained execution queue is the [completion plan](docs/completion-plan.md). Every item is recorded in its [status table](docs/completion-plan.md#status-september-27-2026).
 
 - **Complete:** P01, P02, P04–P07, P09–P14 and P16–P18.
-- **In progress:** P19 (fixes tracked in [qa/p19](docs/qa/p19/README.md)) and P20, a hard premise benchmark built in parallel.
+- **In progress:** P19 (fixes tracked in [qa/p19](docs/qa/p19/README.md)) and P20, a hard premise benchmark built in parallel. P20's benchmark is kept in the owner's private repository `arbitra-p20` so its answer keys stay out of public training data; never add it here.
 - **Deferred, not part of this phase ([paid-API bundle](docs/completion-plan.md#deferred-the-paid-api-bundle)):** the API-protocol part of P03, and the live evidence for P08 and P15. All three are implemented.
 - **Accepted live on subscriptions:** the rest of P03.
 - **Pending:** P19.

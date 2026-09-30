@@ -422,10 +422,16 @@ this item on September 29, 2026.
 
 **Implementation.** Build a benchmark of 10–15 realistic projects, each thousands of lines.
 It holds 60–100 planted defects across varied classes and difficulty tiers, and 40–80
-decoys (`packages/testing/corpora/p20`). Each defect and decoy has a witness test, and each
-defect has a fix that proves it. No model result may select, drop or tune a defect.
-Calibrate difficulty on a pilot split, treating all model families alike, and score only the
-held-out split.
+decoys. Each defect and decoy has a witness test, and each defect has a fix that proves it.
+No model result may select, drop or tune a defect. Calibrate difficulty on a pilot split,
+treating all model families alike, and score only the held-out split.
+
+**Where it lives.** On September 30, 2026 the owner decided to keep the benchmark private, so
+future models cannot train on its answer keys. The projects, answer keys, protocols, run
+evidence and per-defect results are in the owner's private repository `arbitra-p20`. This
+repository keeps the tooling that runs and scores it (`packages/testing/src/premise-evaluation`,
+including `compare --lineups`), and will get a summary of the results without answer-revealing
+detail.
 
 **Acceptance.** Prespecify the protocol before any held-out run. The lineups are compared at
 matched cost:
