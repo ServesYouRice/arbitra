@@ -95,11 +95,16 @@ node apps/server/dist/src/serve.js          # control plane on 127.0.0.1:4178
 pnpm --filter @arbitra/web dev              # UI on 127.0.0.1:4173, proxied to the control plane
 ```
 
-With the control plane up, the UI is addressable: `?run=<id>` opens a recorded run and
-`?view=graph|issues|plan|feature|testing|evaluation|traces` opens a column-two view directly.
-The trace browser filters recorded model attempts by node, model, protocol, outcome
-and activity text. Select an attempt to inspect its identity, usage, failures, and
-immutable input/output artifacts. Missing usage and cost remain labelled unavailable.
+With the control plane up, the UI opens on the list of runs. **New run** prepares a
+configuration from a template or a saved one, lists what the template leaves to fill in,
+checks it with the orchestrator's preflight and estimate, then saves and starts it.
+**Workflows** is the graph editor. A run's page shows its state, the gate, what executed it
+(models, or scripted detectors that make no model call) and any decision it waits on, then
+the tabs its mode has: Overview, Issues or Requirements, Plan, Execution (Testing),
+Activity (the graph, every model attempt and every artifact) and Evaluation. Every place is
+an address: `?run=<id>&view=<tab>&item=<kind>:<id>` opens a run on a tab with an issue, node,
+plan step, attempt or artifact selected, and the older `?view=graph|feature|testing|traces`
+links still land on the matching tab. Missing usage and cost remain labelled unavailable.
 
 **With `models: {}`, the auditors are deterministic detectors.**
 They produce real, evidence-grounded findings — every one cites a repository path and line
@@ -125,7 +130,7 @@ unchanged.
 ```text
 apps/cli          command-line interface and CI exit codes
 apps/server       localhost Fastify control plane (127.0.0.1:4178)
-apps/web          four-column UI with a read-only workflow graph
+apps/web          operator UI: run list, run pages, new-run form, workflow editor
 packages/runtime  composition root: the one core the CLI and the server both call
 packages/core     workflow runner, prompt compiler, preflight, renderer, replay
 packages/workflow audit/feature/testing nodes, clustering, consensus, verification

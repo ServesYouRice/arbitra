@@ -132,7 +132,8 @@ checkpoint state of its own; the previous in-memory registry was removed. See
 `packages/core/src/checkpoints.ts` is unrelated to graph nodes. It is the security
 envelope's rule for when tainted writes or `requires_approval` commands need a checkpoint.
 The web Feature contract view (`apps/web/src/views/feature/`) inspects, revises and approves
-requirements; the web inspector answers pending generic human checkpoints.
+requirements; a blocked run's page answers pending generic human checkpoints in its decision
+banner, above every tab.
 
 ## Resume versus replay
 

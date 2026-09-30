@@ -29,7 +29,7 @@ quality or a vendor capability guarantee.
 | Testing | Risk analysis, gap selection, plans, guarded execution, bounded repair after final invalidation, bounded advisors, replay, web execution view | Generated tests are verified to pass, not to be right (a live test pinned a seeded defect) |
 | Gates and checkpoints | Generic gate/human nodes with persisted, versioned decisions across CLI, HTTP, web and graph state | Shipped presets contain no such nodes; saved graphs use them |
 | Persistence | Journals, content-addressed artifacts (published atomically), durable evaluation corpora, persistent trace index | Corpora have one writer per directory |
-| Web | Graph view and editor, issue board, plan, evaluation, traces, Feature and Testing views; Playwright acceptance on three engines | Headless Linux arm64 and macOS only |
+| Web | Run list; run pages with a decision banner, per-mode tabs (overview, issues or requirements, plan, execution, activity with graph and traces, evaluation) and a details panel; new-run form over the orchestrator's preflight; workflow editor; every page and selection addressable; Playwright acceptance on three engines | Headless Linux arm64 and macOS only; the Linux captures predate the September 29 restructure |
 
 Audit and Feature export plans for a consuming implementation agent. Generalized
 production-code implementation is outside the current [product scope](architecture.md#explicitly-out-of-scope).

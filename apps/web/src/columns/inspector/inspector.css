@@ -1,7 +1,0 @@
-.shell__column--inspector { overflow: auto; }
-.shell__column--inspector dl { display: grid; gap: var(--s2); font: 400 var(--t-micro)/var(--lh-body) var(--font-data); }
-.shell__column--inspector dl > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: var(--row-h); border-block-end: var(--hairline) solid var(--line-soft); }
-.shell__column--inspector dt { color: var(--mute); } .shell__column--inspector dd { margin: 0; overflow-wrap: anywhere; }
-
-.shell__column--inspector section > ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s1); }
-.shell__column--inspector section > ul button { width: 100%; min-height: var(--row-h); text-align: start; overflow-wrap: anywhere; }

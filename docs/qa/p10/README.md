@@ -1,5 +1,66 @@
 # P10 browser acceptance: results
 
+## Rerun after the interface restructure (2026-09-29)
+
+The operator interface was restructured on branch `ui-restructure` (see
+[Pages, not columns](../../DESIGN-LANGUAGE.md#pages-not-columns)): a run list, one page per
+run with a decision banner, per-mode tabs and a details panel, a new-run form over the
+orchestrator's preflight, and the workflow editor on its own page. Every scenario below was
+rewritten against the new pages and rerun, and a new `navigation.spec.ts` covers what the old
+single screen could not do. **The screenshots in this folder are from this rerun.** The
+original 2026-09-24 record follows below.
+
+| Item | Value |
+|---|---|
+| Platform | macOS 27.0, arm64 (Apple silicon), Node 22.23.2 |
+| Harness | `@playwright/test` 1.61.1, cached browser builds chromium-1228, firefox-1532 and webkit-2311 (nothing downloaded) |
+| Command | `E2E_PORT=4193 pnpm --filter @arbitra/web e2e` (builds the server fixture and the web app first) |
+| Viewport | 1600×1000 at device scale 1, except the width checks below |
+| Result | **69 passed, 0 failed, 0 flaky, 0 skipped** (23 scenarios × 3 browsers, 3.0 min, `retries: 0`), including the P16 editor scenarios ([`qa/p16`](../p16/README.md)) |
+
+| Spec | Chromium | Firefox | WebKit |
+|---|---|---|---|
+| `feature.spec.ts` (3) | 3 passed | 3 passed | 3 passed |
+| `lifecycle.spec.ts` (2) | 2 passed | 2 passed | 2 passed |
+| `testing.spec.ts` (5) | 5 passed | 5 passed | 5 passed |
+| `views.spec.ts` (5) | 5 passed | 5 passed | 5 passed |
+| `navigation.spec.ts` (5, new) | 5 passed | 5 passed | 5 passed |
+| `workflow-editor.spec.ts` (3, P16) | 3 passed | 3 passed | 3 passed |
+
+What changed in the scenarios, clause by clause:
+
+- **Blocked and stale approvals, reload and resume.** Approvals are made on the Requirements
+  tab, beside the defaults they approve; the decision banner above every tab lists what is
+  pending and holds the only resume. Stale refusals, reloads and the handoff download are
+  checked as before. A generic human checkpoint is approved and resumed from the banner.
+- **Cancellation.** A live run is cancelled from its header, which then offers resume; the
+  state is read from the header chip (words and code, such as `cancelled CANCELLED`).
+- **Issues, plan, evaluation, traces.** An issue opens its full record in the details panel
+  (dissent first, the untrusted claim marked, source findings with their evidence), and the
+  selection is part of the address. Plan traceability runs in the details panel with its
+  trail. Model attempts live on the Activity tab and open in the details panel.
+- **Keyboard.** Run tabs are links, reached with Tab and followed with Enter; the approval
+  checkbox is followed directly by the decision it enables.
+- **New (`navigation.spec.ts`).** The run list opens a run; tabs are history steps and
+  selections are not; a reload keeps the tab and the open issue; a scripted run is checked
+  and started from the new-run page; a model-backed template lists its six placeholders and
+  is refused by preflight until they are filled; and at 1100px and 800px no control on the
+  overview, issues, activity or new-run pages is covered by another element, with the
+  details panel as a modal drawer that takes focus and closes on Escape.
+
+Defects found and fixed during this rerun:
+
+- **Every decision blanked the run page.** Answering a checkpoint, cancelling or resuming
+  re-subscribes to the run, and the rehydration hook reset the run to "unknown" while it
+  re-read it, which unmounted the open tab and lost its confirmation notice. The last known
+  state now stays on screen until the new read answers (`apps/web/src/api/runs.ts`, regression
+  test in `apps/web/test/api.test.tsx`). The issue board, plan, Feature and Testing views no
+  longer flash empty on each run event for the same reason.
+- **A browser quirk, not an app defect:** Firefox under Playwright keeps no earlier history
+  entry across a reload, so back-navigation is checked before the reload.
+
+## Original acceptance (2026-09-24)
+
 These results come from one recorded run of `pnpm --filter @arbitra/web e2e` on 2026-09-24.
 The run built the server fixture and the web app, then ran every scenario in all three browser
 engines. JSON results were written to `apps/web/test-results/e2e-results.json` (not tracked).
@@ -18,7 +79,7 @@ Screenshots are in `chromium/`, `firefox/` and `webkit/`.
 Scripted providers and sandbox do not establish model quality or real Docker behavior.
 Live-provider and Docker acceptance remain separate items (P03 and P04).
 
-## Scenario matrix
+### Scenario matrix
 
 | Scenario (spec) | Acceptance clause | Chromium | Firefox | WebKit |
 |---|---|---|---|---|
@@ -37,7 +98,7 @@ Live-provider and Docker acceptance remain separate items (P03 and P04).
 | Trace browser: 27 attempts over 2 pages, activity and outcome filters, unknown cost, historical input/output artifacts (`views.spec.ts`) | trace browser, pagination, historical artifacts | pass | pass | pass |
 | Keyboard-only navigation across all seven views, visible focus outline, per-view accessibility audit, graph stage selection (`views.spec.ts`) | keyboard QA | pass | pass | pass |
 
-## How the checks work
+### How the checks work
 
 - **Untrusted text.** The scripted runs put model-authored markup in contract assumptions, plan
   task titles, risk summaries, sandbox output, audit evidence and a checkpoint prompt. That
@@ -57,7 +118,7 @@ Live-provider and Docker acceptance remain separate items (P03 and P04).
   the keyboard. WebKit on macOS follows the platform default, where Tab moves only between form
   fields, so the WebKit pass uses Option+Tab, which reaches every control.
 
-## Defects found and fixed during this QA
+### Defects found and fixed during this QA
 
 - **Resume and cancel failed in every browser.** `RunApi` sent `content-type: application/json`
   on bodiless POSTs, and Fastify rejects that with 400. Mocked unit tests did not catch it.
@@ -69,7 +130,7 @@ Live-provider and Docker acceptance remain separate items (P03 and P04).
   height. Table headers no longer break mid-word. The persisted-artifact list is a plain
   hairline list.
 
-## Not covered here
+### Not covered here
 
 - The narrow-layout breakpoints (1180px overlay, 900px tabs) were not screenshotted in this pass.
   The existing unit suite covers their CSS.

@@ -1,0 +1,51 @@
+/* One run: header, decision banner, tabs, then the tab beside an optional details panel. */
+.run-page { display: grid; gap: var(--s4); min-width: 0; }
+
+.run-header { display: grid; gap: var(--s2); }
+.run-header__back { width: fit-content; font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); }
+.run-header__title { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); }
+.run-header__title .actions { margin-inline-start: auto; }
+.run-header__meta { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s4); margin: 0; font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); }
+.run-header__meta > div { display: flex; gap: var(--s1); min-width: 0; }
+.run-header__meta dt { color: var(--mute); }
+.run-header__meta dd { margin: 0; overflow-wrap: anywhere; }
+.run-missing { display: grid; gap: var(--s3); }
+
+/* The run waits on the operator: framed in ink, the human-checkpoint glyph in its title. */
+.decision { display: grid; gap: var(--s3); padding: var(--s4); border: var(--hairline) solid var(--ink); border-inline-start: var(--stripe) solid var(--ink); background: var(--surface); }
+.decision__title { font: 600 var(--t-body)/var(--lh-tight) var(--font-display); }
+.decision__item { display: grid; gap: var(--s2); padding-block-end: var(--s3); border-block-end: var(--hairline) solid var(--line-soft); }
+
+.run-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s4); align-items: start; }
+.run-body[data-details="true"] { grid-template-columns: minmax(0, 1fr) minmax(360px, 440px); }
+.run-main { min-width: 0; }
+
+.details { position: sticky; top: var(--s3); display: grid; align-content: start; gap: var(--s3); max-height: calc(100vh - var(--s5)); overflow: auto; padding: var(--s4); background: var(--surface); border: var(--hairline) solid var(--line); }
+.details__head { display: flex; align-items: start; justify-content: space-between; gap: var(--s2); padding-block-end: var(--s2); border-block-end: var(--hairline) solid var(--line); }
+.details__title { font: 600 var(--t-micro)/var(--lh-tight) var(--font-display); overflow-wrap: anywhere; }
+.details__body { display: grid; align-content: start; gap: var(--s3); min-width: 0; }
+.details__kind { font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); color: var(--ink); }
+.details-stack { display: grid; gap: var(--s3); min-width: 0; font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); }
+.details-section { display: grid; gap: var(--s2); min-width: 0; }
+
+.overview { display: grid; gap: var(--s4); }
+.overview .section { padding: var(--s4); background: var(--surface); border: var(--hairline) solid var(--line); }
+.overview-issue { padding-inline-start: var(--s2); border-inline-start: var(--stripe) solid var(--faint); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); }
+.overview .facts { max-width: 960px; }
+.more-link { font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); }
+.gate { display: grid; gap: var(--s1); }
+.gate__code { color: var(--mute); }
+
+.activity { display: grid; gap: var(--s5); }
+.artifact-index > li[data-selected="true"] { background: var(--sunken); }
+
+/* Below 1180px the details panel covers the page from the right, as a modal drawer. */
+@media (max-width: 1180px) {
+  .run-body[data-details="true"] { grid-template-columns: minmax(0, 1fr); }
+  .details[data-overlay="true"] { position: fixed; inset: 0 0 0 auto; z-index: 20; width: min(440px, 100vw); max-height: none; border-block: 0; border-inline-end: 0; }
+}
+@media (max-width: 900px) {
+  .run-header__title .actions { margin-inline-start: 0; }
+  .overview .section, .decision { padding: var(--s3); }
+}
+@media (forced-colors: active) { .decision, .details, .overview .section, .overview-issue { border-color: CanvasText; } }

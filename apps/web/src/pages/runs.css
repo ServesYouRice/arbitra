@@ -1,0 +1,9 @@
+/* The run list: one row per run, the row opens it. */
+.run-list { padding: 0; }
+.run-list tbody tr { cursor: pointer; }
+.run-list tbody tr:hover { background: var(--sunken); }
+.run-list td { vertical-align: middle; }
+.run-list__id { font-weight: 600; }
+.run-list__what { display: grid; gap: var(--s1); }
+.empty-state { display: grid; gap: var(--s3); }
+@media (forced-colors: active) { .run-list tbody tr:hover { outline: var(--hairline) solid CanvasText; } }

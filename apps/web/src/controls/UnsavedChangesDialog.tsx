@@ -5,7 +5,7 @@ import { useEffect, useRef, type ReactElement } from "react";
  * follows the design language, is fully keyboard operable (focus starts on the safe choice,
  * Escape keeps editing, Tab stays inside) and never blocks the page's event loop.
  */
-export function UnsavedChangesDialog({ open, action, onDiscard, onKeep }: { readonly open: boolean; readonly action: string; readonly onDiscard: () => void; readonly onKeep: () => void }): ReactElement | null {
+export function UnsavedChangesDialog({ open, title = "unsaved graph changes", description, onDiscard, onKeep }: { readonly open: boolean; readonly title?: string; readonly description: string; readonly onDiscard: () => void; readonly onKeep: () => void }): ReactElement | null {
   const keep = useRef<HTMLButtonElement>(null);
   const discard = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -25,11 +25,11 @@ export function UnsavedChangesDialog({ open, action, onDiscard, onKeep }: { read
           (document.activeElement === keep.current ? discard.current : keep.current)?.focus();
         }
       }}>
-      <h2 className="panel-title" id="unsaved-title">unsaved graph changes</h2>
-      <p id="unsaved-description">The edited graph has not been saved as a version. {action} discards those changes.</p>
+      <h2 className="panel-title" id="unsaved-title">{title}</h2>
+      <p id="unsaved-description">{description}</p>
       <div className="unsaved-actions">
-        <button ref={keep} type="button" onClick={onKeep}>keep editing</button>
-        <button ref={discard} type="button" onClick={onDiscard}>discard changes</button>
+        <button className="button button--primary" ref={keep} type="button" onClick={onKeep}>keep editing</button>
+        <button className="button" ref={discard} type="button" onClick={onDiscard}>discard changes</button>
       </div>
     </div>
   </div>;

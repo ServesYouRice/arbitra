@@ -26,7 +26,7 @@ export default defineConfig({
   server: {
     host: "127.0.0.1",
     port: 4173,
-    proxy: Object.fromEntries(["/configurations", "/repositories", "/estimate", "/runs", "/workflows"].map((prefix) => [prefix, {
+    proxy: Object.fromEntries(["/configurations", "/repositories", "/estimate", "/preflight", "/runs", "/workflows"].map((prefix) => [prefix, {
       target: "http://127.0.0.1:4178",
       changeOrigin: false,
     }])),

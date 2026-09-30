@@ -170,6 +170,13 @@ node apps/cli/dist/src/bin.js run my-config.json
 Run from the repository you want to analyze. `run` uses the current directory as the
 repository and stores runs under `.runs/`. That directory is excluded from snapshots.
 
+The same steps work in the web UI (`node apps/server/dist/src/serve.js` from the repository to
+analyze, then `pnpm --filter @arbitra/web dev`). **New run** starts from any of these
+templates, lists every placeholder still in it by path, and shows the model profiles with
+their model ID and family to fill in. **Check configuration** runs the same preflight and
+estimate as `validate` and `estimate`, without saving anything. **Save and start** saves the
+configuration and starts the run, and only when preflight passes.
+
 ### Endpoint and role binding
 
 Every profile in `models` must be bound in `workflow.modelExecution.modelEndpoints` to an

@@ -1,7 +1,6 @@
 /* Feature contract and Testing execution views. Tokens only; hairlines, square corners. */
 .operator-view { display: grid; gap: var(--s3); min-width: 0; font-family: var(--font-data); font-size: var(--t-micro); line-height: var(--lh-tight); }
 .operator-view p { margin: 0; }
-.operator-run { color: var(--ink); font-variant-numeric: tabular-nums; }
 .operator-section { display: grid; gap: var(--s2); border-block-start: var(--hairline) solid var(--line); padding-block-start: var(--s3); min-width: 0; overflow-wrap: anywhere; }
 .operator-section h3, .operator-section h4 { margin: 0; }
 .operator-facts { display: grid; gap: var(--s1); margin: 0; }
@@ -14,6 +13,7 @@
 .operator-check { display: flex; gap: var(--s2); align-items: center; min-height: var(--row-h); }
 .operator-actions { display: flex; flex-wrap: wrap; gap: var(--s2); }
 .operator-actions button, .operator-section > button { min-height: var(--row-h); }
+.operator-section > button, .operator-view > button { justify-self: start; }
 .operator-note { color: var(--mute); max-width: var(--measure); }
 .operator-form { display: grid; gap: var(--s2); }
 .operator-form label { display: grid; gap: var(--s1); color: var(--mute); }

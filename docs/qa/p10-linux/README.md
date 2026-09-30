@@ -1,5 +1,8 @@
 # P10 and P16 browser acceptance on Linux: results
 
+> These Linux captures show the interface before the 2026-09-29 restructure. The rerun of every
+> scenario against the restructured pages, on macOS, is recorded in [`qa/p10`](../p10/README.md).
+
 These results come from one recorded run of `pnpm --filter @arbitra/web e2e` on 2026-09-25, in a
 Linux container on an arm64 Mac. The run built the server fixture and the web app inside the
 container, then ran every spec in all three browser engines. That covers the 14 P10 scenarios

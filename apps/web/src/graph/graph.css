@@ -1,0 +1,21 @@
+.graph-region { display: grid; gap: var(--s3); min-height: 0; }
+.graph-canvas { position: relative; min-height: max(420px, 56vh); border: var(--hairline) solid var(--line); }
+.graph-canvas__loading { position: absolute; inset: var(--s3) auto auto var(--s3); z-index: 5; margin: 0; color: var(--mute); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); }
+.react-flow__node { border: var(--hairline) solid var(--line); border-radius: var(--radius); box-shadow: none; background: var(--surface); color: var(--ink); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); }
+/* A node's status is a stripe and a label (in its accessible name), never a fill. */
+.react-flow__node.graph-node--not_started { color: var(--mute); border-style: dashed; }
+.react-flow__node.graph-node--running { border-inline-start: var(--stripe) solid var(--ink); }
+.react-flow__node.graph-node--failed { border-inline-start: var(--stripe) solid var(--refuted); }
+.react-flow__node.selected { outline: var(--hairline) solid var(--ink); outline-offset: var(--s1); }
+.graph-legend { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); margin: 0; color: var(--mute); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); }
+.run-stages { display: grid; gap: var(--s1); margin: 0; padding: 0; list-style: none; }
+.run-stage { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; min-height: var(--row-h); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); }
+.run-stage[data-runtime="not_started"] .run-stage__status { color: var(--faint); }
+.run-stage[data-selected="true"] { background: var(--sunken); }
+.run-stage button { min-height: var(--row-h); }
+.run-stage__select { border-color: transparent; background: none; text-align: start; }
+.run-stage__select[aria-pressed="true"] { border-color: var(--line); color: var(--ink); }
+.run-stage__status { color: var(--body); }
+/* Recorded Feature/Testing stages sit under the subgraph they expand. */
+.run-stage[data-stage-of] { margin-inline-start: var(--s4); padding-inline-start: var(--s2); border-inline-start: var(--hairline) solid var(--line); }
+@media (forced-colors: active) { .run-stage[data-stage-of], .react-flow__node { border-color: CanvasText; } }

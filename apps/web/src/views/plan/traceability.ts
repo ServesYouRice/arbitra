@@ -21,3 +21,12 @@ export function backward({ plan, issues, findings }: TraceGraph, node: TraceNode
   return [];
 }
 function nodes(level: TraceLevel, ids: readonly string[], label: (id: string) => string): readonly TraceNode[] { return Object.freeze([...new Set(ids)].map((id) => Object.freeze({ level, id, label: label(id) }))); }
+/** The node a level and ID name, labelled from the persisted records; null when the run recorded no such node. */
+export function findTraceNode({ plan, issues, findings }: TraceGraph, level: TraceLevel, id: string): TraceNode | null {
+  const label = level === "task" ? plan.tasks.find((task) => task.id === id)?.title
+    : level === "validation" ? plan.validationContract.validation.find((entry) => entry.id === id)?.assertion
+    : level === "issue" ? issues.find(({ candidateId }) => candidateId === id)?.claim.title
+    : level === "finding" ? findings.find(({ sourceFindingId }) => sourceFindingId === id)?.title
+    : findings.flatMap(({ evidence }) => evidence).find((entry) => entry.id === id)?.text;
+  return label === undefined ? null : Object.freeze({ level, id, label });
+}

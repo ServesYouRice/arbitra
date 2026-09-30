@@ -3,8 +3,8 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AuthoredGraph, GraphValidation, WorkflowApi } from "../src/api/workflows.js";
 import { WorkflowApiError } from "../src/api/workflows.js";
-import { GraphEditor } from "../src/columns/graph/GraphEditor.js";
-import { editorReducer, HISTORY_LIMIT, initialEditorState, isDirty, newEdge, parentVersionOf, type EditorState } from "../src/columns/graph/editor-model.js";
+import { GraphEditor } from "../src/graph/GraphEditor.js";
+import { editorReducer, HISTORY_LIMIT, initialEditorState, isDirty, newEdge, parentVersionOf, type EditorState } from "../src/graph/editor-model.js";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const goal = (objective: string) => ({ objective, doneWhen: [], stopWhen: [], blockedWhen: [] });

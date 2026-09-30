@@ -1,5 +1,29 @@
 # P16 browser acceptance: results
 
+## Rerun after the interface restructure (2026-09-29)
+
+The editor moved to its own **Workflows** page (`?page=workflows`), and a saved version now
+starts its run through the new-run page. The three scenarios were rewritten for that and
+rerun with the P10 specs in all three engines: **9 passed, 0 failed, 0 flaky** within the
+69-run total recorded in [`qa/p10`](../p10/README.md) (macOS 27.0, `@playwright/test` 1.61.1).
+**The screenshots in this folder are from this rerun.** What changed:
+
+- **Unsaved-changes guard.** Leaving the editor by the main navigation, and by the browser's
+  back button, opens the in-page guard with focus on "keep editing"; Escape keeps editing;
+  discarding leaves for the run list. `beforeunload` is cancelled only while there are
+  unsaved changes, as before.
+- **Validation against a configuration.** The configuration is saved through the HTTP API
+  before the page loads and chosen in the page's "check against configuration" field; the
+  server's diagnostics and refusals are checked as before.
+- **The saved graph executes and resumes.** After a save, the editor's link opens the new-run
+  page with the saved version and interactive checkpoints filled in; the scenario sets the
+  repository and a name and presses **save and start**. The run blocks at the sign-off in the
+  decision banner, its Activity tab reports the executed graph as the saved version, a later
+  version is saved, and approving and resuming completes the run on the original version.
+  An old `?view=graph` link lands on the Activity tab.
+
+## Original acceptance (2026-09-25)
+
 These results come from one recorded run of `pnpm --filter @arbitra/web e2e` on 2026-09-25,
 after merging beta at 5d054d9. The run built the server fixture and the web app, then ran
 every spec in all three browser engines. That covers the P10 specs and the new
@@ -15,7 +39,7 @@ every spec in all three browser engines. That covers the P10 specs and the new
 | Runs | Real orchestrator, runner, saved-graph store, validator and checkpoints. Audit discovery uses the credential-free scripted auditors, so no provider is called. |
 | Result | **51 passed, 0 failed, 0 flaky** (17 scenarios × 3 browsers, 2.9 min). The P16 scenarios are 3 × 3 = 9 passed. |
 
-## P16 scenario matrix
+### P16 scenario matrix
 
 | Scenario | Acceptance clause | Chromium | Firefox | WebKit |
 |---|---|---|---|---|
@@ -26,7 +50,7 @@ every spec in all three browser engines. That covers the P10 specs and the new
 Screenshots: `editor-01-unsaved-guard`, `editor-02-edited`, `editor-03-invalid-cycle`,
 `editor-04-keyboard-saved`, `editor-05-saved-graph-blocked` and `editor-06-saved-graph-completed`.
 
-## Limits
+### Limits
 
 - The runs use scripted auditors. They exercise dispatch, checkpoints and resume, not model
   quality. Live providers are P03.
