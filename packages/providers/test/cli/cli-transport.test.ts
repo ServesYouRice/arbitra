@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ProviderRegistry, type ProviderEndpoint } from "../../src/registry.js";
 import { TransportError, type ProviderTransport, type TransportRequest } from "../../src/transport-contract.js";
 import { classifyCliFailure, resetTime, retryHint } from "../../src/transports/cli/classify.js";
+import { antigravityPromptLimit } from "../../src/transports/cli/dialects.js";
 import { resolveCliExecutable } from "../../src/transports/cli/discovery.js";
 import { fileLimitLedger } from "../../src/transports/cli/limits.js";
 import { probeCliReadiness } from "../../src/transports/cli/probe.js";
@@ -159,6 +160,7 @@ describe.each(VENDORS)("%s subscription CLI transport", { timeout: 30_000 }, (ve
     const error = await failure(send(f.transport));
     expect(error).toMatchObject({ code: "MALFORMED_RESPONSE", retryable: false });
     expect(error.message).toContain("CLI_AGENT_TOOL_USE_FORBIDDEN");
+    if (vendor === "antigravity") expect(error.message).toContain("a tool step (run_command)");
   });
 
   it("fails malformed output explicitly", async () => {
@@ -271,10 +273,13 @@ describe("Antigravity CLI specifics", { timeout: 30_000 }, () => {
     expect(refused.message).toContain("effort.params");
   });
 
-  it("refuses a prompt larger than the platform's command line allows", async () => {
+  it("refuses a prompt larger than the CLI keeps whole or the platform's command line allows", async () => {
     const f = await fixture({ vendor: "antigravity", replies: [{ kind: "text", text: "pong" }] });
     const error = await failure(send(f.transport, request({ messages: [{ role: "user", content: "x".repeat(1_000_000) }] })));
     expect(error.message).toContain("CLI_PROMPT_TOO_LARGE");
+    // agy keeps only the first 191,580 bytes of a prompt; 100,000 two-byte characters exceed that everywhere.
+    expect((await failure(send(f.transport, request({ messages: [{ role: "user", content: "é".repeat(100_000) }] })))).message).toMatch(/CLI_PROMPT_TOO_LARGE: .* this request has 2\d{5}\b/u);
+    expect(["darwin", "linux", "win32"].map((platform) => antigravityPromptLimit(platform as NodeJS.Platform))).toEqual([190_000, 120 * 1024, 30_000]);
   });
 });
 
@@ -317,6 +322,19 @@ describe("emulated tool calls", () => {
     expect(interpretCliReply(reply, value, boundary)).toMatchObject({ text: null, toolCalls: [{ name: "repo_read_file", arguments: { path: "src/session.js" } }] });
     // A final answer with no tool request stays the answer.
     expect(interpretCliReply("```json\n{\"schemaVersion\":1}\n```", value, boundary)).toMatchObject({ toolCalls: [], structured: { schemaVersion: 1 } });
+  });
+
+  it("unwraps a reply the model wrote inside the next assistant message's own markers", () => {
+    const tools = [{ name: "repo_read_file", description: "Read a file", inputSchema: { type: "object", properties: { path: { type: "string" } } } }];
+    const value = request({ tools });
+    const boundary = serializeCliPrompt(value, { nativeSchema: false, systemInArguments: true }).boundary;
+    // Observed live: Gemini 3.8 Flash through the Antigravity CLI framed its whole answer.
+    const framed = `<<<BEGIN assistant ${boundary}>>>\n{"findings":[]}\n<<<END assistant ${boundary}>>>`;
+    expect(interpretCliReply(framed, value, boundary)).toMatchObject({ text: "{\"findings\":[]}", toolCalls: [] });
+    expect(interpretCliReply(`<<<BEGIN assistant ${boundary}>>>\n{"toolCalls":[{"name":"repo_read_file","arguments":{"path":"a.ts"}}]}\n<<<END assistant ${boundary}>>>`, value, boundary).toolCalls).toHaveLength(1);
+    // Markers with another boundary are content, not this request's framing.
+    const foreign = `<<<BEGIN assistant 0000000000000000>>>\n{}\n<<<END assistant 0000000000000000>>>`;
+    expect(interpretCliReply(foreign, value, boundary).text).toBe(foreign);
   });
 });
 
