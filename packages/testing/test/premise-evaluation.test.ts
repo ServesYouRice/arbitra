@@ -11,6 +11,7 @@ import type { RunConfig } from "@arbitra/schemas/config.js";
 
 import { analyse, type EvaluationRecord } from "../src/premise-evaluation/analysis.js";
 import { corpusImport, persistCorpus } from "../src/premise-evaluation/corpus.js";
+import { collectRun } from "../src/premise-evaluation/collect.js";
 import { abandonRun, assertNoLeak, executeProtocol, prepareCheckout, runPaths, singleAuditorConfiguration } from "../src/premise-evaluation/driver.js";
 import { matchFinding } from "../src/premise-evaluation/matching.js";
 import { loadGroundTruth, loadProtocol, validateProtocol, type EvaluationProtocol } from "../src/premise-evaluation/protocol.js";
@@ -169,6 +170,22 @@ describe("P06 premise evaluation driver (scripted providers, no credentials)", (
     expect(provider.calls).toHaveLength(calls);
     expect((await records(evidence)).map(({ key }) => key)).toEqual(["smoke-fixture/single/r1"]);
   }, 120_000);
+
+  it("identifies an auditor whose discovery was split into scopes by its combined policies", async () => {
+    // A policy covers its activity's source paths, so each scope has its own (observed live: P20's first pilot run).
+    const trace = (activityId: string, harnessPolicyHash: string) => ({ activityId, nodeId: "auditor-a", outcome: "success", protocolId: "production-audit", protocolVersion: "1.0.0", protocolHash: "protocol",
+      harnessId: "arbitra-canonical", harnessVersion: "1.0.0", harnessPolicyHash, modelId: "model", modelProfileVersion: "1", transportId: "transport", transportVersion: "1", tokenUsage: null, durationMs: 1 });
+    const artifacts: Record<string, unknown> = { "snapshot-identity": { repositoryDigest: "digest", gitHead: null }, "findings-auditor-a": [] };
+    const reader = (traces: readonly ReturnType<typeof trace>[]) => ({ artifacts: async () => Object.keys(artifacts).map((kind) => ({ artifactId: kind, kind })),
+      artifact: async (_runId: string, artifactId: string) => ({ content: JSON.stringify(artifacts[artifactId]) }), modelTraces: async () => traces as never, status: async () => ({ state: "COMPLETED" }) });
+    const profiles = { "auditor-a": { modelId: "model", independenceGroup: "group", transport: "transport" } };
+    const split = await collectRun(reader([trace("auditor-a/scope-1/discovery/turn-0", "policy-1"), trace("auditor-a/scope-2/discovery/turn-0", "policy-2")]), "run-1", profiles, ["auditor-a"]);
+    const reordered = await collectRun(reader([trace("auditor-a/scope-2/discovery/turn-0", "policy-2"), trace("auditor-a/scope-1/discovery/turn-0", "policy-1")]), "run-1", profiles, ["auditor-a"]);
+    expect(split.identity.harness.policyHash).toMatch(/^[0-9a-f]{64}$/u);
+    expect(reordered.identity.harness.policyHash).toBe(split.identity.harness.policyHash);
+    expect((await collectRun(reader([trace("auditor-a/discovery/turn-0", "policy-1")]), "run-1", profiles, ["auditor-a"])).identity.harness.policyHash).toBe("policy-1");
+    await expect(collectRun(reader([trace("auditor-a/scope-1/discovery/turn-0", "policy-1"), { ...trace("auditor-a/scope-2/discovery/turn-0", "policy-2"), protocolHash: "other" }]), "run-1", profiles, ["auditor-a"])).rejects.toThrow("P06_MIXED_DISCOVERY_IDENTITY");
+  });
 
   it("records each auditor's harness policy when models have different context limits", async () => {
     const { root, protocol, state, evidence } = await workspace({ schedule: [{ fixtureId: "smoke-fixture", condition: "heterogeneous", repetition: 1 }] });

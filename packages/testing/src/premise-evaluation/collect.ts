@@ -165,18 +165,21 @@ function identityOf(traces: readonly ModelActivityTraceRecord[], auditorIds: rea
   const discovery = traces.filter(({ nodeId, outcome }) => auditorIds.includes(nodeId) && outcome === "success");
   const first = discovery[0];
   if (first === undefined) throw new Error(`P06_DISCOVERY_TRACE_ABSENT:${runId}`);
-  // One protocol and harness per run, and one policy per auditor. Policies may differ between
-  // auditors, because each includes its model's context limit (observed live: P06 v2.1 run 2).
-  const policies = new Map<string, string>();
+  // One protocol and harness per run. Policies may differ between auditors, because each includes
+  // its model's context limit (observed live: P06 v2.1 run 2). A policy also covers the activity's
+  // source paths, so an auditor whose discovery was split into scopes or windows has one policy per
+  // part (observed live: P20's first pilot run, four scopes); its identity combines them.
+  const parts = new Map<string, Set<string>>();
   for (const trace of discovery) {
-    if (trace.protocolHash !== first.protocolHash || trace.harnessId !== first.harnessId || trace.harnessVersion !== first.harnessVersion || (policies.get(trace.nodeId) ?? trace.harnessPolicyHash) !== trace.harnessPolicyHash) throw new Error(`P06_MIXED_DISCOVERY_IDENTITY:${runId}`);
-    policies.set(trace.nodeId, trace.harnessPolicyHash);
+    if (trace.protocolHash !== first.protocolHash || trace.harnessId !== first.harnessId || trace.harnessVersion !== first.harnessVersion) throw new Error(`P06_MIXED_DISCOVERY_IDENTITY:${runId}`);
+    parts.set(trace.nodeId, (parts.get(trace.nodeId) ?? new Set<string>()).add(trace.harnessPolicyHash));
   }
+  const policies = new Map([...parts].map(([auditorId, hashes]) => [auditorId, hashes.size === 1 ? [...hashes][0] ?? "" : createHash("sha256").update(JSON.stringify([...hashes].sort())).digest("hex")] as const));
   const auditorPolicies = Object.fromEntries([...policies].sort(([left], [right]) => left.localeCompare(right)));
   const shared = new Set(policies.values()).size === 1;
   return Object.freeze({
     protocol: Object.freeze({ id: first.protocolId, version: first.protocolVersion, hash: first.protocolHash }),
-    harness: Object.freeze({ id: first.harnessId, version: first.harnessVersion, policyHash: shared ? first.harnessPolicyHash : createHash("sha256").update(JSON.stringify(auditorPolicies)).digest("hex") }),
+    harness: Object.freeze({ id: first.harnessId, version: first.harnessVersion, policyHash: shared ? [...policies.values()][0] ?? first.harnessPolicyHash : createHash("sha256").update(JSON.stringify(auditorPolicies)).digest("hex") }),
     ...(shared ? {} : { auditorHarnessPolicies: Object.freeze(auditorPolicies) }),
     models: Object.freeze(auditorIds.map((auditorId) => {
       const trace = discovery.find(({ nodeId }) => nodeId === auditorId);
