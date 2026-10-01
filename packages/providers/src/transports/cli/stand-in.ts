@@ -130,7 +130,8 @@ function run() {
     switch (reply.kind) {
       case "text": { const schema = args.includes("--json-schema"); step({ step_index: 1, step_type: "agent_response", text_delta: reply.text + "\n" }); step({ step_index: 2, step_type: "finish" });
         return envelope("SUCCESS", { response: reply.text, ...(schema ? { structured_output: JSON.parse(reply.text) } : {}), ...(reply.usage === false ? {} : { usage: { input_tokens: 30, output_tokens: 8, thinking_tokens: 2, cache_read_tokens: 10, total_tokens: 40 } }) }); }
-      case "tool_use": step({ step_index: 1, step_type: "run_command", state: "ACTIVE" }); return hang();
+      // The shape agy 1.2.14 streams for its own tool step (observed live).
+      case "tool_use": step({ step_index: 1, step_type: "tool", state: "ACTIVE", tool_name: "run_command", tool_info: { name: "run_command", parameters: { CommandLine: "ls -la" } } }); return hang();
       case "soft_denied": process.stderr.write("Tool run_command requires approval and was denied in headless mode\n"); result({ status: "SUCCESS", response: "I could not run the command." }); process.exit(0);
       case "empty_success": result({ status: "SUCCESS", response: "" }); process.exit(0);
       case "waiting": result({ status: "WAITING", response: "" }); return hang();

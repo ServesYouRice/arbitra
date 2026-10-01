@@ -276,9 +276,14 @@ built-in functions that cannot be switched off (they are refused if used) and ad
 of agent instructions per call, declares browser, command and file tools that cannot be
 switched off (it runs with `--sandbox` and `--disable-slash-commands`, never
 `--dangerously-skip-permissions`, and any tool step or soft-denied tool notice fails the
-call), still reads the user's own settings under `~/.gemini/antigravity-cli`, and takes the
-prompt as a command-line argument, so prompts over about 30,000 characters on Windows, 120 KiB
-on Linux or 900 KiB on macOS are refused (`CLI_PROMPT_TOO_LARGE`); the Gemini CLI records
+call), still reads the user's own settings under `~/.gemini/antigravity-cli`, keeps only the
+first 191,580 bytes of a prompt (agy 1.2.14 silently drops the rest; only the model sees a
+truncation note) and takes the prompt as a command-line argument, so prompts over 190,000 bytes
+(30,000 on Windows, 120 KiB on Linux) are refused (`CLI_PROMPT_TOO_LARGE`). The largest prompt
+arbitra sends is about `limits.contextTokens` (or `maximumContextTokens`, if lower) minus
+`maximumOutputTokens` bytes, so keep that difference within the limit: on macOS, for example,
+`contextTokens` 200,000 with the shipped `maximumOutputTokens` of 32,000, and discovery then
+splits a larger repository into prompts that fit. The Gemini CLI records
 session history under `~/.gemini/tmp`. Output ceilings are enforced for Claude Code
 (`CLAUDE_CODE_MAX_OUTPUT_TOKENS`); Codex, the Antigravity CLI and the Gemini CLI offer no
 per-call output ceiling. Google AI Pro and Ultra quotas refresh on a five-hour cycle; an

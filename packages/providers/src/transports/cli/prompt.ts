@@ -67,7 +67,8 @@ function block(label: string, boundary: string, content: string): string {
 export interface CliReply { readonly text: string | null; readonly toolCalls: readonly TransportToolCall[]; readonly structured: unknown }
 
 /** Interprets the model's reply: a tool-call envelope (only when tools were offered) or the final answer. */
-export function interpretCliReply(text: string, request: TransportRequest, boundary: string, nativeStructured?: unknown): CliReply {
+export function interpretCliReply(reply: string, request: TransportRequest, boundary: string, nativeStructured?: unknown): CliReply {
+  const text = unframed(reply, boundary);
   const tools = request.tools ?? [];
   const trailing = trailingJson(text);
   // Real models sometimes request a tool and then keep writing, inventing the tool's result
@@ -84,6 +85,19 @@ export function interpretCliReply(text: string, request: TransportRequest, bound
   const structured = nativeStructured ?? document;
   if (structured === undefined) throw new TransportError("MALFORMED_RESPONSE", "CLI_STRUCTURED_OUTPUT_INVALID: reply is not a JSON document", false);
   return Object.freeze({ text, toolCalls: Object.freeze([]), structured });
+}
+
+/**
+ * The transcript asks for the next assistant message, and a model may write that message
+ * inside its own markers (observed live on Gemini 3.8 Flash through the Antigravity CLI).
+ * Only markers that carry this request's boundary are removed, and only around the whole reply.
+ */
+function unframed(reply: string, boundary: string): string {
+  const begin = `<<<BEGIN assistant ${boundary}>>>`; const end = `<<<END assistant ${boundary}>>>`;
+  const trimmed = reply.trim();
+  if (!trimmed.startsWith(begin)) return reply;
+  const inner = trimmed.slice(begin.length).trim();
+  return inner.endsWith(end) ? inner.slice(0, -end.length).trim() : inner;
 }
 
 /** The first complete `{"toolCalls": ...}` object in the reply, if any. */

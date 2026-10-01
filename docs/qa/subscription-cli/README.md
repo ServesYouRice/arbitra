@@ -60,6 +60,14 @@ Probes made while building the adapters (not repeated in the evidence files):
   `request_user_input` and collaboration functions. The read-only sandbox, `approval_policy
   "never"`, the empty working directory and the event check (any item other than a message or
   reasoning fails the call) contain them.
+- Antigravity CLI 1.2.14 (September 30, 2026) keeps only the first 191,580 bytes of a prompt
+  and replaces the rest with `<truncated N bytes>`, which only the model sees: prompts of
+  200,010, 260,013 (multibyte) and 380,321 bytes, from two working directories, all kept
+  exactly 191,580 bytes, and the stream reported nothing. A P20 pilot discovery on a 385 KB
+  prompt was audited in part this way. The transport now refuses prompts over 190,000 bytes.
+  The same version streams its own tool use as a `tool` step naming the tool
+  (`"tool_name": "run_command"`), and in `--sandbox` it ran `ls -la` without asking; the
+  transport fails the call at that step.
 - Codex refused `gpt-6-luna` for a ChatGPT account (`model is not supported when using Codex
   with a ChatGPT account`); this is classified as `INVALID_REQUEST` / `CLI_MODEL_UNAVAILABLE`.
   One call on `gpt-5.6-luna` failed transiently (websocket drops, then an HTTPS fallback

@@ -276,10 +276,13 @@ export const GEMINI_WORKSPACE_SETTINGS = Object.freeze({
 });
 
 /**
- * Largest prompt the Antigravity CLI can take on its command line (`-p`): Windows limits the
- * whole command line to 32,767 characters and Linux one argument to 128 KiB.
+ * Largest prompt, in UTF-8 bytes, the Antigravity CLI takes whole. It keeps only the first
+ * 191,580 bytes of a prompt and silently replaces the rest with "<truncated N bytes>"
+ * (measured live on agy 1.2.14, independent of platform and working directory), and the
+ * prompt travels on its command line (`-p`): Windows limits the whole command line to 32,767
+ * characters and Linux one argument to 128 KiB.
  */
-export function antigravityPromptLimit(platform: NodeJS.Platform): number { return platform === "win32" ? 30_000 : platform === "linux" ? 120 * 1024 : 900 * 1024; }
+export function antigravityPromptLimit(platform: NodeJS.Platform): number { return platform === "win32" ? 30_000 : platform === "linux" ? 120 * 1024 : 190_000; }
 
 /** stderr notices of a tool call soft-denied in headless mode (the run otherwise continues and exits 0). */
 const ANTIGRAVITY_DENIAL = /\b(?:tool|command|action|permission)\b[^\n]{0,120}\b(?:denied|requires? (?:approval|permission)|not (?:approved|permitted|allowed))|\bsoft[- ]denied\b|approval required/iu;
@@ -300,7 +303,8 @@ export const antigravityDialect: CliDialect = {
     const effort = effortParameter(context.request, ANTIGRAVITY, { effort: (value) => typeof value === "string" && ["low", "medium", "high", "max"].includes(value) });
     const prompt = `${context.prompt.system}\n\n${context.prompt.body}`;
     const limit = antigravityPromptLimit(context.platform);
-    if (prompt.length > limit) throw new TransportError("INVALID_REQUEST", `CLI_PROMPT_TOO_LARGE: the Antigravity CLI takes its prompt on the command line, limited to ${limit} characters on ${context.platform}; this request has ${prompt.length}. Lower maximumContextTokens for profiles on this endpoint or use another transport for this role`, false);
+    const bytes = Buffer.byteLength(prompt, "utf8");
+    if (bytes > limit) throw new TransportError("INVALID_REQUEST", `CLI_PROMPT_TOO_LARGE: the Antigravity CLI takes at most ${limit} bytes of prompt on ${context.platform} (it silently drops the rest of a longer one); this request has ${bytes}. Lower limits.contextTokens for profiles on this endpoint (see docs/setup.md) or use another transport for this role`, false);
     const passthrough = Object.fromEntries(["DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"].flatMap((name) => { const value = context.lookup(name); return value === undefined || value === "" ? [] : [[name, value]]; }));
     return {
       // Effort is usually part of the model slug (gemini-3.8-flash-low); a bare slug such as
@@ -322,7 +326,7 @@ export const antigravityDialect: CliDialect = {
         const payload = record(event[kind]);
         if (kind === "step_update") {
           const step = String(payload?.["step_type"] ?? "unknown");
-          if (!ANTIGRAVITY_STEPS.has(step)) throw forbiddenToolUse(ANTIGRAVITY, `a ${step.slice(0, 60)} step`);
+          if (!ANTIGRAVITY_STEPS.has(step)) throw forbiddenToolUse(ANTIGRAVITY, `a ${step.slice(0, 60)} step${typeof payload?.["tool_name"] === "string" ? ` (${payload["tool_name"].slice(0, 40)})` : ""}`);
           if (step === "agent_response") streamed += text(payload?.["text_delta"]) ?? "";
         } else if (kind === "result" && payload !== null) {
           if (String(payload["status"]).toUpperCase() === "WAITING") throw forbiddenToolUse(ANTIGRAVITY, "an action that waits for approval");
