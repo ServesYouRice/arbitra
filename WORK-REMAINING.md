@@ -57,7 +57,7 @@ Live configurations come from `tooling/live/bindings.subscription.json`. The API
 
    See [qa/p12](docs/qa/p12/README.md).
 5. **Premise evaluation (P06): complete.** Version 2.1.0's results are in [qa/p06-subscription](docs/qa/p06-subscription/README.md). Its run state is local only, in `.runs/p06-subscription-2.1.0` (2.0.0's in `.runs/p06-subscription`); keep both. For live runs, pace on the Claude five-hour window (`rate_limit_event` in any `claude -p --output-format stream-json --verbose` call); the owner can reset the weekly limit when needed.
-6. **Then:** P20's runs, then P21's completion report.
+6. **Then:** P20's runs, then P21's completion report. Pace them on Claude's and Codex's usage windows; Codex's are read without a model call through `codex app-server` (`account/rateLimits/read`).
 
 ## Open findings to fix or decide
 

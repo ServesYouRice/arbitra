@@ -437,6 +437,13 @@ repository keeps the tooling that runs and scores it (`packages/testing/src/prem
 including `compare --lineups`), and will get a summary of the results without answer-revealing
 detail.
 
+**Pilot, October 1, 2026.** The shakedown on one pilot project found a transport defect: the
+Antigravity CLI keeps only the first 191,580 bytes of a prompt and silently drops the rest, so
+Gemini audited part of the project. arbitra now refuses such prompts (3621837), and the
+benchmark's Gemini profiles use a 200,000-token context so discovery splits the project. Codex
+on ChatGPT Plus is the tightest usage limit (three large GPT-6 Astra calls used up a five-hour
+window), so the runner paces on both Claude's and Codex's usage windows.
+
 **Acceptance.** Prespecify the protocol before any held-out run. The lineups are compared at
 matched cost:
 
