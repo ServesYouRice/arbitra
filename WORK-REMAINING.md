@@ -10,9 +10,11 @@ The local session stopped near the Claude weekly limit; work continues in a web 
   `ServesYouRice/arbitra-p20` (`main`): 12 projects, 84 defects and 60 decoys, all passing `node verify.mjs`, with
   the evaluation harness in `evaluation/`. Its `HANDOFF.md` holds the P20 details, the pilot results so far and the
   next steps.
-- **Next:** calibrate P20's difficulty on the pilot split (one Claude Opus 5.5 run each on two pilot projects, then
-  the three panel runs on the third). The owner then decides whether to harden the held-out projects before any
-  held-out run. After that come the held-out runs, then P21.
+- **Calibration result (October 9):** one Claude Opus 5.5 run found every planted defect in all three pilot projects
+  (21 of 21). As built, P20 is too easy to separate a panel from repeated runs.
+- **Next:** the owner decides whether to harden the nine held-out projects before any held-out run (recommended) or
+  run them as built and report the ceiling. Then come the panel runs, the held-out runs and P21. The three pilot panel
+  runs have not run yet; they need the owner's Mac and a fresh Codex week.
 - **Live runs need the owner's Mac.** They run only on the owner's subscriptions, through the vendor CLIs signed in
   there: Claude Code, Codex in ChatGPT.app and the Antigravity CLI. A cloud session can change code, docs and the
   benchmark, run tests and analyse committed evidence, but it cannot run them. Run state (`.runs/` in both
