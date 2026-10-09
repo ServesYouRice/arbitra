@@ -12,9 +12,10 @@ The local session stopped near the Claude weekly limit; work continues in a web 
   next steps.
 - **Calibration result (October 9):** one Claude Opus 5.5 run found every planted defect in all three pilot projects
   (21 of 21). As built, P20 is too easy to separate a panel from repeated runs.
-- **Next:** the owner decides whether to harden the nine held-out projects before any held-out run (recommended) or
-  run them as built and report the ceiling. Then come the panel runs, the held-out runs and P21. The three pilot panel
-  runs have not run yet; they need the owner's Mac and a fresh Codex week.
+- **Decision (October 9):** the owner chose to harden. All twelve P20 projects are rebuilt under stricter rules
+  pre-registered in `HARDENING.md` in the private repository (`p20-hard-v2`); the pilot is re-calibrated after.
+  Then come the panel runs, the held-out runs and P21. The pilot panel runs need the owner's Mac and a fresh Codex
+  week.
 - **Live runs need the owner's Mac.** They run only on the owner's subscriptions, through the vendor CLIs signed in
   there: Claude Code, Codex in ChatGPT.app and the Antigravity CLI. A cloud session can change code, docs and the
   benchmark, run tests and analyse committed evidence, but it cannot run them. Run state (`.runs/` in both
