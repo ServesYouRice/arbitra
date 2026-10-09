@@ -444,6 +444,11 @@ benchmark's Gemini profiles use a 200,000-token context so discovery splits the 
 on ChatGPT Plus is the tightest usage limit (three large GPT-6 Astra calls used up a five-hour
 window), so the runner paces on both Claude's and Codex's usage windows.
 
+**Calibration, October 9, 2026.** One run of Claude Opus 5.5 found every planted defect in each of
+the three pilot projects (21 of 21). As built, the benchmark is too easy to separate a panel from
+repeated runs, the ceiling P06 hit. The owner decides whether to harden the held-out projects
+before any held-out run.
+
 **Acceptance.** Prespecify the protocol before any held-out run. The lineups are compared at
 matched cost:
 
