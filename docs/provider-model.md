@@ -74,7 +74,7 @@ with its credential kind and verification status:
 | `anthropic-messages` | HTTP API | API key variable | declared, unverified live | mock contract tests |
 | `gemini-native` | HTTP API | API key variable | live verified | [P03](qa/p03/README.md) |
 | `claude-code-cli` | subscription CLI, Claude Code 2.1.0–<3.0.0 | CLI login or `claude setup-token` token | live verified on 2.1.282 (macOS) and 2.1.296 (Windows) | [subscription-cli](qa/subscription-cli/README.md) |
-| `codex-cli` | subscription CLI, Codex 0.150.0–<0.200.0 | ChatGPT login | live verified on 0.154.0 | [subscription-cli](qa/subscription-cli/README.md) |
+| `codex-cli` | subscription CLI, Codex 0.150.0–<0.200.0 | ChatGPT login | live verified on 0.154.0 (macOS) and 0.162.1 (Windows) | [subscription-cli](qa/subscription-cli/README.md) |
 | `antigravity-cli` | subscription CLI, Antigravity CLI 1.1.15–<2.0.0 | Google login (personal Google AI plans) | live verified on 1.2.11 (macOS) and 1.3.3 (Windows) | [subscription-cli](qa/subscription-cli/README.md) |
 | `gemini-cli` | subscription CLI, Gemini CLI 0.60.0–<1.0.0 | Google login (Code Assist Standard/Enterprise only since June 18, 2026) | declared, unverified live (a personal account was refused as ineligible) | [subscription-cli](qa/subscription-cli/README.md) |
 
