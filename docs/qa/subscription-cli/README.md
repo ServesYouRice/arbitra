@@ -77,7 +77,8 @@ Probes made while building the adapters (not repeated in the evidence files):
   was cut off because it exceeded the output token limit". All four such steps seen that day,
   three in P20 pilot discovery calls and one in a probe, had this reason. The transport had
   failed them as agent tool use; it now reads the reason, stops the process and returns
-  `OUTPUT_LIMIT`. The same version counts thinking inside `output_tokens`: a reply reported
+  `OUTPUT_LIMIT` (checked live on 2bd8162: one call made to pass the limit returned it after
+  317 seconds). The same version counts thinking inside `output_tokens`: a reply reported
   `input_tokens` 48,736, `output_tokens` 55,101, `thinking_tokens` 45,556 and `total_tokens`
   103,837. The transport had added thinking again, so Gemini's recorded output was nearly
   twice the real figure.
