@@ -3,12 +3,13 @@ import { join } from "node:path";
 import type { CliVendor } from "./support.js";
 
 /**
- * Scripted stand-in for a subscription CLI (Claude Code, Codex or Gemini), for tests where
- * no real CLI or login exists. It is a real child process that answers the version and auth
- * status commands, reads its prompt from stdin and emits the event stream the vendor's
- * reader expects, including forbidden tool events, limit messages, malformed output and
- * hangs with a descendant process. It proves arbitra's handling of those cases; only the
- * recorded live runs prove the real CLIs emit this format.
+ * Scripted stand-in for a subscription CLI (Claude Code, Codex, Gemini or Antigravity), for
+ * tests where no real CLI or login exists. It is a real child process that answers the version
+ * and auth status commands, reads its prompt where the real CLI does (stdin, or the
+ * Antigravity CLI's `-p` argument) and emits the event stream the vendor's reader expects,
+ * including forbidden tool events, limit messages, malformed output and hangs with a
+ * descendant process. It proves arbitra's handling of those cases; only the recorded live
+ * runs prove the real CLIs emit this format.
  */
 export type CliStandInReply =
   | { readonly kind: "text"; readonly text: string; readonly usage?: false }
@@ -84,11 +85,24 @@ function control(dir) { try { return Object.fromEntries(fs.readdirSync(dir).map(
 function run() {
   const { index, reply } = next();
   const systemFile = args[args.indexOf("--system-prompt-file") + 1];
-  const schemaFile = args[args.indexOf("--output-schema") + 1];
-  if (s.reportFile) fs.writeFileSync(s.reportFile + "." + index, JSON.stringify({ cwd: process.cwd(), argv: args, env: process.env, stdin: s.vendor === "antigravity" ? args[args.indexOf("-p") + 1] : stdin,
+  // The Antigravity CLI names its schema file with --json-schema (stdin prompts only); Codex with --output-schema.
+  const schemaFlag = s.vendor === "antigravity" ? "--json-schema" : "--output-schema";
+  const schemaFile = args[args.indexOf(schemaFlag) + 1];
+  // The Antigravity CLI takes its prompt as the -p argument or, with --input-format stream-json, as one message per stdin line.
+  const streamInput = s.vendor === "antigravity" && args[args.indexOf("--input-format") + 1] === "stream-json" && args.includes("--input-format");
+  let message = null;
+  if (streamInput) { try { message = JSON.parse(stdin.split("\n")[0]); } catch {} }
+  const prompt = s.vendor !== "antigravity" ? stdin : streamInput ? message?.message?.content ?? null : args[args.indexOf("-p") + 1];
+  if (s.reportFile) fs.writeFileSync(s.reportFile + "." + index, JSON.stringify({ cwd: process.cwd(), argv: args, env: process.env, stdin: prompt,
     files: fs.readdirSync(process.cwd()).sort(), geminiSettings: fs.existsSync(".gemini/settings.json") ? JSON.parse(fs.readFileSync(".gemini/settings.json", "utf8")) : null,
     system: s.vendor === "gemini" ? fs.readFileSync(process.env.GEMINI_SYSTEM_MD, "utf8") : args.includes("--system-prompt-file") ? fs.readFileSync(systemFile, "utf8") : null,
-    schema: args.includes("--output-schema") ? JSON.parse(fs.readFileSync(schemaFile, "utf8")) : null }));
+    schema: args.includes(schemaFlag) && fs.existsSync(schemaFile) ? JSON.parse(fs.readFileSync(schemaFile, "utf8")) : null }));
+  // agy 1.3.3 accepts only {"event":"user","message":{"content":...}} and answers anything else with an ERROR result;
+  // the stand-in also refuses a -p beside it, which the dialect never sends.
+  if (streamInput && (args.includes("-p") || message?.event !== "user" || typeof message.message?.content !== "string")) {
+    out({ event: "result", result: { status: "ERROR", response: "", error: "stream input \"user\" message has no content", num_turns: 0 } });
+    process.exit(1);
+  }
   const reset = Math.floor(Date.now() / 1000) + 3600;
   if (s.vendor === "claude-code") {
     const session = "stand-in-session-" + index;

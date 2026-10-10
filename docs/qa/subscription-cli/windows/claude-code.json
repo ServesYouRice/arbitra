@@ -1,0 +1,66 @@
+{
+  "recordedAt": "2026-10-10T13:45:56.359Z",
+  "host": "win32-x64",
+  "node": "v22.14.0",
+  "transport": "claude-code-cli",
+  "modelId": "claude-haiku-4-5-20251001",
+  "executableSource": "override",
+  "cliVersion": "2.1.296",
+  "versionSupported": true,
+  "auth": "logged_in",
+  "observations": [
+    {
+      "case": "text",
+      "status": "passed",
+      "detail": "pong",
+      "durationMs": 1431,
+      "usage": {
+        "inputTokens": 533,
+        "outputTokens": 5,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0
+      },
+      "providerRequestId": "4ab00e37-b601-4f7a-82d8-2cf237472a11",
+      "transportVersion": "claude-code/2.1.296",
+      "toolCalls": []
+    },
+    {
+      "case": "tool_call",
+      "status": "passed",
+      "detail": "[{\"id\":\"call_0ca79e88e488264659ff17b8\",\"name\":\"lookup_word\",\"arguments\":{\"word\":\"arbitra\"}}]",
+      "durationMs": 1291,
+      "usage": {
+        "inputTokens": 834,
+        "outputTokens": 31,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0
+      },
+      "providerRequestId": "165b1ab7-7c59-4d64-8d84-476e1266a787",
+      "transportVersion": "claude-code/2.1.296",
+      "toolCalls": [
+        {
+          "id": "call_0ca79e88e488264659ff17b8",
+          "name": "lookup_word",
+          "arguments": {
+            "word": "arbitra"
+          }
+        }
+      ]
+    },
+    {
+      "case": "tool_result",
+      "status": "passed",
+      "detail": "```json\n{\"definition\": \"an arbiter of models\"}\n```",
+      "durationMs": 1727,
+      "usage": {
+        "inputTokens": 978,
+        "outputTokens": 18,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0
+      },
+      "providerRequestId": "5fd37b7a-51d9-4015-81cd-860d4124f9e5",
+      "transportVersion": "claude-code/2.1.296",
+      "toolCalls": []
+    }
+  ]
+}

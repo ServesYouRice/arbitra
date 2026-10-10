@@ -38,7 +38,7 @@ export const CLI_TRANSPORT_SUPPORT: readonly CliTransportSupport[] = Object.free
     transport: "claude-code-cli", vendor: "claude-code", displayName: "Claude Code", endpoint: "cli://claude-code",
     executableEnvVar: "ARBITRA_CLAUDE_CODE_EXECUTABLE", command: "claude",
     versionRange: Object.freeze({ minimum: "2.1.0", below: "3.0.0" }),
-    status: "live_verified", verifiedVersions: Object.freeze(["2.1.282"]), evidence: "docs/qa/subscription-cli/README.md",
+    status: "live_verified", verifiedVersions: Object.freeze(["2.1.282", "2.1.296"]), evidence: "docs/qa/subscription-cli/README.md",
     authModes: Object.freeze(["subscription_login", "oauth_token"] as const),
     loginInstruction: "Run `claude auth login` (or start `claude` and use /login) and sign in with your Claude Pro or Max account. For a separate token, run `claude setup-token` and use auth \"oauth_token\".",
     installInstruction: "Install Claude Code (https://docs.claude.com/en/docs/claude-code) so `claude` is on PATH, or set ARBITRA_CLAUDE_CODE_EXECUTABLE to its absolute path.",
@@ -66,8 +66,9 @@ export const CLI_TRANSPORT_SUPPORT: readonly CliTransportSupport[] = Object.free
   Object.freeze({
     transport: "antigravity-cli", vendor: "antigravity", displayName: "Antigravity CLI", endpoint: "cli://antigravity",
     executableEnvVar: "ARBITRA_ANTIGRAVITY_EXECUTABLE", command: "agy",
-    versionRange: Object.freeze({ minimum: "0.1.0", below: "2.0.0" }),
-    status: "live_verified", verifiedVersions: Object.freeze(["1.2.11"]), evidence: "docs/qa/subscription-cli/README.md",
+    // 1.1.15 added `--input-format stream-json`, which carries the prompt on Windows and Linux.
+    versionRange: Object.freeze({ minimum: "1.1.15", below: "2.0.0" }),
+    status: "live_verified", verifiedVersions: Object.freeze(["1.2.11", "1.3.3"]), evidence: "docs/qa/subscription-cli/README.md",
     authModes: Object.freeze(["subscription_login"] as const),
     loginInstruction: "Run `agy` once in a terminal and sign in with the Google account that holds your Google AI subscription; the login is kept in the operating system's keyring.",
     installInstruction: "Install the Antigravity CLI (`curl -fsSL https://antigravity.google/cli/install.sh | bash`, or `winget install Google.AntigravityCLI` on Windows) so `agy` is on PATH or in ~/.local/bin, or set ARBITRA_ANTIGRAVITY_EXECUTABLE to its absolute path.",
