@@ -134,6 +134,12 @@ truncated. When they do not fit, the stage is recomposed:
   the complete selected tasks and their neighbours, with mode-specific traceability.
 - **Exact line windows.** Discovery reads a file larger than the whole budget as windows of
   original line numbers with a 20-line overlap; evidence is validated against the whole file.
+- **Smaller discovery units after an output limit.** A discovery call that stops at the output
+  ceiling is replaced by smaller units over the same source. A scope of several files is packed
+  module-first into scopes of at most half its bytes; one file or window is halved by lines with
+  the same overlap. Each smaller unit is a durable activity of its own, so the split is the same
+  after a restart. `discovery-scopes-<auditor>` lists every split (`outputLimitSplits`), and
+  coverage carries `discovery_output_limit_split`.
 
 Output capacity is handled twice. Before spend, stages that emit one decision per record cap
 batch sizes with `OUTPUT_TOKENS_PER_RECORD` (peer review 160, critic 60, planner brief 400,
@@ -144,7 +150,9 @@ maps a provider stop at the output ceiling (`max_tokens`, `incomplete/max_output
 repairing a truncated prefix. `ModelHarness` records a durable `model-output-limit-*` marker
 and throws `MODEL_OUTPUT_LIMIT_REACHED:<activityId>`. Staged compositions treat a marked
 activity as not fitting and replan (`replanOnOutputLimit`); completed activities are durable
-and reused, and a marked activity is never invoked again, including after restart.
+and reused, and a marked activity is never invoked again, including after restart. Discovery
+splits a marked unit instead (above). Thinking counts as output on models that cannot switch
+it off, so at a high effort a scope that fits the input budget can still reach the ceiling.
 
 Staged activity IDs are derived from record identities, so interrupted stages resume
 without repeating completed model work. When the one-call request fits, the original
@@ -155,6 +163,7 @@ activity ID, prompt and context artifact are unchanged.
 | Stage | Before | Now |
 |---|---|---|
 | Discovery: file larger than budget | Whole file listed in `unexaminedDueToBudget` | Exact line windows; `file_context_split:<path>` limitation |
+| Discovery: call stops at the output ceiling | `MODEL_OUTPUT_LIMIT_REACHED:<auditor>/<scope>/discovery`; every resume failed at the same call | Smaller scopes, then line windows, over the same source; `discovery_output_limit_split` limitation |
 | Audit peer review: candidate pair too large | `PEER_PAIR_CONTEXT_LIMIT_EXCEEDED` | Segmented pair check; merges from segments of one pair deduplicated |
 | Audit critic: record pair too large | `PEER_PAIR_CONTEXT_LIMIT_EXCEEDED` | Segmented pair check |
 | Audit peer/critic/planner/revision output | Truncation reported as malformed JSON | Per-record output batching, truncation detection, durable replanning |
@@ -235,6 +244,7 @@ Irreducible with the current record model (a single mandatory unit exceeds the b
   all requirements do not fit one response. Both fail explicitly.
 - `MODEL_OUTPUT_CAPACITY_INSUFFICIENT:<stage>`: output capacity is below the reserve for one
   record. `MODEL_OUTPUT_LIMIT_REACHED:<activityId>`: one record's output exceeded the ceiling.
+  For discovery that record is a single source line: larger units are split first.
 - Discovery lines longer than the whole budget are reported as `unexaminedDueToBudget:
   <path>:<line>` with the `lines_exceed_discovery_context_budget` limitation.
 

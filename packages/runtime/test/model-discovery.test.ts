@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { sourceFindingSchema } from "@arbitra/schemas/finding.js";
+import { ModelOutputLimitError } from "../src/context-budget.js";
 import type { ModelActivities, ModelActivityRequest } from "../src/model-activities.js";
 import { discoverWithModel, injectionWindows } from "../src/model-discovery.js";
 import { INSTRUCTION_SHAPED_TEXT_RULE } from "../src/prompt-conventions.js";
@@ -41,6 +42,28 @@ function scripted(reply: (call: { activityId: string; namespace: string; payload
     },
   };
   return { activities, calls };
+}
+/**
+ * Durable fake activities with an output ceiling: a call whose payload `limited` rejects is spent
+ * once and stops at the ceiling; like the harness, later invocations refuse it before any spend.
+ */
+function ceilinged(limited: (payload: Payload, activityId: string) => boolean) {
+  const durable = new Map<string, unknown>(); const marked = new Set<string>(); const spent: { activityId: string; payload: Payload }[] = [];
+  const activities = {
+    async invoke<T>(input: ModelActivityRequest<T>): Promise<T> {
+      if (marked.has(input.activityId)) throw new ModelOutputLimitError(input.activityId);
+      if (!durable.has(input.activityId)) {
+        const payload = JSON.parse(input.messages.find(({ role }) => role === "user")?.content ?? "{}") as Payload;
+        spent.push({ activityId: input.activityId, payload });
+        if (limited(payload, input.activityId)) { marked.add(input.activityId); throw new ModelOutputLimitError(input.activityId); }
+        const namespace = /Every sourceFindingId must start with (.+)\/ and be unique/u.exec(input.messages.find(({ role }) => role === "system")?.content ?? "")?.[1] ?? "";
+        // One finding per supplied line that holds "null", cited at its original line number.
+        durable.set(input.activityId, { findings: payload.files.flatMap(({ path, lines }) => lines.filter(({ text }) => text.includes("null")).map(({ line, text }) => at(`${namespace}/${path.replace(/[^A-Za-z0-9]/gu, "-")}-L${line}`, "CORRECTNESS", path, line, line, text))), truncated: false, unexaminedDueToBudget: [], limitations: [] });
+      }
+      return input.schema.parse(durable.get(input.activityId));
+    },
+  };
+  return { activities, spent };
 }
 async function artifact(store: RunStore, kind: string) {
   const descriptor = (await store.listArtifacts()).find((entry) => entry.kind === kind);
@@ -233,5 +256,70 @@ describe("independent model discovery", () => {
   it("refuses a blocker below high severity inside the call, so the reply is repaired instead of the finding dropped", async () => {
     await expect((await setup([{ ...finding("1"), productionBlocker: true }])).run()).rejects.toThrow("DISCOVERY_BLOCKER_SEVERITY_INVALID");
     expect((await (await setup([{ ...finding("1"), severity: "high", productionBlocker: true }])).run()).map(({ sourceFindingId }) => sourceFindingId)).toEqual(["auditor-a/1"]);
+  });
+
+  it("splits a scope whose call stops at the output ceiling into smaller scopes, and repeats no spend on resume", async () => {
+    // Observed live (P20 pilot): an Opus 5.5 discovery call at xhigh passed the 64,000-token ceiling, and every resume failed at the same call.
+    const root = await mkdtemp(join(tmpdir(), "arbitra-discovery-output-")); directories.push(root);
+    const store = new RunStore(root, "run-output");
+    const files = ["a.ts", "b.ts", "c.ts", "d.ts"].map((path) => fileOf(path, ["const value = null;"]));
+    const { activities, spent } = ceilinged(({ files: supplied }) => supplied.length > 2);
+    const run = () => discoverWithModel({ auditorId: "auditor-a", modelProfileId: "model", snapshot: { root: "fixture", files }, activities, store, signal: new AbortController().signal });
+    const result = await run();
+    expect(spent.map(({ payload }) => payload.files.map(({ path }) => path))).toEqual([["a.ts", "b.ts", "c.ts", "d.ts"], ["a.ts", "b.ts"], ["c.ts", "d.ts"]]);
+    expect(result.map(({ locations }) => locations[0]?.path)).toEqual(["a.ts", "b.ts", "c.ts", "d.ts"]);
+    expect(new Set(result.map(({ sourceFindingId }) => sourceFindingId)).size).toBe(4);
+    const scopes = await artifact(store, "discovery-scopes-auditor-a") as { scopes: { scopeId: string; paths: string[] }[]; outputLimitSplits: { scopeId: string; into: string[] }[] };
+    expect(scopes.scopes.map(({ paths }) => paths)).toEqual([["a.ts", "b.ts"], ["c.ts", "d.ts"]]);
+    expect(scopes.outputLimitSplits).toEqual([{ scopeId: "whole", into: scopes.scopes.map(({ scopeId }) => scopeId) }]);
+    expect(await artifact(store, "discovery-validation-auditor-a")).toMatchObject({ acceptedCount: 4, rejectedCount: 0, truncated: false, unexaminedDueToBudget: [], limitations: ["discovery_partitioned_context", "discovery_output_limit_split"] });
+    expect((await artifact(store, "findings-auditor-a")).map(({ sourceFindingId }: { sourceFindingId: string }) => sourceFindingId)).toEqual(result.map(({ sourceFindingId }) => sourceFindingId));
+    // The ceiling marker and the completed scopes are durable: a resumed discovery splits the same way without a call.
+    expect((await run()).map(({ sourceFindingId }) => sourceFindingId)).toEqual(result.map(({ sourceFindingId }) => sourceFindingId));
+    expect(spent).toHaveLength(3);
+  });
+
+  it("splits only the output-limited scope of a partitioned audit, and halves one file by lines until its calls fit", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbitra-discovery-output-lines-")); directories.push(root);
+    const store = new RunStore(root, "run-output-lines");
+    const lines = Array.from({ length: 8 }, (_, index) => `const value${index + 1} = ${index === 1 || index === 6 ? "null" : index};`);
+    const files = [fileOf("big.ts", lines), fileOf("small.ts", ["const value = null;"])];
+    // The budget holds big.ts alone, so each file is a scope of its own; big.ts stops at the ceiling until at most four lines are sent.
+    const { activities, spent } = ceilinged(({ files: supplied }) => (supplied[0]?.lines.length ?? 0) > 4);
+    const budgeted = { ...activities, estimateInitialTokens: () => 1 };
+    const result = await discoverWithModel({ auditorId: "auditor-a", modelProfileId: "model", snapshot: { root: "fixture", files }, activities: budgeted, store, signal: new AbortController().signal, maximumInputTokens: files[0]?.byteLength ?? 0 });
+    const sent = spent.map(({ payload }) => [payload.files[0]?.path, payload.files[0]?.lines[0]?.line, payload.files[0]?.lines.at(-1)?.line]);
+    // Whole file, lines 1-4, lines 3-8 (two lines of overlap), then that window's halves, then the other scope.
+    expect(sent).toEqual([["big.ts", 1, 8], ["big.ts", 1, 4], ["big.ts", 3, 8], ["big.ts", 3, 5], ["big.ts", 5, 8], ["small.ts", 1, 1]]);
+    expect(result.map(({ locations }) => [locations[0]?.path, locations[0]?.startLine])).toEqual([["big.ts", 2], ["big.ts", 7], ["small.ts", 1]]);
+    const scopes = await artifact(store, "discovery-scopes-auditor-a") as { scopes: { paths: string[]; window?: { startLine: number; endLine: number } }[]; outputLimitSplits: { into: string[] }[] };
+    expect(scopes.scopes.map(({ paths, window }) => [paths[0], window?.startLine, window?.endLine])).toEqual([["big.ts", 1, 4], ["big.ts", 3, 5], ["big.ts", 5, 8], ["small.ts", undefined, undefined]]);
+    expect(scopes.outputLimitSplits).toHaveLength(2);
+    expect(await artifact(store, "discovery-validation-auditor-a")).toMatchObject({ acceptedCount: 3, unexaminedDueToBudget: [], limitations: ["discovery_partitioned_context", "file_context_split:big.ts", "discovery_output_limit_split"] });
+  });
+
+  it("fails explicitly when a single line still stops at the output ceiling", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbitra-discovery-output-line-")); directories.push(root);
+    const store = new RunStore(root, "run-output-line");
+    const { activities, spent } = ceilinged(() => true);
+    const run = () => discoverWithModel({ auditorId: "auditor-a", modelProfileId: "model", snapshot: { root: "fixture", files: [fileOf("a.ts", ["const a = null;", "const b = null;"])] }, activities, store, signal: new AbortController().signal });
+    await expect(run()).rejects.toThrow(/^MODEL_OUTPUT_LIMIT_REACHED:auditor-a\/window-[0-9a-f]{24}\/discovery$/u);
+    expect(spent.map(({ payload }) => payload.files[0]?.lines.map(({ line }) => line))).toEqual([[1, 2], [1]]);
+  });
+
+  it("records a follow-up that stops at the output ceiling and keeps the primary findings", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbitra-discovery-injection-output-")); directories.push(root);
+    const store = new RunStore(root, "run-injection-output");
+    const marked = new Set<string>();
+    const { activities, calls } = scripted(({ activityId, namespace }) => {
+      if (activityId !== "auditor-a/discovery") { marked.add(activityId); throw new ModelOutputLimitError(activityId); }
+      return [at(`${namespace}/planted`, "PROMPT_INJECTION", "src/suppressed.ts", 1, 1, PLANTED[0] ?? "")];
+    });
+    const result = await discoverWithModel({ auditorId: "auditor-a", modelProfileId: "model", snapshot: { root: "fixture", files: [fileOf("src/suppressed.ts", PLANTED)] }, activities, store, signal: new AbortController().signal });
+    expect(calls).toHaveLength(2);
+    expect(marked.size).toBe(1);
+    expect(result.map(({ category }) => category)).toEqual(["PROMPT_INJECTION"]);
+    expect(await artifact(store, "discovery-injection-follow-ups-auditor-a")).toMatchObject({ followUps: [{ path: "src/suppressed.ts", startLine: 1, endLine: 8, status: "output_limited", sourceFindingIds: [] }] });
+    expect(await artifact(store, "discovery-validation-auditor-a")).toMatchObject({ acceptedCount: 1, unexaminedDueToBudget: ["injection_follow_up:src/suppressed.ts:1-8"], limitations: ["injection_follow_up_output_limited"] });
   });
 });
