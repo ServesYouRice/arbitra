@@ -21,7 +21,14 @@ subscriptions.
 - **Running now:** the pilot panels (`node evaluation/run-paced.mjs pilot-v2 0.9 0.8` in `arbitra-p20`), started
   on the owner's Windows PC on October 10 because the Mac is unavailable for a few days. They pace themselves on
   the Claude and Codex usage windows and will take several days. The private `HANDOFF.md` says how to watch, stop
-  and restart them. Codex has not yet answered through arbitra on Windows; the first panel run is its first call.
+  and restart them.
+  - Codex answers through arbitra on Windows (0.162.1, live evidence in
+    [qa/subscription-cli](docs/qa/subscription-cli/README.md)).
+  - Restarting the PC ends the runner. That happened once on October 10; started again with the same command, it
+    resumed the interrupted run.
+  - The first three-vendor run used a whole Codex five-hour window and 15% of the weekly one before it was
+    finished, so the pilot will probably not fit in one ChatGPT Plus week. The runner stops at 90% of a weekly
+    window and the owner decides.
 - **Windows now runs every lineup.** The Antigravity CLI's prompts were capped at 30 KB there; they now travel on
   stdin with the same 190,000-byte limit as on macOS (b2a0793, live evidence in
   [qa/subscription-cli](docs/qa/subscription-cli/README.md)). A start that fails preflight no longer blocks its
@@ -100,6 +107,15 @@ Live configurations come from `tooling/live/bindings.subscription.json`. The API
 
 ## Open findings to fix or decide
 
-None. All eight findings in [qa/p19](docs/qa/p19/README.md) are fixed, and the affected live acceptance passed on subscriptions on September 30 (runs A–E there). The reruns found four more defects; all are fixed. The completion report is P21, after P20.
+One, found by the P20 pilot on October 10:
+
+- **The Antigravity transport reports the CLI's error step as tool use.** A Gemini call ended with
+  `CLI_AGENT_TOOL_USE_FORBIDDEN: Antigravity CLI attempted a error_message step`. The reader treats every step type
+  outside a short list as agent tool use, which is never retried; `error_message` is the CLI's own step for a failed
+  model call. The run failed, and its resume succeeded. To fix: record the step's text and classify it as a failed
+  call (usage limit, throttle or service error). Fix it after the pilot, because the pilot's arbitra build must not
+  change while it runs.
+
+All eight findings in [qa/p19](docs/qa/p19/README.md) are fixed, and the affected live acceptance passed on subscriptions on September 30 (runs A–E there). The reruns found four more defects; all are fixed. The completion report is P21, after P20.
 
 See [project status](docs/project-status.md) for implemented capabilities and measured evidence. Evidence per item is in [docs/qa](docs/qa/); the subscription runs are in [qa/p03-subscription](docs/qa/p03-subscription/README.md). Update task status only in the completion plan.
