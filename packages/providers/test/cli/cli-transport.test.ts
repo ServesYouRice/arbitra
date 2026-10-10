@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ProviderRegistry, type ProviderEndpoint } from "../../src/registry.js";
 import { TransportError, type ProviderTransport, type TransportRequest } from "../../src/transport-contract.js";
 import { classifyCliFailure, resetTime, retryHint } from "../../src/transports/cli/classify.js";
-import { antigravityPromptLimit } from "../../src/transports/cli/dialects.js";
+import { ANTIGRAVITY_PROMPT_LIMIT, antigravityDialect, antigravityPromptChannel } from "../../src/transports/cli/dialects.js";
 import { resolveCliExecutable } from "../../src/transports/cli/discovery.js";
 import { fileLimitLedger } from "../../src/transports/cli/limits.js";
 import { probeCliReadiness } from "../../src/transports/cli/probe.js";
@@ -107,6 +107,8 @@ describe.each(VENDORS)("%s subscription CLI transport", { timeout: 30_000 }, (ve
     if (vendor === "claude-code") { expect(report.argv).toContain("--json-schema"); expect(response.structuredOutputTier).toBe("native_structured"); }
     if (vendor === "gemini") { expect(report.stdin).toContain("JSON Schema"); expect(response.structuredOutputTier).toBe("prompt_json"); }
     if (vendor === "antigravity") { expect(report.argv).toContain("--json-schema"); expect(response.structuredOutputTier).toBe("native_structured"); }
+    // With the prompt on stdin, the Antigravity CLI gets its schema as a file.
+    if (vendor === "antigravity" && antigravityPromptChannel(process.platform) === "stdin") expect(report.schema).toEqual(schema);
   });
 
   it("emulates tool calls with stable IDs and replays results in the transcript", async () => {
@@ -273,13 +275,43 @@ describe("Antigravity CLI specifics", { timeout: 30_000 }, () => {
     expect(refused.message).toContain("effort.params");
   });
 
-  it("refuses a prompt larger than the CLI keeps whole or the platform's command line allows", async () => {
+  it("refuses a prompt larger than the CLI keeps whole", async () => {
     const f = await fixture({ vendor: "antigravity", replies: [{ kind: "text", text: "pong" }] });
     const error = await failure(send(f.transport, request({ messages: [{ role: "user", content: "x".repeat(1_000_000) }] })));
     expect(error.message).toContain("CLI_PROMPT_TOO_LARGE");
-    // agy keeps only the first 191,580 bytes of a prompt; 100,000 two-byte characters exceed that everywhere.
+    // agy keeps only the first 191,580 bytes of a prompt; 100,000 two-byte characters exceed that.
     expect((await failure(send(f.transport, request({ messages: [{ role: "user", content: "é".repeat(100_000) }] })))).message).toMatch(/CLI_PROMPT_TOO_LARGE: .* this request has 2\d{5}\b/u);
-    expect(["darwin", "linux", "win32"].map((platform) => antigravityPromptLimit(platform as NodeJS.Platform))).toEqual([190_000, 120 * 1024, 30_000]);
+    expect(ANTIGRAVITY_PROMPT_LIMIT).toBe(190_000);
+  });
+
+  it("sends the prompt on stdin where a command line cannot carry it, and as the -p argument on macOS", async () => {
+    expect(["darwin", "linux", "win32"].map((platform) => antigravityPromptChannel(platform as NodeJS.Platform))).toEqual(["argument", "stdin", "stdin"]);
+    const root = await realpath(await mkdtemp(join(tmpdir(), "arbitra-cli-agy-channel-"))); roots.push(root);
+    const schema = { type: "object", properties: { answer: { type: "string" } }, required: ["answer"] };
+    const value = request({ responseSchema: schema });
+    const prepare = (platform: NodeJS.Platform) => antigravityDialect.prepare({ request: value, prompt: serializeCliPrompt(value, { nativeSchema: true, systemInArguments: true }), work: root, control: root, isolatedHome: root,
+      auth: "subscription_login", base: {}, hostHome: root, lookup: () => undefined, oauthToken: null, nativeSchema: true, timeoutMs: 20_000, platform });
+    const prompt = `${CLI_ENGINE_PREAMBLE}\n\nAnswer tersely.\n\nSay pong.`;
+    for (const platform of ["win32", "linux"] as const) {
+      const invocation = await prepare(platform);
+      expect(invocation.arguments).not.toContain("-p");
+      expect(invocation.arguments.slice(0, 2)).toEqual(["--input-format", "stream-json"]);
+      // The CLI reads one message per line, so the prompt's own line breaks must stay inside the JSON.
+      expect(invocation.stdin).toBe(`${JSON.stringify({ event: "user", message: { content: prompt } })}\n`);
+      expect(invocation.stdin.indexOf("\n")).toBe(invocation.stdin.length - 1);
+      expect(invocation.arguments[invocation.arguments.indexOf("--json-schema") + 1]).toBe(join(root, "schema.json"));
+      expect(JSON.parse(await readFile(join(root, "schema.json"), "utf8"))).toEqual(schema);
+    }
+    const argument = await prepare("darwin");
+    expect(argument.arguments.slice(0, 2)).toEqual(["-p", prompt]);
+    expect(argument.stdin).toBe("");
+    expect(argument.arguments[argument.arguments.indexOf("--json-schema") + 1]).toBe(JSON.stringify(schema));
+    // Through the transport, the stand-in takes the prompt from whichever channel this host uses.
+    const f = await fixture({ vendor: "antigravity", replies: [{ kind: "text", text: "pong" }] });
+    await send(f.transport);
+    const report = await f.report();
+    expect(report.argv.includes("-p")).toBe(antigravityPromptChannel(process.platform) === "argument");
+    expect(report.stdin).toBe(prompt);
   });
 });
 

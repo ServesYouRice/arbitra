@@ -277,12 +277,19 @@ export const GEMINI_WORKSPACE_SETTINGS = Object.freeze({
 
 /**
  * Largest prompt, in UTF-8 bytes, the Antigravity CLI takes whole. It keeps only the first
- * 191,580 bytes of a prompt and silently replaces the rest with "<truncated N bytes>"
- * (measured live on agy 1.2.14, independent of platform and working directory), and the
- * prompt travels on its command line (`-p`): Windows limits the whole command line to 32,767
- * characters and Linux one argument to 128 KiB.
+ * 191,580 bytes of a prompt and silently replaces the rest with "<truncated N bytes>",
+ * whether the prompt is the `-p` argument (measured live on agy 1.2.14, macOS) or a
+ * stream-json message on stdin (agy 1.3.3, Windows).
  */
-export function antigravityPromptLimit(platform: NodeJS.Platform): number { return platform === "win32" ? 30_000 : platform === "linux" ? 120 * 1024 : 190_000; }
+export const ANTIGRAVITY_PROMPT_LIMIT = 190_000;
+
+/**
+ * How the prompt reaches the Antigravity CLI. A command line cannot carry the limit above on
+ * Windows (32,767 characters in all) or Linux (128 KiB per argument), so there the prompt is
+ * one stream-json message on stdin (`--input-format stream-json`, agy 1.1.15 and later).
+ * macOS keeps the `-p` argument, the path its live evidence was recorded on.
+ */
+export function antigravityPromptChannel(platform: NodeJS.Platform): "argument" | "stdin" { return platform === "darwin" ? "argument" : "stdin"; }
 
 /** stderr notices of a tool call soft-denied in headless mode (the run otherwise continues and exits 0). */
 const ANTIGRAVITY_DENIAL = /\b(?:tool|command|action|permission)\b[^\n]{0,120}\b(?:denied|requires? (?:approval|permission)|not (?:approved|permitted|allowed))|\bsoft[- ]denied\b|approval required/iu;
@@ -294,7 +301,8 @@ const ANTIGRAVITY_STEPS = new Set(["user_input", "agent_response", "finish", "th
  * print mode with stream-json events. It has no documented system-prompt flag, so the engine
  * preamble and system text lead the prompt; `--sandbox` confines it, permissions are never
  * skipped, and tool steps in the stream or soft-denied tool notices on stderr fail the call.
- * The prompt travels as the `-p` argument, so it is bounded per platform.
+ * The prompt travels as the `-p` argument or on stdin (`antigravityPromptChannel`); on stdin
+ * a response schema goes in a file, so no model-sized text is on the command line.
  */
 export const antigravityDialect: CliDialect = {
   support: ANTIGRAVITY,
@@ -302,17 +310,20 @@ export const antigravityDialect: CliDialect = {
   async prepare(context) {
     const effort = effortParameter(context.request, ANTIGRAVITY, { effort: (value) => typeof value === "string" && ["low", "medium", "high", "max"].includes(value) });
     const prompt = `${context.prompt.system}\n\n${context.prompt.body}`;
-    const limit = antigravityPromptLimit(context.platform);
     const bytes = Buffer.byteLength(prompt, "utf8");
-    if (bytes > limit) throw new TransportError("INVALID_REQUEST", `CLI_PROMPT_TOO_LARGE: the Antigravity CLI takes at most ${limit} bytes of prompt on ${context.platform} (it silently drops the rest of a longer one); this request has ${bytes}. Lower limits.contextTokens for profiles on this endpoint (see docs/setup.md) or use another transport for this role`, false);
+    if (bytes > ANTIGRAVITY_PROMPT_LIMIT) throw new TransportError("INVALID_REQUEST", `CLI_PROMPT_TOO_LARGE: the Antigravity CLI keeps at most ${ANTIGRAVITY_PROMPT_LIMIT} bytes of a prompt (it silently drops the rest of a longer one); this request has ${bytes}. Lower limits.contextTokens for profiles on this endpoint (see docs/setup.md) or use another transport for this role`, false);
     const passthrough = Object.fromEntries(["DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"].flatMap((name) => { const value = context.lookup(name); return value === undefined || value === "" ? [] : [[name, value]]; }));
+    const onStdin = antigravityPromptChannel(context.platform) === "stdin";
+    const schemaPath = join(context.control, "schema.json");
+    if (onStdin && context.nativeSchema) await writeFile(schemaPath, JSON.stringify(context.request.responseSchema), { mode: 0o600 });
     return {
       // Effort is usually part of the model slug (gemini-3.8-flash-low); a bare slug such as
       // gemini-3.8-flash needs effort.params {"effort": ...} or the CLI refuses the selection.
-      arguments: ["-p", prompt, "--output-format", "stream-json", "--model", context.request.modelId, ...(typeof effort["effort"] === "string" ? ["--effort", effort["effort"]] : []),
+      arguments: [...(onStdin ? ["--input-format", "stream-json"] : ["-p", prompt]), "--output-format", "stream-json", "--model", context.request.modelId, ...(typeof effort["effort"] === "string" ? ["--effort", effort["effort"]] : []),
         "--sandbox", "--disable-slash-commands", "--print-timeout", `${Math.max(1, Math.ceil(context.timeoutMs / 1_000))}s`,
-        ...(context.nativeSchema ? ["--json-schema", JSON.stringify(context.request.responseSchema)] : [])],
-      environment: { ...context.base, ...passthrough }, stdin: "",
+        ...(context.nativeSchema ? ["--json-schema", onStdin ? schemaPath : JSON.stringify(context.request.responseSchema)] : [])],
+      // One message per line; the CLI runs its single turn and exits when stdin ends.
+      environment: { ...context.base, ...passthrough }, stdin: onStdin ? `${JSON.stringify({ event: "user", message: { content: prompt } })}\n` : "",
     };
   },
   reader(context) {

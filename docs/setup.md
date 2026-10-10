@@ -209,7 +209,7 @@ CLI's own agent tools are disabled, and any sign that it used one fails the call
 |---|---|---|---|---|
 | `claude-code-cli` | Claude Code 2.1–2.x | `cli://claude-code` | `claude auth login` with a Claude Pro or Max account; or `claude setup-token` for `auth: "oauth_token"` | `ARBITRA_CLAUDE_CODE_EXECUTABLE`, else `claude` on PATH, `~/.claude/local`, `~/.local/bin`, npm global bins, or the newest VS Code/Cursor/Windsurf extension binary |
 | `codex-cli` | Codex CLI 0.150–0.199 | `cli://codex` | `codex login`, choose Sign in with ChatGPT (an API-key login is refused) | `ARBITRA_CODEX_EXECUTABLE`, else `codex` on PATH, npm global bins, or the ChatGPT app on macOS (`ChatGPT.app/Contents/Resources/codex-cli/bin/codex` since Codex 0.158, earlier `Contents/Resources/codex`; `~/Applications` before `/Applications`) |
-| `antigravity-cli` | Antigravity CLI (`agy`) 0.1–1.x | `cli://antigravity` | run `agy` once and sign in with the Google account that holds your Google AI subscription (kept in the OS keyring) | `ARBITRA_ANTIGRAVITY_EXECUTABLE`, else `agy` on PATH, `~/.local/bin/agy` (the installer's location), or `%LOCALAPPDATA%\Microsoft\WinGet\Links\agy.exe` |
+| `antigravity-cli` | Antigravity CLI (`agy`) 1.1.15–1.x | `cli://antigravity` | run `agy` once and sign in with the Google account that holds your Google AI subscription (kept in the OS keyring) | `ARBITRA_ANTIGRAVITY_EXECUTABLE`, else `agy` on PATH, `~/.local/bin/agy` (the installer's location), or `%LOCALAPPDATA%\Microsoft\WinGet\Links\agy.exe` |
 | `gemini-cli` | Gemini CLI 0.60–0.x | `cli://gemini` | run `gemini`, Login with Google using a Gemini Code Assist Standard or Enterprise account, and export `GOOGLE_CLOUD_PROJECT` | `ARBITRA_GEMINI_EXECUTABLE`, else `gemini` on PATH or npm global bins |
 
 An executable override must be an absolute path. If it names a JavaScript entry point
@@ -276,14 +276,16 @@ built-in functions that cannot be switched off (they are refused if used) and ad
 of agent instructions per call, declares browser, command and file tools that cannot be
 switched off (it runs with `--sandbox` and `--disable-slash-commands`, never
 `--dangerously-skip-permissions`, and any tool step or soft-denied tool notice fails the
-call), still reads the user's own settings under `~/.gemini/antigravity-cli`, keeps only the
-first 191,580 bytes of a prompt (agy 1.2.14 silently drops the rest; only the model sees a
-truncation note) and takes the prompt as a command-line argument, so prompts over 190,000 bytes
-(30,000 on Windows, 120 KiB on Linux) are refused (`CLI_PROMPT_TOO_LARGE`). The largest prompt
-arbitra sends is about `limits.contextTokens` (or `maximumContextTokens`, if lower) minus
-`maximumOutputTokens` bytes, so keep that difference within the limit: on macOS, for example,
-`contextTokens` 200,000 with the shipped `maximumOutputTokens` of 32,000, and discovery then
-splits a larger repository into prompts that fit. The Gemini CLI records
+call), still reads the user's own settings under `~/.gemini/antigravity-cli` and keeps only the
+first 191,580 bytes of a prompt (it silently drops the rest; only the model sees a truncation
+note), so prompts over 190,000 bytes are refused (`CLI_PROMPT_TOO_LARGE`). On macOS the prompt
+is the CLI's `-p` argument. A command line cannot carry that much on Windows (32,767
+characters) or Linux (128 KiB per argument), so there the prompt is one stream-json message on
+stdin (`--input-format stream-json`, agy 1.1.15 and later), which the CLI cuts at the same
+point. The largest prompt arbitra sends is about `limits.contextTokens` (or
+`maximumContextTokens`, if lower) minus `maximumOutputTokens` bytes, so keep that difference
+within the limit: for example, `contextTokens` 200,000 with the shipped `maximumOutputTokens`
+of 32,000, and discovery then splits a larger repository into prompts that fit. The Gemini CLI records
 session history under `~/.gemini/tmp`. Output ceilings are enforced for Claude Code
 (`CLAUDE_CODE_MAX_OUTPUT_TOKENS`); Codex, the Antigravity CLI and the Gemini CLI offer no
 per-call output ceiling. Google AI Pro and Ultra quotas refresh on a five-hour cycle; an

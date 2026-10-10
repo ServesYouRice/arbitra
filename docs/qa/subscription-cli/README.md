@@ -73,6 +73,42 @@ Probes made while building the adapters (not repeated in the evidence files):
   One call on `gpt-5.6-luna` failed transiently (websocket drops, then an HTTPS fallback
   rejected with 401) and succeeded on retry.
 
+## Windows (October 10, 2026)
+
+Recorded on Windows 11 (x64), Node 22.14.0, with the owner's subscription logins, by the same
+runner and cases as above. Evidence is in [windows/](windows/).
+
+| CLI | Version | Found through | Model | text | tool call | tool result | Evidence |
+|---|---|---|---|---|---|---|---|
+| Claude Code | 2.1.296 | `ARBITRA_CLAUDE_CODE_EXECUTABLE` (the VS Code extension's binary) | `claude-haiku-4-5-20251001` | passed | passed | passed | [claude-code.json](windows/claude-code.json) |
+| Antigravity CLI | 1.3.3 | `%LOCALAPPDATA%\Microsoft\WinGet\Links` | `gemini-3.8-flash-low` | passed | passed | passed | [antigravity.json](windows/antigravity.json) |
+
+The Codex CLI (0.162.1, from npm) is installed and signed in there but has not been run through
+this runner yet: the ChatGPT five-hour allowance was used up when the others ran. The emulated
+tool call had the same ID as on macOS (`call_0ca79e88e488264659ff17b8`).
+
+**The Antigravity CLI takes its prompt on stdin on Windows and Linux.** A Windows command line
+holds 32,767 characters and a Linux argument 128 KiB, so the `-p` argument cannot carry the
+prompts an audit sends. Since 1.1.15 agy reads one message per line on stdin with
+`--input-format stream-json`; a message is `{"event":"user","message":{"content":"<prompt>"}}`.
+macOS keeps `-p`, the path recorded above. Linux uses the stdin path but has not been run live.
+Probes on agy 1.3.3 on Windows:
+
+- The same short prompt as `-p` and on stdin gave the same reply and step types, with 13,102
+  and 13,095 input tokens.
+- On stdin the CLI cuts a prompt where it cuts an argument: a 249,960-byte prompt lost its
+  last 58,380 bytes (`<truncated 58380 bytes>`, so 191,580 were kept), and a 99,957-byte
+  prompt arrived whole.
+- `--json-schema` accepts the path of a schema file. With the prompt on stdin, the reply's
+  `structured_output` held the schema's fields, with quotes and non-ASCII text intact.
+- Through the transport, a 185,279-byte prompt with a response schema came back as structured
+  output naming its first line, its last line and its end marker, and a 195,233-byte prompt
+  was refused before any call (`CLI_PROMPT_TOO_LARGE`).
+
+Discovery takes the first `claude` on PATH. On this machine that was an npm install of
+2.0.51, which preflight refused (`SUBSCRIPTION_CLI_VERSION_UNSUPPORTED`) although the VS Code
+extension bundled 2.1.296; the executable override selects the supported one.
+
 ## End-to-end: `testing-plan` through the public CLI on Claude Code
 
 Configuration: [bindings.subscription.json](../../../tooling/live/bindings.subscription.json)

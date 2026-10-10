@@ -224,8 +224,8 @@ async function smokeCli(root: string, answer: (protocol: WireProtocol, system: s
     if (args[0] === "--version") return done({ claude: "2.1.282 (Claude Code)", codex: "codex-cli 0.154.0", gemini: "0.61.0", agy: "agy 1.2.0" }[vendor] ?? "");
     if (vendor === "claude" && args[0] === "auth") return done(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", subscriptionType: "max" }));
     if (vendor === "codex" && args[0] === "login") return done("Logged in using ChatGPT");
-    // The Antigravity CLI takes one prompt argument: instructions, then the framed transcript.
-    const agyPrompt = vendor === "agy" ? args[args.indexOf("-p") + 1] ?? "" : "";
+    // The Antigravity CLI takes one prompt (instructions, then the framed transcript): the -p argument on macOS, a stream-json message on stdin elsewhere.
+    const agyPrompt = vendor !== "agy" ? "" : args.includes("--input-format") ? (JSON.parse(request.stdin.split("\n")[0] ?? "") as { message: { content: string } }).message.content : args[args.indexOf("-p") + 1] ?? "";
     const transcriptAt = agyPrompt.indexOf("\n\nThe input is a conversation transcript.");
     const stdin = vendor === "agy" ? transcriptAt < 0 ? agyPrompt : agyPrompt.slice(transcriptAt + 2) : request.stdin;
     const system = vendor === "claude" ? readFileSync(args[args.indexOf("--system-prompt-file") + 1] ?? "", "utf8")
