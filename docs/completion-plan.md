@@ -457,18 +457,19 @@ The pilot panels are next.
 
 **Lineups changed, October 10, 2026.** The first three-vendor pilot run with GPT-6 Astra used a
 whole ChatGPT Plus five-hour window before it finished. Before any panel run had finished, the
-owner replaced GPT-6 Astra with GPT-6.1 Sol and Claude Sonnet 5 with Claude Sonnet 5.5, and the
+owner replaced GPT-6 Astra with GPT-6.1 Sol and Claude Sonnet 5 with Claude Sonnet 5.5, raised
+the efforts and the output ceiling (64,000 tokens, because thinking counts as output), and the
 pilot started again under a new protocol version. Gemini 4 Argon is not offered by the
 Antigravity CLI yet.
 
 **Acceptance.** Prespecify the protocol before any held-out run. The lineups are compared at
 matched cost:
 
-- the strongest single model, one run and three runs (Claude Opus 5.5);
-- a cheap trio from three companies (Claude Sonnet 5.5 at xhigh effort, GPT-6 Luna and Gemini 3.8
-  Flash);
-- a premium trio (Claude Opus 5.5, GPT-6.1 Sol at xhigh effort and Gemini 3.8 Flash High; Gemini 4
-  as a new version once available);
+- the strongest single model, one run and three runs (Claude Opus 5.5 at xhigh effort);
+- a cheap trio from three companies (Claude Sonnet 5.5 at xhigh effort, GPT-6 Luna at max effort
+  and Gemini 3.8 Flash High);
+- a premium trio (Claude Opus 5.5 and GPT-6.1 Sol at xhigh effort and Gemini 3.8 Flash High;
+  Gemini 4 as a new version once available);
 - a light trio: the premium trio with Claude and Codex at medium effort.
 
 Report as P06 does: denominators, intervals, a breakdown by class and tier, cost and
