@@ -27,8 +27,11 @@ subscriptions.
   - Restarting the PC ends the runner. That happened once on October 10; started again with the same command, it
     resumed the interrupted run.
   - The first three-vendor run used a whole Codex five-hour window and 15% of the weekly one before it was
-    finished, so the pilot will probably not fit in one ChatGPT Plus week. The runner stops at 90% of a weekly
-    window and the owner decides.
+    finished. The owner therefore replaced GPT-6 Astra with GPT-6.1 Sol in the premium and light lineups on
+    October 10 (xhigh and medium effort), before any panel run had finished. The pilot started again under a new
+    protocol version; the unfinished run was retired unscored. The cheap lineup's GPT-6 Luna effort is still open.
+  - Gemini 4 Argon is not offered by the Antigravity CLI yet (`agy models`), so the panels stay on Gemini 3.8 Flash.
+  - The runner stops at 90% of a weekly window and the owner decides.
 - **Windows now runs every lineup.** The Antigravity CLI's prompts were capped at 30 KB there; they now travel on
   stdin with the same 190,000-byte limit as on macOS (b2a0793, live evidence in
   [qa/subscription-cli](docs/qa/subscription-cli/README.md)). A start that fails preflight no longer blocks its
