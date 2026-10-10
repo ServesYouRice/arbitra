@@ -47,7 +47,7 @@ export const CLI_TRANSPORT_SUPPORT: readonly CliTransportSupport[] = Object.free
     transport: "codex-cli", vendor: "codex", displayName: "Codex CLI", endpoint: "cli://codex",
     executableEnvVar: "ARBITRA_CODEX_EXECUTABLE", command: "codex",
     versionRange: Object.freeze({ minimum: "0.150.0", below: "0.200.0" }),
-    status: "live_verified", verifiedVersions: Object.freeze(["0.154.0"]), evidence: "docs/qa/subscription-cli/README.md",
+    status: "live_verified", verifiedVersions: Object.freeze(["0.154.0", "0.162.1"]), evidence: "docs/qa/subscription-cli/README.md",
     authModes: Object.freeze(["subscription_login"] as const),
     loginInstruction: "Run `codex login` and choose Sign in with ChatGPT. An API-key login is refused here because it would spend API credit.",
     installInstruction: "Install the Codex CLI (`npm install -g @openai/codex`, or the ChatGPT desktop app on macOS) so `codex` is on PATH, or set ARBITRA_CODEX_EXECUTABLE to its absolute path.",

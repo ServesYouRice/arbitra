@@ -1,0 +1,66 @@
+{
+  "recordedAt": "2026-10-10T15:53:45.147Z",
+  "host": "win32-x64",
+  "node": "v22.14.0",
+  "transport": "codex-cli",
+  "modelId": "gpt-6-luna",
+  "executableSource": "path",
+  "cliVersion": "0.162.1",
+  "versionSupported": true,
+  "auth": "logged_in",
+  "observations": [
+    {
+      "case": "text",
+      "status": "passed",
+      "detail": "pong",
+      "durationMs": 4262,
+      "usage": {
+        "inputTokens": 8287,
+        "outputTokens": 5,
+        "cacheReadTokens": 2816,
+        "cacheWriteTokens": 0
+      },
+      "providerRequestId": "01a12684-fd3a-7593-a2f0-aa5e9685f8b8",
+      "transportVersion": "codex/0.162.1",
+      "toolCalls": []
+    },
+    {
+      "case": "tool_call",
+      "status": "passed",
+      "detail": "[{\"id\":\"call_0ca79e88e488264659ff17b8\",\"name\":\"lookup_word\",\"arguments\":{\"word\":\"arbitra\"}}]",
+      "durationMs": 4480,
+      "usage": {
+        "inputTokens": 8565,
+        "outputTokens": 38,
+        "cacheReadTokens": 6912,
+        "cacheWriteTokens": 0
+      },
+      "providerRequestId": "01a12685-0c93-7e33-b1e0-cd9479f4ea2c",
+      "transportVersion": "codex/0.162.1",
+      "toolCalls": [
+        {
+          "id": "call_0ca79e88e488264659ff17b8",
+          "name": "lookup_word",
+          "arguments": {
+            "word": "arbitra"
+          }
+        }
+      ]
+    },
+    {
+      "case": "tool_result",
+      "status": "passed",
+      "detail": "{\"definition\":\"an arbiter of models\"}",
+      "durationMs": 4738,
+      "usage": {
+        "inputTokens": 8699,
+        "outputTokens": 26,
+        "cacheReadTokens": 2816,
+        "cacheWriteTokens": 0
+      },
+      "providerRequestId": "01a12685-1e14-70a1-b5c9-87831d23f65d",
+      "transportVersion": "codex/0.162.1",
+      "toolCalls": []
+    }
+  ]
+}

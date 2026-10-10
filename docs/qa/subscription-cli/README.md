@@ -82,10 +82,11 @@ runner and cases as above. Evidence is in [windows/](windows/).
 |---|---|---|---|---|---|---|---|
 | Claude Code | 2.1.296 | `ARBITRA_CLAUDE_CODE_EXECUTABLE` (the VS Code extension's binary) | `claude-haiku-4-5-20251001` | passed | passed | passed | [claude-code.json](windows/claude-code.json) |
 | Antigravity CLI | 1.3.3 | `%LOCALAPPDATA%\Microsoft\WinGet\Links` | `gemini-3.8-flash-low` | passed | passed | passed | [antigravity.json](windows/antigravity.json) |
+| Codex CLI | 0.162.1 | PATH (npm's `codex.cmd`) | `gpt-6-luna` | passed | passed | passed | [codex.json](windows/codex.json) |
 
-The Codex CLI (0.162.1, from npm) is installed and signed in there but has not been run through
-this runner yet: the ChatGPT five-hour allowance was used up when the others ran. The emulated
-tool call had the same ID as on macOS (`call_0ca79e88e488264659ff17b8`).
+Codex ran a few hours after the others, once the ChatGPT five-hour allowance had reset: about
+8,300 to 8,700 input tokens and about 4.5 seconds per call. The emulated tool call had the same
+ID as on macOS (`call_0ca79e88e488264659ff17b8`) on all three CLIs.
 
 **The Antigravity CLI takes its prompt on stdin on Windows and Linux.** A Windows command line
 holds 32,767 characters and a Linux argument 128 KiB, so the `-p` argument cannot carry the
