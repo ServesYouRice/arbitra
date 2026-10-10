@@ -12,7 +12,7 @@ import type { CliVendor } from "./support.js";
  * runs prove the real CLIs emit this format.
  */
 export type CliStandInReply =
-  | { readonly kind: "text"; readonly text: string; readonly usage?: false }
+  | { readonly kind: "text"; readonly text: string; readonly usage?: false | "thinking_in_output" }
   | { readonly kind: "tool_use" }
   | { readonly kind: "not_logged_in" }
   | { readonly kind: "usage_limit" }
@@ -20,6 +20,8 @@ export type CliStandInReply =
   | { readonly kind: "malformed" }
   | { readonly kind: "output_limit" }
   | { readonly kind: "hang" }
+  /** Antigravity only: the CLI's own error step for a failed model call. Its text, when given, is stored where the real CLI keeps it. */
+  | { readonly kind: "model_error"; readonly text?: string }
   /** Antigravity only: a tool call soft-denied on stderr, a SUCCESS with an empty response, or a run waiting for approval. */
   | { readonly kind: "soft_denied" }
   | { readonly kind: "empty_success" }
@@ -143,7 +145,21 @@ function run() {
     step({ step_index: 0, step_type: "user_input" });
     switch (reply.kind) {
       case "text": { const schema = args.includes("--json-schema"); step({ step_index: 1, step_type: "agent_response", text_delta: reply.text + "\n" }); step({ step_index: 2, step_type: "finish" });
-        return envelope("SUCCESS", { response: reply.text, ...(schema ? { structured_output: JSON.parse(reply.text) } : {}), ...(reply.usage === false ? {} : { usage: { input_tokens: 30, output_tokens: 8, thinking_tokens: 2, cache_read_tokens: 10, total_tokens: 40 } }) }); }
+        return envelope("SUCCESS", { response: reply.text, ...(schema ? { structured_output: JSON.parse(reply.text) } : {}), ...(reply.usage === false ? {} : { usage: reply.usage === "thinking_in_output" ? { input_tokens: 30, output_tokens: 8, thinking_tokens: 6, cache_read_tokens: 0, total_tokens: 38 } : { input_tokens: 30, output_tokens: 8, thinking_tokens: 2, cache_read_tokens: 10, total_tokens: 40 } }) }); }
+      // The shape agy 1.3.3 streams for a failed model call (observed live): the step carries no text. The reason is a
+      // string inside a protobuf payload in the CLI's conversation database, and the CLI then retries by itself.
+      case "model_error": {
+        if (typeof reply.text === "string") {
+          const { DatabaseSync } = require("node:sqlite");
+          const directory = path.join(process.env.HOME ?? process.env.USERPROFILE, ".gemini", "antigravity-cli", "conversations");
+          fs.mkdirSync(directory, { recursive: true });
+          const database = new DatabaseSync(path.join(directory, conversation + ".db"));
+          database.exec("CREATE TABLE steps (idx integer PRIMARY KEY, step_type integer NOT NULL DEFAULT 0, step_payload blob)");
+          database.prepare("INSERT INTO steps (idx, step_type, step_payload) VALUES (?, ?, ?)").run(1, 17, Buffer.concat([Buffer.from([98, 36]), Buffer.from("070bfd30-3c8c-4839-b4f1-e13cf43b0ce4"), Buffer.from([18, 3, 8, 1, 26]), Buffer.from(reply.text), Buffer.from([10, 0])]));
+          database.close();
+        }
+        step({ step_index: 1, step_type: "error_message", duration_seconds: 0 }); return hang();
+      }
       // The shape agy 1.2.14 streams for its own tool step (observed live).
       case "tool_use": step({ step_index: 1, step_type: "tool", state: "ACTIVE", tool_name: "run_command", tool_info: { name: "run_command", parameters: { CommandLine: "ls -la" } } }); return hang();
       case "soft_denied": process.stderr.write("Tool run_command requires approval and was denied in headless mode\n"); result({ status: "SUCCESS", response: "I could not run the command." }); process.exit(0);

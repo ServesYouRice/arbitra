@@ -68,6 +68,19 @@ Probes made while building the adapters (not repeated in the evidence files):
   The same version streams its own tool use as a `tool` step naming the tool
   (`"tool_name": "run_command"`), and in `--sandbox` it ran `ls -la` without asking; the
   transport fails the call at that step.
+- Antigravity CLI 1.3.3 (Windows, October 10, 2026) answers a reply that passes the model's
+  output limit (65,536 tokens for Gemini 3.8 Flash, thinking included) with an
+  `error_message` step and calls the model again to continue. The stream carries no reason:
+  `{"step_index":2,"state":"DONE","step_type":"error_message","duration_seconds":0}`. The
+  reason is only in the CLI's conversation database
+  (`~/.gemini/antigravity-cli/conversations/<id>.db`, table `steps`): "Your previous response
+  was cut off because it exceeded the output token limit". All four such steps seen that day,
+  three in P20 pilot discovery calls and one in a probe, had this reason. The transport had
+  failed them as agent tool use; it now reads the reason, stops the process and returns
+  `OUTPUT_LIMIT`. The same version counts thinking inside `output_tokens`: a reply reported
+  `input_tokens` 48,736, `output_tokens` 55,101, `thinking_tokens` 45,556 and `total_tokens`
+  103,837. The transport had added thinking again, so Gemini's recorded output was nearly
+  twice the real figure.
 - Codex refused `gpt-6-luna` for a ChatGPT account (`model is not supported when using Codex
   with a ChatGPT account`); this is classified as `INVALID_REQUEST` / `CLI_MODEL_UNAVAILABLE`.
   One call on `gpt-5.6-luna` failed transiently (websocket drops, then an HTTPS fallback

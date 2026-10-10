@@ -32,7 +32,7 @@ export function classifyCliFailure(support: CliTransportSupport, text: string, e
 
 const AUTH_PATTERN = /not logged in|not signed in|UNAUTHENTICATED|please (?:run )?\/?login|run `?(?:claude|codex) (?:auth )?login|invalid api key|oauth token (?:has )?expired|authentication_error|401 Unauthorized|refresh token|token_expired|Please set an Auth method|Error authenticating|Authentication cancelled|IneligibleTier|no longer supported for Gemini Code Assist|Login with Google/iu;
 const MODEL_PATTERN = /model is not supported when using|model_not_found|model[^\n]{0,80}(?:does not exist|not found|is not available|not supported)|invalid model|unknown model|requires? --effort/iu;
-const OUTPUT_LIMIT_PATTERN = /exceeded the \d+ output token maximum|max_output_tokens|Output token limit hit/iu;
+const OUTPUT_LIMIT_PATTERN = /exceeded the \d+ output token maximum|exceeded the output token limit|max_output_tokens|Output token limit hit/iu;
 const QUOTA_PATTERN = /quota[^\n]{0,40}(?:exhausted|exceeded|reached|used up)|(?:exhausted|exceeded|reached|used up)[^\n]{0,40}quota|usage limit|hit your (?:usage )?limit|limit reached|out of (?:extra )?usage|exhausted your (?:daily )?quota|quota exceeded[^\n]*per ?day|daily (?:request )?limit|weekly limit|credit balance/iu;
 const RATE_PATTERN = /rate[ _-]?limit|too many requests|\b429\b|RESOURCE_EXHAUSTED|overloaded|\b529\b/iu;
 
