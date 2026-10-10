@@ -27,9 +27,20 @@ subscriptions.
   - Restarting the PC ends the runner. That happened once on October 10; started again with the same command, it
     resumed the interrupted run.
   - The first three-vendor run used a whole Codex five-hour window and 15% of the weekly one before it was
-    finished. The owner therefore replaced GPT-6 Astra with GPT-6.1 Sol in the premium and light lineups on
-    October 10 (xhigh and medium effort), before any panel run had finished. The pilot started again under a new
-    protocol version; the unfinished run was retired unscored. The cheap lineup's GPT-6 Luna effort is still open.
+    finished. The owner therefore changed the lineups on October 10, before any panel run had finished, and the
+    pilot started again under a new protocol version; the unfinished run was retired unscored:
+
+    | Lineup | Claude | Codex | Gemini |
+    |---|---|---|---|
+    | premium | Opus 5.5, high | GPT-6.1 Sol, xhigh (was GPT-6 Astra) | 3.8 Flash, high |
+    | light | Opus 5.5, medium | GPT-6.1 Sol, medium (was GPT-6 Astra) | 3.8 Flash, high (was medium) |
+    | cheap | Sonnet 5.5, xhigh (was Sonnet 5, medium) | GPT-6 Luna, medium | 3.8 Flash, medium |
+
+  - Still open, for the owner: premium's Opus effort, Luna's effort and cheap's Gemini effort. The runner is
+    stopped until they are settled.
+  - Thinking counts as output on Sonnet 5.5 and Opus 5.5 and cannot be switched off. At xhigh, Sonnet 5.5 returned
+    no answer to a hard prompt under a 32,000-token output ceiling and answered under 64,000, so the cheap lineup's
+    ceiling is 64,000.
   - Gemini 4 Argon is not offered by the Antigravity CLI yet (`agy models`), so the panels stay on Gemini 3.8 Flash.
   - The runner stops at 90% of a weekly window and the owner decides.
 - **Windows now runs every lineup.** The Antigravity CLI's prompts were capped at 30 KB there; they now travel on
