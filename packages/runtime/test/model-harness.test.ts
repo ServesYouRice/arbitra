@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { runConfigSchema } from "@arbitra/schemas/config.js";
 import type { HttpClient, HttpRequest } from "@arbitra/providers/transport-contract.js";
 import { ModelActivities } from "../src/model-activities.js";
+import { discoverWithModel } from "../src/model-discovery.js";
 import { ModelHarness } from "../src/model-harness.js";
 import { RunStore } from "../src/run-store.js";
 import { snapshotTools } from "../src/snapshot-tools.js";
@@ -12,7 +13,7 @@ import { snapshotTools } from "../src/snapshot-tools.js";
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 const snapshot = { root: "fixture", files: [{ path: "a.ts", lines: ["const value = null;"], lineStartBytes: [0], byteLength: 19 }] };
-async function setup(maxToolTurns = 2, historySize = 0, maximumOutputRepairs = 0) {
+async function setup(maxToolTurns = 2, historySize = 0, maximumOutputRepairs = 0, source = snapshot) {
   const root = await mkdtemp(join(tmpdir(), "arbitra-harness-")); directories.push(root);
   const example = runConfigSchema.parse(JSON.parse(await readFile(new URL("../../../examples/audit-balanced.json", import.meta.url), "utf8")));
   const profile = example.models["auditor-a"];
@@ -31,7 +32,7 @@ async function setup(maxToolTurns = 2, historySize = 0, maximumOutputRepairs = 0
       ? { output_text: "x".repeat(historySize), output: [{ type: "function_call", call_id: "call-1", name: "repo_read_file", arguments: '{"path":"a.ts"}' }], usage: { input_tokens: 10, output_tokens: 10 } }
       : { output_text: '{"answer":"ok"}', usage: { input_tokens: 20, output_tokens: 10 } } };
   });
-  const create = () => new ModelHarness(new ModelActivities(store, config, { client: { send }, credential: () => "fixture-credential" }), config, snapshot, store);
+  const create = () => new ModelHarness(new ModelActivities(store, config, { client: { send }, credential: () => "fixture-credential" }), config, source, store);
   return { store, create, send, requests };
 }
 const request = () => ({ activityId: "auditor-a/discovery", modelProfileId: "auditor-a", protocol: "fixture@1", signal: new AbortController().signal,
@@ -74,6 +75,28 @@ describe("durable canonical model harness", () => {
     expect(send).toHaveBeenCalledTimes(1);
     const marker = (await store.listArtifacts()).find(({ kind }) => kind.startsWith("model-output-limit-"));
     expect(JSON.parse((await store.readArtifact(marker?.artifactId ?? "")).content)).toMatchObject({ activityId: "auditor-a/discovery", turnActivityId: "auditor-a/discovery/turn-0", maximumOutputTokens: 500 });
+  });
+
+  it("finishes discovery on smaller scopes when the one-call audit stops at the output ceiling, with no repeated spend after restart", async () => {
+    // Observed live (P20 pilot): the run failed at this call, and every resume failed again without a new call.
+    const source = { root: "fixture", files: ["a.ts", "b.ts"].map((path) => ({ path, lines: ["const value = null;"], lineStartBytes: [0], byteLength: 19 })) };
+    const { create, send, store } = await setup(2, 0, 0, source);
+    const supplied: string[][] = [];
+    send.mockImplementation(async (value) => {
+      const user = (value.body as { input: { role: string; content: string }[] }).input.filter(({ role }) => role === "user").map(({ content }) => content).join("\n");
+      const paths = source.files.map(({ path }) => path).filter((path) => user.includes(path));
+      supplied.push(paths);
+      return { status: 200, headers: {}, body: paths.length > 1
+        ? { status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, output_text: '{"findings":', usage: { input_tokens: 10, output_tokens: 500 } }
+        : { output_text: JSON.stringify({ findings: [], truncated: false, unexaminedDueToBudget: [], limitations: [] }), usage: { input_tokens: 10, output_tokens: 10 } } };
+    });
+    const run = () => discoverWithModel({ auditorId: "auditor-a", modelProfileId: "auditor-a", snapshot: source, activities: create(), store, signal: new AbortController().signal });
+    expect(await run()).toEqual([]);
+    expect(supplied).toEqual([["a.ts", "b.ts"], ["a.ts"], ["b.ts"]]);
+    const scopes = (await store.listArtifacts()).find(({ kind }) => kind === "discovery-scopes-auditor-a");
+    expect(JSON.parse((await store.readArtifact(scopes?.artifactId ?? "")).content)).toMatchObject({ scopes: [{ paths: ["a.ts"] }, { paths: ["b.ts"] }], outputLimitSplits: [{ scopeId: "whole" }] });
+    expect(await run()).toEqual([]);
+    expect(send).toHaveBeenCalledTimes(3);
   });
 
   it("archives overflowing tool history and reuses the same bounded turns after restart", async () => {

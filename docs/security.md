@@ -95,9 +95,10 @@ the reported text:
   it. Nearby reports share one window.
 - Each auditor runs at most 3 follow-ups. The follow-up is isolated like round zero and
   durable like any discovery scope (`injection-<hash>`).
-- A window over the cap, or over the discovery budget, is listed as unexamined
-  (`injection_follow_up:<path>:<start>-<end>`) with the limitation
-  `injection_follow_up_capped` or `injection_follow_up_exceeds_discovery_context_budget`.
+- A window over the cap, over the discovery budget, or whose call stops at the output ceiling
+  is listed as unexamined (`injection_follow_up:<path>:<start>-<end>`) with the limitation
+  `injection_follow_up_capped`, `injection_follow_up_exceeds_discovery_context_budget` or
+  `injection_follow_up_output_limited`.
 - `discovery-injection-follow-ups-<auditor>` records every window and what it found.
 
 The deterministic scanner does not trigger follow-ups. On this repository it flags 14 of 372
