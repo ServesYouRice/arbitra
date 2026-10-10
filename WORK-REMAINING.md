@@ -18,10 +18,13 @@ subscriptions.
 - **Re-calibration (October 10):** one Claude Opus 5.5 run per rebuilt pilot project found 16 of 21 defects (recall
   0.76, 95% interval 0.55 to 0.89), so the pilot is no longer at the ceiling. It ran on the owner's Windows PC. No
   model has audited a held-out project.
-- **Running now:** the pilot panels (`node evaluation/run-paced.mjs pilot-v2 0.9 0.8` in `arbitra-p20`), started
-  on the owner's Windows PC on October 10 because the Mac is unavailable for a few days. They pace themselves on
-  the Claude and Codex usage windows and will take several days. The private `HANDOFF.md` says how to watch, stop
-  and restart them.
+- **Stopped on October 10 at 22:59, waiting for the owner's decision:** the pilot panels
+  (`node evaluation/run-paced.mjs pilot-v2 0.9 0.8` in `arbitra-p20`), started on the owner's Windows PC on
+  October 10 because the Mac is unavailable for a few days. One of 18 runs is complete. The first panel run cannot
+  finish on this build: one Opus 5.5 discovery call at xhigh reached the 64,000-token output ceiling, and discovery
+  does not split such a call (see the open findings below). The private `HANDOFF.md` has the details, the options
+  and how to watch, stop and restart the runs.
+  - GPT-6.1 Sol at xhigh answers through arbitra (nine calls, none failed).
   - Codex answers through arbitra on Windows (0.162.1, live evidence in
     [qa/subscription-cli](docs/qa/subscription-cli/README.md)).
   - Restarting the PC ends the runner. That happened once on October 10; started again with the same command, it
@@ -48,8 +51,10 @@ subscriptions.
   stdin with the same 190,000-byte limit as on macOS (b2a0793, live evidence in
   [qa/subscription-cli](docs/qa/subscription-cli/README.md)). A start that fails preflight no longer blocks its
   retry (6c5c0fe).
-- **Next:** when the pilot has finished, compare the lineups and report to the owner; then the owner approves the
-  held-out plan, then the held-out runs and P21.
+- **Next:** the owner decides how the pilot gets past the output ceiling (fix discovery and the Antigravity error
+  step in arbitra and start the pilot again under a new protocol version, or put Opus back to high). When the
+  pilot has finished, compare the lineups and report to the owner; then the owner approves the held-out plan, then
+  the held-out runs and P21.
 - **Live runs need the owner's machines.** They run only on the owner's subscriptions, through the vendor CLIs
   signed in there: Claude Code, Codex and the Antigravity CLI. A cloud session can change code, docs and the
   benchmark, run tests and analyse committed evidence, but it cannot run them. Run state (`.runs/` in both
@@ -67,7 +72,7 @@ The maintained execution queue is the [completion plan](docs/completion-plan.md)
 
 - **Complete:** P01, P02, P04–P07, P09–P14 and P16–P19. P19's completion report moved to the new P21, which waits for P20.
 - **Merged from the other session (`ui-restructure`, September 29):** the web app restructured into pages (run list, run pages, new-run form, workflows page); browser acceptance rerun, 69 of 69 passed ([qa/p10](docs/qa/p10/README.md)).
-- **In progress:** P20, a hard premise benchmark. It is rebuilt as `p20-hard-v2` (12 projects); its pilot was re-calibrated on October 10 and is no longer at the ceiling, and the pilot panels are running on the owner's Windows PC. P20's benchmark is kept in the owner's private repository `arbitra-p20` so its answer keys stay out of public training data; never add it here.
+- **In progress:** P20, a hard premise benchmark. It is rebuilt as `p20-hard-v2` (12 projects); its pilot was re-calibrated on October 10 and is no longer at the ceiling. The pilot panels started on the owner's Windows PC and stopped the same evening on an open finding below. P20's benchmark is kept in the owner's private repository `arbitra-p20` so its answer keys stay out of public training data; never add it here.
 - **Deferred, not part of this phase ([paid-API bundle](docs/completion-plan.md#deferred-the-paid-api-bundle)):** the API-protocol part of P03, and the live evidence for P08 and P15. All three are implemented.
 - **Accepted live on subscriptions:** the rest of P03.
 - **Pending:** P21 (completion report, after P20).
@@ -122,8 +127,15 @@ Live configurations come from `tooling/live/bindings.subscription.json`. The API
 
 ## Open findings to fix or decide
 
-One, found by the P20 pilot on October 10:
+Two, found by the P20 pilot on October 10:
 
+- **Discovery cannot pass a call that reaches the output ceiling.** An Opus 5.5 discovery call at xhigh stopped at
+  the 64,000-token ceiling (`MODEL_OUTPUT_LIMIT_REACHED`). The run failed, and its resume failed again without a
+  new call: the activity is recorded as output-limited and is refused before any spend. Peer review, planning and
+  the critic split their work on that error (`replanOnOutputLimit`); discovery (`model-discovery.ts`) does not, so
+  no resume can finish the run. To fix: when a discovery scope is output-limited, split it into smaller scopes or
+  line windows and run those. Thinking counts as output on Opus 5.5 and Sonnet 5.5, so high efforts reach the
+  ceiling on scopes that fit the input budget. This blocks the pilot.
 - **The Antigravity transport reports the CLI's error step as tool use.** A Gemini call ended with
   `CLI_AGENT_TOOL_USE_FORBIDDEN: Antigravity CLI attempted a error_message step`. The reader treats every step type
   outside a short list as agent tool use, which is never retried; `error_message` is the CLI's own step for a failed
