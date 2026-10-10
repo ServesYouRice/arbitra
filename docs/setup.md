@@ -288,7 +288,11 @@ within the limit: for example, `contextTokens` 200,000 with the shipped `maximum
 of 32,000, and discovery then splits a larger repository into prompts that fit. The Gemini CLI records
 session history under `~/.gemini/tmp`. Output ceilings are enforced for Claude Code
 (`CLAUDE_CODE_MAX_OUTPUT_TOKENS`); Codex, the Antigravity CLI and the Gemini CLI offer no
-per-call output ceiling. Google AI Pro and Ultra quotas refresh on a five-hour cycle; an
+per-call output ceiling. The Antigravity CLI reports a reply cut at the model's own output limit
+(65,536 tokens for Gemini 3.8 Flash, thinking included) as an `error_message` step and asks the
+model to continue; arbitra stops the call there as `OUTPUT_LIMIT`, and discovery then audits
+that scope in smaller parts. Any other `error_message` step is a failed model call, classified
+by its text (`QUOTA`, `RATE_LIMIT`, or a retried `CLI_MODEL_CALL_FAILED`). Google AI Pro and Ultra quotas refresh on a five-hour cycle; an
 exhausted quota is `QUOTA` and is recorded for preflight until the reset.
 
 ### Budget limits

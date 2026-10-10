@@ -1,8 +1,9 @@
 import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { noUsage, TransportError, withUsageEvidence, type TransportRequest, type TransportUsage } from "../../transport-contract.js";
 import type { CliPrompt } from "./prompt.js";
-import { classifyCliFailure } from "./classify.js";
+import { classifyCliFailure, cliFailureDetail } from "./classify.js";
 import { requireCliTransportSupport, type CliAuthMode, type CliTransportSupport } from "./support.js";
 
 /**
@@ -297,6 +298,48 @@ const ANTIGRAVITY_DENIAL = /\b(?:tool|command|action|permission)\b[^\n]{0,120}\b
 const ANTIGRAVITY_STEPS = new Set(["user_input", "agent_response", "finish", "thinking", "reasoning", "planner_response"]);
 
 /**
+ * The text the CLI stored for one step of a conversation, as lines, or none when it cannot
+ * be read. The stream names an `error_message` step without saying what failed (observed live
+ * on agy 1.3.3: {"step_index":2,"state":"DONE","step_type":"error_message","duration_seconds":0}).
+ * The reason is only in the CLI's own conversation database, as the readable runs of a protobuf
+ * payload. The row can trail the event, so the read is tried for up to half a second.
+ */
+function antigravityStepText(home: string | undefined, step: Record<string, unknown> | null): readonly string[] {
+  const conversation = text(step?.["conversation_id"]); const index = count(step?.["step_index"]);
+  if (home === undefined || conversation === null || !/^[A-Za-z0-9-]{1,80}$/u.test(conversation) || index === null) return [];
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (attempt > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
+    try {
+      const database = new DatabaseSync(join(home, ".gemini", "antigravity-cli", "conversations", `${conversation}.db`), { readOnly: true });
+      try {
+        const row = database.prepare("SELECT step_payload FROM steps WHERE idx = ?").get(index);
+        const payload = row?.["step_payload"];
+        // Identifiers of the conversation and its trajectory are readable runs too; they are not the reason.
+        const lines = payload instanceof Uint8Array ? (Buffer.from(payload).toString("latin1").match(/[\x20-\x7e]{12,}/gu) ?? []).filter((run) => !/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-/u.test(run)) : [];
+        if (lines.length > 0) return lines;
+      } finally { database.close(); }
+    } catch { /* No database, or not this layout: the reason stays unknown. */ }
+  }
+  return [];
+}
+
+/**
+ * The CLI's own step for a model call that failed, which is not tool use. Observed live on agy
+ * 1.3.3 (P20 pilot, four of four such steps): Gemini 3.8 Flash passed its 65,536 output tokens,
+ * thinking included, and the step read "Your previous response was cut off because it exceeded
+ * the output token limit. Please continue from where you left off". The reason is classified
+ * like any CLI failure. The CLI would go on to retry by itself; arbitra stops it instead, so a
+ * reply continued past the output limit is never accepted.
+ */
+function antigravityModelFailure(home: string | undefined, step: Record<string, unknown> | null): TransportError {
+  const lines = antigravityStepText(home, step);
+  // An unread or unrecognised failure is retried within the usual bounds, as the CLI itself would retry it.
+  if (lines.length === 0) return new TransportError("HTTP", "CLI_MODEL_CALL_FAILED: the Antigravity CLI reported a failed model call and its reason could not be read", true);
+  const failure = classifyCliFailure(ANTIGRAVITY, lines.join("\n"), 1);
+  return failure.message.startsWith("CLI_FAILED") ? new TransportError("HTTP", `CLI_MODEL_CALL_FAILED: the Antigravity CLI reported a failed model call: ${cliFailureDetail(lines.join(" "))}`, true) : failure;
+}
+
+/**
  * Antigravity CLI (`agy`), Google's CLI for personal Google AI subscriptions, in headless
  * print mode with stream-json events. It has no documented system-prompt flag, so the engine
  * preamble and system text lead the prompt; `--sandbox` confines it, permissions are never
@@ -337,6 +380,7 @@ export const antigravityDialect: CliDialect = {
         const payload = record(event[kind]);
         if (kind === "step_update") {
           const step = String(payload?.["step_type"] ?? "unknown");
+          if (step === "error_message") throw antigravityModelFailure(context.hostHome, payload);
           if (!ANTIGRAVITY_STEPS.has(step)) throw forbiddenToolUse(ANTIGRAVITY, `a ${step.slice(0, 60)} step${typeof payload?.["tool_name"] === "string" ? ` (${payload["tool_name"].slice(0, 40)})` : ""}`);
           if (step === "agent_response") streamed += text(payload?.["text_delta"]) ?? "";
         } else if (kind === "result" && payload !== null) {
@@ -361,10 +405,13 @@ export const antigravityDialect: CliDialect = {
         const reply = context.nativeSchema ? JSON.stringify(structured) : (text(envelope["response"]) ?? streamed).replace(/\n$/u, "");
         if (reply.trim() === "") throw new TransportError("MALFORMED_RESPONSE", "CLI_EMPTY_SUCCESS: the Antigravity CLI reported SUCCESS with an empty response", false);
         const usage = record(envelope["usage"]);
-        const output = count(usage?.["output_tokens"]); const thinking = count(usage?.["thinking_tokens"]);
+        const input = count(usage?.["input_tokens"]); const output = count(usage?.["output_tokens"]); const thinking = count(usage?.["thinking_tokens"]);
+        // agy 1.3.3 counts thinking inside output_tokens (total_tokens is input_tokens + output_tokens, observed
+        // live); adding it again nearly doubled Gemini's reported output. Where the total does not show that,
+        // thinking is added: over-counting keeps the run budget conservative.
+        const thinkingInOutput = input !== null && output !== null && count(usage?.["total_tokens"]) === input + output;
         return { text: reply, sessionId: text(envelope["conversation_id"]), ...(present ? { structured } : {}),
-          // Thinking is counted as output: over-counting keeps the run budget conservative.
-          usage: { inputTokens: count(usage?.["input_tokens"]), outputTokens: output === null ? null : output + (usage?.["thinking_tokens"] === undefined ? 0 : thinking ?? 0), cacheReadTokens: count(usage?.["cache_read_tokens"]), cacheWriteTokens: null } };
+          usage: { inputTokens: input, outputTokens: output === null ? null : output + (thinkingInOutput ? 0 : thinking ?? 0), cacheReadTokens: count(usage?.["cache_read_tokens"]), cacheWriteTokens: null } };
       },
     };
   },

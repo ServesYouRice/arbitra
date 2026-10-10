@@ -262,6 +262,27 @@ describe("Antigravity CLI specifics", { timeout: 30_000 }, () => {
     expect((await failure(send(empty.transport, request({ responseSchema: { type: "object" } })))).message).toContain("CLI_EMPTY_SUCCESS");
   });
 
+  it("classifies the CLI's error step as a failed model call by its stored reason, not as tool use", async () => {
+    // Observed live (agy 1.3.3, P20 pilot): Gemini 3.8 Flash passed its output limit and the call failed as CLI_AGENT_TOOL_USE_FORBIDDEN, which stopped the run.
+    const limited = await fixture({ vendor: "antigravity", replies: [{ kind: "model_error", text: "Your previous response was cut off because it exceeded the output token limit. Please continue from where you left off, keeping your response shorter. Retries remaining: 3" }] });
+    expect(await failure(send(limited.transport))).toMatchObject({ code: "OUTPUT_LIMIT", retryable: false });
+    const quota = await fixture({ vendor: "antigravity", replies: [{ kind: "model_error", text: "Quota exhausted for your Google AI Pro plan. Your quota refreshes in 3 hours." }] });
+    expect(await failure(send(quota.transport))).toMatchObject({ code: "QUOTA", retryable: false });
+    const unknown = await fixture({ vendor: "antigravity", replies: [{ kind: "model_error", text: "The model returned no candidates." }] });
+    const error = await failure(send(unknown.transport));
+    expect(error).toMatchObject({ code: "HTTP", retryable: true });
+    expect(error.message).toBe("CLI_MODEL_CALL_FAILED: the Antigravity CLI reported a failed model call: The model returned no candidates.");
+    const unread = await fixture({ vendor: "antigravity", replies: [{ kind: "model_error" }] });
+    const silent = await failure(send(unread.transport));
+    expect(silent).toMatchObject({ code: "HTTP", retryable: true });
+    expect(silent.message).toContain("its reason could not be read");
+  });
+
+  it("does not count thinking twice when the CLI's output count already includes it", async () => {
+    const f = await fixture({ vendor: "antigravity", replies: [{ kind: "text", text: "pong", usage: "thinking_in_output" }] });
+    expect((await send(f.transport)).usage).toEqual({ inputTokens: 30, outputTokens: 8, cacheReadTokens: 0, cacheWriteTokens: null });
+  });
+
   it("passes the requested effort, and names the missing effort when a model requires one", async () => {
     const f = await fixture({ vendor: "antigravity", replies: [{ kind: "text", text: "pong" }] });
     await send(f.transport, request({ effortParams: { effort: "high" } }));
@@ -430,6 +451,7 @@ describe("failure text classification", () => {
     expect(classifyCliFailure(claude, "IneligibleTierError: This client is no longer supported for Gemini Code Assist for individuals", 1)).toMatchObject({ code: "AUTH", message: expect.stringContaining("CLI_ACCOUNT_INELIGIBLE") as unknown });
     expect(classifyCliFailure(claude, "{\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-x' model is not supported when using Codex with a ChatGPT account.\"}}", 1)).toMatchObject({ code: "INVALID_REQUEST", retryable: false });
     expect(classifyCliFailure(claude, "API Error: Claude's response exceeded the 200 output token maximum", 1).code).toBe("OUTPUT_LIMIT");
+    expect(classifyCliFailure(requireCliTransportSupport("antigravity-cli"), "Your previous response was cut off because it exceeded the output token limit.", 1).code).toBe("OUTPUT_LIMIT");
     expect(classifyCliFailure(claude, "Error for user@example.com token=abc123", 1).message).not.toMatch(/user@example\.com|abc123/u);
   });
 
