@@ -123,7 +123,7 @@ Evidence is in `docs/qa/`.
 | P17 | **Complete** | — | — |
 | P18 | **Complete** | Prespecified criteria; local MiniLM candidate evaluated offline on two corpora. Authored findings: **reject** (W 36 → 49). P06 real-model findings (149 in 21 runs): **insufficient evidence** (94 of 100 same-label pairs; `E1` cut W only 7%, 25% required). Decision: **do not adopt; keep existing clustering** ([`qa/p18`](qa/p18/README.md)). The rerun also found `structural-v1` merging prompt-injection reports with the defect beside them (fixed in P19: `structural-v2`) | — |
 | P19 | **Complete** | Earlier cross-cutting fixes (quota classification, output repair, evidence re-anchoring, peer-review degradation, writer tool-loop handling, complete-context marking, sole-author coverage), then the owner's September 29 choice: all eight open findings fixed with regressions. The affected live acceptance passed on subscriptions on September 30 (Audit with an answered plan-questions checkpoint, planted-instruction follow-up, single-auditor planning, Feature and Testing on documented behaviour); the reruns found four more defects, all fixed. CI green on Linux and macOS at f77024d ([`qa/p19`](qa/p19/README.md)) | — |
-| P20 | In progress | Benchmark rebuilt as `p20-hard-v2` in the owner's private repository (October 10); lineup comparison tooling (`compare --lineups`) | Re-calibrate the pilot; pilot panels; prespecified held-out protocol; held-out runs; results summary here |
+| P20 | In progress | Benchmark rebuilt as `p20-hard-v2` in the owner's private repository, and its pilot re-calibrated: one Opus run found 16 of 21 defects (October 10); lineup comparison tooling (`compare --lineups`) | Pilot panels; prespecified held-out protocol; held-out runs; results summary here |
 | P21 | Pending | — | The completion report and final doc reconciliation, after P20 |
 
 ## P01 — Repair test discovery and platform reliability
@@ -448,6 +448,12 @@ window), so the runner paces on both Claude's and Codex's usage windows.
 the three pilot projects (21 of 21). As built, the benchmark is too easy to separate a panel from
 repeated runs, the ceiling P06 hit. The owner decides whether to harden the held-out projects
 before any held-out run.
+
+**Hardening and re-calibration, October 10, 2026.** The owner chose to harden the benchmark. All
+twelve projects were rebuilt under stricter rules written down first (`p20-hard-v2`). One run of
+Claude Opus 5.5 per rebuilt pilot project then found 16 of 21 defects (recall 0.76, 95% interval
+0.55 to 0.89), so the pilot is no longer at the ceiling. No model has audited a held-out project.
+The pilot panels are next.
 
 **Acceptance.** Prespecify the protocol before any held-out run. The lineups are compared at
 matched cost:
