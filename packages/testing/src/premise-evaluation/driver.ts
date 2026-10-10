@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 
 import { Orchestrator } from "@arbitra/runtime/orchestrator.js";
@@ -93,9 +93,14 @@ export async function executeProtocol(options: DriverOptions): Promise<DriverRes
     try {
       if (existing === undefined) {
         prepareCheckout(root, fixture, truth, paths.checkout);
-        orchestrator = new Orchestrator({ repository: paths.checkout, stateDirectory: paths.state, ...(options.providerOptions === undefined ? {} : { providerOptions: options.providerOptions }) });
-        const resource = await orchestrator.start(config);
-        entry = { key, fixtureId: scheduled.fixtureId, condition: scheduled.condition, repetition: scheduled.repetition, runId: resource.runId, status: "running", state: resource.state, segments: [segment], failures: [] };
+        try {
+          orchestrator = new Orchestrator({ repository: paths.checkout, stateDirectory: paths.state, ...(options.providerOptions === undefined ? {} : { providerOptions: options.providerOptions }) });
+          const resource = await orchestrator.start(config);
+          entry = { key, fixtureId: scheduled.fixtureId, condition: scheduled.condition, repetition: scheduled.repetition, runId: resource.runId, status: "running", state: resource.state, segments: [segment], failures: [] };
+        } catch (error) {
+          discardUnstartedCheckout(paths);
+          throw error;
+        }
       } else {
         assertNoLeak(paths.checkout, truth);
         orchestrator = new Orchestrator({ repository: paths.checkout, stateDirectory: paths.state, ...(options.providerOptions === undefined ? {} : { providerOptions: options.providerOptions }) });
@@ -196,12 +201,29 @@ export function prepareCheckout(root: string, fixture: FixtureSpec, truth: Premi
   const source = resolve(root, fixture.source);
   const excluded = new Set(fixture.exclude.map((path) => resolve(source, path)));
   mkdirSync(checkout, { recursive: true });
-  cpSync(source, checkout, { recursive: true, filter: (path) => !excluded.has(resolve(path)) && !path.split(sep).includes(".git") && !path.split(sep).includes(".runs") && !path.split(sep).includes("node_modules") });
-  assertNoLeak(checkout, truth);
-  const environment = { ...process.env, GIT_AUTHOR_NAME: "p06", GIT_AUTHOR_EMAIL: "p06@arbitra.invalid", GIT_COMMITTER_NAME: "p06", GIT_COMMITTER_EMAIL: "p06@arbitra.invalid", GIT_AUTHOR_DATE: "2026-01-01T00:00:00Z", GIT_COMMITTER_DATE: "2026-01-01T00:00:00Z" };
-  execFileSync("git", ["-C", checkout, "init", "-q"], { env: environment });
-  execFileSync("git", ["-C", checkout, "add", "-A"], { env: environment });
-  execFileSync("git", ["-C", checkout, "-c", "commit.gpgsign=false", "commit", "-qm", `fixture ${fixture.id}`], { env: environment });
+  try {
+    cpSync(source, checkout, { recursive: true, filter: (path) => !excluded.has(resolve(path)) && !path.split(sep).includes(".git") && !path.split(sep).includes(".runs") && !path.split(sep).includes("node_modules") });
+    assertNoLeak(checkout, truth);
+    const environment = { ...process.env, GIT_AUTHOR_NAME: "p06", GIT_AUTHOR_EMAIL: "p06@arbitra.invalid", GIT_COMMITTER_NAME: "p06", GIT_COMMITTER_EMAIL: "p06@arbitra.invalid", GIT_AUTHOR_DATE: "2026-01-01T00:00:00Z", GIT_COMMITTER_DATE: "2026-01-01T00:00:00Z" };
+    execFileSync("git", ["-C", checkout, "init", "-q"], { env: environment });
+    execFileSync("git", ["-C", checkout, "add", "-A"], { env: environment });
+    execFileSync("git", ["-C", checkout, "-c", "commit.gpgsign=false", "commit", "-qm", `fixture ${fixture.id}`], { env: environment });
+  } catch (error) {
+    // A half-made checkout would stop every later attempt on P06_CHECKOUT_EXISTS.
+    rmSync(checkout, { recursive: true, force: true, maxRetries: 3 });
+    throw error;
+  }
+}
+
+/**
+ * Undo a first start that failed before any run existed (observed live: an unsupported CLI
+ * version failed preflight), so the next invocation prepares the checkout again instead of
+ * stopping on P06_CHECKOUT_EXISTS. A state directory that holds any file is kept, with its
+ * checkout: it may belong to a run that started, and a run is never deleted.
+ */
+function discardUnstartedCheckout(paths: { readonly checkout: string; readonly state: string }): void {
+  if (existsSync(paths.state) && files(paths.state).length > 0) return;
+  rmSync(paths.checkout, { recursive: true, force: true, maxRetries: 3 });
 }
 
 /** No ground-truth file, item id, detection criterion or rationale may be readable in a checkout. */
