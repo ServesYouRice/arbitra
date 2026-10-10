@@ -32,15 +32,16 @@ subscriptions.
 
     | Lineup | Claude | Codex | Gemini |
     |---|---|---|---|
-    | premium | Opus 5.5, high | GPT-6.1 Sol, xhigh (was GPT-6 Astra) | 3.8 Flash, high |
+    | premium | Opus 5.5, xhigh (was high) | GPT-6.1 Sol, xhigh (was GPT-6 Astra) | 3.8 Flash, high |
     | light | Opus 5.5, medium | GPT-6.1 Sol, medium (was GPT-6 Astra) | 3.8 Flash, high (was medium) |
-    | cheap | Sonnet 5.5, xhigh (was Sonnet 5, medium) | GPT-6 Luna, medium | 3.8 Flash, medium |
+    | cheap | Sonnet 5.5, xhigh (was Sonnet 5, medium) | GPT-6 Luna, max (was medium) | 3.8 Flash, high (was medium) |
 
-  - Still open, for the owner: premium's Opus effort, Luna's effort and cheap's Gemini effort. The runner is
-    stopped until they are settled.
+  - The strong single model, run three times per project, is premium's Claude, so it is Opus 5.5 at xhigh too. The
+    16 of 21 calibration was measured at high; the pilot's Opus-only runs show what xhigh finds.
   - Thinking counts as output on Sonnet 5.5 and Opus 5.5 and cannot be switched off. At xhigh, Sonnet 5.5 returned
-    no answer to a hard prompt under a 32,000-token output ceiling and answered under 64,000, so the cheap lineup's
-    ceiling is 64,000.
+    no answer to a hard prompt under a 32,000-token output ceiling, and both models thought for more than 50,000
+    tokens, so every lineup's ceiling is now 64,000. Opus at xhigh uses about three times the output of high, so
+    the pilot needs more of the weekly Claude allowance.
   - Gemini 4 Argon is not offered by the Antigravity CLI yet (`agy models`), so the panels stay on Gemini 3.8 Flash.
   - The runner stops at 90% of a weekly window and the owner decides.
 - **Windows now runs every lineup.** The Antigravity CLI's prompts were capped at 30 KB there; they now travel on
