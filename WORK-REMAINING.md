@@ -2,7 +2,7 @@
 
 Updated October 9, 2026 (branch `beta`).
 
-## Handoff, October 9, 2026
+## Handoff, October 10, 2026
 
 The local session stopped near the Claude weekly limit; work continues in a web session.
 
@@ -12,10 +12,11 @@ The local session stopped near the Claude weekly limit; work continues in a web 
   next steps.
 - **Calibration result (October 9):** one Claude Opus 5.5 run found every planted defect in all three pilot projects
   (21 of 21). As built, P20 is too easy to separate a panel from repeated runs.
-- **Decision (October 9):** the owner chose to harden. All twelve P20 projects are rebuilt under stricter rules
-  pre-registered in `HARDENING.md` in the private repository (`p20-hard-v2`); the pilot is re-calibrated after.
-  Then come the panel runs, the held-out runs and P21. The pilot panel runs need the owner's Mac and a fresh Codex
-  week.
+- **Decision (October 9):** the owner chose to harden P20. **Done October 10:** all twelve projects were rebuilt
+  under stricter rules pre-registered first (`p20-hard-v2`, details in the private repository's `HANDOFF.md`). No
+  model has audited the rebuilt projects.
+- **Next:** re-calibrate the pilot on the owner's Mac (`node evaluation/run-paced.mjs calibration-v2 0.9 0.8 3
+  premium` in `arbitra-p20`), then the pilot panels, the held-out runs and P21.
 - **Live runs need the owner's Mac.** They run only on the owner's subscriptions, through the vendor CLIs signed in
   there: Claude Code, Codex in ChatGPT.app and the Antigravity CLI. A cloud session can change code, docs and the
   benchmark, run tests and analyse committed evidence, but it cannot run them. Run state (`.runs/` in both
@@ -32,7 +33,7 @@ The maintained execution queue is the [completion plan](docs/completion-plan.md)
 
 - **Complete:** P01, P02, P04–P07, P09–P14 and P16–P19. P19's completion report moved to the new P21, which waits for P20.
 - **Merged from the other session (`ui-restructure`, September 29):** the web app restructured into pages (run list, run pages, new-run form, workflows page); browser acceptance rerun, 69 of 69 passed ([qa/p10](docs/qa/p10/README.md)).
-- **In progress:** P20, a hard premise benchmark. It is built (12 projects) and in pilot calibration. P20's benchmark is kept in the owner's private repository `arbitra-p20` so its answer keys stay out of public training data; never add it here.
+- **In progress:** P20, a hard premise benchmark. It is rebuilt as `p20-hard-v2` (12 projects) and waits for pilot re-calibration. P20's benchmark is kept in the owner's private repository `arbitra-p20` so its answer keys stay out of public training data; never add it here.
 - **Deferred, not part of this phase ([paid-API bundle](docs/completion-plan.md#deferred-the-paid-api-bundle)):** the API-protocol part of P03, and the live evidence for P08 and P15. All three are implemented.
 - **Accepted live on subscriptions:** the rest of P03.
 - **Pending:** P21 (completion report, after P20).
