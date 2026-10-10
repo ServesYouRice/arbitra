@@ -1,5 +1,5 @@
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 
@@ -153,6 +153,20 @@ describe("P06 premise evaluation driver (scripted providers, no credentials)", (
     expect(second.stoppedReason).toBeNull();
   }, 120_000);
 
+  it("leaves no checkout behind a start that fails preflight, so the next invocation starts the run", async () => {
+    const { root, protocol, state, evidence } = await workspace({ schedule: [{ fixtureId: "smoke-fixture", condition: "single", repetition: 1 }] });
+    const provider = premiseProvider();
+    // Observed live (P20 on Windows): an unsupported Claude Code failed preflight, and its checkout stopped the retry on P06_CHECKOUT_EXISTS.
+    await expect(executeProtocol({ root, protocol, stateRoot: state, evidenceDirectory: evidence, providerOptions: { ...provider.providerOptions, credential: () => undefined } })).rejects.toThrow("PROVIDER_CREDENTIAL_MISSING");
+    expect(existsSync(runPaths(state, "smoke-fixture/single/r1").checkout)).toBe(false);
+    expect((JSON.parse(await readFile(join(state, "ledger.json"), "utf8")) as { runs: object; stoppedReason: string }).stoppedReason).toMatch(/^start_failed:smoke-fixture\/single\/r1:/u);
+    expect(provider.calls).toHaveLength(0);
+    const retried = await executeProtocol({ root, protocol, stateRoot: state, evidenceDirectory: evidence, providerOptions: provider.providerOptions });
+    expect(retried.completed).toEqual(["smoke-fixture/single/r1"]);
+    expect(retried.ledger.runs["smoke-fixture/single/r1"]?.segments.map(({ kind }) => kind)).toEqual(["start"]);
+    expect(retried.stoppedReason).toBeNull();
+  }, 120_000);
+
   it("collects a run that completed before its record was written instead of resuming it", async () => {
     const { root, protocol, state, evidence } = await workspace({ schedule: [{ fixtureId: "smoke-fixture", condition: "single", repetition: 1 }] });
     const provider = premiseProvider();
@@ -231,6 +245,8 @@ describe("P06 premise evaluation driver (scripted providers, no credentials)", (
     const fixture = protocol.fixtures[0] as EvaluationProtocol["fixtures"][number];
     await writeFile(join(root, "fixture", "repo", "src", "hint.ts"), "// see SMOKE-DEFECT\n");
     await expect(async () => prepareCheckout(root, fixture, truth, join(root, "leaky"))).rejects.toThrow("P06_GROUND_TRUTH_LEAK:src/hint.ts");
+    // The refused checkout is removed, so it cannot stop a later attempt once the fixture is fixed.
+    expect(existsSync(join(root, "leaky"))).toBe(false);
     await mkdir(join(root, "named"), { recursive: true });
     await writeFile(join(root, "named", "ground-truth.json"), "{}");
     expect(() => assertNoLeak(join(root, "named"), truth)).toThrow("P06_GROUND_TRUTH_LEAK:ground-truth.json");
