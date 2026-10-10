@@ -15,8 +15,9 @@ The local session stopped near the Claude weekly limit; work continues in a web 
 - **Decision (October 9):** the owner chose to harden P20. **Done October 10:** all twelve projects were rebuilt
   under stricter rules pre-registered first (`p20-hard-v2`, details in the private repository's `HANDOFF.md`). No
   model has audited the rebuilt projects.
-- **Next:** re-calibrate the pilot on the owner's Mac (`node evaluation/run-paced.mjs calibration-v2 0.9 0.8 3
-  premium` in `arbitra-p20`), then the pilot panels, the held-out runs and P21.
+- **Next:** re-calibrate the pilot (`node evaluation/run-paced.mjs calibration-v2 0.9 0.8 3 premium` in
+  `arbitra-p20`) on the owner's Mac or Windows PC (Windows steps in the private `HANDOFF.md`), then the pilot panels
+  (Mac only), the held-out runs and P21.
 - **Live runs need the owner's Mac.** They run only on the owner's subscriptions, through the vendor CLIs signed in
   there: Claude Code, Codex in ChatGPT.app and the Antigravity CLI. A cloud session can change code, docs and the
   benchmark, run tests and analyse committed evidence, but it cannot run them. Run state (`.runs/` in both
