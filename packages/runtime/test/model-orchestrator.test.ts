@@ -48,7 +48,7 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
   }
   const requests: { stage: string; url: string }[] = [];
   const packedChecks: (readonly [string, string])[][] = [];
-  let mergedListedPair = false;
+  let mergedListedPair: readonly [string, string] | undefined;
   const reviewInputs: { url: string; repair: boolean; input: { round: number; yourEarlierVotes?: { votes: Record<string, { vote: string; citedEvidenceIds: string[] }> } } }[] = [];
   let failVerification = false;
   let failCritic = false;
@@ -88,8 +88,8 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
       if (input.mergeCheckPairs !== undefined) packedChecks.push(input.mergeCheckPairs);
       const pair = input.mergeCheckPairs?.[0];
       // One reviewer finds that the first pair listed in its packed check shares a root cause.
-      if (options.mergeListedPair === true && pair !== undefined && !mergedListedPair && request.url.includes("auditor-a")) {
-        mergedListedPair = true;
+      if (options.mergeListedPair === true && pair !== undefined && mergedListedPair === undefined && request.url.includes("auditor-a")) {
+        mergedListedPair = pair;
         const sources = pair.flatMap((id) => input.candidates[id]?.sources ?? []);
         output = { operations: [{ operationId: "new:merge", candidateId: "new:merged", authorId: "self", round: input.round, type: "merge", citedEvidenceIds: sources.flatMap(({ evidence }) => evidence.map(({ id }) => id)), sourceCandidateIds: pair,
           candidate: { candidateId: "new:merged", title: "Merged null claim", description: "One shared null source", sourceFindingIds: sources.map(({ findingRef }) => findingRef), severity: "high", blocker: false } }], findings: [], locations: [] };
@@ -195,7 +195,7 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
     return { status: 200, headers: {}, body: response };
   };
   const create = (testSandbox?: TestSandbox) => new Orchestrator({ repository: directory, stateDirectory: join(directory, ".runs"), providerOptions: { client: { send }, credential: () => "fixture-credential" }, ...(testSandbox === undefined ? {} : { testSandbox }) });
-  return { create, config, requests, reviewInputs, packedChecks, failRevisionPatch: (value: boolean) => { failRevisionPatch = value; }, failExpansion: (value: boolean) => { failExpansion = value; }, failCritic: (value: boolean) => { failCritic = value; }, failVerification: (value: boolean) => { failVerification = value; }, blockDiscovery: (callback: () => void) => { blockDiscovery = callback; } };
+  return { create, config, requests, reviewInputs, packedChecks, mergedListedPair: () => mergedListedPair, failRevisionPatch: (value: boolean) => { failRevisionPatch = value; }, failExpansion: (value: boolean) => { failExpansion = value; }, failCritic: (value: boolean) => { failCritic = value; }, failVerification: (value: boolean) => { failVerification = value; }, blockDiscovery: (callback: () => void) => { blockDiscovery = callback; } };
 }
 
 describe("composed model audits", () => {
@@ -456,15 +456,16 @@ describe("composed model audits", () => {
 
   it("packs the pair checks between review batches into one call and applies the merge it returns", async () => {
     // Observed live (P20 pilot): one call per pair asked one reviewer for 1,140 calls.
-    const { create, config, requests, packedChecks, failVerification } = await fixture({ largePeerContext: true, packedPeerContext: true, mergeListedPair: true });
+    const { create, config, requests, packedChecks, mergedListedPair, failVerification } = await fixture({ largePeerContext: true, packedPeerContext: true, mergeListedPair: true });
     failVerification(true);
     const core = create(); const result = await core.run(config);
     const events = []; for await (const event of core.events(result.runId)) events.push(event);
     // The run stops at verification, after consensus has published the board.
     expect(result.state, JSON.stringify(events.at(-1))).toBe("FAILED");
-    const first = packedChecks[0];
-    if (first === undefined) throw new Error("PACKED_CHECK_ABSENT");
-    expect(first).toHaveLength(2);
+    // Reviewers run side by side, so the merged pair is the one the fixture's reviewer was shown, not the first check to arrive.
+    const merged = mergedListedPair();
+    if (merged === undefined) throw new Error("PACKED_CHECK_ABSENT");
+    expect(packedChecks.some((pairs) => pairs.length === 2 && JSON.stringify(pairs[0]) === JSON.stringify(merged))).toBe(true);
     const artifacts = await core.artifacts(result.runId);
     const parts = async (auditorId: string) => { const descriptor = artifacts.find(({ kind }) => kind === `peer-review-batches-1-${auditorId}`); if (descriptor === undefined) throw new Error("BATCHES_ABSENT"); return JSON.parse((await core.artifact(result.runId, descriptor.artifactId) as { content: string }).content) as { kind: string; candidateIds: string[]; pairs?: [string, string][] }[]; };
     // Three candidates fit one call: two review batches, then one packed check of two pairs and one single pair, where one call per pair took three.
@@ -474,7 +475,7 @@ describe("composed model audits", () => {
     if (operations === undefined) throw new Error("BOARD_OPERATIONS_ABSENT");
     const merges = (JSON.parse((await core.artifact(result.runId, operations.artifactId) as { content: string }).content) as { type: string; authorId: string; sourceCandidateIds?: string[] }[]).filter(({ type }) => type === "merge");
     expect(merges).toHaveLength(1);
-    expect(merges[0]).toMatchObject({ authorId: "auditor-a", sourceCandidateIds: [...first[0] ?? []] });
+    expect(merges[0]).toMatchObject({ authorId: "auditor-a", sourceCandidateIds: [...merged] });
   });
 
   it.each(["retain_original", "proposal-1"] as const)("resolves deferred peer operations with evidence-backed agreement: %s", async (conflictResolution) => {
