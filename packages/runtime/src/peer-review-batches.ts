@@ -1,7 +1,9 @@
 /** A pair check may carry one record as consecutive exact segments of its canonical
  * JSON when two complete records cannot share a context. The other record stays whole. */
 export interface PeerReviewSegment { readonly candidateId: string; readonly index: number; readonly count: number }
-export interface PeerReviewBatch { readonly kind: "review" | "merge_check"; readonly candidateIds: readonly string[]; readonly segment?: PeerReviewSegment }
+export interface PeerReviewBatch { readonly kind: "review" | "merge_check"; readonly candidateIds: readonly string[]; readonly segment?: PeerReviewSegment;
+  /** Present on a packed pair check: the cross-batch candidate pairs it covers. */
+  readonly pairs?: readonly (readonly [string, string])[] }
 
 export const MAXIMUM_PAIR_SEGMENTS = 16;
 
@@ -13,20 +15,66 @@ export function segmentText(text: string, segment: Pick<PeerReviewSegment, "inde
 }
 
 /** Partition full reviews, then cover every pair separated by the partition.
- * Pair checks only propose merges, so they cannot duplicate candidate votes. */
+ * Pair checks only propose merges, so they cannot duplicate candidate votes. Pairs are packed
+ * into as few calls as fit, as the critic packs its own. Observed live (P20 pilot): one pair per
+ * call asked one reviewer for 1,140 calls of about 59,000 tokens over 68 candidates in two batches. */
 export async function peerReviewBatches(candidateIds: readonly string[], fits: (batch: PeerReviewBatch) => Promise<boolean>, maximumCandidates = 20): Promise<readonly PeerReviewBatch[]> {
-  const primary = (await reviewPartition(candidateIds, (ids) => fits({ kind: "review", candidateIds: ids }), maximumCandidates)).map((ids): PeerReviewBatch => ({ kind: "review", candidateIds: ids }));
-  const result: PeerReviewBatch[] = [...primary];
-  for (let a = 0; a < primary.length; a += 1) {
-    for (const right of primary.slice(a + 1)) for (const leftId of primary[a]?.candidateIds ?? []) for (const rightId of right.candidateIds) {
-      const batch: PeerReviewBatch = { kind: "merge_check", candidateIds: [leftId, rightId] };
-      if (await fits(batch)) { result.push(batch); continue; }
+  const primary = await reviewPartition(candidateIds, (ids) => fits({ kind: "review", candidateIds: ids }), maximumCandidates);
+  const result: PeerReviewBatch[] = primary.map((ids): PeerReviewBatch => ({ kind: "review", candidateIds: ids }));
+  const rank = new Map(candidateIds.map((id, position) => [id, position]));
+  const key = (left: string, right: string) => JSON.stringify([left, right]);
+  const pending = new Map<string, readonly [string, string]>();
+  for (let a = 0; a < primary.length; a += 1) for (const right of primary.slice(a + 1)) for (const leftId of primary[a] ?? []) for (const rightId of right) pending.set(key(leftId, rightId), [leftId, rightId]);
+  const covered = (members: ReadonlySet<string>) => [...pending.values()].filter(([left, right]) => members.has(left) && members.has(right));
+  // A check of one pair keeps its earlier shape, so its durable identity is unchanged.
+  const packed = (members: ReadonlySet<string>): PeerReviewBatch => {
+    const pairs = covered(members); const [only] = pairs;
+    return pairs.length === 1 && only !== undefined ? { kind: "merge_check", candidateIds: only } : { kind: "merge_check", candidateIds: [...members].sort((a, b) => (rank.get(a) ?? 0) - (rank.get(b) ?? 0)), pairs };
+  };
+  while (pending.size > 0) {
+    const [first] = pending.values(); if (first === undefined) break;
+    const [leftId, rightId] = first;
+    if (!await fits({ kind: "merge_check", candidateIds: [leftId, rightId] })) {
       const segmented = await segmentedPair(leftId, rightId, fits);
       if (segmented === null) throw new Error(`PEER_PAIR_CONTEXT_LIMIT_EXCEEDED:${leftId}:${rightId}`);
       result.push(...segmented);
+      pending.delete(key(leftId, rightId)); continue;
     }
+    // Grow the call by the candidate that adds the most uncovered pairs, while the call still fits.
+    const members = new Set([leftId, rightId]); const tried = new Set<string>();
+    while (members.size < maximumCandidates) {
+      let best: string | undefined; let bestGain = 0;
+      for (const id of candidateIds) {
+        if (members.has(id) || tried.has(id)) continue;
+        const gain = [...members].filter((member) => pending.has(key(id, member)) || pending.has(key(member, id))).length;
+        if (gain > bestGain) { best = id; bestGain = gain; }
+      }
+      if (best === undefined) break;
+      tried.add(best);
+      if (await fits(packed(new Set([...members, best])))) members.add(best);
+    }
+    result.push(packed(members));
+    for (const [left, right] of covered(members)) pending.delete(key(left, right));
   }
   return result;
+}
+
+/**
+ * A pair check proposes merges and nothing else: at most one for a single pair. A packed check
+ * may propose several, each over candidates joined by a listed pair and none sharing a
+ * candidate, so it cannot merge two candidates of one review batch or contradict itself.
+ */
+export function assertMergeCheckOperations(operations: readonly { readonly type: string; readonly sourceCandidateIds?: readonly string[] }[], part: PeerReviewBatch): void {
+  if (operations.some(({ type }) => type !== "merge") || part.pairs === undefined && operations.length > 1) throw new Error("INVALID_PEER_PAIR_OPERATIONS");
+  if (part.pairs === undefined) return;
+  const listed = new Set(part.pairs.flatMap(([left, right]) => [JSON.stringify([left, right]), JSON.stringify([right, left])]));
+  const merged = new Set<string>();
+  for (const { sourceCandidateIds = [] } of operations) {
+    const repeated = sourceCandidateIds.some((id) => merged.has(id));
+    const unjoined = sourceCandidateIds.some((id) => !sourceCandidateIds.some((other) => listed.has(JSON.stringify([id, other]))));
+    if (repeated || unjoined) throw new Error("INVALID_PEER_PAIR_OPERATIONS: each merge may combine only candidates joined by a pair in mergeCheckPairs, and a candidate may appear in one merge only; put every candidate that shares one root cause in a single merge");
+    for (const id of sourceCandidateIds) merged.add(id);
+  }
 }
 
 /** Greedy in-order partition into review batches of complete records that fit. */

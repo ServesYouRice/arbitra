@@ -117,11 +117,13 @@ truncated. When they do not fit, the stage is recomposed:
   index of every other record identity and relationship. Merged results are validated for
   exact coverage (every record decided exactly once).
 - **Exhaustive pair coverage.** Record batches are followed by pair checks that cover every
-  pair separated by the partition. Peer review checks one pair per call (`peerReviewBatches`),
-  because each call may propose at most one merge. The critic packs pairs instead
-  (`criticContextParts`): each packed call holds as many records as fit and lists the pairs
-  it covers, so every pair is checked exactly once in far fewer calls. A revised plan once
-  needed 152 one-pair checks; packing covers the same pairs in 6. When two complete records
+  pair separated by the partition. Pairs are packed (`peerReviewBatches` for peer review,
+  `criticContextParts` for the critic): each packed call holds as many records as fit and
+  lists the pairs it covers, so every pair is checked exactly once in far fewer calls. A
+  revised plan once needed 152 one-pair critic checks; packing covers the same pairs in 6.
+  Peer review once asked one reviewer for 1,140 one-pair calls over 68 candidates in two
+  batches; packed, the same pairs take a handful. A packed peer check may return several
+  merges, each over candidates joined by a listed pair, and none sharing a candidate. When two complete records
   cannot share a context, one stays complete and the other is read as exact consecutive
   segments of its canonical JSON (`segmentText`, at most 16 segments); concatenating the
   segments restores the record byte-for-byte.
