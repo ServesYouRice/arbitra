@@ -42,6 +42,17 @@ export interface CliDialect {
   nativeSchema(request: TransportRequest): boolean;
   prepare(context: CliInvocationContext): Promise<CliInvocation>;
   reader(context: CliInvocationContext): CliStreamReader;
+  /** The provider's own notice when it answered in place of the model (a content filter), else null. */
+  refusal?(reply: string): string | null;
+}
+
+/**
+ * Gemini's content filter answers in place of the model, as plain text. Observed live (P20 pilot): one discovery
+ * unit got this notice three times in a row; read as a reply it was repaired as invalid JSON until the run failed.
+ */
+export function geminiFilterNotice(reply: string): string | null {
+  const text = reply.trim();
+  return text.length < 2_000 && text.startsWith("This request was blocked by Gemini's filters.") ? text.slice(0, 500) : null;
 }
 
 /**
@@ -357,6 +368,7 @@ function antigravityModelFailure(home: string | undefined, step: Record<string, 
  */
 export const antigravityDialect: CliDialect = {
   support: ANTIGRAVITY,
+  refusal: geminiFilterNotice,
   nativeSchema: (request) => request.responseSchema !== undefined && (request.tools?.length ?? 0) === 0,
   async prepare(context) {
     const effort = effortParameter(context.request, ANTIGRAVITY, { effort: (value) => typeof value === "string" && ["low", "medium", "high", "max"].includes(value) });

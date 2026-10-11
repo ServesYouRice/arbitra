@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ProviderRegistry, type ProviderEndpoint } from "../../src/registry.js";
 import { TransportError, type ProviderTransport, type TransportRequest } from "../../src/transport-contract.js";
 import { classifyCliFailure, resetTime, retryHint } from "../../src/transports/cli/classify.js";
-import { ANTIGRAVITY_PROMPT_LIMIT, antigravityDialect, antigravityPromptChannel } from "../../src/transports/cli/dialects.js";
+import { ANTIGRAVITY_PROMPT_LIMIT, antigravityDialect, antigravityPromptChannel, geminiFilterNotice } from "../../src/transports/cli/dialects.js";
 import { resolveCliExecutable } from "../../src/transports/cli/discovery.js";
 import { fileLimitLedger } from "../../src/transports/cli/limits.js";
 import { probeCliReadiness } from "../../src/transports/cli/probe.js";
@@ -269,6 +269,17 @@ describe("Antigravity CLI specifics", { timeout: 30_000 }, () => {
     expect(await failure(send(f.transport))).toMatchObject({ code: "MALFORMED_RESPONSE", retryable: true });
     expect(await send(f.transport)).toMatchObject({ text: "pong" });
     expect((await f.report(1)).cwd).not.toBe((await f.report(0)).cwd);
+  });
+
+  it("reports Gemini's content-filter notice as a refusal, not as a reply", async () => {
+    // Observed live (P20 pilot): the notice came back three times for one discovery unit and was repaired as invalid JSON until the run failed.
+    const notice = "This request was blocked by Gemini's filters. They can occasionally trigger by mistake on safe coding, security, or biology-related queries. Please try rephrasing your prompt.";
+    const f = await fixture({ vendor: "antigravity", replies: [{ kind: "text", text: notice }, { kind: "text", text: JSON.stringify({ quoted: notice }) }] });
+    expect(await send(f.transport)).toMatchObject({ text: null, toolCalls: [], refusal: notice });
+    // A reply that quotes the notice is a reply, and so is a long text that merely starts with it.
+    expect(await send(f.transport)).toMatchObject({ refusal: null });
+    expect(geminiFilterNotice(`${notice} ${"x".repeat(2_000)}`)).toBeNull();
+    expect(geminiFilterNotice(`\n${notice}\n`)).toBe(notice);
   });
 
   it("classifies the CLI's error step as a failed model call by its stored reason, not as tool use", async () => {

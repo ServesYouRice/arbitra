@@ -9,7 +9,7 @@ import type { RunConfig } from "@arbitra/schemas/config.js";
 import { frameUntrusted } from "@arbitra/security/framing";
 import { redactSecrets } from "@arbitra/security/redaction";
 import { boundModelHistory } from "./model-history.js";
-import { ModelOutputLimitError, outputLimitKind } from "./context-budget.js";
+import { isModelOutputRejection, ModelOutputLimitError, ModelRefusalError, outputLimitKind, refusalKind } from "./context-budget.js";
 import { ModelActivities, parsePromptJson, type ModelActivityRequest } from "./model-activities.js";
 import { snapshotTools, SNAPSHOT_TOOLS } from "./snapshot-tools.js";
 import type { RepositorySnapshot } from "./repository.js";
@@ -25,8 +25,14 @@ export class ModelHarness {
 
   /** Whether this durable activity previously stopped at the output ceiling. */
   async outputLimited(activityId: string): Promise<boolean> {
-    this.#outputLimited ??= this.store.listArtifacts().then((artifacts) => new Set(artifacts.map(({ kind }) => kind).filter((kind) => kind.startsWith("model-output-limit-"))));
+    this.#outputLimited ??= this.store.listArtifacts().then((artifacts) => new Set(artifacts.map(({ kind }) => kind).filter((kind) => kind.startsWith("model-output-limit-") || kind.startsWith("model-refusal-"))));
     return (await this.#outputLimited).has(outputLimitKind(activityId));
+  }
+
+  /** Whether the provider or model declined this durable activity before; it is not asked again. */
+  async refused(activityId: string): Promise<boolean> {
+    await this.outputLimited(activityId);
+    return (await (this.#outputLimited ?? Promise.resolve(new Set<string>()))).has(refusalKind(activityId));
   }
 
   estimateInitialTokens(input: ModelActivityRequest<unknown>): number {
@@ -44,6 +50,8 @@ export class ModelHarness {
         // marked, so the stage that composed it splits it. Observed live (P20 pilot): only the repair was marked,
         // and every resume replayed the rejected reply and failed at the same repair.
         if (error instanceof ModelOutputLimitError && attempt !== input) { await this.markOutputLimited(input.activityId, error.activityId); throw new ModelOutputLimitError(input.activityId); }
+        // A refused repair means the provider declines what this activity sends: the activity itself is marked.
+        if (error instanceof ModelRefusalError && attempt !== input) { await this.markRefused(input.activityId, error.refusal); throw new ModelRefusalError(input.activityId, error.refusal); }
         if (!(error instanceof ModelOutputRejectedError)) throw error;
         // Exhausted: rethrow the validation error itself, marked so a stage that can proceed
         // without this one reply (peer review) can tell it from a provider or policy failure.
@@ -62,8 +70,10 @@ export class ModelHarness {
   private async invokeBounded<T>(input: ModelActivityRequest<T>): Promise<T> {
     // Never repeat spend on an activity already known to exceed the output ceiling.
     if (await this.outputLimited(input.activityId)) throw new ModelOutputLimitError(input.activityId);
+    if (await this.refused(input.activityId)) throw new ModelRefusalError(input.activityId, "recorded before this process");
     try { return await this.invokeTurns(input); }
     catch (error) {
+      if (error instanceof ModelRefusalError) { await this.markRefused(input.activityId, error.refusal); throw error; }
       if (!(error instanceof ModelOutputLimitError)) throw error;
       await this.markOutputLimited(input.activityId, error.activityId);
       throw new ModelOutputLimitError(input.activityId);
@@ -74,6 +84,11 @@ export class ModelHarness {
     const execution = providerExecutionSchema.parse(this.config.workflow["modelExecution"]);
     await this.store.publish(outputLimitKind(activityId), { activityId, turnActivityId, maximumOutputTokens: execution.maximumOutputTokens }, activityId);
     (await (this.#outputLimited ?? Promise.resolve(new Set<string>()))).add(outputLimitKind(activityId));
+  }
+
+  private async markRefused(activityId: string, refusal: string): Promise<void> {
+    await this.store.publish(refusalKind(activityId), { activityId, refusal: refusal.slice(0, 1_000) }, activityId);
+    (await (this.#outputLimited ?? Promise.resolve(new Set<string>()))).add(refusalKind(activityId));
   }
 
   private async invokeTurns<T>(input: ModelActivityRequest<T>): Promise<T> {
@@ -106,7 +121,7 @@ export class ModelHarness {
       for await (const event of run.events) {
         events.push(event);
         if (event.type !== "completed") continue;
-        if (event.refusal !== null) throw new Error("MODEL_ACTIVITY_REFUSED");
+        if (event.refusal !== null) throw new ModelRefusalError(input.activityId, event.refusal);
         try { return input.schema.parse(parsePromptJson(event.text ?? "")); }
         catch (error) { throw new ModelOutputRejectedError(error, event.text ?? ""); }
       }
@@ -118,7 +133,7 @@ export class ModelHarness {
   }
 }
 
-export function isModelOutputRejection(error: unknown): boolean { return error instanceof Error && (error as { modelOutputRejected?: unknown }).modelOutputRejected === true; }
+export { isModelOutputRejection };
 
 /** A reply that arrived but failed output parsing or validation; never a provider or policy failure. */
 export class ModelOutputRejectedError extends Error {

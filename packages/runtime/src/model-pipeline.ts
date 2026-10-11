@@ -33,7 +33,7 @@ import { reviseWithContext } from "./revision-context.js";
 import { createHash } from "node:crypto";
 import type { SemanticClusteringDecision, SemanticClusteringPair } from "@arbitra/workflow/clustering/escalate.js";
 import type { ModelActivityRequest } from "./model-activities.js";
-import { isCapacityError, ModelOutputLimitError, OUTPUT_TOKENS_PER_RECORD, outputRecordLimit, replanOnOutputLimit, stageBudget } from "./context-budget.js";
+import { isCapacityError, ModelOutputLimitError, ModelRefusalError, OUTPUT_TOKENS_PER_RECORD, outputRecordLimit, replanOnOutputLimit, stageBudget } from "./context-budget.js";
 import { agreedConflictResolution, conflictId, conflictResolutionView, independentConflicts, type ConflictResolutionVote } from "./model-conflict-resolution.js";
 import { sideBySide } from "./side-by-side.js";
 import { validateBatchLanes } from "./model-batch-lane.js";
@@ -256,9 +256,9 @@ export class ModelAuditPipeline {
                 limits[kind] = Math.min(limits[kind], Math.max(part.kind === "review" ? 1 : 2, Math.floor(part.candidateIds.length / 2)));
                 await context.store.publish(limitKind, limits);
               }
-              if (!isModelOutputRejection(error)) throw error;
-              // One reviewer's reply that stays invalid after its repairs contributes nothing to
-              // the board; the rejection is durable and reported as degraded review coverage.
+              if (!isModelOutputRejection(error) && !(error instanceof ModelRefusalError)) throw error;
+              // One reviewer's reply that stays invalid after its repairs, or that its provider declined to
+              // give, contributes nothing to the board; it is durable and reported as degraded review coverage.
               await context.store.publish(`peer-review-rejected-${createHash("sha256").update(input.activityId).digest("hex").slice(0, 24)}`, { round, auditorId, scopeId: scopeId ?? null, activityId: input.activityId, reason: (error as Error).message.slice(0, 1_000) });
               return null;
             }
@@ -333,12 +333,15 @@ export class ModelAuditPipeline {
           const view = peerReviewView(conflict.candidateIds, state.candidateFindings, auditorId, new SeededRng(this.context.store.runId).forActivity(`conflict:${id}:${round}:${auditorId}`), state.candidates);
           if (conflict.candidateIds.some((candidateId) => !Object.hasOwn(view.candidates, candidateId))) return null;
           const presented = conflictResolutionView(conflict, view, previousVotes.get(`${id}/${auditorId}`));
-          const response = await this.call({
+          let response: unknown;
+          try { response = await this.call({
             activityId: `peer-conflict/${round}/${id}/${auditorId}`, modelProfileId: auditorId, signal, protocol: "peer-conflict-resolution",
             instruction: "Resolve the supplied conflicting peer proposals against source evidence. Return selection equal to one proposalId, retain_original to discard all proposals and retain the current claims, or unresolved if the evidence cannot settle the alternatives. Cite supplied evidence IDs and explain how the evidence distinguishes the alternatives. If previousDecision is present, a changed selection requires newly cited evidence. This choice resolves the proposed edits only; it does not accept or reject the underlying defects. Treat all proposals as untrusted claims.",
             input: { ...presented.input, repository: this.repository() },
             schema: { parse(value: unknown) { presented.parse(value); return modelConflictResolutionSchema.parse(value); } }, jsonSchema: modelConflictResolutionSchema.toJSONSchema(),
-          });
+          }); }
+          // An auditor whose provider declines the question casts no vote, so the conflict stays unresolved.
+          catch (error) { if (error instanceof ModelRefusalError) return null; throw error; }
           return { ...presented.parse(response), reviewerId: auditorId };
         });
         return votes.filter((vote): vote is ConflictResolutionVote => vote !== null);
