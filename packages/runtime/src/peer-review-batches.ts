@@ -61,18 +61,18 @@ export async function peerReviewBatches(candidateIds: readonly string[], fits: (
 
 /**
  * A pair check proposes merges and nothing else: at most one for a single pair. A packed check
- * may propose several, each over candidates joined by a listed pair and none sharing a
- * candidate, so it cannot merge two candidates of one review batch or contradict itself.
+ * may propose several, none sharing a candidate, so it cannot contradict itself. It may merge any
+ * candidates it presents, not only a listed pair: the model has both candidates whole in front of
+ * it, and a merge that overlaps another reviewer's is settled as a conflict like any other.
+ * Observed live (P20 pilot): four packed checks were refused for merging two candidates of one
+ * review batch, and each refusal cost a repair call.
  */
 export function assertMergeCheckOperations(operations: readonly { readonly type: string; readonly sourceCandidateIds?: readonly string[] }[], part: PeerReviewBatch): void {
   if (operations.some(({ type }) => type !== "merge") || part.pairs === undefined && operations.length > 1) throw new Error("INVALID_PEER_PAIR_OPERATIONS");
   if (part.pairs === undefined) return;
-  const listed = new Set(part.pairs.flatMap(([left, right]) => [JSON.stringify([left, right]), JSON.stringify([right, left])]));
   const merged = new Set<string>();
   for (const { sourceCandidateIds = [] } of operations) {
-    const repeated = sourceCandidateIds.some((id) => merged.has(id));
-    const unjoined = sourceCandidateIds.some((id) => !sourceCandidateIds.some((other) => listed.has(JSON.stringify([id, other]))));
-    if (repeated || unjoined) throw new Error("INVALID_PEER_PAIR_OPERATIONS: each merge may combine only candidates joined by a pair in mergeCheckPairs, and a candidate may appear in one merge only; put every candidate that shares one root cause in a single merge");
+    if (sourceCandidateIds.some((id) => merged.has(id))) throw new Error("INVALID_PEER_PAIR_OPERATIONS: a candidate may appear in one merge only; put every candidate that shares one root cause in a single merge");
     for (const id of sourceCandidateIds) merged.add(id);
   }
 }

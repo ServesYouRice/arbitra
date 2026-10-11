@@ -193,7 +193,7 @@ export class ModelAuditPipeline {
       }
       // An incremental run whose peer-review identity matches its base presents the base's views, so they can be reused.
       const rng = new SeededRng(this.#peerReviewSeed ?? context.store.runId);
-      const batches: PeerOperationBatch[] = [];
+      const batchesByReviewer = new Map<string, readonly PeerOperationBatch[]>();
       const review = await peerReviewRound({ candidates }, context.policy, round, { auditors: context.auditors, rng, runtime: { review: async (request) => {
         const auditorId = request.reviewerId;
         const view = peerReviewView(request.candidates.map(({ candidateId }) => candidateId), candidateFindings, auditorId, rng.forActivity(`peer-view:${round}:${auditorId}`), candidates);
@@ -205,7 +205,7 @@ export class ModelAuditPipeline {
           const input: ModelStageInput<ReturnType<typeof peerOperationsResultSchema.parse>> = {
           activityId: `peer-review/${round}/${auditorId}${scopeId === undefined ? "" : `/${scopeId}`}`, modelProfileId: auditorId, signal,
           protocol: "peer-review", instruction: part.kind === "merge_check" && part.pairs !== undefined
-            ? "Compare the supplied candidate pairs for a shared root cause requiring a merge. Every candidate was already reviewed in full in its own batch; check only the pairs listed in mergeCheckPairs. Return one typed merge operation for each group of candidates that share one root cause, with every candidate of the group in its sourceCandidateIds; each merged candidate must be joined to another in its group by a listed pair, and no candidate may appear in two operations. Return an empty operations array if all should remain separate. Use authorId self, the supplied round, new:<unique-name> IDs, anonymous findingRef source references and supplied evidence IDs. Do not vote, split, add findings, or add evidence; locations and findings must be empty. This is a cross-batch duplicate check following full candidate review."
+            ? "Compare the supplied candidate pairs for a shared root cause requiring a merge. Every candidate was already reviewed in full in its own batch; the pairs in mergeCheckPairs have not been compared yet, so check each of them. Return one typed merge operation for each group of supplied candidates that share one root cause, with every candidate of the group in its sourceCandidateIds; no candidate may appear in two operations. Return an empty operations array if all should remain separate. Use authorId self, the supplied round, new:<unique-name> IDs, anonymous findingRef source references and supplied evidence IDs. Do not vote, split, add findings, or add evidence; locations and findings must be empty. This is a cross-batch duplicate check following full candidate review."
             : part.kind === "merge_check"
             ? "Compare the supplied candidate pair for a shared root cause requiring a merge. Return at most one typed merge operation, or an empty operations array if they should remain separate. Use authorId self, the supplied round, new:<unique-name> IDs, anonymous findingRef source references and supplied evidence IDs. Do not vote, split, add findings, or add evidence; locations and findings must be empty. This is a cross-batch duplicate check following full candidate review."
             : `Review every supplied candidate against the source and return typed board operations. Use authorId self and the supplied round. Use new:<unique-name> for operation IDs, new candidate IDs, new evidence IDs and new location IDs. For merge and split, candidate sourceFindingIds are the anonymous source findingRef values of the candidates involved. New findings use self/<unique-name> as sourceFindingId; an add_missing_finding candidate lists exactly those self/<unique-name> IDs from your findings array and carries exactly their evidence. Supply new evidence with exact source quotations and declared locations. Do not emit add_candidate or verification metadata. Do not vote on a newly created candidate until a later round. Preserve counter-evidence and dissent; use needs_verification for insufficient evidence. ${INSTRUCTION_SHAPED_TEXT_RULE}`,
@@ -265,10 +265,12 @@ export class ModelAuditPipeline {
           }
           return local;
         });
-        batches.push(...returned);
+        batchesByReviewer.set(auditorId, returned);
         return returned.flatMap(({ operations }) => operations.map((operation) => ({ ...operation })));
       } } });
       const previous = candidates;
+      // Reviewers answer side by side; their batches reach the board in the reviewer order of the round.
+      const batches = review.dispatches.flatMap(({ reviewerId }) => batchesByReviewer.get(reviewerId) ?? []);
       issueBoard.apply(batches);
       ({ candidates, candidateFindings } = issueBoard.view());
       candidates = Object.fromEntries(Object.entries(candidates).map(([id, candidate]) => {

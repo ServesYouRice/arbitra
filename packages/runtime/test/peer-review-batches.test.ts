@@ -30,15 +30,15 @@ describe("peer review context batching", () => {
     expect(await peerReviewBatches(ids, fits, 400)).toEqual(batches);
   });
 
-  it("accepts merges only over listed pairs, one per candidate, and one merge for a single pair", () => {
+  it("accepts merges over the candidates a packed check presents, one per candidate, and one merge for a single pair", () => {
     const merge = (...sourceCandidateIds: string[]) => ({ type: "merge", sourceCandidateIds });
     const packed = { kind: "merge_check" as const, candidateIds: ["a", "b", "x", "y"], pairs: [["a", "x"], ["a", "y"], ["b", "x"], ["b", "y"]] as const };
     expect(() => assertMergeCheckOperations([], packed)).not.toThrow();
     expect(() => assertMergeCheckOperations([merge("a", "x"), merge("b", "y")], packed)).not.toThrow();
     expect(() => assertMergeCheckOperations([merge("a", "b", "x")], packed)).not.toThrow();
-    // Two candidates of one review batch are not a listed pair; that merge belongs to their own review.
-    expect(() => assertMergeCheckOperations([merge("a", "b")], packed)).toThrow("INVALID_PEER_PAIR_OPERATIONS: each merge may combine only candidates joined by a pair in mergeCheckPairs");
-    expect(() => assertMergeCheckOperations([merge("a", "x"), merge("a", "y")], packed)).toThrow("a candidate may appear in one merge only");
+    // Two candidates of one review batch are not a listed pair, but the check has both whole in front of it (observed live: four such merges were refused, a repair call each).
+    expect(() => assertMergeCheckOperations([merge("a", "b")], packed)).not.toThrow();
+    expect(() => assertMergeCheckOperations([merge("a", "x"), merge("a", "y")], packed)).toThrow("INVALID_PEER_PAIR_OPERATIONS: a candidate may appear in one merge only");
     expect(() => assertMergeCheckOperations([{ type: "accept" }], packed)).toThrow("INVALID_PEER_PAIR_OPERATIONS");
     const single = { kind: "merge_check" as const, candidateIds: ["a", "x"] };
     expect(() => assertMergeCheckOperations([merge("a", "x")], single)).not.toThrow();

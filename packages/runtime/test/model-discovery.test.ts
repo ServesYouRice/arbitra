@@ -289,13 +289,38 @@ describe("independent model discovery", () => {
     const budgeted = { ...activities, estimateInitialTokens: () => 1 };
     const result = await discoverWithModel({ auditorId: "auditor-a", modelProfileId: "model", snapshot: { root: "fixture", files }, activities: budgeted, store, signal: new AbortController().signal, maximumInputTokens: files[0]?.byteLength ?? 0 });
     const sent = spent.map(({ payload }) => [payload.files[0]?.path, payload.files[0]?.lines[0]?.line, payload.files[0]?.lines.at(-1)?.line]);
-    // Whole file, lines 1-4, lines 3-8 (two lines of overlap), then that window's halves, then the other scope.
-    expect(sent).toEqual([["big.ts", 1, 8], ["big.ts", 1, 4], ["big.ts", 3, 8], ["big.ts", 3, 5], ["big.ts", 5, 8], ["small.ts", 1, 1]]);
+    // The two scopes start side by side. big.ts: the whole file, lines 1-4 and 3-8 (two lines of overlap), then the second window's halves.
+    expect(sent.filter(([path]) => path === "big.ts")).toEqual([["big.ts", 1, 8], ["big.ts", 1, 4], ["big.ts", 3, 8], ["big.ts", 3, 5], ["big.ts", 5, 8]]);
+    expect(sent.filter(([path]) => path === "small.ts")).toEqual([["small.ts", 1, 1]]);
     expect(result.map(({ locations }) => [locations[0]?.path, locations[0]?.startLine])).toEqual([["big.ts", 2], ["big.ts", 7], ["small.ts", 1]]);
     const scopes = await artifact(store, "discovery-scopes-auditor-a") as { scopes: { paths: string[]; window?: { startLine: number; endLine: number } }[]; outputLimitSplits: { into: string[] }[] };
     expect(scopes.scopes.map(({ paths, window }) => [paths[0], window?.startLine, window?.endLine])).toEqual([["big.ts", 1, 4], ["big.ts", 3, 5], ["big.ts", 5, 8], ["small.ts", undefined, undefined]]);
     expect(scopes.outputLimitSplits).toHaveLength(2);
     expect(await artifact(store, "discovery-validation-auditor-a")).toMatchObject({ acceptedCount: 3, unexaminedDueToBudget: [], limitations: ["discovery_partitioned_context", "file_context_split:big.ts", "discovery_output_limit_split"] });
+  });
+
+  it("audits independent scopes side by side and puts their findings together in scope order", async () => {
+    // Observed live (P20 pilot): five scopes one after another were 33 minutes of a 40-minute audit.
+    const root = await mkdtemp(join(tmpdir(), "arbitra-discovery-parallel-")); directories.push(root);
+    const store = new RunStore(root, "run-parallel");
+    const files = ["a.ts", "b.ts", "c.ts"].map((path) => fileOf(path, ["const value = null;"]));
+    let active = 0; let most = 0; const release: (() => void)[] = [];
+    const activities = {
+      estimateInitialTokens: () => 1,
+      async invoke<T>(input: ModelActivityRequest<T>): Promise<T> {
+        active += 1; most = Math.max(most, active);
+        const payload = JSON.parse(input.messages.find(({ role }) => role === "user")?.content ?? "{}") as Payload;
+        const namespace = /Every sourceFindingId must start with (.+)\/ and be unique/u.exec(input.messages.find(({ role }) => role === "system")?.content ?? "")?.[1] ?? "";
+        // Every call stays open until all three have started; the last scope then answers first.
+        await new Promise<void>((resolve) => { release.push(resolve); if (release.length === files.length) for (const next of [...release].reverse()) next(); });
+        active -= 1;
+        return input.schema.parse({ findings: [at(`${namespace}/only`, "CORRECTNESS", payload.files[0]?.path ?? "", 1, 1, "const value = null;")], truncated: false, unexaminedDueToBudget: [], limitations: [] });
+      },
+    };
+    const result = await discoverWithModel({ auditorId: "auditor-a", modelProfileId: "model", snapshot: { root: "fixture", files }, activities, store, signal: new AbortController().signal, maximumInputTokens: files[0]?.byteLength ?? 0 });
+    expect(most).toBe(3);
+    expect(result.map(({ locations }) => locations[0]?.path)).toEqual(["a.ts", "b.ts", "c.ts"]);
+    expect((await artifact(store, "discovery-scopes-auditor-a") as { scopes: { paths: string[] }[] }).scopes.map(({ paths }) => paths)).toEqual([["a.ts"], ["b.ts"], ["c.ts"]]);
   });
 
   it("fails explicitly when a single line still stops at the output ceiling", async () => {
@@ -304,7 +329,8 @@ describe("independent model discovery", () => {
     const { activities, spent } = ceilinged(() => true);
     const run = () => discoverWithModel({ auditorId: "auditor-a", modelProfileId: "model", snapshot: { root: "fixture", files: [fileOf("a.ts", ["const a = null;", "const b = null;"])] }, activities, store, signal: new AbortController().signal });
     await expect(run()).rejects.toThrow(/^MODEL_OUTPUT_LIMIT_REACHED:auditor-a\/window-[0-9a-f]{24}\/discovery$/u);
-    expect(spent.map(({ payload }) => payload.files[0]?.lines.map(({ line }) => line))).toEqual([[1, 2], [1]]);
+    // Both one-line windows start side by side and each runs to its end; the first failure in unit order is reported.
+    expect(spent.map(({ payload }) => payload.files[0]?.lines.map(({ line }) => line))).toEqual([[1, 2], [1], [2]]);
   });
 
   it("records a follow-up that stops at the output ceiling and keeps the primary findings", async () => {
