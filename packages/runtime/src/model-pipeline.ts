@@ -26,7 +26,7 @@ import { assertChangedVotesCiteNewEvidence, EARLIER_VOTES_RULE, earlierPeerVotes
 import { ModelPeerBoard } from "./model-peer-board.js";
 import { boardEvidenceSchema } from "@arbitra/schemas/board-operation.js";
 import { allocateModelContext, withinStringBudget } from "./model-context.js";
-import { peerReviewBatches, segmentText, type PeerReviewBatch } from "./peer-review-batches.js";
+import { assertMergeCheckOperations, peerReviewBatches, segmentText, type PeerReviewBatch } from "./peer-review-batches.js";
 import { criticContextParts, criticPartIdentity, type CriticContextPart } from "./critic-context.js";
 import { planWithContext, type PlannerStage } from "./planner-context.js";
 import { reviseWithContext } from "./revision-context.js";
@@ -156,15 +156,18 @@ export class ModelAuditPipeline {
           const earlier = earlierPeerVotes(scopedView, candidates, auditorId);
           const input: ModelStageInput<ReturnType<typeof peerOperationsResultSchema.parse>> = {
           activityId: `peer-review/${round}/${auditorId}${scopeId === undefined ? "" : `/${scopeId}`}`, modelProfileId: auditorId, signal,
-          protocol: "peer-review", instruction: part.kind === "merge_check"
+          protocol: "peer-review", instruction: part.kind === "merge_check" && part.pairs !== undefined
+            ? "Compare the supplied candidate pairs for a shared root cause requiring a merge. Every candidate was already reviewed in full in its own batch; check only the pairs listed in mergeCheckPairs. Return one typed merge operation for each group of candidates that share one root cause, with every candidate of the group in its sourceCandidateIds; each merged candidate must be joined to another in its group by a listed pair, and no candidate may appear in two operations. Return an empty operations array if all should remain separate. Use authorId self, the supplied round, new:<unique-name> IDs, anonymous findingRef source references and supplied evidence IDs. Do not vote, split, add findings, or add evidence; locations and findings must be empty. This is a cross-batch duplicate check following full candidate review."
+            : part.kind === "merge_check"
             ? "Compare the supplied candidate pair for a shared root cause requiring a merge. Return at most one typed merge operation, or an empty operations array if they should remain separate. Use authorId self, the supplied round, new:<unique-name> IDs, anonymous findingRef source references and supplied evidence IDs. Do not vote, split, add findings, or add evidence; locations and findings must be empty. This is a cross-batch duplicate check following full candidate review."
             : `Review every supplied candidate against the source and return typed board operations. Use authorId self and the supplied round. Use new:<unique-name> for operation IDs, new candidate IDs, new evidence IDs and new location IDs. For merge and split, candidate sourceFindingIds are the anonymous source findingRef values of the candidates involved. New findings use self/<unique-name> as sourceFindingId; an add_missing_finding candidate lists exactly those self/<unique-name> IDs from your findings array and carries exactly their evidence. Supply new evidence with exact source quotations and declared locations. Do not emit add_candidate or verification metadata. Do not vote on a newly created candidate until a later round. Preserve counter-evidence and dissent; use needs_verification for insufficient evidence. ${INSTRUCTION_SHAPED_TEXT_RULE}`,
-          input: { round, candidates: part.segment === undefined ? scopedView.candidates : segmentedCandidates(scopedView.candidates, part.segment),
+          input: { round, candidates: part.segment === undefined ? scopedView.candidates : segmentedCandidates(scopedView.candidates, part.segment), ...(part.pairs === undefined ? {} : { mergeCheckPairs: part.pairs }),
             // Round 1 has no earlier votes, so its input (and replay identity) is unchanged.
             ...(part.kind === "merge_check" || Object.keys(earlier).length === 0 ? {} : { yourEarlierVotes: { rule: EARLIER_VOTES_RULE, votes: earlier } }), repository: this.repository() },
           schema: { parse(value: unknown) {
             const parsed = peerOperationsResultSchema.parse(value);
-            if (part.kind === "merge_check" && (parsed.operations.length > 1 || parsed.operations.some(({ type }) => type !== "merge") || parsed.findings.length > 0 || parsed.locations.length > 0)) throw new Error("INVALID_PEER_PAIR_OPERATIONS");
+            if (part.kind === "merge_check" && (parsed.findings.length > 0 || parsed.locations.length > 0)) throw new Error("INVALID_PEER_PAIR_OPERATIONS");
+            if (part.kind === "merge_check") assertMergeCheckOperations(parsed.operations, part);
             const batch = translatePeerOperations(parsed, scopedView, context.snapshot, auditorId, round, scopeId);
             assertChangedVotesCiteNewEvidence(batch.operations, candidates, auditorId);
             return parsed;
