@@ -38,8 +38,9 @@ subscriptions.
     citation instead of refusing the reply (094eb56), no longer escapes quotes inside the repository frame
     (24eacf4), and keeps the valid operations of a reply when one is refused (7986f77). Premium and light moved to
     protocol 2.4.0 at 18:45; the cheap lineup follows when its panel run has ended. The first run on the new
-    build audited in 3 calls side by side and 6 minutes, where the same stage had taken 8 calls and 33 minutes;
-    it then stopped on a redaction defect, fixed the same hour (e83dc94). The pilot starts again as a new protocol version on that
+    build, an Opus-only run, took 20 minutes where it had taken 40 (13 calls, 0.91M tokens). Its audit was 5
+    calls: the fourth failed at once on a redaction defect, fixed the same hour (e83dc94), so they ran as 3 and
+    then 2 side by side, 6 and 7 minutes, where 8 calls one after another had taken 33. The pilot starts again as a new protocol version on that
     build when the running panel run has ended.
   - GPT-6.1 Sol at xhigh answers through arbitra (nine calls, none failed). GPT-6 Luna at max and Sonnet 5.5 at
     xhigh have not run through arbitra yet.
