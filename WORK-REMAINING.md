@@ -35,8 +35,11 @@ subscriptions.
   - That evening the owner said a run of three to four hours is not a viable product and asked for a faster
     design. The method is not what takes the time; see "Open findings" below. The build now runs every
     independent call side by side under one setting (`maximumParallelCalls`, e107937) leaves out a foreign
-    citation instead of refusing the reply (094eb56), and no longer escapes quotes inside the repository frame
-    (24eacf4). The pilot starts again as a new protocol version on that
+    citation instead of refusing the reply (094eb56), no longer escapes quotes inside the repository frame
+    (24eacf4), and keeps the valid operations of a reply when one is refused (7986f77). Premium and light moved to
+    protocol 2.4.0 at 18:45; the cheap lineup follows when its panel run has ended. The first run on the new
+    build audited in 3 calls side by side and 6 minutes, where the same stage had taken 8 calls and 33 minutes;
+    it then stopped on a redaction defect, fixed the same hour (e83dc94). The pilot starts again as a new protocol version on that
     build when the running panel run has ended.
   - GPT-6.1 Sol at xhigh answers through arbitra (nine calls, none failed). GPT-6 Luna at max and Sonnet 5.5 at
     xhigh have not run through arbitra yet.
@@ -187,13 +190,13 @@ under per-provider limits (§12.6) and a shared cached prefix (§14.2).
   review prompt; the files travel in the per-call layer. By its documentation, Claude Code shares a cached prefix between
   processes only when model, effort, tools and schema are the same and the first reply has begun. To decide: attach only
   the files a record cites, and lead every prompt of a stage with the same repository text.
-- **A refused reply is repeated whole.** 28 of the run's first 141 calls were repairs: 4.0M tokens and 59
-  minutes. Eleven refused replies held 222 operations; in the three refused over foreign citations,
-  9 operations were at fault and each also cited evidence of its own candidate. By rule: 10 cited
-  another candidate's evidence (now left out, 094eb56), 7 added evidence without citing it (now completed,
-  14ae7aa), 4 merged outside the listed pairs of a packed check (now allowed, 14ae7aa), 4 added evidence that is
-  not an exact quotation, 2 used a presented ID where a new one was required, and 1 was a safety-filter notice.
-  To fix: refuse the one operation and keep the rest of the reply.
+- **Refused replies cost a third of a panel run's tokens (largely fixed, to be measured).** 39 of the run's first
+  155 calls were repairs: 6.0M tokens and 74 minutes. By rule: 10 cited another candidate's evidence, 8 cited a
+  location they had not declared, 7 added evidence that is not an exact quotation, 7 added evidence without citing
+  it, 4 merged outside the listed pairs of a packed check, 2 used a presented ID where a new one was required, and
+  1 was a safety-filter notice. Since 7986f77 an operation that fails is left out and the rest of the reply
+  stands. Still to measure in a panel run: how many operations are left out, and whether a reply's locations or
+  findings, which still refuse the whole reply, need the same treatment.
 - **Calls are lost at an output ceiling.** One of 8 Opus 5.5 discovery calls at xhigh and 2 of 14 Gemini 3.8
   Flash calls at high stopped at the ceiling and were redone in smaller parts. Each lost call costs up to
   64,000 output tokens and nine minutes. To decide: start with smaller scopes at efforts where thinking counts
@@ -219,7 +222,7 @@ for direct scripting and CI workflows" and that wrapping `agy` inside third-part
 application around `agy`. Until the owner decides, runs keep one Antigravity call at a time, as before. For
 the product, the terms of each vendor's subscription CLI need a check before arbitra recommends subscriptions.
 
-**Fixed.** The P20 pilot found two defects on October 10 and seven on October 11; all nine are fixed and verified
+**Fixed.** The P20 pilot found two defects on October 10 and nine on October 11; all eleven are fixed and verified
 on Linux, and the second was also checked live on the owner's Windows PC
 ([qa/subscription-cli](docs/qa/subscription-cli/README.md)):
 
@@ -263,6 +266,19 @@ on Linux, and the second was also checked live on the owner's Windows PC
   of an audit's discovery prompts, 18% of a review prompt and 9% of a conflict prompt, and models copied the
   entity into the evidence they quoted. Text inside the frame can leave it only through markup, so it now escapes
   `&`, `<` and `>` and leaves quotes as written (frame version 2, [security](docs/security.md)).
+- **One bad operation refused a whole reply (fixed in 7986f77).** A reply of about 20 operations was repeated
+  over one or two of them, and a reply still invalid after its repairs lost all of them. Each operation is now
+  checked on its own: one that fails is left out and recorded, evidence it would have added is withdrawn from
+  the others' citations, and a changed vote without new evidence is left out so the earlier vote stands. A reply
+  is refused only when it is invalid as a whole or would lose more than half of its operations
+  ([provider model](docs/provider-model.md)).
+- **A stored prompt stopped parsing after redaction (fixed in e83dc94).** A source line ending in an assignment
+  (`apiKey: config.gateway.apiKey,`) sat before an escaped quote in a stored prompt. The redactor took its own
+  marker and that backslash for a secret again, the escape was lost, and the artifact was no longer JSON: the
+  first run on the new frame failed after its three discovery calls, and so did its resume. Before the frame
+  change the same rule ran on through the `&quot;` entities: in the stored compiled prompt, the source line
+  after such an assignment was folded into it and lost its line number. An assigned secret no longer ends in a
+  backslash, and artifacts are redacted value by value (redaction pattern version 3).
 
 All eight findings in [qa/p19](docs/qa/p19/README.md) are fixed, and the affected live acceptance passed on subscriptions on September 30 (runs A–E there). The reruns found four more defects; all are fixed. The completion report is P21, after P20.
 
