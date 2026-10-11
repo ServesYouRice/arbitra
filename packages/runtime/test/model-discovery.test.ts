@@ -298,6 +298,30 @@ describe("independent model discovery", () => {
     expect(await artifact(store, "discovery-validation-auditor-a")).toMatchObject({ acceptedCount: 3, unexaminedDueToBudget: [], limitations: ["discovery_partitioned_context", "file_context_split:big.ts", "discovery_output_limit_split"] });
   });
 
+  it("audits the halves of an output-limited unit side by side when calls may run in parallel", async () => {
+    // Observed live (P20 pilot): Gemini passed its output limit on 3 of 16 units, and halves audited one after another made its audit 50 minutes of a panel run.
+    const lines = Array.from({ length: 8 }, (_, index) => `const value${index + 1} = ${index === 1 || index === 6 ? "null" : index};`);
+    const files = [fileOf("big.ts", lines)];
+    const together = async (concurrency: number) => {
+      const root = await mkdtemp(join(tmpdir(), "arbitra-discovery-halves-")); directories.push(root);
+      const { activities } = ceilinged(({ files: supplied }) => (supplied[0]?.lines.length ?? 0) > 4);
+      const active = new Set<string>(); const overlaps = new Set<string>();
+      const tracked = { estimateInitialTokens: () => 1, async invoke<T>(input: ModelActivityRequest<T>): Promise<T> {
+        const sent = (JSON.parse(input.messages.find(({ role }) => role === "user")?.content ?? "{}") as Payload).files[0]?.lines ?? [];
+        const label = `${sent[0]?.line}-${sent.at(-1)?.line}`;
+        for (const other of active) overlaps.add([other, label].sort().join(" with "));
+        active.add(label);
+        try { await new Promise((resolve) => setTimeout(resolve, 5)); return await activities.invoke(input); }
+        finally { active.delete(label); }
+      } };
+      const result = await discoverWithModel({ auditorId: "auditor-a", modelProfileId: "model", snapshot: { root: "fixture", files }, activities: tracked, store: new RunStore(root, "run-halves"), signal: new AbortController().signal, maximumInputTokens: files[0]?.byteLength ?? 0, concurrency });
+      return { lines: result.map(({ locations }) => locations[0]?.startLine), overlaps: [...overlaps].sort() };
+    };
+    // Lines 3-8 stop at the ceiling again; their halves, 3-5 and 5-8, are in flight together.
+    expect(await together(2)).toEqual({ lines: [2, 7], overlaps: ["1-4 with 3-8", "3-5 with 5-8"] });
+    expect(await together(1)).toEqual({ lines: [2, 7], overlaps: [] });
+  });
+
   it("leaves the source a provider declines unexamined for that auditor and goes on with the rest", async () => {
     // Observed live (P20 pilot): Gemini's content filter answered one discovery unit three times, and the run failed and could not be resumed.
     const root = await mkdtemp(join(tmpdir(), "arbitra-discovery-declined-")); directories.push(root);

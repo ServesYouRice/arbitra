@@ -219,9 +219,10 @@ async function discoverPrimary(options: ModelDiscoveryOptions): Promise<readonly
         const scope = { scopeId, paths: unit.files.map(({ path }) => path), estimatedTokens: null, splitModules: unit.splitModules, ...(window === undefined ? {} : { window }), declined: cause };
         return { audited: [{ scope, findings: [], validation: { rejectedCount: 0, truncated: false, unexaminedDueToBudget: surfaces.map((surface) => `discovery_${cause}:${surface}`), limitations: [`discovery_${cause}`] }, splitModules: unit.splitModules }], splits: [] };
       }
-      // The parts take the place of their unit, one after another, so the number of calls in flight stays bounded.
-      const inner: Outcome[] = [];
-      for (const part of parts) inner.push(await audit(part));
+      // The parts take the place of their unit and are independent of each other, so they run side by side within
+      // the same limit; with a limit of one they run one after another. Observed live (P20 pilot): Gemini passed its
+      // output limit on 3 of 16 units, and halves audited in sequence made its audit 50 minutes of a panel run.
+      const inner = await sideBySide(parts, options.concurrency ?? 1, audit);
       return { audited: inner.flatMap(({ audited }) => audited), splits: [{ scopeId, into: parts.map(unitScopeId), ...(cause === null ? {} : { declined: true as const }) }, ...inner.flatMap(({ splits }) => splits)] };
     }
     const scope = { scopeId, paths: unit.files.map(({ path }) => path), estimatedTokens: options.activities.estimateInitialTokens?.(discoveryRequest(selected)) ?? null, splitModules: unit.splitModules, ...(window === undefined ? {} : { window }) };
