@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { assembleRedactedContext, redactSecrets } from "../src/redaction.js";
+import { assembleRedactedContext, redactNamedValue, redactSecrets } from "../src/redaction.js";
 
 describe("secret redaction", () => {
   it("redacts credentials and records only their locations and kinds", () => {
@@ -26,6 +26,25 @@ describe("secret redaction", () => {
     expect(redacted.text).not.toContain("arbitrary-long-secret");
     expect(redacted.text).not.toContain("sk-abcdefghijklmnop");
     expect(redactSecrets(redacted.text)).toMatchObject({ text: redacted.text, redactions: [] });
+  });
+
+  it("leaves the escape of a following quote in place, so JSON text stays JSON", () => {
+    // Observed live (P20 pilot): a source line ending in an assignment sat in JSON nested in a stored prompt.
+    const nested = JSON.stringify({ lines: [{ line: 1, text: "    apiKey: config.gateway.apiKey," }, { line: 2, text: "    clock," }] });
+    const stored = JSON.stringify({ text: nested });
+    const once = redactSecrets(stored);
+    expect(once.text).not.toContain("config.gateway.apiKey");
+    const lines = (JSON.parse((JSON.parse(once.text) as { text: string }).text) as { lines: { text: string }[] }).lines;
+    expect(lines.map(({ text }) => text)).toEqual(["    apiKey: [REDACTED:assigned_secret]", "    clock,"]);
+    // A marker followed by an escaped quote is not a secret again.
+    expect(redactSecrets(once.text)).toMatchObject({ text: once.text, redactions: [] });
+  });
+
+  it("redacts a string filed under a secret's name without touching encoded JSON", () => {
+    expect(redactNamedValue("password", "arbitrary-long-secret")).toBe("[REDACTED:assigned_secret]");
+    expect(redactNamedValue("apiKey", "sk-abcdefghijklmnop")).toMatch(/^\[REDACTED:(?:api_token|assigned_secret)\]$/u);
+    expect(redactNamedValue("title", "arbitrary-long-title")).toBe("arbitrary-long-title");
+    expect(redactNamedValue("excerpt", "const apiKey = 'sk-abcdefghijklmnop';")).not.toContain("sk-abcdefghijklmnop");
   });
 
   it.each([

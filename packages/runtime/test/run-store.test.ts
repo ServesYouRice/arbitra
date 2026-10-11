@@ -21,6 +21,13 @@ describe("run store paths", () => {
       const persisted = await readFile(join(resumed.directory, artifact.ref.relativePath), "utf8");
       expect(persisted).not.toContain(secret);
       expect(persisted).toContain("[REDACTED:");
+      // A value filed under a secret's name is redacted, and JSON nested in a string survives redaction (observed
+      // live: a stored prompt whose nested source line ended in an assignment no longer parsed).
+      const nested = JSON.stringify({ lines: [{ line: 1, text: "    apiKey: config.gateway.apiKey," }, { line: 2, text: "    clock," }] });
+      const stored = await resumed.publish("harness", { password: "arbitrary-long-secret", text: JSON.stringify({ layer: "round", value: nested }) });
+      const read = JSON.parse((await resumed.readArtifact(stored.artifactId)).content) as { password: string; text: string };
+      expect(read.password).toBe("[REDACTED:assigned_secret]");
+      expect((JSON.parse((JSON.parse(read.text) as { value: string }).value) as { lines: { text: string }[] }).lines.map(({ text }) => text)).toEqual(["    apiKey: [REDACTED:assigned_secret]", "    clock,"]);
     } finally { await rm(directory, { recursive: true, force: true }); }
   });
   it.each(["../outside", "..\\outside", "/absolute", "C:\\absolute", ".hidden", "run/id", ""])(

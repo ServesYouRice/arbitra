@@ -1,4 +1,4 @@
-export const REDACTION_PATTERN_VERSION = "2" as const;
+export const REDACTION_PATTERN_VERSION = "3" as const;
 
 export type SecretKind =
   | "aws_access_key"
@@ -34,7 +34,10 @@ const DETECTORS: readonly Detector[] = [
   { kind: "bearer_token", expression: /\bBearer\s+([A-Za-z0-9._~+/=-]{16,})/giu, secretGroup: 1 },
   {
     kind: "assigned_secret",
-    expression: /\b(?:api[_-]?key|secret|password|token)["']?\s*[:=]\s*["']?([^\s"']{12,})["']?/giu,
+    // The value never ends in a backslash: inside JSON text that backslash escapes the quote after it. Observed
+    // live (P20 pilot): a redaction marker followed by an escaped quote was taken for a secret again, the escape
+    // was lost with it, and the stored artifact no longer parsed.
+    expression: /\b(?:api[_-]?key|secret|password|token)["']?\s*[:=]\s*["']?([^\s"']{11,}[^\s"'\\])["']?/giu,
     secretGroup: 1,
   },
   {
@@ -78,6 +81,18 @@ export function redactSecrets(text: string): RedactionResult {
     redactions: Object.freeze(redactions),
     patternVersion: REDACTION_PATTERN_VERSION,
   });
+}
+
+/**
+ * Redacts one string of structured data that is filed under `name`: the string on its own, and as the value
+ * assigned to that name, so `{ password: "..." }` is caught without redacting encoded JSON text, whose escapes a
+ * text-level redaction can cut through.
+ */
+export function redactNamedValue(name: string, value: string): string {
+  const own = redactSecrets(value).text;
+  const prefix = `${name}: `;
+  const assigned = redactSecrets(prefix + own).text;
+  return assigned.startsWith(prefix) ? assigned.slice(prefix.length) : own;
 }
 
 /** Context assembly must use this boundary, so raw source text is never returned. */

@@ -9,7 +9,7 @@ import type { RunEvent, RunnerJournalPort, RunnerJournalRecord } from "@arbitra/
 import { isRunEvent } from "@arbitra/core/runner/events.js";
 import type { RunDefinitionStore, StoredRunDefinition } from "@arbitra/core/runner/workflow-runner.js";
 import { runScopeSchema, runConfigSchema, type RunScope, type RunConfig } from "@arbitra/schemas/config.js";
-import { redactSecrets } from "@arbitra/security/redaction";
+import { redactNamedValue, redactSecrets } from "@arbitra/security/redaction";
 import { TraceRecorder, loadActivityTraces, type ModelActivityTraceRecord } from "@arbitra/persistence/trace.js";
 import { checkpointPolicySchema, type CheckpointPolicy } from "@arbitra/schemas/checkpoint-policy.js";
 import { workflowGraphReferenceSchema, type WorkflowGraphReference } from "@arbitra/schemas/workflow-graphs.js";
@@ -193,9 +193,14 @@ export class RunStore {
    * the UI addresses artifacts by kind, so the mapping is recorded alongside it.
    */
   async publish(kind: string, value: unknown, nodeId: string | null = null): Promise<ArtifactDescriptor> {
-    const encoded = JSON.stringify(value, (_key, child: unknown) => typeof child === "string" ? redactSecrets(child).text : child);
+    // Each string is redacted on its own and as the value of the name it is filed under. The encoded text is then
+    // swept once more, which also covers names. A redaction of encoded text can cut through JSON syntax, so the
+    // sweep is kept only while the text still parses; the value-by-value redaction stands otherwise.
+    const encoded = JSON.stringify(value, (key, child: unknown) => typeof child === "string" ? redactNamedValue(key, child) : child);
     if (encoded === undefined) throw new Error("ARTIFACT_VALUE_NOT_JSON");
-    const redacted: unknown = JSON.parse(redactSecrets(encoded).text);
+    let redacted: unknown;
+    try { redacted = JSON.parse(redactSecrets(encoded).text); }
+    catch { redacted = JSON.parse(encoded); }
     const ref = await this.artifacts.put(redacted, "json", { durability: "expensive" });
     const descriptor: ArtifactDescriptor = Object.freeze({
       artifactId: `${kind}-${ref.hash.slice(0, 16)}`,
