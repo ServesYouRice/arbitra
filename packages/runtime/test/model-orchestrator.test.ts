@@ -406,13 +406,16 @@ describe("composed model audits", () => {
     expect(requests.filter(({ stage }) => stage === "critic")).toHaveLength(1);
   });
 
-  it("partitions large critic plans while preserving complete record coverage", async () => {
+  it.each([1, 4])("partitions large critic plans while preserving complete record coverage (%i calls at a time)", async (parallel) => {
     const { create, config, requests, failCritic } = await fixture({ largeCriticContext: true });
+    if (parallel > 1) (config.workflow["modelExecution"] as { maximumParallelCalls?: number }).maximumParallelCalls = parallel;
     failCritic(true);
     const core = create(); const result = await core.run(config);
     const events = []; for await (const event of core.events(result.runId)) events.push(event);
     expect(result.state, JSON.stringify(events.at(-1))).toBe("FAILED");
-    expect(requests.filter(({ stage }) => stage === "critic")).toHaveLength(2);
+    // One part at a time stops at the failing second part; side by side, the parts in flight run to their end.
+    if (parallel === 1) expect(requests.filter(({ stage }) => stage === "critic")).toHaveLength(2);
+    else expect(requests.filter(({ stage }) => stage === "critic").length).toBeGreaterThanOrEqual(2);
     failCritic(false);
     const resumed = create(); await resumed.resume(result.runId);
     expect((await resumed.wait(result.runId)).state).toBe("COMPLETED");

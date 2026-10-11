@@ -539,11 +539,13 @@ export class ModelAuditPipeline {
           }, revisionContext, maximumRecords);
           await this.context.store.publish(phase === "initial" ? "critic-context-batches" : "critic-revision-context-batches", parts.map(({ kind, recordIds, segment, pairs }) => ({ kind, recordIds, ...(segment === undefined ? {} : { segment }), ...(pairs === undefined ? {} : { pairs }) })));
           criticCalls = 0;
-          const local = [];
-          for (const part of parts) {
-            const input = requestFor(part); const response = await this.call(input); criticCalls += 1;
-            local.push({ ...response, items: response.items.map((item) => ({ ...item, id: parts.length === 1 ? item.id : `${input.activityId}/${item.id}` })) });
-          }
+          // Each part is reviewed on its own, so the parts run side by side and are put together in part order.
+          // Observed live (P20 pilot): seven parts one after another were 21 minutes of a panel run.
+          const local = await sideBySide(parts, providerExecutionSchema.parse(this.config.workflow["modelExecution"]).maximumParallelCalls ?? 1, async (part) => {
+            const input = requestFor(part); const response = await this.call(input);
+            return { ...response, items: response.items.map((item) => ({ ...item, id: parts.length === 1 ? item.id : `${input.activityId}/${item.id}` })) };
+          });
+          criticCalls = parts.length;
           return local;
         });
         return { summary: responses.map(({ summary }) => summary).join("\n\n"), items: responses.flatMap(({ items }) => items) };
