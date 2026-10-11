@@ -44,6 +44,22 @@ export function outputLimitKind(activityId: string): string {
   return `model-output-limit-${createHash("sha256").update(activityId).digest("hex").slice(0, 32)}`;
 }
 
+/**
+ * The provider or the model declined to answer this activity (a content filter, a policy refusal). The activity
+ * is recorded as refused, so a resumed run does not ask again; a stage that can go on without this one answer
+ * records the gap instead of failing the run.
+ */
+export class ModelRefusalError extends Error {
+  constructor(readonly activityId: string, readonly refusal: string) { super(`MODEL_ACTIVITY_REFUSED:${activityId}`); this.name = "ModelRefusalError"; }
+}
+
+export function refusalKind(activityId: string): string {
+  return `model-refusal-${createHash("sha256").update(activityId).digest("hex").slice(0, 32)}`;
+}
+
+/** A reply that stayed invalid after its repairs (see ModelHarness.invoke); never a provider or policy failure. */
+export function isModelOutputRejection(error: unknown): boolean { return error instanceof Error && (error as { modelOutputRejected?: unknown }).modelOutputRejected === true; }
+
 /** Errors that mean "this stage shape cannot be admitted"; composition may split it. */
 export function isCapacityError(error: unknown): boolean {
   return error instanceof ModelOutputLimitError || error instanceof Error && error.message === "MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED";

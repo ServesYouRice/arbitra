@@ -295,6 +295,15 @@ is left out and recorded (`peer-review-refused-operations-*`, limitation
 operations' citations. A changed vote that cites no new evidence is left out the same way, so the earlier
 vote stands. The reply is refused, and repaired within `maximumOutputRepairs`, only when its shape, locations
 or findings are invalid, or when more than half of its operations would be left out.
+
+A provider's refusal of one call does not fail the audit. The CLI transports report a content-filter notice
+as a refusal instead of a reply, and the harness records it durably (`model-refusal-*`) and does not ask
+again. Discovery tries a declined unit once more in smaller parts (several files file by file, one file as
+two line windows) and leaves what is declined again unexamined for that auditor (`discovery-declined-*`,
+limitation `discovery_provider_refused`); a unit whose reply stays invalid after its repairs is treated the
+same way (`discovery_reply_rejected`). A declined review batch contributes nothing and counts as rejected
+review output, and an auditor whose provider declines a conflict casts no vote, so that conflict stays
+unresolved.
 Exact and structural matches still resolve without model calls. Unclassified pairs remain
 separate. The run persists classifications, rationales, operations, and unresolved pairs.
 Clustering aggregate token/cost metrics are null when model calls occur; individual

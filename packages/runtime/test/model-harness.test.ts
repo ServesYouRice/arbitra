@@ -33,7 +33,7 @@ async function setup(maxToolTurns = 2, historySize = 0, maximumOutputRepairs = 0
       : { output_text: '{"answer":"ok"}', usage: { input_tokens: 20, output_tokens: 10 } } };
   });
   const create = () => new ModelHarness(new ModelActivities(store, config, { client: { send }, credential: () => "fixture-credential" }), config, source, store);
-  return { store, create, send, requests };
+  return { store, create, send, requests, config };
 }
 const request = () => ({ activityId: "auditor-a/discovery", modelProfileId: "auditor-a", protocol: "fixture@1", signal: new AbortController().signal,
   messages: [{ role: "system" as const, content: "Inspect the snapshot." }, { role: "user" as const, content: "Return JSON." }],
@@ -63,6 +63,20 @@ describe("durable canonical model harness", () => {
     }
   });
 
+
+  it("records a provider's refusal durably, with no repair and no second call after restart", async () => {
+    // Observed live (P20 pilot): Gemini's content filter answered one discovery unit three times; read as a reply, it was repaired as invalid JSON until the run failed.
+    const { store, config } = await setup(2, 0, 2);
+    let calls = 0;
+    const refusing = { invoke: async () => { calls += 1; return { text: null, toolCalls: [], refusal: "This request was blocked.", usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: null, cacheWriteTokens: null } }; } } as unknown as ModelActivities;
+    const create = () => new ModelHarness(refusing, config, snapshot, store);
+    await expect(create().invoke(request())).rejects.toMatchObject({ name: "ModelRefusalError", activityId: "auditor-a/discovery", refusal: "This request was blocked." });
+    expect(calls).toBe(1);
+    const restarted = create();
+    expect(await restarted.refused("auditor-a/discovery")).toBe(true);
+    await expect(restarted.invoke(request())).rejects.toThrow("MODEL_ACTIVITY_REFUSED:auditor-a/discovery");
+    expect(calls).toBe(1);
+  });
 
   it("records output-ceiling truncation durably and never repeats that spend after restart", async () => {
     const { create, send, store } = await setup();

@@ -97,10 +97,12 @@ export class CliTransport implements ProviderTransport {
       this.#assertStopped(result, signal);
       const outcome = reader.finish(result.exitCode, result.stderr);
       if (!result.treeTerminated) throw new TransportError("HTTP", `CLI_PROCESS_TREE_NOT_TERMINATED: ${this.#support.displayName} left processes running`, false);
-      const reply = interpretCliReply(outcome.text, request, prompt.boundary, outcome.structured);
+      // A provider's notice in place of an answer is a refusal, not a reply to parse.
+      const refusal = this.dialect.refusal?.(outcome.text) ?? null;
+      const reply = refusal === null ? interpretCliReply(outcome.text, request, prompt.boundary, outcome.structured) : { text: null, structured: null, toolCalls: Object.freeze([]) };
       await this.#limits?.clear(this.id).catch(() => undefined);
       return Object.freeze({
-        text: reply.text, structured: reply.structured, toolCalls: reply.toolCalls, refusal: null,
+        text: reply.text, structured: reply.structured, toolCalls: reply.toolCalls, refusal,
         usage: Object.freeze({ inputTokens: outcome.usage.inputTokens ?? null, outputTokens: outcome.usage.outputTokens ?? null, cacheReadTokens: outcome.usage.cacheReadTokens ?? null, cacheWriteTokens: outcome.usage.cacheWriteTokens ?? null }),
         continuation: null, structuredOutputTier: request.responseSchema === undefined ? "prompt_json" : nativeSchema ? "native_structured" : "prompt_json",
         providerRequestId: outcome.sessionId, transportVersion: `${this.#support.vendor}/${version}`,

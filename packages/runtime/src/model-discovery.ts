@@ -8,7 +8,7 @@ import type { RunStore } from "./run-store.js";
 import type { PinnedProtocol } from "@arbitra/protocols/registry.js";
 
 import { createHash } from "node:crypto";
-import { ModelOutputLimitError } from "./context-budget.js";
+import { isModelOutputRejection, ModelOutputLimitError, ModelRefusalError } from "./context-budget.js";
 import { allocateDiscoveryScopes } from "./discovery-scope.js";
 import { sideBySide } from "./side-by-side.js";
 import { widenToQuote } from "./evidence-grounding.js";
@@ -126,6 +126,17 @@ function stoppedAtOutputCeiling(error: unknown, options: ScopeOptions): boolean 
 }
 
 /**
+ * Why this unit got no usable answer, if the cause is one the audit can go on without: the provider or model
+ * declined it, or its reply stayed invalid after its repairs. Observed live (P20 pilot): Gemini's content filter
+ * answered one unit three times in a row, and the whole run failed and could not be resumed.
+ */
+function declined(error: unknown, options: ScopeOptions): "provider_refused" | "reply_rejected" | null {
+  const activityId = discoveryActivityId(options);
+  if (error instanceof ModelRefusalError && (error.activityId === activityId || error.activityId.startsWith(`${activityId}/`))) return "provider_refused";
+  return isModelOutputRejection(error) ? "reply_rejected" : null;
+}
+
+/**
  * Smaller units covering the same source as a unit whose call stopped at the output ceiling.
  * Observed live (P20 pilot, Opus 5.5 at xhigh): thinking counts as output, so a scope that
  * fits the input budget passed 64,000 output tokens, and no resume could finish the run.
@@ -158,15 +169,18 @@ async function discoverPrimary(options: ModelDiscoveryOptions): Promise<readonly
   const pending: PendingUnit[] = [];
   // Units whose call stopped at the output ceiling, and the smaller units that replaced each.
   const outputLimitSplits: { scopeId: string; into: readonly string[] }[] = [];
+  // Units the provider declined or whose reply stayed invalid, and the smaller units tried in their place.
+  const declinedSplits: { scopeId: string; into: readonly string[] }[] = [];
   // Files too large for any scope are read as exact original-line windows, not skipped.
   const windowed: { path: string; windows: { startLine: number; endLine: number }[]; unexaminedLines: number[] }[] = [];
   if (maximum === undefined || byteSum(options.snapshot.files) <= maximum && estimate(discoveryRequest(options)) <= maximum) {
     if (maximum !== undefined) await options.store.publish(`discovery-scopes-${options.auditorId}`, { scopes: [{ scopeId: "whole", paths: options.snapshot.files.map(({ path }) => path), estimatedTokens: estimate(discoveryRequest(options)), splitModules: [] }], unallocatedPaths: [], maximumEstimatedTokens: maximum });
     try { return await discoverScopeWithModel(options); }
     catch (error) {
-      const parts = stoppedAtOutputCeiling(error, options) ? splitOutputLimitedUnit(options.snapshot, { files: options.snapshot.files, splitModules: [] }) : null;
+      const cause = declined(error, options);
+      const parts = stoppedAtOutputCeiling(error, options) || cause !== null ? splitOutputLimitedUnit(options.snapshot, { files: options.snapshot.files, splitModules: [] }) : null;
       if (parts === null) throw error;
-      outputLimitSplits.push({ scopeId: "whole", into: parts.map(unitScopeId) });
+      (cause === null ? outputLimitSplits : declinedSplits).push({ scopeId: "whole", into: parts.map(unitScopeId) });
       pending.push(...parts);
     }
   } else {
@@ -184,7 +198,7 @@ async function discoverPrimary(options: ModelDiscoveryOptions): Promise<readonly
     pending.push(...allocation.scopes, ...windowed.flatMap(({ path, windows }) => windows.map((window) => ({ files: options.snapshot.files.filter((file) => file.path === path), splitModules: [], window }))));
   }
   interface Audited { readonly scope: { scopeId: string; paths: readonly string[]; estimatedTokens: number | null; splitModules: readonly string[] }; readonly findings: readonly SourceFinding[]; readonly validation: ScopeValidation; readonly splitModules: readonly string[] }
-  interface Outcome { readonly audited: readonly Audited[]; readonly splits: readonly { scopeId: string; into: readonly string[] }[] }
+  interface Outcome { readonly audited: readonly Audited[]; readonly splits: readonly { scopeId: string; into: readonly string[]; declined?: true }[] }
   const audit = async (unit: PendingUnit): Promise<Outcome> => {
     const { window } = unit;
     const scopeId = unitScopeId(unit);
@@ -193,12 +207,22 @@ async function discoverPrimary(options: ModelDiscoveryOptions): Promise<readonly
     try { found = await discoverScopeWithModel(selected); }
     catch (error) {
       // The marker is durable, so a resumed run splits the same way without repeating the call.
-      const parts = stoppedAtOutputCeiling(error, selected) ? splitOutputLimitedUnit(options.snapshot, unit) : null;
-      if (parts === null) throw error;
+      const cause = declined(error, selected);
+      // A declined unit is tried once more in smaller parts, which also finds the source the provider objects to:
+      // several files file by file, one file as two line windows. A declined window is not split again.
+      const parts = stoppedAtOutputCeiling(error, selected) || cause !== null && window === undefined ? splitOutputLimitedUnit(options.snapshot, unit) : null;
+      if (parts === null) {
+        if (cause === null) throw error;
+        // This auditor leaves the source unexamined and says so; the audit goes on with what the others found.
+        const surfaces = unit.files.map(({ path }) => window === undefined ? path : `${path}:${window.startLine}-${window.endLine}`);
+        await options.store.publish(`discovery-declined-${options.auditorId}-${scopeId}`, { scopeId, cause, surfaces, reason: (error instanceof ModelRefusalError ? error.refusal : error instanceof Error ? error.message : String(error)).slice(0, 500) }, options.auditorId);
+        const scope = { scopeId, paths: unit.files.map(({ path }) => path), estimatedTokens: null, splitModules: unit.splitModules, ...(window === undefined ? {} : { window }), declined: cause };
+        return { audited: [{ scope, findings: [], validation: { rejectedCount: 0, truncated: false, unexaminedDueToBudget: surfaces.map((surface) => `discovery_${cause}:${surface}`), limitations: [`discovery_${cause}`] }, splitModules: unit.splitModules }], splits: [] };
+      }
       // The parts take the place of their unit, one after another, so the number of calls in flight stays bounded.
       const inner: Outcome[] = [];
       for (const part of parts) inner.push(await audit(part));
-      return { audited: inner.flatMap(({ audited }) => audited), splits: [{ scopeId, into: parts.map(unitScopeId) }, ...inner.flatMap(({ splits }) => splits)] };
+      return { audited: inner.flatMap(({ audited }) => audited), splits: [{ scopeId, into: parts.map(unitScopeId), ...(cause === null ? {} : { declined: true as const }) }, ...inner.flatMap(({ splits }) => splits)] };
     }
     const scope = { scopeId, paths: unit.files.map(({ path }) => path), estimatedTokens: options.activities.estimateInitialTokens?.(discoveryRequest(selected)) ?? null, splitModules: unit.splitModules, ...(window === undefined ? {} : { window }) };
     return { audited: [{ scope, findings: found, validation: await readValidation(options.store, `discovery-validation-${options.auditorId}-${scopeId}`), splitModules: unit.splitModules }], splits: [] };
@@ -209,7 +233,8 @@ async function discoverPrimary(options: ModelDiscoveryOptions): Promise<readonly
   const outcomes = await sideBySide(pending, options.concurrency ?? 1, audit);
   const audited = outcomes.flatMap((outcome) => outcome.audited);
   const splits = outcomes.flatMap((outcome) => outcome.splits);
-  outputLimitSplits.push(...splits);
+  outputLimitSplits.push(...splits.filter((split) => split.declined !== true));
+  declinedSplits.push(...splits.filter((split) => split.declined === true).map(({ scopeId, into }) => ({ scopeId, into })));
   const findings = audited.flatMap(({ findings: found }) => found);
   const scopes = audited.map(({ scope }) => scope);
   const coverage: { rejectedCount: number; truncated: boolean; unexaminedDueToBudget: string[]; limitations: string[] } = { rejectedCount: 0, truncated: false, unexaminedDueToBudget: [], limitations: [] };
@@ -224,8 +249,8 @@ async function discoverPrimary(options: ModelDiscoveryOptions): Promise<readonly
   // A single line larger than the whole budget is irreducible and stays explicit.
   const unexaminedLines = windowed.flatMap(({ path, unexaminedLines }) => unexaminedLines.map((line) => `${path}:${line}`));
   coverage.unexaminedDueToBudget.push(...unexaminedLines);
-  coverage.limitations.push("discovery_partitioned_context", ...[...lineSplitPaths].map((path) => `file_context_split:${path}`), ...(unexaminedLines.length === 0 ? [] : ["lines_exceed_discovery_context_budget"]), ...(outputLimitSplits.length === 0 ? [] : ["discovery_output_limit_split"]));
-  await options.store.publish(`discovery-scopes-${options.auditorId}`, { scopes, unallocatedPaths: [], windowedPaths: windowed.map(({ path, windows }) => ({ path, windows })), unexaminedLines, maximumEstimatedTokens: maximum ?? null, ...(outputLimitSplits.length === 0 ? {} : { outputLimitSplits }) });
+  coverage.limitations.push("discovery_partitioned_context", ...[...lineSplitPaths].map((path) => `file_context_split:${path}`), ...(unexaminedLines.length === 0 ? [] : ["lines_exceed_discovery_context_budget"]), ...(outputLimitSplits.length === 0 ? [] : ["discovery_output_limit_split"]), ...(declinedSplits.length === 0 ? [] : ["discovery_declined_unit_split"]));
+  await options.store.publish(`discovery-scopes-${options.auditorId}`, { scopes, unallocatedPaths: [], windowedPaths: windowed.map(({ path, windows }) => ({ path, windows })), unexaminedLines, maximumEstimatedTokens: maximum ?? null, ...(outputLimitSplits.length === 0 ? {} : { outputLimitSplits }), ...(declinedSplits.length === 0 ? {} : { declinedSplits }) });
   await options.store.publish(`discovery-validation-${options.auditorId}`, { ...coverage, unexaminedDueToBudget: [...new Set(coverage.unexaminedDueToBudget)], acceptedCount: findings.length, limitations: [...new Set(coverage.limitations)] });
   await options.store.publish(`findings-${options.auditorId}`, findings, options.auditorId);
   return findings;
@@ -258,7 +283,7 @@ async function followInjections(options: ModelDiscoveryOptions, primary: readonl
   if (windows.length === 0) return primary;
   const maximum = options.maximumInputTokens;
   const findings = [...primary];
-  const followUps: (LineRange & { scopeId: string; reported: readonly LineRange[]; triggeredBy: readonly string[]; status: "examined" | "over_cap" | "exceeds_context_budget" | "output_limited"; sourceFindingIds: readonly string[] })[] = [];
+  const followUps: (LineRange & { scopeId: string; reported: readonly LineRange[]; triggeredBy: readonly string[]; status: "examined" | "over_cap" | "exceeds_context_budget" | "output_limited" | "declined"; sourceFindingIds: readonly string[] })[] = [];
   const results: ScopeValidation[] = [];
   for (const window of windows) {
     const file = options.snapshot.files.find(({ path }) => path === window.path);
@@ -273,7 +298,11 @@ async function followInjections(options: ModelDiscoveryOptions, primary: readonl
     if (status === "examined") {
       // The primary pass already audited these lines, so a follow-up stopped at the output ceiling is recorded and the audit goes on.
       try { found = await discoverScopeWithModel(selected); }
-      catch (error) { if (!stoppedAtOutputCeiling(error, selected)) throw error; status = "output_limited"; }
+      catch (error) {
+        if (stoppedAtOutputCeiling(error, selected)) status = "output_limited";
+        else if (declined(error, selected) !== null) status = "declined";
+        else throw error;
+      }
     }
     if (status === "examined") results.push(await readValidation(options.store, `discovery-validation-${options.auditorId}-${scopeId}`));
     findings.push(...found);
@@ -289,7 +318,7 @@ async function followInjections(options: ModelDiscoveryOptions, primary: readonl
     ...(own.summaries === undefined ? {} : { summaries: detail("summaries"), quoteRejections: detail("quoteRejections"), ...(detail("widenedLocations").length === 0 ? {} : { widenedLocations: detail("widenedLocations") }) }),
     acceptedCount: findings.length, rejectedCount: results.reduce((sum, { rejectedCount }) => sum + rejectedCount, own.rejectedCount), truncated: own.truncated || results.some(({ truncated }) => truncated),
     unexaminedDueToBudget: [...new Set([...own.unexaminedDueToBudget, ...results.flatMap(({ unexaminedDueToBudget }) => unexaminedDueToBudget), ...skipped.map(({ path, startLine, endLine }) => `injection_follow_up:${path}:${startLine}-${endLine}`)])],
-    limitations: [...new Set([...own.limitations, ...results.flatMap(({ limitations }) => limitations), ...[...new Set(skipped.map(({ status }) => status === "over_cap" ? "injection_follow_up_capped" : status === "output_limited" ? "injection_follow_up_output_limited" : "injection_follow_up_exceeds_discovery_context_budget"))].sort()])],
+    limitations: [...new Set([...own.limitations, ...results.flatMap(({ limitations }) => limitations), ...[...new Set(skipped.map(({ status }) => status === "over_cap" ? "injection_follow_up_capped" : status === "output_limited" ? "injection_follow_up_output_limited" : status === "declined" ? "injection_follow_up_declined" : "injection_follow_up_exceeds_discovery_context_budget"))].sort()])],
   }, options.auditorId);
   await options.store.publish(`findings-${options.auditorId}`, findings, options.auditorId);
   return findings;

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { sourceFindingSchema } from "@arbitra/schemas/finding.js";
-import { ModelOutputLimitError } from "../src/context-budget.js";
+import { ModelOutputLimitError, ModelRefusalError } from "../src/context-budget.js";
 import type { ModelActivities, ModelActivityRequest } from "../src/model-activities.js";
 import { discoverWithModel, injectionWindows } from "../src/model-discovery.js";
 import { INSTRUCTION_SHAPED_TEXT_RULE } from "../src/prompt-conventions.js";
@@ -47,15 +47,15 @@ function scripted(reply: (call: { activityId: string; namespace: string; payload
  * Durable fake activities with an output ceiling: a call whose payload `limited` rejects is spent
  * once and stops at the ceiling; like the harness, later invocations refuse it before any spend.
  */
-function ceilinged(limited: (payload: Payload, activityId: string) => boolean) {
+function ceilinged(limited: (payload: Payload, activityId: string) => boolean, failure: (activityId: string) => Error = (activityId) => new ModelOutputLimitError(activityId)) {
   const durable = new Map<string, unknown>(); const marked = new Set<string>(); const spent: { activityId: string; payload: Payload }[] = [];
   const activities = {
     async invoke<T>(input: ModelActivityRequest<T>): Promise<T> {
-      if (marked.has(input.activityId)) throw new ModelOutputLimitError(input.activityId);
+      if (marked.has(input.activityId)) throw failure(input.activityId);
       if (!durable.has(input.activityId)) {
         const payload = JSON.parse(input.messages.find(({ role }) => role === "user")?.content ?? "{}") as Payload;
         spent.push({ activityId: input.activityId, payload });
-        if (limited(payload, input.activityId)) { marked.add(input.activityId); throw new ModelOutputLimitError(input.activityId); }
+        if (limited(payload, input.activityId)) { marked.add(input.activityId); throw failure(input.activityId); }
         const namespace = /Every sourceFindingId must start with (.+)\/ and be unique/u.exec(input.messages.find(({ role }) => role === "system")?.content ?? "")?.[1] ?? "";
         // One finding per supplied line that holds "null", cited at its original line number.
         durable.set(input.activityId, { findings: payload.files.flatMap(({ path, lines }) => lines.filter(({ text }) => text.includes("null")).map(({ line, text }) => at(`${namespace}/${path.replace(/[^A-Za-z0-9]/gu, "-")}-L${line}`, "CORRECTNESS", path, line, line, text))), truncated: false, unexaminedDueToBudget: [], limitations: [] });
@@ -296,6 +296,30 @@ describe("independent model discovery", () => {
     expect(scopes.scopes.map(({ paths, window }) => [paths[0], window?.startLine, window?.endLine])).toEqual([["big.ts", 1, 4], ["big.ts", 3, 5], ["big.ts", 5, 8], ["small.ts", undefined, undefined]]);
     expect(scopes.outputLimitSplits).toHaveLength(2);
     expect(await artifact(store, "discovery-validation-auditor-a")).toMatchObject({ acceptedCount: 3, unexaminedDueToBudget: [], limitations: ["discovery_partitioned_context", "file_context_split:big.ts", "discovery_output_limit_split"] });
+  });
+
+  it("leaves the source a provider declines unexamined for that auditor and goes on with the rest", async () => {
+    // Observed live (P20 pilot): Gemini's content filter answered one discovery unit three times, and the run failed and could not be resumed.
+    const root = await mkdtemp(join(tmpdir(), "arbitra-discovery-declined-")); directories.push(root);
+    const store = new RunStore(root, "run-declined");
+    const lines = Array.from({ length: 8 }, (_, index) => `const value${index + 1} = ${index === 1 ? "null" : index === 6 ? "blocked" : index};`);
+    const files = [fileOf("big.ts", lines), fileOf("small.ts", ["const value = null;"])];
+    // Each file is a scope of its own, and the provider declines every unit that holds line 7 of big.ts.
+    const { activities, spent } = ceilinged(({ files: supplied }) => supplied.some(({ lines: sent }) => sent.some(({ text }) => text.includes("blocked"))), (activityId) => new ModelRefusalError(activityId, "This request was blocked."));
+    const budgeted = { ...activities, estimateInitialTokens: () => 1 };
+    const run = () => discoverWithModel({ auditorId: "auditor-a", modelProfileId: "model", snapshot: { root: "fixture", files }, activities: budgeted, store, signal: new AbortController().signal, maximumInputTokens: files[0]?.byteLength ?? 0 });
+    const result = await run();
+    // The declined file is tried once more as two windows; the window that is declined again is not split further.
+    expect(spent.map(({ payload }) => [payload.files[0]?.path, payload.files[0]?.lines[0]?.line, payload.files[0]?.lines.at(-1)?.line])).toEqual([["big.ts", 1, 8], ["big.ts", 1, 4], ["big.ts", 3, 8], ["small.ts", 1, 1]]);
+    expect(result.map(({ locations }) => [locations[0]?.path, locations[0]?.startLine])).toEqual([["big.ts", 2], ["small.ts", 1]]);
+    const scopes = await artifact(store, "discovery-scopes-auditor-a") as { scopes: { paths: string[]; window?: { startLine: number; endLine: number }; declined?: string }[]; declinedSplits: { into: string[] }[] };
+    expect(scopes.scopes.map(({ paths, window, declined }) => [paths[0], window?.startLine, window?.endLine, declined])).toEqual([["big.ts", 1, 4, undefined], ["big.ts", 3, 8, "provider_refused"], ["small.ts", undefined, undefined, undefined]]);
+    expect(scopes.declinedSplits).toHaveLength(1);
+    expect(await artifact(store, "discovery-validation-auditor-a")).toMatchObject({ acceptedCount: 2, unexaminedDueToBudget: ["discovery_provider_refused:big.ts:3-8"], limitations: expect.arrayContaining(["discovery_provider_refused", "discovery_declined_unit_split", "file_context_split:big.ts"]) });
+    expect((await store.listArtifacts()).filter(({ kind }) => kind.startsWith("discovery-declined-auditor-a-"))).toHaveLength(1);
+    // A resumed discovery reaches the same result without asking the provider again.
+    expect((await run()).map(({ sourceFindingId }) => sourceFindingId)).toEqual(result.map(({ sourceFindingId }) => sourceFindingId));
+    expect(spent).toHaveLength(4);
   });
 
   it("audits scopes side by side when asked to and puts their findings together in scope order", async () => {
