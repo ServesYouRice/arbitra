@@ -282,8 +282,8 @@ Ambiguous finding pairs now use durable semantic classification through the veri
 `maximumClusteringPairs` defaults to 20 (0 disables escalation; maximum 1000).
 
 `maximumParallelCalls` (default 1, maximum 8) is the number of independent calls one auditor has in flight
-at a time within a stage: the units of a discovery, the batches of a peer review, and the conflicts that
-share no candidate. It changes only how long a stage takes: no call reads another's reply, and the replies
+at a time within a stage: the units of a discovery, the batches of a peer review, the conflicts that share
+no candidate, and the parts of a critic review. It changes only how long a stage takes: no call reads another's reply, and the replies
 are put together in a fixed order. Each call in flight holds its own budget reservation, and the provider's
 `maxConcurrent` still applies. The reviewers of a peer-review round and the auditors of one conflict are
 always asked together and recorded in the auditor order.
