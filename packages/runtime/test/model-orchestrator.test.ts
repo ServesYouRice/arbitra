@@ -15,7 +15,7 @@ import type { TestSandbox } from "../src/test-sandbox.js";
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
-async function fixture(options: { revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; ambiguousClustering?: boolean; oversizedRepository?: boolean; planQuestion?: boolean } = {}) {
+async function fixture(options: { revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; ambiguousClustering?: boolean; oversizedRepository?: boolean; planQuestion?: boolean } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "arbitra-model-run-")); directories.push(directory);
   const manyIssues = options.largePeerContext === true || options.largePlannerContext === true;
   await writeFile(join(directory, "a.ts"), "const value = null;\n".repeat(manyIssues ? 4 : options.ambiguousClustering === true ? 3 : 1), "utf8");
@@ -47,6 +47,8 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
     execution.modelEndpoints["planner-model"] = "auditor-a"; execution.roles.planner = "planner-model";
   }
   const requests: { stage: string; url: string }[] = [];
+  const packedChecks: (readonly [string, string])[][] = [];
+  let mergedListedPair = false;
   const reviewInputs: { url: string; repair: boolean; input: { round: number; yourEarlierVotes?: { votes: Record<string, { vote: string; citedEvidenceIds: string[] }> } } }[] = [];
   let failVerification = false;
   let failCritic = false;
@@ -76,12 +78,22 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
       if (manyIssues) {
         const envelope = output as { findings: Record<string, unknown>[] };
         const original = envelope.findings[0];
-        envelope.findings = Array.from({ length: 4 }, (_, index) => ({ ...original, sourceFindingId: `${auditorId}/${index + 1}`, title: `Null claim ${index}`, recommendedFix: `${index}: ` + "Check guard. ".repeat(options.largePeerContext === true ? 750 : 1), locations: [{ id: `${auditorId}-L${index}`, path: "a.ts", startLine: index + 1, endLine: index + 1 }], evidence: [{ id: `${auditorId}-E${index}`, text: "const value = null;", locationIds: [`${auditorId}-L${index}`] }] }));
+        envelope.findings = Array.from({ length: 4 }, (_, index) => ({ ...original, sourceFindingId: `${auditorId}/${index + 1}`, title: `Null claim ${index}`, recommendedFix: `${index}: ` + "Check guard. ".repeat(options.packedPeerContext === true ? 600 : options.largePeerContext === true ? 750 : 1), locations: [{ id: `${auditorId}-L${index}`, path: "a.ts", startLine: index + 1, endLine: index + 1 }], evidence: [{ id: `${auditorId}-E${index}`, text: "const value = null;", locationIds: [`${auditorId}-L${index}`] }] }));
       }
     } else if (system.startsWith("Compare the supplied candidate pair")) {
       requests.push({ stage: "merge-check", url: request.url });
       expect(user).not.toMatch(/auditor-[abc]/u);
       output = { operations: [], findings: [], locations: [] };
+      const input = JSON.parse(user) as { round: number; mergeCheckPairs?: (readonly [string, string])[]; candidates: Record<string, { sources?: { findingRef: string; evidence: { id: string }[] }[] }> };
+      if (input.mergeCheckPairs !== undefined) packedChecks.push(input.mergeCheckPairs);
+      const pair = input.mergeCheckPairs?.[0];
+      // One reviewer finds that the first pair listed in its packed check shares a root cause.
+      if (options.mergeListedPair === true && pair !== undefined && !mergedListedPair && request.url.includes("auditor-a")) {
+        mergedListedPair = true;
+        const sources = pair.flatMap((id) => input.candidates[id]?.sources ?? []);
+        output = { operations: [{ operationId: "new:merge", candidateId: "new:merged", authorId: "self", round: input.round, type: "merge", citedEvidenceIds: sources.flatMap(({ evidence }) => evidence.map(({ id }) => id)), sourceCandidateIds: pair,
+          candidate: { candidateId: "new:merged", title: "Merged null claim", description: "One shared null source", sourceFindingIds: sources.map(({ findingRef }) => findingRef), severity: "high", blocker: false } }], findings: [], locations: [] };
+      }
     } else if (system.startsWith("Classify the relationship")) {
       requests.push({ stage: "clustering", url: request.url });
       expect(user).not.toMatch(/auditor-[abc]/u);
@@ -183,7 +195,7 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
     return { status: 200, headers: {}, body: response };
   };
   const create = (testSandbox?: TestSandbox) => new Orchestrator({ repository: directory, stateDirectory: join(directory, ".runs"), providerOptions: { client: { send }, credential: () => "fixture-credential" }, ...(testSandbox === undefined ? {} : { testSandbox }) });
-  return { create, config, requests, reviewInputs, failRevisionPatch: (value: boolean) => { failRevisionPatch = value; }, failExpansion: (value: boolean) => { failExpansion = value; }, failCritic: (value: boolean) => { failCritic = value; }, failVerification: (value: boolean) => { failVerification = value; }, blockDiscovery: (callback: () => void) => { blockDiscovery = callback; } };
+  return { create, config, requests, reviewInputs, packedChecks, failRevisionPatch: (value: boolean) => { failRevisionPatch = value; }, failExpansion: (value: boolean) => { failExpansion = value; }, failCritic: (value: boolean) => { failCritic = value; }, failVerification: (value: boolean) => { failVerification = value; }, blockDiscovery: (callback: () => void) => { blockDiscovery = callback; } };
 }
 
 describe("composed model audits", () => {
@@ -440,6 +452,29 @@ describe("composed model audits", () => {
       expect(reviewed).toHaveLength(4); expect(new Set(reviewed).size).toBe(4);
       for (const left of reviewed) for (const right of reviewed) if (left !== right) expect(parts.some(({ candidateIds }) => candidateIds.includes(left) && candidateIds.includes(right))).toBe(true);
     }
+  });
+
+  it("packs the pair checks between review batches into one call and applies the merge it returns", async () => {
+    // Observed live (P20 pilot): one call per pair asked one reviewer for 1,140 calls.
+    const { create, config, requests, packedChecks, failVerification } = await fixture({ largePeerContext: true, packedPeerContext: true, mergeListedPair: true });
+    failVerification(true);
+    const core = create(); const result = await core.run(config);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    // The run stops at verification, after consensus has published the board.
+    expect(result.state, JSON.stringify(events.at(-1))).toBe("FAILED");
+    const first = packedChecks[0];
+    if (first === undefined) throw new Error("PACKED_CHECK_ABSENT");
+    expect(first).toHaveLength(2);
+    const artifacts = await core.artifacts(result.runId);
+    const parts = async (auditorId: string) => { const descriptor = artifacts.find(({ kind }) => kind === `peer-review-batches-1-${auditorId}`); if (descriptor === undefined) throw new Error("BATCHES_ABSENT"); return JSON.parse((await core.artifact(result.runId, descriptor.artifactId) as { content: string }).content) as { kind: string; candidateIds: string[]; pairs?: [string, string][] }[]; };
+    // Three candidates fit one call: two review batches, then one packed check of two pairs and one single pair, where one call per pair took three.
+    expect((await parts("auditor-a")).map(({ kind, candidateIds, pairs }) => [kind, candidateIds.length, pairs?.length ?? null])).toEqual([["review", 3, null], ["review", 1, null], ["merge_check", 3, 2], ["merge_check", 2, null]]);
+    expect(requests.filter(({ stage, url }) => stage === "merge-check" && url.includes("auditor-a")).length).toBeGreaterThanOrEqual(2);
+    const operations = artifacts.find(({ kind }) => kind === "board-operations");
+    if (operations === undefined) throw new Error("BOARD_OPERATIONS_ABSENT");
+    const merges = (JSON.parse((await core.artifact(result.runId, operations.artifactId) as { content: string }).content) as { type: string; authorId: string; sourceCandidateIds?: string[] }[]).filter(({ type }) => type === "merge");
+    expect(merges).toHaveLength(1);
+    expect(merges[0]).toMatchObject({ authorId: "auditor-a", sourceCandidateIds: [...first[0] ?? []] });
   });
 
   it.each(["retain_original", "proposal-1"] as const)("resolves deferred peer operations with evidence-backed agreement: %s", async (conflictResolution) => {
