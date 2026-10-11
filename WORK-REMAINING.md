@@ -131,8 +131,27 @@ Live configurations come from `tooling/live/bindings.subscription.json`. The API
 
 ## Open findings to fix or decide
 
-None open. The P20 pilot found two on October 10 and one on October 11; all three are fixed and verified on
-Linux, and the second was also checked live on the owner's Windows PC
+The owner asked on October 11 that every P20 run also serve as a test of arbitra itself: what fails, what costs
+too much and what is slow. Findings from the runs' own data go here, with their numbers.
+
+**Open (cost and speed), measured on October 11 on a project of about 56,000 tokens:**
+
+- **Clustering makes one call per pair and attaches the whole repository.** In a single-auditor audit, 20
+  clustering calls took 1.13M input tokens, 57% of the run's tokens, to return about 1,500 tokens each. To fix:
+  pack the pairs into one or two calls, as peer review and the critic now do.
+- **Every decision call re-sends the whole repository, and none of it is read from a cache.** Clustering,
+  verification, peer review and conflict resolution each carried 55,000 to 59,000 input tokens per call; cache
+  reads were 0% except where a whole prompt repeated. To decide: attach only the files a record cites (the
+  read-only tools reach the rest), or lead every prompt with the repository so a provider can cache it.
+- **Calls are lost at an output ceiling.** One of 8 Opus 5.5 discovery calls at xhigh and 2 of 14 Gemini 3.8
+  Flash calls at high stopped at the ceiling and were redone in smaller parts. Each lost call costs up to
+  64,000 output tokens and nine minutes. To decide: start with smaller scopes at efforts where thinking counts
+  as output, for example after one scope of the run has come close to the ceiling.
+- **Discovery audits its scopes one after another.** 43 of the 55 minutes of a single-auditor run were
+  discovery calls in sequence. To decide: run two or three scopes at a time where a plan's limits allow.
+
+**Fixed.** The P20 pilot found two defects on October 10 and one on October 11; all three are fixed and verified
+on Linux, and the second was also checked live on the owner's Windows PC
 ([qa/subscription-cli](docs/qa/subscription-cli/README.md)):
 
 - **Discovery could not pass a call that reached the output ceiling (fixed in 7f52969).** An Opus 5.5 discovery
