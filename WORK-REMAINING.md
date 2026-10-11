@@ -154,10 +154,14 @@ too much and what is slow. Findings from the runs' own data go here, with their 
 - **A provider's safety-filter notice is handled as invalid JSON.** One Gemini discovery reply was "This request
   was blocked by Gemini's filters"; arbitra asked for a repair and the second reply was fine. To decide:
   recognise such a notice and ask the same question again, without sending the notice back.
+- **Batches are sized as if replies had no thinking.** A peer review reserves 160 output tokens per candidate.
+  With thinking counted as output, Sonnet 5.5 at xhigh wrote 49,000 output tokens for 25 candidates and Gemini 3.8
+  Flash at high passed its limit on 19. To decide: size batches from the output a model actually used earlier
+  in the run, so the first call does not have to fail.
 - **Discovery audits its scopes one after another.** 43 of the 55 minutes of a single-auditor run were
   discovery calls in sequence. To decide: run two or three scopes at a time where a plan's limits allow.
 
-**Fixed.** The P20 pilot found two defects on October 10 and three on October 11; all five are fixed and verified
+**Fixed.** The P20 pilot found two defects on October 10 and four on October 11; all six are fixed and verified
 on Linux, and the second was also checked live on the owner's Windows PC
 ([qa/subscription-cli](docs/qa/subscription-cli/README.md)):
 
@@ -181,8 +185,12 @@ on Linux, and the second was also checked live on the owner's Windows PC
   real run the same audit took 10 calls and 0.86M tokens, where it had taken 33 calls and 2.04M.
 - **One reply that used the CLI's own tool failed the whole run (fixed in 3e2bbc7).** A Gemini peer-review reply
   ran `run_command`. The attempt still fails and nothing it did is used, but the call is now tried again in a
-  fresh process within `maximumRetries`. This does not change what a run returns, so the pilot's build takes it
-  at the next wait between runs.
+  fresh process within `maximumRetries`.
+- **A peer review whose repair stopped at the output ceiling could not go on (fixed in 4290af2).** A Gemini review
+  of 19 candidates was refused once, and its repair then passed the output limit. Only the repair was marked, so
+  every resume replayed the refused reply and failed at the same repair. The harness now marks the activity
+  itself, and peer review goes on in batches of half the size, kept durably so a resumed run plans the same
+  batches.
 
 All eight findings in [qa/p19](docs/qa/p19/README.md) are fixed, and the affected live acceptance passed on subscriptions on September 30 (runs A–E there). The reruns found four more defects; all are fixed. The completion report is P21, after P20.
 
