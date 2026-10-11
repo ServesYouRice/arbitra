@@ -209,10 +209,12 @@ under per-provider limits (§12.6) and a shared cached prefix (§14.2).
 - **Planning the packed pair checks takes minutes of processor time.** Each fit test compiles a whole prompt; one
   reviewer's plan took about three and a half minutes before its first call. To fix: estimate from record sizes
   and compile only the chosen batches.
-- **Gemini writes up to its output limit in discovery.** With leaner prompts a discovery scope holds more source,
-  and Gemini 3.8 Flash at high then wrote 61,000 to 65,000 output tokens for each of three scopes, against a limit
-  of 65,536; a fourth passed the limit and was redone in halves. To decide: size a discovery scope by the
-  output it is likely to draw, per model, not only by its input.
+- **Gemini at high effort thinks up to its output allowance, whatever the unit's size.** In one panel's discovery
+  (16 Gemini calls) most calls wrote 45,000 to 65,000 output tokens and took 5 to 7 minutes; a unit of 11,000 input
+  tokens drew 61,000 of output, and 3 calls passed the 65,536 limit and were redone in halves. Gemini's audit took
+  about 50 minutes where Opus and GPT took a few. Smaller units do not help, because the thinking does not shrink
+  with the input. The halves now run side by side (b1a2785). For the owner to decide, because it changes the
+  lineups: Gemini at medium effort; its calls that thought little took 1 to 2 minutes.
 - **Every stage thinks at the audit's effort.** A vote on a few candidates took Gemini 3.8 Flash at high 25,000
   output tokens and two and a half minutes. To decide, by the owner because it changes what a lineup is: a
   lower effort for votes and conflict choices than for discovery.
@@ -258,7 +260,8 @@ verified on Linux, and the second was also checked live on the owner's Windows P
 - **Independent calls ran one after another (fixed in 14ae7aa and e107937).** The reviewers of a round, the batches
   of one review, the scopes of a discovery and the auditors of a conflict each waited for the one before. They
   now run side by side: reviewers of a round and auditors of a conflict always, the rest up to
-  `maximumParallelCalls` per auditor (default 1). Replies are applied in a fixed order, and a conflict that
+  `maximumParallelCalls` per auditor (default 1), which since b1a2785 includes the halves that replace a
+  discovery unit stopped at its output ceiling. Replies are applied in a fixed order, and a conflict that
   shares a candidate with an earlier one waits for it, so the outcome does not depend on which call returns first
   ([provider model](docs/provider-model.md)).
 - **Three bookkeeping slips each cost a whole repair call (fixed in 14ae7aa and 094eb56).** Added evidence that
