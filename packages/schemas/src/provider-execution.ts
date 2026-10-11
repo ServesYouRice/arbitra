@@ -67,8 +67,8 @@ export const providerExecutionSchema = z.object({
   maximumClusteringPairs: z.number().int().min(0).max(1000).optional(),
   maximumOutputTokens: z.number().int().positive(),
   maximumDiscoveryTokens: z.number().int().positive().optional(),
-  /** Discovery units one auditor audits at a time (default 1). Each unit in flight holds its own budget reservation, and the provider's maxConcurrent still applies. */
-  discoveryConcurrency: z.number().int().min(1).max(8).optional(),
+  /** Independent calls one auditor has in flight at a time within a stage (default 1). Each call in flight holds its own budget reservation, and the provider's maxConcurrent still applies. */
+  maximumParallelCalls: z.number().int().min(1).max(8).optional(),
   maximumContextTokens: z.number().int().positive().optional(),
   timeoutMs: z.number().int().positive().max(2_147_483_647),
   maximumRetries: z.number().int().min(0).max(10),
