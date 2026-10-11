@@ -225,8 +225,8 @@ application around `agy`. The owner was told and left the choice to the session 
 pilot runs four Antigravity calls at a time at a low per-minute rate, and two lineups side by side. Still open for
 the product: the terms of each vendor's subscription CLI need a check before arbitra recommends subscriptions.
 
-**Fixed.** The P20 pilot found two defects on October 10 and ten on October 11; all twelve are fixed and verified
-on Linux, and the second was also checked live on the owner's Windows PC
+**Fixed.** The P20 pilot found two defects on October 10 and eleven on October 11; all thirteen are fixed and
+verified on Linux, and the second was also checked live on the owner's Windows PC
 ([qa/subscription-cli](docs/qa/subscription-cli/README.md)):
 
 - **Discovery could not pass a call that reached the output ceiling (fixed in 7f52969).** An Opus 5.5 discovery
@@ -290,6 +290,10 @@ on Linux, and the second was also checked live on the owner's Windows PC
   for Gemini only. A declined
   review batch counts as rejected output and a declined conflict vote is not cast
   ([provider model](docs/provider-model.md)).
+- **A provider's passing outage failed the run (fixed in 32f46ff).** One Antigravity call ended with "Eligibility
+  check failed: ... UNAVAILABLE (code 503): The service is currently unavailable." The text was not recognised as
+  an upstream error, so the call was not retried within `maximumRetries` and the run failed; its resume went on.
+  A status of that kind is now retried like any other unreachable service.
 
 All eight findings in [qa/p19](docs/qa/p19/README.md) are fixed, and the affected live acceptance passed on subscriptions on September 30 (runs A–E there). The reruns found four more defects; all are fixed. The completion report is P21, after P20.
 
