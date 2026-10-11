@@ -216,12 +216,13 @@ under per-provider limits (§12.6) and a shared cached prefix (§14.2).
   output tokens and two and a half minutes. To decide, by the owner because it changes what a lineup is: a
   lower effort for votes and conflict choices than for discovery.
 
-**For the owner to decide: Antigravity on a consumer plan.** Google's
+**Antigravity on a consumer plan (decided for the pilot on October 11).** Google's
 [Antigravity FAQ](https://antigravity.google/docs/faq), read on October 11, says headless `agy -p` "is intended
 for direct scripting and CI workflows" and that wrapping `agy` inside third-party coding agents or applications
 "is not supported under consumer plans". arbitra starts the official CLI and never touches its login, but it is an
-application around `agy`. Until the owner decides, runs keep one Antigravity call at a time, as before. For
-the product, the terms of each vendor's subscription CLI need a check before arbitra recommends subscriptions.
+application around `agy`. The owner was told and left the choice to the session with speed as the aim, so the
+pilot runs four Antigravity calls at a time at a low per-minute rate, and two lineups side by side. Still open for
+the product: the terms of each vendor's subscription CLI need a check before arbitra recommends subscriptions.
 
 **Fixed.** The P20 pilot found two defects on October 10 and nine on October 11; all eleven are fixed and verified
 on Linux, and the second was also checked live on the owner's Windows PC
