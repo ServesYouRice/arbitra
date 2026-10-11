@@ -224,12 +224,19 @@ export class ModelAuditPipeline {
           return { input, scopedView, scopeId };
         };
         const maximumCandidates = outputRecordLimit(stageBudget(this.config, auditorId).outputCapacity, OUTPUT_TOKENS_PER_RECORD.peerReviewCandidate, "peer-review");
+        // A reviewer whose batch stopped at the output ceiling goes on in batches of half that size, for reviews
+        // and for packed pair checks separately. The limits are durable, so a resumed run plans the same batches.
+        // Observed live (P20 pilot): thinking counts as output, a review of 19 candidates passed the ceiling, and
+        // dropping one candidate at a time would have spent a whole call on each step.
+        const limitKind = `peer-review-batch-limits-${round}-${auditorId}`;
+        const stored = (await context.store.listArtifacts()).find(({ kind }) => kind === limitKind);
+        const limits: { review: number; mergeCheck: number } = { review: maximumCandidates, mergeCheck: maximumCandidates, ...(stored === undefined ? {} : JSON.parse((await context.store.readArtifact(stored.artifactId)).content) as { review: number; mergeCheck: number }) };
         // Replanning after an output-limited batch reuses every completed durable batch.
         const returned = await replanOnOutputLimit(async () => {
           const parts = await peerReviewBatches(candidateIds, async (part) => {
             try { await this.prepareCall(requestFor(part).input); return true; }
             catch (error) { if (isCapacityError(error)) return false; throw error; }
-          }, maximumCandidates);
+          }, Math.min(maximumCandidates, limits.review), Math.min(maximumCandidates, limits.mergeCheck));
           await context.store.publish(`peer-review-batches-${round}-${auditorId}`, parts);
           const local: PeerOperationBatch[] = [];
           const mergedPairs = new Set<string>();
@@ -238,6 +245,10 @@ export class ModelAuditPipeline {
             let result: unknown;
             try { result = await this.call(input); }
             catch (error) {
+              if (error instanceof ModelOutputLimitError && part.segment === undefined && part.candidateIds.length > (part.kind === "review" ? 1 : 2)) {
+                limits[part.kind === "review" ? "review" : "mergeCheck"] = Math.max(part.kind === "review" ? 1 : 2, Math.floor(part.candidateIds.length / 2));
+                await context.store.publish(limitKind, limits);
+              }
               if (!isModelOutputRejection(error)) throw error;
               // One reviewer's reply that stays invalid after its repairs contributes nothing to
               // the board; the rejection is durable and reported as degraded review coverage.
