@@ -112,7 +112,7 @@ export class ModelAuditPipeline {
     const protocol = await this.#protocols.resolve("production-audit");
     const execution = providerExecutionSchema.parse(this.config.workflow["modelExecution"]);
     const contextLimit = Math.min(execution.maximumContextTokens ?? 128_000, execution.maximumDiscoveryTokens ?? Number.POSITIVE_INFINITY, this.config.models[auditorId]?.limits.contextTokens ?? Number.POSITIVE_INFINITY);
-    return discoverWithModel({ auditorId, modelProfileId: auditorId, snapshot: this.context.snapshot, activities: this.#activities, store: this.context.store, signal, effort: this.effort(), protocol, maximumInputTokens: Math.floor(contextLimit * 0.8), ...(this.#units === undefined ? {} : { units: this.#units }) });
+    return discoverWithModel({ auditorId, modelProfileId: auditorId, snapshot: this.context.snapshot, activities: this.#activities, store: this.context.store, signal, effort: this.effort(), protocol, maximumInputTokens: Math.floor(contextLimit * 0.8), concurrency: execution.discoveryConcurrency ?? 1, ...(this.#units === undefined ? {} : { units: this.#units }) });
   }
 
   async converge(findings: Readonly<Record<string, readonly AuditFinding[]>>, signal: AbortSignal): Promise<ConvergenceResult> {
