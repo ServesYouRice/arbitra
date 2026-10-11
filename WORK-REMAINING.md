@@ -214,12 +214,32 @@ under per-provider limits (§12.6) and a shared cached prefix (§14.2).
 - **Planning the packed pair checks takes minutes of processor time.** Each fit test compiles a whole prompt; one
   reviewer's plan took about three and a half minutes before its first call. To fix: estimate from record sizes
   and compile only the chosen batches.
-- **Gemini at high effort thinks up to its output allowance, whatever the unit's size.** In one panel's discovery
-  (16 Gemini calls) most calls wrote 45,000 to 65,000 output tokens and took 5 to 7 minutes; a unit of 11,000 input
-  tokens drew 61,000 of output, and 3 calls passed the 65,536 limit and were redone in halves. Gemini's audit took
-  about 50 minutes where Opus and GPT took a few. Smaller units do not help, because the thinking does not shrink
-  with the input. The halves now run side by side (b1a2785). For the owner to decide, because it changes the
-  lineups: Gemini at medium effort; its calls that thought little took 1 to 2 minutes.
+- **Gemini's output is almost all thinking, and its CLI adds an agent's instructions.** Measured on the first
+  complete panel run (answer size from the stored replies):
+
+  | Model, effort | Stage | Output tokens per call | Of which answer | Minutes per call |
+  |---|---|---|---|---|
+  | Gemini 3.8 Flash, high | discovery | 36,700 | about 2,000 | 3.7 |
+  | Gemini 3.8 Flash, high | review and conflicts | 21,100 | about 1,500 | 2.1 |
+  | Gemini 3.8 Flash, high | critic | 27,100 | about 400 | 2.7 |
+  | Opus 5.5, medium | discovery | 9,700 | about 4,400 | 1.5 |
+  | GPT-6.1 Sol, medium | discovery | 1,600 | all of it | 0.7 |
+
+  So 93% to 98% of Gemini's output is thinking; it is fast per token (165 a second) and slow per call. Thinking
+  counts toward its 65,536 limit, which is why 3 of 16 discovery calls passed it, and one panel's Gemini calls
+  wrote 1.2M output tokens, enough to exhaust the Google plan's allowance for the window. Smaller units do not
+  help: the thinking does not shrink with the input. Separately, the Antigravity CLI wraps every call in its own
+  coding-agent prompt (tools, IDE feedback), which it offers no flag to replace; arbitra's preamble tells the model
+  the opposite, and about 7% of Gemini's stored thinking is spent on that conflict, with an occasional tool
+  attempt. The halves of a redone unit now run side by side (b1a2785). For the owner to decide, because it
+  changes the lineups: Gemini at a lower thinking level (the CLI offers medium and low as separate models).
+- **The pipeline confirms almost nothing.** In the same run, peer review cut 86 findings to 50 candidates not
+  rejected and lost no planted defect, but only 5 issues were accepted, and none of them was a planted defect: 5 of
+  the 7 planted defects stayed among the candidates not rejected. Verification was decisive on 1 of 46 items (the
+  pilot allows two model questions a round) and the plan addressed the 5 accepted issues. The Opus-only run looks
+  the same: verification decisive on 2 of 48 items. To decide: what a run's accepted list is for when nearly
+  everything ends unconfirmed, how much verification a run may spend, and whether the full policy's acceptance
+  rule is reachable in practice.
 - **Every stage thinks at the audit's effort.** A vote on a few candidates took Gemini 3.8 Flash at high 25,000
   output tokens and two and a half minutes. To decide, by the owner because it changes what a lineup is: a
   lower effort for votes and conflict choices than for discovery.
