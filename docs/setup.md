@@ -202,8 +202,9 @@ Any model role can be served either by an API endpoint (an `apiKeyEnvVar`, bille
 credit) or by a **subscription CLI**: the vendor's official CLI, signed in with your own
 subscription, run headless as a plain completion engine. You choose per endpoint, and one
 run may mix both. arbitra keeps the tool loop, context, budgets, durability and policy; the
-CLI's own agent tools are disabled, and any sign that it used one fails the call
-(`CLI_AGENT_TOOL_USE_FORBIDDEN`).
+CLI's own agent tools are disabled, and any sign that it used one fails that attempt
+(`CLI_AGENT_TOOL_USE_FORBIDDEN`): nothing the process did is used, and the call is tried again
+in a fresh process within `maximumRetries`.
 
 | Transport | CLI | Endpoint | Sign in (once, in a terminal) | Executable |
 |---|---|---|---|---|

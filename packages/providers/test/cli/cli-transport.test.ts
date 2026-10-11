@@ -160,7 +160,8 @@ describe.each(VENDORS)("%s subscription CLI transport", { timeout: 30_000 }, (ve
   it("stops at the first sign of the CLI's own tool use and kills the process tree", async () => {
     const f = await fixture({ vendor, replies: [{ kind: "tool_use" }] });
     const error = await failure(send(f.transport));
-    expect(error).toMatchObject({ code: "MALFORMED_RESPONSE", retryable: false });
+    // The attempt fails and nothing it did is used; the call may be tried again (observed live: one such reply failed a whole run).
+    expect(error).toMatchObject({ code: "MALFORMED_RESPONSE", retryable: true });
     expect(error.message).toContain("CLI_AGENT_TOOL_USE_FORBIDDEN");
     if (vendor === "antigravity") expect(error.message).toContain("a tool step (run_command)");
   });
@@ -255,11 +256,19 @@ describe("Antigravity CLI specifics", { timeout: 30_000 }, () => {
     for (const kind of ["soft_denied", "waiting"] as const) {
       const f = await fixture({ vendor: "antigravity", replies: [{ kind }] });
       const error = await failure(send(f.transport));
-      expect(error).toMatchObject({ code: "MALFORMED_RESPONSE", retryable: false });
+      expect(error).toMatchObject({ code: "MALFORMED_RESPONSE", retryable: true });
       expect(error.message).toContain("CLI_AGENT_TOOL_USE_FORBIDDEN");
     }
     const empty = await fixture({ vendor: "antigravity", replies: [{ kind: "empty_success" }] });
     expect((await failure(send(empty.transport, request({ responseSchema: { type: "object" } })))).message).toContain("CLI_EMPTY_SUCCESS");
+  });
+
+  it("answers plainly in a fresh process after an attempt that used the CLI's own tool", async () => {
+    // Observed live (P20 pilot): a Gemini peer-review reply ran run_command once; the same call answered on the next attempt.
+    const f = await fixture({ vendor: "antigravity", replies: [{ kind: "tool_use" }, { kind: "text", text: "pong" }] });
+    expect(await failure(send(f.transport))).toMatchObject({ code: "MALFORMED_RESPONSE", retryable: true });
+    expect(await send(f.transport)).toMatchObject({ text: "pong" });
+    expect((await f.report(1)).cwd).not.toBe((await f.report(0)).cwd);
   });
 
   it("classifies the CLI's error step as a failed model call by its stored reason, not as tool use", async () => {

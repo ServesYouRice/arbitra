@@ -44,8 +44,16 @@ export interface CliDialect {
   reader(context: CliInvocationContext): CliStreamReader;
 }
 
-export function forbiddenToolUse(support: CliTransportSupport, what: string): TransportError {
-  return new TransportError("MALFORMED_RESPONSE", `CLI_AGENT_TOOL_USE_FORBIDDEN: ${support.displayName} attempted ${what.slice(0, 120)}; the CLI's own agent tools are disabled and nothing it did is trusted`, false);
+/**
+ * The CLI used, or was set up with, its own agent tools. Nothing the process did is used. A
+ * model's own attempt during a reply (`duringReply`) is retried within the usual bounds: every
+ * attempt is a fresh process in an empty directory, and the same request usually answers plainly
+ * the next time. Observed live (P20 pilot): one Gemini reply in a peer review ran `run_command`,
+ * and without a retry that one call failed the whole run. A CLI that starts with tools or MCP
+ * servers is a setup fault and is not retried.
+ */
+export function forbiddenToolUse(support: CliTransportSupport, what: string, duringReply = false): TransportError {
+  return new TransportError("MALFORMED_RESPONSE", `CLI_AGENT_TOOL_USE_FORBIDDEN: ${support.displayName} attempted ${what.slice(0, 120)}; the CLI's own agent tools are disabled and nothing it did is trusted`, duringReply);
 }
 
 /** A clean exit without the CLI's completion event is unreadable output, not a service failure. */
@@ -128,7 +136,7 @@ export const claudeCodeDialect: CliDialect = {
           if (event["error"] === "max_output_tokens" || event["api_error"] === "max_output_tokens") throw new TransportError("OUTPUT_LIMIT", "MODEL_OUTPUT_LIMIT_REACHED: Claude Code stopped at maximumOutputTokens", false);
           for (const part of Array.isArray(message?.["content"]) ? message["content"] as unknown[] : []) {
             const content = record(part);
-            if (content?.["type"] === "tool_use" && !allowedTools.includes(String(content["name"]))) throw forbiddenToolUse(CLAUDE, `tool ${String(content["name"])}`);
+            if (content?.["type"] === "tool_use" && !allowedTools.includes(String(content["name"]))) throw forbiddenToolUse(CLAUDE, `tool ${String(content["name"])}`, true);
             if (content?.["type"] === "text") lastText = text(content["text"]);
           }
         }
@@ -205,7 +213,7 @@ export const codexDialect: CliDialect = {
         if (typeof event["type"] === "string" && event["type"].startsWith("item.")) {
           const item = record(event["item"]);
           const kind = String(item?.["type"] ?? "unknown");
-          if (!CODEX_ALLOWED_ITEMS.has(kind)) throw forbiddenToolUse(CODEX, `a ${kind} item`);
+          if (!CODEX_ALLOWED_ITEMS.has(kind)) throw forbiddenToolUse(CODEX, `a ${kind} item`, true);
           if (kind === "agent_message" && event["type"] === "item.completed") reply = text(item?.["text"]);
         }
         if (event["type"] === "turn.completed") { completed = true; usage = record(event["usage"]); }
@@ -254,7 +262,7 @@ export const geminiDialect: CliDialect = {
         const event = parseLine(line);
         if (event === null) return;
         if (event["type"] === "init") sessionId = text(event["session_id"]);
-        if (event["type"] === "tool_use" || event["type"] === "tool_result") throw forbiddenToolUse(GEMINI, `tool ${String(event["tool_name"] ?? event["tool_id"] ?? "unknown")}`);
+        if (event["type"] === "tool_use" || event["type"] === "tool_result") throw forbiddenToolUse(GEMINI, `tool ${String(event["tool_name"] ?? event["tool_id"] ?? "unknown")}`, true);
         if (event["type"] === "message" && event["role"] === "assistant") reply += text(event["content"]) ?? "";
         if (event["type"] === "error") failures.push(text(event["message"]) ?? "error");
         if (event["type"] === "result") result = event;
@@ -381,15 +389,15 @@ export const antigravityDialect: CliDialect = {
         if (kind === "step_update") {
           const step = String(payload?.["step_type"] ?? "unknown");
           if (step === "error_message") throw antigravityModelFailure(context.hostHome, payload);
-          if (!ANTIGRAVITY_STEPS.has(step)) throw forbiddenToolUse(ANTIGRAVITY, `a ${step.slice(0, 60)} step${typeof payload?.["tool_name"] === "string" ? ` (${payload["tool_name"].slice(0, 40)})` : ""}`);
+          if (!ANTIGRAVITY_STEPS.has(step)) throw forbiddenToolUse(ANTIGRAVITY, `a ${step.slice(0, 60)} step${typeof payload?.["tool_name"] === "string" ? ` (${payload["tool_name"].slice(0, 40)})` : ""}`, true);
           if (step === "agent_response") streamed += text(payload?.["text_delta"]) ?? "";
         } else if (kind === "result" && payload !== null) {
-          if (String(payload["status"]).toUpperCase() === "WAITING") throw forbiddenToolUse(ANTIGRAVITY, "an action that waits for approval");
+          if (String(payload["status"]).toUpperCase() === "WAITING") throw forbiddenToolUse(ANTIGRAVITY, "an action that waits for approval", true);
           envelope = payload;
-        } else if (kind !== "init" && /tool|function|command|action|permission/iu.test(kind)) throw forbiddenToolUse(ANTIGRAVITY, `a ${kind.slice(0, 60)} event`);
+        } else if (kind !== "init" && /tool|function|command|action|permission/iu.test(kind)) throw forbiddenToolUse(ANTIGRAVITY, `a ${kind.slice(0, 60)} event`, true);
       },
       finish(exitCode, stderr) {
-        if (ANTIGRAVITY_DENIAL.test(stderr)) throw forbiddenToolUse(ANTIGRAVITY, `a tool call that was soft-denied (${stderr.split(/\r?\n/u).find((line) => ANTIGRAVITY_DENIAL.test(line))?.trim().slice(0, 80) ?? "stderr notice"})`);
+        if (ANTIGRAVITY_DENIAL.test(stderr)) throw forbiddenToolUse(ANTIGRAVITY, `a tool call that was soft-denied (${stderr.split(/\r?\n/u).find((line) => ANTIGRAVITY_DENIAL.test(line))?.trim().slice(0, 80) ?? "stderr notice"})`, true);
         if (envelope === null) throw incomplete(ANTIGRAVITY, exitCode, stderr);
         const status = String(envelope["status"]).toUpperCase();
         const failure = `${text(envelope["error"]) ?? text(record(envelope["error"])?.["message"]) ?? ""}\n${stderr}`;
