@@ -15,12 +15,23 @@ export async function peerReviewRound(board: ConsensusBoard, policy: ConsensusPo
   const allCandidates = Object.values(board.candidates).filter(({ status }) => status !== "merged" && status !== "split").sort((a, b) => a.candidateId.localeCompare(b.candidateId)); const operations: PeerIssueOperation[] = []; const dispatches: RoundDispatchRecord[] = [];
   const createdIds = new Set<string>();
   const reviewerOrder = dependencies.rng.forActivity(`peer-review:${round}:reviewers`).shuffle([...dependencies.auditors]);
-  for (const [reviewerIndex, reviewer] of reviewerOrder.entries()) {
+  const prepared = reviewerOrder.map((reviewer, reviewerIndex) => {
     const rng = dependencies.rng.forActivity(`peer-review:${round}:${reviewer.auditorId}`); const selected = allCandidates.flatMap((candidate) => { const reason = selectionReason(candidate, policy, round, reviewerIndex, dependencies.auditors.length); return reason === null ? [] : [{ candidate, reason }]; });
     const views = rng.shuffle(selected.map(({ candidate }) => view(candidate, reviewer.auditorId, rng))).filter(({ peerSources }) => peerSources.length > 0); const reasons = Object.fromEntries(selected.filter(({ candidate }) => views.some(({ candidateId }) => candidateId === candidate.candidateId)).map(({ candidate, reason }) => [candidate.candidateId, reason]));
     const request = Object.freeze({ reviewerId: reviewer.auditorId, round, candidates: Object.freeze(views), instruction: "return_typed_issue_operations_with_evidence_ids" as const });
-    const returned = views.length === 0 ? [] : await dependencies.runtime.review(request);
     const presented = new Map(selected.filter(({ candidate }) => views.some(({ candidateId }) => candidateId === candidate.candidateId)).map(({ candidate }) => [candidate.candidateId, candidate]));
+    return { reviewer, views, reasons, request, presented };
+  });
+  // The reviews of one round are independent: every reviewer sees the same board and no other reviewer's reply.
+  // They are dispatched together and each runs to its end; the replies are then checked and recorded in the
+  // reviewer order, so the round does not depend on which reviewer answers first. Observed live (P20 pilot):
+  // three reviewers on three providers took 17, 61 and 56 minutes one after another.
+  const settled = await Promise.allSettled(prepared.map(({ views, request }) => views.length === 0 ? Promise.resolve<readonly PeerIssueOperation[]>([]) : dependencies.runtime.review(request)));
+  for (const [index, { reviewer, views, reasons, presented }] of prepared.entries()) {
+    const outcome = settled[index];
+    if (outcome === undefined) throw new Error("PEER_REVIEW_OUTCOME_MISSING");
+    if (outcome.status === "rejected") throw outcome.reason;
+    const returned = outcome.value;
     for (const operation of returned) {
       validateReturnedOperation(operation, reviewer.auditorId, round, presented);
       if (operations.some(({ operationId }) => operationId === operation.operationId) || returned.filter(({ operationId }) => operationId === operation.operationId).length > 1) throw new Error("DUPLICATE_PEER_REVIEW_OPERATION");

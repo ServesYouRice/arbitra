@@ -96,7 +96,10 @@ export function translatePeerOperations(value: unknown, view: View, snapshot: Re
     const operationId = local(operation.operationId);
     if (seen.has(operationId)) throw new Error("DUPLICATE_PEER_OPERATION: operation IDs must be unique");
     seen.add(operationId);
-    const base = { ...operation, operationId, authorId: reviewerId, candidateId: candidateId(operation.candidateId), citedEvidenceIds: operation.citedEvidenceIds.map(citation) };
+    // Added evidence cites itself. A reply that leaves its own ID out is completed here instead of refused: the
+    // slip is bookkeeping, and each refusal cost a whole repair call (observed live: 6 of 23 repairs in one run).
+    const cited = (operation.type === "add_evidence" || operation.type === "add_counter_evidence") && !operation.citedEvidenceIds.includes(operation.evidence.id) ? [...operation.citedEvidenceIds, operation.evidence.id] : operation.citedEvidenceIds;
+    const base = { ...operation, operationId, authorId: reviewerId, candidateId: candidateId(operation.candidateId), citedEvidenceIds: cited.map(citation) };
     let result: IssueOperation;
     switch (operation.type) {
       case "merge": result = { ...base, type: "merge", sourceCandidateIds: operation.sourceCandidateIds.map(candidateId), candidate: seed(operation.candidate) }; break;

@@ -50,6 +50,8 @@ describe("model board operations", () => {
     expect(translate(response([operation], [location])).operations[0]).toMatchObject({ evidence: { id: "reviewer/review-1/ev", locationIds: ["reviewer/review-1/loc"] } });
     expect(() => translate(response([{ ...operation, evidence: { ...operation.evidence, text: "invented" } }], [location]))).toThrow("UNGROUNDED_PEER_EVIDENCE");
     expect(() => translate(response([{ ...base, type: "accept", reason: "Claim", authorId: "another-reviewer" }]))).toThrow("INVALID_MODEL_OPERATION_AUTHORITY");
+    // Added evidence that leaves its own ID out of its citations is completed, not refused (observed live: 6 of 23 repair calls in one run).
+    expect(translate(response([{ ...operation, citedEvidenceIds: [] }], [location])).operations[0]).toMatchObject({ citedEvidenceIds: ["reviewer/review-1/ev"], evidence: { id: "reviewer/review-1/ev" } });
     // An identical restatement of a declared location is accepted; a conflicting reuse is not.
     expect(translate(response([operation], [location, { ...location }])).operations).toHaveLength(1);
     expect(() => translate(response([operation], [location, { ...location, endLine: 2 }]))).toThrow("INVALID_PEER_LOCATION");

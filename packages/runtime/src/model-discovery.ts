@@ -180,11 +180,9 @@ async function discoverPrimary(options: ModelDiscoveryOptions): Promise<readonly
     }
     pending.push(...allocation.scopes, ...windowed.flatMap(({ path, windows }) => windows.map((window) => ({ files: options.snapshot.files.filter((file) => file.path === path), splitModules: [], window }))));
   }
-  const findings: SourceFinding[] = [];
-  const scopes: { scopeId: string; paths: readonly string[]; estimatedTokens: number | null; splitModules: readonly string[] }[] = [];
-  const coverage: { rejectedCount: number; truncated: boolean; unexaminedDueToBudget: string[]; limitations: string[] } = { rejectedCount: 0, truncated: false, unexaminedDueToBudget: [], limitations: [] };
-  const lineSplitPaths = new Set(windowed.map(({ path }) => path));
-  for (let unit = pending.shift(); unit !== undefined; unit = pending.shift()) {
+  interface Audited { readonly scope: { scopeId: string; paths: readonly string[]; estimatedTokens: number | null; splitModules: readonly string[] }; readonly findings: readonly SourceFinding[]; readonly validation: ScopeValidation; readonly splitModules: readonly string[] }
+  interface Outcome { readonly audited: readonly Audited[]; readonly splits: readonly { scopeId: string; into: readonly string[] }[] }
+  const audit = async (unit: PendingUnit): Promise<Outcome> => {
     const { window } = unit;
     const scopeId = unitScopeId(unit);
     const selected: ScopeOptions = { ...options, snapshot: { ...options.snapshot, files: unit.files }, scopeId, ...(window === undefined ? {} : { window }) };
@@ -194,20 +192,34 @@ async function discoverPrimary(options: ModelDiscoveryOptions): Promise<readonly
       // The marker is durable, so a resumed run splits the same way without repeating the call.
       const parts = stoppedAtOutputCeiling(error, selected) ? splitOutputLimitedUnit(options.snapshot, unit) : null;
       if (parts === null) throw error;
-      outputLimitSplits.push({ scopeId, into: parts.map(unitScopeId) });
-      if (parts.some((part) => part.window !== undefined)) lineSplitPaths.add(unit.files[0]?.path ?? "");
-      pending.unshift(...parts);
-      continue;
+      const inner = await auditAll(parts);
+      return { audited: inner.audited, splits: [{ scopeId, into: parts.map(unitScopeId) }, ...inner.splits] };
     }
-    scopes.push({ scopeId, paths: unit.files.map(({ path }) => path), estimatedTokens: options.activities.estimateInitialTokens?.(discoveryRequest(selected)) ?? null, splitModules: unit.splitModules, ...(window === undefined ? {} : { window }) });
-    findings.push(...found);
-    const result = await readValidation(options.store, `discovery-validation-${options.auditorId}-${scopeId}`);
-    coverage.rejectedCount += result.rejectedCount;
-    coverage.truncated ||= result.truncated;
-    coverage.unexaminedDueToBudget.push(...result.unexaminedDueToBudget);
-    coverage.unexaminedDueToBudget.push(...unit.splitModules.map((id) => `module_joint_context:${id}`));
-    coverage.limitations.push(...result.limitations, ...unit.splitModules.map((id) => `module_context_split:${id}`));
+    const scope = { scopeId, paths: unit.files.map(({ path }) => path), estimatedTokens: options.activities.estimateInitialTokens?.(discoveryRequest(selected)) ?? null, splitModules: unit.splitModules, ...(window === undefined ? {} : { window }) };
+    return { audited: [{ scope, findings: found, validation: await readValidation(options.store, `discovery-validation-${options.auditorId}-${scopeId}`), splitModules: unit.splitModules }], splits: [] };
+  };
+  // Units are audited side by side: no unit reads another's result, and the provider's own concurrency limit
+  // decides how many calls run at once. Every unit runs to its end, and the results are put together in unit
+  // order, so the audit does not depend on which call returns first. Observed live (P20 pilot): five scopes one
+  // after another were 33 minutes of a 40-minute audit.
+  const auditAll = async (units: readonly PendingUnit[]): Promise<Outcome> => {
+    const settled = await Promise.allSettled(units.map(audit));
+    const outcomes = settled.map((outcome) => { if (outcome.status === "rejected") throw outcome.reason; return outcome.value; });
+    return { audited: outcomes.flatMap(({ audited }) => audited), splits: outcomes.flatMap(({ splits }) => splits) };
+  };
+  const { audited, splits } = await auditAll(pending);
+  outputLimitSplits.push(...splits);
+  const findings = audited.flatMap(({ findings: found }) => found);
+  const scopes = audited.map(({ scope }) => scope);
+  const coverage: { rejectedCount: number; truncated: boolean; unexaminedDueToBudget: string[]; limitations: string[] } = { rejectedCount: 0, truncated: false, unexaminedDueToBudget: [], limitations: [] };
+  for (const { validation, splitModules } of audited) {
+    coverage.rejectedCount += validation.rejectedCount;
+    coverage.truncated ||= validation.truncated;
+    coverage.unexaminedDueToBudget.push(...validation.unexaminedDueToBudget, ...splitModules.map((id) => `module_joint_context:${id}`));
+    coverage.limitations.push(...validation.limitations, ...splitModules.map((id) => `module_context_split:${id}`));
   }
+  // A file read as line windows, for the input budget or after an output limit, has lost its joint context.
+  const lineSplitPaths = new Set([...windowed.map(({ path }) => path), ...audited.flatMap(({ scope }) => "window" in scope ? scope.paths.slice(0, 1) : [])]);
   // A single line larger than the whole budget is irreducible and stays explicit.
   const unexaminedLines = windowed.flatMap(({ path, unexaminedLines }) => unexaminedLines.map((line) => `${path}:${line}`));
   coverage.unexaminedDueToBudget.push(...unexaminedLines);

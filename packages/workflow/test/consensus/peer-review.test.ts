@@ -67,6 +67,30 @@ describe("peer review rounds", () => {
     for (const request of requestsA) { const sources = request.candidates.flatMap(({ peerSources }) => peerSources.map(({ findingRef }) => findingRef)); expect(sources.some((source) => source.startsWith(request.reviewerId))).toBe(false); expect(sources.every((source) => /^Auditor [A-Z]\//u.test(source))).toBe(true); }
   });
 
+  it("dispatches the reviewers of a round together and records their replies in the reviewer order", async () => {
+    // Observed live (P20 pilot): three reviewers on three providers took 17, 61 and 56 minutes one after another.
+    const accept = (reviewerId: string) => ({ operationId: `op-${reviewerId}`, candidateId: "C-1", authorId: reviewerId, round: 1, type: "accept", citedEvidenceIds: ["ev-1"], reason: "Grounded" });
+    const sequential = await peerReviewRound(board(candidate()), DEFAULT_CONSENSUS_POLICY, 1, { auditors, rng: new FixtureRng("together"), runtime: { async review({ reviewerId }) { return [accept(reviewerId)]; } } });
+    let active = 0; let most = 0; const release: (() => void)[] = []; const answered: string[] = [];
+    const together = await peerReviewRound(board(candidate()), DEFAULT_CONSENSUS_POLICY, 1, { auditors, rng: new FixtureRng("together"), runtime: { async review({ reviewerId }) {
+      active += 1; most = Math.max(most, active);
+      // Every review stays open until all three have started; the last one dispatched then answers first.
+      await new Promise<void>((resolve) => { release.push(resolve); if (release.length === auditors.length) for (const next of [...release].reverse()) next(); });
+      active -= 1; answered.push(reviewerId);
+      return [accept(reviewerId)];
+    } } });
+    expect(most).toBe(3);
+    expect(answered).toEqual([...sequential.dispatches.map(({ reviewerId }) => reviewerId)].reverse());
+    expect(together).toEqual(sequential);
+    // One reviewer failing does not cut the others short: each runs to its end, then the failure is reported.
+    const finished: string[] = [];
+    await expect(peerReviewRound(board(candidate()), DEFAULT_CONSENSUS_POLICY, 1, { auditors, rng: new FixtureRng("together"), runtime: { async review({ reviewerId }) {
+      if (reviewerId === sequential.dispatches[0]?.reviewerId) throw new Error("FIXTURE_REVIEW_FAILED");
+      await new Promise((resolve) => setTimeout(resolve, 5)); finished.push(reviewerId); return [accept(reviewerId)];
+    } } })).rejects.toThrow("FIXTURE_REVIEW_FAILED");
+    expect(finished).toHaveLength(2);
+  });
+
   it("round two sends only changed or disputed delta candidates", async () => {
     const changed = candidate({ candidateId: "C-changed", lastChangedRound: 1 }); const stable = candidate({ candidateId: "C-stable", status: "accepted", lastChangedRound: 0 }); const requests: PeerReviewRequest[] = [];
     await peerReviewRound(board(changed, stable), DEFAULT_CONSENSUS_POLICY, 2, { auditors, rng: new FixtureRng("delta"), runtime: { async review(request) { requests.push(request); return []; } } });
