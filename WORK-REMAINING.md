@@ -34,8 +34,9 @@ subscriptions.
     the run completed before was retired unscored.
   - That evening the owner said a run of three to four hours is not a viable product and asked for a faster
     design. The method is not what takes the time; see "Open findings" below. The build now runs every
-    independent call side by side under one setting (`maximumParallelCalls`, e107937) and leaves out a foreign
-    citation instead of refusing the reply (094eb56). The pilot starts again as a new protocol version on that
+    independent call side by side under one setting (`maximumParallelCalls`, e107937) leaves out a foreign
+    citation instead of refusing the reply (094eb56), and no longer escapes quotes inside the repository frame
+    (24eacf4). The pilot starts again as a new protocol version on that
     build when the running panel run has ended.
   - GPT-6.1 Sol at xhigh answers through arbitra (nine calls, none failed). GPT-6 Luna at max and Sonnet 5.5 at
     xhigh have not run through arbitra yet.
@@ -164,6 +165,11 @@ under per-provider limits (§12.6) and a shared cached prefix (§14.2).
 
 **Open (cost and speed), measured on October 11 on that project:**
 
+- **Most of an audit prompt is packaging.** The project is 54 files, 5,208 lines and 224,000 characters. One
+  auditor's discovery sent 575,000 characters in 5 calls and was billed 307,000 input tokens. Source text was 39%
+  of the characters and the `&quot;` entity 36% (no longer written, 24eacf4). The rest is one JSON object per
+  source line, and the schema and instructions repeated in every call. The same lines written as `N: text` are
+  247,000 characters, which one call could carry. To decide: send discovery's source as numbered lines.
 - **Prompts are sized as if one byte were one token.** A prompt is admitted when its bytes plus the whole output
   ceiling fit in 80% of the model's window. Real prompts measured about 1.9 to 2.4 bytes per token, so each uses
   about a quarter of the window: Sonnet 5.5 received 61,500 tokens in a 240,000-token window. Discovery is therefore
@@ -213,7 +219,7 @@ for direct scripting and CI workflows" and that wrapping `agy` inside third-part
 application around `agy`. Until the owner decides, runs keep one Antigravity call at a time, as before. For
 the product, the terms of each vendor's subscription CLI need a check before arbitra recommends subscriptions.
 
-**Fixed.** The P20 pilot found two defects on October 10 and six on October 11; all eight are fixed and verified
+**Fixed.** The P20 pilot found two defects on October 10 and seven on October 11; all nine are fixed and verified
 on Linux, and the second was also checked live on the owner's Windows PC
 ([qa/subscription-cli](docs/qa/subscription-cli/README.md)):
 
@@ -253,6 +259,10 @@ on Linux, and the second was also checked live on the owner's Windows PC
   does not cite itself is completed, a packed pair check may merge any candidates it presents, and a citation of
   another candidate's evidence is left out when the operation also cites its own. Together they were 21 of 28
   repair calls in one run.
+- **The frame around repository content escaped quotes (fixed in 24eacf4).** `&quot;` was 36% of the characters
+  of an audit's discovery prompts, 18% of a review prompt and 9% of a conflict prompt, and models copied the
+  entity into the evidence they quoted. Text inside the frame can leave it only through markup, so it now escapes
+  `&`, `<` and `>` and leaves quotes as written (frame version 2, [security](docs/security.md)).
 
 All eight findings in [qa/p19](docs/qa/p19/README.md) are fixed, and the affected live acceptance passed on subscriptions on September 30 (runs A–E there). The reruns found four more defects; all are fixed. The completion report is P21, after P20.
 
