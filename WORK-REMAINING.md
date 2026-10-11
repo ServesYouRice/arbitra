@@ -20,8 +20,9 @@ subscriptions.
   model has audited a held-out project.
 - **Running again since October 10 at 23:51:** the pilot panels
   (`node evaluation/run-paced.mjs pilot-v2 0.9 0.8` in `arbitra-p20`), on the owner's Windows PC because the Mac
-  is unavailable for a few days. They pace themselves on the Claude and Codex usage windows; expect a day of
-  running if nothing stalls, more likely two. The private `HANDOFF.md` says how to watch, stop and restart them.
+  is unavailable for a few days. They pace themselves on the Claude and Codex usage windows. The first estimate, a day
+  or two, was wrong: on October 11 at 18:30 one Opus-only run was complete and the first panel run had run for
+  more than four hours without finishing. The private `HANDOFF.md` says how to watch, stop and restart them.
   - They stopped at 22:59 on two arbitra defects, both fixed the same evening (7f52969, 2bd8162; see "Open findings"
     below). The pilot started again on that build under a new protocol version; the one run completed before was
     retired unscored and runs again.
@@ -31,6 +32,11 @@ subscriptions.
   - The same day the owner asked that the runs also test arbitra's cost, and chose to fix the largest cost found,
     clustering, at once (a33d4e8). The pilot started again from its first run as a new protocol version at 13:29;
     the run completed before was retired unscored.
+  - That evening the owner said a run of three to four hours is not a viable product and asked for a faster
+    design. The method is not what takes the time; see "Open findings" below. The build now runs every
+    independent call side by side under one setting (`maximumParallelCalls`, e107937) and leaves out a foreign
+    citation instead of refusing the reply (094eb56). The pilot starts again as a new protocol version on that
+    build when the running panel run has ended.
   - GPT-6.1 Sol at xhigh answers through arbitra (nine calls, none failed). GPT-6 Luna at max and Sonnet 5.5 at
     xhigh have not run through arbitra yet.
   - Codex answers through arbitra on Windows (0.162.1, live evidence in
@@ -136,40 +142,78 @@ Live configurations come from `tooling/live/bindings.subscription.json`. The API
 The owner asked on October 11 that every P20 run also serve as a test of arbitra itself: what fails, what costs
 too much and what is slow. Findings from the runs' own data go here, with their numbers.
 
-**Open (cost and speed), measured on October 11 on a project of about 56,000 tokens:**
+**Where a panel run's time goes.** The first panel run (Sonnet 5.5, GPT-6 Luna, Gemini 3.8 Flash on a project of
+54 files) made 141 calls in its first four and a half hours, almost all one after another. Replaying the
+recorded times of its first 128 calls (discovery, the first review round and its conflicts):
 
-- **Every decision call re-sends the whole repository, and none of it is read from a cache.** Clustering,
+| | Minutes |
+|---|---|
+| As run, one call at a time | 257 |
+| Reviewers of a round side by side (14ae7aa) | 130 |
+| Four calls per auditor at a time (e107937) | 47 |
+| The same without repair calls | 34 |
+
+Comparable tools wait three times: all models audit at once, all review at once, then disputes are settled
+([llm-council](https://github.com/karpathy/llm-council), Claude Code's
+[code-review plugin](https://github.com/anthropics/claude-code/tree/main/plugins/code-review)). None of the
+reviewers read on October 11 has a repair call: they keep the valid items of a reply and drop the rest
+([PR-Agent](https://github.com/qodo-ai/pr-agent),
+[claude-code-security-review](https://github.com/anthropics/claude-code-security-review)), and they check a
+finding against the code it cites, not against the repository. The specification asks for the same: fan-out
+under per-provider limits (§12.6) and a shared cached prefix (§14.2).
+
+**Open (cost and speed), measured on October 11 on that project:**
+
+- **Prompts are sized as if one byte were one token.** A prompt is admitted when its bytes plus the whole output
+  ceiling fit in 80% of the model's window. Real prompts measured about 1.9 to 2.4 bytes per token, so each uses
+  about a quarter of the window: Sonnet 5.5 received 61,500 tokens in a 240,000-token window. Discovery is therefore
+  planned as 4 or 5 scopes per auditor, one review prompt held 4 of the 54 files, and the same estimate throttles
+  the scheduler's tokens per minute. To fix: a bytes-per-token figure per model profile, and a provider's
+  "prompt too long" answer handled as a capacity error that halves the unit.
+- **A model that reads through the harness tools pays a whole call per round trip.** With most files left out of
+  its review prompts, GPT-6 Luna made 257 tool calls. Every round trip is a new CLI process that receives the
+  whole conversation again, and the harness archives earlier tool results to stay inside the same estimate, so the
+  model has to fetch them again: 34 further turns, 68 minutes and 4.9M tokens, 35% of the run. To fix with the item
+  above: when the whole repository is in the prompt, say so and offer no read tools.
+- **Every decision call re-sends repository text, and none of it is read from a cache.** Clustering,
   verification, peer review and conflict resolution each carried 55,000 to 59,000 input tokens per call; cache
-  reads were 0% except where a whole prompt repeated. To decide: attach only the files a record cites (the
-  read-only tools reach the rest), or lead every prompt with the repository so a provider can cache it.
+  reads were 0% for Claude and Gemini. The layer meant for stable repository content held 89 characters in a
+  review prompt; the files travel in the per-call layer. By its documentation, Claude Code shares a cached prefix between
+  processes only when model, effort, tools and schema are the same and the first reply has begun. To decide: attach only
+  the files a record cites, and lead every prompt of a stage with the same repository text.
+- **A refused reply is repeated whole.** 28 of the run's first 141 calls were repairs: 4.0M tokens and 59
+  minutes. Eleven refused replies held 222 operations; in the three refused over foreign citations,
+  9 operations were at fault and each also cited evidence of its own candidate. By rule: 10 cited
+  another candidate's evidence (now left out, 094eb56), 7 added evidence without citing it (now completed,
+  14ae7aa), 4 merged outside the listed pairs of a packed check (now allowed, 14ae7aa), 4 added evidence that is
+  not an exact quotation, 2 used a presented ID where a new one was required, and 1 was a safety-filter notice.
+  To fix: refuse the one operation and keep the rest of the reply.
 - **Calls are lost at an output ceiling.** One of 8 Opus 5.5 discovery calls at xhigh and 2 of 14 Gemini 3.8
   Flash calls at high stopped at the ceiling and were redone in smaller parts. Each lost call costs up to
   64,000 output tokens and nine minutes. To decide: start with smaller scopes at efforts where thinking counts
   as output, for example after one scope of the run has come close to the ceiling.
-- **Refused peer-review replies cost a quarter of a panel run's calls.** In one panel run, 23 of the first 93
-  calls were repairs of a refused reply: 3.14M tokens and 56 minutes. By rule: 10 cited evidence of another
-  candidate (`CROSS_CANDIDATE_PEER_EVIDENCE`), 6 added evidence without listing it among its own citations
-  (`ISSUE_EVIDENCE_ID_NOT_CITED`), 4 merged candidates outside the listed pairs of a packed pair check
-  (`INVALID_PEER_PAIR_OPERATIONS`), 2 used a presented ID where a new one was required. To fix, at the next
-  protocol boundary: add the missing citation instead of refusing; let a packed pair check merge any candidates
-  it presents; decide whether a foreign citation can be dropped when a valid one remains.
-- **Peer reviewers run one after another.** In the same run the three reviewers' first round took 17, 61 and 56
-  minutes in sequence, although each uses a different provider. To decide: run the reviewers of a round side by
-  side.
+- **Batches are sized as if replies had no thinking.** A peer review reserves 160 output tokens per candidate.
+  With thinking counted as output, Sonnet 5.5 at xhigh wrote 49,000 output tokens for 25 candidates and Gemini 3.8
+  Flash at high passed its limit on 19. To decide: size batches from the output a model actually used earlier
+  in the run, so the first call does not have to fail.
 - **Planning the packed pair checks takes minutes of processor time.** Each fit test compiles a whole prompt; one
   reviewer's plan took about three and a half minutes before its first call. To fix: estimate from record sizes
   and compile only the chosen batches.
 - **A provider's safety-filter notice is handled as invalid JSON.** One Gemini discovery reply was "This request
   was blocked by Gemini's filters"; arbitra asked for a repair and the second reply was fine. To decide:
   recognise such a notice and ask the same question again, without sending the notice back.
-- **Batches are sized as if replies had no thinking.** A peer review reserves 160 output tokens per candidate.
-  With thinking counted as output, Sonnet 5.5 at xhigh wrote 49,000 output tokens for 25 candidates and Gemini 3.8
-  Flash at high passed its limit on 19. To decide: size batches from the output a model actually used earlier
-  in the run, so the first call does not have to fail.
-- **Discovery audits its scopes one after another.** 43 of the 55 minutes of a single-auditor run were
-  discovery calls in sequence. To decide: run two or three scopes at a time where a plan's limits allow.
+- **Every stage thinks at the audit's effort.** A vote on a few candidates took Gemini 3.8 Flash at high 25,000
+  output tokens and two and a half minutes. To decide, by the owner because it changes what a lineup is: a
+  lower effort for votes and conflict choices than for discovery.
 
-**Fixed.** The P20 pilot found two defects on October 10 and four on October 11; all six are fixed and verified
+**For the owner to decide: Antigravity on a consumer plan.** Google's
+[Antigravity FAQ](https://antigravity.google/docs/faq), read on October 11, says headless `agy -p` "is intended
+for direct scripting and CI workflows" and that wrapping `agy` inside third-party coding agents or applications
+"is not supported under consumer plans". arbitra starts the official CLI and never touches its login, but it is an
+application around `agy`. Until the owner decides, runs keep one Antigravity call at a time, as before. For
+the product, the terms of each vendor's subscription CLI need a check before arbitra recommends subscriptions.
+
+**Fixed.** The P20 pilot found two defects on October 10 and six on October 11; all eight are fixed and verified
 on Linux, and the second was also checked live on the owner's Windows PC
 ([qa/subscription-cli](docs/qa/subscription-cli/README.md)):
 
@@ -199,6 +243,16 @@ on Linux, and the second was also checked live on the owner's Windows PC
   every resume replayed the refused reply and failed at the same repair. The harness now marks the activity
   itself, and peer review goes on in batches of half the size, kept durably so a resumed run plans the same
   batches.
+- **Independent calls ran one after another (fixed in 14ae7aa and e107937).** The reviewers of a round, the batches
+  of one review, the scopes of a discovery and the auditors of a conflict each waited for the one before. They
+  now run side by side: reviewers of a round and auditors of a conflict always, the rest up to
+  `maximumParallelCalls` per auditor (default 1). Replies are applied in a fixed order, and a conflict that
+  shares a candidate with an earlier one waits for it, so the outcome does not depend on which call returns first
+  ([provider model](docs/provider-model.md)).
+- **Three bookkeeping slips each cost a whole repair call (fixed in 14ae7aa and 094eb56).** Added evidence that
+  does not cite itself is completed, a packed pair check may merge any candidates it presents, and a citation of
+  another candidate's evidence is left out when the operation also cites its own. Together they were 21 of 28
+  repair calls in one run.
 
 All eight findings in [qa/p19](docs/qa/p19/README.md) are fixed, and the affected live acceptance passed on subscriptions on September 30 (runs A–E there). The reruns found four more defects; all are fixed. The completion report is P21, after P20.
 
