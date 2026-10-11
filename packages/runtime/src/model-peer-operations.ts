@@ -99,7 +99,19 @@ export function translatePeerOperations(value: unknown, view: View, snapshot: Re
     // Added evidence cites itself. A reply that leaves its own ID out is completed here instead of refused: the
     // slip is bookkeeping, and each refusal cost a whole repair call (observed live: 6 of 23 repairs in one run).
     const cited = (operation.type === "add_evidence" || operation.type === "add_counter_evidence") && !operation.citedEvidenceIds.includes(operation.evidence.id) ? [...operation.citedEvidenceIds, operation.evidence.id] : operation.citedEvidenceIds;
-    const base = { ...operation, operationId, authorId: reviewerId, candidateId: candidateId(operation.candidateId), citedEvidenceIds: cited.map(citation) };
+    // Existing aliases must belong to the referenced candidate(s), not another
+    // candidate that happened to be present in the same request.
+    const referenced = operation.type === "merge" ? operation.sourceCandidateIds : [operation.candidateId];
+    const allowed = new Set(referenced.flatMap((id) => view.candidates[id]?.sources.flatMap(({ evidence }) => evidence.map(({ id }) => id)) ?? []));
+    const allowedNew = new Set(parsed.operations.filter((other) => referenced.includes(other.candidateId)).flatMap((other) => other.type === "add_evidence" || other.type === "add_counter_evidence" ? [other.evidence.id] : other.type === "add_missing_finding" ? other.evidence.map(({ id }) => id) : []));
+    // A citation of another candidate's evidence is left out and the operation stands on the evidence of its own
+    // candidate; with none of its own left it is refused. Observed live (P20 pilot): 10 of 28 repair calls in one
+    // run repeated a reply of about 20 operations over one or two such citations, and every operation concerned
+    // also cited evidence of its own candidate. An ID that names no evidence at all is still refused below.
+    const foreign = (id: string): boolean => !allowedNew.has(id) && !allowed.has(id) && (view.evidenceIds.has(id) || newEvidence.has(id));
+    const own = cited.filter((id) => !foreign(id));
+    if (own.length === 0 && cited.length > 0) throw new Error("CROSS_CANDIDATE_PEER_EVIDENCE: an operation may only cite evidence of the candidate it targets");
+    const base = { ...operation, operationId, authorId: reviewerId, candidateId: candidateId(operation.candidateId), citedEvidenceIds: own.map(citation) };
     let result: IssueOperation;
     switch (operation.type) {
       case "merge": result = { ...base, type: "merge", sourceCandidateIds: operation.sourceCandidateIds.map(candidateId), candidate: seed(operation.candidate) }; break;
@@ -114,15 +126,9 @@ export function translatePeerOperations(value: unknown, view: View, snapshot: Re
       const addedEvidence = new Set(result.evidence.map(({ id }) => id));
       if (sourceEvidence.size !== addedEvidence.size || [...sourceEvidence].some((id) => !addedEvidence.has(id))) throw new Error(`PEER_MISSING_FINDING_EVIDENCE_MISMATCH: an add_missing_finding operation introduces findings from this reply's findings array: its candidate.sourceFindingIds must list their self/<name> sourceFindingIds (here: ${parsed.findings.map(({ sourceFindingId }) => sourceFindingId).join(", ") || "none"}), never a presented source, and its evidence must be exactly those findings' evidence`);
     }
-    // Existing aliases must belong to the referenced candidate(s), not another
-    // candidate that happened to be present in the same request.
-    const referenced = operation.type === "merge" ? operation.sourceCandidateIds : [operation.candidateId];
     const targets = operation.type === "merge" || operation.type === "add_missing_finding" ? [operation.candidate] : operation.type === "split" ? operation.candidates : [];
     const allowedSources = new Set(operation.type === "add_missing_finding" ? parsed.findings.map(({ sourceFindingId }) => sourceFindingId) : referenced.flatMap((id) => view.candidates[id]?.sources.map(({ findingRef }) => findingRef) ?? []));
     if (targets.some(({ sourceFindingIds }) => sourceFindingIds.some((id) => !allowedSources.has(id)))) throw new Error("CROSS_CANDIDATE_PEER_SOURCE: merged or split candidates may only use source findings of the candidates they reference");
-    const allowed = new Set(referenced.flatMap((id) => view.candidates[id]?.sources.flatMap(({ evidence }) => evidence.map(({ id }) => id)) ?? []));
-    const allowedNew = new Set(parsed.operations.filter((other) => referenced.includes(other.candidateId)).flatMap((other) => other.type === "add_evidence" || other.type === "add_counter_evidence" ? [other.evidence.id] : other.type === "add_missing_finding" ? other.evidence.map(({ id }) => id) : []));
-    if (operation.citedEvidenceIds.some((id) => !allowedNew.has(id) && !allowed.has(id))) throw new Error("CROSS_CANDIDATE_PEER_EVIDENCE: an operation may only cite evidence of the candidate it targets");
     return result;
   });
   const votes = operations.filter(({ type }) => type === "accept" || type === "reject" || type === "needs_verification");

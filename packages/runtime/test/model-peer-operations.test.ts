@@ -56,6 +56,11 @@ describe("model board operations", () => {
     expect(translate(response([operation], [location, { ...location }])).operations).toHaveLength(1);
     expect(() => translate(response([operation], [location, { ...location, endLine: 2 }]))).toThrow("INVALID_PEER_LOCATION");
     expect(() => translate(response([{ ...base, type: "accept", reason: "Claim", citedEvidenceIds: ["C2/source-1/evidence-1"] }]))).toThrow("CROSS_CANDIDATE_PEER_EVIDENCE");
+    // Beside evidence of its own candidate, another candidate's is left out and the vote stands (observed live: 10 of 28 repair calls in one run).
+    expect(translate(response([{ ...base, type: "accept", reason: "Claim", citedEvidenceIds: ["C1/source-1/evidence-1", "C2/source-1/evidence-1"] }])).operations[0]?.citedEvidenceIds).toHaveLength(1);
+    // Evidence another candidate's operation adds in the same reply is foreign as well; an ID that names nothing is still refused.
+    expect(translate(response([{ ...operation, candidateId: "C2" }, { ...base, operationId: "new:vote", type: "accept", reason: "Claim", citedEvidenceIds: ["C1/source-1/evidence-1", "new:ev"] }], [location])).operations[1]?.citedEvidenceIds).toHaveLength(1);
+    expect(() => translate(response([{ ...base, type: "accept", reason: "Claim", citedEvidenceIds: ["C1/source-1/evidence-1", "C9/source-1/evidence-1"] }]))).toThrow("UNKNOWN_PEER_EVIDENCE");
   });
 
   it("applies structural changes with source context and removes retired claims from consensus", () => {
