@@ -11,6 +11,50 @@ import { redactSecrets } from "@arbitra/security/redaction";
 type View = ReturnType<typeof peerReviewView>;
 export interface PeerOperationBatch { readonly operations: readonly IssueOperation[]; readonly findings: readonly AuditFinding[]; readonly locations: readonly FindingLocation[] }
 
+/** One operation of a reply failed its own validation; the message is the refusal the reviewer would be shown. */
+export class PeerOperationRefusal extends Error {
+  constructor(readonly operationIndex: number, cause: unknown) { super(cause instanceof Error ? cause.message : String(cause), { cause }); this.name = "PeerOperationRefusal"; }
+}
+export interface RefusedPeerOperation { readonly operationId: string; readonly type: string; readonly candidateId: string; readonly reason: string }
+
+/**
+ * Translates a reply and leaves out each operation that fails its own validation, so one bad operation does not
+ * cost the whole reply. Evidence a refused operation would have added is withdrawn from the other operations'
+ * citations, and an operation left without the evidence it needs is refused in turn. `alsoRefuse` names further
+ * operations of the translated batch to leave out. The reply itself is refused, as before, when its shape, its
+ * locations or its findings are invalid, or when more than half of its operations would be left out.
+ * Observed live (P20 pilot): 39 of 155 calls in one panel run repeated a reply of about 20 operations over one
+ * or two of them, and a reply still invalid after its repairs lost all of them.
+ */
+export function translateValidPeerOperations(value: unknown, view: View, snapshot: RepositorySnapshot, reviewerId: string, round: number, scopeId?: string,
+  alsoRefuse: (batch: PeerOperationBatch) => readonly { readonly index: number; readonly reason: string }[] = () => []): { readonly batch: PeerOperationBatch; readonly refused: readonly RefusedPeerOperation[] } {
+  const original = peerOperationsResultSchema.parse(value);
+  let parsed = original;
+  const refused: RefusedPeerOperation[] = [];
+  const leaveOut = (index: number, reason: string, error: unknown): void => {
+    const operation = parsed.operations[index];
+    if (operation === undefined || (refused.length + 1) * 2 > original.operations.length) throw error;
+    refused.push({ operationId: operation.operationId, type: operation.type, candidateId: operation.candidateId, reason: reason.slice(0, 300) });
+    const withdrawn = new Set(operation.type === "add_evidence" || operation.type === "add_counter_evidence" ? [operation.evidence.id] : operation.type === "add_missing_finding" ? operation.evidence.map(({ id }) => id) : []);
+    const operations = parsed.operations.filter((_, at) => at !== index).map((other) => withdrawn.size === 0 ? other : { ...other, citedEvidenceIds: other.citedEvidenceIds.filter((id) => !withdrawn.has(id)) });
+    // A finding that only the refused operation introduced goes with it.
+    const introduced = new Set(operations.flatMap((other) => other.type === "add_missing_finding" ? other.candidate.sourceFindingIds : []));
+    parsed = { ...parsed, operations, findings: operation.type === "add_missing_finding" ? parsed.findings.filter(({ sourceFindingId }) => introduced.has(sourceFindingId)) : parsed.findings };
+  };
+  for (;;) {
+    let batch: PeerOperationBatch;
+    try { batch = translatePeerOperations(parsed, view, snapshot, reviewerId, round, scopeId); }
+    catch (error) {
+      if (!(error instanceof PeerOperationRefusal)) throw error;
+      leaveOut(error.operationIndex, error.message, error);
+      continue;
+    }
+    const [next] = alsoRefuse(batch);
+    if (next === undefined) return { batch, refused };
+    leaveOut(next.index, next.reason, new Error(next.reason));
+  }
+}
+
 /** Validate model additions against immutable source and bind all local provenance. */
 export function translatePeerOperations(value: unknown, view: View, snapshot: RepositorySnapshot, reviewerId: string, round: number, scopeId?: string): PeerOperationBatch {
   const parsed = peerOperationsResultSchema.parse(value);
@@ -73,9 +117,12 @@ export function translatePeerOperations(value: unknown, view: View, snapshot: Re
     if (resolved === undefined || sourceIds.has(finding.sourceFindingId)) throw new Error("DUPLICATE_PEER_FINDING: each finding needs a distinct self/<name> sourceFindingId that is not a presented finding");
     sourceIds.set(finding.sourceFindingId, resolved.sourceFindingId);
   }
-  for (const operation of parsed.operations) {
-    if (operation.type === "add_evidence" || operation.type === "add_counter_evidence") evidence(operation.evidence);
-    if (operation.type === "add_missing_finding") operation.evidence.forEach(evidence);
+  // A failure that belongs to one operation names it, so a caller can leave that operation out.
+  for (const [index, operation] of parsed.operations.entries()) {
+    try {
+      if (operation.type === "add_evidence" || operation.type === "add_counter_evidence") evidence(operation.evidence);
+      if (operation.type === "add_missing_finding") operation.evidence.forEach(evidence);
+    } catch (error) { throw new PeerOperationRefusal(index, error); }
   }
   const citation = (id: string): string => {
     const resolved = view.evidenceIds.get(id) ?? newEvidence.get(id)?.id;
@@ -87,7 +134,7 @@ export function translatePeerOperations(value: unknown, view: View, snapshot: Re
     const resolved = sourceIds.get(id); if (resolved === undefined) throw new Error("UNKNOWN_PEER_SOURCE_FINDING: sourceFindingIds must name presented findings or findings added in this reply"); return resolved;
   }) });
   const seen = new Set<string>();
-  const operations: IssueOperation[] = parsed.operations.map((operation): IssueOperation => {
+  const translateOne = (operation: (typeof parsed.operations)[number]): IssueOperation => {
     if (operation.authorId !== "self" || operation.round !== round || "verification" in operation || operation.type === "add_candidate") throw new Error(`INVALID_MODEL_OPERATION_AUTHORITY: every operation must use authorId "self" and round ${round}, must not carry a verification record and must not add candidates`);
     // A created candidate is addressed by the operation that creates it (observed live: a
     // model filed add_missing_finding under the existing candidate it was reviewing).
@@ -130,6 +177,10 @@ export function translatePeerOperations(value: unknown, view: View, snapshot: Re
     const allowedSources = new Set(operation.type === "add_missing_finding" ? parsed.findings.map(({ sourceFindingId }) => sourceFindingId) : referenced.flatMap((id) => view.candidates[id]?.sources.map(({ findingRef }) => findingRef) ?? []));
     if (targets.some(({ sourceFindingIds }) => sourceFindingIds.some((id) => !allowedSources.has(id)))) throw new Error("CROSS_CANDIDATE_PEER_SOURCE: merged or split candidates may only use source findings of the candidates they reference");
     return result;
+  };
+  const operations: IssueOperation[] = parsed.operations.map((operation, index) => {
+    try { return translateOne(operation); }
+    catch (error) { throw new PeerOperationRefusal(index, error); }
   });
   const votes = operations.filter(({ type }) => type === "accept" || type === "reject" || type === "needs_verification");
   if (new Set(votes.map(({ candidateId }) => candidateId)).size !== votes.length) throw new Error("DUPLICATE_PEER_VOTE: cast at most one accept, reject or needs_verification vote per candidate");
@@ -161,12 +212,19 @@ export function earlierPeerVotes(view: View, board: VotingBoard, reviewerId: str
  * which failed the whole run. Refusing it at the model boundary lets the reviewer repair it.
  */
 export function assertChangedVotesCiteNewEvidence(operations: readonly IssueOperation[], board: VotingBoard, reviewerId: string): void {
-  const changed = operations.flatMap((operation) => {
+  const changed = changedVotesWithoutNewEvidence(operations, board, reviewerId);
+  if (changed.length > 0) throw new Error(`PEER_VOTE_CHANGED_WITHOUT_NEW_EVIDENCE: ${changed.map(({ change }) => change).join("; ")}. ${EARLIER_VOTES_RULE}`);
+}
+
+/** The changed votes that cite nothing their reviewer's earlier vote did not cite, by position in `operations`. */
+export function changedVotesWithoutNewEvidence(operations: readonly IssueOperation[], board: VotingBoard, reviewerId: string): readonly { readonly index: number; readonly change: string; readonly reason: string }[] {
+  return operations.flatMap((operation, index) => {
     if (operation.type !== "accept" && operation.type !== "reject" && operation.type !== "needs_verification") return [];
     const prior = latestVote(board, operation.candidateId, reviewerId);
-    return prior !== undefined && prior.disposition !== operation.type && operation.citedEvidenceIds.every((id) => prior.citedEvidenceIds.includes(id)) ? [`${operation.candidateId} (earlier ${prior.disposition}, now ${operation.type})`] : [];
+    if (prior === undefined || prior.disposition === operation.type || !operation.citedEvidenceIds.every((id) => prior.citedEvidenceIds.includes(id))) return [];
+    const change = `${operation.candidateId} (earlier ${prior.disposition}, now ${operation.type})`;
+    return [{ index, change, reason: `PEER_VOTE_CHANGED_WITHOUT_NEW_EVIDENCE: ${change}. ${EARLIER_VOTES_RULE}` }];
   });
-  if (changed.length > 0) throw new Error(`PEER_VOTE_CHANGED_WITHOUT_NEW_EVIDENCE: ${changed.join("; ")}. ${EARLIER_VOTES_RULE}`);
 }
 
 /** Core refusals carry bare codes; a peer reply is repaired from its refusal, so each code gets its rule. */

@@ -22,7 +22,7 @@ import { SeededRng } from "@arbitra/core/services/rng.js";
 import { peerReviewRound } from "@arbitra/workflow/nodes/peer-review/round.js";
 import { peerReviewView } from "./peer-review-view.js";
 import { peerOperationsResultSchema } from "@arbitra/schemas/peer-operations.js";
-import { assertChangedVotesCiteNewEvidence, EARLIER_VOTES_RULE, earlierPeerVotes, translatePeerOperations, type PeerOperationBatch } from "./model-peer-operations.js";
+import { changedVotesWithoutNewEvidence, EARLIER_VOTES_RULE, earlierPeerVotes, translateValidPeerOperations, type PeerOperationBatch } from "./model-peer-operations.js";
 import { ModelPeerBoard } from "./model-peer-board.js";
 import { boardEvidenceSchema } from "@arbitra/schemas/board-operation.js";
 import { allocateModelContext, withinStringBudget } from "./model-context.js";
@@ -203,6 +203,9 @@ export class ModelAuditPipeline {
           const scopeId = part.kind === "review" && part.candidateIds.length === candidateIds.length ? undefined : createHash("sha256").update(JSON.stringify(part)).digest("hex").slice(0, 24);
           const scopedView = { ...view, candidates: Object.fromEntries(Object.entries(view.candidates).filter(([id]) => part.candidateIds.includes(id))) };
           const earlier = earlierPeerVotes(scopedView, candidates, auditorId);
+          // An operation that fails its own validation, or a changed vote without new evidence, is left out and
+          // the rest of the reply stands; the reply is refused only when it is invalid as a whole.
+          const accepted = (value: unknown) => translateValidPeerOperations(value, scopedView, context.snapshot, auditorId, round, scopeId, (batch) => changedVotesWithoutNewEvidence(batch.operations, candidates, auditorId));
           const input: ModelStageInput<ReturnType<typeof peerOperationsResultSchema.parse>> = {
           activityId: `peer-review/${round}/${auditorId}${scopeId === undefined ? "" : `/${scopeId}`}`, modelProfileId: auditorId, signal,
           protocol: "peer-review", instruction: part.kind === "merge_check" && part.pairs !== undefined
@@ -217,12 +220,11 @@ export class ModelAuditPipeline {
             const parsed = peerOperationsResultSchema.parse(value);
             if (part.kind === "merge_check" && (parsed.findings.length > 0 || parsed.locations.length > 0)) throw new Error("INVALID_PEER_PAIR_OPERATIONS");
             if (part.kind === "merge_check") assertMergeCheckOperations(parsed.operations, part);
-            const batch = translatePeerOperations(parsed, scopedView, context.snapshot, auditorId, round, scopeId);
-            assertChangedVotesCiteNewEvidence(batch.operations, candidates, auditorId);
+            accepted(parsed);
             return parsed;
           } }, jsonSchema: PEER_OPERATIONS_OUTPUT_SCHEMA,
           };
-          return { input, scopedView, scopeId };
+          return { input, scopeId, accepted };
         };
         const maximumCandidates = outputRecordLimit(stageBudget(this.config, auditorId).outputCapacity, OUTPUT_TOKENS_PER_RECORD.peerReviewCandidate, "peer-review");
         // A reviewer whose batch stopped at the output ceiling goes on in batches of half that size, for reviews
@@ -244,7 +246,7 @@ export class ModelAuditPipeline {
           // review does not depend on which batch returns first. Observed live (P20 pilot): one reviewer's 20
           // batches one after another were 49 minutes of a round.
           const answered = await sideBySide(parts, execution.maximumParallelCalls ?? 1, async (part): Promise<PeerOperationBatch | null> => {
-            const { input, scopedView, scopeId } = requestFor(part);
+            const { input, scopeId, accepted } = requestFor(part);
             let result: unknown;
             try { result = await this.call(input); }
             catch (error) {
@@ -260,7 +262,9 @@ export class ModelAuditPipeline {
               await context.store.publish(`peer-review-rejected-${createHash("sha256").update(input.activityId).digest("hex").slice(0, 24)}`, { round, auditorId, scopeId: scopeId ?? null, activityId: input.activityId, reason: (error as Error).message.slice(0, 1_000) });
               return null;
             }
-            return translatePeerOperations(result, scopedView, context.snapshot, auditorId, round, scopeId);
+            const { batch, refused } = accepted(result);
+            if (refused.length > 0) await context.store.publish(`peer-review-refused-operations-${createHash("sha256").update(input.activityId).digest("hex").slice(0, 24)}`, { round, auditorId, scopeId: scopeId ?? null, activityId: input.activityId, refused });
+            return batch;
           });
           const local: PeerOperationBatch[] = [];
           const mergedPairs = new Set<string>();
@@ -403,6 +407,8 @@ export class ModelAuditPipeline {
     ]);
     const rejectedReviews = await Promise.all((await context.store.listArtifacts()).filter(({ kind }) => kind.startsWith("peer-review-rejected-"))
       .map(({ ref }) => context.store.artifacts.get<{ round: number; auditorId: string; scopeId: string | null; reason: string }>(ref)));
+    const refusedOperations = (await Promise.all((await context.store.listArtifacts()).filter(({ kind }) => kind.startsWith("peer-review-refused-operations-"))
+      .map(({ ref }) => context.store.artifacts.get<{ refused: readonly unknown[] }>(ref)))).reduce((total, { refused }) => total + refused.length, 0);
     const discoveryCoverage = await Promise.all(context.auditors.map(async ({ auditorId }) => ({ auditorId, ...await readStage<{ truncated: boolean; unexaminedDueToBudget: readonly string[]; limitations: readonly string[] }>(context.store, `discovery-validation-${auditorId}`) })));
     const issues = canonicaliseIssues({ candidates: Object.fromEntries(Object.entries(convergence.board.candidates).map(([id, candidate]) => [id, { ...candidate, counterEvidence: boardEvidenceSchema.array().parse(candidate.counterEvidence) }])), consensus: convergence.consensus }, verification.results, {
       securityCoverage: { degraded: true, reason: "source_snapshot_only_no_runtime_or_deployment_security_evidence" },
@@ -410,6 +416,7 @@ export class ModelAuditPipeline {
       limitations: ["auditor_kind:model_auditors", "model_verification_is_not_executed_test_evidence", "real_model_premise_unmeasured", `findings_rejected_on_validation:${convergence.rejectedCount}`,
         ...(operationConflicts.length === 0 ? [] : [`unresolved_peer_operation_conflicts:${operationConflicts.length}`]),
         ...(rejectedReviews.length === 0 ? [] : [`peer_review_output_rejected:${rejectedReviews.length}`]),
+        ...(refusedOperations === 0 ? [] : [`peer_review_operations_refused:${refusedOperations}`]),
         ...discoveryCoverage.flatMap(({ auditorId, truncated, limitations }) => [...(truncated ? [`discovery_truncated:${auditorId}`] : []), ...limitations.map((limitation) => `${auditorId}:${limitation}`)])],
     });
     await context.store.publish("canonical-issues", issues);
