@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SeededRng } from "@arbitra/core/services/rng.js";
-import { translatePeerOperations } from "../src/model-peer-operations.js";
+import { translatePeerOperations, translateValidPeerOperations } from "../src/model-peer-operations.js";
 import { peerReviewView } from "../src/peer-review-view.js";
 import { ModelPeerBoard } from "../src/model-peer-board.js";
 import { computeConsensus, DEFAULT_CONSENSUS_POLICY } from "@arbitra/workflow/consensus/engine.js";
@@ -61,6 +61,31 @@ describe("model board operations", () => {
     // Evidence another candidate's operation adds in the same reply is foreign as well; an ID that names nothing is still refused.
     expect(translate(response([{ ...operation, candidateId: "C2" }, { ...base, operationId: "new:vote", type: "accept", reason: "Claim", citedEvidenceIds: ["C1/source-1/evidence-1", "new:ev"] }], [location])).operations[1]?.citedEvidenceIds).toHaveLength(1);
     expect(() => translate(response([{ ...base, type: "accept", reason: "Claim", citedEvidenceIds: ["C1/source-1/evidence-1", "C9/source-1/evidence-1"] }]))).toThrow("UNKNOWN_PEER_EVIDENCE");
+  });
+
+  it("leaves out an operation that fails its own validation and keeps the rest of the reply", () => {
+    // Observed live (P20 pilot): one quotation that was not exact refused a reply of about 20 operations, and 39 of 155 calls repeated such replies.
+    const location = { id: "new:loc", path: "a.ts", startLine: 1, endLine: 1 };
+    const invented = { ...base, operationId: "new:added", type: "add_counter_evidence", citedEvidenceIds: ["new:ev"], evidence: { id: "new:ev", text: "invented", locationIds: ["new:loc"] } };
+    const vote = { ...base, operationId: "new:vote", type: "reject", reason: "Claim", citedEvidenceIds: ["C1/source-1/evidence-1", "new:ev"] };
+    const advice = { ...base, operationId: "new:advice", type: "supplement_remediation", text: "Advice" };
+    const keep = (operations: unknown[]) => translateValidPeerOperations(response(operations, [location]), view, snapshot, "reviewer", 1);
+    const kept = keep([invented, vote, advice]);
+    expect(kept.refused).toMatchObject([{ operationId: "new:added", type: "add_counter_evidence", candidateId: "C1" }]);
+    expect(kept.refused[0]?.reason).toContain("UNGROUNDED_PEER_EVIDENCE");
+    // The vote loses the withdrawn evidence and stands on its candidate's own.
+    expect(kept.batch.operations.map(({ type, citedEvidenceIds }) => [type, citedEvidenceIds])).toEqual([["reject", ["e1"]], ["supplement_remediation", ["e1"]]]);
+    // An operation left without the evidence it needs is refused in turn.
+    const onlyNew = { ...vote, citedEvidenceIds: ["new:ev"] };
+    expect(keep([invented, onlyNew, advice, { ...advice, operationId: "new:advice-2" }]).refused.map(({ operationId }) => operationId)).toEqual(["new:added", "new:vote"]);
+    // A reply that would lose more than half of its operations is refused whole, and so is a fault of the reply itself.
+    expect(() => keep([invented, onlyNew, advice])).toThrow("ISSUE_OPERATION_REQUIRES_EVIDENCE");
+    expect(() => keep([invented])).toThrow("UNGROUNDED_PEER_EVIDENCE");
+    expect(() => keep([{ ...base, type: "accept", reason: "First" }, { ...base, operationId: "new:second", type: "reject", reason: "Second" }, advice])).toThrow("DUPLICATE_PEER_VOTE");
+    // A further check names operations of the translated batch to leave out.
+    const also = translateValidPeerOperations(response([{ ...base, type: "accept", reason: "Grounded" }, advice]), view, snapshot, "reviewer", 1, undefined, (batch) => batch.operations.flatMap(({ type }, index) => type === "accept" ? [{ index, reason: "FIXTURE_REFUSED" }] : []));
+    expect(also.refused).toMatchObject([{ operationId: "new:op", reason: "FIXTURE_REFUSED" }]);
+    expect(also.batch.operations.map(({ type }) => type)).toEqual(["supplement_remediation"]);
   });
 
   it("applies structural changes with source context and removes retired claims from consensus", () => {

@@ -287,6 +287,14 @@ share no candidate. It changes only how long a stage takes: no call reads anothe
 are put together in a fixed order. Each call in flight holds its own budget reservation, and the provider's
 `maxConcurrent` still applies. The reviewers of a peer-review round and the auditors of one conflict are
 always asked together and recorded in the auditor order.
+
+A peer-review reply is checked operation by operation. A citation of another candidate's evidence is left
+out when the operation also cites evidence of its own candidate. An operation that fails its own validation
+is left out and recorded (`peer-review-refused-operations-*`, limitation
+`peer_review_operations_refused:<n>`), and evidence it would have added is withdrawn from the other
+operations' citations. A changed vote that cites no new evidence is left out the same way, so the earlier
+vote stands. The reply is refused, and repaired within `maximumOutputRepairs`, only when its shape, locations
+or findings are invalid, or when more than half of its operations would be left out.
 Exact and structural matches still resolve without model calls. Unclassified pairs remain
 separate. The run persists classifications, rationales, operations, and unresolved pairs.
 Clustering aggregate token/cost metrics are null when model calls occur; individual
