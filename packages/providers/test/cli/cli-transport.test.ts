@@ -260,7 +260,10 @@ describe("Antigravity CLI specifics", { timeout: 30_000 }, () => {
       expect(error.message).toContain("CLI_AGENT_TOOL_USE_FORBIDDEN");
     }
     const empty = await fixture({ vendor: "antigravity", replies: [{ kind: "empty_success" }] });
-    expect((await failure(send(empty.transport, request({ responseSchema: { type: "object" } })))).message).toContain("CLI_EMPTY_SUCCESS");
+    // Retried within the usual bounds: an empty SUCCESS is the CLI's slip (observed live: it failed a panel run at its last call).
+    const emptied = await failure(send(empty.transport, request({ responseSchema: { type: "object" } })));
+    expect(emptied).toMatchObject({ code: "MALFORMED_RESPONSE", retryable: true });
+    expect(emptied.message).toContain("CLI_EMPTY_SUCCESS");
   });
 
   it("answers plainly in a fresh process after an attempt that used the CLI's own tool", async () => {

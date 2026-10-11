@@ -420,10 +420,12 @@ export const antigravityDialect: CliDialect = {
         const present = structured !== undefined && structured !== null;
         // With a schema the answer is `structured_output`; `response` then carries narration and
         // internal tool records. Known CLI defect (antigravity-cli#1065): --json-schema can report
-        // SUCCESS with no structured output, which is never a success.
-        if (context.nativeSchema && !present) throw new TransportError("MALFORMED_RESPONSE", "CLI_EMPTY_SUCCESS: the Antigravity CLI reported SUCCESS without structured output", false);
+        // SUCCESS with no structured output, which is never a success. An empty SUCCESS is the CLI's slip, not the
+        // model's answer, so the call is tried again in a fresh process within the usual bounds. Observed live (P20
+        // pilot): one empty SUCCESS in the last critic call failed a panel run after 117 minutes.
+        if (context.nativeSchema && !present) throw new TransportError("MALFORMED_RESPONSE", "CLI_EMPTY_SUCCESS: the Antigravity CLI reported SUCCESS without structured output", true);
         const reply = context.nativeSchema ? JSON.stringify(structured) : (text(envelope["response"]) ?? streamed).replace(/\n$/u, "");
-        if (reply.trim() === "") throw new TransportError("MALFORMED_RESPONSE", "CLI_EMPTY_SUCCESS: the Antigravity CLI reported SUCCESS with an empty response", false);
+        if (reply.trim() === "") throw new TransportError("MALFORMED_RESPONSE", "CLI_EMPTY_SUCCESS: the Antigravity CLI reported SUCCESS with an empty response", true);
         const usage = record(envelope["usage"]);
         const input = count(usage?.["input_tokens"]); const output = count(usage?.["output_tokens"]); const thinking = count(usage?.["thinking_tokens"]);
         // agy 1.3.3 counts thinking inside output_tokens (total_tokens is input_tokens + output_tokens, observed
