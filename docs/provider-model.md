@@ -280,6 +280,12 @@ conflicts remain explicit coverage gaps, even if verification confirms the under
 defect. Reviewer order does not select a winning structural claim.
 Ambiguous finding pairs now use durable semantic classification through the verifier profile.
 `maximumClusteringPairs` defaults to 20 (0 disables escalation; maximum 1000).
+
+`discoveryConcurrency` (default 1, maximum 8) is the number of discovery units one auditor audits at a
+time. It changes only how long discovery takes: no unit reads another's result, and the results are put
+together in unit order. Each unit in flight holds its own budget reservation, and the provider's
+`maxConcurrent` still applies. The reviewers of a peer-review round are always dispatched together and
+recorded in the reviewer order.
 Exact and structural matches still resolve without model calls. Unclassified pairs remain
 separate. The run persists classifications, rationales, operations, and unresolved pairs.
 Clustering aggregate token/cost metrics are null when model calls occur; individual

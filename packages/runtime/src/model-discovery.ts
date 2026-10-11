@@ -27,6 +27,8 @@ export interface ModelDiscoveryOptions {
   readonly effort?: "low" | "medium" | "high" | "xhigh";
   readonly protocol?: PinnedProtocol;
   readonly maximumInputTokens?: number;
+  /** Units audited at a time (default 1). No unit reads another's result, so this changes only how long discovery takes. */
+  readonly concurrency?: number;
   /** Records each unit's input identity and, for an incremental run, decides its reuse before dispatch. */
   readonly units?: DiscoveryUnitHooks;
 }
@@ -192,19 +194,40 @@ async function discoverPrimary(options: ModelDiscoveryOptions): Promise<readonly
       // The marker is durable, so a resumed run splits the same way without repeating the call.
       const parts = stoppedAtOutputCeiling(error, selected) ? splitOutputLimitedUnit(options.snapshot, unit) : null;
       if (parts === null) throw error;
-      const inner = await auditAll(parts);
-      return { audited: inner.audited, splits: [{ scopeId, into: parts.map(unitScopeId) }, ...inner.splits] };
+      // The parts take the place of their unit, one after another, so the number of calls in flight stays bounded.
+      const inner: Outcome[] = [];
+      for (const part of parts) inner.push(await audit(part));
+      return { audited: inner.flatMap(({ audited }) => audited), splits: [{ scopeId, into: parts.map(unitScopeId) }, ...inner.flatMap(({ splits }) => splits)] };
     }
     const scope = { scopeId, paths: unit.files.map(({ path }) => path), estimatedTokens: options.activities.estimateInitialTokens?.(discoveryRequest(selected)) ?? null, splitModules: unit.splitModules, ...(window === undefined ? {} : { window }) };
     return { audited: [{ scope, findings: found, validation: await readValidation(options.store, `discovery-validation-${options.auditorId}-${scopeId}`), splitModules: unit.splitModules }], splits: [] };
   };
-  // Units are audited side by side: no unit reads another's result, and the provider's own concurrency limit
-  // decides how many calls run at once. Every unit runs to its end, and the results are put together in unit
-  // order, so the audit does not depend on which call returns first. Observed live (P20 pilot): five scopes one
-  // after another were 33 minutes of a 40-minute audit.
+  // Up to `concurrency` units are audited at a time: no unit reads another's result, and the results are put
+  // together in unit order, so the audit does not depend on which call returns first. After a failure no new
+  // unit starts, the units in flight run to their end, and the first failure in unit order is reported.
+  // Observed live (P20 pilot): five scopes one after another were 33 minutes of a 40-minute audit.
+  const concurrency = options.concurrency ?? 1;
+  if (!Number.isSafeInteger(concurrency) || concurrency < 1) throw new Error("INVALID_DISCOVERY_CONCURRENCY");
   const auditAll = async (units: readonly PendingUnit[]): Promise<Outcome> => {
-    const settled = await Promise.allSettled(units.map(audit));
-    const outcomes = settled.map((outcome) => { if (outcome.status === "rejected") throw outcome.reason; return outcome.value; });
+    const settled = new Map<number, { readonly outcome: Outcome } | { readonly failure: unknown }>();
+    let next = 0; let failed = false;
+    const worker = async (): Promise<void> => {
+      while (!failed && next < units.length) {
+        const index = next; next += 1;
+        const unit = units[index];
+        if (unit === undefined) return;
+        try { settled.set(index, { outcome: await audit(unit) }); }
+        catch (failure) { failed = true; settled.set(index, { failure }); }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(concurrency, units.length) }, worker));
+    const outcomes: Outcome[] = [];
+    for (let index = 0; index < units.length; index += 1) {
+      const entry = settled.get(index);
+      if (entry === undefined) break;
+      if ("failure" in entry) throw entry.failure;
+      outcomes.push(entry.outcome);
+    }
     return { audited: outcomes.flatMap(({ audited }) => audited), splits: outcomes.flatMap(({ splits }) => splits) };
   };
   const { audited, splits } = await auditAll(pending);
