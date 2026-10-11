@@ -146,11 +146,19 @@ too much and what is slow. Findings from the runs' own data go here, with their 
   Flash calls at high stopped at the ceiling and were redone in smaller parts. Each lost call costs up to
   64,000 output tokens and nine minutes. To decide: start with smaller scopes at efforts where thinking counts
   as output, for example after one scope of the run has come close to the ceiling.
-- **Peer-review replies are refused for a bookkeeping slip, and each refusal costs a whole call.** In one panel
-  run, three of a reviewer's seven peer-review calls were repairs. Two were for
-  `ISSUE_EVIDENCE_ID_NOT_CITED`: an added piece of evidence was not listed among its own citations. To fix:
-  add the missing ID instead of refusing the reply. It changes what a review returns, so it waits for a
-  protocol boundary.
+- **Refused peer-review replies cost a quarter of a panel run's calls.** In one panel run, 23 of the first 93
+  calls were repairs of a refused reply: 3.14M tokens and 56 minutes. By rule: 10 cited evidence of another
+  candidate (`CROSS_CANDIDATE_PEER_EVIDENCE`), 6 added evidence without listing it among its own citations
+  (`ISSUE_EVIDENCE_ID_NOT_CITED`), 4 merged candidates outside the listed pairs of a packed pair check
+  (`INVALID_PEER_PAIR_OPERATIONS`), 2 used a presented ID where a new one was required. To fix, at the next
+  protocol boundary: add the missing citation instead of refusing; let a packed pair check merge any candidates
+  it presents; decide whether a foreign citation can be dropped when a valid one remains.
+- **Peer reviewers run one after another.** In the same run the three reviewers' first round took 17, 61 and 56
+  minutes in sequence, although each uses a different provider. To decide: run the reviewers of a round side by
+  side.
+- **Planning the packed pair checks takes minutes of processor time.** Each fit test compiles a whole prompt; one
+  reviewer's plan took about three and a half minutes before its first call. To fix: estimate from record sizes
+  and compile only the chosen batches.
 - **A provider's safety-filter notice is handled as invalid JSON.** One Gemini discovery reply was "This request
   was blocked by Gemini's filters"; arbitra asked for a repair and the second reply was fine. To decide:
   recognise such a notice and ask the same question again, without sending the notice back.
