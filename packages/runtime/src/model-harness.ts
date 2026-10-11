@@ -40,6 +40,10 @@ export class ModelHarness {
     for (let repair = 1; ; repair += 1) {
       try { return await this.invokeBounded(attempt); }
       catch (error) {
+        // A repair that stops at the output ceiling means the activity's own reply does not fit: the activity is
+        // marked, so the stage that composed it splits it. Observed live (P20 pilot): only the repair was marked,
+        // and every resume replayed the rejected reply and failed at the same repair.
+        if (error instanceof ModelOutputLimitError && attempt !== input) { await this.markOutputLimited(input.activityId, error.activityId); throw new ModelOutputLimitError(input.activityId); }
         if (!(error instanceof ModelOutputRejectedError)) throw error;
         // Exhausted: rethrow the validation error itself, marked so a stage that can proceed
         // without this one reply (peer review) can tell it from a provider or policy failure.
@@ -61,11 +65,15 @@ export class ModelHarness {
     try { return await this.invokeTurns(input); }
     catch (error) {
       if (!(error instanceof ModelOutputLimitError)) throw error;
-      const execution = providerExecutionSchema.parse(this.config.workflow["modelExecution"]);
-      await this.store.publish(outputLimitKind(input.activityId), { activityId: input.activityId, turnActivityId: error.activityId, maximumOutputTokens: execution.maximumOutputTokens }, input.activityId);
-      (await (this.#outputLimited ?? Promise.resolve(new Set<string>()))).add(outputLimitKind(input.activityId));
+      await this.markOutputLimited(input.activityId, error.activityId);
       throw new ModelOutputLimitError(input.activityId);
     }
+  }
+
+  private async markOutputLimited(activityId: string, turnActivityId: string): Promise<void> {
+    const execution = providerExecutionSchema.parse(this.config.workflow["modelExecution"]);
+    await this.store.publish(outputLimitKind(activityId), { activityId, turnActivityId, maximumOutputTokens: execution.maximumOutputTokens }, activityId);
+    (await (this.#outputLimited ?? Promise.resolve(new Set<string>()))).add(outputLimitKind(activityId));
   }
 
   private async invokeTurns<T>(input: ModelActivityRequest<T>): Promise<T> {

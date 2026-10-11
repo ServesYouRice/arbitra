@@ -99,6 +99,22 @@ describe("durable canonical model harness", () => {
     expect(send).toHaveBeenCalledTimes(3);
   });
 
+  it("marks the activity when its repair stops at the output ceiling, so no restart repeats the rejected reply's repair", async () => {
+    // Observed live (P20 pilot): only the repair was marked; every resume replayed the rejected reply and failed at the same repair.
+    const { create, send } = await setup(2, 0, 1);
+    const replies = [{ output_text: "not json", usage: { input_tokens: 10, output_tokens: 10 } }, { status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, output_text: '{"answer":', usage: { input_tokens: 10, output_tokens: 500 } }];
+    let index = 0;
+    send.mockImplementation(async () => ({ status: 200, headers: {}, body: replies[Math.min(index++, replies.length - 1)] }));
+    const review = () => ({ ...request(), activityId: "peer-review/1/auditor-a" });
+    await expect(create().invoke(review())).rejects.toMatchObject({ name: "ModelOutputLimitError", activityId: "peer-review/1/auditor-a" });
+    expect(send).toHaveBeenCalledTimes(2);
+    const restarted = create();
+    expect(await restarted.outputLimited("peer-review/1/auditor-a")).toBe(true);
+    expect(await restarted.outputLimited("peer-review/1/auditor-a/repair-1")).toBe(true);
+    await expect(restarted.invoke(review())).rejects.toThrow("MODEL_OUTPUT_LIMIT_REACHED:peer-review/1/auditor-a");
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
   it("archives overflowing tool history and reuses the same bounded turns after restart", async () => {
     const { create, requests, store } = await setup(2, 3_000);
     expect(await create().invoke(request())).toEqual({ answer: "ok" });

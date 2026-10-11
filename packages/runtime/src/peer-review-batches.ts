@@ -18,7 +18,7 @@ export function segmentText(text: string, segment: Pick<PeerReviewSegment, "inde
  * Pair checks only propose merges, so they cannot duplicate candidate votes. Pairs are packed
  * into as few calls as fit, as the critic packs its own. Observed live (P20 pilot): one pair per
  * call asked one reviewer for 1,140 calls of about 59,000 tokens over 68 candidates in two batches. */
-export async function peerReviewBatches(candidateIds: readonly string[], fits: (batch: PeerReviewBatch) => Promise<boolean>, maximumCandidates = 20): Promise<readonly PeerReviewBatch[]> {
+export async function peerReviewBatches(candidateIds: readonly string[], fits: (batch: PeerReviewBatch) => Promise<boolean>, maximumCandidates = 20, maximumPackedCandidates = maximumCandidates): Promise<readonly PeerReviewBatch[]> {
   const primary = await reviewPartition(candidateIds, (ids) => fits({ kind: "review", candidateIds: ids }), maximumCandidates);
   const result: PeerReviewBatch[] = primary.map((ids): PeerReviewBatch => ({ kind: "review", candidateIds: ids }));
   const rank = new Map(candidateIds.map((id, position) => [id, position]));
@@ -42,7 +42,7 @@ export async function peerReviewBatches(candidateIds: readonly string[], fits: (
     }
     // Grow the call by the candidate that adds the most uncovered pairs, while the call still fits.
     const members = new Set([leftId, rightId]); const tried = new Set<string>();
-    while (members.size < maximumCandidates) {
+    while (members.size < Math.max(2, maximumPackedCandidates)) {
       let best: string | undefined; let bestGain = 0;
       for (const id of candidateIds) {
         if (members.has(id) || tried.has(id)) continue;
