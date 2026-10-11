@@ -146,10 +146,18 @@ too much and what is slow. Findings from the runs' own data go here, with their 
   Flash calls at high stopped at the ceiling and were redone in smaller parts. Each lost call costs up to
   64,000 output tokens and nine minutes. To decide: start with smaller scopes at efforts where thinking counts
   as output, for example after one scope of the run has come close to the ceiling.
+- **Peer-review replies are refused for a bookkeeping slip, and each refusal costs a whole call.** In one panel
+  run, three of a reviewer's seven peer-review calls were repairs. Two were for
+  `ISSUE_EVIDENCE_ID_NOT_CITED`: an added piece of evidence was not listed among its own citations. To fix:
+  add the missing ID instead of refusing the reply. It changes what a review returns, so it waits for a
+  protocol boundary.
+- **A provider's safety-filter notice is handled as invalid JSON.** One Gemini discovery reply was "This request
+  was blocked by Gemini's filters"; arbitra asked for a repair and the second reply was fine. To decide:
+  recognise such a notice and ask the same question again, without sending the notice back.
 - **Discovery audits its scopes one after another.** 43 of the 55 minutes of a single-auditor run were
   discovery calls in sequence. To decide: run two or three scopes at a time where a plan's limits allow.
 
-**Fixed.** The P20 pilot found two defects on October 10 and two on October 11; all four are fixed and verified
+**Fixed.** The P20 pilot found two defects on October 10 and three on October 11; all five are fixed and verified
 on Linux, and the second was also checked live on the owner's Windows PC
 ([qa/subscription-cli](docs/qa/subscription-cli/README.md)):
 
@@ -169,7 +177,12 @@ on Linux, and the second was also checked live on the owner's Windows PC
   resolution, verification) has not yet run at this size.
 - **Clustering made one call per pair with the whole repository attached (fixed in a33d4e8).** In a
   single-auditor audit, 20 clustering calls took 1.13M input tokens, 57% of the run's tokens, to return about
-  1,500 tokens each. The pairs now share one call, and each decision is still recorded per pair.
+  1,500 tokens each. The pairs now share one call, and each decision is still recorded per pair. In its first
+  real run the same audit took 10 calls and 0.86M tokens, where it had taken 33 calls and 2.04M.
+- **One reply that used the CLI's own tool failed the whole run (fixed in 3e2bbc7).** A Gemini peer-review reply
+  ran `run_command`. The attempt still fails and nothing it did is used, but the call is now tried again in a
+  fresh process within `maximumRetries`. This does not change what a run returns, so the pilot's build takes it
+  at the next wait between runs.
 
 All eight findings in [qa/p19](docs/qa/p19/README.md) are fixed, and the affected live acceptance passed on subscriptions on September 30 (runs A–E there). The reruns found four more defects; all are fixed. The completion report is P21, after P20.
 
