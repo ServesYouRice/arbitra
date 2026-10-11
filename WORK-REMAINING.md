@@ -27,8 +27,10 @@ subscriptions.
     retired unscored and runs again.
   - On October 11 the first panel run could not get through peer review: one call per candidate pair meant 1,140
     calls for one reviewer. That is fixed too (42da89f). The run build was updated at 10:33 while the runner
-    waited for the Codex window; the protocol version is unchanged, because no completed run enters that stage.
-    One of 18 runs is complete.
+    waited for the Codex window.
+  - The same day the owner asked that the runs also test arbitra's cost, and chose to fix the largest cost found,
+    clustering, at once (a33d4e8). The pilot started again from its first run as a new protocol version at 13:29;
+    the run completed before was retired unscored.
   - GPT-6.1 Sol at xhigh answers through arbitra (nine calls, none failed). GPT-6 Luna at max and Sonnet 5.5 at
     xhigh have not run through arbitra yet.
   - Codex answers through arbitra on Windows (0.162.1, live evidence in
@@ -136,9 +138,6 @@ too much and what is slow. Findings from the runs' own data go here, with their 
 
 **Open (cost and speed), measured on October 11 on a project of about 56,000 tokens:**
 
-- **Clustering makes one call per pair and attaches the whole repository.** In a single-auditor audit, 20
-  clustering calls took 1.13M input tokens, 57% of the run's tokens, to return about 1,500 tokens each. To fix:
-  pack the pairs into one or two calls, as peer review and the critic now do.
 - **Every decision call re-sends the whole repository, and none of it is read from a cache.** Clustering,
   verification, peer review and conflict resolution each carried 55,000 to 59,000 input tokens per call; cache
   reads were 0% except where a whole prompt repeated. To decide: attach only the files a record cites (the
@@ -150,7 +149,7 @@ too much and what is slow. Findings from the runs' own data go here, with their 
 - **Discovery audits its scopes one after another.** 43 of the 55 minutes of a single-auditor run were
   discovery calls in sequence. To decide: run two or three scopes at a time where a plan's limits allow.
 
-**Fixed.** The P20 pilot found two defects on October 10 and one on October 11; all three are fixed and verified
+**Fixed.** The P20 pilot found two defects on October 10 and two on October 11; all four are fixed and verified
 on Linux, and the second was also checked live on the owner's Windows PC
 ([qa/subscription-cli](docs/qa/subscription-cli/README.md)):
 
@@ -168,6 +167,9 @@ on Linux, and the second was also checked live on the owner's Windows PC
   the critic packs its own, and those 1,140 pairs take four calls
   ([harness](docs/harness.md#context-and-output-capacity)). What follows peer review (a second round, conflict
   resolution, verification) has not yet run at this size.
+- **Clustering made one call per pair with the whole repository attached (fixed in a33d4e8).** In a
+  single-auditor audit, 20 clustering calls took 1.13M input tokens, 57% of the run's tokens, to return about
+  1,500 tokens each. The pairs now share one call, and each decision is still recorded per pair.
 
 All eight findings in [qa/p19](docs/qa/p19/README.md) are fixed, and the affected live acceptance passed on subscriptions on September 30 (runs A–E there). The reruns found four more defects; all are fixed. The completion report is P21, after P20.
 
