@@ -473,6 +473,8 @@ describe("failure text classification", () => {
     expect(classifyCliFailure(claude, "API Error: Claude's response exceeded the 200 output token maximum", 1).code).toBe("OUTPUT_LIMIT");
     expect(classifyCliFailure(requireCliTransportSupport("antigravity-cli"), "Your previous response was cut off because it exceeded the output token limit.", 1).code).toBe("OUTPUT_LIMIT");
     expect(classifyCliFailure(claude, "Error for user@example.com token=abc123", 1).message).not.toMatch(/user@example\.com|abc123/u);
+    // Observed live (P20 pilot): this answer was not retried and failed a run.
+    expect(classifyCliFailure(requireCliTransportSupport("antigravity-cli"), "error: Eligibility check failed: failed to get load code assist response: UNAVAILABLE (code 503): The service is currently unavailable.", 1)).toMatchObject({ code: "HTTP", retryable: true, message: expect.stringContaining("CLI_UPSTREAM_ERROR") as unknown });
   });
 
   it("frames multi-message conversations with a hash-derived boundary", () => {

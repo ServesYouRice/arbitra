@@ -24,7 +24,11 @@ export function classifyCliFailure(support: CliTransportSupport, text: string, e
     return new TransportError("QUOTA", `CLI_USAGE_LIMIT_REACHED: the ${support.displayName} subscription's usage allowance is exhausted${reset === null ? "" : ` until ${new Date(reset).toISOString()}`}${suffix}`, false, reset === null ? null : Math.max(0, reset - now));
   }
   if (RATE_PATTERN.test(text)) return new TransportError("RATE_LIMIT", `CLI_RATE_LIMITED: ${support.displayName} was throttled${suffix}`, true, retryHint(text));
-  if (/\bAPI Error: 5\d\d|\b5\d\d\b.*(?:Internal|Service Unavailable|Bad Gateway)|stream disconnected|ECONNRESET|ETIMEDOUT|ENOTFOUND|network error/iu.test(text)) {
+  // Observed live (P20 pilot): the Antigravity CLI ended with "Eligibility check failed: ... UNAVAILABLE (code 503):
+  // The service is currently unavailable." It was not recognised, so it was not retried and the run failed.
+  if (/\bAPI Error: 5\d\d|\b5\d\d\b.*(?:Internal|Service Unavailable|Bad Gateway)|\((?:code|status) 5\d\d\)|service is (?:currently |temporarily )?unavailable|stream disconnected|ECONNRESET|ETIMEDOUT|ENOTFOUND|network error/iu.test(text)
+    // A gRPC status name is upper case; the word in a sentence is not such a status.
+    || /\b(?:UNAVAILABLE|DEADLINE_EXCEEDED)\b/u.test(text)) {
     return new TransportError("HTTP", `CLI_UPSTREAM_ERROR: ${support.displayName} could not reach its service${suffix}`, true);
   }
   return new TransportError("HTTP", `CLI_FAILED: ${support.displayName} exited ${exitCode === null ? "without a status" : `with status ${exitCode}`}${suffix}`, false);
