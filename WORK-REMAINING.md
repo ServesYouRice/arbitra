@@ -169,6 +169,11 @@ under per-provider limits (§12.6) and a shared cached prefix (§14.2).
 
 **Open (cost and speed), measured on October 11 on that project:**
 
+- **The Codex allowance now bounds a panel's throughput, not arbitra's speed.** Three panels side by side used a
+  whole five-hour ChatGPT Plus window in about 100 minutes and 16 points of the week: 4.0M tokens of GPT-6.1 Sol and
+  0.9M of GPT-6 Luna. One panel's Sol at xhigh made 43 calls up to its first conflicts, 20 of them tool round trips
+  (130 tool calls), with 5% of its input read from a cache. The two items on tool round trips and on byte-sized
+  prompts below are therefore the next to fix: they decide how many panels fit in a window.
 - **Most of an audit prompt is packaging.** The project is 54 files, 5,208 lines and 224,000 characters. One
   auditor's discovery sent 575,000 characters in 5 calls and was billed 307,000 input tokens. Source text was 39%
   of the characters and the `&quot;` entity 36% (no longer written, 24eacf4). The rest is one JSON object per
@@ -227,7 +232,7 @@ application around `agy`. The owner was told and left the choice to the session 
 pilot runs four Antigravity calls at a time at a low per-minute rate, and two lineups side by side. Still open for
 the product: the terms of each vendor's subscription CLI need a check before arbitra recommends subscriptions.
 
-**Fixed.** The P20 pilot found two defects on October 10 and eleven on October 11; all thirteen are fixed and
+**Fixed.** The P20 pilot found two defects on October 10 and twelve on October 11; all fourteen are fixed and
 verified on Linux, and the second was also checked live on the owner's Windows PC
 ([qa/subscription-cli](docs/qa/subscription-cli/README.md)):
 
@@ -261,7 +266,8 @@ verified on Linux, and the second was also checked live on the owner's Windows P
   of one review, the scopes of a discovery and the auditors of a conflict each waited for the one before. They
   now run side by side: reviewers of a round and auditors of a conflict always, the rest up to
   `maximumParallelCalls` per auditor (default 1), which since b1a2785 includes the halves that replace a
-  discovery unit stopped at its output ceiling. Replies are applied in a fixed order, and a conflict that
+  discovery unit stopped at its output ceiling and since cf50a96 the parts of a critic review (seven parts one
+  after another were 21 minutes of a panel run). Replies are applied in a fixed order, and a conflict that
   shares a candidate with an earlier one waits for it, so the outcome does not depend on which call returns first
   ([provider model](docs/provider-model.md)).
 - **Three bookkeeping slips each cost a whole repair call (fixed in 14ae7aa and 094eb56).** Added evidence that
@@ -297,6 +303,9 @@ verified on Linux, and the second was also checked live on the owner's Windows P
   check failed: ... UNAVAILABLE (code 503): The service is currently unavailable." The text was not recognised as
   an upstream error, so the call was not retried within `maximumRetries` and the run failed; its resume went on.
   A status of that kind is now retried like any other unreachable service.
+- **An empty SUCCESS from the Antigravity CLI failed the run (fixed in 9f22652).** The CLI reported SUCCESS with no
+  answer in the last critic call of a panel run, 117 minutes in. It was not retried, so the run failed there. An
+  empty SUCCESS is now tried again in a fresh process within `maximumRetries`.
 
 All eight findings in [qa/p19](docs/qa/p19/README.md) are fixed, and the affected live acceptance passed on subscriptions on September 30 (runs A–E there). The reruns found four more defects; all are fixed. The completion report is P21, after P20.
 
