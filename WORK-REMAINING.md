@@ -209,9 +209,10 @@ under per-provider limits (§12.6) and a shared cached prefix (§14.2).
 - **Planning the packed pair checks takes minutes of processor time.** Each fit test compiles a whole prompt; one
   reviewer's plan took about three and a half minutes before its first call. To fix: estimate from record sizes
   and compile only the chosen batches.
-- **A provider's safety-filter notice is handled as invalid JSON.** One Gemini discovery reply was "This request
-  was blocked by Gemini's filters"; arbitra asked for a repair and the second reply was fine. To decide:
-  recognise such a notice and ask the same question again, without sending the notice back.
+- **Gemini writes up to its output limit in discovery.** With leaner prompts a discovery scope holds more source,
+  and Gemini 3.8 Flash at high then wrote 61,000 to 65,000 output tokens for each of three scopes, against a limit
+  of 65,536; a fourth passed the limit and was redone in halves. To decide: size a discovery scope by the
+  output it is likely to draw, per model, not only by its input.
 - **Every stage thinks at the audit's effort.** A vote on a few candidates took Gemini 3.8 Flash at high 25,000
   output tokens and two and a half minutes. To decide, by the owner because it changes what a lineup is: a
   lower effort for votes and conflict choices than for discovery.
@@ -224,7 +225,7 @@ application around `agy`. The owner was told and left the choice to the session 
 pilot runs four Antigravity calls at a time at a low per-minute rate, and two lineups side by side. Still open for
 the product: the terms of each vendor's subscription CLI need a check before arbitra recommends subscriptions.
 
-**Fixed.** The P20 pilot found two defects on October 10 and nine on October 11; all eleven are fixed and verified
+**Fixed.** The P20 pilot found two defects on October 10 and ten on October 11; all twelve are fixed and verified
 on Linux, and the second was also checked live on the owner's Windows PC
 ([qa/subscription-cli](docs/qa/subscription-cli/README.md)):
 
@@ -281,6 +282,14 @@ on Linux, and the second was also checked live on the owner's Windows PC
   change the same rule ran on through the `&quot;` entities: in the stored compiled prompt, the source line
   after such an assignment was folded into it and lost its line number. An assigned secret no longer ends in a
   backslash, and artifacts are redacted value by value (redaction pattern version 3).
+- **One provider's content filter failed the whole audit (fixed in f22dcc8).** Gemini answered one discovery unit
+  three times with "This request was blocked by Gemini's filters". As plain text it was repaired as invalid JSON,
+  the run failed after its repairs, and every resume failed again. The CLI transports now report the notice as a
+  refusal, the harness records it durably, and discovery tries the unit once more in smaller parts and leaves what
+  is declined again unexamined for that auditor: when the failed run was resumed on a copy, 79 lines of one file,
+  for Gemini only. A declined
+  review batch counts as rejected output and a declined conflict vote is not cast
+  ([provider model](docs/provider-model.md)).
 
 All eight findings in [qa/p19](docs/qa/p19/README.md) are fixed, and the affected live acceptance passed on subscriptions on September 30 (runs A–E there). The reruns found four more defects; all are fixed. The completion report is P21, after P20.
 
