@@ -2,7 +2,10 @@ import { clustersFrom, deterministicClusteringStrategy, mergeParent, parentFrom 
 import type { AmbiguousPair, ClusterOperation, ClusteringMetrics, ClusteringResult, ClusteringStrategy, ClusterRelationship, ValidatedClusterInput } from "./types.js";
 
 export interface SemanticClusteringDecision { readonly relationship: ClusterRelationship; readonly inputTokens: number | null; readonly outputTokens: number | null; readonly cost: number | null }
-export interface SemanticClusteringRuntime { readonly capability: "fast" | "balanced"; classify(pair: { readonly left: ValidatedClusterInput; readonly right: ValidatedClusterInput; readonly signals: readonly string[] }): Promise<SemanticClusteringDecision> }
+export interface SemanticClusteringPair { readonly left: ValidatedClusterInput; readonly right: ValidatedClusterInput; readonly signals: readonly string[] }
+export interface SemanticClusteringRuntime { readonly capability: "fast" | "balanced"; classify(pair: SemanticClusteringPair): Promise<SemanticClusteringDecision>;
+  /** Optional: classifies several pairs in as few calls as the runtime can. Decisions come back in pair order, with the number of calls made. */
+  classifyMany?(pairs: readonly SemanticClusteringPair[]): Promise<{ readonly decisions: readonly SemanticClusteringDecision[]; readonly calls: number }> }
 export interface ClusterOptions { readonly strategy?: ClusteringStrategy; readonly semantic?: SemanticClusteringRuntime; readonly maximumEscalatedPairs?: number }
 
 export async function cluster(findings: readonly ValidatedClusterInput[], options: ClusterOptions = {}): Promise<ClusteringResult> {
@@ -10,17 +13,35 @@ export async function cluster(findings: readonly ValidatedClusterInput[], option
   const base = strategy.cluster(findings); const maximum = options.maximumEscalatedPairs ?? 0;
   if (!Number.isSafeInteger(maximum) || maximum < 0) throw new Error("INVALID_CLUSTERING_ESCALATION_LIMIT");
   const byId = new Map(base.findings.map((finding) => [finding.finding.sourceFindingId, finding])); const parent = parentFrom(base.clusters); const operations: ClusterOperation[] = [...base.operations]; const pairs: AmbiguousPair[] = [];
-  let calls = 0; let tokens: number | null = 0; let cost: number | null = 0;
+  // The escalated pairs are the first `maximum` ambiguous pairs. Their decisions do not depend on one another,
+  // so a runtime may take them together.
+  const escalated: SemanticClusteringPair[] = [];
   for (const [index, pair] of base.ambiguousPairs.entries()) {
-    if (index >= maximum || options.semantic === undefined) { pairs.push(pair); continue; }
+    if (index >= maximum || options.semantic === undefined) break;
     const left = byId.get(pair.leftId);
     const right = byId.get(pair.rightId);
     if (left === undefined || right === undefined) throw new Error(`AMBIGUOUS_PAIR_FINDING_MISSING:${pair.leftId}:${pair.rightId}`);
-    const decision = await options.semantic.classify({ left, right, signals: pair.signals }); calls += 1; tokens = tokens === null || decision.inputTokens === null || decision.outputTokens === null ? null : tokens + decision.inputTokens + decision.outputTokens; cost = cost === null || decision.cost === null ? null : cost + decision.cost;
+    escalated.push({ left, right, signals: pair.signals });
+  }
+  let decisions: readonly SemanticClusteringDecision[] = []; let calls = 0;
+  if (options.semantic?.classifyMany !== undefined && escalated.length > 1) {
+    const many = await options.semantic.classifyMany(escalated);
+    if (many.decisions.length !== escalated.length) throw new Error("SEMANTIC_CLUSTERING_DECISION_COUNT_MISMATCH");
+    decisions = many.decisions; calls = many.calls;
+  } else if (options.semantic !== undefined) {
+    const single: SemanticClusteringDecision[] = [];
+    for (const pair of escalated) { single.push(await options.semantic.classify(pair)); calls += 1; }
+    decisions = single;
+  }
+  let tokens: number | null = 0; let cost: number | null = 0;
+  for (const [index, pair] of base.ambiguousPairs.entries()) {
+    const decision = decisions[index];
+    if (decision === undefined) { pairs.push(pair); continue; }
+    tokens = tokens === null || decision.inputTokens === null || decision.outputTokens === null ? null : tokens + decision.inputTokens + decision.outputTokens; cost = cost === null || decision.cost === null ? null : cost + decision.cost;
     pairs.push(Object.freeze({ ...pair, relationship: decision.relationship }));
     if (decision.relationship === "same_root_cause") { mergeParent(parent, pair.leftId, pair.rightId); operations.push(Object.freeze({ type: "merge", sourceFindingIds: Object.freeze([pair.leftId, pair.rightId]), reason: "semantic" })); }
   }
-  const metrics: ClusteringMetrics = Object.freeze({ deterministicPairsResolved: base.deterministicPairsResolved, escalatedPairs: calls, semanticClusteringCalls: calls, semanticClusteringTokens: tokens, semanticClusteringCost: cost === null ? null : Math.round(cost * 1_000_000) / 1_000_000 });
+  const metrics: ClusteringMetrics = Object.freeze({ deterministicPairsResolved: base.deterministicPairsResolved, escalatedPairs: decisions.length, semanticClusteringCalls: calls, semanticClusteringTokens: tokens, semanticClusteringCost: cost === null ? null : Math.round(cost * 1_000_000) / 1_000_000 });
   return Object.freeze({ clusters: clustersFrom(parent), ambiguousPairs: Object.freeze(pairs), operations: Object.freeze(operations), metrics });
 }
 

@@ -25,6 +25,7 @@ export const OUTPUT_TOKENS_PER_RECORD = Object.freeze({
   testingRiskPath: 250,
   requirementsRecord: 200,
   featureExplorationRequirement: 300,
+  clusteringPair: 300,
 });
 
 export function outputRecordLimit(outputCapacity: number, tokensPerRecord: number, stage: string): number {

@@ -146,7 +146,7 @@ truncated. When they do not fit, the stage is recomposed:
 Output capacity is handled twice. Before spend, stages that emit one decision per record cap
 batch sizes with `OUTPUT_TOKENS_PER_RECORD` (peer review 160, critic 60, planner brief 400,
 Testing selection 120, Feature review 150, Testing risk 250 per path, requirements record 200,
-Feature exploration 300 tokens per record). After spend, every transport
+Feature exploration 300, clustering pair 300 tokens per record). After spend, every transport
 maps a provider stop at the output ceiling (`max_tokens`, `incomplete/max_output_tokens`,
 `length`, `MAX_TOKENS`) to a non-retryable `OUTPUT_LIMIT` error rather than accepting or
 repairing a truncated prefix. `ModelHarness` records a durable `model-output-limit-*` marker
@@ -255,8 +255,12 @@ Not yet staged (single mandatory global context):
 - Feature requirements revision still makes one call. Its mandatory input (contract, blocking
   decisions and exploration) must fit, and its structured output must fit one response. It fails
   with `MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED` or `MODEL_OUTPUT_LIMIT_REACHED:<activityId>`.
-- Audit semantic clustering, targeted verification and conflict resolution make one call per
-  pair, candidate or conflict; their mandatory records must fit.
+- Audit targeted verification and conflict resolution make one call per candidate or conflict;
+  their mandatory records must fit. Semantic clustering takes its pairs together
+  (`semantic-clustering/pairs-<hash>`): each finding is listed once, each pair names its two
+  findings, and the reply must decide every listed pair exactly once. A call that does not fit
+  or stops at the output ceiling is halved. One call per pair, each with the whole repository
+  attached, was once 57% of a single-auditor run's tokens.
 - Tool-history archival (`MODEL_HISTORY_REFERENCE_LIMIT_EXCEEDED`) requires the initial
   prompt and one archive reference to fit.
 - Snapshot policy limits (`REPOSITORY_FILE_TOO_LARGE`, 512 KiB per file;

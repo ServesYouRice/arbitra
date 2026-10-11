@@ -11,6 +11,28 @@ describe("deterministic clustering", () => {
     expect(result.metrics).toEqual({ deterministicPairsResolved: 3, escalatedPairs: 0, semanticClusteringCalls: 0, semanticClusteringTokens: 0, semanticClusteringCost: 0 });
   });
 
+  it("hands several ambiguous pairs to the runtime together when it offers that, and applies the decisions in pair order", async () => {
+    const findings = [input("auditor-a/SEC-1"),
+      input("auditor-b/SEC-2", { title: "Authorization race", problem: "An authorization race permits access", recommendedFix: "Lock then validate", locations: [{ path: "src/auth.ts", startLine: 80, endLine: 90, symbol: "authorizeLater" }] }),
+      input("auditor-c/SEC-3", { title: "Authorization cache", problem: "An authorization cache permits access", recommendedFix: "Expire then validate", locations: [{ path: "src/auth.ts", startLine: 120, endLine: 130, symbol: "authorizeCached" }] })];
+    const received: number[] = []; let single = 0;
+    const runtime = { capability: "fast" as const,
+      async classify() { single += 1; return { relationship: "unrelated" as const, inputTokens: 20, outputTokens: 5, cost: 0.0002 }; },
+      async classifyMany(pairs: readonly unknown[]) { received.push(pairs.length); return { calls: 1, decisions: pairs.map((_, index) => ({ relationship: index === 0 ? "same_root_cause" as const : "unrelated" as const, inputTokens: 30, outputTokens: 10, cost: 0.0003 })) }; } };
+    const result = await cluster(findings, { strategy: deterministicClusteringStrategy, maximumEscalatedPairs: 10, semantic: runtime });
+    const ambiguous = result.ambiguousPairs.length;
+    expect(ambiguous).toBeGreaterThan(1);
+    expect(received).toEqual([ambiguous]); expect(single).toBe(0);
+    expect(result.ambiguousPairs.map(({ relationship }) => relationship)).toEqual(["same_root_cause", ...Array.from({ length: ambiguous - 1 }, () => "unrelated")]);
+    expect(result.metrics).toMatchObject({ escalatedPairs: ambiguous, semanticClusteringCalls: 1, semanticClusteringTokens: 40 * ambiguous });
+    expect(result.clusters).toHaveLength(2);
+    // One escalated pair keeps the single call, and a runtime that answers too few pairs is refused.
+    const bounded = await cluster(findings, { strategy: deterministicClusteringStrategy, maximumEscalatedPairs: 1, semantic: runtime });
+    expect(single).toBe(1); expect(received).toEqual([ambiguous]);
+    expect(bounded.metrics).toMatchObject({ escalatedPairs: 1, semanticClusteringCalls: 1 });
+    await expect(cluster(findings, { strategy: deterministicClusteringStrategy, maximumEscalatedPairs: 10, semantic: { ...runtime, async classifyMany() { return { calls: 1, decisions: [] }; } } })).rejects.toThrow("SEMANTIC_CLUSTERING_DECISION_COUNT_MISMATCH");
+  });
+
   it("does not merge two different defects in one file", async () => {
     const result = await cluster([input("auditor-a/SEC-1"), input("auditor-b/PERF-1", { category: "PERFORMANCE", title: "Slow catalog query", problem: "A table scan causes latency", recommendedFix: "Add an index", locations: [{ path: "src/auth.ts", startLine: 80, endLine: 90, symbol: "listUsers" }], failureMechanisms: [] })], { strategy: deterministicClusteringStrategy });
     expect(result.clusters).toHaveLength(2); expect(result.ambiguousPairs).toHaveLength(0); expect(result.metrics.deterministicPairsResolved).toBe(1);
