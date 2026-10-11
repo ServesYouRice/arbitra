@@ -43,7 +43,8 @@ export async function smokeProvider(options: { highImpactAmbiguity?: boolean; ro
           problem: "Fixture claim", recommendedFix: "Validate the version", productionImpact: "", trigger: "", verification: "", dependencies: [], relatedRisks: [] }], truncated: false, unexaminedDueToBudget: [], limitations: [] };
       }
       case "merge-check": return { operations: [], findings: [], locations: [] };
-      case "clustering": return { relationship: "same_root_cause", rationale: "Fixture: identical cited source and remediation" };
+      // Several pairs arrive in one call; one pair keeps the single-decision reply.
+      case "clustering": return Array.isArray(input["pairs"]) ? { decisions: (input["pairs"] as { pairId: string }[]).map(({ pairId }) => ({ pairId, relationship: "same_root_cause", rationale: "Fixture: identical cited source and remediation" })) } : { relationship: "same_root_cause", rationale: "Fixture: identical cited source and remediation" };
       case "conflict": {
         const candidates = input["candidates"] as Record<string, { sources: { evidence: { id: string }[] }[] }>;
         return { selection: "unresolved", evidenceIds: Object.values(candidates).flatMap(({ sources }) => sources.flatMap(({ evidence }) => evidence.map(({ id }) => id))), rationale: "Fixture leaves the conflict to the operator" };

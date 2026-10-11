@@ -81,7 +81,12 @@ export async function incrementalFixture(files: Readonly<Record<string, string>>
       calls.push({ stage, activity: `${model}:${input.files.map(({ path }) => path).join(",")}`, user });
     } else {
       if (system.startsWith("Compare the supplied candidate pair")) { stage = "merge-check"; output = { operations: [], findings: [], locations: [] }; }
-      else if (system.startsWith("Classify the relationship")) { stage = "clustering"; output = { relationship: "unrelated", rationale: "Fixture: different modules" }; }
+      else if (system.startsWith("Classify the relationship")) {
+        stage = "clustering";
+        // Several pairs arrive in one call; one pair keeps the single-decision reply.
+        const pairs = (JSON.parse(user) as { pairs?: { pairId: string }[] }).pairs;
+        output = pairs === undefined ? { relationship: "unrelated", rationale: "Fixture: different modules" } : { decisions: pairs.map(({ pairId }) => ({ pairId, relationship: "unrelated", rationale: "Fixture: different modules" })) };
+      }
       else if (system.startsWith("Resolve the supplied")) { stage = "conflict"; output = { selection: "unresolved", evidenceIds: [], rationale: "Fixture" }; }
       else if (system.startsWith("Review every")) {
         stage = "review";

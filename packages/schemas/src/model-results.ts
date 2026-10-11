@@ -7,9 +7,12 @@ export const modelPlanRevisionSchema = z.object({
   resolutions: z.array(z.object({ critiqueItemId: z.string().min(1), resolution: z.string().trim().min(1) }).strict()),
 }).strict();
 
-export const modelClusteringResultSchema = z.object({
-  relationship: z.enum(["same_root_cause", "related_but_separate", "same_symptom_different_causes", "unrelated"]),
-  rationale: z.string().trim().min(1),
+const clusteringDecision = { relationship: z.enum(["same_root_cause", "related_but_separate", "same_symptom_different_causes", "unrelated"]), rationale: z.string().trim().min(1) };
+export const modelClusteringResultSchema = z.object(clusteringDecision).strict();
+
+/** One decision per listed pair, for a clustering call that carries several pairs. */
+export const modelClusteringBatchResultSchema = z.object({
+  decisions: z.array(z.object({ pairId: z.string().min(1), ...clusteringDecision }).strict()).min(1),
 }).strict();
 
 export const modelConflictResolutionSchema = z.object({

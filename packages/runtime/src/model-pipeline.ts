@@ -1,7 +1,7 @@
 import type { RunConfig } from "@arbitra/schemas/config.js";
 import { providerExecutionSchema } from "@arbitra/schemas/provider-execution.js";
 import { planIRSchema, type PlanIR } from "@arbitra/schemas/plan.js";
-import { modelVerificationResultSchema, modelCritiqueSchema, modelClusteringResultSchema, modelConflictResolutionSchema } from "@arbitra/schemas/model-results.js";
+import { modelVerificationResultSchema, modelCritiqueSchema, modelClusteringResultSchema, modelClusteringBatchResultSchema, modelConflictResolutionSchema } from "@arbitra/schemas/model-results.js";
 import { revisePlanOnce } from "@arbitra/workflow/nodes/revision.js";
 import type { RevisionResolution } from "@arbitra/workflow/nodes/revision.js";
 import { computeConsensus, type ConsensusState, type ConsensusCandidate } from "@arbitra/workflow/consensus/engine.js";
@@ -31,6 +31,7 @@ import { criticContextParts, criticPartIdentity, type CriticContextPart } from "
 import { planWithContext, type PlannerStage } from "./planner-context.js";
 import { reviseWithContext } from "./revision-context.js";
 import { createHash } from "node:crypto";
+import type { SemanticClusteringDecision, SemanticClusteringPair } from "@arbitra/workflow/clustering/escalate.js";
 import type { ModelActivityRequest } from "./model-activities.js";
 import { isCapacityError, ModelOutputLimitError, OUTPUT_TOKENS_PER_RECORD, outputRecordLimit, replanOnOutputLimit, stageBudget } from "./context-budget.js";
 import { agreedConflictResolution, conflictId, conflictResolutionView, type ConflictResolutionVote } from "./model-conflict-resolution.js";
@@ -118,21 +119,68 @@ export class ModelAuditPipeline {
     const context = this.context;
     // Validate before bounded semantic escalation; scripted votes remain disabled.
     const execution = providerExecutionSchema.parse(this.config.workflow["modelExecution"]);
+    const pairIdOf = ({ left, right }: SemanticClusteringPair) => createHash("sha256").update(JSON.stringify([left.finding.sourceFindingId, right.finding.sourceFindingId])).digest("hex");
+    const anonymous = (finding: SemanticClusteringPair["left"]["finding"], id: string) => ({ category: finding.category, title: finding.title, problem: finding.problem, recommendedFix: finding.recommendedFix, locations: finding.locations.map(({ path, startLine, endLine, symbol }) => ({ path, startLine, endLine, symbol })), failureMechanisms: finding.failureMechanisms, sourceFindingId: id });
+    const classify = async (pair: SemanticClusteringPair): Promise<SemanticClusteringDecision> => {
+      const { left, right, signals } = pair;
+      const pairId = pairIdOf(pair);
+      const decision = await this.call({
+        activityId: `semantic-clustering/${pairId}`, modelProfileId: this.#roles.verifier, signal,
+        protocol: "semantic-clustering", instruction: "Classify the relationship between two validated findings. Merge only when source evidence establishes the same root cause and remediation. Shared symptoms, files, or vocabulary are insufficient. Explain the decision; when uncertain keep the findings separate.",
+        input: { left: anonymous(left.finding, "left"), right: anonymous(right.finding, "right"), signals, repository: this.repository() },
+        schema: modelClusteringResultSchema, jsonSchema: modelClusteringResultSchema.toJSONSchema(),
+      });
+      await context.store.publish(`clustering-decision-${pairId}`, { leftId: left.finding.sourceFindingId, rightId: right.finding.sourceFindingId, ...decision });
+      // Provider usage lives in durable turn traces; do not invent aggregate totals.
+      return { relationship: decision.relationship, inputTokens: null, outputTokens: null, cost: null };
+    };
+    // Several pairs share one call: each finding is listed once and each pair names its two findings.
+    // Observed live (P20 pilot): 20 one-pair calls, each with the whole repository attached, were 57% of a
+    // single-auditor run's tokens. A call that does not fit, or stops at the output ceiling, is halved; the
+    // durable marker makes a resumed run halve it the same way. One pair alone keeps its earlier call.
+    const classifyMany = async (pairs: readonly SemanticClusteringPair[]) => {
+      const decisions = new Map<string, SemanticClusteringDecision>(); let calls = 0;
+      const together = async (batch: readonly SemanticClusteringPair[]): Promise<void> => {
+        const [only] = batch;
+        if (batch.length === 1 && only !== undefined) { decisions.set(pairIdOf(only), await classify(only)); calls += 1; return; }
+        const aliases = new Map<string, string>();
+        const alias = (finding: SemanticClusteringPair["left"]["finding"]) => { const known = aliases.get(finding.sourceFindingId) ?? `finding-${aliases.size + 1}`; aliases.set(finding.sourceFindingId, known); return known; };
+        const listed = batch.map(({ left, right, signals }, index) => ({ pairId: `pair-${index + 1}`, left: alias(left.finding), right: alias(right.finding), signals }));
+        const listedIds = listed.map(({ pairId }) => pairId);
+        let result: ReturnType<typeof modelClusteringBatchResultSchema.parse>;
+        try {
+          result = await this.call({
+            activityId: `semantic-clustering/pairs-${createHash("sha256").update(JSON.stringify(batch.map(pairIdOf))).digest("hex").slice(0, 24)}`, modelProfileId: this.#roles.verifier, signal,
+            protocol: "semantic-clustering", instruction: "Classify the relationship between the two findings of each listed pair. Judge every pair on its own. Merge only when source evidence establishes the same root cause and remediation. Shared symptoms, files, or vocabulary are insufficient. Return exactly one decision for every listed pairId, each with its relationship and an explanation; when uncertain keep the findings separate.",
+            input: { findings: Object.fromEntries(batch.flatMap(({ left, right }) => [left.finding, right.finding]).map((finding) => [alias(finding), anonymous(finding, alias(finding))])), pairs: listed, repository: this.repository() },
+            schema: { parse(value: unknown) {
+              const parsed = modelClusteringBatchResultSchema.parse(value);
+              const answered = parsed.decisions.map(({ pairId }) => pairId);
+              if (answered.length !== listedIds.length || new Set(answered).size !== answered.length || answered.some((id) => !listedIds.includes(id))) throw new Error(`CLUSTERING_PAIR_COVERAGE_INVALID: return exactly one decision for each listed pairId (${listedIds.join(", ")})`);
+              return parsed;
+            } }, jsonSchema: modelClusteringBatchResultSchema.toJSONSchema(),
+          });
+        } catch (error) {
+          if (!isCapacityError(error)) throw error;
+          const middle = Math.ceil(batch.length / 2);
+          await together(batch.slice(0, middle)); await together(batch.slice(middle));
+          return;
+        }
+        calls += 1;
+        for (const [index, pair] of batch.entries()) {
+          const decision = result.decisions.find(({ pairId }) => pairId === listedIds[index]);
+          if (decision === undefined) throw new Error("CLUSTERING_PAIR_COVERAGE_INVALID");
+          await context.store.publish(`clustering-decision-${pairIdOf(pair)}`, { leftId: pair.left.finding.sourceFindingId, rightId: pair.right.finding.sourceFindingId, relationship: decision.relationship, rationale: decision.rationale });
+          decisions.set(pairIdOf(pair), { relationship: decision.relationship, inputTokens: null, outputTokens: null, cost: null });
+        }
+      };
+      const maximumPairs = outputRecordLimit(stageBudget(this.config, this.#roles.verifier).outputCapacity, OUTPUT_TOKENS_PER_RECORD.clusteringPair, "semantic-clustering");
+      for (let start = 0; start < pairs.length; start += maximumPairs) await together(pairs.slice(start, start + maximumPairs));
+      return { decisions: pairs.map((pair) => { const decision = decisions.get(pairIdOf(pair)); if (decision === undefined) throw new Error("CLUSTERING_DECISION_ABSENT"); return decision; }), calls };
+    };
     const initial = await converge({ ...context, maximumRounds: 0 }, findings, {
       maximumEscalatedPairs: execution.maximumClusteringPairs ?? 20,
-      semantic: { capability: "balanced", classify: async ({ left, right, signals }) => {
-        const pairId = createHash("sha256").update(JSON.stringify([left.finding.sourceFindingId, right.finding.sourceFindingId])).digest("hex");
-        const anonymous = (finding: typeof left.finding, id: string) => ({ category: finding.category, title: finding.title, problem: finding.problem, recommendedFix: finding.recommendedFix, locations: finding.locations.map(({ path, startLine, endLine, symbol }) => ({ path, startLine, endLine, symbol })), failureMechanisms: finding.failureMechanisms, sourceFindingId: id });
-        const decision = await this.call({
-          activityId: `semantic-clustering/${pairId}`, modelProfileId: this.#roles.verifier, signal,
-          protocol: "semantic-clustering", instruction: "Classify the relationship between two validated findings. Merge only when source evidence establishes the same root cause and remediation. Shared symptoms, files, or vocabulary are insufficient. Explain the decision; when uncertain keep the findings separate.",
-          input: { left: anonymous(left.finding, "left"), right: anonymous(right.finding, "right"), signals, repository: this.repository() },
-          schema: modelClusteringResultSchema, jsonSchema: modelClusteringResultSchema.toJSONSchema(),
-        });
-        await context.store.publish(`clustering-decision-${pairId}`, { leftId: left.finding.sourceFindingId, rightId: right.finding.sourceFindingId, ...decision });
-        // Provider usage lives in durable turn traces; do not invent aggregate totals.
-        return { relationship: decision.relationship, inputTokens: null, outputTokens: null, cost: null };
-      } },
+      semantic: { capability: "balanced", classify, classifyMany },
     });
     const issueBoard = new ModelPeerBoard(initial);
     const conflictVotes = new Map<string, ConflictResolutionVote>();

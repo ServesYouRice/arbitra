@@ -97,7 +97,9 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
     } else if (system.startsWith("Classify the relationship")) {
       requests.push({ stage: "clustering", url: request.url });
       expect(user).not.toMatch(/auditor-[abc]/u);
-      output = { relationship: "same_root_cause", rationale: "Fixture shared null source" };
+      // Several pairs arrive in one call; one pair keeps the single-decision reply.
+      const pairs = (JSON.parse(user) as { pairs?: { pairId: string }[] }).pairs;
+      output = pairs === undefined ? { relationship: "same_root_cause", rationale: "Fixture shared null source" } : { decisions: pairs.map(({ pairId }) => ({ pairId, relationship: "same_root_cause", rationale: "Fixture shared null source" })) };
     } else if (system.startsWith("Resolve the supplied")) {
       requests.push({ stage: "conflict", url: request.url });
       expect(user).not.toMatch(/auditor-[abc]/u);
@@ -502,7 +504,9 @@ describe("composed model audits", () => {
     const core = fixture_.create(); const result = await core.run(config);
     const events = []; for await (const event of core.events(result.runId)) events.push(event);
     expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
-    expect(fixture_.requests.filter(({ stage }) => stage === "clustering")).toHaveLength(maximumClusteringPairs);
+    // Observed live (P20 pilot): one call per pair, each with the whole repository, was 57% of a single-auditor run's tokens. Several pairs now share one call.
+    expect(fixture_.requests.filter(({ stage }) => stage === "clustering")).toHaveLength(Math.min(maximumClusteringPairs, 1));
+    expect((await core.artifacts(result.runId)).filter(({ kind }) => kind.startsWith("clustering-decision-"))).toHaveLength(maximumClusteringPairs);
     const descriptor = (await core.artifacts(result.runId)).find(({ kind }) => kind === "clustering");
     if (descriptor === undefined) throw new Error("CLUSTERING_ARTIFACT_ABSENT");
     const artifact = await core.artifact(result.runId, descriptor.artifactId) as { content: string };
@@ -543,12 +547,12 @@ describe("composed model audits", () => {
     fixture_.failVerification(true);
     const core = fixture_.create(); const result = await core.run(fixture_.config);
     expect(result.state).toBe("FAILED");
-    expect(fixture_.requests.filter(({ stage }) => stage === "clustering")).toHaveLength(3);
+    expect(fixture_.requests.filter(({ stage }) => stage === "clustering")).toHaveLength(1);
     fixture_.failVerification(false);
     const resumed = fixture_.create();
     await resumed.resume(result.runId);
     expect((await resumed.wait(result.runId)).state).toBe("COMPLETED");
-    expect(fixture_.requests.filter(({ stage }) => stage === "clustering")).toHaveLength(3);
+    expect(fixture_.requests.filter(({ stage }) => stage === "clustering")).toHaveLength(1);
   });
 
   it("preserves conflicting structural proposals and completes with explicit unresolved coverage", async () => {
