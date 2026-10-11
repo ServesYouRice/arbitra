@@ -19,6 +19,8 @@ repository text into a fact.
 (`frameUntrusted`, `UNTRUSTED_FRAME_VERSION`) before it reaches a prompt. The frame is
 part of the prompt's identity: `packages/core/src/prompt/provenance.ts` records what was
 framed, and the compiled prompt artifact is what the UI displays — never a recomputation.
+Inside the frame `&`, `<` and `>` are escaped, so content cannot close the frame or open another; quotes
+are left as written (frame version 2). Attribute values escape quotes as well.
 
 ## Taint
 
