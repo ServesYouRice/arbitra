@@ -10,6 +10,7 @@ import type { PinnedProtocol } from "@arbitra/protocols/registry.js";
 import { createHash } from "node:crypto";
 import { ModelOutputLimitError } from "./context-budget.js";
 import { allocateDiscoveryScopes } from "./discovery-scope.js";
+import { sideBySide } from "./side-by-side.js";
 import { widenToQuote } from "./evidence-grounding.js";
 import type { DiscoveryUnit, DiscoveryUnitHooks } from "./incremental-audit.js";
 import { INSTRUCTION_SHAPED_TEXT_RULE } from "./prompt-conventions.js";
@@ -203,34 +204,11 @@ async function discoverPrimary(options: ModelDiscoveryOptions): Promise<readonly
     return { audited: [{ scope, findings: found, validation: await readValidation(options.store, `discovery-validation-${options.auditorId}-${scopeId}`), splitModules: unit.splitModules }], splits: [] };
   };
   // Up to `concurrency` units are audited at a time: no unit reads another's result, and the results are put
-  // together in unit order, so the audit does not depend on which call returns first. After a failure no new
-  // unit starts, the units in flight run to their end, and the first failure in unit order is reported.
+  // together in unit order, so the audit does not depend on which call returns first.
   // Observed live (P20 pilot): five scopes one after another were 33 minutes of a 40-minute audit.
-  const concurrency = options.concurrency ?? 1;
-  if (!Number.isSafeInteger(concurrency) || concurrency < 1) throw new Error("INVALID_DISCOVERY_CONCURRENCY");
-  const auditAll = async (units: readonly PendingUnit[]): Promise<Outcome> => {
-    const settled = new Map<number, { readonly outcome: Outcome } | { readonly failure: unknown }>();
-    let next = 0; let failed = false;
-    const worker = async (): Promise<void> => {
-      while (!failed && next < units.length) {
-        const index = next; next += 1;
-        const unit = units[index];
-        if (unit === undefined) return;
-        try { settled.set(index, { outcome: await audit(unit) }); }
-        catch (failure) { failed = true; settled.set(index, { failure }); }
-      }
-    };
-    await Promise.all(Array.from({ length: Math.min(concurrency, units.length) }, worker));
-    const outcomes: Outcome[] = [];
-    for (let index = 0; index < units.length; index += 1) {
-      const entry = settled.get(index);
-      if (entry === undefined) break;
-      if ("failure" in entry) throw entry.failure;
-      outcomes.push(entry.outcome);
-    }
-    return { audited: outcomes.flatMap(({ audited }) => audited), splits: outcomes.flatMap(({ splits }) => splits) };
-  };
-  const { audited, splits } = await auditAll(pending);
+  const outcomes = await sideBySide(pending, options.concurrency ?? 1, audit);
+  const audited = outcomes.flatMap((outcome) => outcome.audited);
+  const splits = outcomes.flatMap((outcome) => outcome.splits);
   outputLimitSplits.push(...splits);
   const findings = audited.flatMap(({ findings: found }) => found);
   const scopes = audited.map(({ scope }) => scope);

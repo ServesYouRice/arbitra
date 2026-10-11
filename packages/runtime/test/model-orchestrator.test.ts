@@ -458,9 +458,10 @@ describe("composed model audits", () => {
     }
   });
 
-  it("halves a reviewer's batches when a review stops at the output ceiling, and plans the same batches after a restart", async () => {
+  it.each([1, 4])("halves a reviewer's batches when a review stops at the output ceiling, and plans the same batches after a restart (%i calls at a time)", async (parallel) => {
     // Observed live (P20 pilot): thinking counts as output, a review of 19 candidates passed the ceiling, and the run could not go on.
     const { create, config, requests, failVerification } = await fixture({ largePeerContext: true, packedPeerContext: true, reviewOutputLimit: true });
+    if (parallel > 1) (config.workflow["modelExecution"] as { maximumParallelCalls?: number }).maximumParallelCalls = parallel;
     failVerification(true);
     const core = create(); const result = await core.run(config);
     const events = []; for await (const event of core.events(result.runId)) events.push(event);
@@ -481,9 +482,10 @@ describe("composed model audits", () => {
     expect(requests.filter(({ stage }) => stage === "review")).toHaveLength(reviews);
   });
 
-  it("packs the pair checks between review batches into one call and applies the merge it returns", async () => {
+  it.each([1, 4])("packs the pair checks between review batches into one call and applies the merge it returns (%i calls at a time)", async (parallel) => {
     // Observed live (P20 pilot): one call per pair asked one reviewer for 1,140 calls.
     const { create, config, requests, packedChecks, mergedListedPair, failVerification } = await fixture({ largePeerContext: true, packedPeerContext: true, mergeListedPair: true });
+    if (parallel > 1) (config.workflow["modelExecution"] as { maximumParallelCalls?: number }).maximumParallelCalls = parallel;
     failVerification(true);
     const core = create(); const result = await core.run(config);
     const events = []; for await (const event of core.events(result.runId)) events.push(event);
@@ -505,8 +507,9 @@ describe("composed model audits", () => {
     expect(merges[0]).toMatchObject({ authorId: "auditor-a", sourceCandidateIds: [...merged] });
   });
 
-  it.each(["retain_original", "proposal-1"] as const)("resolves deferred peer operations with evidence-backed agreement: %s", async (conflictResolution) => {
+  it.each([["retain_original", 1], ["proposal-1", 1], ["proposal-1", 4]] as const)("resolves deferred peer operations with evidence-backed agreement: %s, %i calls at a time", async (conflictResolution, parallel) => {
     const { create, config, requests } = await fixture({ conflictingReview: true, conflictResolution });
+    if (parallel > 1) (config.workflow["modelExecution"] as { maximumParallelCalls?: number }).maximumParallelCalls = parallel;
     const core = create(); const result = await core.run(config);
     const events = []; for await (const event of core.events(result.runId)) events.push(event);
     expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");

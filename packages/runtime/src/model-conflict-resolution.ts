@@ -16,6 +16,21 @@ export function conflictId(conflict: PeerOperationConflict): string {
   return createHash("sha256").update(JSON.stringify([...conflict.operationIds].sort())).digest("hex");
 }
 
+/**
+ * The pending conflicts that can be put to the auditors together: those that share no candidate with an
+ * earlier pending conflict. A resolution changes only its own candidates, so these cannot see each other's
+ * outcome. A conflict that shares a candidate with an earlier one waits for it, and so does every conflict
+ * that shares a candidate with a waiting one.
+ */
+export function independentConflicts<T extends { readonly candidateIds: readonly string[] }>(pending: readonly T[]): { readonly together: readonly T[]; readonly waiting: readonly T[] } {
+  const touched = new Set<string>(); const together: T[] = []; const waiting: T[] = [];
+  for (const conflict of pending) {
+    (conflict.candidateIds.some((id) => touched.has(id)) ? waiting : together).push(conflict);
+    for (const id of conflict.candidateIds) touched.add(id);
+  }
+  return { together, waiting };
+}
+
 /** Expose proposal content, never author/operation/source identity. */
 export function conflictResolutionView(conflict: PeerOperationConflict, view: ReturnType<typeof peerReviewView>, prior?: ConflictResolutionVote) {
   const proposalIds = new Map<string, string>();

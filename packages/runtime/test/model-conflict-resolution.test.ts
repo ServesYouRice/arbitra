@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agreedConflictResolution, conflictResolutionView } from "../src/model-conflict-resolution.js";
+import { agreedConflictResolution, conflictResolutionView, independentConflicts } from "../src/model-conflict-resolution.js";
 import { DEFAULT_CONSENSUS_POLICY } from "@arbitra/workflow/consensus/engine.js";
 import type { PeerOperationConflict } from "../src/peer-operation-conflicts.js";
 
@@ -7,6 +7,17 @@ const auditors = ["a", "b", "c"].map((auditorId) => ({ auditorId, independenceGr
 const votes = auditors.map(({ auditorId }) => ({ reviewerId: auditorId, selection: "retain_original", evidenceIds: ["e"], rationale: "Source" }));
 
 describe("evidence-backed conflict resolution", () => {
+  it("puts together only the conflicts that share no candidate with an earlier pending one", () => {
+    const pending = [["A", ["1", "2"]], ["B", ["3"]], ["C", ["2", "4"]], ["D", ["4", "5"]], ["E", ["6"]]].map(([id, candidateIds]) => ({ id, candidateIds: candidateIds as string[] }));
+    const { together, waiting } = independentConflicts(pending);
+    // C waits for A (candidate 2); D shares candidate 4 with the waiting C, so it waits as well and keeps its place after C.
+    expect(together.map(({ id }) => id)).toEqual(["A", "B", "E"]);
+    expect(waiting.map(({ id }) => id)).toEqual(["C", "D"]);
+    expect(independentConflicts(waiting).together.map(({ id }) => id)).toEqual(["C"]);
+    expect(independentConflicts([])).toEqual({ together: [], waiting: [] });
+  });
+
+
   it("requires all reviewers, independent groups, and evidence without overriding dissent", () => {
     expect(agreedConflictResolution(votes, auditors, DEFAULT_CONSENSUS_POLICY)).toBe("retain_original");
     expect(agreedConflictResolution(votes.slice(0, 2), auditors, DEFAULT_CONSENSUS_POLICY)).toBeNull();
