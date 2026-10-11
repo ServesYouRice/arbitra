@@ -1,6 +1,6 @@
 # Remaining work
 
-Updated October 10, 2026 (branch `beta`).
+Updated October 11, 2026 (branch `beta`).
 
 ## Handoff, October 10, 2026
 
@@ -25,6 +25,10 @@ subscriptions.
   - They stopped at 22:59 on two arbitra defects, both fixed the same evening (7f52969, 2bd8162; see "Open findings"
     below). The pilot started again on that build under a new protocol version; the one run completed before was
     retired unscored and runs again.
+  - On October 11 the first panel run could not get through peer review: one call per candidate pair meant 1,140
+    calls for one reviewer. That is fixed too (42da89f). The run build was updated at 10:33 while the runner
+    waited for the Codex window; the protocol version is unchanged, because no completed run enters that stage.
+    One of 18 runs is complete.
   - GPT-6.1 Sol at xhigh answers through arbitra (nine calls, none failed). GPT-6 Luna at max and Sonnet 5.5 at
     xhigh have not run through arbitra yet.
   - Codex answers through arbitra on Windows (0.162.1, live evidence in
@@ -127,8 +131,9 @@ Live configurations come from `tooling/live/bindings.subscription.json`. The API
 
 ## Open findings to fix or decide
 
-None open. The P20 pilot found two on October 10; both are fixed and verified on Linux, and the second was also
-checked live on the owner's Windows PC ([qa/subscription-cli](docs/qa/subscription-cli/README.md)):
+None open. The P20 pilot found two on October 10 and one on October 11; all three are fixed and verified on
+Linux, and the second was also checked live on the owner's Windows PC
+([qa/subscription-cli](docs/qa/subscription-cli/README.md)):
 
 - **Discovery could not pass a call that reached the output ceiling (fixed in 7f52969).** An Opus 5.5 discovery
   call at xhigh stopped at the 64,000-token ceiling. The run failed, and every resume failed again without a new
@@ -138,6 +143,12 @@ checked live on the owner's Windows PC ([qa/subscription-cli](docs/qa/subscripti
   CLI's answer to a reply cut at the model's own output limit; Gemini 3.8 Flash at high reached it in three pilot
   calls. The reader now takes the reason from the CLI's conversation database and returns `OUTPUT_LIMIT`, so
   discovery splits that scope too. Thinking is no longer counted twice in Gemini's output.
+- **Peer review checked one candidate pair per call (fixed in 42da89f).** When a reviewer's candidates need two
+  review batches, every pair across them is checked for a merge. With 38 and 30 candidates that was 1,140 calls
+  of about 59,000 tokens for one reviewer, more than a week of a ChatGPT Plus allowance. Pairs are now packed as
+  the critic packs its own, and those 1,140 pairs take four calls
+  ([harness](docs/harness.md#context-and-output-capacity)). What follows peer review (a second round, conflict
+  resolution, verification) has not yet run at this size.
 
 All eight findings in [qa/p19](docs/qa/p19/README.md) are fixed, and the affected live acceptance passed on subscriptions on September 30 (runs A–E there). The reruns found four more defects; all are fixed. The completion report is P21, after P20.
 
