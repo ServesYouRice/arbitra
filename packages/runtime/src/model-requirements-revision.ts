@@ -6,7 +6,7 @@ import { requirementsRevisionSchema, requirementsRevisionLedgerSchema, requireme
 import type { ModelActivityRequest } from "./model-activities.js";
 import type { ModelHarness } from "./model-harness.js";
 import { ModelProtocols } from "./model-protocols.js";
-import { allocateModelContext, withinStringBudget } from "./model-context.js";
+import { allocateModelContext } from "./model-context.js";
 import { featureReviewConsensus, featureReviewInputFingerprint, type FeatureReviewRecord } from "./feature-review.js";
 import { validateFeatureExploration } from "./feature-exploration.js";
 import { validateRequirementsRevision } from "./requirements-revision.js";
@@ -60,7 +60,7 @@ export async function modelRequirementsRevision(store: RunStore, config: RunConf
     ] });
   const allocated = allocateModelContext({ requirements, exploration, blockingRequirementIds: consensus.blockingRequirementIds,
     reviews: saved.reviewers.map(({ review }) => review), repository: snapshot.files.map(({ path, lines }) => ({ path, content: lines.join("\n"), trust: "untrusted_data" })) },
-    (payload) => withinStringBudget(payload, maximum) && options.harness.estimateInitialTokens(request(payload)) <= maximum);
+    (payload) => options.harness.withinInputBudget(payload, maximum) && options.harness.estimateInitialTokens(request(payload)) <= maximum);
   await store.publish(`feature-requirements-revision-context-${identity}`, { ...allocated.coverage, maximumEstimatedTokens: maximum }, "feature");
   const revision = validateRequirementsRevision(await options.harness.invoke(request(allocated.input)), requirements, consensus.blockingRequirementIds);
   if ((await checkpoint.current())?.artifactId !== current.artifactId) throw new Error("STALE_REQUIREMENTS_CHECKPOINT");

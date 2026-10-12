@@ -1010,8 +1010,9 @@ export class Orchestrator {
       if (plan.unresolvedQuestions.some(({ blocking }) => blocking)) reasons.push("blocking_plan_questions");
     }
     if (artifacts.some(({ kind }) => kind === "critic-feedback")) {
-      const feedback = await readStage<{ items: readonly { blocking: boolean }[] }>(store, "critic-feedback");
-      if (feedback.items.some(({ blocking }) => blocking)) reasons.push("blocking_critic_feedback");
+      // A blocking item the single revision worked in is no longer open; one it could not revise still is.
+      const feedback = await readStage<{ items: readonly { blocking: boolean }[]; revision?: { notRevisedCritiqueItemIds: readonly string[] } }>(store, "critic-feedback");
+      if (feedback.items.some(({ blocking }) => blocking) && (feedback.revision === undefined || feedback.revision.notRevisedCritiqueItemIds.length > 0)) reasons.push("blocking_critic_feedback");
     }
     if (artifacts.some(({ kind }) => kind === "critic-result")) {
       const review = await readStage<{ degradedReviewCoverage: boolean }>(store, "critic-result");

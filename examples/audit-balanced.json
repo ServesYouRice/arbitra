@@ -6,10 +6,9 @@
   },
   "auditDepth": "balanced",
   "consensusPolicy": "risk_weighted",
-  "maxConsensusRounds": 2,
+  "maxConsensusRounds": 1,
   "verification": {
-    "deterministicFirst": true,
-    "maxModelQuestionsPerRound": 4
+    "deterministicFirst": true
   },
   "models": {
     "auditor-a": {

@@ -9,7 +9,9 @@ import type { RunConfig } from "@arbitra/schemas/config.js";
 import { frameUntrusted } from "@arbitra/security/framing";
 import { redactSecrets } from "@arbitra/security/redaction";
 import { boundModelHistory } from "./model-history.js";
-import { isModelOutputRejection, ModelOutputLimitError, ModelRefusalError, outputLimitKind, refusalKind, REQUIRED_INPUT_BYTES_PER_TOKEN } from "./context-budget.js";
+import { withinStringBudget } from "./model-context.js";
+import { promptByteLimit } from "@arbitra/providers/transports/cli/dialects.js";
+import { inputBytesPerToken, isModelOutputRejection, ModelOutputLimitError, ModelRefusalError, outputLimitKind, refusalKind } from "./context-budget.js";
 import { ModelActivities, parsePromptJson, type ModelActivityRequest } from "./model-activities.js";
 import { snapshotTools, SNAPSHOT_TOOLS } from "./snapshot-tools.js";
 import type { RepositorySnapshot } from "./repository.js";
@@ -35,15 +37,26 @@ export class ModelHarness {
     return (await (this.#outputLimited ?? Promise.resolve(new Set<string>()))).has(refusalKind(activityId));
   }
 
-  estimateInitialTokens(input: ModelActivityRequest<unknown>): number {
-    const { initialMessages, tools, execution } = prepareModelInput(input, this.config, this.testing);
-    return Buffer.byteLength(JSON.stringify({ messages: initialMessages, tools }), "utf8") + execution.maximumOutputTokens;
+  /** The size a request is admitted by: its prompt at the run's bytes a token, plus the whole output allowance.
+   * Discovery passes one byte a token: the size of a unit is how finely the audit reads, not what would fit. */
+  estimateInitialTokens(input: ModelActivityRequest<unknown>, bytesPerToken = inputBytesPerToken(this.config).usual): number {
+    const { profile, initialMessages, tools, execution } = prepareModelInput(input, this.config, this.testing);
+    return promptTokens(Buffer.byteLength(JSON.stringify({ messages: initialMessages, tools }), "utf8"), bytesPerToken, profile.transport) + execution.maximumOutputTokens;
+  }
+
+  /** A cheap first cut before `estimateInitialTokens`: whether the strings of a payload alone are within `maximumTokens`. */
+  withinInputBudget(payload: unknown, maximumTokens: number): boolean { return withinStringBudget(payload, maximumTokens * inputBytesPerToken(this.config).usual); }
+
+  /** What one more piece of source adds to `estimateInitialTokens`: a prompt carries its input as JSON inside
+   * JSON, so the piece is counted as it is escaped there. Sizing by sums asks this instead of measuring again. */
+  estimateSourceTokens(source: unknown): number {
+    return Math.ceil((Buffer.byteLength(JSON.stringify(JSON.stringify(source)), "utf8") - 1) / inputBytesPerToken(this.config).usual);
   }
 
   /** The same request counted at the rate for input a call must carry whole. */
   estimateRequiredTokens(input: ModelActivityRequest<unknown>): number {
-    const { initialMessages, tools, execution } = prepareModelInput(input, this.config, this.testing);
-    return Math.ceil(Buffer.byteLength(JSON.stringify({ messages: initialMessages, tools }), "utf8") / REQUIRED_INPUT_BYTES_PER_TOKEN) + execution.maximumOutputTokens;
+    const { profile, initialMessages, tools, execution } = prepareModelInput(input, this.config, this.testing);
+    return promptTokens(Buffer.byteLength(JSON.stringify({ messages: initialMessages, tools }), "utf8"), inputBytesPerToken(this.config).required, profile.transport) + execution.maximumOutputTokens;
   }
 
   async invoke<T>(input: ModelActivityRequest<T>): Promise<T> {
@@ -108,9 +121,9 @@ export class ModelHarness {
     const adapter = new CanonicalHarnessAdapter({ invoke: async (request, context) => {
       // A request admitted as required input keeps that rate through its tool turns, or its first turn could not
       // be sent. Every other request is measured, and its history archived, as before.
-      const rate = input.admittedAsRequired === true ? REQUIRED_INPUT_BYTES_PER_TOKEN : 1;
+      const rates = inputBytesPerToken(this.config); const rate = input.admittedAsRequired === true ? rates.required : rates.usual;
       const bounded = await boundModelHistory(initialMessages, context.turn === 0 ? [] : request.messages.slice(1),
-        (messages) => Math.ceil(Buffer.byteLength(JSON.stringify({ messages, tools: request.tools }), "utf8") / rate) + execution.maximumOutputTokens <= maximumContext, toolSet.archive);
+        (messages) => promptTokens(Buffer.byteLength(JSON.stringify({ messages, tools: request.tools }), "utf8"), rate, profile.transport) + execution.maximumOutputTokens <= maximumContext, toolSet.archive);
       if (bounded.archiveRef !== null) await this.store.publish(`model-history-${key}-${context.turn}`, { activityId: input.activityId, turn: context.turn, archiveRef: bounded.archiveRef, archivedMessages: bounded.archivedMessages, maximumEstimatedTokens: maximumContext });
       return this.activities.invoke({
         ...input, activityId: `${input.activityId}/turn-${context.turn}`, messages: bounded.messages,
@@ -140,6 +153,13 @@ export class ModelHarness {
         inspection: toolSet.footprints.inspection(input.activityId), exposure: toolSet.footprints.exposure(input.activityId) }, input.activityId);
     }
   }
+}
+
+/** A prompt of this many bytes in tokens at a rate. A transport that takes only so many bytes of a prompt refuses
+ * a longer one whatever it counts as, so such a prompt never fits. */
+function promptTokens(bytes: number, bytesPerToken: number, transport: string): number {
+  const limit = promptByteLimit(transport);
+  return limit !== null && bytes > limit ? Number.MAX_SAFE_INTEGER : Math.ceil(bytes / bytesPerToken);
 }
 
 export { isModelOutputRejection };

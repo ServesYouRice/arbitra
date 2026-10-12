@@ -59,4 +59,54 @@ describe("later-stage source allocation", () => {
     expect(withinStringBudget({ source: "x".repeat(1000) }, 100)).toBe(false);
     expect(withinStringBudget({ source: "small" }, 100)).toBe(true);
   });
+
+  it("adds up what each source costs instead of measuring the whole input once per source", () => {
+    // Observed live (P20 pilot): one measurement compiled the prompt, and a run made tens of thousands of them.
+    const repository = Array.from({ length: 40 }, (_, index) => ({ path: `file-${String(index).padStart(2, "0")}.ts`, content: "x".repeat(100) }));
+    const input = { decision: { path: "file-07.ts", startLine: 1, endLine: 1 }, repository };
+    const size = (value: unknown) => JSON.stringify(value).length;
+    let measurements = 0;
+    const measure = (value: unknown) => { measurements += 1; return size(value); };
+    const maximum = size({ ...input, repository: [] }) + 2_600;
+    const fits = (value: unknown) => measure(value) <= maximum;
+    const summed = allocateModelContext(input, fits, [], fits, { sizing: { measure, maximum, of: (source) => size(source) + 1 } });
+    expect(measurements).toBeLessThanOrEqual(4);
+    // The cited file comes first, and the result is what measuring every step would have chosen.
+    const stepped = allocateModelContext(input, (value) => size(value) <= maximum);
+    expect(summed.coverage.fullPaths[0]).toBe("file-07.ts");
+    expect(summed.coverage.fullPaths.length).toBeGreaterThan(5);
+    expect(size(summed.input)).toBeLessThanOrEqual(maximum);
+    expect(Math.abs(summed.coverage.fullPaths.length - stepped.coverage.fullPaths.length)).toBeLessThanOrEqual(1);
+  });
+
+  it("gives sources back when the sum of their costs was short of the whole", () => {
+    const repository = Array.from({ length: 10 }, (_, index) => ({ path: `file-${index}.ts`, content: "x".repeat(100) }));
+    const size = (value: unknown) => JSON.stringify(value).length;
+    const maximum = size({ repository: [] }) + 700;
+    const fits = (value: unknown) => size(value) <= maximum;
+    // Each source is counted at half its size, so the sum admits about twice what fits.
+    const result = allocateModelContext({ repository }, fits, [], fits, { sizing: { measure: size, maximum, of: (source) => Math.ceil(size(source) / 2) } });
+    expect(fits(result.input)).toBe(true);
+    expect(result.coverage.fullPaths.length).toBeGreaterThan(0);
+    expect(result.coverage.omittedPaths.length).toBeGreaterThan(0);
+  });
+
+  it("reads only the cited files and their modules when the stage asks for that scope", () => {
+    const input = { finding: { path: "src/billing/charge.ts", startLine: 1, endLine: 1 }, repository: [
+      { path: "src/billing/charge.ts", content: "import './tax.js';" }, { path: "src/billing/tax.ts", content: "helper" }, { path: "src/search/index.ts", content: "unrelated" }] };
+    const everything = allocateModelContext(input, () => true);
+    expect(everything.coverage.fullPaths).toHaveLength(3);
+    const scoped = allocateModelContext(input, () => true, [], () => true, { scope: "cited_and_related" });
+    expect(scoped.coverage).toEqual({ fullPaths: ["src/billing/charge.ts", "src/billing/tax.ts"], excerptPaths: [], omittedPaths: ["src/search/index.ts"] });
+    expect(scoped.input).toMatchObject({ contextCoverage: { complete: false, omittedPaths: ["src/search/index.ts"] } });
+    expect(scoped.citedPathsLeftOut).toEqual([]);
+  });
+
+  it("names the cited files it could carry neither whole nor as an excerpt", () => {
+    const input = { finding: { path: "a.ts", startLine: 1, endLine: 1 }, other: { path: "b.ts", startLine: 1, endLine: 1 }, repository: [{ path: "a.ts", content: "short" }, { path: "b.ts", content: "a line far too long to fit ".repeat(10) }] };
+    const result = allocateModelContext(input, (value) => bytes(value) <= 10);
+    expect(result.coverage.fullPaths).toEqual(["a.ts"]);
+    expect(result.citedPathsLeftOut).toEqual(["b.ts"]);
+    expect(allocateModelContext(input, () => true).citedPathsLeftOut).toEqual([]);
+  });
 });

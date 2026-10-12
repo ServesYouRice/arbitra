@@ -19,7 +19,7 @@ import type { Draft, Mode } from "./draft.js";
  */
 export interface Template { readonly id: string; readonly mode: Mode; readonly label: string; readonly description: string; readonly config: Draft }
 
-export const SCRIPTED_AUDIT: Draft = Object.freeze({ schemaVersion: 1, mode: "audit", scope: { kind: "repository" }, auditDepth: "balanced", consensusPolicy: "risk_weighted", maxConsensusRounds: 2,
+export const SCRIPTED_AUDIT: Draft = Object.freeze({ schemaVersion: 1, mode: "audit", scope: { kind: "repository" }, auditDepth: "balanced", consensusPolicy: "risk_weighted", maxConsensusRounds: 1,
   verification: {}, models: {}, harness: { mode: "canonical" }, workflow: { preset: "audit-deep" }, budgets: {}, security: {}, protocols: {}, promptOverrides: {}, contextPolicies: {} });
 
 const SUBSCRIPTION = "Signed in through the vendors' CLIs with your subscriptions; no API key is used.";

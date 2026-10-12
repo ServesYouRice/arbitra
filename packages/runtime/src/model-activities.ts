@@ -7,7 +7,7 @@ import { DurableTokenBudget } from "@arbitra/providers/token-budget.js";
 import { ContinuationStateStore } from "@arbitra/providers/continuation/store.js";
 import { ProviderBudgetSuspendedError, ProviderInvocationFailure, type InvocationTrace, type TraceSink } from "@arbitra/providers/runtime.js";
 import { BatchItemFailedError, BatchLane, type BatchResolution, type BatchSubmissionRecord, type BatchSubmissionView } from "@arbitra/providers/batch/lane.js";
-import { ModelOutputLimitError, REQUIRED_INPUT_BYTES_PER_TOKEN } from "./context-budget.js";
+import { inputBytesPerToken, ModelOutputLimitError } from "./context-budget.js";
 import type { TransportMessage, TransportTool } from "@arbitra/providers/transport-contract.js";
 import { runConfigSchema, type RunConfig } from "@arbitra/schemas/config.js";
 import { providerExecutionSchema } from "@arbitra/schemas/provider-execution.js";
@@ -40,7 +40,7 @@ export interface ModelActivityRequest<T> {
   readonly advisor?: AdvisorActivityIdentity;
   /** Return a completed durable result or fail; never dispatch a provider request. */
   readonly replayOnly?: boolean;
-  /** The input was admitted at the rate for required input (REQUIRED_INPUT_BYTES_PER_TOKEN), and its tool
+  /** The input was admitted at the rate for required input (see inputBytesPerToken), and its tool
    * history is bounded at that rate. It is not part of the identity: the messages are. */
   readonly admittedAsRequired?: boolean;
 }
@@ -197,9 +197,10 @@ export class ModelActivities {
     if (identity !== null && identity.fingerprint !== fingerprint) throw new Error("MODEL_ACTIVITY_INPUT_CHANGED");
     const requestArtifact = await this.store.publish(`${key}-input`, { activityId: input.activityId, fingerprint, protocol: input.protocol, modelProfileId: input.modelProfileId, messages, tools: input.tools ?? [] });
     const maximumOutputTokens = input.maximumOutputTokens ?? this.#execution.maximumOutputTokens;
-    // UTF-8 bytes provide a conservative admission estimate, not actual token usage. Input admitted as required is
-    // counted at its own rate here too, or the provider pool would refuse what the stage admitted.
-    const estimatedTokens = Math.ceil(Buffer.byteLength(JSON.stringify({ messages, tools: input.tools ?? [] }), "utf8") / (input.admittedAsRequired === true ? REQUIRED_INPUT_BYTES_PER_TOKEN : 1)) + maximumOutputTokens;
+    // UTF-8 bytes at the run's rate provide an admission estimate, not actual token usage. Input admitted as
+    // required is counted at its own rate here too, or the provider pool would refuse what the stage admitted.
+    const rates = inputBytesPerToken(this.#config);
+    const estimatedTokens = Math.ceil(Buffer.byteLength(JSON.stringify({ messages, tools: input.tools ?? [] }), "utf8") / (input.admittedAsRequired === true ? rates.required : rates.usual)) + maximumOutputTokens;
     let result: ModelInvocationResult | undefined;
     let value: T;
     let outputValidated = false;

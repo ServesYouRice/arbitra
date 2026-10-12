@@ -18,31 +18,57 @@ export interface VerificationRunMetrics { readonly itemCount: number; readonly r
 
 export function escalateToVerification(issue: VerificationIssue): boolean { return (issue.severity === "critical" || issue.severity === "high") && issue.objections.some((objection) => objection.citesLocation && objection.evidenceType !== "speculation" && objection.resolvedBy === null); }
 
-export async function verifyItem(item: VerificationItem, tools: VerificationTools, budget: { readonly allowModelCall: boolean }, dependencies: { readonly model?: VerificationModel; readonly sink: VerificationOperationSink; readonly round: number }): Promise<VerificationResult> {
+interface PreparedItem { readonly item: VerificationItem; readonly ladder: Awaited<ReturnType<typeof runDeterministicLadder>>; readonly request: ModelVerificationRequest | null; readonly contextLimited: boolean }
+
+/** The deterministic rungs of one item, and the model question it is asked when they settle nothing. */
+async function prepareItem(item: VerificationItem, tools: VerificationTools, allowModelCall: boolean, model: VerificationModel | undefined): Promise<PreparedItem> {
   if (item.citedEvidenceIds.length === 0 || item.question.trim() === "" || item.question.includes("\n")) throw new Error("INVALID_VERIFICATION_ITEM");
-  const ladder = await runDeterministicLadder(item, tools); let outcome: VerificationOutcome; let method: VerificationMethod; let evidenceIds: readonly string[]; let artifactRefs: readonly string[]; let toolCallIds: readonly string[]; let activityId: string; let confidence: number | null; let modelCalls: 0 | 1 = 0;
-  const request: ModelVerificationRequest | null = ladder.resolved !== null || !budget.allowModelCall || dependencies.model === undefined ? null
+  const ladder = await runDeterministicLadder(item, tools);
+  const request: ModelVerificationRequest | null = ladder.resolved !== null || !allowModelCall || model === undefined ? null
     : Object.freeze({ candidateId: item.candidateId, question: item.question, context: Object.freeze({ claim: item.claim, citedContext: item.citedContext, deterministicAttempts: Object.freeze(ladder.attempts.map(({ method: attemptedMethod, artifactRefs: refs, evidenceIds: ids }) => Object.freeze({ method: attemptedMethod, artifactRefs: refs, evidenceIds: ids }))) }) });
-  const contextLimited = request !== null && await dependencies.model?.fits?.(request) === false;
+  const contextLimited = request !== null && await model?.fits?.(request) === false;
+  return { item, ladder, request, contextLimited };
+}
+
+/** Records one prepared item's outcome: the rung that settled it, the model's answer, or neither. */
+async function settleItem(prepared: PreparedItem, response: ModelVerificationResponse | null, dependencies: { readonly sink: VerificationOperationSink; readonly round: number }): Promise<VerificationResult> {
+  const { item, ladder, contextLimited } = prepared;
+  let outcome: VerificationOutcome; let method: VerificationMethod; let evidenceIds: readonly string[]; let artifactRefs: readonly string[]; let toolCallIds: readonly string[]; let activityId: string; let confidence: number | null; let modelCalls: 0 | 1 = 0;
   if (ladder.resolved !== null) { outcome = ladder.resolved.verdict === "confirmed" ? "CONFIRMED" : "REJECTED"; method = ladder.resolved.method; evidenceIds = ladder.resolved.evidenceIds; artifactRefs = ladder.resolved.artifactRefs; toolCallIds = ladder.resolved.toolCallIds; activityId = ladder.resolved.activityId; confidence = ladder.resolved.confidence; }
-  else if (request !== null && dependencies.model !== undefined && !contextLimited) {
-    const response = await dependencies.model.verify(request);
+  else if (response !== null) {
     validateModelResponse(response); outcome = response.outcome; method = "single_model_question"; evidenceIds = response.evidenceIds; artifactRefs = response.artifactRefs; toolCallIds = Object.freeze([]); activityId = response.activityId; confidence = response.confidence; modelCalls = 1;
   } else { outcome = "STILL_NEEDS_VERIFICATION"; method = ladder.attempts.at(-1)?.method ?? "bounded_deterministic_check"; evidenceIds = item.citedEvidenceIds; artifactRefs = Object.freeze(ladder.attempts.flatMap(({ artifactRefs: refs }) => refs)); toolCallIds = Object.freeze(ladder.attempts.flatMap(({ toolCallIds: ids }) => ids)); activityId = ladder.attempts.at(-1)?.activityId ?? `verification:${item.candidateId}`; confidence = null; }
   const operation = operationFor(item, dependencies.round, outcome, method, evidenceIds.length === 0 ? item.citedEvidenceIds : evidenceIds, artifactRefs, toolCallIds, activityId, confidence); await dependencies.sink.append(operation);
   return Object.freeze({ candidateId: item.candidateId, outcome, method, operation, attempts: ladder.attempts, modelCalls, contextLimited });
 }
 
-export async function verifyItems(items: readonly VerificationItem[], tools: VerificationTools, config: { readonly maximumItems: number; readonly allowModelCall: boolean; readonly maximumModelCalls?: number; readonly round: number }, dependencies: { readonly model?: VerificationModel; readonly sink: VerificationOperationSink }): Promise<{ readonly results: readonly VerificationResult[]; readonly metrics: VerificationRunMetrics }> {
-  if (!Number.isSafeInteger(config.maximumItems) || config.maximumItems < 0) throw new Error("INVALID_VERIFICATION_ITEM_BUDGET"); const selected = items.slice(0, config.maximumItems); const deferred = items.slice(config.maximumItems).map(({ candidateId }) => candidateId); const results: VerificationResult[] = [];
+export async function verifyItem(item: VerificationItem, tools: VerificationTools, budget: { readonly allowModelCall: boolean }, dependencies: { readonly model?: VerificationModel; readonly sink: VerificationOperationSink; readonly round: number }): Promise<VerificationResult> {
+  const prepared = await prepareItem(item, tools, budget.allowModelCall, dependencies.model);
+  const response = prepared.request !== null && !prepared.contextLimited && dependencies.model !== undefined ? await dependencies.model.verify(prepared.request) : null;
+  return settleItem(prepared, response, dependencies);
+}
+
+/** Runs independent work and returns the results in the order of the items. The default takes one item at a time. */
+export type VerificationTogether = <T, R>(items: readonly T[], run: (item: T) => Promise<R>) => Promise<R[]>;
+
+export async function verifyItems(items: readonly VerificationItem[], tools: VerificationTools, config: { readonly maximumItems: number; readonly allowModelCall: boolean; readonly maximumModelCalls?: number; readonly round: number }, dependencies: { readonly model?: VerificationModel; readonly sink: VerificationOperationSink; readonly together?: VerificationTogether }): Promise<{ readonly results: readonly VerificationResult[]; readonly metrics: VerificationRunMetrics }> {
+  if (!Number.isSafeInteger(config.maximumItems) || config.maximumItems < 0) throw new Error("INVALID_VERIFICATION_ITEM_BUDGET"); const selected = items.slice(0, config.maximumItems); const deferred = items.slice(config.maximumItems).map(({ candidateId }) => candidateId);
   const maximumModelCalls = config.maximumModelCalls ?? config.maximumItems;
   if (!Number.isSafeInteger(maximumModelCalls) || maximumModelCalls < 0) throw new Error("INVALID_VERIFICATION_MODEL_BUDGET");
-  let modelCalls = 0;
+  // The rungs of every item run first, in item order, and the model questions go to the first items that need
+  // one. No question reads another's answer, so they may be asked side by side (`together`); the outcomes are
+  // recorded in item order. Observed live (P20 pilot): fifty items one after another, each waiting for the last.
+  const prepared: PreparedItem[] = []; let assigned = 0;
   for (const item of selected) {
-    const result = await verifyItem(item, tools, { allowModelCall: config.allowModelCall && modelCalls < maximumModelCalls }, { ...dependencies, round: config.round });
-    results.push(result);
-    modelCalls += result.modelCalls;
+    const entry = await prepareItem(item, tools, config.allowModelCall && assigned < maximumModelCalls, dependencies.model);
+    if (entry.request !== null && !entry.contextLimited) assigned += 1;
+    prepared.push(entry);
   }
+  const model = dependencies.model;
+  const together: VerificationTogether = dependencies.together ?? (async (list, run) => { const out = []; for (const entry of list) out.push(await run(entry)); return out; });
+  const responses = await together(prepared, async ({ request, contextLimited }) => request !== null && !contextLimited && model !== undefined ? model.verify(request) : null);
+  const results: VerificationResult[] = [];
+  for (const [index, entry] of prepared.entries()) results.push(await settleItem(entry, responses[index] ?? null, { sink: dependencies.sink, round: config.round }));
   const distribution = Object.fromEntries((["cited_lines", "symbol_or_call_path", "route_config_middleware", "dependency_or_import_path", "allowlisted_safe_test", "bounded_deterministic_check", "single_model_question"] as VerificationMethod[]).map((method) => [method, results.filter((result) => result.method === method).length])) as Record<VerificationMethod, number>;
   return Object.freeze({ results: Object.freeze(results), metrics: Object.freeze({ itemCount: results.length, resolvedDisputes: results.filter(({ outcome }) => outcome !== "STILL_NEEDS_VERIFICATION").length, modelCalls: results.reduce((sum, result) => sum + result.modelCalls, 0), deferredItemIds: Object.freeze(deferred), contextLimitedItemIds: Object.freeze(results.filter(({ contextLimited }) => contextLimited).map(({ candidateId }) => candidateId)), rungDistribution: Object.freeze(distribution) }) });
 }

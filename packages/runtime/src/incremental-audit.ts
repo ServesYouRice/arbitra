@@ -194,6 +194,10 @@ export function decideUnit(current: UnitIdentity, base: DiscoveryUnitRecord | nu
   return { decision: unique.length === 0 ? "reuse" : "regenerate", reasons: unique };
 }
 
+/** Raised when the stages after discovery change what they check, so their identities change with them.
+ * 2: one pass of each review stage unless the run asks for more, and a model question for every undecided candidate. */
+const STAGE_LOGIC = 2;
+
 /** Downstream stages recomputed over the union of reused and fresh findings unless their whole input identity matches. */
 export const INCREMENTAL_AUDIT_STAGES: readonly { readonly stage: string; readonly prefixes: readonly string[]; readonly protocols: readonly string[] }[] = Object.freeze([
   { stage: "clustering", prefixes: ["semantic-clustering"], protocols: ["semantic-clustering"] },
@@ -222,7 +226,10 @@ async function auditStageIdentities(inputs: StageInputs): Promise<readonly { sta
       models: digest({ models: config.models, endpoints: execution.endpoints, modelEndpoints: execution.modelEndpoints, roles: execution.roles ?? null, maximumOutputTokens: execution.maximumOutputTokens }),
       protocols: digest({ pins, overrides: definition.protocols.map((id) => config.promptOverrides[id] ?? null) }),
       policy: digest({ consensusPolicy: config.consensusPolicy, maxConsensusRounds: config.maxConsensusRounds, verification: config.verification, auditDepth: config.auditDepth, security: config.security, contextPolicies: config.contextPolicies, criticEnabled: inputs.criticEnabled,
-        maximumClusteringPairs: execution.maximumClusteringPairs ?? null, maximumContextTokens: execution.maximumContextTokens ?? null, maximumDiscoveryTokens: execution.maximumDiscoveryTokens ?? null, preset: config.workflow["preset"] ?? null }),
+        maximumClusteringPairs: execution.maximumClusteringPairs ?? null, maximumContextTokens: execution.maximumContextTokens ?? null, maximumDiscoveryTokens: execution.maximumDiscoveryTokens ?? null, preset: config.workflow["preset"] ?? null,
+        // What the stages after discovery are sent and how often they check: a base audited under other settings,
+        // or by a build whose stages checked differently (stageLogic), is not reused.
+        estimatedBytesPerToken: execution.estimatedBytesPerToken ?? 1, stageEffort: execution.stageEffort ?? null, review: execution.review ?? null, stageLogic: STAGE_LOGIC }),
       upstream: digest(upstream),
     };
     const identity = digest({ stage: definition.stage, components });

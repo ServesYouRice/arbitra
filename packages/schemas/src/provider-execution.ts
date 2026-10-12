@@ -59,6 +59,8 @@ export const batchLaneSchema = z.object({
   maximumAttempts: z.number().int().min(1).max(5).default(2),
 }).strict();
 
+const stageEffortLevel = z.enum(["low", "medium", "high"]);
+
 /** Configured limits are operator policy, not a shipped table of provider capabilities. */
 export const providerExecutionSchema = z.object({
   endpoints: z.array(providerEndpointSchema).min(1),
@@ -70,6 +72,17 @@ export const providerExecutionSchema = z.object({
   /** Independent calls one auditor has in flight at a time within a stage (default 1). Each call in flight holds its own budget reservation, and the provider's maxConcurrent still applies. */
   maximumParallelCalls: z.number().int().min(1).max(8).optional(),
   maximumContextTokens: z.number().int().positive().optional(),
+  /** Bytes of a prompt counted as one token when a call after discovery is sized (default 1, which counts about
+   * twice what a provider reads: real prompts measured 1.9 to 2.5 bytes a token). At 2 a call carries about what
+   * its context holds. Discovery units stay at one byte a token: their size is how finely the audit reads. */
+  estimatedBytesPerToken: z.number().min(1).max(4).optional(),
+  /** Effort for the stages after discovery, each low, medium or high as the model profile maps it. A stage left
+   * out runs at the effort of the audit depth, as discovery always does. */
+  stageEffort: z.object({ clustering: stageEffortLevel, peerReview: stageEffortLevel, verification: stageEffortLevel, planner: stageEffortLevel, critic: stageEffortLevel, revision: stageEffortLevel }).partial().strict().optional(),
+  /** Checks beyond one pass of each review stage. All are off unless set: candidates of different peer-review
+   * batches are not compared for a merge, plan records of different critic batches are not compared, and the
+   * critic does not read the revised plan again. */
+  review: z.object({ crossBatchMergeChecks: z.boolean(), criticPairChecks: z.boolean(), recheckRevisedPlan: z.boolean() }).partial().strict().optional(),
   timeoutMs: z.number().int().positive().max(2_147_483_647),
   maximumRetries: z.number().int().min(0).max(10),
   /** Re-asks, per model stage, after a reply fails output validation (invalid JSON, schema or grounding). Each is a separate durable, budgeted activity. */

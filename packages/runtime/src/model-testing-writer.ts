@@ -10,7 +10,7 @@ import type { WriteLease, WritePartitions } from "@arbitra/security/write-partit
 import { ModelHarness } from "./model-harness.js";
 import { ModelActivities, type ModelActivityRequest } from "./model-activities.js";
 import { ModelProtocols } from "./model-protocols.js";
-import { allocateModelContext, withinStringBudget } from "./model-context.js";
+import { allocateModelContext } from "./model-context.js";
 import type { RunStore } from "./run-store.js";
 import type { RepositorySnapshot } from "./repository.js";
 import type { TestingWorkspace } from "./testing-workspace.js";
@@ -80,7 +80,7 @@ export async function modelTestingWriter(store: RunStore, config: RunConfig, act
     ] });
   const allocated = allocateModelContext({ task, attempt, writeLease: lease, previousVerification: pinned.feedback, ...(advisory === undefined ? {} : { advisory }),
     repository: snapshot.files.map(({ path, lines }) => ({ path, content: lines.join("\n"), trust: "untrusted_data" })) },
-    (payload) => withinStringBudget(payload, maximum) && harness.estimateInitialTokens(request(payload)) <= maximum);
+    (payload) => harness.withinInputBudget(payload, maximum) && harness.estimateInitialTokens(request(payload)) <= maximum);
   await store.publish(`testing-writer-context-${hash(attempt.id)}`, { ...allocated.coverage, maximumEstimatedTokens: maximum, ...(advisorStatus === undefined ? {} : { advisor: advisorStatus }) }, "testing-execution");
   // A writer that keeps calling tools until the turn limit has still made only leased,
   // recorded writes. End the attempt there and let verification judge them; the limitation

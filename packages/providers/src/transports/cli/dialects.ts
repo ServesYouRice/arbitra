@@ -303,6 +303,10 @@ export const GEMINI_WORKSPACE_SETTINGS = Object.freeze({
  */
 export const ANTIGRAVITY_PROMPT_LIMIT = 190_000;
 
+/** The largest prompt, in UTF-8 bytes, a transport takes whole, when it has such a limit. Whatever a run counts
+ * as a token, a prompt over this is refused by the transport, so sizing has to keep under it. */
+export function promptByteLimit(transport: string): number | null { return transport === "antigravity-cli" ? ANTIGRAVITY_PROMPT_LIMIT : null; }
+
 /**
  * How the prompt reaches the Antigravity CLI. A command line cannot carry the limit above on
  * Windows (32,767 characters in all) or Linux (128 KiB per argument), so there the prompt is

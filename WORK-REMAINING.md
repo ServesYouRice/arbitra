@@ -173,6 +173,35 @@ instead, or if 3 opus runs take 3m tokens, we are allowed 5m"; guiding lights, n
 day on one project: one Opus-only run 20 minutes and 0.9M tokens, the panel at xhigh 301 minutes and 20.3M. So
 the targets there are about 90 minutes and 4.5M tokens. Changes that alter what the pipeline is are to be checked
 against Anthropic's current prompting and orchestration guidance before they are built (the owner's condition).
+Three Opus-only runs together then measured 51 minutes and 3.0M tokens, so the aim for that panel is about 77
+minutes and 5.0M tokens.
+
+**The speed build (October 12, evening): one pass per review stage.** Checked against Anthropic's guidance first
+(quotes read on the pages). The guides do not discuss review rounds, votes on conflicts or pair checks; their own
+review tools find in parallel, check each finding once against the code in a sub-task of its own, then filter
+("for each vulnerability ... create a new sub-task to filter out false-positives. Launch these sub-tasks as
+parallel sub-tasks"), and a loop that cannot settle is to "escalate to a human, return the best attempt with
+caveats". On effort: "Reserve `xhigh` and `max` for work where you've measured a quality gain." On critics: "A
+reviewer prompted to find gaps will usually report some, even when the work is sound." What the build changes
+(`docs/provider-model.md`, "One pass per review stage"):
+
+- The examples review once (`maxConsensusRounds` 1). What the round leaves undecided goes to verification, so
+  conflicting proposals are no longer voted on; a second round is still a setting.
+- Verification asks about every undecided candidate (the bound was 4 by default and 2 in the pilot), side by
+  side, each question with the source its candidate cites and their modules instead of all the source that fits.
+  An unanswered question leaves its candidate open instead of failing the run.
+- A review batch must carry the source its candidates cite. Cross-batch merge checks, critic pair checks and the
+  critic's second reading of a revised plan are off unless `review` asks for them.
+- The critic reads the accepted issues, not every issue (it was given 71 for a plan of 6).
+- `stageEffort` sets the effort of each stage after discovery; `estimatedBytesPerToken` sizes those calls (the
+  examples use 2). Discovery units are unchanged on purpose: a larger unit is a different audit.
+- Sizing adds up what each file costs (3 or 4 prompt builds a call instead of one per file), and planner briefs
+  and task expansions run side by side.
+
+Not built: a run without a plan (only an authored graph can leave the planner out); source first in the prompt
+for provider caches (few calls share a prefix once the stages read once); a plan too large for one revision call
+is still revised item by item, one after another. To measure on the same project: time, tokens, planted defects
+found, and what the accepted list holds.
 
 **Where a whole panel run's time goes (October 12).** The first panel run at xhigh that reached its last stage
 (Opus 5.5, GPT-6.1 Sol, Gemini 3.8 Flash, the same project) had a call in flight for 284 minutes: 274 calls, 859
@@ -255,7 +284,8 @@ above are tens of thousands of such measurements. Sizes add up, so each piece ca
   of the characters and the `&quot;` entity 36% (no longer written, 24eacf4). The rest is one JSON object per
   source line, and the schema and instructions repeated in every call. The same lines written as `N: text` are
   247,000 characters, which one call could carry. To decide: send discovery's source as numbered lines.
-- **Prompts are sized as if one byte were one token.** A prompt is admitted when its bytes plus the whole output
+- **Prompts are sized as if one byte were one token** (since October 12 a run can set `estimatedBytesPerToken`
+  for the stages after discovery; one figure for the run, not per profile). A prompt is admitted when its bytes plus the whole output
   ceiling fit in 80% of the model's window. Real prompts measured about 1.9 to 2.4 bytes per token, so each uses
   about a quarter of the window: Sonnet 5.5 received 61,500 tokens in a 240,000-token window. Discovery is therefore
   planned as 4 or 5 scopes per auditor, one review prompt held 4 of the 54 files, and the same estimate throttles

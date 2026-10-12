@@ -6,10 +6,9 @@
   },
   "auditDepth": "deep",
   "consensusPolicy": "full",
-  "maxConsensusRounds": 2,
+  "maxConsensusRounds": 1,
   "verification": {
-    "deterministicFirst": true,
-    "maxModelQuestionsPerRound": 2
+    "deterministicFirst": true
   },
   "models": {
     "auditor-a": {
@@ -204,6 +203,15 @@
       },
       "maximumOutputTokens": 32000,
       "maximumContextTokens": 128000,
+      "estimatedBytesPerToken": 2,
+      "stageEffort": {
+        "clustering": "low",
+        "peerReview": "medium",
+        "verification": "medium",
+        "planner": "medium",
+        "critic": "medium",
+        "revision": "medium"
+      },
       "maximumTokens": 3000000,
       "timeoutMs": 600000,
       "maximumRetries": 1,

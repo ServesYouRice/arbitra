@@ -18,9 +18,12 @@ export function segmentText(text: string, segment: Pick<PeerReviewSegment, "inde
  * Pair checks only propose merges, so they cannot duplicate candidate votes. Pairs are packed
  * into as few calls as fit, as the critic packs its own. Observed live (P20 pilot): one pair per
  * call asked one reviewer for 1,140 calls of about 59,000 tokens over 68 candidates in two batches. */
-export async function peerReviewBatches(candidateIds: readonly string[], fits: (batch: PeerReviewBatch) => Promise<boolean>, maximumCandidates = 20, maximumPackedCandidates = maximumCandidates, admits?: (batch: PeerReviewBatch) => Promise<boolean>): Promise<readonly PeerReviewBatch[]> {
+export async function peerReviewBatches(candidateIds: readonly string[], fits: (batch: PeerReviewBatch) => Promise<boolean>, maximumCandidates = 20, maximumPackedCandidates = maximumCandidates, admits?: (batch: PeerReviewBatch) => Promise<boolean>, mergeChecks = true): Promise<readonly PeerReviewBatch[]> {
   const primary = await reviewPartition(candidateIds, (ids) => fits({ kind: "review", candidateIds: ids }), maximumCandidates, admits === undefined ? undefined : (ids) => admits({ kind: "review", candidateIds: ids }));
   const result: PeerReviewBatch[] = primary.map((ids): PeerReviewBatch => ({ kind: "review", candidateIds: ids }));
+  // Without merge checks a reviewer still merges within a batch; candidates of different batches are not compared.
+  // Observed live (P20 pilot): 18 of a round's 25 calls were these checks, and the round applied one merge.
+  if (!mergeChecks) return result;
   const rank = new Map(candidateIds.map((id, position) => [id, position]));
   const key = (left: string, right: string) => JSON.stringify([left, right]);
   const pending = new Map<string, readonly [string, string]>();

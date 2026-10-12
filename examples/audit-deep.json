@@ -6,10 +6,9 @@
   },
   "auditDepth": "deep",
   "consensusPolicy": "full",
-  "maxConsensusRounds": 3,
+  "maxConsensusRounds": 1,
   "verification": {
-    "deterministicFirst": true,
-    "maxModelQuestionsPerRound": 4
+    "deterministicFirst": true
   },
   "models": {
     "auditor-a": {

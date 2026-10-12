@@ -15,7 +15,7 @@ import type { TestSandbox } from "../src/test-sandbox.js";
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
-async function fixture(options: { revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; ambiguousClustering?: boolean; oversizedRepository?: boolean; planQuestion?: boolean; verifierContextTokens?: number } = {}) {
+async function fixture(options: { revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; ambiguousClustering?: boolean; oversizedRepository?: boolean; planQuestion?: boolean; verifierContextTokens?: number; invalidVerification?: boolean } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "arbitra-model-run-")); directories.push(directory);
   const manyIssues = options.largePeerContext === true || options.largePlannerContext === true;
   await writeFile(join(directory, "a.ts"), "const value = null;\n".repeat(manyIssues ? 4 : options.ambiguousClustering === true ? 3 : 1), "utf8");
@@ -33,7 +33,8 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
   const providers = ["openai", "anthropic", "google"];
   const transports = ["openai-responses", "anthropic-messages", "gemini-native"];
   const ids = ["auditor-a", "auditor-b", "auditor-c"];
-  const config = runConfigSchema.parse({ ...example, models: Object.fromEntries(ids.map((id, index) => [id, { ...template, provider: providers[index], transport: transports[index], independenceGroup: id, modelId: id }])),
+  // The example reviews once. These audits allow a second round, which the tests of later rounds need.
+  const config = runConfigSchema.parse({ ...example, maxConsensusRounds: 2, models: Object.fromEntries(ids.map((id, index) => [id, { ...template, provider: providers[index], transport: transports[index], independenceGroup: id, modelId: id }])),
     workflow: { preset: "audit-deep", modelExecution: {
       endpoints: ids.map((id, index) => ({ id, providerId: providers[index], transport: transports[index], endpoint: `https://${id}.example/v1`, apiKeyEnvVar: "FIXTURE_KEY" })),
       modelEndpoints: Object.fromEntries(ids.map((id) => [id, id])), roles: { planner: "auditor-a", verifier: "auditor-b", critic: "auditor-c" },
@@ -56,6 +57,8 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
   const verificationInputs: { candidateId: string; unresolvedPeerOperations: { candidateIds: string[] }[] }[] = [];
   const plannerContexts: { unresolvedPeerOperations: { candidateIds: string[] }[] }[] = [];
   const packedChecks: (readonly [string, string])[][] = [];
+  const criticIssueIds: string[][] = [];
+  const verificationFlight = { now: 0, most: 0 };
   let mergedListedPair: readonly [string, string] | undefined;
   const reviewInputs: { url: string; repair: boolean; input: { round: number; yourEarlierVotes?: { votes: Record<string, { vote: string; citedEvidenceIds: string[] }> } } }[] = [];
   let failVerification = false;
@@ -146,7 +149,12 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
       if (failVerification) return { status: 503, headers: {}, body: {} };
       const input = JSON.parse(user) as { request: { candidateId: string; context: { citedContext: { evidenceId: string }[] } }; unresolvedPeerOperations: { candidateIds: string[] }[] };
       verificationInputs.push({ candidateId: input.request.candidateId, unresolvedPeerOperations: input.unresolvedPeerOperations });
-      output = { outcome: "CONFIRMED", evidenceIds: input.request.context.citedContext.map(({ evidenceId }) => evidenceId), confidence: 0.8 };
+      // The answers take a moment, so questions asked side by side are in flight together.
+      verificationFlight.now += 1; verificationFlight.most = Math.max(verificationFlight.most, verificationFlight.now);
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      verificationFlight.now -= 1;
+      // An answer that cites evidence the question did not supply is refused.
+      output = { outcome: "CONFIRMED", evidenceIds: options.invalidVerification === true ? ["evidence-never-supplied"] : input.request.context.citedContext.map(({ evidenceId }) => evidenceId), confidence: 0.8 };
     } else if (system.startsWith("Read the complete accepted issues")) {
       requests.push({ stage: "planner-brief", url: request.url });
       const input = JSON.parse(user) as { canonicalIssues: { candidateId: string; remediationSupplements: string[] }[] };
@@ -197,7 +205,8 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
     } else if (system.startsWith("Critique the plan")) {
       requests.push({ stage: "critic", url: request.url });
       if (failCritic && requests.filter(({ stage }) => stage === "critic").length === 2) return { status: 503, headers: {}, body: {} };
-      const input = JSON.parse(user) as { plan: { title: string; tasks: { id: string }[] }; reviewScope?: { globalIndex: { tasks: { id: string }[] } } };
+      const input = JSON.parse(user) as { plan: { title: string; tasks: { id: string }[] }; canonicalIssues: { candidateId: string }[]; reviewScope?: { globalIndex: { tasks: { id: string }[] } } };
+      criticIssueIds.push(input.canonicalIssues.map(({ candidateId }) => candidateId));
       const taskId = input.plan.tasks[0]?.id ?? input.reviewScope?.globalIndex.tasks[0]?.id;
       const blocking = options.revision !== undefined && (input.plan.title !== "Revised plan" || options.revision === "still_blocking");
       output = { summary: "Fixture critique", items: options.largeCriticContext === true || blocking ? [{ id: "local-1", category: "weak_verification", blocking, summary: "Fixture mapped feedback", taskIds: [taskId], issueIds: [] }] : [] };
@@ -209,7 +218,7 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
     return { status: 200, headers: {}, body: response };
   };
   const create = (testSandbox?: TestSandbox) => new Orchestrator({ repository: directory, stateDirectory: join(directory, ".runs"), providerOptions: { client: { send }, credential: () => "fixture-credential" }, ...(testSandbox === undefined ? {} : { testSandbox }) });
-  return { create, config, requests, verificationInputs, plannerContexts, reviewInputs, packedChecks, mergedListedPair: () => mergedListedPair, failRevisionPatch: (value: boolean) => { failRevisionPatch = value; }, failExpansion: (value: boolean) => { failExpansion = value; }, failCritic: (value: boolean) => { failCritic = value; }, failVerification: (value: boolean) => { failVerification = value; }, blockDiscovery: (callback: () => void) => { blockDiscovery = callback; } };
+  return { create, config, requests, verificationInputs, plannerContexts, reviewInputs, packedChecks, criticIssueIds, verificationFlight, mergedListedPair: () => mergedListedPair, failRevisionPatch: (value: boolean) => { failRevisionPatch = value; }, failExpansion: (value: boolean) => { failExpansion = value; }, failCritic: (value: boolean) => { failCritic = value; }, failVerification: (value: boolean) => { failVerification = value; }, blockDiscovery: (callback: () => void) => { blockDiscovery = callback; } };
 }
 
 describe("composed model audits", () => {
@@ -250,6 +259,7 @@ describe("composed model audits", () => {
   });
   it.each(["resolved", "still_blocking"] as const)("resumes oversized planner revisions and rechecks every critique claim: %s", async (revision) => {
     const { create, config, requests, failRevisionPatch } = await fixture({ largeCriticContext: true, revision });
+    (config.workflow["modelExecution"] as { review?: object }).review = { recheckRevisedPlan: true, criticPairChecks: true };
     failRevisionPatch(true);
     const initial = create(); const run = await initial.run(config);
     const events = []; for await (const event of initial.events(run.runId)) events.push(event);
@@ -350,6 +360,7 @@ describe("composed model audits", () => {
 
   it.each(["resolved", "still_blocking"] as const)("revises blocking critique once and independently checks the result: %s", async (revision) => {
     const { create, config, requests, failCritic } = await fixture({ revision });
+    (config.workflow["modelExecution"] as { review?: object }).review = { recheckRevisedPlan: true };
     failCritic(true);
     const core = create(); const result = await core.run(config);
     expect(result.state).toBe("FAILED");
@@ -451,6 +462,7 @@ describe("composed model audits", () => {
 
   it("batches oversized peer context without losing candidate or cross-batch pair coverage", async () => {
     const { create, config, requests, failVerification } = await fixture({ largePeerContext: true });
+    (config.workflow["modelExecution"] as { review?: object }).review = { crossBatchMergeChecks: true };
     failVerification(true);
     const core = create(); const result = await core.run(config);
     const events = []; for await (const event of core.events(result.runId)) events.push(event);
@@ -498,6 +510,7 @@ describe("composed model audits", () => {
   it.each([1, 4])("packs the pair checks between review batches into one call and applies the merge it returns (%i calls at a time)", async (parallel) => {
     // Observed live (P20 pilot): one call per pair asked one reviewer for 1,140 calls.
     const { create, config, requests, packedChecks, mergedListedPair, failVerification } = await fixture({ largePeerContext: true, packedPeerContext: true, mergeListedPair: true });
+    (config.workflow["modelExecution"] as { review?: object }).review = { crossBatchMergeChecks: true };
     if (parallel > 1) (config.workflow["modelExecution"] as { maximumParallelCalls?: number }).maximumParallelCalls = parallel;
     failVerification(true);
     const core = create(); const result = await core.run(config);
@@ -604,9 +617,9 @@ describe("composed model audits", () => {
     // The verification question and the plan read the unresolved operations that involve their own candidate.
     expect(verificationInputs.map(({ candidateId, unresolvedPeerOperations }) => unresolvedPeerOperations.map(({ candidateIds }) => candidateIds.includes(candidateId)))).toEqual([[true]]);
     expect(plannerContexts.map(({ unresolvedPeerOperations }) => unresolvedPeerOperations.length)).toEqual([1]);
-    // The question's activity is named after that input, so a run resumed from a build that sent every operation asks again.
+    // The question's activity is named after that input, so a run resumed from a build that sent other input asks again.
     const contexts = await Promise.all((await core.artifacts(result.runId)).filter(({ kind }) => kind.startsWith("model-context-")).map(async ({ artifactId }) => JSON.parse((await core.artifact(result.runId, artifactId) as { content: string }).content) as { activityId: string }));
-    expect(contexts.map(({ activityId }) => activityId).filter((id) => id.startsWith("verification/"))).toEqual([`verification/${verificationInputs[0]?.candidateId}/own-operations`]);
+    expect(contexts.map(({ activityId }) => activityId).filter((id) => id.startsWith("verification/"))).toEqual([`verification/${verificationInputs[0]?.candidateId}/question`]);
     const artifacts = await core.artifacts(result.runId);
     const conflict = artifacts.find(({ kind }) => kind === "peer-operation-conflicts");
     const canonical = artifacts.find(({ kind }) => kind === "canonical-issues");
@@ -791,6 +804,95 @@ describe("composed model audits", () => {
     expect(result.state).toBe("SUSPENDED_BUDGET"); expect(requests).toHaveLength(0);
     const resumed = create(); await resumed.resume(result.runId);
     expect((await resumed.wait(result.runId)).state).toBe("SUSPENDED_BUDGET"); expect(requests).toHaveLength(0);
+  });
+
+  it("puts every candidate the review left undecided to the verifier, side by side", async () => {
+    // Observed live (P20 pilot): with two questions a run, 48 of 50 undecided items stayed open and 17 were never looked at.
+    const { create, config, requests, verificationFlight } = await fixture({ largePeerContext: true });
+    (config.workflow["modelExecution"] as { maximumParallelCalls?: number }).maximumParallelCalls = 4;
+    const core = create(); const result = await core.run(config);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
+    const read = async <T>(kind: string) => { const descriptor = (await core.artifacts(result.runId)).find((artifact) => artifact.kind === kind); return JSON.parse((await core.artifact(result.runId, descriptor?.artifactId ?? "") as { content: string }).content) as T; };
+    const metrics = await read<{ itemCount: number; modelCalls: number; deferredItemIds: string[] }>("verification-metrics");
+    // One reviewer rejects and the others accept, so the review decides nothing and every candidate is asked about.
+    expect(metrics.itemCount).toBeGreaterThan(1);
+    expect(metrics).toMatchObject({ modelCalls: metrics.itemCount, deferredItemIds: [] });
+    expect(requests.filter(({ stage }) => stage === "verification")).toHaveLength(metrics.itemCount);
+    expect(verificationFlight.most).toBeGreaterThan(1);
+    // By default no candidates of different review batches are compared for a merge.
+    expect(requests.some(({ stage }) => stage === "merge-check")).toBe(false);
+    const issues = await read<{ issues: { disposition: string; verificationOutcome: string | null }[] }>("canonical-issues");
+    expect(issues.issues.every(({ disposition, verificationOutcome }) => disposition === "accepted" && verificationOutcome === "CONFIRMED")).toBe(true);
+  });
+
+  it("leaves a candidate open when its verification answer stays invalid, and completes the run", async () => {
+    const { create, config, requests } = await fixture({ invalidVerification: true });
+    const core = create(); const result = await core.run(config);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
+    expect(requests.filter(({ stage }) => stage === "verification")).toHaveLength(1);
+    const canonical = (await core.artifacts(result.runId)).find(({ kind }) => kind === "canonical-issues");
+    const value = JSON.parse((await core.artifact(result.runId, canonical?.artifactId ?? "") as { content: string }).content) as { limitations: string[]; issues: { disposition: string; verificationOutcome: string }[] };
+    expect(value.limitations).toContain("verification_question_unanswered:1");
+    expect(value.issues.map(({ disposition, verificationOutcome }) => [disposition, verificationOutcome])).toEqual([["needs_verification", "STILL_NEEDS_VERIFICATION"]]);
+  });
+
+  it("has one critic pass and one revision by default, and reports what the revision did", async () => {
+    // Observed live (P20 pilot): the critic's second reading of a revised plan was 82 calls for remarks no stage read.
+    const { create, config, requests, criticIssueIds } = await fixture({ revision: "still_blocking" });
+    const core = create(); const result = await core.run(config);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
+    expect(requests.filter(({ stage }) => stage === "critic")).toHaveLength(1);
+    expect(requests.filter(({ stage }) => stage === "revision")).toHaveLength(1);
+    const read = async <T>(kind: string) => { const descriptor = (await core.artifacts(result.runId)).find((artifact) => artifact.kind === kind); return JSON.parse((await core.artifact(result.runId, descriptor?.artifactId ?? "") as { content: string }).content) as T; };
+    const feedback = await read<{ items: { id: string; blocking: boolean }[]; revision: { rechecked: boolean; resolvedCritiqueItemIds: string[]; notRevisedCritiqueItemIds: string[] } }>("critic-feedback");
+    expect(feedback.items.filter(({ blocking }) => blocking)).toHaveLength(1);
+    expect(feedback.revision).toEqual({ rechecked: false, resolvedCritiqueItemIds: feedback.items.map(({ id }) => id), notRevisedCritiqueItemIds: [] });
+    expect((await read<{ title: string }>("plan-ir")).title).toBe("Revised plan");
+    // The critic's blocking item was worked in by the one revision, so it no longer holds the run's gate.
+    expect((await core.gate(result.runId)).reasons).not.toContain("blocking_critic_feedback");
+    // The critic read the issues the plan resolves, and those only.
+    const plan = await read<{ acceptedIssueIds: string[] }>("plan-ir");
+    expect(criticIssueIds).toEqual([plan.acceptedIssueIds]);
+  });
+
+  it("gives the critic only the issues the plan has to resolve", async () => {
+    // Observed live (P20 pilot): 71 issues beside a plan for 6 of them were 90 records and 30 critic calls.
+    const { create, config, criticIssueIds } = await fixture({ largePeerContext: true });
+    const bounded = runConfigSchema.parse({ ...config, verification: { maxModelQuestionsPerRound: 1 } });
+    const core = create(); const result = await core.run(bounded);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
+    const canonical = (await core.artifacts(result.runId)).find(({ kind }) => kind === "canonical-issues");
+    const issues = (JSON.parse((await core.artifact(result.runId, canonical?.artifactId ?? "") as { content: string }).content) as { issues: { candidateId: string; disposition: string }[] }).issues;
+    const accepted = issues.filter(({ disposition }) => disposition === "accepted").map(({ candidateId }) => candidateId);
+    expect(accepted).toHaveLength(1); expect(issues.length).toBeGreaterThan(1);
+    expect(criticIssueIds).toEqual([accepted]);
+  });
+
+  it("runs a checking stage at the effort the run sets for it and sizes calls at the run's bytes a token", async () => {
+    const usual = await fixture();
+    const first = usual.create(); const measured = await first.run(usual.config);
+    const traces = async (core: typeof first, runId: string) => Promise.all((await core.artifacts(runId)).filter(({ kind }) => /^model-activity-[a-f0-9]+-trace$/u.test(kind)).map(async ({ artifactId }) => (JSON.parse((await core.artifact(runId, artifactId) as { content: string }).content) as { terminal: { activityId: string; effortRequested: string | null } }).terminal));
+    const contexts = async (core: typeof first, runId: string) => Promise.all((await core.artifacts(runId)).filter(({ kind }) => kind.startsWith("model-context-")).map(async ({ artifactId }) => JSON.parse((await core.artifact(runId, artifactId) as { content: string }).content) as { activityId: string; estimatedTokens: number }));
+    const depthEffort = (await traces(first, measured.runId)).find(({ activityId }) => activityId.startsWith("peer-review/"))?.effortRequested;
+    expect((await traces(first, measured.runId)).filter(({ activityId }) => !activityId.includes("/discovery")).every(({ effortRequested }) => effortRequested === depthEffort)).toBe(true);
+    const { create, config } = await fixture();
+    Object.assign(config.workflow["modelExecution"] as object, { stageEffort: { verification: "low", critic: "high" }, estimatedBytesPerToken: 2 });
+    const core = create(); const result = await core.run(config);
+    expect(result.state).toBe("COMPLETED");
+    const efforts = await traces(core, result.runId);
+    expect(efforts.filter(({ activityId }) => activityId.startsWith("verification/")).map(({ effortRequested }) => effortRequested)).toEqual(["low"]);
+    expect(efforts.filter(({ activityId }) => activityId.startsWith("critic/")).map(({ effortRequested }) => effortRequested)).toEqual(["high"]);
+    // A stage the run does not name, and discovery always, keep the effort of the audit depth.
+    expect(efforts.filter(({ activityId }) => activityId.startsWith("peer-review/") || activityId.includes("/discovery")).every(({ effortRequested }) => effortRequested === depthEffort)).toBe(true);
+    // At two bytes a token the same question is counted at about half, beside the unchanged output allowance.
+    const question = (list: { activityId: string; estimatedTokens: number }[]) => (list.find(({ activityId }) => activityId.startsWith("verification/"))?.estimatedTokens ?? 0) - 2_000;
+    const [once, twice] = [question(await contexts(first, measured.runId)), question(await contexts(core, result.runId))];
+    expect(twice).toBeGreaterThan(0);
+    expect(Math.abs(once - 2 * twice)).toBeLessThanOrEqual(2);
   });
 
   it("cancels active model calls even if HTTP clients ignore cancellation", async () => {

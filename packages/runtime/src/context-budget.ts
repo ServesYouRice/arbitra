@@ -14,12 +14,22 @@ export function stageBudget(config: RunConfig, modelProfileId: string): StageBud
   return { maximumInputTokens: Math.floor(context * 0.8), outputCapacity: Math.min(execution.maximumOutputTokens, profile?.limits.maxOutputTokens ?? Number.POSITIVE_INFINITY) };
 }
 
-/** arbitra sizes what it sends at one token a byte. Real prompts measured 1.9 to 2.4 bytes a token, so that
- * overstates them about twice, which keeps calls small. What a call must carry whole is another matter: refused
- * at that rate it fails the run, although the provider would have read it (observed live: a verification question,
- * a planner task and a plan revision item, the last two over by a few percent). Such input is admitted at this
- * many bytes a token, about what it really is, when it fits at no smaller size. */
+/** arbitra sizes what it sends at one token a byte unless the run sets `estimatedBytesPerToken`. Real prompts
+ * measured 1.9 to 2.4 bytes a token, so one byte a token overstates them about twice, which keeps calls small.
+ * What a call must carry whole is another matter: refused at that rate it fails the run, although the provider
+ * would have read it (observed live: a verification question, a planner task and a plan revision item, the last
+ * two over by a few percent). Such input is admitted at this many bytes a token, about what it really is, when
+ * it fits at no smaller size. */
 export const REQUIRED_INPUT_BYTES_PER_TOKEN = 2;
+
+/** Bytes counted as one token when this run sizes a call, and when it admits input a call must carry whole. */
+export function inputBytesPerToken(config: RunConfig): { readonly usual: number; readonly required: number } {
+  const usual = providerExecutionSchema.parse(config.workflow["modelExecution"]).estimatedBytesPerToken ?? 1;
+  return { usual, required: Math.max(usual, REQUIRED_INPUT_BYTES_PER_TOKEN) };
+}
+
+/** The checking stages whose effort a run may set apart from the audit's (`stageEffort`). */
+export type EffortStage = "clustering" | "peerReview" | "verification" | "planner" | "critic" | "revision";
 
 /** Conservative output reserves for stages that must emit one decision per supplied
  * record. They size batches before spend; truncation is still detected afterwards. */
