@@ -257,7 +257,7 @@ application around `agy`. The owner was told and left the choice to the session 
 pilot runs four Antigravity calls at a time at a low per-minute rate, and two lineups side by side. Still open for
 the product: the terms of each vendor's subscription CLI need a check before arbitra recommends subscriptions.
 
-**Fixed.** The P20 pilot found two defects on October 10 and twelve on October 11; all fourteen are fixed and
+**Fixed.** The P20 pilot found two defects on October 10, twelve on October 11 and one on October 12; all fifteen are fixed and
 verified on Linux, and the second was also checked live on the owner's Windows PC
 ([qa/subscription-cli](docs/qa/subscription-cli/README.md)):
 
@@ -331,6 +331,19 @@ verified on Linux, and the second was also checked live on the owner's Windows P
 - **An empty SUCCESS from the Antigravity CLI failed the run (fixed in 9f22652).** The CLI reported SUCCESS with no
   answer in the last critic call of a panel run, 117 minutes in. It was not retried, so the run failed there. An
   empty SUCCESS is now tried again in a fresh process within `maximumRetries`.
+- **Every verification question carried all of the run's unresolved peer operations (fixed in 295b939 and 568d10b).** Two
+  panel runs failed in verification on October 12, after both review rounds: one had 22 unresolved operations
+  (190,000 characters), more than the verifier's context, so no question could be asked; the other had 15
+  (99,000), and its second question no longer fit. Every resume failed the same way. A question now carries the
+  operations that involve its own candidate, and one that still cannot fit is not asked: the candidate stays
+  unverified and the run records it. The planner had the same input and would have failed next: the plan now
+  reads the operations that involve accepted issues, each reading stage those of its own issues and the outline
+  only which issues each one ties together ([provider model](docs/provider-model.md)). The run that had already
+  asked one question then stopped on resume with `MODEL_ACTIVITY_INPUT_CHANGED`, because that question's input
+  had changed under the same activity name; the activity is now named after its input, so such a run asks again
+  (568d10b). On the fixed builds both runs passed verification: two questions each, about 54,000 input tokens a
+  question in the first. The size limit that made this fatal counts one byte as one token, which is still open
+  above.
 
 All eight findings in [qa/p19](docs/qa/p19/README.md) are fixed, and the affected live acceptance passed on subscriptions on September 30 (runs A–E there). The reruns found four more defects; all are fixed. The completion report is P21, after P20.
 
