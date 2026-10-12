@@ -197,7 +197,7 @@ describe("the new-run page", () => {
     visit("?page=new-run");
     render(<App />);
     const json = await screen.findByRole("textbox", { name: "configuration JSON" }) as HTMLTextAreaElement;
-    fireEvent.change(json, { target: { value: json.value.replace('"maxConsensusRounds": 2', '"maxConsensusRounds": 1') } });
+    fireEvent.change(json, { target: { value: json.value.replace('"maxConsensusRounds": 1', '"maxConsensusRounds": 2') } });
     fireEvent.change(screen.getByRole("spinbutton", { name: "review rounds" }), { target: { value: "3" } });
     expect(await screen.findByText("the form changed after these JSON edits began · applying them is refused")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "apply JSON" }));

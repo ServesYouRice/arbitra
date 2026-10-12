@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { PinnedProtocol } from "@arbitra/protocols/registry.js";
-import { allocateModelContext, withinStringBudget } from "./model-context.js";
+import { allocateModelContext } from "./model-context.js";
 import { isCapacityError, ModelOutputLimitError } from "./context-budget.js";
 import type { ModelActivityRequest } from "./model-activities.js";
 import type { ModelHarness } from "./model-harness.js";
@@ -46,7 +46,7 @@ export function harnessStagePort(options: HarnessStagePortOptions): PlannerCompo
     if (await options.harness.outputLimited(activityId(stage))) throw new ModelOutputLimitError(activityId(stage));
     const input = isFull(stage) ? options.full.input : stage.input;
     const record = typeof input === "object" && input !== null && !Array.isArray(input) ? input as Record<string, unknown> : { input };
-    return allocateModelContext({ ...record, repository }, (payload) => withinStringBudget(payload, options.maximumInputTokens) && options.harness.estimateInitialTokens(request(stage, payload)) <= options.maximumInputTokens);
+    return allocateModelContext({ ...record, repository }, (payload) => options.harness.withinInputBudget(payload, options.maximumInputTokens) && options.harness.estimateInitialTokens(request(stage, payload)) <= options.maximumInputTokens);
   };
   return {
     async fits(stage) {

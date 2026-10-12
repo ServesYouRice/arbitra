@@ -138,7 +138,8 @@ export function orchestratorCore(orchestrator: Orchestrator) {
           : request.target.kind === "module" ? { kind: "module", modules: [request.target.moduleId] } : { kind: "repository" },
         auditDepth: request.preset === "diff-fast" ? "fast" : request.preset === "audit-deep" ? "deep" : "balanced",
         consensusPolicy: request.preset === "diff-fast" ? "minimal" : request.preset === "audit-deep" ? "full" : "risk_weighted",
-        maxConsensusRounds: request.preset === "diff-fast" ? 0 : request.preset === "audit-deep" ? 3 : 2,
+        // One review round: what it leaves undecided goes to verification, not to another round.
+        maxConsensusRounds: request.preset === "diff-fast" ? 0 : 1,
         verification: {}, models: {}, harness: { mode: "canonical" },
         workflow: { preset: request.preset },
         budgets: {}, security: {}, protocols: {}, promptOverrides: {}, contextPolicies: {},

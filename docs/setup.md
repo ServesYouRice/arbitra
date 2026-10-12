@@ -306,7 +306,8 @@ These limits are enforced:
 | `maximumOutputTokens`, `maximumContextTokens`, `maximumDiscoveryTokens` | Per-request output reserve and context caps. The subscription templates use 32,000 output tokens: subscription output is not billed per token, and live planners (a Plan IR for a few gaps) exceeded 8,000. |
 | `maximumRetries`, `timeoutMs`, `rateLimits` | Retry count, per-request timeout, per-provider pacing and concurrency. |
 | `maximumOutputRepairs` | Re-asks per model stage (0–3, default 0; templates use 1) after a reply fails output validation: unparsable JSON, schema, evidence grounding or plan traceability. Each re-ask is its own durable, budgeted activity that carries the rejection reason and the rejected reply as untrusted data. Provider failures, refusals and output-limit stops are never repaired. |
-| `verification.maxModelQuestionsPerRound` | Targeted verification questions per round (0 disables). |
+| `verification.maxModelQuestionsPerRound` | Bound on targeted verification questions. Unset, every candidate the review left undecided is asked about; 0 disables model verification. |
+| `estimatedBytesPerToken`, `stageEffort`, `review` | How calls after discovery are sized, the effort of each checking stage, and the checks beyond one pass of each review stage. See [one pass per review stage](provider-model.md#one-pass-per-review-stage). |
 | `verification.execution.maximumRuns`, Testing `maximumAttempts` | Sandbox check runs and writer attempts. |
 
 The `budgets` object (for example `maximumCostUsd`) is not enforced by the runtime, and

@@ -11,7 +11,7 @@ import { validateTraceability } from "@arbitra/workflow/nodes/planner/traceabili
 import { ModelActivities, type ModelActivityRequest } from "./model-activities.js";
 import { ModelHarness } from "./model-harness.js";
 import { ModelProtocols } from "./model-protocols.js";
-import { allocateModelContext, withinStringBudget } from "./model-context.js";
+import { allocateModelContext } from "./model-context.js";
 import { isCapacityError, ModelOutputLimitError, OUTPUT_TOKENS_PER_RECORD, outputRecordLimit, replanOnOutputLimit, stageBudget } from "./context-budget.js";
 import { criticContextParts, criticPartIdentity, type CriticContextPart } from "./critic-context.js";
 import type { StructuredCritique } from "@arbitra/workflow/nodes/critic/node.js";
@@ -59,7 +59,7 @@ export async function modelFeatureCritic(store: RunStore, config: RunConfig, sna
     const repository = snapshot.files.map(({ path, lines }) => ({ path, content: lines.join("\n"), trust: "untrusted_data" }));
     const allocate = async (source: Record<string, unknown>, activityId: string) => {
       if (await harness.outputLimited(activityId)) throw new ModelOutputLimitError(activityId);
-      return allocateModelContext({ ...source, repository }, (payload) => withinStringBudget(payload, maximum) && harness.estimateInitialTokens(request(payload, activityId)) <= maximum);
+      return allocateModelContext({ ...source, repository }, (payload) => harness.withinInputBudget(payload, maximum) && harness.estimateInitialTokens(request(payload, activityId)) <= maximum);
     };
     const fullSource = { ...input, requirements, exploration, ...(options.revised ? { revisionContext } : {}) };
     const requirementRecords = [...requirements.assumptions, ...requirements.ambiguities, ...requirements.acceptance];

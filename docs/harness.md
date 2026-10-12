@@ -116,8 +116,10 @@ truncated. When they do not fit, the stage is recomposed:
 - **Batched records with global indexes.** Each batch carries complete records plus an
   index of every other record identity and relationship. Merged results are validated for
   exact coverage (every record decided exactly once).
-- **Exhaustive pair coverage.** Record batches are followed by pair checks that cover every
-  pair separated by the partition. Pairs are packed (`peerReviewBatches` for peer review,
+- **Pair coverage, on request.** With `review.crossBatchMergeChecks` (peer review) or
+  `review.criticPairChecks` (the Audit critic), and always for Feature plans, record batches
+  are followed by pair checks that cover every pair separated by the partition. Without them
+  each record is still read whole in its own batch with the global index. Pairs are packed (`peerReviewBatches` for peer review,
   `criticContextParts` for the critic): each packed call holds as many records as fit and
   lists the pairs it covers, so every pair is checked exactly once in far fewer calls. A
   revised plan once needed 152 one-pair critic checks; packing covers the same pairs in 6.

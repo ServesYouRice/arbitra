@@ -20,7 +20,17 @@ export interface PlannerCompositionPort {
   /** Whether this stage's call stopped at the model's output ceiling before. Such a call is not made again. */
   outputLimited?(stage: PlannerStage): Promise<boolean>;
   call(stage: PlannerStage): Promise<unknown>;
+  /** Runs calls that read nothing of one another and returns their results in the order of the items. Without
+   * it they run one after another. */
+  together?<T, R>(items: readonly T[], run: (item: T) => Promise<R>): Promise<R[]>;
   publish(kind: string, value: unknown): Promise<unknown>;
+}
+
+async function together<T, R>(port: PlannerCompositionPort, items: readonly T[], run: (item: T) => Promise<R>): Promise<R[]> {
+  if (port.together !== undefined) return port.together(items, run);
+  const results: R[] = [];
+  for (const item of items) results.push(await run(item));
+  return results;
 }
 
 /** Whether a stage that has to be sent as it stands can be: within the usual size, or else as required input. */
@@ -82,9 +92,10 @@ export async function planWithContext(input: PlannerInput, port: PlannerComposit
   if (current.length > 0) batches.push(current);
   await port.publish("planner-context-batches", batches.map((issueIds) => ({ activityId: briefRequest(issueIds).activityId, issueIds })));
   const briefs: PlannerBrief["issues"] = [];
-  for (const batch of batches) {
-    const request = briefRequest(batch);
-    const brief = plannerBriefSchema.parse(await port.call(request));
+  // Each batch is read on its own, so the batches are read side by side and taken in batch order.
+  const briefReplies = await together(port, batches, (batch) => port.call(briefRequest(batch)));
+  for (const [index, batch] of batches.entries()) {
+    const brief = plannerBriefSchema.parse(briefReplies[index]);
     const received = brief.issues.map(({ issueId }) => issueId);
     if (received.length !== batch.length || new Set(received).size !== received.length || received.some((id) => !batch.includes(id))) throw new Error("PLANNER_BRIEF_ISSUE_SET_MISMATCH");
     // Stable question namespacing prevents separate batches from colliding on Q-1.
@@ -157,6 +168,10 @@ export async function planWithContext(input: PlannerInput, port: PlannerComposit
     expansions.set(task.id, request);
   }
   const tasks: PlanTaskIR[] = []; const questions: UnresolvedQuestion[] = [];
+  // An expansion reads the fixed outline and its own records, never another expansion: they run side by side and
+  // are put together in task order. Observed live (P20 pilot): 19 expansions one after another.
+  const expandable = outline.tasks.filter(({ id }) => !notExpanded.includes(id));
+  const expansionReplies = new Map((await together(port, expandable, (task) => port.call(expansions.get(task.id) ?? taskRequest(task)))).map((reply, index) => [expandable[index]?.id, reply]));
   for (const task of outline.tasks) {
     if (notExpanded.includes(task.id)) {
       // Both forms of this expansion stopped at the model's output ceiling, and one task cannot be asked for in
@@ -168,7 +183,7 @@ export async function planWithContext(input: PlannerInput, port: PlannerComposit
       questions.push({ id: questionId, question: `Task ${task.id} was not expanded: every expansion call for it stopped at the model's output ceiling. It carries its outline only (goal, scope, routing, dependencies and validation links). How should it be carried out?`, blocking: true, blastRadius: "high" });
       continue;
     }
-    const expanded = plannerTaskExpansionSchema.parse(await port.call(expansions.get(task.id) ?? taskRequest(task)));
+    const expanded = plannerTaskExpansionSchema.parse(expansionReplies.get(task.id));
     if (JSON.stringify(taskOutline(expanded.task)) !== JSON.stringify(task)) throw new Error(`PLANNER_TASK_OUTLINE_CHANGED:${task.id}`);
     assertUniqueQuestions(expanded.unresolvedQuestions);
     const questionIds = new Map(expanded.unresolvedQuestions.map(({ id }) => [id, `expansion-${task.id}/${id}`]));

@@ -64,6 +64,29 @@ describe("verification subgraph", () => {
     expect(run.results.map(({ outcome, method, contextLimited }) => [outcome, method, contextLimited])).toEqual([["STILL_NEEDS_VERIFICATION", "bounded_deterministic_check", true], ["CONFIRMED", "single_model_question", false]]);
     expect(run.metrics).toMatchObject({ modelCalls: 1, resolvedDisputes: 1, contextLimitedItemIds: ["C-1"] });
   });
+
+  it("asks the model questions together and records the outcomes in item order", async () => {
+    // Observed live (P20 pilot): fifty items were verified one after another.
+    const asked: string[] = []; const operations: VerificationIssueOperation[] = []; let inFlight = 0; let most = 0;
+    const verificationTools = tools();
+    verificationTools.readCitedLines = async ({ candidateId }) => attempt("cited_lines", candidateId === "C-2" ? "rejected" : "inconclusive");
+    const run = await verifyItems(["C-1", "C-2", "C-3", "C-4"].map((candidateId) => item({ candidateId })), verificationTools,
+      { maximumItems: 4, maximumModelCalls: 2, allowModelCall: true, round: 1 },
+      { sink: { async append(operation) { operations.push(operation); } },
+        // Every question is in flight before the first answer, and the last one asked answers first.
+        together: async (list, work) => Promise.all(list.map((entry) => work(entry))),
+        model: { async verify({ candidateId }) {
+          asked.push(candidateId); inFlight += 1; most = Math.max(most, inFlight);
+          await new Promise((resolve) => setTimeout(resolve, candidateId === "C-1" ? 20 : 1));
+          inFlight -= 1;
+          return { outcome: candidateId === "C-1" ? "CONFIRMED" : "REJECTED", evidenceIds: ["ev-1"], artifactRefs: [], activityId: `model:${candidateId}`, confidence: 0.9 };
+        } } });
+    // The two questions go to the first two items the rungs left open; the item a rung settled spends none.
+    expect(asked).toEqual(["C-1", "C-3"]); expect(most).toBe(2);
+    expect(run.results.map(({ candidateId, outcome, method }) => [candidateId, outcome, method])).toEqual([["C-1", "CONFIRMED", "single_model_question"], ["C-2", "REJECTED", "cited_lines"], ["C-3", "REJECTED", "single_model_question"], ["C-4", "STILL_NEEDS_VERIFICATION", "bounded_deterministic_check"]]);
+    expect(operations.map(({ candidateId }) => candidateId)).toEqual(["C-1", "C-2", "C-3", "C-4"]);
+    expect(run.metrics).toMatchObject({ itemCount: 4, modelCalls: 2, resolvedDisputes: 3 });
+  });
 });
 
 function requiredAt<T>(values: readonly T[], index: number): T { const value = values[index]; if (value === undefined) throw new RangeError(`Missing test value at index ${index}`); return value; }

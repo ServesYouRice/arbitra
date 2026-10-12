@@ -190,7 +190,7 @@ function AuditFields({ draft, edit, setDraft, listing }: { readonly draft: Draft
       <label className="field">peer review
         <select aria-label="peer review" value={String(draft["consensusPolicy"] ?? "risk_weighted")} onChange={(event) => edit(["consensusPolicy"], event.target.value)}>{CONSENSUS.map(([key]) => <option key={key} value={key}>{key.replace("_", "-")}</option>)}</select>
       </label>
-      <label className="field">review rounds<input aria-label="review rounds" max={3} min={0} type="number" value={Number(draft["maxConsensusRounds"] ?? 2)} onChange={(event) => edit(["maxConsensusRounds"], Number(event.target.value))} /></label>
+      <label className="field">review rounds<input aria-label="review rounds" max={3} min={0} type="number" value={Number(draft["maxConsensusRounds"] ?? 1)} onChange={(event) => edit(["maxConsensusRounds"], Number(event.target.value))} /></label>
       <label className="field">audit depth
         <select aria-label="audit depth" value={String(draft["auditDepth"] ?? "balanced")} onChange={(event) => edit(["auditDepth"], event.target.value)}>{DEPTH.map(([key, text]) => <option key={key} value={key}>{key} · {text}</option>)}</select>
       </label>

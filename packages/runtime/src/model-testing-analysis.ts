@@ -10,7 +10,7 @@ import { ModelActivities, type ModelActivityRequest } from "./model-activities.j
 import { ModelHarness } from "./model-harness.js";
 import { canonicalTestingStagesPermitted } from "./native-testing-writer.js";
 import { ModelProtocols } from "./model-protocols.js";
-import { allocateModelContext, withinStringBudget } from "./model-context.js";
+import { allocateModelContext } from "./model-context.js";
 import { repositoryTestCommands, validateTestingRisk, validateTestingSelection } from "./testing-context.js";
 import type { RepositorySnapshot } from "./repository.js";
 import type { RunStore } from "./run-store.js";
@@ -47,7 +47,7 @@ export async function modelTestingAnalysis(store: RunStore, config: RunConfig, s
   // Returns undefined when the mandatory input cannot be admitted; the caller partitions instead.
   const allocate = async (payload: Record<string, unknown>, paths?: readonly string[]) => {
     if (await harness.outputLimited(request(payload, paths).activityId)) return undefined;
-    try { return allocateModelContext(payload, (input) => withinStringBudget(input, maximum) && harness.estimateInitialTokens(request(input, paths)) <= maximum); }
+    try { return allocateModelContext(payload, (input) => harness.withinInputBudget(input, maximum) && harness.estimateInitialTokens(request(input, paths)) <= maximum); }
     catch (error) { if (isCapacityError(error)) return undefined; throw error; }
   };
   await store.publish("testing-inventory", { inventory, commands, scope: config.scope }, "testing");
@@ -133,7 +133,7 @@ export async function modelTestingAnalysis(store: RunStore, config: RunConfig, s
     // Candidate identities, surfaces and reasons remain intact; partition rather than truncate.
     const fits = async (candidates: readonly TestGap[]) => {
       const request = selectionRequest(candidates);
-      return candidates.length <= maximumSelectionCandidates && !await harness.outputLimited(request.activityId) && withinStringBudget(request.messages, maximum) && harness.estimateInitialTokens(request) <= maximum;
+      return candidates.length <= maximumSelectionCandidates && !await harness.outputLimited(request.activityId) && harness.withinInputBudget(request.messages, maximum) && harness.estimateInitialTokens(request) <= maximum;
     };
     const selection = await replanOnOutputLimit(async () => {
       if (await fits(input.candidates)) return await harness.invoke({ ...selectionRequest(input.candidates), schema: { parse: (value: unknown) => validateTestingSelection(value, input.candidates) } });

@@ -225,10 +225,15 @@ to the full, risk-weighted or minimal policy. Later rounds use candidate deltas;
 votes and objections are retained. A changed disposition requires new cited evidence.
 Round artifacts record dispatch decisions, and accepted citations map back to their
 original evidence IDs outside the model context. Verification asks a targeted model
-question when deterministic checks cannot establish the claim. The configured
-`verification.maxModelQuestionsPerRound` limits questions (default four; zero disables
-model verification). A question carries the unresolved peer operations that involve its
-own candidate, and the plan reads those that involve accepted issues. A stage whose
+question when deterministic checks cannot establish the claim: one for every candidate the
+review left undecided, up to `maximumParallelCalls` at a time.
+`verification.maxModelQuestionsPerRound` bounds the questions when it is set (zero disables
+model verification). A question reads the source its candidate cites and the files of their
+modules (every other file is a tool call away), and the unresolved peer operations that
+involve its own candidate in outline; the plan reads those that involve accepted issues in
+full. A question its provider declines, or whose reply stays invalid or stops at the output
+ceiling, leaves its candidate unverified and the run records
+`verification_question_unanswered:<n>`. A stage whose
 required input cannot fit its context is tried as required input before it gives up:
 with those operations in outline, then at two bytes a token with no optional source
 ([harness](harness.md#remaining-explicit-limits)). A question that cannot be sent even
@@ -288,9 +293,50 @@ defect. Reviewer order does not select a winning structural claim.
 Ambiguous finding pairs now use durable semantic classification through the verifier profile.
 `maximumClusteringPairs` defaults to 20 (0 disables escalation; maximum 1000).
 
+## One pass per review stage
+
+A run reads its material once in each review stage unless it asks for more. Measured on one
+audit with three models at their highest effort (P20 pilot, 301 minutes and 20.3M tokens): the
+second review round, the votes on conflicting proposals, the pair checks and the second critic
+reading were 194 of 283 calls, and after them the accepted list held 2 of the 7 known defects
+that the review had not rejected.
+
+- **Peer review** runs the rounds `maxConsensusRounds` allows; the shipped examples set one.
+  What a round leaves undecided, including candidates tied up in conflicting structural
+  proposals, goes to verification. Conflicting proposals are put to the auditors only from a
+  second round on; with one round they stay recorded as coverage gaps.
+- **A review batch carries the source its candidates cite**, whole or as excerpts: a batch is
+  closed when the next candidate's cited source would not fit beside it. A reviewer cannot check
+  a claim against a file it was not given (observed: batches packed with candidates until 3 of
+  53 files were left, and "needs verification" was voted as often as "accept").
+- **Candidates of different review batches are not compared for a merge** unless
+  `review.crossBatchMergeChecks` is true. A reviewer still merges within a batch.
+- **The critic reads the plan against the issues the plan resolves**, the accepted ones, in one
+  call when that fits and otherwise in batches of complete records with the global index.
+  Records of different batches are compared pair by pair only when `review.criticPairChecks`
+  is true. (Feature plans keep their pair coverage.)
+- **One critic, one revision.** The critic reads the revised plan again only when
+  `review.recheckRevisedPlan` is true. Otherwise `critic-feedback` keeps the critique and adds
+  a `revision` record: which blocking items the revision resolved and which it could not revise.
+  Only an item it could not revise still fails the gate; its question is in the plan.
+
+`stageEffort` sets the effort of the stages after discovery (`clustering`, `peerReview`,
+`verification`, `planner`, `critic`, `revision`; each `low`, `medium` or `high`, mapped by the
+model profile). A stage left out runs at the effort of the audit depth, as discovery always
+does. The shipped deep audits check at `medium` and cluster at `low`: a provider's highest
+effort is for work where a gain was measured, and a check is a narrower task than the audit.
+
+`estimatedBytesPerToken` (1 to 4, default 1) is how many bytes of a prompt count as one token
+when a call after discovery is sized. Real prompts measured 1.9 to 2.5 bytes a token, so the
+default counts about twice what a provider reads and halves what a call may carry; the shipped
+model-backed audits set 2. Discovery units stay at one byte a token, because the size of a unit
+is how finely the audit reads the source. A transport that takes only so many bytes of a prompt
+(the Antigravity CLI) bounds a call at that size whatever the setting.
+
 `maximumParallelCalls` (default 1, maximum 8) is the number of independent calls one auditor has in flight
 at a time within a stage: the units of a discovery, the batches of a peer review, the conflicts that share
-no candidate, and the parts of a critic review. It changes only how long a stage takes: no call reads another's reply, and the replies
+no candidate, the questions of a verification, the briefs and task expansions of a plan, and the parts of a
+critic review. It changes only how long a stage takes: no call reads another's reply, and the replies
 are put together in a fixed order. Each call in flight holds its own budget reservation, and the provider's
 `maxConcurrent` still applies. The reviewers of a peer-review round and the auditors of one conflict are
 always asked together and recorded in the auditor order.
@@ -499,9 +545,10 @@ batch driver.
 
 ## Large planning and critic contexts
 
-Large critic inputs are partitioned into complete task, canonical issue, and validation
+Large critic inputs are partitioned into complete task, accepted issue, and validation
 records. Every batch retains the global dependency, routing, traceability, and scope
-index; cross-batch record pairs receive additional checks. Inputs explicitly identify
+index; cross-batch record pairs receive additional checks when `review.criticPairChecks`
+is set ([one pass per review stage](#one-pass-per-review-stage)). Inputs explicitly identify
 partial review scope so omitted batch records are not mistaken for missing plan work.
 Feedback IDs are namespaced per durable batch and every item is preserved for validation.
 Rejected mappings or duplicate critique IDs mark review coverage degraded. The runtime
@@ -529,9 +576,11 @@ bounded by the configured provider output limit.
 The model audit runtime now performs at most one planner revision after a complete,
 non-degraded critic review reports blocking findings. The same planner profile returns
 a full Plan IR and an explicit resolution for every blocking item. Traceability, exact
-accepted issue coverage, audit mode and premise provenance are checked before a second
-independent critic review. That review receives the original feedback and proposed
-resolutions as untrusted claims. Remaining blocking feedback still fails the gate.
+accepted issue coverage, audit mode and premise provenance are checked. With
+`review.recheckRevisedPlan` a second independent critic review follows: it receives the
+original feedback and proposed resolutions as untrusted claims, and remaining blocking
+feedback still fails the gate. Without it the resolutions are published with the revision
+and are not checked by a model ([one pass per review stage](#one-pass-per-review-stage)).
 Original plan/critique, revision output and final review remain durable; restart reuses
 completed work. If a complete revision prompt does not fit, the planner applies one
 atomic patch per blocking critique item. Each patch receives complete current task
