@@ -460,6 +460,7 @@ export class ModelAuditPipeline {
         return replanOnOutputLimit(() => { plannerCalls = 0; return planWithContext(request.input, {
           fits: (stage) => this.sendable(stageInput(stage), false),
           admits: (stage) => this.sendable(stageInput(stage), true),
+          outputLimited: (stage) => this.#activities.outputLimited(stage.activityId),
           call: (stage) => { plannerCalls += 1; return this.call(stageInput(stage)); },
           publish: (kind, value) => this.context.store.publish(kind, value),
         }, { maximumBriefRecords, records: records(request.input), fullSchema: traceablePlanSchema("audit", null, request.input.canonicalIssues.filter(isPlannable).map(({ candidateId }) => candidateId)) }); });

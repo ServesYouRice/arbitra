@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { planIRSchema, type PlanIR, type PlanTaskIR, type UnresolvedQuestion } from "@arbitra/schemas/plan.js";
+import { TASK_IR_SCHEMA_VERSION } from "@arbitra/schemas/task-ir.js";
 import { plannerBriefSchema, plannerOutlineHeaderSchema, plannerOutlineLinksSchema, plannerOutlineSchema, plannerTaskExpansionSchema, type PlannerBrief, type PlannerOutline, type PlannerTaskOutline } from "@arbitra/schemas/planner-composition.js";
 import { PlannerTraceabilityError, type PlannerInput } from "@arbitra/workflow/nodes/planner/node.js";
 import { dependencyEdges, validateSharedWriteOrder, validateTraceability } from "@arbitra/workflow/nodes/planner/traceability.js";
@@ -140,16 +141,33 @@ export async function planWithContext(input: PlannerInput, port: PlannerComposit
     input: { selectedTask: task, planOutline: scoped ? scopedOutline(task) : outline, ...records.scoped(records.addressed(task)), constraints: input.constraints, workflowGoal: input.workflowGoal, repositoryContext: input.repositoryContext },
     schema: plannerTaskExpansionSchema, jsonSchema: plannerTaskExpansionSchema.toJSONSchema(),
   });
-  // Ensure every expansion can read its full assigned records before spending on any.
+  // Ensure every expansion can read its full assigned records before spending on any. A task whose expansion
+  // stopped at the output ceiling is asked for once more in its scoped form, which reads less.
   const expansions = new Map<string, PlannerStage>();
+  const notExpanded: string[] = [];
   for (const task of outline.tasks) {
-    const request = await port.fits(taskRequest(task)) ? taskRequest(task) : hierarchical && await port.fits(taskRequest(task, true)) ? taskRequest(task, true)
+    const limited = await port.outputLimited?.(taskRequest(task)) === true;
+    const request = await port.fits(taskRequest(task)) ? taskRequest(task) : (hierarchical || limited) && await port.fits(taskRequest(task, true)) ? taskRequest(task, true)
       : await port.admits?.(taskRequest(task, hierarchical)) === true ? taskRequest(task, hierarchical) : undefined;
-    if (request === undefined) throw new Error(`PLANNER_TASK_CONTEXT_LIMIT_EXCEEDED:${task.id}`);
+    if (request === undefined) {
+      if (!limited || await port.outputLimited?.(taskRequest(task, true)) !== true) throw new Error(`PLANNER_TASK_CONTEXT_LIMIT_EXCEEDED:${task.id}`);
+      notExpanded.push(task.id);
+      continue;
+    }
     expansions.set(task.id, request);
   }
   const tasks: PlanTaskIR[] = []; const questions: UnresolvedQuestion[] = [];
   for (const task of outline.tasks) {
+    if (notExpanded.includes(task.id)) {
+      // Both forms of this expansion stopped at the model's output ceiling, and one task cannot be asked for in
+      // smaller parts. The plan keeps the task as outlined and says so in a blocking question, for the critic and
+      // the operator, instead of the run failing after everything else was planned.
+      const questionId = `expansion-${task.id}/not-expanded`;
+      tasks.push({ schemaVersion: TASK_IR_SCHEMA_VERSION, ...task, filesNotToTouch: [], readFirst: [], context: [`Not expanded: every expansion call for this task stopped at the model's output ceiling. See question ${questionId}.`], invariants: [], outOfScope: [],
+        implementationGuidance: [], acceptanceCriteria: [], verification: { preconditions: [], commands: [], checks: [] }, rollbackPlan: [], escalateIf: [], expectedEvidence: [], estimatedTurns: null });
+      questions.push({ id: questionId, question: `Task ${task.id} was not expanded: every expansion call for it stopped at the model's output ceiling. It carries its outline only (goal, scope, routing, dependencies and validation links). How should it be carried out?`, blocking: true, blastRadius: "high" });
+      continue;
+    }
     const expanded = plannerTaskExpansionSchema.parse(await port.call(expansions.get(task.id) ?? taskRequest(task)));
     if (JSON.stringify(taskOutline(expanded.task)) !== JSON.stringify(task)) throw new Error(`PLANNER_TASK_OUTLINE_CHANGED:${task.id}`);
     assertUniqueQuestions(expanded.unresolvedQuestions);
@@ -160,7 +178,7 @@ export async function planWithContext(input: PlannerInput, port: PlannerComposit
   const plan = planIRSchema.parse({ ...outline, tasks, unresolvedQuestions: [...outline.unresolvedQuestions, ...questions] });
   const finalDiagnostics = records.diagnostics(plan);
   if (finalDiagnostics.length > 0) throw new Error(`PLANNER_COMPOSITION_TRACEABILITY_INVALID:${finalDiagnostics.map(({ code }) => code).join(",")}`);
-  await port.publish("planner-composition", { kind: "global_outline_then_expansion", issueBatches: batches.length, outlineSections: composed.sections.length, outlineCalls: composed.calls, taskExpansions: tasks.length, logicalModelCalls: batches.length + composed.calls + tasks.length, briefLimitations: "intermediate_notes_original_issues_revisited_in_task_expansion" });
+  await port.publish("planner-composition", { kind: "global_outline_then_expansion", issueBatches: batches.length, outlineSections: composed.sections.length, outlineCalls: composed.calls, taskExpansions: tasks.length - notExpanded.length, notExpandedTaskIds: notExpanded, logicalModelCalls: batches.length + composed.calls + tasks.length - notExpanded.length, briefLimitations: "intermediate_notes_original_issues_revisited_in_task_expansion" });
   return plan;
 }
 
