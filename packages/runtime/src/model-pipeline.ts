@@ -582,6 +582,7 @@ export class ModelAuditPipeline {
           return replanOnOutputLimit(() => reviseWithContext({ ...request, canonicalIssues: issues.issues.filter(isPlannable), repository: this.repository() }, {
             fits: (stage) => this.sendable(stageInput(stage), false),
             admits: (stage) => this.sendable(stageInput(stage), true),
+            outputLimited: (stage) => this.#activities.outputLimited(stage.activityId),
             call: (stage) => this.call(stageInput(stage)),
             publish: (kind, value) => this.context.store.publish(kind, value),
           }));

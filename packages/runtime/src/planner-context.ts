@@ -16,6 +16,8 @@ export interface PlannerCompositionPort {
   /** Whether a stage that cannot be made smaller may be sent as required input although it does not fit. Asked
    * only before giving up, so it never changes how records are grouped. */
   admits?(stage: PlannerStage): Promise<boolean>;
+  /** Whether this stage's call stopped at the model's output ceiling before. Such a call is not made again. */
+  outputLimited?(stage: PlannerStage): Promise<boolean>;
   call(stage: PlannerStage): Promise<unknown>;
   publish(kind: string, value: unknown): Promise<unknown>;
 }

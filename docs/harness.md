@@ -231,6 +231,12 @@ every call that fits is sized as before. This covers a peer candidate or critic 
 alone, planner briefs, sections, headers, links and task expansions, revision items, and
 verification questions (a question that still cannot be sent is not asked).
 
+**Output ceiling on a revision item.** One critique item cannot be asked for in smaller parts.
+When its revision call stops at the model's output ceiling, the run goes on: the plan keeps its
+tasks, the item's resolution says it was not revised, a blocking question
+`revision-<n>/not-revised` names it, and `planner-revision-composition` lists it under
+`notRevisedCritiqueItemIds`. The critic then reviews the plan with that item still open.
+
 Irreducible with the current record model (a single mandatory unit exceeds the budget, and in the
 audit pipeline also the rate for required input):
 
