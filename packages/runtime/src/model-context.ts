@@ -16,6 +16,16 @@ export function withinStringBudget(value: unknown, maximumBytes: number): boolea
   return true;
 }
 
+/** Allocates `value`. When what it must carry cannot fit and a smaller form of the same input is given, that form
+ * is allocated instead, and the result says so. */
+export function allocateReducibleContext(value: unknown, smaller: unknown, fits: (input: unknown) => boolean, preferredPaths: readonly string[] = []): { input: unknown; coverage: ModelContextCoverage; reduced: boolean } {
+  try { return { ...allocateModelContext(value, fits, preferredPaths), reduced: false }; }
+  catch (error) {
+    if (smaller === undefined || !(error instanceof Error) || error.message !== "MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED") throw error;
+    return { ...allocateModelContext(smaller, fits, preferredPaths), reduced: true };
+  }
+}
+
 /** Bound optional source material while preserving the entire decision/evidence input. */
 export function allocateModelContext(value: unknown, fits: (input: unknown) => boolean, preferredPaths: readonly string[] = []): { input: unknown; coverage: ModelContextCoverage } {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {

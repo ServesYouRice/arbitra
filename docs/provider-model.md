@@ -228,7 +228,9 @@ original evidence IDs outside the model context. Verification asks a targeted mo
 question when deterministic checks cannot establish the claim. The configured
 `verification.maxModelQuestionsPerRound` limits questions (default four; zero disables
 model verification). A question carries the unresolved peer operations that involve its
-own candidate, and the plan reads those that involve accepted issues. A question whose
+own candidate, and the plan reads those that involve accepted issues. A stage whose
+required input cannot fit its context reads them in outline (which candidates each one
+ties together) before it gives up. A question whose
 required input does not fit the verifier's context is not asked: the candidate stays
 unverified, no question is spent on it, and the run records
 `verification_question_exceeds_context:<n>`. Remaining candidates can still undergo deterministic checks and

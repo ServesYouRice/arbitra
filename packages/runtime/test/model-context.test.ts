@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allocateModelContext, withinStringBudget } from "../src/model-context.js";
+import { allocateModelContext, allocateReducibleContext, withinStringBudget } from "../src/model-context.js";
 
 const bytes = (value: unknown): number => {
   const input = value as { repository?: { content: string }[]; repositoryContext?: { content: string }[] };
@@ -35,6 +35,17 @@ describe("later-stage source allocation", () => {
     expect(whole.input).toMatchObject({ contextCoverage: { complete: true, fullPaths: ["a.ts", "z.ts"], omittedPaths: [] } });
     expect(whole.coverage).toEqual({ fullPaths: ["a.ts", "z.ts"], excerptPaths: [], omittedPaths: [] });
     expect(allocateModelContext(input, (value) => bytes(value) <= 6).input).toMatchObject({ contextCoverage: { complete: false, omittedPaths: ["z.ts"] } });
+  });
+
+  it("falls back to a smaller form of the input only when the required part cannot fit", () => {
+    const size = (value: unknown) => JSON.stringify(value).length;
+    const whole = { decision: "d".repeat(60), repository: [{ path: "a.ts", content: "source" }] };
+    const smaller = { decision: "d".repeat(10), repository: whole.repository };
+    expect(allocateReducibleContext(whole, smaller, (value) => size(value) <= 2000)).toMatchObject({ reduced: false, input: { decision: whole.decision } });
+    expect(allocateReducibleContext(whole, smaller, (value) => size(value) <= 200)).toMatchObject({ reduced: false, input: { decision: whole.decision, repository: [] } });
+    expect(allocateReducibleContext(whole, smaller, (value) => size(value) <= 150)).toMatchObject({ reduced: true, input: { decision: smaller.decision, repository: [] } });
+    expect(() => allocateReducibleContext(whole, undefined, (value) => size(value) <= 150)).toThrow("MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED");
+    expect(() => allocateReducibleContext(whole, smaller, () => false)).toThrow("MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED");
   });
 
   it("fails rather than discarding required evidence or plan data", () => {
