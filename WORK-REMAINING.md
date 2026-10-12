@@ -184,7 +184,9 @@ under per-provider limits (§12.6) and a shared cached prefix (§14.2).
   about a quarter of the window: Sonnet 5.5 received 61,500 tokens in a 240,000-token window. Discovery is therefore
   planned as 4 or 5 scopes per auditor, one review prompt held 4 of the 54 files, and the same estimate throttles
   the scheduler's tokens per minute. To fix: a bytes-per-token figure per model profile, and a provider's
-  "prompt too long" answer handled as a capacity error that halves the unit.
+  "prompt too long" answer handled as a capacity error that halves the unit. Since c5eb65c a unit that cannot
+  be made smaller is admitted at two bytes a token before the run fails (see Fixed); how calls are sized is
+  unchanged.
 - **A model that reads through the harness tools pays a whole call per round trip.** With most files left out of
   its review prompts, GPT-6 Luna made 257 tool calls. Every round trip is a new CLI process that receives the
   whole conversation again, and the harness archives earlier tool results to stay inside the same estimate, so the
@@ -257,7 +259,7 @@ application around `agy`. The owner was told and left the choice to the session 
 pilot runs four Antigravity calls at a time at a low per-minute rate, and two lineups side by side. Still open for
 the product: the terms of each vendor's subscription CLI need a check before arbitra recommends subscriptions.
 
-**Fixed.** The P20 pilot found two defects on October 10, twelve on October 11 and one on October 12; all fifteen are fixed and
+**Fixed.** The P20 pilot found two defects on October 10, twelve on October 11 and two on October 12; all sixteen are fixed and
 verified on Linux, and the second was also checked live on the owner's Windows PC
 ([qa/subscription-cli](docs/qa/subscription-cli/README.md)):
 
@@ -344,6 +346,16 @@ verified on Linux, and the second was also checked live on the owner's Windows P
   (568d10b). On the fixed builds both runs passed verification: two questions each, about 54,000 input tokens a
   question in the first. The size limit that made this fatal counts one byte as one token, which is still open
   above.
+- **A unit a few percent over the byte estimate failed the run (fixed in a19a2dc and c5eb65c).** After the
+  verification fix both panels failed again within the hour, each on a unit that cannot be made smaller: one
+  planner task with its issue's two unresolved peer operations (29,000 characters), and one plan revision item
+  that names all seven tasks of a 77,000-character plan. Each was a few percent over 128,000 bytes, which the
+  estimate reads as the whole window although the provider counts about half. Such a unit is now tried as
+  required input before the stage gives up: with unresolved peer operations in outline, then with no optional
+  source at two bytes a token, under the same margin and output reserve; the harness and the provider pool
+  count it at the same rate ([harness](docs/harness.md#remaining-explicit-limits)). Grouping still uses the
+  byte estimate, so calls that fit are sized as before. The commit message of c5eb65c says the estimate
+  overstates prompts "about three times"; the measured figure is about twice.
 
 All eight findings in [qa/p19](docs/qa/p19/README.md) are fixed, and the affected live acceptance passed on subscriptions on September 30 (runs A–E there). The reruns found four more defects; all are fixed. The completion report is P21, after P20.
 

@@ -14,10 +14,11 @@ export function stageBudget(config: RunConfig, modelProfileId: string): StageBud
   return { maximumInputTokens: Math.floor(context * 0.8), outputCapacity: Math.min(execution.maximumOutputTokens, profile?.limits.maxOutputTokens ?? Number.POSITIVE_INFINITY) };
 }
 
-/** arbitra sizes what it sends at one token a byte. That overstates real prompts about three times, which keeps
- * calls small. What a call must carry whole is another matter: refused at that rate it fails the run, although
- * the provider would have read it (observed live: a verification question, a planner task and a plan revision,
- * each over by a few percent). Such input is admitted at this many bytes a token when it fits at no smaller size. */
+/** arbitra sizes what it sends at one token a byte. Real prompts measured 1.9 to 2.4 bytes a token, so that
+ * overstates them about twice, which keeps calls small. What a call must carry whole is another matter: refused
+ * at that rate it fails the run, although the provider would have read it (observed live: a verification question,
+ * a planner task and a plan revision item, the last two over by a few percent). Such input is admitted at this
+ * many bytes a token, about what it really is, when it fits at no smaller size. */
 export const REQUIRED_INPUT_BYTES_PER_TOKEN = 2;
 
 /** Conservative output reserves for stages that must emit one decision per supplied
