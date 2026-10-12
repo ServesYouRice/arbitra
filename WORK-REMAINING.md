@@ -361,9 +361,11 @@ verified on Linux, and the second was also checked live on the owner's Windows P
   revision items thought for nine minutes at xhigh and stopped at 64,000 output tokens; the first two had used
   19,500 and 32,900. One critique item cannot be asked for in smaller parts, so the run failed after three
   hours, and its resume too. The plan now keeps its tasks for such an item, its resolution says it was not
-  revised, and a blocking question names it ([harness](docs/harness.md#remaining-explicit-limits)). A planner
-  task expansion that stops at the ceiling in both of its forms still fails the run; that is open, with the
-  item above on effort.
+  revised, and a blocking question names it ([harness](docs/harness.md#remaining-explicit-limits)). In that run 4 of the
+  10 items ended this way, each after about eight minutes, and 6 were worked in. A planner task expansion is
+  handled the same way since 45f66ef: it is asked for once more in its scoped form, and if that stops at the ceiling
+  too the task keeps its outline and a blocking question names it. That models think up to the ceiling in these
+  stages is the item above on effort, and still open.
 
 All eight findings in [qa/p19](docs/qa/p19/README.md) are fixed, and the affected live acceptance passed on subscriptions on September 30 (runs A–E there). The reruns found four more defects; all are fixed. The completion report is P21, after P20.
 
