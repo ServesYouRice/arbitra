@@ -71,6 +71,26 @@ describe("one global planner with bounded issue reading and task expansion", () 
     expect(calls.filter(({ activityId }) => activityId === "planner/expand/TASK-2")).toHaveLength(1);
   });
 
+  it("keeps a task as outlined when its expansion stopped at the output ceiling in every form", async () => {
+    const { input, port, calls, artifacts, plan } = await fixture();
+    const limited = new Set<string>();
+    const tight = { ...port, fits: async (stage: PlannerStage) => !limited.has(stage.activityId) && await port.fits(stage), outputLimited: async (stage: PlannerStage) => limited.has(stage.activityId) };
+    // Stopped once: the scoped form is asked for instead.
+    limited.add("planner/expand/TASK-2");
+    await planWithContext(input, tight);
+    expect(calls.map(({ activityId }) => activityId).filter((id) => id.includes("TASK-2"))).toEqual(["planner/expand/TASK-2/scoped"]);
+    // Stopped in both forms: the task stays as outlined, and a blocking question names it.
+    limited.add("planner/expand/TASK-2/scoped"); calls.length = 0;
+    const result = await planWithContext(input, tight);
+    expect(calls.some(({ activityId }) => activityId.includes("TASK-2"))).toBe(false);
+    expect(result.tasks.map(({ id }) => id)).toEqual(["TASK-1", "TASK-2", "TASK-3"]);
+    expect(result.tasks[1]).toMatchObject({ ...taskOutline(plan.tasks[1] as PlanIR["tasks"][number]), implementationGuidance: [], acceptanceCriteria: [], context: [expect.stringContaining("Not expanded")] });
+    expect(result.unresolvedQuestions.at(-1)).toMatchObject({ id: "expansion-TASK-2/not-expanded", blocking: true, blastRadius: "high" });
+    expect(artifacts.get("planner-composition")).toMatchObject({ taskExpansions: 2, notExpandedTaskIds: ["TASK-2"], logicalModelCalls: 6 });
+    // A task that is too large, and not stopped at the ceiling, is still refused.
+    await expect(planWithContext(input, { ...tight, outputLimited: async () => false })).rejects.toThrow("PLANNER_TASK_CONTEXT_LIMIT_EXCEEDED:TASK-2");
+  });
+
   it("refuses an outline whose tasks write the same files unordered inside the call, so the harness can repair it", async () => {
     const { input, port } = await fixture();
     const refusals: string[] = [];
