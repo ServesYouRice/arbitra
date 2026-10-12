@@ -13,6 +13,28 @@ export function conflictsInvolving(conflicts: readonly PeerOperationConflict[], 
   return conflicts.filter((conflict) => conflict.candidateIds.some((id) => wanted.has(id)));
 }
 
+/** A conflict without the bodies of its proposals: which candidates it ties together, and how. */
+export function conflictOutline(conflict: PeerOperationConflict): { candidateIds: readonly string[]; operationIds: readonly string[]; reason: PeerOperationConflict["reason"]; proposalTypes: readonly string[] } {
+  return { candidateIds: conflict.candidateIds, operationIds: conflict.operationIds, reason: conflict.reason, proposalTypes: conflict.proposals.map(({ type }) => type) };
+}
+
+const isConflict = (entry: unknown): entry is PeerOperationConflict => typeof entry === "object" && entry !== null
+  && Array.isArray((entry as { candidateIds?: unknown }).candidateIds) && Array.isArray((entry as { proposals?: unknown }).proposals);
+const outlined = (entries: unknown): unknown[] | undefined => Array.isArray(entries) && entries.some(isConflict) ? entries.map((entry) => isConflict(entry) ? conflictOutline(entry) : entry) : undefined;
+
+/** A stage input with the unresolved peer operations it carries reduced to their outlines, or undefined when it
+ * carries none in full. A verification question carries them at the top, a planner stage in its project context. */
+export function withConflictOutlines(input: unknown): unknown {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) return undefined;
+  const record = input as Record<string, unknown>;
+  const direct = outlined(record["unresolvedPeerOperations"]);
+  if (direct !== undefined) return { ...record, unresolvedPeerOperations: direct };
+  const context = record["projectContext"];
+  if (typeof context !== "object" || context === null || Array.isArray(context)) return undefined;
+  const nested = outlined((context as Record<string, unknown>)["unresolvedPeerOperations"]);
+  return nested === undefined ? undefined : { ...record, projectContext: { ...context, unresolvedPeerOperations: nested } };
+}
+
 /** Do not choose a structural claim by reviewer order. Preserve every overlapping
  * proposal for verification/planning and keep the original claims active. */
 export function adjudicatePeerOperations(operations: readonly IssueOperation[]): { accepted: readonly IssueOperation[]; conflicts: readonly PeerOperationConflict[] } {
