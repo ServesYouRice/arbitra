@@ -7,6 +7,12 @@ export interface PeerOperationConflict {
   readonly proposals: readonly IssueOperation[];
 }
 
+/** The conflicts that involve at least one of the given candidates. */
+export function conflictsInvolving(conflicts: readonly PeerOperationConflict[], candidateIds: readonly string[]): readonly PeerOperationConflict[] {
+  const wanted = new Set(candidateIds);
+  return conflicts.filter((conflict) => conflict.candidateIds.some((id) => wanted.has(id)));
+}
+
 /** Do not choose a structural claim by reviewer order. Preserve every overlapping
  * proposal for verification/planning and keep the original claims active. */
 export function adjudicatePeerOperations(operations: readonly IssueOperation[]): { accepted: readonly IssueOperation[]; conflicts: readonly PeerOperationConflict[] } {

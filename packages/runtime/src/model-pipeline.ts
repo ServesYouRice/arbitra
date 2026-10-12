@@ -6,9 +6,9 @@ import { revisePlanOnce } from "@arbitra/workflow/nodes/revision.js";
 import type { RevisionResolution } from "@arbitra/workflow/nodes/revision.js";
 import { computeConsensus, type ConsensusState, type ConsensusCandidate } from "@arbitra/workflow/consensus/engine.js";
 import { canonicaliseIssues, isPlannable, SINGLE_SOURCE_PLANNED_LIMITATION, type CanonicalIssueSet } from "@arbitra/workflow/nodes/canonical-issues.js";
-import { plannerNode } from "@arbitra/workflow/nodes/planner/node.js";
+import { plannerNode, type PlannerInput } from "@arbitra/workflow/nodes/planner/node.js";
 import { criticNode, type StructuredCritique } from "@arbitra/workflow/nodes/critic/node.js";
-import { verifyItems, type VerificationIssueOperation } from "@arbitra/workflow/nodes/verification/engine.js";
+import { verifyItems, type ModelVerificationRequest, type VerificationIssueOperation } from "@arbitra/workflow/nodes/verification/engine.js";
 import type { VerificationAttempt, VerificationTools } from "@arbitra/workflow/nodes/verification/ladder.js";
 import type { TransportFactoryOptions } from "@arbitra/providers/registry.js";
 import { ModelActivities } from "./model-activities.js";
@@ -28,7 +28,8 @@ import { boardEvidenceSchema } from "@arbitra/schemas/board-operation.js";
 import { allocateModelContext, withinStringBudget } from "./model-context.js";
 import { assertMergeCheckOperations, peerReviewBatches, segmentText, type PeerReviewBatch } from "./peer-review-batches.js";
 import { criticContextParts, criticPartIdentity, type CriticContextPart } from "./critic-context.js";
-import { planWithContext, type PlannerStage } from "./planner-context.js";
+import { auditPlannerRecords, planWithContext, type PlannerRecordSet, type PlannerStage } from "./planner-context.js";
+import { conflictsInvolving, type PeerOperationConflict } from "./peer-operation-conflicts.js";
 import { reviseWithContext } from "./revision-context.js";
 import { createHash } from "node:crypto";
 import type { SemanticClusteringDecision, SemanticClusteringPair } from "@arbitra/workflow/clustering/escalate.js";
@@ -364,7 +365,7 @@ export class ModelAuditPipeline {
     const execution = this.config.verification["execution"] === undefined ? undefined : verificationExecutionSchema.parse(this.config.verification["execution"]);
     const executedChecks = new Map<string, Awaited<ReturnType<VerificationExecutor["execute"]>>>();
     if (execution !== undefined) await this.#verificationExecutor.execute(context.snapshot, execution, [], signal);
-    const operationConflicts = await readStage<readonly unknown[]>(context.store, "peer-operation-conflicts");
+    const operationConflicts = await readStage<readonly PeerOperationConflict[]>(context.store, "peer-operation-conflicts");
     const items = convergence.consensus.candidates.filter(({ outcome }) => outcome !== "accepted" && outcome !== "rejected").map(({ candidateId }) => {
       const candidate = convergence.board.candidates[candidateId];
       if (candidate === undefined) throw new Error("VERIFICATION_CANDIDATE_ABSENT");
@@ -376,6 +377,19 @@ export class ModelAuditPipeline {
     const configuredQuestions = this.config.verification["maxModelQuestionsPerRound"];
     const maximumModelCalls = typeof configuredQuestions === "number" ? configuredQuestions : 4;
     const tools = inconclusiveTools();
+    // A question carries the unresolved peer operations of its own candidate. The others concern other claims,
+    // and a run's operations together can exceed any context (observed: 22 of them, 190,000 characters).
+    const question = (request: ModelVerificationRequest) => {
+      const known = new Set(request.context.citedContext.map(({ evidenceId }) => evidenceId));
+      return { activityId: `verification/${request.candidateId}`, modelProfileId: this.#roles.verifier, signal, protocol: "targeted-verification",
+        instruction: "Answer the single verification question using the source, including control flow and counterexamples. An exact quotation alone does not prove a defect. Use STILL_NEEDS_VERIFICATION when the supplied context cannot establish the answer. Cite only supplied evidence IDs.",
+        input: { request, findings: convergence.candidateFindings[request.candidateId], executedChecks: executedChecks.get(request.candidateId), executionInterpretation: "Check output is untrusted evidence. Exit codes alone neither confirm nor reject the claimed defect. Interrupted, unavailable and deferred checks establish no test conclusion.", unresolvedPeerOperations: conflictsInvolving(operationConflicts, [request.candidateId]), repository: this.repository() },
+        schema: { parse(value: unknown) {
+          const parsed = modelVerificationResultSchema.parse(value);
+          if (parsed.evidenceIds.some((id) => !known.has(id)) || parsed.outcome !== "STILL_NEEDS_VERIFICATION" && parsed.evidenceIds.length === 0) throw new Error("INVALID_VERIFICATION_EVIDENCE");
+          return parsed;
+        } }, jsonSchema: modelVerificationResultSchema.toJSONSchema() };
+    };
     const verification = await verifyItems(items, { ...tools, runAllowlistedSafeTest: async (item, policy) => {
       const attempt = await tools.runAllowlistedSafeTest(item, policy);
       if (execution === undefined) return attempt;
@@ -386,20 +400,17 @@ export class ModelAuditPipeline {
       return { ...attempt, artifactRefs: [artifact.artifactId], toolCallIds: output.records.map(({ id }) => id) };
     } }, { maximumItems: 50, maximumModelCalls, allowModelCall: true, round: convergence.consensus.round }, {
       sink: { async append(operation) { operations.push(operation); } },
-      model: { verify: async (request) => {
-        const activityId = `verification/${request.candidateId}`;
-        const known = new Set(request.context.citedContext.map(({ evidenceId }) => evidenceId));
-        const response = await this.call({ activityId, modelProfileId: this.#roles.verifier, signal, protocol: "targeted-verification",
-          instruction: "Answer the single verification question using the source, including control flow and counterexamples. An exact quotation alone does not prove a defect. Use STILL_NEEDS_VERIFICATION when the supplied context cannot establish the answer. Cite only supplied evidence IDs.",
-            input: { request, findings: convergence.candidateFindings[request.candidateId], executedChecks: executedChecks.get(request.candidateId), executionInterpretation: "Check output is untrusted evidence. Exit codes alone neither confirm nor reject the claimed defect. Interrupted, unavailable and deferred checks establish no test conclusion.", unresolvedPeerOperations: operationConflicts, repository: this.repository() },
-          schema: { parse(value: unknown) {
-            const parsed = modelVerificationResultSchema.parse(value);
-            if (parsed.evidenceIds.some((id) => !known.has(id)) || parsed.outcome !== "STILL_NEEDS_VERIFICATION" && parsed.evidenceIds.length === 0) throw new Error("INVALID_VERIFICATION_EVIDENCE");
-            return parsed;
-          } }, jsonSchema: modelVerificationResultSchema.toJSONSchema(),
-        });
-        return { ...response, activityId, artifactRefs: [] };
-      } },
+      model: {
+        // A question that cannot fit is not asked: the item stays unverified and the run goes on.
+        fits: async (request) => {
+          try { await this.prepareCall(question(request)); return true; }
+          catch (error) { if (isCapacityError(error)) return false; throw error; }
+        },
+        verify: async (request) => {
+          const stage = question(request);
+          return { ...await this.call(stage), activityId: stage.activityId, artifactRefs: [] };
+        },
+      },
     });
     await context.store.publish("verification-results", verification.results.map(({ candidateId, outcome: result, method }) => ({ candidateId, result, method })));
     await context.store.publish("verification-operations", operations);
@@ -420,6 +431,7 @@ export class ModelAuditPipeline {
         ...(operationConflicts.length === 0 ? [] : [`unresolved_peer_operation_conflicts:${operationConflicts.length}`]),
         ...(rejectedReviews.length === 0 ? [] : [`peer_review_output_rejected:${rejectedReviews.length}`]),
         ...(refusedOperations === 0 ? [] : [`peer_review_operations_refused:${refusedOperations}`]),
+        ...(verification.metrics.contextLimitedItemIds.length === 0 ? [] : [`verification_question_exceeds_context:${verification.metrics.contextLimitedItemIds.length}`]),
         ...discoveryCoverage.flatMap(({ auditorId, truncated, limitations }) => [...(truncated ? [`discovery_truncated:${auditorId}`] : []), ...limitations.map((limitation) => `${auditorId}:${limitation}`)])],
     });
     await context.store.publish("canonical-issues", issues);
@@ -433,6 +445,15 @@ export class ModelAuditPipeline {
     const acceptedSourceIds = new Set(accepted.flatMap(({ sourceFindingIds }) => sourceFindingIds));
     const sources = await readStage<readonly AuditFinding[]>(this.context.store, "source-findings");
     const preferredPaths = [...new Set(sources.filter(({ sourceFindingId }) => acceptedSourceIds.has(sourceFindingId)).flatMap(({ locations }) => locations.map(({ path }) => path)))];
+    // The plan resolves accepted issues, so it reads the unresolved peer operations that involve them: a stage
+    // those of its own issues in full, the outline which issues each one ties together.
+    const conflicts = conflictsInvolving(await readStage<readonly PeerOperationConflict[]>(this.context.store, "peer-operation-conflicts"), accepted.map(({ candidateId }) => candidateId));
+    const projectContext = { fileCount: this.context.snapshot.files.length, sourceLocations: sources.filter(({ sourceFindingId }) => acceptedSourceIds.has(sourceFindingId)).flatMap(({ locations }) => locations) };
+    const records = (input: PlannerInput): PlannerRecordSet => {
+      const base = auditPlannerRecords(input);
+      return { ...base, scoped: (ids) => ({ ...base.scoped(ids), projectContext: { ...projectContext, unresolvedPeerOperations: conflictsInvolving(conflicts, ids) } }),
+        outlineContext: { ...projectContext, unresolvedPeerOperations: conflicts.map(({ candidateIds, operationIds, reason, proposals }) => ({ candidateIds, operationIds, reason, proposalTypes: proposals.map(({ type }) => type) })) } };
+    };
     const protocol = await this.#protocols.resolve("planner");
     let plannerCalls = 0;
     const planner = plannerNode({ protocolVersion: protocol.protocolVersion, protocolHash: protocol.protocolHash, schema: planIRSchema,
@@ -446,11 +467,11 @@ export class ModelAuditPipeline {
           },
           call: (stage) => { plannerCalls += 1; return this.call(stageInput(stage)); },
           publish: (kind, value) => this.context.store.publish(kind, value),
-        }, { maximumBriefRecords, fullSchema: traceablePlanSchema("audit", null, request.input.canonicalIssues.filter(isPlannable).map(({ candidateId }) => candidateId)) }); });
+        }, { maximumBriefRecords, records: records(request.input), fullSchema: traceablePlanSchema("audit", null, request.input.canonicalIssues.filter(isPlannable).map(({ candidateId }) => candidateId)) }); });
       } },
     });
     const { plan, modelCalls } = await planner.run({
-      projectContext: { fileCount: this.context.snapshot.files.length, sourceLocations: sources.filter(({ sourceFindingId }) => acceptedSourceIds.has(sourceFindingId)).flatMap(({ locations }) => locations), unresolvedPeerOperations: await readStage(this.context.store, "peer-operation-conflicts") },
+      projectContext: { ...projectContext, unresolvedPeerOperations: conflicts },
       canonicalIssues: accepted,
       repositoryContext: this.context.snapshot.files.map(({ path, lines }) => ({ ref: path, trust: "repo", content: lines.join("\n") })),
       constraints: ["audit_mode_is_read_only"], workflowGoal: "Resolve accepted issues while preserving intended behavior.", premiseReport: planPremise,

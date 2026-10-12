@@ -15,7 +15,7 @@ import type { TestSandbox } from "../src/test-sandbox.js";
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
-async function fixture(options: { revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; ambiguousClustering?: boolean; oversizedRepository?: boolean; planQuestion?: boolean } = {}) {
+async function fixture(options: { revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; ambiguousClustering?: boolean; oversizedRepository?: boolean; planQuestion?: boolean; smallVerifierContext?: boolean } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "arbitra-model-run-")); directories.push(directory);
   const manyIssues = options.largePeerContext === true || options.largePlannerContext === true;
   await writeFile(join(directory, "a.ts"), "const value = null;\n".repeat(manyIssues ? 4 : options.ambiguousClustering === true ? 3 : 1), "utf8");
@@ -46,7 +46,16 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
     const execution = config.workflow["modelExecution"] as { modelEndpoints: Record<string, string>; roles: { planner: string } };
     execution.modelEndpoints["planner-model"] = "auditor-a"; execution.roles.planner = "planner-model";
   }
+  if (options.smallVerifierContext === true) {
+    // Too small for the output allowance alone, so no verification question can fit.
+    const verifier = config.models["auditor-b"]; if (verifier === undefined) throw new Error("FIXTURE_PROFILE_ABSENT");
+    config.models["verifier-model"] = { ...verifier, modelId: "verifier-model", limits: { ...verifier.limits, contextTokens: 2_600 } };
+    const execution = config.workflow["modelExecution"] as { modelEndpoints: Record<string, string>; roles: { verifier: string } };
+    execution.modelEndpoints["verifier-model"] = "auditor-b"; execution.roles.verifier = "verifier-model";
+  }
   const requests: { stage: string; url: string }[] = [];
+  const verificationInputs: { candidateId: string; unresolvedPeerOperations: { candidateIds: string[] }[] }[] = [];
+  const plannerContexts: { unresolvedPeerOperations: { candidateIds: string[] }[] }[] = [];
   const packedChecks: (readonly [string, string])[][] = [];
   let mergedListedPair: readonly [string, string] | undefined;
   const reviewInputs: { url: string; repair: boolean; input: { round: number; yourEarlierVotes?: { votes: Record<string, { vote: string; citedEvidenceIds: string[] }> } } }[] = [];
@@ -136,7 +145,8 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
     } else if (system.startsWith("Answer the single")) {
       requests.push({ stage: "verification", url: request.url });
       if (failVerification) return { status: 503, headers: {}, body: {} };
-      const input = JSON.parse(user) as { request: { context: { citedContext: { evidenceId: string }[] } } };
+      const input = JSON.parse(user) as { request: { candidateId: string; context: { citedContext: { evidenceId: string }[] } }; unresolvedPeerOperations: { candidateIds: string[] }[] };
+      verificationInputs.push({ candidateId: input.request.candidateId, unresolvedPeerOperations: input.unresolvedPeerOperations });
       output = { outcome: "CONFIRMED", evidenceIds: input.request.context.citedContext.map(({ evidenceId }) => evidenceId), confidence: 0.8 };
     } else if (system.startsWith("Read the complete accepted issues")) {
       requests.push({ stage: "planner-brief", url: request.url });
@@ -163,6 +173,7 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
     } else if (system.startsWith("Produce a complete")) {
       requests.push({ stage: "planner", url: request.url });
       const input = JSON.parse(user) as { canonicalIssues: { candidateId: string }[]; premiseReport: unknown };
+      plannerContexts.push((JSON.parse(user) as { projectContext: (typeof plannerContexts)[number] }).projectContext);
       const acceptedIssueIds = input.canonicalIssues.map(({ candidateId }) => candidateId);
       output = { ...planTemplate, acceptedIssueIds, tasks: planTemplate.tasks.map((task) => ({ ...task, addresses: { ...task.addresses, issues: acceptedIssueIds } })),
         traceability: { ...planTemplate.traceability, issueToValidation: acceptedIssueIds.map((issueId) => ({ issueId, validationIds: ["VAL-001"] })) }, premiseReport: input.premiseReport,
@@ -199,7 +210,7 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
     return { status: 200, headers: {}, body: response };
   };
   const create = (testSandbox?: TestSandbox) => new Orchestrator({ repository: directory, stateDirectory: join(directory, ".runs"), providerOptions: { client: { send }, credential: () => "fixture-credential" }, ...(testSandbox === undefined ? {} : { testSandbox }) });
-  return { create, config, requests, reviewInputs, packedChecks, mergedListedPair: () => mergedListedPair, failRevisionPatch: (value: boolean) => { failRevisionPatch = value; }, failExpansion: (value: boolean) => { failExpansion = value; }, failCritic: (value: boolean) => { failCritic = value; }, failVerification: (value: boolean) => { failVerification = value; }, blockDiscovery: (callback: () => void) => { blockDiscovery = callback; } };
+  return { create, config, requests, verificationInputs, plannerContexts, reviewInputs, packedChecks, mergedListedPair: () => mergedListedPair, failRevisionPatch: (value: boolean) => { failRevisionPatch = value; }, failExpansion: (value: boolean) => { failExpansion = value; }, failCritic: (value: boolean) => { failCritic = value; }, failVerification: (value: boolean) => { failVerification = value; }, blockDiscovery: (callback: () => void) => { blockDiscovery = callback; } };
 }
 
 describe("composed model audits", () => {
@@ -587,10 +598,13 @@ describe("composed model audits", () => {
   });
 
   it("preserves conflicting structural proposals and completes with explicit unresolved coverage", async () => {
-    const { create, config } = await fixture({ conflictingReview: true });
+    const { create, config, verificationInputs, plannerContexts } = await fixture({ conflictingReview: true });
     const core = create(); const result = await core.run(config);
     const events = []; for await (const event of core.events(result.runId)) events.push(event);
     expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
+    // The verification question and the plan read the unresolved operations that involve their own candidate.
+    expect(verificationInputs.map(({ candidateId, unresolvedPeerOperations }) => unresolvedPeerOperations.map(({ candidateIds }) => candidateIds.includes(candidateId)))).toEqual([[true]]);
+    expect(plannerContexts.map(({ unresolvedPeerOperations }) => unresolvedPeerOperations.length)).toEqual([1]);
     const artifacts = await core.artifacts(result.runId);
     const conflict = artifacts.find(({ kind }) => kind === "peer-operation-conflicts");
     const canonical = artifacts.find(({ kind }) => kind === "canonical-issues");
@@ -603,6 +617,17 @@ describe("composed model audits", () => {
     expect(value.limitations).toContain("unresolved_peer_operation_conflicts:1");
     expect(value.coverage.complete).toBe(false);
     expect((await core.gate(result.runId)).gateStatus).toBe("failed");
+  });
+
+  it("leaves a candidate unverified when its verification question cannot fit the verifier's context", async () => {
+    const { create, config, requests } = await fixture({ smallVerifierContext: true });
+    const core = create(); const result = await core.run(config);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
+    expect(requests.filter(({ stage }) => stage === "verification")).toHaveLength(0);
+    const canonical = (await core.artifacts(result.runId)).find(({ kind }) => kind === "canonical-issues");
+    const value = JSON.parse((await core.artifact(result.runId, canonical?.artifactId ?? "") as { content: string }).content) as { limitations: string[] };
+    expect(value.limitations).toContain("verification_question_exceeds_context:1");
   });
 
   it("drops a reviewer's reply that stays invalid after its repair and reports degraded review coverage", async () => {

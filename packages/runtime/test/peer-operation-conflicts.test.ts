@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { IssueOperation } from "@arbitra/core/issue-board/operations.js";
-import { adjudicatePeerOperations } from "../src/peer-operation-conflicts.js";
+import { adjudicatePeerOperations, conflictsInvolving } from "../src/peer-operation-conflicts.js";
 
 const seed = (candidateId: string) => ({ candidateId, title: "Claim", description: "Description", severity: "high" as const, blocker: true, sourceFindingIds: ["a/source"] });
 const base = (operationId: string, candidateId: string) => ({ operationId, candidateId, authorId: operationId, round: 1, citedEvidenceIds: ["e1"] });
@@ -27,5 +27,12 @@ describe("peer operation conflict adjudication", () => {
     const result = adjudicatePeerOperations(operations);
     expect(result.accepted.map(({ operationId }) => operationId)).toEqual(["ev"]);
     expect(result.conflicts.map(({ reason }) => reason).sort()).toEqual(["contradictory_blocker", "contradictory_severity"]);
+  });
+
+  it("selects the conflicts that involve given candidates", () => {
+    const { conflicts } = adjudicatePeerOperations([merge("a", ["C1", "C2"]), merge("b", ["C2", "C3"]), merge("c", ["C5", "C6"]), merge("d", ["C6", "C7"])]);
+    expect(conflictsInvolving(conflicts, ["C3"]).map(({ operationIds }) => operationIds)).toEqual([["a", "b"]]);
+    expect(conflictsInvolving(conflicts, ["C1", "C7"])).toHaveLength(2);
+    expect(conflictsInvolving(conflicts, ["C4"])).toEqual([]);
   });
 });
