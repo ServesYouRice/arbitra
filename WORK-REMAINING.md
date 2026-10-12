@@ -215,7 +215,10 @@ fourth.
 | Conflict votes | 33 | no conflict resolved; unresolved ones went from 13 to 22 |
 | Verification | 3 | 50 items: 2 asked of a model and confirmed, 48 "still needs verification" from a check that cannot answer |
 
-After 163 calls and 95 minutes, 6 issues were accepted and 62 of 71 were still open; none was rejected. Of the 63
+After 163 calls and 95 minutes, 6 issues were accepted and 62 of 71 were still open; none was rejected. Scored
+afterwards against the project's 7 planted defects: all 7 were among the 222 findings and all 7 among the 71
+issues not rejected, but the 6 accepted issues covered only 2. So review lost nothing and settled nothing: the
+list a user would act on holds 2 of the 7, and the 5 others sit among 62 open items. Of the 63
 review batches, 43 were pair checks for merges. The plan, its two critic passes and its revision then spent 188
 minutes on a plan for those 6 issues. To decide with the owner (it changes what the pipeline is): one review
 round unless reviewers split, no conflict votes while they resolve nothing, a verification that asks about every
