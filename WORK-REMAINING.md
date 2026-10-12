@@ -167,6 +167,13 @@ reviewers read on October 11 has a repair call: they keep the valid items of a r
 finding against the code it cites, not against the repository. The specification asks for the same: fan-out
 under per-provider limits (§12.6) and a shared cached prefix (§14.2).
 
+**The owner's targets (October 12).** A panel run may take about 1.5 times the time of three Opus-only runs and
+about 1.7 times their tokens, with quality kept ("if 3 opus runs take 1h, we are allowed to ourselves like 1.5h
+instead, or if 3 opus runs take 3m tokens, we are allowed 5m"; guiding lights, not fixed numbers). Measured that
+day on one project: one Opus-only run 20 minutes and 0.9M tokens, the panel at xhigh 301 minutes and 20.3M. So
+the targets there are about 90 minutes and 4.5M tokens. Changes that alter what the pipeline is are to be checked
+against Anthropic's current prompting and orchestration guidance before they are built (the owner's condition).
+
 **Where a whole panel run's time goes (October 12).** The first panel run at xhigh that reached its last stage
 (Opus 5.5, GPT-6.1 Sol, Gemini 3.8 Flash, the same project) had a call in flight for 284 minutes: 274 calls, 859
 minutes of call time, 13.0M input and 6.6M output tokens. Wall-clock per stage, from the times its requests were
@@ -223,6 +230,13 @@ review batches, 43 were pair checks for merges. The plan, its two critic passes 
 minutes on a plan for those 6 issues. To decide with the owner (it changes what the pipeline is): one review
 round unless reviewers split, no conflict votes while they resolve nothing, a verification that asks about every
 disputed candidate with a small prompt, and the plan as an optional step after the findings.
+
+**A plan can grow past what its critic can read at all.** In a second panel run (Sonnet 5.5 at xhigh as planner)
+the plan for 19 accepted issues came to 460,000 characters: 19 tasks of about 19,000 each and a shared part of
+92,000 with 145 open questions. The critic reviews records in pairs with that shared part in every prompt, so not
+even two tasks fit one prompt, in whole or in 16 segments (`PEER_PAIR_CONTEXT_LIMIT_EXCEEDED`), and 38 records
+mean 703 pairs. The run was stopped there: completing it would have cost hundreds of calls for a stage that
+changes no finding. This belongs to the critic's redesign, not to a larger limit.
 
 **The batching overhead, measured.** One "does this prompt fit" measurement builds the whole prompt (redaction,
 framing, serialising): about 4 ms for 139 KB before the prompt compiler's share. A stage asks it once for every
