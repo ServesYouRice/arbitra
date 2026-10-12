@@ -45,6 +45,7 @@ export async function reviseWithContext(input: ModelRevisionInput, port: Planner
   let lineage = new Map(current.tasks.map(({ id }) => [id, [id]]));
   const resolutions: RevisionResolution[] = [];
   const patches: { activityId: string; critiqueItemId: string; selectedTaskIds: readonly string[]; lineage: PlanRevisionPatch["lineage"] }[] = [];
+  const notRevised: string[] = [];
   for (const [index, critique] of input.blockingCritique.entries()) {
     const selectedIds = new Set([
       ...critique.taskIds.flatMap((id) => { const descendants = lineage.get(id) ?? []; return descendants.length === 0 ? [id] : descendants; }),
@@ -91,7 +92,18 @@ export async function reviseWithContext(input: ModelRevisionInput, port: Planner
       },
       schema: { parse: (value) => accept(value).patch }, jsonSchema: planRevisionPatchSchema.toJSONSchema(),
     };
-    if (!await sendable(port, request)) throw new Error(`PLANNER_REVISION_ITEM_CONTEXT_LIMIT_EXCEEDED:${critique.id}`);
+    if (!await sendable(port, request)) {
+      if (await port.outputLimited?.(request) !== true) throw new Error(`PLANNER_REVISION_ITEM_CONTEXT_LIMIT_EXCEEDED:${critique.id}`);
+      // The patch for this item stopped at the model's output ceiling, and one critique item cannot be asked for
+      // in smaller parts. The plan keeps its tasks and the item stays open: a blocking question names it and its
+      // resolution says so, for the critic and the operator (observed live: the third of ten items, after two
+      // hours of a run that then failed).
+      const questionId = `revision-${index}/not-revised`;
+      current = planIRSchema.parse({ ...current, unresolvedQuestions: [...current.unresolvedQuestions, { id: questionId, question: `Critique item ${critique.id} was not revised: the revision call for it stopped at the model's output ceiling. The plan is unchanged for this item. How should it be resolved?`, blocking: true, blastRadius: "high" }] });
+      resolutions.push({ critiqueItemId: critique.id, resolution: `Not revised: the revision call for this item stopped at the model's output ceiling. The plan is unchanged for it and carries the blocking question ${questionId}.` });
+      notRevised.push(critique.id);
+      continue;
+    }
     const { patch, applied } = accept(await port.call(request));
     const replacements = new Map(patch.lineage.map(({ previousTaskId, nextTaskIds }) => [previousTaskId, nextTaskIds]));
     lineage = new Map([...lineage].map(([original, descendants]) => [original, [...new Set(descendants.length === 0 ? replacements.get(original) ?? [] : descendants.flatMap((id) => replacements.get(id) ?? [id]))]]));
@@ -102,7 +114,7 @@ export async function reviseWithContext(input: ModelRevisionInput, port: Planner
     await port.publish("planner-revision-patches", patches);
   }
   const result = validate({ plan: current, resolutions });
-  await port.publish("planner-revision-composition", { logicalModelCalls: patches.length, originalTaskLineage: Object.fromEntries(lineage), kind: "atomic_critique_patches" });
+  await port.publish("planner-revision-composition", { logicalModelCalls: patches.length, originalTaskLineage: Object.fromEntries(lineage), kind: "atomic_critique_patches", notRevisedCritiqueItemIds: notRevised });
   return result;
 }
 

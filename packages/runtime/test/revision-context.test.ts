@@ -127,6 +127,20 @@ describe("bounded atomic planner revisions", () => {
     expect(calls).toHaveLength(0);
   });
 
+  it("leaves a critique item open in the plan when its revision call stopped at the output ceiling", async () => {
+    const { input, port, calls, artifacts } = await fixture();
+    const limited = (stage: PlannerStage) => stage.activityId.startsWith("planner/revision-item/1-");
+    const tight = { ...port, fits: async (stage: PlannerStage) => !limited(stage) && await port.fits(stage) };
+    // Without the reason it is refused as before.
+    await expect(reviseWithContext(input, tight)).rejects.toThrow("PLANNER_REVISION_ITEM_CONTEXT_LIMIT_EXCEEDED:critique-2");
+    calls.length = 0;
+    const result = await reviseWithContext(input, { ...tight, outputLimited: async (stage) => limited(stage) });
+    expect(calls.map(({ activityId }) => activityId.split("/")[1])).toEqual(["revision-item"]);
+    expect(result.resolutions.map(({ critiqueItemId, resolution }) => [critiqueItemId, resolution.startsWith("Not revised")])).toEqual([["critique-1", false], ["critique-2", true]]);
+    expect(result.plan.unresolvedQuestions.at(-1)).toMatchObject({ id: "revision-1/not-revised", blocking: true, blastRadius: "high" });
+    expect(artifacts.get("planner-revision-composition")).toMatchObject({ logicalModelCalls: 1, notRevisedCritiqueItemIds: ["critique-2"] });
+  });
+
   it("sends a critique item that fits no usual size as required input", async () => {
     const { input, port, calls } = await fixture();
     const asked: string[] = [];
