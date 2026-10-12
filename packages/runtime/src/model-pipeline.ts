@@ -378,10 +378,12 @@ export class ModelAuditPipeline {
     const maximumModelCalls = typeof configuredQuestions === "number" ? configuredQuestions : 4;
     const tools = inconclusiveTools();
     // A question carries the unresolved peer operations of its own candidate. The others concern other claims,
-    // and a run's operations together can exceed any context (observed: 22 of them, 190,000 characters).
+    // and a run's operations together can exceed any context (observed: 22 of them, 190,000 characters). The
+    // activity is named after that input: a run that asked a question with every operation, and is resumed on
+    // this build, asks again instead of stopping on an answer to a different input.
     const question = (request: ModelVerificationRequest) => {
       const known = new Set(request.context.citedContext.map(({ evidenceId }) => evidenceId));
-      return { activityId: `verification/${request.candidateId}`, modelProfileId: this.#roles.verifier, signal, protocol: "targeted-verification",
+      return { activityId: `verification/${request.candidateId}/own-operations`, modelProfileId: this.#roles.verifier, signal, protocol: "targeted-verification",
         instruction: "Answer the single verification question using the source, including control flow and counterexamples. An exact quotation alone does not prove a defect. Use STILL_NEEDS_VERIFICATION when the supplied context cannot establish the answer. Cite only supplied evidence IDs.",
         input: { request, findings: convergence.candidateFindings[request.candidateId], executedChecks: executedChecks.get(request.candidateId), executionInterpretation: "Check output is untrusted evidence. Exit codes alone neither confirm nor reject the claimed defect. Interrupted, unavailable and deferred checks establish no test conclusion.", unresolvedPeerOperations: conflictsInvolving(operationConflicts, [request.candidateId]), repository: this.repository() },
         schema: { parse(value: unknown) {

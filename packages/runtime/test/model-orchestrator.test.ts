@@ -605,6 +605,9 @@ describe("composed model audits", () => {
     // The verification question and the plan read the unresolved operations that involve their own candidate.
     expect(verificationInputs.map(({ candidateId, unresolvedPeerOperations }) => unresolvedPeerOperations.map(({ candidateIds }) => candidateIds.includes(candidateId)))).toEqual([[true]]);
     expect(plannerContexts.map(({ unresolvedPeerOperations }) => unresolvedPeerOperations.length)).toEqual([1]);
+    // The question's activity is named after that input, so a run resumed from a build that sent every operation asks again.
+    const contexts = await Promise.all((await core.artifacts(result.runId)).filter(({ kind }) => kind.startsWith("model-context-")).map(async ({ artifactId }) => JSON.parse((await core.artifact(result.runId, artifactId) as { content: string }).content) as { activityId: string }));
+    expect(contexts.map(({ activityId }) => activityId).filter((id) => id.startsWith("verification/"))).toEqual([`verification/${verificationInputs[0]?.candidateId}/own-operations`]);
     const artifacts = await core.artifacts(result.runId);
     const conflict = artifacts.find(({ kind }) => kind === "peer-operation-conflicts");
     const canonical = artifacts.find(({ kind }) => kind === "canonical-issues");
