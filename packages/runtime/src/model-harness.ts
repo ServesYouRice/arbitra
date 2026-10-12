@@ -9,7 +9,7 @@ import type { RunConfig } from "@arbitra/schemas/config.js";
 import { frameUntrusted } from "@arbitra/security/framing";
 import { redactSecrets } from "@arbitra/security/redaction";
 import { boundModelHistory } from "./model-history.js";
-import { isModelOutputRejection, ModelOutputLimitError, ModelRefusalError, outputLimitKind, refusalKind } from "./context-budget.js";
+import { isModelOutputRejection, ModelOutputLimitError, ModelRefusalError, outputLimitKind, refusalKind, REQUIRED_INPUT_BYTES_PER_TOKEN } from "./context-budget.js";
 import { ModelActivities, parsePromptJson, type ModelActivityRequest } from "./model-activities.js";
 import { snapshotTools, SNAPSHOT_TOOLS } from "./snapshot-tools.js";
 import type { RepositorySnapshot } from "./repository.js";
@@ -38,6 +38,12 @@ export class ModelHarness {
   estimateInitialTokens(input: ModelActivityRequest<unknown>): number {
     const { initialMessages, tools, execution } = prepareModelInput(input, this.config, this.testing);
     return Buffer.byteLength(JSON.stringify({ messages: initialMessages, tools }), "utf8") + execution.maximumOutputTokens;
+  }
+
+  /** The same request counted at the rate for input a call must carry whole. */
+  estimateRequiredTokens(input: ModelActivityRequest<unknown>): number {
+    const { initialMessages, tools, execution } = prepareModelInput(input, this.config, this.testing);
+    return Math.ceil(Buffer.byteLength(JSON.stringify({ messages: initialMessages, tools }), "utf8") / REQUIRED_INPUT_BYTES_PER_TOKEN) + execution.maximumOutputTokens;
   }
 
   async invoke<T>(input: ModelActivityRequest<T>): Promise<T> {
@@ -100,8 +106,11 @@ export class ModelHarness {
     const toolSet = snapshotTools(allowedPaths === null ? this.snapshot : { ...this.snapshot, files: this.snapshot.files.filter(({ path }) => allowedPaths.has(path)) }, this.store, input.activityId);
     const maximumContext = Math.min(execution.maximumContextTokens ?? 128_000, profile.limits.contextTokens ?? Number.POSITIVE_INFINITY);
     const adapter = new CanonicalHarnessAdapter({ invoke: async (request, context) => {
+      // A request admitted as required input keeps that rate through its tool turns, or its first turn could not
+      // be sent. Every other request is measured, and its history archived, as before.
+      const rate = input.admittedAsRequired === true ? REQUIRED_INPUT_BYTES_PER_TOKEN : 1;
       const bounded = await boundModelHistory(initialMessages, context.turn === 0 ? [] : request.messages.slice(1),
-        (messages) => Buffer.byteLength(JSON.stringify({ messages, tools: request.tools }), "utf8") + execution.maximumOutputTokens <= maximumContext, toolSet.archive);
+        (messages) => Math.ceil(Buffer.byteLength(JSON.stringify({ messages, tools: request.tools }), "utf8") / rate) + execution.maximumOutputTokens <= maximumContext, toolSet.archive);
       if (bounded.archiveRef !== null) await this.store.publish(`model-history-${key}-${context.turn}`, { activityId: input.activityId, turn: context.turn, archiveRef: bounded.archiveRef, archivedMessages: bounded.archivedMessages, maximumEstimatedTokens: maximumContext });
       return this.activities.invoke({
         ...input, activityId: `${input.activityId}/turn-${context.turn}`, messages: bounded.messages,

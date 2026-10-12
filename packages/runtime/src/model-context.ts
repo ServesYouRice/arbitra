@@ -16,26 +16,34 @@ export function withinStringBudget(value: unknown, maximumBytes: number): boolea
   return true;
 }
 
-/** Allocates `value`. When what it must carry cannot fit and a smaller form of the same input is given, that form
- * is allocated instead, and the result says so. */
-export function allocateReducibleContext(value: unknown, smaller: unknown, fits: (input: unknown) => boolean, preferredPaths: readonly string[] = []): { input: unknown; coverage: ModelContextCoverage; reduced: boolean } {
-  try { return { ...allocateModelContext(value, fits, preferredPaths), reduced: false }; }
-  catch (error) {
-    if (smaller === undefined || !(error instanceof Error) || error.message !== "MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED") throw error;
-    return { ...allocateModelContext(smaller, fits, preferredPaths), reduced: true };
+export interface StageContext { readonly input: unknown; readonly coverage: ModelContextCoverage; readonly reduced: boolean; readonly admittedAsRequired: boolean }
+
+/** Allocates a stage input that has to be sent. Each step is tried only when the one before cannot carry what the
+ * stage must read: the input as given; its smaller form, when there is one; then the smallest form with no optional
+ * source at all, checked by `admits` (the rate for required input) in place of `fits`. */
+export function allocateStageContext(value: unknown, options: { readonly smaller?: unknown; readonly fits: (input: unknown) => boolean; readonly admits?: (input: unknown) => boolean; readonly preferredPaths?: readonly string[] }): StageContext {
+  const steps: (() => StageContext)[] = [() => ({ ...allocateModelContext(value, options.fits, options.preferredPaths), reduced: false, admittedAsRequired: false })];
+  if (options.smaller !== undefined) steps.push(() => ({ ...allocateModelContext(options.smaller, options.fits, options.preferredPaths), reduced: true, admittedAsRequired: false }));
+  const admits = options.admits;
+  if (admits !== undefined) steps.push(() => ({ ...allocateModelContext(options.smaller ?? value, () => false, options.preferredPaths, admits), reduced: options.smaller !== undefined, admittedAsRequired: true }));
+  for (const [index, step] of steps.entries()) {
+    try { return step(); }
+    catch (error) { if (index === steps.length - 1 || !(error instanceof Error) || error.message !== "MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED") throw error; }
   }
+  throw new Error("MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED");
 }
 
-/** Bound optional source material while preserving the entire decision/evidence input. */
-export function allocateModelContext(value: unknown, fits: (input: unknown) => boolean, preferredPaths: readonly string[] = []): { input: unknown; coverage: ModelContextCoverage } {
+/** Bound optional source material while preserving the entire decision/evidence input. `required` judges the
+ * part that cannot be left out, and is `fits` unless a caller admits that part by another measure. */
+export function allocateModelContext(value: unknown, fits: (input: unknown) => boolean, preferredPaths: readonly string[] = [], required: (input: unknown) => boolean = fits): { input: unknown; coverage: ModelContextCoverage } {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    if (!fits(value)) throw new Error("MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED");
+    if (!required(value)) throw new Error("MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED");
     return { input: value, coverage: { fullPaths: [], excerptPaths: [], omittedPaths: [] } };
   }
   const record = value as Record<string, unknown>;
   const key = ["repository", "repositoryContext", "necessaryContext"].find((name) => Array.isArray(record[name]));
   if (key === undefined) {
-    if (!fits(value)) throw new Error("MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED");
+    if (!required(value)) throw new Error("MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED");
     return { input: value, coverage: { fullPaths: [], excerptPaths: [], omittedPaths: [] } };
   }
   const sources = (record[key] as unknown[]).map((entry): Source => {
@@ -75,7 +83,7 @@ export function allocateModelContext(value: unknown, fits: (input: unknown) => b
   const selected: Source[] = [];
   const coverage = (): ModelContextCoverage => ({ fullPaths: selected.filter((entry) => entry["excerpted"] !== true).map(pathOf), excerptPaths: selected.filter((entry) => entry["excerpted"] === true).map(pathOf), omittedPaths: allPaths.filter((path) => !selected.some((entry) => pathOf(entry) === path)) });
   const assembled = () => ({ ...mandatory, [key]: [...selected], contextCoverage: { complete: false, ...coverage() } });
-  if (!fits(assembled())) throw new Error("MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED");
+  if (!required(assembled())) throw new Error("MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED");
   for (const source of [...sources].sort((a, b) => priority(pathOf(a)) - priority(pathOf(b)) || pathOf(a).localeCompare(pathOf(b)))) {
     selected.push(source);
     if (fits(assembled())) continue;

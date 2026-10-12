@@ -219,7 +219,20 @@ How the four newer paths compose:
 
 These fail explicitly and name the record or stage. None is resolved by silent omission.
 
-Irreducible with the current record model (a single mandatory unit exceeds the budget):
+**Required input.** The byte estimate counts one token a byte, about three times what providers
+count. That keeps calls small, but a unit that cannot be made smaller and is a few percent over
+would fail a run the provider could have read. So in the audit pipeline, before one of the limits
+below is raised, the stage is tried as required input: first with its unresolved peer operations
+in outline (which candidates each one ties together), then with no optional source at two bytes a
+token (`REQUIRED_INPUT_BYTES_PER_TOKEN`), with the same 80% margin and output reserve. The call's
+context record says so (`peerOperationsInOutline`, `admittedAsRequiredInput`), and its tool
+history and the provider pool count it at the same rate. Grouping still uses the byte estimate, so
+every call that fits is sized as before. This covers a peer candidate or critic record reviewed
+alone, planner briefs, sections, headers, links and task expansions, revision items, and
+verification questions (a question that still cannot be sent is not asked).
+
+Irreducible with the current record model (a single mandatory unit exceeds the budget, and in the
+audit pipeline also the rate for required input):
 
 - `PEER_CANDIDATE_CONTEXT_LIMIT_EXCEEDED:<id>`: one complete peer candidate or critic record
   plus its global index does not fit. `PEER_PAIR_CONTEXT_LIMIT_EXCEEDED:<a>:<b>`: even 16

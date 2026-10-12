@@ -5,7 +5,7 @@ import { planRevisionPatchSchema, type PlanRevisionPatch } from "@arbitra/schema
 import type { RevisionOutput, RevisionRequest, RevisionResolution } from "@arbitra/workflow/nodes/revision.js";
 import type { CanonicalIssueSet } from "@arbitra/workflow/nodes/canonical-issues.js";
 import { validateTraceability } from "@arbitra/workflow/nodes/planner/traceability.js";
-import type { PlannerCompositionPort, PlannerStage } from "./planner-context.js";
+import { sendable, type PlannerCompositionPort, type PlannerStage } from "./planner-context.js";
 
 export interface ModelRevisionInput extends RevisionRequest<PlanIR> {
   readonly canonicalIssues: CanonicalIssueSet["issues"];
@@ -91,7 +91,7 @@ export async function reviseWithContext(input: ModelRevisionInput, port: Planner
       },
       schema: { parse: (value) => accept(value).patch }, jsonSchema: planRevisionPatchSchema.toJSONSchema(),
     };
-    if (!await port.fits(request)) throw new Error(`PLANNER_REVISION_ITEM_CONTEXT_LIMIT_EXCEEDED:${critique.id}`);
+    if (!await sendable(port, request)) throw new Error(`PLANNER_REVISION_ITEM_CONTEXT_LIMIT_EXCEEDED:${critique.id}`);
     const { patch, applied } = accept(await port.call(request));
     const replacements = new Map(patch.lineage.map(({ previousTaskId, nextTaskIds }) => [previousTaskId, nextTaskIds]));
     lineage = new Map([...lineage].map(([original, descendants]) => [original, [...new Set(descendants.length === 0 ? replacements.get(original) ?? [] : descendants.flatMap((id) => replacements.get(id) ?? [id]))]]));

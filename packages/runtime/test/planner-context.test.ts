@@ -59,6 +59,18 @@ describe("one global planner with bounded issue reading and task expansion", () 
     for (const read of reads) expect(read.projectContext).toEqual({ operationsOf: read.canonicalIssues.map(({ candidateId }) => candidateId) });
   });
 
+  it("sends a task expansion that fits no usual size as required input, and gives up only when that is refused too", async () => {
+    const { input, port, calls } = await fixture();
+    const tight = { ...port, fits: async (stage: PlannerStage) => stage.activityId !== "planner/expand/TASK-2" && await port.fits(stage) };
+    await expect(planWithContext(input, tight)).rejects.toThrow("PLANNER_TASK_CONTEXT_LIMIT_EXCEEDED:TASK-2");
+    const asked: string[] = [];
+    const result = await planWithContext(input, { ...tight, admits: async (stage) => { asked.push(stage.activityId); return true; } });
+    // Asked only before giving up, so the grouping of the other stages is as before.
+    expect(asked).toEqual(["planner/expand/TASK-2"]);
+    expect(result.tasks).toHaveLength(3);
+    expect(calls.filter(({ activityId }) => activityId === "planner/expand/TASK-2")).toHaveLength(1);
+  });
+
   it("refuses an outline whose tasks write the same files unordered inside the call, so the harness can repair it", async () => {
     const { input, port } = await fixture();
     const refusals: string[] = [];

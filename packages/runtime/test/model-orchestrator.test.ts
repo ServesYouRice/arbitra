@@ -15,7 +15,7 @@ import type { TestSandbox } from "../src/test-sandbox.js";
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
-async function fixture(options: { revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; ambiguousClustering?: boolean; oversizedRepository?: boolean; planQuestion?: boolean; smallVerifierContext?: boolean } = {}) {
+async function fixture(options: { revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; ambiguousClustering?: boolean; oversizedRepository?: boolean; planQuestion?: boolean; verifierContextTokens?: number } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "arbitra-model-run-")); directories.push(directory);
   const manyIssues = options.largePeerContext === true || options.largePlannerContext === true;
   await writeFile(join(directory, "a.ts"), "const value = null;\n".repeat(manyIssues ? 4 : options.ambiguousClustering === true ? 3 : 1), "utf8");
@@ -46,10 +46,9 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
     const execution = config.workflow["modelExecution"] as { modelEndpoints: Record<string, string>; roles: { planner: string } };
     execution.modelEndpoints["planner-model"] = "auditor-a"; execution.roles.planner = "planner-model";
   }
-  if (options.smallVerifierContext === true) {
-    // Too small for the output allowance alone, so no verification question can fit.
+  if (options.verifierContextTokens !== undefined) {
     const verifier = config.models["auditor-b"]; if (verifier === undefined) throw new Error("FIXTURE_PROFILE_ABSENT");
-    config.models["verifier-model"] = { ...verifier, modelId: "verifier-model", limits: { ...verifier.limits, contextTokens: 2_600 } };
+    config.models["verifier-model"] = { ...verifier, modelId: "verifier-model", limits: { ...verifier.limits, contextTokens: options.verifierContextTokens } };
     const execution = config.workflow["modelExecution"] as { modelEndpoints: Record<string, string>; roles: { verifier: string } };
     execution.modelEndpoints["verifier-model"] = "auditor-b"; execution.roles.verifier = "verifier-model";
   }
@@ -622,8 +621,25 @@ describe("composed model audits", () => {
     expect((await core.gate(result.runId)).gateStatus).toBe("failed");
   });
 
+  it("asks a verification question that fits no usual size as required input", async () => {
+    const usual = await fixture();
+    const first = usual.create(); const measured = await first.run(usual.config);
+    const question = async (core: typeof first, runId: string) => (await Promise.all((await core.artifacts(runId)).filter(({ kind }) => kind.startsWith("model-context-")).map(async ({ artifactId }) => JSON.parse((await core.artifact(runId, artifactId) as { content: string }).content) as { activityId: string; estimatedTokens: number; admittedAsRequiredInput: boolean }))).find(({ activityId }) => activityId.startsWith("verification/"));
+    const usualQuestion = await question(first, measured.runId);
+    expect(usualQuestion).toMatchObject({ admittedAsRequiredInput: false });
+    // A verifier whose usual size holds about 60% of the question: too small to pack it, large enough to admit it.
+    const bytes = (usualQuestion?.estimatedTokens ?? 0) - 2_000;
+    const { create, config, requests } = await fixture({ verifierContextTokens: Math.ceil((0.6 * bytes + 2_000) / 0.8) });
+    const core = create(); const result = await core.run(config);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
+    expect(requests.filter(({ stage }) => stage === "verification")).toHaveLength(1);
+    expect(await question(core, result.runId)).toMatchObject({ admittedAsRequiredInput: true });
+  });
+
   it("leaves a candidate unverified when its verification question cannot fit the verifier's context", async () => {
-    const { create, config, requests } = await fixture({ smallVerifierContext: true });
+    // Too small for the output allowance alone, so the question cannot be sent even as required input.
+    const { create, config, requests } = await fixture({ verifierContextTokens: 2_600 });
     const core = create(); const result = await core.run(config);
     const events = []; for await (const event of core.events(result.runId)) events.push(event);
     expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
