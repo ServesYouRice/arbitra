@@ -167,6 +167,45 @@ reviewers read on October 11 has a repair call: they keep the valid items of a r
 finding against the code it cites, not against the repository. The specification asks for the same: fan-out
 under per-provider limits (§12.6) and a shared cached prefix (§14.2).
 
+**Where a whole panel run's time goes (October 12).** The first panel run at xhigh that reached its last stage
+(Opus 5.5, GPT-6.1 Sol, Gemini 3.8 Flash, the same project) had a call in flight for 284 minutes: 274 calls, 859
+minutes of call time, 13.0M input and 6.6M output tokens. Wall-clock per stage, from the times its requests were
+stored:
+
+| Stage | Calls | Wall minutes | At a time | Notes |
+|---|---|---|---|---|
+| Audit | 28 | 41 | 2.7 | Opus 343 s a call; Gemini 17 calls; 3 tool turns of Sol took 21 call-minutes |
+| Clustering, review round 1 | 43 | 24 | 4.1 | 16 tool turns (36 call-minutes), 6 repairs |
+| Review round 2, conflicts | 84 | 29 | 6.3 | Opus 268 s a call; 10 tool turns |
+| Verification | 3 | 1 | 1.0 | |
+| Plan | 2 | 14 | 1.0 | one call of 440 s and its repair |
+| Critic, first plan | 30 | 23 | 3.7 | 4 reviews and 26 pair checks |
+| Plan revision | 11 | 69 | 1.0 | one item after another; 4 stopped at the output ceiling (34 minutes) |
+| Critic, revised plan | 73 | 82 | 3.7 | 77 planned: 6 reviews and 71 pair checks, 250 s and 42,000 output tokens a call |
+
+So the findings were final after 95 minutes, and the plan, its critic and its revision took the other 188. What
+this shows, largest first:
+
+- **The critic reviews a seven-task plan in 30 calls, and the revised plan in 77.** The plan and its issues do
+  not fit one prompt at one token a byte, so they are split, and every pair of parts is then checked. The second
+  pass repeats the whole review with the resolutions added, instead of checking what changed.
+- **The plan is revised one critique item at a time, at the audit's effort.** Eleven Opus calls of five to nine
+  minutes each; the single revision call did not fit for the same reason of size.
+- **Every prompt is filled with source files up to its limit**: 47,000 input tokens a call on average, whatever
+  the call decides. That is most of the 13.0M input tokens, and it is what exhausts the vendors' allowances (the
+  Google allowance stopped this run for an hour).
+- **Calls that reach the output ceiling are thrown away**: 7 calls of about eight minutes each.
+- **Tool round trips**: 29 calls and 87 call-minutes of GPT-6.1 Sol (199 tool calls), because its prompts hold only part of the
+  repository.
+- **arbitra's own planning of batches takes minutes**: with nothing in flight, 234 s before the first review
+  round, 110 s before the critic and 265 s before the second critic, and about two minutes again at every
+  resume. Each candidate grouping is measured by building its whole prompt.
+- **Parallelism is low where it could be high**: 2.7 calls at a time in the audit, 1.0 in the plan revision, and
+  the critic is held to the provider's four.
+
+The sizing item below is the common cause of the first, second and fifth; the effort item of the second and
+fourth.
+
 **Open (cost and speed), measured on October 11 on that project:**
 
 - **The Codex allowance now bounds a panel's throughput, not arbitra's speed.** Three panels side by side used a
