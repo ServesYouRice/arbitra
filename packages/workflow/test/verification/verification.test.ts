@@ -54,6 +54,16 @@ describe("verification subgraph", () => {
     expect(run.results.map(({ outcome }) => outcome)).toEqual(["CONFIRMED", "STILL_NEEDS_VERIFICATION", "CONFIRMED"]);
     expect(run.metrics).toMatchObject({ itemCount: 3, modelCalls: 1, resolvedDisputes: 2 });
   });
+
+  it("leaves an item unverified when its question cannot fit, and spends no model question on it", async () => {
+    const requests: string[] = [];
+    const run = await verifyItems([item(), item({ candidateId: "C-2" })], tools(),
+      { maximumItems: 2, maximumModelCalls: 1, allowModelCall: true, round: 1 },
+      { sink: { async append() {} }, model: { async fits({ candidateId }) { return candidateId !== "C-1"; }, async verify({ candidateId }) { requests.push(candidateId); return { outcome: "CONFIRMED", evidenceIds: ["ev-1"], artifactRefs: [], activityId: "model", confidence: 0.9 }; } } });
+    expect(requests).toEqual(["C-2"]);
+    expect(run.results.map(({ outcome, method, contextLimited }) => [outcome, method, contextLimited])).toEqual([["STILL_NEEDS_VERIFICATION", "bounded_deterministic_check", true], ["CONFIRMED", "single_model_question", false]]);
+    expect(run.metrics).toMatchObject({ modelCalls: 1, resolvedDisputes: 1, contextLimitedItemIds: ["C-1"] });
+  });
 });
 
 function requiredAt<T>(values: readonly T[], index: number): T { const value = values[index]; if (value === undefined) throw new RangeError(`Missing test value at index ${index}`); return value; }

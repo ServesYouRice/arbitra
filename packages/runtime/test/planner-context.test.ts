@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { planIRSchema, type PlanIR } from "@arbitra/schemas/plan.js";
 import type { PlannerBrief, PlannerOutline, PlannerOutlineLinks, PlannerTaskOutline } from "@arbitra/schemas/planner-composition.js";
 import type { PlannerInput } from "@arbitra/workflow/nodes/planner/node.js";
-import { planWithContext, taskOutline, type PlannerStage } from "../src/planner-context.js";
+import { auditPlannerRecords, planWithContext, taskOutline, type PlannerStage } from "../src/planner-context.js";
 
 async function fixture() {
   const template = planIRSchema.parse(JSON.parse(await readFile(new URL("../../schemas/test/golden/plan-ir.valid.json", import.meta.url), "utf8")));
@@ -47,6 +47,16 @@ describe("one global planner with bounded issue reading and task expansion", () 
     for (const issue of input.canonicalIssues) expect(originalReads.filter(({ input: supplied }) => (supplied as PlannerInput).canonicalIssues.some((record) => JSON.stringify(record) === JSON.stringify(issue)))).toHaveLength(2);
     for (const { input: supplied } of originalReads) expect(supplied).toMatchObject({ projectContext: input.projectContext, constraints: input.constraints, repositoryContext: input.repositoryContext });
     expect(artifacts.get("planner-composition")).toMatchObject({ issueBatches: 3, taskExpansions: 3, logicalModelCalls: 7 });
+  });
+
+  it("gives the outline the record set's compact context and each reading stage the context of its own issues", async () => {
+    const { input, calls, port } = await fixture();
+    const base = auditPlannerRecords(input);
+    await planWithContext(input, port, { records: { ...base, outlineContext: { ties: "identities only" }, scoped: (ids) => ({ ...base.scoped(ids), projectContext: { operationsOf: ids } }) } });
+    expect(calls.find(({ activityId }) => activityId === "planner/outline")?.input).toMatchObject({ projectContext: { ties: "identities only" } });
+    const reads = calls.filter(({ activityId }) => activityId.startsWith("planner/brief/") || activityId.startsWith("planner/expand/")).map(({ input: supplied }) => supplied as { projectContext: unknown; canonicalIssues: { candidateId: string }[] });
+    expect(reads).toHaveLength(6);
+    for (const read of reads) expect(read.projectContext).toEqual({ operationsOf: read.canonicalIssues.map(({ candidateId }) => candidateId) });
   });
 
   it("refuses an outline whose tasks write the same files unordered inside the call, so the harness can repair it", async () => {
