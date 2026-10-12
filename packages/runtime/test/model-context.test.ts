@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allocateModelContext, allocateReducibleContext, withinStringBudget } from "../src/model-context.js";
+import { allocateModelContext, allocateStageContext, withinStringBudget } from "../src/model-context.js";
 
 const bytes = (value: unknown): number => {
   const input = value as { repository?: { content: string }[]; repositoryContext?: { content: string }[] };
@@ -37,15 +37,21 @@ describe("later-stage source allocation", () => {
     expect(allocateModelContext(input, (value) => bytes(value) <= 6).input).toMatchObject({ contextCoverage: { complete: false, omittedPaths: ["z.ts"] } });
   });
 
-  it("falls back to a smaller form of the input only when the required part cannot fit", () => {
-    const size = (value: unknown) => JSON.stringify(value).length;
+  it("falls back, for a stage that has to be sent, on a smaller form and then on the rate for required input", () => {
+    const within = (limit: number) => (value: unknown) => JSON.stringify(value).length <= limit;
     const whole = { decision: "d".repeat(60), repository: [{ path: "a.ts", content: "source" }] };
     const smaller = { decision: "d".repeat(10), repository: whole.repository };
-    expect(allocateReducibleContext(whole, smaller, (value) => size(value) <= 2000)).toMatchObject({ reduced: false, input: { decision: whole.decision } });
-    expect(allocateReducibleContext(whole, smaller, (value) => size(value) <= 200)).toMatchObject({ reduced: false, input: { decision: whole.decision, repository: [] } });
-    expect(allocateReducibleContext(whole, smaller, (value) => size(value) <= 150)).toMatchObject({ reduced: true, input: { decision: smaller.decision, repository: [] } });
-    expect(() => allocateReducibleContext(whole, undefined, (value) => size(value) <= 150)).toThrow("MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED");
-    expect(() => allocateReducibleContext(whole, smaller, () => false)).toThrow("MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED");
+    // As given: with its source, then without it.
+    expect(allocateStageContext(whole, { smaller, fits: within(2000) })).toMatchObject({ reduced: false, admittedAsRequired: false, input: { decision: whole.decision, repository: whole.repository } });
+    expect(allocateStageContext(whole, { smaller, fits: within(200) })).toMatchObject({ reduced: false, admittedAsRequired: false, input: { decision: whole.decision, repository: [] } });
+    // The smaller form, at the usual size.
+    expect(allocateStageContext(whole, { smaller, fits: within(150) })).toMatchObject({ reduced: true, admittedAsRequired: false, input: { decision: smaller.decision, repository: [] } });
+    // Required input: admitted by the other measure, and it carries no optional source even where that would fit.
+    expect(allocateStageContext(whole, { fits: within(150), admits: within(2000) })).toMatchObject({ reduced: false, admittedAsRequired: true, input: { decision: whole.decision, repository: [], contextCoverage: { complete: false, omittedPaths: ["a.ts"] } } });
+    expect(allocateStageContext(whole, { smaller, fits: within(100), admits: within(150) })).toMatchObject({ reduced: true, admittedAsRequired: true, input: { decision: smaller.decision, repository: [] } });
+    // With no fallback, or when none carries it, the stage is refused as before.
+    expect(() => allocateStageContext(whole, { fits: within(150) })).toThrow("MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED");
+    expect(() => allocateStageContext(whole, { smaller, fits: within(100), admits: within(120) })).toThrow("MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED");
   });
 
   it("fails rather than discarding required evidence or plan data", () => {

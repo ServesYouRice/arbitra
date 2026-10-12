@@ -229,9 +229,10 @@ question when deterministic checks cannot establish the claim. The configured
 `verification.maxModelQuestionsPerRound` limits questions (default four; zero disables
 model verification). A question carries the unresolved peer operations that involve its
 own candidate, and the plan reads those that involve accepted issues. A stage whose
-required input cannot fit its context reads them in outline (which candidates each one
-ties together) before it gives up. A question whose
-required input does not fit the verifier's context is not asked: the candidate stays
+required input cannot fit its context is tried as required input before it gives up:
+with those operations in outline, then at two bytes a token with no optional source
+([harness](harness.md#remaining-explicit-limits)). A question that cannot be sent even
+so is not asked: the candidate stays
 unverified, no question is spent on it, and the run records
 `verification_question_exceeds_context:<n>`. Remaining candidates can still undergo deterministic checks and
 remain unresolved when evidence is insufficient. Verification does not treat a

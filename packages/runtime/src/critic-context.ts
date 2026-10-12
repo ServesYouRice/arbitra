@@ -29,7 +29,7 @@ export function criticPartIdentity(part: CriticContextPart): string {
  * requirements and grounded exploration surfaces. Each is a first-class record. */
 export type CriticSupplementalRecords = Readonly<Record<string, readonly { readonly id: string }[]>>;
 
-export async function criticContextParts(plan: PlanIR, issues: CanonicalIssueSet["issues"], necessaryContext: unknown, fits: (part: CriticContextPart) => Promise<boolean>, revisionContext: CriticRevisionContext | null = null, maximumRecords = 20, supplemental: CriticSupplementalRecords = {}): Promise<readonly CriticContextPart[]> {
+export async function criticContextParts(plan: PlanIR, issues: CanonicalIssueSet["issues"], necessaryContext: unknown, fits: (part: CriticContextPart) => Promise<boolean>, revisionContext: CriticRevisionContext | null = null, maximumRecords = 20, supplemental: CriticSupplementalRecords = {}, admits?: (part: CriticContextPart) => Promise<boolean>): Promise<readonly CriticContextPart[]> {
   if (revisionContext !== null) {
     const ids = revisionContext.priorCritique.items.map(({ id }) => id);
     const resolutions = revisionContext.proposedResolutions.map(({ critiqueItemId }) => critiqueItemId);
@@ -79,7 +79,7 @@ export async function criticContextParts(plan: PlanIR, issues: CanonicalIssueSet
     }, ...(segment === undefined ? {} : { segment }), ...(pairs === undefined ? {} : { pairs }) };
   };
   if (records.length === 0) throw new Error("CRITIC_GLOBAL_CONTEXT_LIMIT_EXCEEDED");
-  const primary = await reviewPartition(records, (ids) => fits(part(ids, "review")), maximumRecords);
+  const primary = await reviewPartition(records, (ids) => fits(part(ids, "review")), maximumRecords, admits === undefined ? undefined : (ids) => admits(part(ids, "review")));
   const parts = primary.map((ids) => part(ids, "review"));
   // Cover every cross-batch pair. A critique has no one-operation-per-call limit, so pairs are
   // packed into as few calls as fit (observed live: 152 one-pair checks for one revised plan).

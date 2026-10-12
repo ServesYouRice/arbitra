@@ -18,8 +18,8 @@ export function segmentText(text: string, segment: Pick<PeerReviewSegment, "inde
  * Pair checks only propose merges, so they cannot duplicate candidate votes. Pairs are packed
  * into as few calls as fit, as the critic packs its own. Observed live (P20 pilot): one pair per
  * call asked one reviewer for 1,140 calls of about 59,000 tokens over 68 candidates in two batches. */
-export async function peerReviewBatches(candidateIds: readonly string[], fits: (batch: PeerReviewBatch) => Promise<boolean>, maximumCandidates = 20, maximumPackedCandidates = maximumCandidates): Promise<readonly PeerReviewBatch[]> {
-  const primary = await reviewPartition(candidateIds, (ids) => fits({ kind: "review", candidateIds: ids }), maximumCandidates);
+export async function peerReviewBatches(candidateIds: readonly string[], fits: (batch: PeerReviewBatch) => Promise<boolean>, maximumCandidates = 20, maximumPackedCandidates = maximumCandidates, admits?: (batch: PeerReviewBatch) => Promise<boolean>): Promise<readonly PeerReviewBatch[]> {
+  const primary = await reviewPartition(candidateIds, (ids) => fits({ kind: "review", candidateIds: ids }), maximumCandidates, admits === undefined ? undefined : (ids) => admits({ kind: "review", candidateIds: ids }));
   const result: PeerReviewBatch[] = primary.map((ids): PeerReviewBatch => ({ kind: "review", candidateIds: ids }));
   const rank = new Map(candidateIds.map((id, position) => [id, position]));
   const key = (left: string, right: string) => JSON.stringify([left, right]);
@@ -77,8 +77,9 @@ export function assertMergeCheckOperations(operations: readonly { readonly type:
   }
 }
 
-/** Greedy in-order partition into review batches of complete records that fit. */
-export async function reviewPartition(candidateIds: readonly string[], fits: (candidateIds: readonly string[]) => Promise<boolean>, maximumCandidates = 20): Promise<readonly (readonly string[])[]> {
+/** Greedy in-order partition into review batches of complete records that fit. A record that fits no batch even
+ * alone is still reviewed alone when `admits` takes it as required input. */
+export async function reviewPartition(candidateIds: readonly string[], fits: (candidateIds: readonly string[]) => Promise<boolean>, maximumCandidates = 20, admits?: (candidateIds: readonly string[]) => Promise<boolean>): Promise<readonly (readonly string[])[]> {
   if (!Number.isSafeInteger(maximumCandidates) || maximumCandidates < 1) throw new Error("INVALID_PEER_BATCH_LIMIT");
   if (new Set(candidateIds).size !== candidateIds.length) throw new Error("DUPLICATE_PEER_BATCH_CANDIDATE");
   const result: string[][] = [];
@@ -87,7 +88,12 @@ export async function reviewPartition(candidateIds: readonly string[], fits: (ca
     const proposed = [...current, id];
     if (proposed.length <= maximumCandidates && await fits(proposed)) { current = proposed; continue; }
     if (current.length > 0) result.push(current);
-    if (!await fits([id])) throw new Error(`PEER_CANDIDATE_CONTEXT_LIMIT_EXCEEDED:${id}`);
+    if (!await fits([id])) {
+      if (await admits?.([id]) !== true) throw new Error(`PEER_CANDIDATE_CONTEXT_LIMIT_EXCEEDED:${id}`);
+      // Admitted only as required input: nothing else shares its batch.
+      result.push([id]); current = [];
+      continue;
+    }
     current = [id];
   }
   if (current.length > 0) result.push(current);

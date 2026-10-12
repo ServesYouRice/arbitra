@@ -66,4 +66,12 @@ describe("peer review context batching", () => {
     await expect(peerReviewBatches(["a"], async () => false)).rejects.toThrow("PEER_CANDIDATE_CONTEXT_LIMIT_EXCEEDED:a");
     await expect(peerReviewBatches(["a", "b"], async ({ candidateIds }) => candidateIds.length === 1)).rejects.toThrow("PEER_PAIR_CONTEXT_LIMIT_EXCEEDED:a:b");
   });
+
+  it("reviews a candidate that fits no batch alone when it is admitted as required input", async () => {
+    const asked: string[][] = [];
+    const batches = await peerReviewBatches(["a", "b", "c"], async ({ kind, candidateIds }) => kind !== "review" || !candidateIds.includes("b"), 20, 20, async ({ candidateIds }) => { asked.push([...candidateIds]); return true; });
+    expect(batches.filter(({ kind }) => kind === "review").map(({ candidateIds }) => candidateIds)).toEqual([["a"], ["b"], ["c"]]);
+    // Asked for that candidate only: the others are grouped as before.
+    expect(asked).toEqual([["b"]]);
+  });
 });

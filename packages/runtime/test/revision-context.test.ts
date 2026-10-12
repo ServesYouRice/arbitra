@@ -126,6 +126,16 @@ describe("bounded atomic planner revisions", () => {
     await expect(reviseWithContext(input, { ...port, fits: async () => false })).rejects.toThrow("PLANNER_REVISION_ITEM_CONTEXT_LIMIT_EXCEEDED");
     expect(calls).toHaveLength(0);
   });
+
+  it("sends a critique item that fits no usual size as required input", async () => {
+    const { input, port, calls } = await fixture();
+    const asked: string[] = [];
+    const result = await reviseWithContext(input, { ...port, fits: async () => false, admits: async (stage) => { asked.push(stage.activityId); return true; } });
+    expect(asked).toHaveLength(input.blockingCritique.length);
+    expect(asked.every((id) => id.startsWith("planner/revision-item/"))).toBe(true);
+    expect(calls).toHaveLength(asked.length);
+    expect(result.resolutions).toHaveLength(input.blockingCritique.length);
+  });
 });
 
 function requiredAt<T>(values: readonly T[], index: number): T { const value = values[index]; if (value === undefined) throw new Error('FIXTURE_RECORD_ABSENT'); return value; }
