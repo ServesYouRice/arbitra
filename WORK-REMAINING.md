@@ -206,6 +206,26 @@ this shows, largest first:
 The sizing item below is the common cause of the first, second and fifth; the effort item of the second and
 fourth.
 
+**What the stages between the audit and the plan decided in that run.** The three audits reported 222 findings.
+
+| Stage | Calls | Result |
+|---|---|---|
+| Clustering and review round 1 | 43 | 63 candidates: 2 accepted, 61 need verification |
+| Review round 2 | 51 | 71 candidates: 4 accepted, 55 need verification, 12 without consensus; 6 of the 63 changed outcome |
+| Conflict votes | 33 | no conflict resolved; unresolved ones went from 13 to 22 |
+| Verification | 3 | 50 items: 2 asked of a model and confirmed, 48 "still needs verification" from a check that cannot answer |
+
+After 163 calls and 95 minutes, 6 issues were accepted and 62 of 71 were still open; none was rejected. Of the 63
+review batches, 43 were pair checks for merges. The plan, its two critic passes and its revision then spent 188
+minutes on a plan for those 6 issues. To decide with the owner (it changes what the pipeline is): one review
+round unless reviewers split, no conflict votes while they resolve nothing, a verification that asks about every
+disputed candidate with a small prompt, and the plan as an optional step after the findings.
+
+**The batching overhead, measured.** One "does this prompt fit" measurement builds the whole prompt (redaction,
+framing, serialising): about 4 ms for 139 KB before the prompt compiler's share. A stage asks it once for every
+source file it tries to add, for every grouping it tries, growing groups one record at a time; the 10 minutes
+above are tens of thousands of such measurements. Sizes add up, so each piece can be measured once.
+
 **Open (cost and speed), measured on October 11 on that project:**
 
 - **The Codex allowance now bounds a panel's throughput, not arbitra's speed.** Three panels side by side used a
