@@ -259,7 +259,7 @@ application around `agy`. The owner was told and left the choice to the session 
 pilot runs four Antigravity calls at a time at a low per-minute rate, and two lineups side by side. Still open for
 the product: the terms of each vendor's subscription CLI need a check before arbitra recommends subscriptions.
 
-**Fixed.** The P20 pilot found two defects on October 10, twelve on October 11 and two on October 12; all sixteen are fixed and
+**Fixed.** The P20 pilot found two defects on October 10, twelve on October 11 and three on October 12; all seventeen are fixed and
 verified on Linux, and the second was also checked live on the owner's Windows PC
 ([qa/subscription-cli](docs/qa/subscription-cli/README.md)):
 
@@ -355,7 +355,15 @@ verified on Linux, and the second was also checked live on the owner's Windows P
   source at two bytes a token, under the same margin and output reserve; the harness and the provider pool
   count it at the same rate ([harness](docs/harness.md#remaining-explicit-limits)). Grouping still uses the
   byte estimate, so calls that fit are sized as before. The commit message of c5eb65c says the estimate
-  overstates prompts "about three times"; the measured figure is about twice.
+  overstates prompts "about three times"; the measured figure is about twice. On the fixed build the revision
+  item was sent: about 150,000 bytes, which the model counted as 60,140 tokens.
+- **A revision item that stopped at the output ceiling failed the run (fixed in 8c60fcb).** The third of ten
+  revision items thought for nine minutes at xhigh and stopped at 64,000 output tokens; the first two had used
+  19,500 and 32,900. One critique item cannot be asked for in smaller parts, so the run failed after three
+  hours, and its resume too. The plan now keeps its tasks for such an item, its resolution says it was not
+  revised, and a blocking question names it ([harness](docs/harness.md#remaining-explicit-limits)). A planner
+  task expansion that stops at the ceiling in both of its forms still fails the run; that is open, with the
+  item above on effort.
 
 All eight findings in [qa/p19](docs/qa/p19/README.md) are fixed, and the affected live acceptance passed on subscriptions on September 30 (runs A–E there). The reruns found four more defects; all are fixed. The completion report is P21, after P20.
 
