@@ -231,8 +231,13 @@ under per-provider limits (§12.6) and a shared cached prefix (§14.2).
   help: the thinking does not shrink with the input. Separately, the Antigravity CLI wraps every call in its own
   coding-agent prompt (tools, IDE feedback), which it offers no flag to replace; arbitra's preamble tells the model
   the opposite, and about 7% of Gemini's stored thinking is spent on that conflict, with an occasional tool
-  attempt. The halves of a redone unit now run side by side (b1a2785). For the owner to decide, because it
-  changes the lineups: Gemini at a lower thinking level (the CLI offers medium and low as separate models).
+  attempt. The halves of a redone unit now run side by side (b1a2785). A lower thinking level
+  is not a usable speed control (the CLI offers medium and low as separate models; two stored discovery requests
+  were sent again on October 12, counting time, tokens and the shape of the reply): at medium one request took
+  4.8 minutes and 44,100 output tokens against 6.6 minutes and 61,400 at high, and the other came back as a
+  request for a tool after 2,400 tokens; at low, five calls gave two answers of about 1,500 output tokens in 18
+  seconds, one empty finding list after 82 tokens and two requests for a tool. So medium saves about a quarter,
+  and low is fast but does not answer reliably.
 - **The pipeline confirms almost nothing.** In the same run, peer review cut 86 findings to 50 candidates not
   rejected and lost no planted defect, but only 5 issues were accepted, and none of them was a planted defect: 5 of
   the 7 planted defects stayed among the candidates not rejected. Verification was decisive on 1 of 46 items (the
