@@ -219,8 +219,8 @@ How the four newer paths compose:
 
 These fail explicitly and name the record or stage. None is resolved by silent omission.
 
-**Required input.** The byte estimate counts one token a byte, about three times what providers
-count. That keeps calls small, but a unit that cannot be made smaller and is a few percent over
+**Required input.** The byte estimate counts one token a byte, about twice what providers count
+(prompts measured 1.9 to 2.4 bytes a token). That keeps calls small, but a unit that cannot be made smaller and is a few percent over
 would fail a run the provider could have read. So in the audit pipeline, before one of the limits
 below is raised, the stage is tried as required input: first with its unresolved peer operations
 in outline (which candidates each one ties together), then with no optional source at two bytes a
