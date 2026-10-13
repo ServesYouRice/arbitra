@@ -109,4 +109,17 @@ describe("prompt-JSON replies", () => {
     expect(() => parsePromptJson('{"a":1}\nThanks!')).toThrow("MODEL_ACTIVITY_INVALID_JSON");
     expect(() => parsePromptJson('{"a":1}\n<quotes>late</quotes>')).toThrow("MODEL_ACTIVITY_INVALID_JSON");
   });
+
+  it("reads past closing brackets left over after a complete document, and past a fenced block the model abandoned", () => {
+    // Observed live (P20 pilot): long task expansions ended "}}" where "}" closed the document.
+    expect(parsePromptJson('{"task":{"id":"TASK-1","notes":["a } in text"]},"estimatedTurns":6}}')).toEqual({ task: { id: "TASK-1", notes: ["a } in text"] }, estimatedTurns: 6 });
+    expect(parsePromptJson('[{"a":1}]]\n')).toEqual([{ a: 1 }]);
+    expect(parsePromptJson('<quotes>q</quotes>\n```json\n{"a":{"b":1}}}\n```')).toEqual({ a: { b: 1 } });
+    expect(parsePromptJson('```json\n{"a":0,\n```\n\nI need to correct that output.\n\n```json\n{"a":1}\n```')).toEqual({ a: 1 });
+    // Anything but brackets after the document is still refused, and so is a document cut short.
+    expect(() => parsePromptJson('{"a":1}},"b":2}')).toThrow("MODEL_ACTIVITY_INVALID_JSON");
+    expect(() => parsePromptJson('{"a":1}} done')).toThrow("MODEL_ACTIVITY_INVALID_JSON");
+    expect(() => parsePromptJson('{"a":{"b":1}')).toThrow("MODEL_ACTIVITY_INVALID_JSON");
+    expect(() => parsePromptJson('{"a":1,}}')).toThrow("MODEL_ACTIVITY_INVALID_JSON");
+  });
 });

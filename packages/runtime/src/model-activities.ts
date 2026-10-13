@@ -326,17 +326,50 @@ function hash(value: unknown): string { return createHash("sha256").update(JSON.
  * OpenAI-compatible endpoint). The answer is the document that ends the reply: either the
  * whole reply, a closing fenced block, or a JSON object starting on its own line and running
  * to the end. Nothing may follow it, and JSON embedded mid-prose is never picked.
+ *
+ * Two slips are read past, because sending the reply back costs a whole call: closing brackets
+ * left over after a complete document, and an earlier fenced block the model abandoned before
+ * the one that ends the reply. Observed live (P20 pilot): 7 of 31 task expansions of about
+ * 20,000 characters ended in one bracket too many and one restarted in a second fence; each
+ * was sent back, and the eight repairs read 0.9M tokens.
  */
 export function parsePromptJson(text: string): unknown {
-  const attempt = (candidate: string): { value: unknown } | null => { try { return { value: JSON.parse(candidate) as unknown }; } catch { return null; } };
+  const attempt = (candidate: string): { value: unknown } | null => { try { return { value: JSON.parse(candidate) as unknown }; } catch { return withoutSurplusClosers(candidate); } };
   const whole = attempt(text);
   if (whole !== null) return whole.value;
   const body = text.replace(/^\s*<quotes>[\s\S]*?<\/quotes>/u, "").trimEnd();
-  const fenced = /```(?:json)?[ \t]*\n([\s\S]*?)\n[ \t]*```$/u.exec(body);
-  if (fenced?.[1] !== undefined) { const parsed = attempt(fenced[1]); if (parsed !== null) return parsed.value; }
+  const closing = /\n[ \t]*```$/u.exec(body);
+  if (closing !== null) {
+    // The block that ends the reply opens at the last fence before it; a reply with one block opens at the first.
+    const openers = [...body.slice(0, closing.index + 1).matchAll(/```(?:json)?[ \t]*\n/gu)];
+    for (const opener of openers.reverse()) {
+      const parsed = attempt(body.slice(opener.index + opener[0].length, closing.index));
+      if (parsed !== null) return parsed.value;
+    }
+  }
   for (const match of body.matchAll(/(?:^|\n)[ \t]*(?=[{[])/gu)) {
     const parsed = attempt(body.slice(match.index + match[0].length));
     if (parsed !== null) return parsed.value;
   }
   throw new Error("MODEL_ACTIVITY_INVALID_JSON");
+}
+
+/** The document a text opens with, when all that follows it is closing brackets and white space. */
+function withoutSurplusClosers(candidate: string): { value: unknown } | null {
+  const text = candidate.trimStart();
+  if (!text.startsWith("{") && !text.startsWith("[")) return null;
+  let depth = 0; let inString = false; let escaped = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (inString) { if (escaped) escaped = false; else if (character === "\\") escaped = true; else if (character === "\"") inString = false; continue; }
+    if (character === "\"") inString = true;
+    else if (character === "{" || character === "[") depth += 1;
+    else if (character === "}" || character === "]") {
+      depth -= 1;
+      if (depth > 0) continue;
+      if (!/^[\s}\]]+$/u.test(text.slice(index + 1)) || !/[}\]]/u.test(text.slice(index + 1))) return null;
+      try { return { value: JSON.parse(text.slice(0, index + 1)) as unknown }; } catch { return null; }
+    }
+  }
+  return null;
 }

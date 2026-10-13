@@ -114,6 +114,54 @@ describe("one global planner with bounded issue reading and task expansion", () 
     expect(calls.map(({ activityId }) => activityId)).toEqual(["planner/plan"]);
   });
 
+  it("does not ask for a plan in one call when one answer is not expected to hold its records", async () => {
+    // Observed live (P20 pilot): the one call for 52 issues stopped at the output ceiling after nine minutes.
+    const { input, port, calls } = await fixture();
+    const roomy = { ...port, fits: async (stage: PlannerStage) => stage.activityId === "planner/plan" || await port.fits(stage) };
+    await planWithContext(input, roomy, { maximumPlanRecords: 3 });
+    expect(calls.map(({ activityId }) => activityId)).toEqual(["planner/plan"]);
+    calls.length = 0;
+    const result = await planWithContext(input, roomy, { maximumPlanRecords: 2 });
+    expect(calls.some(({ activityId }) => activityId === "planner/plan")).toBe(false);
+    expect(calls.filter(({ activityId }) => activityId.startsWith("planner/expand/"))).toHaveLength(3);
+    expect(result.tasks).toHaveLength(3);
+  });
+
+  it("expands a large outline against scoped outlines, and each task against its own files when the record set names them", async () => {
+    // Observed live (P20 pilot): the whole outline of 31 tasks and the locations of all 52 issues went with each of 31 expansions.
+    const { plan, input, port } = await fixture();
+    const template = plan.tasks[0] as PlanIR["tasks"][number];
+    const issues = Array.from({ length: 9 }, (_, index) => ({ ...(input.canonicalIssues[0] as PlannerInput["canonicalIssues"][number]), candidateId: `C-${index + 1}`, sourceFindingIds: [`source-${index + 1}`] }));
+    const tasks = issues.map(({ candidateId }, index) => ({ ...template, id: `TASK-${index + 1}`, addresses: { ...template.addresses, issues: [candidateId] }, scope: { ...template.scope, likelyFiles: [`src/task-${index + 1}.ts`] }, dependencies: { dependsOn: index > 0 ? [`TASK-${index}`] : [], blocks: [], conflictsWith: [] } }));
+    const large: PlanIR = { ...plan, acceptedIssueIds: issues.map(({ candidateId }) => candidateId), tasks, taskGraph: tasks.slice(1).map(({ id }, index) => ({ from: `TASK-${index + 1}`, to: id })),
+      traceability: { ...plan.traceability, issueToValidation: issues.map(({ candidateId }) => ({ issueId: candidateId, validationIds: ["VAL-001"] })) },
+      routingRecommendations: tasks.map(({ id, routing }) => ({ taskId: id, capability: routing.capability, effort: routing.effort, reason: routing.reason })) };
+    const calls: PlannerStage[] = [];
+    const wide = { ...port, async fits(stage: PlannerStage) { return stage.activityId !== "planner/plan"; }, async call(stage: PlannerStage): Promise<unknown> {
+      calls.push(stage);
+      if (stage.activityId.startsWith("planner/brief/")) return { issues: (stage.input as PlannerInput).canonicalIssues.map(({ candidateId }) => ({ issueId: candidateId, summary: `Brief ${candidateId}`, affectedPaths: [], behavioralAssertions: ["Expected behavior"], integrationConstraints: [], unresolvedQuestions: [] })) };
+      if (stage.activityId === "planner/outline") return { ...large, tasks: tasks.map(taskOutline), unresolvedQuestions: [] };
+      const id = (stage.input as { selectedTask: { id: string } }).selectedTask.id;
+      return { task: tasks.find((task) => task.id === id), unresolvedQuestions: [] };
+    } };
+    const wider: PlannerInput = { ...input, canonicalIssues: issues };
+    const base = auditPlannerRecords(wider);
+    const result = await planWithContext(wider, wide, { records: { ...base, sourcePaths: (ids) => ids.map((id) => `src/cited-by-${id}.ts`) } });
+    expect(result.tasks).toHaveLength(9);
+    const expansions = calls.filter(({ activityId }) => activityId.startsWith("planner/expand/"));
+    expect(expansions.map(({ activityId }) => activityId)).toEqual(tasks.map(({ id }) => `planner/expand/${id}/scoped`));
+    // The dependency neighbourhood in full, every task in the index, and the files of the task and of its issue.
+    const fifth = expansions[4] as PlannerStage & { input: { planOutline: { tasks: { id: string }[]; outlineScope: { completeOutline: boolean; taskIndex: unknown[] } } } };
+    expect(fifth.input.planOutline.tasks.map(({ id }) => id)).toEqual(["TASK-4", "TASK-5", "TASK-6"]);
+    expect(fifth.input.planOutline.outlineScope.completeOutline).toBe(false); expect(fifth.input.planOutline.outlineScope.taskIndex).toHaveLength(9);
+    expect(fifth.sourcePaths).toEqual(["src/task-5.ts", "src/cited-by-C-5.ts"]);
+    // The briefs and the outline read every file as far as it fits, and so does an expansion of a record set that names no files.
+    expect(calls.filter(({ activityId }) => !activityId.startsWith("planner/expand/")).every(({ sourcePaths }) => sourcePaths === undefined)).toBe(true);
+    calls.length = 0;
+    await planWithContext(wider, wide, { records: base });
+    expect(calls.every(({ sourcePaths }) => sourcePaths === undefined)).toBe(true);
+  });
+
   it.each(["missing", "duplicate", "unknown"])("rejects %s issue briefs before global planning", async (mode) => {
     const { input, port, calls } = await fixture();
     await expect(planWithContext(input, { ...port, call: async (stage) => {
@@ -241,6 +289,15 @@ describe("hierarchical global outline when all briefs cannot share one outline",
     }
     expect(artifacts.get("planner-composition")).toMatchObject({ issueBatches: 3, outlineSections: 3, outlineCalls: 7, taskExpansions: 3, logicalModelCalls: 13 });
     expect(artifacts.get("planner-outline-sections")).toHaveLength(3);
+  });
+
+  it("sections an outline that fits by size when one answer is not expected to hold its records", async () => {
+    const { input, calls, port } = await sectioned();
+    const roomy = { ...port, fits: async (stage: PlannerStage) => stage.activityId === "planner/outline" || stage.activityId.startsWith("planner/outline/section/") || await port.fits(stage) };
+    const result = await planWithContext(input, roomy, { maximumOutlineRecords: 1 });
+    expect(calls.some(({ activityId }) => activityId === "planner/outline")).toBe(false);
+    expect(calls.filter(({ activityId }) => activityId.startsWith("planner/outline/section/")).map(({ input: supplied }) => (supplied as { outlineScope: { recordIds: string[] } }).outlineScope.recordIds)).toEqual([["C-1"], ["C-2"], ["C-3"]]);
+    expect(result.tasks).toHaveLength(3);
   });
 
   it("links the complete section set in one pass when it fits", async () => {

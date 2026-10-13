@@ -49,7 +49,10 @@ export function snapshotTools(snapshot: RepositorySnapshot, store: RunStore, act
     allowedArtifacts.add(artifact.artifactId);
     return artifact.artifactId;
   };
-  const registry = new ToolRegistry({ repository, footprints, nodeBudgetBytes: maximumBytes, defaultCallBytes: Math.min(8_192, maximumBytes), artifacts: {
+  // One result carries a source file of ordinary size whole. A model's next turn resends its whole prompt, so a
+  // file cut short costs a second call. Observed live (P20 pilot): at 8,192 bytes a file of some 300 lines came
+  // in two calls, and the second resent 125,000 tokens.
+  const registry = new ToolRegistry({ repository, footprints, nodeBudgetBytes: maximumBytes, defaultCallBytes: Math.min(32_768, maximumBytes), artifacts: {
     put: archive,
     async read(ref) {
       if (!allowedArtifacts.has(ref)) throw new Error("ARTIFACT_OUTSIDE_ACTIVITY_CONTEXT");

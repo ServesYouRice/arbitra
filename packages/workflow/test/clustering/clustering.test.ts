@@ -58,7 +58,26 @@ describe("deterministic clustering", () => {
       { strategy: deterministicClusteringStrategy, maximumEscalatedPairs: 10, semantic: { capability: "fast", async classify({ left, right }) { if (left.finding.category !== right.finding.category) throw new Error("injection pair reached the model"); return { relationship: "same_root_cause", inputTokens: 0, outputTokens: 0, cost: 0 }; } } });
     expect(result.clusters.map(({ sourceFindingIds }) => sourceFindingIds)).toEqual(expect.arrayContaining([["auditor-a/SEC-1", "auditor-b/SEC-2"], ["auditor-a/PI-1", "auditor-b/PI-2"]]));
     expect(result.ambiguousPairs.every(({ leftId, rightId }) => leftId.includes("PI") === rightId.includes("PI"))).toBe(true);
-    expect(deterministicClusteringStrategy.id).toBe("structural-v2");
+    expect(deterministicClusteringStrategy.id).toBe("structural-v3");
+  });
+
+  it("never puts two findings of one answer in one cluster by the structural rule, directly or through a third finding", async () => {
+    // Observed live (P20 pilot): a high-severity defect was merged under a low-severity finding of the same answer and lost with it.
+    const stale = input("auditor-a/scope-1/stale-entry-served", { category: "CORRECTNESS", title: "Expired cache entry is served after its deadline", problem: "A reader can receive a value past its time to live", recommendedFix: "Compare the deadline before returning", locations: [{ path: "src/cache.ts", startLine: 40, endLine: 52 }], failureMechanisms: [] });
+    const locale = input("auditor-a/scope-1/key-ignores-locale", { category: "CORRECTNESS", title: "Cache key ignores the locale", problem: "Two locales share one cached page", recommendedFix: "Add the locale to the key", locations: [{ path: "src/cache.ts", startLine: 46, endLine: 46 }], failureMechanisms: [] });
+    const apart = await cluster([stale, locale], { strategy: deterministicClusteringStrategy });
+    expect(apart.clusters).toHaveLength(2); expect(apart.operations).toHaveLength(0);
+    expect(apart.ambiguousPairs).toEqual([{ leftId: "auditor-a/scope-1/key-ignores-locale", rightId: "auditor-a/scope-1/stale-entry-served", signals: ["same_path", "overlapping_lines", "same_category"], score: 5, relationship: null }]);
+    // The pair is first in line for the semantic check, which may still establish one root cause.
+    expect((await cluster([stale, locale], { strategy: deterministicClusteringStrategy, maximumEscalatedPairs: 1, semantic: semantic("same_root_cause") })).clusters).toHaveLength(1);
+    // Another auditor's report of the first defect joins the finding it shares more lines with; the second stays apart.
+    const peer = input("auditor-b/scope-7/stale", { category: "CORRECTNESS", title: "Stale entry returned", problem: "The deadline is not checked on the read path", recommendedFix: "Check the deadline first", locations: [{ path: "src/cache.ts", startLine: 40, endLine: 51 }], failureMechanisms: [] });
+    const through = await cluster([stale, locale, peer], { strategy: deterministicClusteringStrategy });
+    expect(through.clusters).toHaveLength(2);
+    expect(through.clusters.map(({ sourceFindingIds }) => sourceFindingIds)).toEqual(expect.arrayContaining([["auditor-a/scope-1/stale-entry-served", "auditor-b/scope-7/stale"], ["auditor-a/scope-1/key-ignores-locale"]]));
+    // The same auditor's finding from another scope is another answer and merges as before.
+    const elsewhere = input("auditor-a/scope-2/stale-again", { category: "CORRECTNESS", title: "Deadline skipped on read", problem: "A stale value may be returned", recommendedFix: "Reorder the check", locations: [{ path: "src/cache.ts", startLine: 40, endLine: 52 }], failureMechanisms: [] });
+    expect((await cluster([stale, elsewhere], { strategy: deterministicClusteringStrategy })).clusters).toHaveLength(1);
   });
 
   it("still merges one defect filed under two ordinary categories", async () => {

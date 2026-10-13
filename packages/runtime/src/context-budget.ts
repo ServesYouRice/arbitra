@@ -32,11 +32,16 @@ export function inputBytesPerToken(config: RunConfig): { readonly usual: number;
 export type EffortStage = "clustering" | "peerReview" | "verification" | "planner" | "critic" | "revision";
 
 /** Conservative output reserves for stages that must emit one decision per supplied
- * record. They size batches before spend; truncation is still detected afterwards. */
+ * record. They size batches before spend; truncation is still detected afterwards.
+ * The planner's three are measured (P20 pilot, Opus at medium effort): a plan in one call took 58,000 tokens for
+ * 45 issues and stopped at a 64,000-token ceiling for 52, after nine minutes that were thrown away; the briefs
+ * of those 52 took 45,000 tokens and their outline 60,000. */
 export const OUTPUT_TOKENS_PER_RECORD = Object.freeze({
   peerReviewCandidate: 160,
   criticRecord: 60,
-  plannerBriefIssue: 400,
+  plannerBriefIssue: 900,
+  plannerPlanIssue: 1_400,
+  plannerOutlineIssue: 1_200,
   testingSelectionCandidate: 120,
   featureReviewRequirement: 150,
   testingRiskPath: 250,
@@ -44,6 +49,13 @@ export const OUTPUT_TOKENS_PER_RECORD = Object.freeze({
   featureExplorationRequirement: 300,
   clusteringPair: 300,
 });
+
+/** How many records one answer is expected to hold, for a stage that can go on in smaller parts and asks before
+ * it spends on one call that cannot hold them all. A reserve is what a record adds to a large answer, so an answer
+ * of a dozen records is not judged by it and is asked for whole, as it was before. */
+export function expectedRecordCapacity(outputCapacity: number, tokensPerRecord: number): number {
+  return Math.max(12, Math.floor(outputCapacity / tokensPerRecord));
+}
 
 export function outputRecordLimit(outputCapacity: number, tokensPerRecord: number, stage: string): number {
   const limit = Math.floor(outputCapacity / tokensPerRecord);
