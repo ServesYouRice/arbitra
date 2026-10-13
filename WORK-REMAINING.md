@@ -203,6 +203,42 @@ for provider caches (few calls share a prefix once the stages read once); a plan
 is still revised item by item, one after another. To measure on the same project: time, tokens, planted defects
 found, and what the accepted list holds.
 
+**Second timed run of the speed build (October 13): the same Opus-only audit, a question reading only the files
+it cites.** It had a call in flight for 63 minutes and used 8.8M tokens. Verification did what the change meant:
+58 questions in 6 minutes and 2.8M tokens (169 calls; 53 questions asked for more source, three calls a question
+on average). The plan took the rest, 45 minutes and 5.9M tokens for 52 issues. What the run showed, each fixed in
+the commit after it unless it says open:
+
+- The plan for 52 issues in one call stopped at the 64,000-token output ceiling after nine minutes, and all of it
+  was discarded. The run now counts the issues against what one answer is expected to hold and goes straight to
+  the notes, the outline and one call a task (`expectedRecordCapacity`). The reserve for the reading notes was 400
+  tokens an issue against 870 measured: a batch of more than about 70 issues would have stopped at the ceiling
+  and been asked for again one issue shorter each time. It is 900 now.
+- Each of the 31 calls that write a task out read 213,000 characters, 105,000 of them the whole outline and 23,000
+  the locations of all 52 issues, and source up to the size limit. Such a call now reads its task's neighbourhood
+  of the outline with an index of every task, and the files and locations of its own task and issues (estimated
+  on the same plan: 89,000 characters).
+- Eight replies were sent back as "not JSON", one of them twice: seven were complete documents with one closing
+  bracket too many, one restarted in a second fenced block. The repairs read 1.0M tokens in nine minutes. Both
+  slips are now read past (`parsePromptJson`).
+- A source tool result was cut at 8 KB in the middle of a line while its summary named the whole range; 8 of 22
+  cut results were followed by a second call for the same file, each resending the whole prompt. A result now
+  holds 32 KB, ends on a whole line and says where to read on.
+- Structural clustering merged 19 findings into 7 clusters, every merge joining two findings of the auditor's one
+  answer. One cluster held a planted high-severity defect under the title of a low-severity finding; verification
+  rejected that title and the defect was lost (6 of 7 planted defects in the raw findings, 5 of 7 after the
+  pipeline). The rule is in every earlier build and cost nothing while few clusters were verified.
+  `structural-v3` keeps the findings of one answer apart; on the labelled corpora it takes false merges from 14 to
+  2 and adds no false split (`docs/qa/p18/README.md`).
+- Open: the size of the plan. With every undecided candidate verified, a plan covers about 50 issues where it
+  covered one or two, and written out task by task it is about 630,000 characters, 12,000 output tokens a task,
+  five times what one call can hold. After the fixes above the plan stage of this run would be about 2.7M tokens
+  (not measured: 31 calls of 42,000 tokens in and 12,000 out, the notes and the outline as they were, and 15
+  follow-up calls assumed), still the largest stage of a one-auditor run. Whether every accepted issue gets a
+  task written out in full, or only those above a severity, is the owner's decision.
+- Open: a follow-up call (a tool turn or a repair) is a new call that resends the whole exchange and reads nothing
+  from a cache. It is 111 of the 169 verification calls of this run.
+
 **First timed run of the speed build (October 13): one Opus-only audit.** It had a call in flight for 27 minutes
 (17 for the same audit before the build) and used 6.9M tokens (1.0M before). Verification worked as meant: 51
 questions, about ten seconds each and four at a time, 45 confirmed and 6 rejected, and no known defect among the

@@ -325,6 +325,26 @@ that the review had not rejected.
   revision that leaves two such tasks unordered is not refused: the later task (by id) waits for
   the nearest earlier one ([task IR](task-ir.md)). Observed: the refusal named the missing edges,
   and the repair wrote the whole plan again, 60,000 output tokens in eight minutes.
+- **A plan too large for one answer is not asked for in one call.** The run counts the accepted
+  issues against what one answer is expected to hold (1,400 output tokens an issue for a plan,
+  1,200 for an outline, 900 for the reading notes; a dozen issues are always asked for whole)
+  and goes straight to the notes, the outline and one call a task. Observed: the one call for
+  52 issues stopped at a 64,000-token ceiling after nine minutes, and all of it was discarded.
+- **A task is written out against its own part of the plan.** When the outline has more than
+  eight tasks, the call that writes one task out reads that task's dependency neighbourhood in
+  full and an index of every task, not the whole outline. It reads the files its task names and
+  the files and locations its issues cite; every other file is a tool call away. Observed: each
+  of 31 such calls read 213,000 characters, 105,000 of them the whole outline and 23,000 the
+  locations of all 52 issues.
+- **A reply is not sent back for one bracket too many.** Closing brackets left over after a
+  complete JSON document are read past, and so is a fenced block the model abandoned before the
+  one that ends its reply. Anything else after the document is still refused. Observed: 7 of 31
+  replies of about 20,000 characters ended in one bracket too many, and each repair read the
+  whole prompt again.
+- **A source tool returns a file of ordinary size whole** (32 KB a result). A larger result ends
+  on a whole line and says which lines it carries and where to read on. Observed: at 8 KB a
+  result cut in the middle of a line still named the whole range, and the model asked again
+  from a guessed line.
 
 `stageEffort` sets the effort of the stages after discovery (`clustering`, `peerReview`,
 `verification`, `planner`, `critic`, `revision`; each `low`, `medium` or `high`, mapped by the

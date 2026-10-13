@@ -20,6 +20,10 @@ describe("canonical read tool runtime", () => {
     const result = await fixture.registry.invoke("repo.readFile", { path: "large.ts" }, context("node-a", 80));
     expect(result.ok).toBe(true);
     expect(result.truncated).toBe(true);
+    // The cut falls on a line end, and the summary says which lines came and where to read on.
+    expect(result.summary).toBe("large.ts lines 1-3 of the 1-100 asked for, cut at the size limit: read on from line 4");
+    const rest = await fixture.registry.invoke("repo.readFile", { path: "large.ts", startLine: 4, endLine: 5 }, context("node-a", 80));
+    expect(rest).toMatchObject({ ok: true, truncated: false, summary: "large.ts lines 4-5" });
     expect(result.artifact).toMatch(/^artifacts\/[a-f0-9]{64}\.txt$/u);
     expect(await fixture.artifacts.read(result.artifact ?? "")).toContain("TOKEN");
     expect(result.content).toContain("<untrusted source=");

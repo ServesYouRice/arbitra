@@ -41,6 +41,8 @@ interface Delivery {
   readonly summary: string;
   readonly sourceId: string;
   readonly path?: string;
+  /** The lines a file read asked for, so a result cut at the size limit can say which of them it carries. */
+  readonly lines?: { readonly start: number; readonly end: number };
   readonly exposures: readonly ExposureRange[];
 }
 
@@ -60,15 +62,16 @@ export class ToolRegistry {
       const delivery = await this.execute(name, objectArgs(args), context);
       const limit = Math.min(context.maxCallBytes ?? this.maximumCallBytes, this.maximumCallBytes);
       const bounded = await boundOutput(delivery.raw, limit, delivery.summary, this.dependencies.artifacts);
-      const protectedContent = context.protect(bounded.preview, {
+      const carried = bounded.truncated ? wholeLines(bounded.preview, delivery) : { preview: bounded.preview, summary: bounded.summary };
+      const protectedContent = context.protect(carried.preview, {
         sourceId: delivery.sourceId,
         ...(delivery.path === undefined ? {} : { path: delivery.path }),
       });
       this.budget.consume(context.nodeId, Buffer.byteLength(protectedContent));
-      this.dependencies.footprints.recordExposure(context.nodeId, deliveredRanges(delivery, bounded.preview));
+      this.dependencies.footprints.recordExposure(context.nodeId, deliveredRanges(delivery, carried.preview));
       return Object.freeze({
         ok: true,
-        summary: bounded.summary,
+        summary: carried.summary,
         content: protectedContent,
         artifact: bounded.artifact,
         truncated: bounded.truncated,
@@ -139,6 +142,7 @@ export class ToolRegistry {
       summary: `${path} lines ${startLine}-${Math.min(endLine, lines.length)}`,
       sourceId: `repo:${path}`,
       path,
+      lines: { start: startLine, end: Math.min(endLine, lines.length) },
       exposures: [{ source: "repository", sourceId: `repo:${path}`, path, start: startByte, end: endByte }],
     };
   }
@@ -170,6 +174,16 @@ export function rankSearchHits(query: string, hits: readonly SearchHit[]): reado
     const rightScore = (symbol.test(right.text) ? 4 : 0) + (right.path.split(/[\\/]/u).at(-1)?.includes(query) ? 2 : 0);
     return rightScore - leftScore || left.path.localeCompare(right.path) || left.line - right.line;
   }));
+}
+
+/** A file read cut at the size limit ends on a whole line and says which lines it carries and where to read on.
+ * Observed live (P20 pilot): a result cut in the middle of a line still read "lines 1-292", and the model asked
+ * for the file again from a guessed line, a second call that resent its whole prompt. */
+function wholeLines(preview: string, delivery: Delivery): { preview: string; summary: string } {
+  const cut = preview.lastIndexOf("\n");
+  if (delivery.lines === undefined || delivery.path === undefined || cut < 0) return { preview, summary: `${delivery.summary}, cut at the size limit` };
+  const whole = preview.slice(0, cut + 1); const last = delivery.lines.start + (whole.match(/\n/gu) ?? []).length - 1;
+  return { preview: whole, summary: `${delivery.path} lines ${delivery.lines.start}-${last} of the ${delivery.lines.start}-${delivery.lines.end} asked for, cut at the size limit: read on from line ${last + 1}` };
 }
 
 function deliveredRanges(delivery: Delivery, preview: string): readonly ExposureRange[] {

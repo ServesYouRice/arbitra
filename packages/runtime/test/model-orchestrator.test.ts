@@ -57,6 +57,12 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
   const requests: { stage: string; url: string }[] = [];
   const verificationInputs: { candidateId: string; unresolvedPeerOperations: { candidateIds: string[] }[]; sourcePaths: string[] }[] = [];
   const plannerContexts: { unresolvedPeerOperations: { candidateIds: string[] }[] }[] = [];
+  // What the staged planner's calls read: the files, and for an expansion the locations and the findings of its issues.
+  const plannerReads: { stage: "outline" | "expand"; sourcePaths: string[]; locationIds: string[]; sourceFindingIds: string[] }[] = [];
+  const plannerRead = (stage: "outline" | "expand", user: string): void => {
+    const read = JSON.parse(user) as { repositoryContext: { ref: string }[]; projectContext: { sourceLocations: { id: string }[] }; canonicalIssues?: { sourceFindingIds: string[] }[] };
+    plannerReads.push({ stage, sourcePaths: read.repositoryContext.map(({ ref }) => ref), locationIds: read.projectContext.sourceLocations.map(({ id }) => id), sourceFindingIds: (read.canonicalIssues ?? []).flatMap(({ sourceFindingIds }) => sourceFindingIds) });
+  };
   const packedChecks: (readonly [string, string])[][] = [];
   const criticIssueIds: string[][] = [];
   const verificationFlight = { now: 0, most: 0 };
@@ -163,6 +169,7 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
       output = { issues: input.canonicalIssues.map(({ candidateId }) => ({ issueId: candidateId, summary: "Null source claim with detailed guard constraints", affectedPaths: ["a.ts"], behavioralAssertions: ["Guard null values"], integrationConstraints: ["Preserve existing behavior"], unresolvedQuestions: [] })) };
     } else if (system.startsWith("Produce the single global plan outline")) {
       requests.push({ stage: "planner-outline", url: request.url });
+      plannerRead("outline", user);
       const input = JSON.parse(user) as { issueBriefs: PlannerBrief["issues"]; acceptedIssueIds: string[]; premiseReport: unknown };
       const templateTask = planTemplate.tasks[0]; if (templateTask === undefined) throw new Error("FIXTURE_TASK_ABSENT");
       const tasks = input.acceptedIssueIds.map((issueId, index) => ({ ...taskOutline(templateTask), id: `TASK-${index + 1}`, addresses: { ...templateTask.addresses, issues: [issueId] }, dependencies: { dependsOn: index === 0 ? [] : [`TASK-${index}`], blocks: [], conflictsWith: [] } }));
@@ -175,6 +182,7 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
       requests.push({ stage: "planner-expand", url: request.url });
       const input = JSON.parse(user) as { selectedTask: PlannerTaskOutline; canonicalIssues: { candidateId: string; remediationSupplements: string[] }[] };
       if (failExpansion && input.selectedTask.id === "TASK-2") return { status: 503, headers: {}, body: {} };
+      plannerRead("expand", user);
       expect(input.canonicalIssues).toHaveLength(1);
       expect(input.canonicalIssues[0]?.remediationSupplements[0]).toContain("Original detail");
       output = { task: { ...planTemplate.tasks[0], ...input.selectedTask }, unresolvedQuestions: input.selectedTask.id === "TASK-4" ? [{ id: "Q-1", question: "Integration needs operator decision", blocking: true, blastRadius: "high" }] : [] };
@@ -219,7 +227,7 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
     return { status: 200, headers: {}, body: response };
   };
   const create = (testSandbox?: TestSandbox) => new Orchestrator({ repository: directory, stateDirectory: join(directory, ".runs"), providerOptions: { client: { send }, credential: () => "fixture-credential" }, ...(testSandbox === undefined ? {} : { testSandbox }) });
-  return { create, config, requests, verificationInputs, plannerContexts, reviewInputs, packedChecks, criticIssueIds, verificationFlight, mergedListedPair: () => mergedListedPair, failRevisionPatch: (value: boolean) => { failRevisionPatch = value; }, failExpansion: (value: boolean) => { failExpansion = value; }, failCritic: (value: boolean) => { failCritic = value; }, failVerification: (value: boolean) => { failVerification = value; }, blockDiscovery: (callback: () => void) => { blockDiscovery = callback; } };
+  return { create, config, requests, verificationInputs, plannerContexts, plannerReads, reviewInputs, packedChecks, criticIssueIds, verificationFlight, mergedListedPair: () => mergedListedPair, failRevisionPatch: (value: boolean) => { failRevisionPatch = value; }, failExpansion: (value: boolean) => { failExpansion = value; }, failCritic: (value: boolean) => { failCritic = value; }, failVerification: (value: boolean) => { failVerification = value; }, blockDiscovery: (callback: () => void) => { blockDiscovery = callback; } };
 }
 
 describe("composed model audits", () => {
@@ -290,6 +298,23 @@ describe("composed model audits", () => {
     for (const { id } of original.items) for (const task of revised.plan.tasks) expect(batches.some(({ recordIds }) => recordIds.includes(`revision:${id}`) && recordIds.includes(`task:${task.id}`))).toBe(true);
     expect((await resumed.gate(run.runId)).reasons.includes("blocking_critic_feedback")).toBe(revision === "still_blocking");
   }); // package limit (90 s): ~32 s per case alone, over 60 s under full-suite load
+
+  it("gives a task expansion the files and the locations of its own task and issues", async () => {
+    // Observed live (P20 pilot): each of 31 expansions read the whole outline, the locations of all 52 issues and every file that fitted.
+    const { create, config, plannerReads } = await fixture({ largePlannerContext: true, secondFile: true });
+    const run = await create().run(config);
+    expect(run.state).toBe("COMPLETED");
+    const outline = plannerReads.filter(({ stage }) => stage === "outline"); const expansions = plannerReads.filter(({ stage }) => stage === "expand");
+    expect(outline).toHaveLength(1); expect(expansions).toHaveLength(4);
+    // The outline reads every file as far as it fits, b.ts among them, and where every issue points.
+    expect(outline[0]?.sourcePaths).toContain("b.ts");
+    for (const read of expansions) {
+      // No issue cites b.ts. An expansion reads the file its issue cites and the locations of that issue's findings.
+      expect(read.sourcePaths).toEqual(["a.ts"]);
+      expect(read.locationIds.length).toBeGreaterThan(0); expect(read.locationIds.length).toBeLessThan(outline[0]?.locationIds.length ?? 0);
+      expect(read.locationIds.every((id) => read.sourceFindingIds.some((sourceId) => id.startsWith(`${sourceId}/`)))).toBe(true);
+    }
+  });
 
   it("plans oversized accepted issues using one global outline and resumes completed expansions", async () => {
     const { create, config, requests, failExpansion } = await fixture({ largePlannerContext: true });

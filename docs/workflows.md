@@ -250,13 +250,19 @@ about it. A model cannot argue a finding into existence.
 bounded follow-up discovery of the code around it, so the report cannot stand in for the
 audit. See [security](security.md#injection-scanning-and-suppression-candidates).
 
-**Clustering.** `packages/workflow/src/clustering/deterministic.ts` (`structural-v2`) clusters
+**Clustering.** `packages/workflow/src/clustering/deterministic.ts` (`structural-v3`) clusters
 findings deterministically; `clustering/escalate.ts` records escalated pairs
 (`SemanticClusteringDecision`, `recordSplit`) so the cost of a semantic path — if §25.4
 metrics ever justify one — is measured rather than assumed. A `PROMPT_INJECTION` report
 clusters only with other such reports: it describes repository text aimed at the auditor,
 never the defect beside it. Other category differences stay a scored signal, because real
-duplicates are filed under different categories.
+duplicates are filed under different categories. The structural rule never puts two findings
+of one answer (one auditor, one scope) in one cluster, directly or through a third finding:
+an auditor lists a defect once, so two findings of one answer are two defects however close
+they sit. Such a pair is first in line for the bounded semantic check, which may still
+establish one root cause. Merges are made strongest first (score, then shared lines), so the
+closer of an answer's two findings joins another auditor's report
+([P18 record](qa/p18/README.md)).
 
 **Issue board.** `packages/core/src/issue-board/operations.ts` and `projection.ts` build the
 board from an append-only operation log (`packages/persistence/src/issue-ops.ts`). The

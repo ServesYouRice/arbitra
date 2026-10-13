@@ -35,7 +35,7 @@ import { reviseWithContext } from "./revision-context.js";
 import { createHash } from "node:crypto";
 import type { SemanticClusteringDecision, SemanticClusteringPair } from "@arbitra/workflow/clustering/escalate.js";
 import type { ModelActivityRequest } from "./model-activities.js";
-import { inputBytesPerToken, isCapacityError, ModelOutputLimitError, ModelRefusalError, OUTPUT_TOKENS_PER_RECORD, outputRecordLimit, replanOnOutputLimit, stageBudget, type EffortStage } from "./context-budget.js";
+import { expectedRecordCapacity, inputBytesPerToken, isCapacityError, ModelOutputLimitError, ModelRefusalError, OUTPUT_TOKENS_PER_RECORD, outputRecordLimit, replanOnOutputLimit, stageBudget, type EffortStage } from "./context-budget.js";
 import { agreedConflictResolution, conflictId, conflictResolutionView, independentConflicts, type ConflictResolutionVote } from "./model-conflict-resolution.js";
 import { sideBySide } from "./side-by-side.js";
 import { validateBatchLanes } from "./model-batch-lane.js";
@@ -44,7 +44,9 @@ interface ModelStageInput<T> { activityId: string; modelProfileId: string; signa
   /** The checking stage this call belongs to; its effort may be set apart from the audit's (`stageEffort`). */
   stage?: EffortStage;
   /** Which optional source the call reads; every file as far as it fits unless set. */
-  sourceScope?: SourceScope }
+  sourceScope?: SourceScope;
+  /** With the "cited" scope: the files that count as cited, in place of every path the input names. */
+  citedPaths?: readonly string[] }
 
 const premiseReport = { status: "unavailable" as const, interpretation: "smoke_test_only_not_proof" as const, limitations: ["real_model_premise_requires_ground_truth_evaluation"] };
 
@@ -473,17 +475,29 @@ export class ModelAuditPipeline {
     // those of its own issues in full, the outline which issues each one ties together.
     const conflicts = conflictsInvolving(await readStage<readonly PeerOperationConflict[]>(this.context.store, "peer-operation-conflicts"), accepted.map(({ candidateId }) => candidateId));
     const projectContext = { fileCount: this.context.snapshot.files.length, sourceLocations: sources.filter(({ sourceFindingId }) => acceptedSourceIds.has(sourceFindingId)).flatMap(({ locations }) => locations) };
+    // A stage that reads some of the issues reads where those issues point, not where every issue points.
+    // Observed live (P20 pilot): each of 31 task expansions carried the 151 locations of all 52 issues.
+    const locationsOf = (ids: readonly string[]) => {
+      const sourceIds = new Set(accepted.filter(({ candidateId }) => ids.includes(candidateId)).flatMap(({ sourceFindingIds }) => sourceFindingIds));
+      return sources.filter(({ sourceFindingId }) => sourceIds.has(sourceFindingId)).flatMap(({ locations }) => locations);
+    };
     const records = (input: PlannerInput): PlannerRecordSet => {
       const base = auditPlannerRecords(input);
-      return { ...base, scoped: (ids) => ({ ...base.scoped(ids), projectContext: { ...projectContext, unresolvedPeerOperations: conflictsInvolving(conflicts, ids) } }),
+      return { ...base, scoped: (ids) => ({ ...base.scoped(ids), projectContext: { ...projectContext, sourceLocations: locationsOf(ids), unresolvedPeerOperations: conflictsInvolving(conflicts, ids) } }),
+        sourcePaths: (ids) => [...new Set(locationsOf(ids).map(({ path }) => path))],
         outlineContext: { ...projectContext, unresolvedPeerOperations: conflicts.map(conflictOutline) } };
     };
     const protocol = await this.#protocols.resolve("planner");
     let plannerCalls = 0;
     const planner = plannerNode({ protocolVersion: protocol.protocolVersion, protocolHash: protocol.protocolHash, schema: planIRSchema,
       runtime: { get logicalModelCalls() { return plannerCalls; }, plan: async (request) => {
-        const stageInput = (composed: PlannerStage): ModelStageInput<unknown> => ({ ...composed, modelProfileId: this.#roles.planner, protocol: "planner", signal, preferredPaths, stage: "planner" });
-        const maximumBriefRecords = outputRecordLimit(stageBudget(this.config, this.#roles.planner).outputCapacity, OUTPUT_TOKENS_PER_RECORD.plannerBriefIssue, "planner-brief");
+        // A stage that names its files reads those; the others read every file as far as it fits, the issues' first.
+        const stageInput = ({ sourcePaths, ...composed }: PlannerStage): ModelStageInput<unknown> => ({ ...composed, modelProfileId: this.#roles.planner, protocol: "planner", signal, stage: "planner",
+          ...(sourcePaths === undefined ? { preferredPaths } : { sourceScope: "cited" as const, citedPaths: sourcePaths }) });
+        const outputCapacity = stageBudget(this.config, this.#roles.planner).outputCapacity;
+        const maximumBriefRecords = outputRecordLimit(outputCapacity, OUTPUT_TOKENS_PER_RECORD.plannerBriefIssue, "planner-brief");
+        const maximumPlanRecords = expectedRecordCapacity(outputCapacity, OUTPUT_TOKENS_PER_RECORD.plannerPlanIssue);
+        const maximumOutlineRecords = expectedRecordCapacity(outputCapacity, OUTPUT_TOKENS_PER_RECORD.plannerOutlineIssue);
         const parallel = providerExecutionSchema.parse(this.config.workflow["modelExecution"]).maximumParallelCalls ?? 1;
         return replanOnOutputLimit(() => { plannerCalls = 0; return planWithContext(request.input, {
           fits: (stage) => this.sendable(stageInput(stage), false),
@@ -492,7 +506,7 @@ export class ModelAuditPipeline {
           together: (items, run) => sideBySide(items, parallel, run),
           call: (stage) => { plannerCalls += 1; return this.call(stageInput(stage)); },
           publish: (kind, value) => this.context.store.publish(kind, value),
-        }, { maximumBriefRecords, records: records(request.input), fullSchema: traceablePlanSchema("audit", null, request.input.canonicalIssues.filter(isPlannable).map(({ candidateId }) => candidateId)) }); });
+        }, { maximumBriefRecords, maximumPlanRecords, maximumOutlineRecords, records: records(request.input), fullSchema: traceablePlanSchema("audit", null, request.input.canonicalIssues.filter(isPlannable).map(({ candidateId }) => candidateId)) }); });
       } },
     });
     const { plan, modelCalls } = await planner.run({
@@ -678,7 +692,7 @@ export class ModelAuditPipeline {
     const byteLimit = promptByteLimit(this.config.models[input.modelProfileId]?.transport ?? "");
     const sizingMaximum = byteLimit === null ? maximum : Math.min(maximum, Math.floor(byteLimit / inputBytesPerToken(this.config).usual) + execution.maximumOutputTokens);
     const allocated = allocateStageContext(input.input, { fits, sizing: { measure, maximum: sizingMaximum, of: (source) => this.#activities.estimateSourceTokens(source) },
-      ...(input.sourceScope === undefined ? {} : { scope: input.sourceScope }), ...(input.preferredPaths === undefined ? {} : { preferredPaths: input.preferredPaths }), ...(asRequired ? { smaller: withConflictOutlines(input.input),
+      ...(input.sourceScope === undefined ? {} : { scope: input.sourceScope }), ...(input.citedPaths === undefined ? {} : { citedPaths: input.citedPaths }), ...(input.preferredPaths === undefined ? {} : { preferredPaths: input.preferredPaths }), ...(asRequired ? { smaller: withConflictOutlines(input.input),
       admits: (payload: unknown) => withinStringBudget(payload, maximum * inputBytesPerToken(this.config).required) && this.#activities.estimateRequiredTokens(request(payload)) <= maximum } : {}) });
     const key = createHash("sha256").update(input.activityId).digest("hex");
     const admitted = (value: ModelActivityRequest<T>): ModelActivityRequest<T> => allocated.admittedAsRequired ? { ...value, admittedAsRequired: true } : value;

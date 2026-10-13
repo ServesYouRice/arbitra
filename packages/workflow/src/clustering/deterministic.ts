@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { AmbiguousPair, ClusterOperation, ClusteringStrategy, FindingCluster, StrategyResult, ValidatedClusterInput } from "./types.js";
 
-export const deterministicClusteringStrategy: ClusteringStrategy = Object.freeze({ id: "structural-v2", cluster: deterministicCluster });
+export const deterministicClusteringStrategy: ClusteringStrategy = Object.freeze({ id: "structural-v3", cluster: deterministicCluster });
 
 /** A prompt-injection report is about repository text aimed at the auditor, never the defect beside
  * it, so it clusters only with other such reports (observed: the P18 real-model corpus merged it with
@@ -9,24 +9,65 @@ export const deterministicClusteringStrategy: ClusteringStrategy = Object.freeze
  * real duplicates are filed under different categories. */
 const ISOLATED_CATEGORIES: ReadonlySet<string> = new Set(["PROMPT_INJECTION"]);
 
+/** One auditor lists a defect once in one answer, so two findings of one answer are two defects however close
+ * they sit: the structural rule never puts them in one cluster, directly or through a third finding. Such a pair
+ * is left for the bounded semantic check, first in line. Structural merges are made strongest first (score, then
+ * how much of the cited lines the two share), so of an answer's two findings the closer match joins a third.
+ * Observed live (P20 pilot): every structural merge of a one-auditor run (13, 9 and 12 in three runs) joined two
+ * findings of one answer; one put a planted high-severity defect under the title of a low-severity finding, the
+ * check rejected that title and the defect was lost. On the labelled corpora the rule takes false merges from
+ * 11 to 2 (authored) and from 22 to 19 (P06 real models) and loses no true merge. */
 export function deterministicCluster(inputs: readonly ValidatedClusterInput[]): StrategyResult {
   const findings = [...inputs].sort((a, b) => a.finding.sourceFindingId.localeCompare(b.finding.sourceFindingId));
   if (findings.some(({ validation }) => validation !== "accepted")) throw new Error("CLUSTERING_REQUIRES_VALIDATED_FINDINGS");
   const ids = findings.map(({ finding }) => finding.sourceFindingId); if (new Set(ids).size !== ids.length) throw new Error("DUPLICATE_CLUSTER_SOURCE_FINDING");
   const parent = new Map(ids.map((id) => [id, id])); const ambiguousPairs: AmbiguousPair[] = []; const operations: ClusterOperation[] = []; let deterministicPairsResolved = 0;
+  const answers = new Map(findings.map((input) => [input.finding.sourceFindingId, new Set([answerOf(input)])]));
+  const join = (left: string, right: string): void => {
+    const merged = new Set([...answers.get(find(parent, left)) ?? [], ...answers.get(find(parent, right)) ?? []]);
+    union(parent, left, right); answers.set(find(parent, left), merged);
+  };
+  const structural: { readonly a: string; readonly b: string; readonly score: number; readonly names: readonly string[]; readonly shared: number }[] = [];
   for (let left = 0; left < findings.length; left += 1) {
     const a = requiredFinding(findings, left);
     for (let right = left + 1; right < findings.length; right += 1) {
       const b = requiredFinding(findings, right);
-      if (fingerprint(a) === fingerprint(b)) { union(parent, a.sourceFindingId, b.sourceFindingId); operations.push(Object.freeze({ type: "merge", sourceFindingIds: Object.freeze([a.sourceFindingId, b.sourceFindingId]), reason: "exact" })); deterministicPairsResolved += 1; continue; }
+      if (fingerprint(a) === fingerprint(b)) { join(a.sourceFindingId, b.sourceFindingId); operations.push(Object.freeze({ type: "merge", sourceFindingIds: Object.freeze([a.sourceFindingId, b.sourceFindingId]), reason: "exact" })); deterministicPairsResolved += 1; continue; }
       if (a.category !== b.category && (ISOLATED_CATEGORIES.has(a.category) || ISOLATED_CATEGORIES.has(b.category))) { deterministicPairsResolved += 1; continue; }
       const result = signals(a, b);
-      if (result.score >= 5) { union(parent, a.sourceFindingId, b.sourceFindingId); operations.push(Object.freeze({ type: "merge", sourceFindingIds: Object.freeze([a.sourceFindingId, b.sourceFindingId]), reason: "structural" })); deterministicPairsResolved += 1; }
+      if (result.score >= 5) structural.push({ a: a.sourceFindingId, b: b.sourceFindingId, score: result.score, names: result.names, shared: sharedLines(a, b) });
       else if (result.score <= 1) deterministicPairsResolved += 1;
       else ambiguousPairs.push(Object.freeze({ leftId: a.sourceFindingId, rightId: b.sourceFindingId, signals: Object.freeze(result.names), score: result.score, relationship: null }));
     }
   }
-  return Object.freeze({ findings: Object.freeze(findings), clusters: clustersFrom(parent), ambiguousPairs: Object.freeze(ambiguousPairs), operations: Object.freeze(operations), deterministicPairsResolved });
+  const held: AmbiguousPair[] = [];
+  for (const pair of structural.sort((x, y) => y.score - x.score || y.shared - x.shared || x.a.localeCompare(y.a) || x.b.localeCompare(y.b))) {
+    const left = find(parent, pair.a); const right = find(parent, pair.b);
+    if (left !== right && [...answers.get(left) ?? []].some((answer) => answers.get(right)?.has(answer) === true)) {
+      held.push(Object.freeze({ leftId: pair.a, rightId: pair.b, signals: Object.freeze([...pair.names]), score: pair.score, relationship: null }));
+      continue;
+    }
+    join(pair.a, pair.b); operations.push(Object.freeze({ type: "merge", sourceFindingIds: Object.freeze([pair.a, pair.b]), reason: "structural" })); deterministicPairsResolved += 1;
+  }
+  return Object.freeze({ findings: Object.freeze(findings), clusters: clustersFrom(parent), ambiguousPairs: Object.freeze([...held, ...ambiguousPairs]), operations: Object.freeze(operations), deterministicPairsResolved });
+}
+
+/** The answer a finding came in: its id without the last part (auditor and scope in a model audit, auditor and
+ * rule in a scripted one), or the auditor when the id has one part. */
+function answerOf(input: ValidatedClusterInput): string {
+  const id = input.finding.sourceFindingId; const cut = id.lastIndexOf("/");
+  return cut < 0 ? input.auditorId : id.slice(0, cut);
+}
+
+/** The largest share of their cited lines two findings have in common in one file: 1 when the ranges are equal. */
+function sharedLines(a: ValidatedClusterInput["finding"], b: ValidatedClusterInput["finding"]): number {
+  let best = 0;
+  for (const x of a.locations) for (const y of b.locations) {
+    if (x.path !== y.path) continue;
+    const common = Math.min(x.endLine, y.endLine) - Math.max(x.startLine, y.startLine) + 1;
+    if (common > 0) best = Math.max(best, common / (Math.max(x.endLine, y.endLine) - Math.min(x.startLine, y.startLine) + 1));
+  }
+  return best;
 }
 
 export function clustersFrom(parent: Map<string, string>): readonly FindingCluster[] {

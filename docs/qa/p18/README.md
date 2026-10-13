@@ -82,6 +82,24 @@ unchanged. The P18 harness calls the current default strategy, so a rerun now me
 `structural-v2`: a new comparison needs `p18-protocol-v2` and `--out`, so this record is not
 overwritten.
 
+**Changed again (October 13, 2026).** Clustering is now `structural-v3`: the structural rule
+never puts two findings of one answer (one auditor, one scope) in one cluster, directly or
+through a third finding, and it makes its merges strongest first. The cause was a live audit:
+every structural merge of a one-auditor run joined two findings of that auditor's one answer
+(13, 9 and 12 merges in three runs), and one put a high-severity defect under the title of a
+low-severity finding, which verification then rejected. Replayed on both corpora with the P18
+scoring (descriptive and in-sample, not a P18 result):
+
+| Corpus | Strategy | FM | FS | W | Contaminated candidates |
+|---|---|---|---|---|---|
+| Authored | `structural-v2` | 11 | 14 | 36 | 5 |
+| Authored | `structural-v3` | 2 | 14 | 18 | 2 |
+| P06 real models | `structural-v2` | 3 | 8 | 14 | 1 |
+| P06 real models | `structural-v3` | 0 | 8 | 8 | 0 |
+
+No false split was added on either corpus. A pair the rule holds apart is first in line for
+the bounded semantic check.
+
 ## Authored corpus (September 25, 2026)
 
 The sections below record the first evaluation, on the hand-authored corpus.

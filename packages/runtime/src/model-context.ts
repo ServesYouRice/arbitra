@@ -26,7 +26,10 @@ export interface SourceSizing { readonly measure: (input: unknown) => number; re
  * Observed live (P20 pilot): a wider scope, the files of the cited files' modules, was 47 of a project's 57 files
  * for every question, because one chain of imports joins most of a project, and 51 questions read 5.3M tokens. */
 export type SourceScope = "all" | "cited";
-export interface SourceOptions { readonly sizing?: SourceSizing; readonly scope?: SourceScope }
+/** `citedPaths` names the files that count as cited under the "cited" scope, in place of every path the input
+ * names: a stage whose input lists the files of other work beside its own (a plan task and its neighbours) reads
+ * its own. */
+export interface SourceOptions { readonly sizing?: SourceSizing; readonly scope?: SourceScope; readonly citedPaths?: readonly string[] }
 
 export interface StageContext { readonly input: unknown; readonly coverage: ModelContextCoverage; readonly reduced: boolean; readonly admittedAsRequired: boolean;
   /** Files the input cites that it carries neither whole nor as an excerpt. */
@@ -36,11 +39,12 @@ export interface StageContext { readonly input: unknown; readonly coverage: Mode
  * stage must read: the input as given; its smaller form, when there is one; then the smallest form with no optional
  * source at all, checked by `admits` (the rate for required input) in place of `fits`. */
 export function allocateStageContext(value: unknown, options: { readonly smaller?: unknown; readonly fits: (input: unknown) => boolean; readonly admits?: (input: unknown) => boolean; readonly preferredPaths?: readonly string[] } & SourceOptions): StageContext {
-  const source: SourceOptions = { ...(options.sizing === undefined ? {} : { sizing: options.sizing }), ...(options.scope === undefined ? {} : { scope: options.scope }) };
+  const scope: SourceOptions = { ...(options.scope === undefined ? {} : { scope: options.scope }), ...(options.citedPaths === undefined ? {} : { citedPaths: options.citedPaths }) };
+  const source: SourceOptions = { ...(options.sizing === undefined ? {} : { sizing: options.sizing }), ...scope };
   const steps: (() => StageContext)[] = [() => ({ ...allocateModelContext(value, options.fits, options.preferredPaths, options.fits, source), reduced: false, admittedAsRequired: false })];
   if (options.smaller !== undefined) steps.push(() => ({ ...allocateModelContext(options.smaller, options.fits, options.preferredPaths, options.fits, source), reduced: true, admittedAsRequired: false }));
   const admits = options.admits;
-  if (admits !== undefined) steps.push(() => ({ ...allocateModelContext(options.smaller ?? value, () => false, options.preferredPaths, admits, options.scope === undefined ? {} : { scope: options.scope }), reduced: options.smaller !== undefined, admittedAsRequired: true }));
+  if (admits !== undefined) steps.push(() => ({ ...allocateModelContext(options.smaller ?? value, () => false, options.preferredPaths, admits, scope), reduced: options.smaller !== undefined, admittedAsRequired: true }));
   for (const [index, step] of steps.entries()) {
     try { return step(); }
     catch (error) { if (index === steps.length - 1 || !(error instanceof Error) || error.message !== "MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED") throw error; }
@@ -79,10 +83,11 @@ export function allocateModelContext(value: unknown, fits: (input: unknown) => b
   const scoped = options.scope === "cited";
   if (!scoped && fits(complete)) return { input: complete, coverage: { fullPaths: allPaths, excerptPaths: [], omittedPaths: [] }, citedPathsLeftOut: [] };
   const mandatory = { ...record, [key]: [] };
-  const known = new Set(allPaths); const cited = new Set(preferredPaths.filter((path) => known.has(path)));
+  const known = new Set(allPaths); const named = scoped && options.citedPaths !== undefined;
+  const cited = new Set((named ? options.citedPaths ?? [] : preferredPaths).filter((path) => known.has(path)));
   const ranges = new Map<string, { start: number; end: number }[]>();
   const collect = (entry: unknown): void => {
-    if (typeof entry === "string" && known.has(entry)) cited.add(entry);
+    if (typeof entry === "string" && known.has(entry)) { if (!named) cited.add(entry); }
     else if (Array.isArray(entry)) entry.forEach(collect);
     else if (typeof entry === "object" && entry !== null) {
       const object = entry as Record<string, unknown>; const path = object["path"];

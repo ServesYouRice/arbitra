@@ -103,6 +103,18 @@ describe("later-stage source allocation", () => {
     expect(scoped.citedPathsLeftOut).toEqual([]);
   });
 
+  it("reads only the files a stage names, though its input lists the files of other work beside its own", () => {
+    // A task expansion carries its neighbours' file lists; it reads its own task's files and its issues'.
+    const input = { selectedTask: { likelyFiles: ["src/billing/charge.ts"] }, neighbours: [{ likelyFiles: ["src/search/index.ts"] }], location: { path: "src/billing/tax.ts", startLine: 1, endLine: 1 }, repository: [
+      { path: "src/billing/charge.ts", content: "import './tax.js';" }, { path: "src/billing/tax.ts", content: "helper" }, { path: "src/search/index.ts", content: "unrelated" }] };
+    expect(allocateModelContext(input, () => true, [], () => true, { scope: "cited" }).coverage.fullPaths).toHaveLength(3);
+    const named = allocateModelContext(input, () => true, ["src/search/index.ts"], () => true, { scope: "cited", citedPaths: ["src/billing/charge.ts", "src/billing/tax.ts", "src/absent.ts"] });
+    expect(named.coverage).toEqual({ fullPaths: ["src/billing/charge.ts", "src/billing/tax.ts"], excerptPaths: [], omittedPaths: ["src/search/index.ts"] });
+    expect(named.citedPathsLeftOut).toEqual([]);
+    // Without the scope the names change nothing: every file is read as far as it fits.
+    expect(allocateModelContext(input, () => true, [], () => true, { citedPaths: ["src/billing/charge.ts"] }).coverage.fullPaths).toHaveLength(3);
+  });
+
   it("names the cited files it could carry neither whole nor as an excerpt", () => {
     const input = { finding: { path: "a.ts", startLine: 1, endLine: 1 }, other: { path: "b.ts", startLine: 1, endLine: 1 }, repository: [{ path: "a.ts", content: "short" }, { path: "b.ts", content: "a line far too long to fit ".repeat(10) }] };
     const result = allocateModelContext(input, (value) => bytes(value) <= 10);
