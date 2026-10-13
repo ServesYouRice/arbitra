@@ -330,6 +330,9 @@ that the review had not rejected.
   1,200 for an outline, 900 for the reading notes; a dozen issues are always asked for whole)
   and goes straight to the notes, the outline and one call a task. Observed: the one call for
   52 issues stopped at a 64,000-token ceiling after nine minutes, and all of it was discarded.
+  An outline of more issues than one answer holds is written in sections of equal size, side by
+  side; each section's rules (its own records only, every question kept, no reference outside
+  it) are checked inside its call, so a reply that breaks one is sent back with the rule.
 - **A task is written out against its own part of the plan.** When the outline has more than
   eight tasks, the call that writes one task out reads that task's dependency neighbourhood in
   full and an index of every task, not the whole outline. It reads the files its task names and

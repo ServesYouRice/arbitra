@@ -291,6 +291,21 @@ describe("hierarchical global outline when all briefs cannot share one outline",
     expect(artifacts.get("planner-outline-sections")).toHaveLength(3);
   });
 
+  it("asks for the sections side by side and checks each one inside its call, so a reply that breaks a rule is sent back", async () => {
+    const { input, calls, port } = await sectioned();
+    const groups: number[] = [];
+    const result = await planWithContext(input, { ...port, together: async <T, R>(items: readonly T[], run: (item: T) => Promise<R>): Promise<R[]> => { groups.push(items.length); return Promise.all(items.map(run)); } });
+    // The reading notes, the sections and the expansions each went as one group.
+    expect(groups).toEqual([3, 3, 3]);
+    expect(result.tasks.map(({ id }) => id)).toEqual(["TASK-001", "TASK-002", "TASK-003"]);
+    const section = calls.find(({ activityId }) => activityId.startsWith("planner/outline/section/")) as PlannerStage;
+    const reply = await port.call(section) as PlannerOutline;
+    expect(() => section.schema.parse(reply)).not.toThrow();
+    expect(() => section.schema.parse({ ...reply, acceptedIssueIds: [] })).toThrow("PLANNER_OUTLINE_SECTION_SCOPE_INVALID");
+    expect(() => section.schema.parse({ ...reply, unresolvedQuestions: reply.unresolvedQuestions.slice(1) })).toThrow("PLANNER_OUTLINE_QUESTION_DROPPED");
+    expect(() => section.schema.parse({ ...reply, tasks: reply.tasks.map((task) => ({ ...task, dependencies: { ...task.dependencies, dependsOn: ["TASK-404"] } })) })).toThrow("PLANNER_OUTLINE_SECTION_REFERENCE_INVALID");
+  });
+
   it("sections an outline that fits by size when one answer is not expected to hold its records", async () => {
     const { input, calls, port } = await sectioned();
     const roomy = { ...port, fits: async (stage: PlannerStage) => stage.activityId === "planner/outline" || stage.activityId.startsWith("planner/outline/section/") || await port.fits(stage) };
