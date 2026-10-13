@@ -91,20 +91,21 @@ describe("one global planner with bounded issue reading and task expansion", () 
     await expect(planWithContext(input, { ...tight, outputLimited: async () => false })).rejects.toThrow("PLANNER_TASK_CONTEXT_LIMIT_EXCEEDED:TASK-2");
   });
 
-  it("refuses an outline whose tasks write the same files unordered inside the call, so the harness can repair it", async () => {
+  it("orders an outline's tasks that write the same files unordered, so no repair has to write the outline again", async () => {
     const { input, port } = await fixture();
-    const refusals: string[] = [];
+    const ordered: PlannerOutline[] = [];
     await planWithContext(input, { ...port, call: async (stage) => {
       const value = await port.call(stage);
       if (stage.activityId !== "planner/outline") return value;
       // Observed live: two tasks shared files and were related only by conflictsWith.
       const outline = value as PlannerOutline;
       const unordered = { ...outline, tasks: outline.tasks.map((task) => ({ ...task, dependencies: { dependsOn: [], blocks: [], conflictsWith: [] } })), taskGraph: [] };
-      try { stage.schema.parse(unordered); } catch (error) { refusals.push(String(error)); }
+      ordered.push(stage.schema.parse(unordered) as PlannerOutline);
       return stage.schema.parse(value);
     } });
-    expect(refusals).toEqual([expect.stringContaining("SHARED_WRITE_SCOPE_UNORDERED")]);
-    expect(refusals[0]).toContain("Tasks TASK-1 and TASK-2 both write");
+    // Each later task waits for the nearest earlier writer: one chain, not every pair.
+    expect(ordered[0]?.tasks.map(({ dependencies }) => dependencies.dependsOn)).toEqual([[], ["TASK-1"], ["TASK-2"]]);
+    expect(ordered[0]?.taskGraph).toEqual([{ from: "TASK-1", to: "TASK-2" }, { from: "TASK-2", to: "TASK-3" }]);
   });
 
   it("preserves the original one-call activity when all mandatory input fits", async () => {

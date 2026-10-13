@@ -4,7 +4,7 @@ import { modelPlanRevisionSchema } from "@arbitra/schemas/model-results.js";
 import { providerExecutionSchema } from "@arbitra/schemas/provider-execution.js";
 import { validateFeaturePlanTraceability } from "@arbitra/workflow/nodes/requirements/index.js";
 import { PlannerTraceabilityError } from "@arbitra/workflow/nodes/planner/node.js";
-import { validateTraceability } from "@arbitra/workflow/nodes/planner/traceability.js";
+import { validateTraceability, withSharedWritesOrdered } from "@arbitra/workflow/nodes/planner/traceability.js";
 import { revisePlanOnce } from "@arbitra/workflow/nodes/revision.js";
 import { ModelActivities } from "./model-activities.js";
 import { ModelHarness } from "./model-harness.js";
@@ -55,7 +55,8 @@ export async function modelFeaturePlanning(
       full: { stageActivityId: "planner/revision", activityId: `feature/planner-revision/${inputFingerprint}/${revisionIdentity}`, input: { ...input, requirements, exploration },
         // Checked inside the call, so a violating reply is repaired instead of failing after the spend.
         schema: { parse: (value: unknown) => {
-          const candidate = modelPlanRevisionSchema.parse(value);
+          const parsed = modelPlanRevisionSchema.parse(value);
+          const candidate = { ...parsed, plan: withSharedWritesOrdered(parsed.plan) };
           const diagnostics = [...validateTraceability(candidate.plan, []), ...validateFeaturePlanTraceability(requirements, candidate.plan)];
           if (diagnostics.length > 0) throw new PlannerTraceabilityError(diagnostics);
           return candidate;

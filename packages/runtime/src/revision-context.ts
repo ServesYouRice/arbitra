@@ -4,7 +4,7 @@ import { modelPlanRevisionSchema } from "@arbitra/schemas/model-results.js";
 import { planRevisionPatchSchema, type PlanRevisionPatch } from "@arbitra/schemas/plan-revision-patch.js";
 import type { RevisionOutput, RevisionRequest, RevisionResolution } from "@arbitra/workflow/nodes/revision.js";
 import type { CanonicalIssueSet } from "@arbitra/workflow/nodes/canonical-issues.js";
-import { validateTraceability } from "@arbitra/workflow/nodes/planner/traceability.js";
+import { validateTraceability, withSharedWritesOrdered } from "@arbitra/workflow/nodes/planner/traceability.js";
 import { sendable, type PlannerCompositionPort, type PlannerStage } from "./planner-context.js";
 
 export interface ModelRevisionInput extends RevisionRequest<PlanIR> {
@@ -26,7 +26,9 @@ export interface RevisionRecordOptions {
 export async function reviseWithContext(input: ModelRevisionInput, port: PlannerCompositionPort, records?: RevisionRecordOptions): Promise<RevisionOutput<PlanIR>> {
   const validatePlan = (plan: PlanIR) => validateRevisionPlan(plan, input, records);
   const validate = (value: unknown): RevisionOutput<PlanIR> => {
-    const revised = modelPlanRevisionSchema.parse(value);
+    // Tasks a revision leaves writing the same files without an order are ordered, as in a first plan.
+    const parsed = modelPlanRevisionSchema.parse(value);
+    const revised = { ...parsed, plan: withSharedWritesOrdered(parsed.plan) };
     validatePlan(revised.plan);
     const expected = input.blockingCritique.map(({ id }) => id);
     const actual = revised.resolutions.map(({ critiqueItemId }) => critiqueItemId);
@@ -72,7 +74,7 @@ export async function reviseWithContext(input: ModelRevisionInput, port: Planner
       const patch = planRevisionPatchSchema.parse(value);
       if (patch.critiqueItemId !== critique.id) throw new Error("REVISION_PATCH_CRITIQUE_MISMATCH");
       for (const task of patch.tasks) if (input.originalPlan.tasks.some(({ id }) => id === task.id) && !base.tasks.some(({ id }) => id === task.id) && !selectedIds.has(task.id)) throw new Error("REVISION_RETIRED_TASK_ID_REUSED");
-      const applied = applyRevisionPatch(base, patch, selectedIds, index);
+      const applied = withSharedWritesOrdered(applyRevisionPatch(base, patch, selectedIds, index));
       validatePlan(applied);
       return { patch, applied };
     };

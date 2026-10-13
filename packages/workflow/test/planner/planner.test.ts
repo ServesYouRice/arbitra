@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { plannerNode, withoutSelfReferences, type PlannerInput, type PlannerRequest, type PlannerSchema } from "../../src/nodes/planner/node.js";
-import { validateTraceability, type TraceablePlan } from "../../src/nodes/planner/traceability.js";
+import { validateTraceability, withSharedWritesOrdered, type TraceablePlan } from "../../src/nodes/planner/traceability.js";
 
 describe("single coherent Planner", () => {
   it("reports staged logical model calls without equating them with provider attempts", async () => {
@@ -90,6 +90,42 @@ describe("shared write scope ordering", () => {
     expect(validateTraceability({ ...unordered, tasks: [first, { ...second, scope: { ...second.scope, likelyFiles: ["SRC/"] } }] })).toContainEqual(expect.objectContaining({ code: "SHARED_WRITE_SCOPE_UNORDERED" }));
     // Testing execution serialises shared writes with leases, so its plans are not refused.
     expect(validateTraceability({ ...unordered, mode: "testing" })).toEqual([]);
+  });
+
+  it("orders the tasks a plan leaves unordered on the same files, so no repair has to write the plan again", async () => {
+    // Observed live (P20 pilot): a plan for 45 issues was refused for such pairs and written a second time.
+    const base = (await planSchema()).parse(plan()); const first = requiredAt(base.tasks, 0);
+    const free = { dependsOn: [], blocks: [], conflictsWith: [] };
+    const task = (id: string, likelyFiles: readonly string[] = first.scope?.likelyFiles ?? []) => ({ ...first, id, dependencies: free, scope: { ...first.scope, likelyFiles: [...likelyFiles] } });
+    const routed = (list: readonly { readonly id: string }[]) => list.map(({ id }) => ({ taskId: id }));
+    const waits = (candidate: TraceablePlan) => candidate.tasks.map(({ dependencies }) => dependencies?.dependsOn);
+    const tasks = [first, task("TASK-002"), task("TASK-003"), task("TASK-004", ["docs/unrelated.md"])];
+    const unordered: TraceablePlan = { ...base, tasks, taskGraph: [], routingRecommendations: routed(tasks) };
+    expect(validateTraceability(unordered)).toContainEqual(expect.objectContaining({ code: "SHARED_WRITE_SCOPE_UNORDERED" }));
+    const ordered = withSharedWritesOrdered(unordered);
+    // Each later task waits for the nearest earlier writer: one chain, and a task on other files stays free.
+    expect(waits(ordered)).toEqual([[], ["TASK-001"], ["TASK-002"], []]);
+    expect(ordered.taskGraph).toEqual([{ from: "TASK-001", to: "TASK-002" }, { from: "TASK-002", to: "TASK-003" }]);
+    expect(validateTraceability(ordered)).toEqual([]);
+    // An order the plan states is kept, whichever way it runs, and a plan with nothing to order is returned as it is.
+    const stated: TraceablePlan = { ...unordered, tasks: [{ ...first, dependencies: { ...free, dependsOn: ["TASK-003"] } }, task("TASK-002"), task("TASK-003")], taskGraph: [{ from: "TASK-003", to: "TASK-001" }], routingRecommendations: routed(tasks.slice(0, 3)) };
+    const kept = withSharedWritesOrdered(stated);
+    expect(waits(kept)).toEqual([["TASK-003"], ["TASK-001"], []]);
+    expect(validateTraceability(kept)).toEqual([]);
+    expect(withSharedWritesOrdered(ordered)).toBe(ordered);
+    // A directory covers its files, and Testing plans are left to their write leases.
+    expect(withSharedWritesOrdered({ ...unordered, tasks: [first, task("TASK-002", ["SRC/"])], routingRecommendations: routed(tasks.slice(0, 2)) }).taskGraph).toEqual([{ from: "TASK-001", to: "TASK-002" }]);
+    const testing: TraceablePlan = { ...unordered, mode: "testing" };
+    expect(withSharedWritesOrdered(testing)).toBe(testing);
+  });
+
+  it("returns the ordered plan from the node instead of failing the stage", async () => {
+    const base = plan(); const first = requiredAt(base.tasks, 0);
+    const raw = { ...base, tasks: [first, { ...first, id: "TASK-002" }], routingRecommendations: [...base.routingRecommendations, { ...requiredAt(base.routingRecommendations, 0), taskId: "TASK-002" }] };
+    const node = plannerNode({ protocolVersion: "1.0.0", protocolHash: "a".repeat(64), schema: await planSchema(), runtime: { async plan() { return raw; } } });
+    const result = await node.run(input());
+    expect(result.plan.tasks[1]?.dependencies?.dependsOn).toEqual(["TASK-001"]);
+    expect(result.plan.taskGraph).toEqual([{ from: "TASK-001", to: "TASK-002" }]);
   });
 });
 

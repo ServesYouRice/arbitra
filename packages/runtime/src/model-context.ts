@@ -22,8 +22,10 @@ export function withinStringBudget(value: unknown, maximumBytes: number): boolea
 export interface SourceSizing { readonly measure: (input: unknown) => number; readonly maximum: number; readonly of: (source: unknown) => number }
 
 /** Which optional source a stage reads: every file as far as it fits (the default), or only the files its input
- * cites and the files of their modules. A stage with one narrow question reads the second. */
-export type SourceScope = "all" | "cited_and_related";
+ * cites. A stage with one narrow question reads the second and asks for anything else with the source tools.
+ * Observed live (P20 pilot): a wider scope, the files of the cited files' modules, was 47 of a project's 57 files
+ * for every question, because one chain of imports joins most of a project, and 51 questions read 5.3M tokens. */
+export type SourceScope = "all" | "cited";
 export interface SourceOptions { readonly sizing?: SourceSizing; readonly scope?: SourceScope }
 
 export interface StageContext { readonly input: unknown; readonly coverage: ModelContextCoverage; readonly reduced: boolean; readonly admittedAsRequired: boolean;
@@ -74,7 +76,7 @@ export function allocateModelContext(value: unknown, fits: (input: unknown) => b
   // assume it was (observed live: a planner raised a blocking question about callers outside
   // a snapshot that held the whole repository).
   const complete = { ...record, contextCoverage: { complete: true, note: "Every file in the run's repository scope is included in full.", fullPaths: allPaths, excerptPaths: [], omittedPaths: [] } };
-  const scoped = options.scope === "cited_and_related";
+  const scoped = options.scope === "cited";
   if (!scoped && fits(complete)) return { input: complete, coverage: { fullPaths: allPaths, excerptPaths: [], omittedPaths: [] }, citedPathsLeftOut: [] };
   const mandatory = { ...record, [key]: [] };
   const known = new Set(allPaths); const cited = new Set(preferredPaths.filter((path) => known.has(path)));
@@ -92,7 +94,7 @@ export function allocateModelContext(value: unknown, fits: (input: unknown) => b
     }
   };
   collect(mandatory);
-  const related = new Set(approximateModules(sources.map((entry) => ({ path: pathOf(entry), content: entry.content }))).filter(({ files }) => files.some((path) => cited.has(path))).flatMap(({ files }) => files));
+  const related = scoped ? new Set<string>() : new Set(approximateModules(sources.map((entry) => ({ path: pathOf(entry), content: entry.content }))).filter(({ files }) => files.some((path) => cited.has(path))).flatMap(({ files }) => files));
   const priority = (path: string) => cited.has(path) ? 0 : related.has(path) ? 1 : 2;
   const selected: Source[] = [];
   const coverage = (): ModelContextCoverage => ({ fullPaths: selected.filter((entry) => entry["excerpted"] !== true).map(pathOf), excerptPaths: selected.filter((entry) => entry["excerpted"] === true).map(pathOf), omittedPaths: allPaths.filter((path) => !selected.some((entry) => pathOf(entry) === path)) });
@@ -114,7 +116,7 @@ export function allocateModelContext(value: unknown, fits: (input: unknown) => b
     return { ...source, content: [...included].sort((a, b) => a - b).map((line) => `${line}: ${lines[line - 1] ?? ""}`).join("\n"), excerpted: true, lineNumbers: "original_source" };
   };
   for (const source of [...sources].sort((a, b) => priority(pathOf(a)) - priority(pathOf(b)) || pathOf(a).localeCompare(pathOf(b)))) {
-    if (scoped && priority(pathOf(source)) === 2) continue;
+    if (scoped && priority(pathOf(source)) !== 0) continue;
     if (take(source)) continue;
     const citedRanges = ranges.get(pathOf(source));
     if (citedRanges === undefined) continue;
