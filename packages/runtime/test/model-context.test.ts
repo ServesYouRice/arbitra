@@ -91,14 +91,15 @@ describe("later-stage source allocation", () => {
     expect(result.coverage.omittedPaths.length).toBeGreaterThan(0);
   });
 
-  it("reads only the cited files and their modules when the stage asks for that scope", () => {
+  it("reads only the cited files when the stage asks for that scope", () => {
+    // Observed live (P20 pilot): with the files of the cited files' modules added, a question read 47 of 57 files.
     const input = { finding: { path: "src/billing/charge.ts", startLine: 1, endLine: 1 }, repository: [
       { path: "src/billing/charge.ts", content: "import './tax.js';" }, { path: "src/billing/tax.ts", content: "helper" }, { path: "src/search/index.ts", content: "unrelated" }] };
     const everything = allocateModelContext(input, () => true);
     expect(everything.coverage.fullPaths).toHaveLength(3);
-    const scoped = allocateModelContext(input, () => true, [], () => true, { scope: "cited_and_related" });
-    expect(scoped.coverage).toEqual({ fullPaths: ["src/billing/charge.ts", "src/billing/tax.ts"], excerptPaths: [], omittedPaths: ["src/search/index.ts"] });
-    expect(scoped.input).toMatchObject({ contextCoverage: { complete: false, omittedPaths: ["src/search/index.ts"] } });
+    const scoped = allocateModelContext(input, () => true, [], () => true, { scope: "cited" });
+    expect(scoped.coverage).toEqual({ fullPaths: ["src/billing/charge.ts"], excerptPaths: [], omittedPaths: ["src/billing/tax.ts", "src/search/index.ts"] });
+    expect(scoped.input).toMatchObject({ contextCoverage: { complete: false, omittedPaths: ["src/billing/tax.ts", "src/search/index.ts"] } });
     expect(scoped.citedPathsLeftOut).toEqual([]);
   });
 

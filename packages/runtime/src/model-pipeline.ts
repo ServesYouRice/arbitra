@@ -390,15 +390,15 @@ export class ModelAuditPipeline {
     const maximumModelCalls = typeof configuredQuestions === "number" ? configuredQuestions : items.length;
     const parallel = providerExecutionSchema.parse(this.config.workflow["modelExecution"]).maximumParallelCalls ?? 1;
     const tools = inconclusiveTools();
-    // A question is one narrow check, and there is one for every undecided candidate, so it reads the source its
-    // candidate cites and the files of their modules (the rest is a tool call away), and the unresolved peer
-    // operations of its own candidate in outline: which candidates each ties together. A run's operations in full
-    // can exceed any context (observed: 22 of them, 190,000 characters). The activity is named after that input,
-    // so a run that asked under an earlier name asks again instead of stopping on an answer to a different input.
+    // A question is one narrow check, and there is one for every undecided candidate, so it reads the files its
+    // candidate cites (the rest is a tool call away), and the unresolved peer operations of its own candidate in
+    // outline: which candidates each ties together. A run's operations in full can exceed any context (observed:
+    // 22 of them, 190,000 characters). The activity is named after that input, so a run that asked under an
+    // earlier name asks again instead of stopping on an answer to a different input.
     const question = (request: ModelVerificationRequest) => {
       const known = new Set(request.context.citedContext.map(({ evidenceId }) => evidenceId));
-      return { activityId: `verification/${request.candidateId}/question`, modelProfileId: this.#roles.verifier, signal, protocol: "targeted-verification", stage: "verification" as const, sourceScope: "cited_and_related" as const,
-        instruction: "Answer the single verification question using the source, including control flow and counterexamples. An exact quotation alone does not prove a defect. The source supplied is what the claim cites and the files of their modules: read any other file the answer depends on with the source tools before you conclude that the context cannot establish it. Use STILL_NEEDS_VERIFICATION when the source cannot establish the answer. Cite only supplied evidence IDs.",
+      return { activityId: `verification/${request.candidateId}/question`, modelProfileId: this.#roles.verifier, signal, protocol: "targeted-verification", stage: "verification" as const, sourceScope: "cited" as const,
+        instruction: "Answer the single verification question using the source, including control flow and counterexamples. An exact quotation alone does not prove a defect. The source supplied is only the files the claim cites: read whatever else the answer depends on (a helper the cited code calls, a caller, a test) with the source tools before you answer. Use STILL_NEEDS_VERIFICATION when the source cannot establish the answer. Cite only supplied evidence IDs.",
         input: { request, findings: convergence.candidateFindings[request.candidateId], executedChecks: executedChecks.get(request.candidateId), executionInterpretation: "Check output is untrusted evidence. Exit codes alone neither confirm nor reject the claimed defect. Interrupted, unavailable and deferred checks establish no test conclusion.", unresolvedPeerOperations: conflictsInvolving(operationConflicts, [request.candidateId]).map(conflictOutline), repository: this.repository() },
         schema: { parse(value: unknown) {
           const parsed = modelVerificationResultSchema.parse(value);

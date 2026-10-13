@@ -203,6 +203,26 @@ for provider caches (few calls share a prefix once the stages read once); a plan
 is still revised item by item, one after another. To measure on the same project: time, tokens, planted defects
 found, and what the accepted list holds.
 
+**First timed run of the speed build (October 13): one Opus-only audit.** It had a call in flight for 27 minutes
+(17 for the same audit before the build) and used 6.9M tokens (1.0M before). Verification worked as meant: 51
+questions, about ten seconds each and four at a time, 45 confirmed and 6 rejected, and no known defect among the
+rejected. Two things cost the time and the tokens, and both are fixed in the commit after it:
+
+- Each question read 47 of the project's 57 files, 105,000 tokens. "The files of the cited files' modules" is
+  nearly the whole project, because one chain of imports joins most files. A question now reads only the files its
+  candidate cites (on the same 51 questions: two files, about 11,500 tokens), and its instruction says to read
+  whatever else the answer depends on with the source tools.
+- The plan for 45 issues was one call of 55,000 output tokens, eight minutes. It was refused because pairs of tasks
+  wrote the same files without an order, and the repair wrote the whole plan again, eight more minutes and 60,000
+  tokens, to add the edges the refusal had spelled out. The run now adds those edges itself
+  (`withSharedWritesOrdered`, `docs/task-ir.md`).
+
+Still open from that run: a plan for 45 issues is one serial call, the longest after the audit, and it ended at
+60,000 of the 64,000 output tokens a call may write. A larger plan falls back to briefs, an outline and one
+expansion per task, and each of those calls carries source up to the size limit. Candidate fix: plan sections of
+the accepted issues side by side, as whole plans, and join them (the order of shared writes no longer needs a
+model).
+
 **Where a whole panel run's time goes (October 12).** The first panel run at xhigh that reached its last stage
 (Opus 5.5, GPT-6.1 Sol, Gemini 3.8 Flash, the same project) had a call in flight for 284 minutes: 274 calls, 859
 minutes of call time, 13.0M input and 6.6M output tokens. Wall-clock per stage, from the times its requests were

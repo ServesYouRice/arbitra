@@ -89,13 +89,7 @@ export function validateSharedWriteOrder(tasks: readonly WriteScopedTask[], edge
     for (let next = stack.pop(); next !== undefined; next = stack.pop()) if (!found.has(next)) { found.add(next); stack.push(...(edges.get(next) ?? [])); }
     reach.set(id, found); return found;
   };
-  const normalise = (path: string) => path.trim().replaceAll("\\", "/").replace(/^\.\//u, "").replace(/\/\*\*$/u, "").replace(/\/+$/u, "").toLowerCase();
-  const writers = tasks.map((task, index) => {
-    const excluded = new Set((task.filesNotToTouch ?? []).map(normalise));
-    const paths = new Map<string, string>(); for (const path of task.scope?.likelyFiles ?? []) { const key = normalise(path); if (key !== "" && !excluded.has(key) && !paths.has(key)) paths.set(key, path); }
-    return { task, index, paths };
-  }).filter(({ paths }) => paths.size > 0);
-  const covers = (a: string, b: string) => a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
+  const writers = writeScopes(tasks);
   const diagnostics: TraceabilityDiagnostic[] = []; const seen = new Set<string>(); let omitted = 0;
   for (const [position, left] of writers.entries()) for (const right of writers.slice(position + 1)) {
     if (left.task.id === right.task.id) continue;
@@ -117,5 +111,52 @@ export function dependencyEdges(tasks: readonly WriteScopedTask[], taskGraph: Tr
   for (const task of tasks) { for (const from of task.dependencies?.dependsOn ?? []) add(from, task.id); for (const to of task.dependencies?.blocks ?? []) add(task.id, to); }
   for (const { from, to } of [...taskGraph, ...extra]) add(from, to);
   return edges;
+}
+/** Each task's write scope by normalised path, with the path as the plan wrote it; tasks that write nothing are left out. */
+function writeScopes<TTask extends WriteScopedTask>(tasks: readonly TTask[]): { readonly task: TTask; readonly index: number; readonly paths: Map<string, string> }[] {
+  const normalise = (path: string) => path.trim().replaceAll("\\", "/").replace(/^\.\//u, "").replace(/\/\*\*$/u, "").replace(/\/+$/u, "").toLowerCase();
+  return tasks.map((task, index) => {
+    const excluded = new Set((task.filesNotToTouch ?? []).map(normalise));
+    const paths = new Map<string, string>(); for (const path of task.scope?.likelyFiles ?? []) { const key = normalise(path); if (key !== "" && !excluded.has(key) && !paths.has(key)) paths.set(key, path); }
+    return { task, index, paths };
+  }).filter(({ paths }) => paths.size > 0);
+}
+function covers(a: string, b: string): boolean { return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`); }
+
+/**
+ * Orders the tasks whose write scopes overlap and that the plan leaves unordered: the later task (by id) waits
+ * for the nearest earlier one, in its `dependsOn` and in `taskGraph`. A plan states the orders that matter, so
+ * what it leaves unordered is independent work on the same files, and any order serialises that. Observed live
+ * (P20 pilot): a plan for 45 issues left such pairs unordered and was refused, and the repair wrote the whole
+ * plan again, 60,000 output tokens in eight minutes, to add the edges the refusal had spelled out. Testing
+ * plans are returned as they are (their execution serialises shared writes itself), and so is a task without
+ * `dependencies`; `validateSharedWriteOrder` still reports whatever stays unordered.
+ */
+export function withSharedWritesOrdered<TPlan extends { readonly mode: TraceablePlan["mode"]; readonly tasks: readonly WriteScopedTask[]; readonly taskGraph?: TraceablePlan["taskGraph"] }>(plan: TPlan): TPlan {
+  if (plan.mode === "testing") return plan;
+  const edges = dependencyEdges(plan.tasks, plan.taskGraph);
+  const reaches = (from: string, to: string): boolean => {
+    const found = new Set<string>(); const stack = [...(edges.get(from) ?? [])];
+    for (let next = stack.pop(); next !== undefined; next = stack.pop()) { if (next === to) return true; if (!found.has(next)) { found.add(next); stack.push(...(edges.get(next) ?? [])); } }
+    return false;
+  };
+  const writers = writeScopes(plan.tasks).sort((left, right) => left.task.id.localeCompare(right.task.id));
+  const added: { from: string; to: string }[] = [];
+  for (const [position, second] of writers.entries()) {
+    if (second.task.dependencies === undefined) continue;
+    // The nearest earlier writer first, so the writers of one file form a chain and not every pair.
+    for (const first of writers.slice(0, position).reverse()) {
+      if (first.task.id === second.task.id || ![...first.paths.keys()].some((path) => [...second.paths.keys()].some((other) => covers(path, other)))) continue;
+      if (reaches(first.task.id, second.task.id) || reaches(second.task.id, first.task.id)) continue;
+      edges.get(first.task.id)?.add(second.task.id); added.push({ from: first.task.id, to: second.task.id });
+    }
+  }
+  if (added.length === 0) return plan;
+  return { ...plan,
+    tasks: plan.tasks.map((task) => {
+      const earlier = added.filter(({ to }) => to === task.id).map(({ from }) => from);
+      return earlier.length === 0 || task.dependencies === undefined ? task : { ...task, dependencies: { ...task.dependencies, dependsOn: [...task.dependencies.dependsOn, ...earlier] } };
+    }),
+    ...(plan.taskGraph === undefined ? {} : { taskGraph: [...plan.taskGraph, ...added] }) } as TPlan;
 }
 function diagnostic(code: TraceabilityDiagnostic["code"], path: string, message: string): TraceabilityDiagnostic { return Object.freeze({ code, path, message }); }

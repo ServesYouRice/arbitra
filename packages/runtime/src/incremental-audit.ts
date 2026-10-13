@@ -195,8 +195,9 @@ export function decideUnit(current: UnitIdentity, base: DiscoveryUnitRecord | nu
 }
 
 /** Raised when the stages after discovery change what they check, so their identities change with them.
- * 2: one pass of each review stage unless the run asks for more, and a model question for every undecided candidate. */
-const STAGE_LOGIC = 2;
+ * 2: one pass of each review stage unless the run asks for more, and a model question for every undecided candidate.
+ * 3: a question reads only the files its candidate cites, and the run orders tasks that write the same files. */
+const STAGE_LOGIC = 3;
 
 /** Downstream stages recomputed over the union of reused and fresh findings unless their whole input identity matches. */
 export const INCREMENTAL_AUDIT_STAGES: readonly { readonly stage: string; readonly prefixes: readonly string[]; readonly protocols: readonly string[] }[] = Object.freeze([

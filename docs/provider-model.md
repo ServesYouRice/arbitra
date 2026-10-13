@@ -228,10 +228,12 @@ original evidence IDs outside the model context. Verification asks a targeted mo
 question when deterministic checks cannot establish the claim: one for every candidate the
 review left undecided, up to `maximumParallelCalls` at a time.
 `verification.maxModelQuestionsPerRound` bounds the questions when it is set (zero disables
-model verification). A question reads the source its candidate cites and the files of their
-modules (every other file is a tool call away), and the unresolved peer operations that
-involve its own candidate in outline; the plan reads those that involve accepted issues in
-full. A question its provider declines, or whose reply stays invalid or stops at the output
+model verification). A question reads the files its candidate cites (every other file is a
+tool call away, and its instruction says to read what the answer depends on), and the
+unresolved peer operations that involve its own candidate in outline; the plan reads those
+that involve accepted issues in full. A wider source was measured and dropped: with the files
+of the cited files' modules, each of 51 questions read 47 of a project's 57 files, because one
+chain of imports joins most of a project, and the questions of one run read 5.3M tokens. A question its provider declines, or whose reply stays invalid or stops at the output
 ceiling, leaves its candidate unverified and the run records
 `verification_question_unanswered:<n>`. A stage whose
 required input cannot fit its context is tried as required input before it gives up:
@@ -319,6 +321,10 @@ that the review had not rejected.
   `review.recheckRevisedPlan` is true. Otherwise `critic-feedback` keeps the critique and adds
   a `revision` record: which blocking items the revision resolved and which it could not revise.
   Only an item it could not revise still fails the gate; its question is in the plan.
+- **Tasks that write the same files are ordered by the run, not by a repair.** A plan or a
+  revision that leaves two such tasks unordered is not refused: the later task (by id) waits for
+  the nearest earlier one ([task IR](task-ir.md)). Observed: the refusal named the missing edges,
+  and the repair wrote the whole plan again, 60,000 output tokens in eight minutes.
 
 `stageEffort` sets the effort of the stages after discovery (`clustering`, `peerReview`,
 `verification`, `planner`, `critic`, `revision`; each `low`, `medium` or `high`, mapped by the

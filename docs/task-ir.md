@@ -26,8 +26,13 @@ rather than emitting a plan where a task maps to no assertion or an accepted iss
 covered by no task. In Audit and Feature plans, two tasks whose write scopes overlap must
 also be ordered by a dependency path (`SHARED_WRITE_SCOPE_UNORDERED`): a handoff renders only
 `dependsOn` and `blocks`, and `conflictsWith` orders nothing. Testing execution serialises
-shared writes itself, so its plans are exempt. Planner calls refuse these violations inside the
-call, so the bounded output repair can fix them. `apps/web/src/views/plan/traceability.ts` walks the same chain
+shared writes itself, so its plans are exempt. The run adds the orders a plan leaves out
+(`withSharedWritesOrdered`, applied to every plan, outline and revision a model returns): the
+later task by id waits for the nearest earlier one that writes the same files, in its
+`dependsOn` and in `taskGraph`. A plan states the orders that matter, so what it leaves
+unordered is independent work on the same files, and any order serialises it; an order the
+plan states is kept, whichever way it runs. The check stays as the last line. Planner calls
+refuse the other violations inside the call, so the bounded output repair can fix them. `apps/web/src/views/plan/traceability.ts` walks the same chain
 in both directions in the UI.
 
 ## Validation Contract

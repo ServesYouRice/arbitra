@@ -15,10 +15,11 @@ import type { TestSandbox } from "../src/test-sandbox.js";
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
-async function fixture(options: { revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; ambiguousClustering?: boolean; oversizedRepository?: boolean; planQuestion?: boolean; verifierContextTokens?: number; invalidVerification?: boolean } = {}) {
+async function fixture(options: { secondFile?: boolean; revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; ambiguousClustering?: boolean; oversizedRepository?: boolean; planQuestion?: boolean; verifierContextTokens?: number; invalidVerification?: boolean } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "arbitra-model-run-")); directories.push(directory);
   const manyIssues = options.largePeerContext === true || options.largePlannerContext === true;
   await writeFile(join(directory, "a.ts"), "const value = null;\n".repeat(manyIssues ? 4 : options.ambiguousClustering === true ? 3 : 1), "utf8");
+  if (options.secondFile === true) await writeFile(join(directory, "b.ts"), "export const other = 1;\n", "utf8");
   if (options.oversizedRepository === true) await writeFile(join(directory, "large.ts"), "// unrelated source\n".repeat(12_000), "utf8");
   const example = runConfigSchema.parse(JSON.parse(await readFile(new URL("../../../examples/audit-balanced.json", import.meta.url), "utf8")));
   const template = example.models["auditor-a"];
@@ -54,7 +55,7 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
     execution.modelEndpoints["verifier-model"] = "auditor-b"; execution.roles.verifier = "verifier-model";
   }
   const requests: { stage: string; url: string }[] = [];
-  const verificationInputs: { candidateId: string; unresolvedPeerOperations: { candidateIds: string[] }[] }[] = [];
+  const verificationInputs: { candidateId: string; unresolvedPeerOperations: { candidateIds: string[] }[]; sourcePaths: string[] }[] = [];
   const plannerContexts: { unresolvedPeerOperations: { candidateIds: string[] }[] }[] = [];
   const packedChecks: (readonly [string, string])[][] = [];
   const criticIssueIds: string[][] = [];
@@ -147,8 +148,8 @@ async function fixture(options: { revision?: "resolved" | "still_blocking" | "in
     } else if (system.startsWith("Answer the single")) {
       requests.push({ stage: "verification", url: request.url });
       if (failVerification) return { status: 503, headers: {}, body: {} };
-      const input = JSON.parse(user) as { request: { candidateId: string; context: { citedContext: { evidenceId: string }[] } }; unresolvedPeerOperations: { candidateIds: string[] }[] };
-      verificationInputs.push({ candidateId: input.request.candidateId, unresolvedPeerOperations: input.unresolvedPeerOperations });
+      const input = JSON.parse(user) as { request: { candidateId: string; context: { citedContext: { evidenceId: string }[] } }; unresolvedPeerOperations: { candidateIds: string[] }[]; repository: { path: string }[] };
+      verificationInputs.push({ candidateId: input.request.candidateId, unresolvedPeerOperations: input.unresolvedPeerOperations, sourcePaths: input.repository.map(({ path }) => path) });
       // The answers take a moment, so questions asked side by side are in flight together.
       verificationFlight.now += 1; verificationFlight.most = Math.max(verificationFlight.most, verificationFlight.now);
       await new Promise((resolve) => setTimeout(resolve, 60));
@@ -824,6 +825,16 @@ describe("composed model audits", () => {
     expect(requests.some(({ stage }) => stage === "merge-check")).toBe(false);
     const issues = await read<{ issues: { disposition: string; verificationOutcome: string | null }[] }>("canonical-issues");
     expect(issues.issues.every(({ disposition, verificationOutcome }) => disposition === "accepted" && verificationOutcome === "CONFIRMED")).toBe(true);
+  });
+
+  it("gives a verification question only the files its candidate cites", async () => {
+    // Observed live (P20 pilot): with the files of the cited files' modules added, each of 51 questions read 47 of
+    // a project's 57 files, 5.3M tokens in all.
+    const { create, config, verificationInputs } = await fixture({ secondFile: true, conflictingReview: true });
+    const core = create(); const result = await core.run(config);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
+    expect(verificationInputs.map(({ sourcePaths }) => sourcePaths)).toEqual([["a.ts"]]);
   });
 
   it("leaves a candidate open when its verification answer stays invalid, and completes the run", async () => {
