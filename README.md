@@ -33,9 +33,9 @@ web UI passes browser acceptance on Chromium, Firefox and WebKit. Every public w
 has also run live on subscription models, Gemini has run on its API, Docker acceptance ran
 on a real engine, and the native Claude Code adapter passed conformance against the real
 CLI. The OpenAI and Anthropic API protocols and the batch drivers have not run live; that
-work is [deferred](#deferred-to-a-later-phase-the-paid-api-bundle). See
-[project status](docs/project-status.md) for measured evidence and the
-[completion plan](docs/completion-plan.md#status-september-27-2026) for what remains.
+work is [deferred](#deferred-to-a-later-phase-the-paid-api-bundle). See the
+[verification evidence](docs/qa/README.md) for what was measured, and
+[remaining work](WORK-REMAINING.md) for what remains.
 
 One thing is worth knowing before reading further: **the premise is measured, and the
 answer so far is "insufficient evidence".** The live evaluation (completion plan P06,
@@ -152,7 +152,7 @@ tooling/              ESLint rules that enforce architecture invariants
 | Document | Covers |
 |---|---|
 | [`docs/setup.md`](docs/setup.md) | getting started: validation, smoke checks, live-run preparation, preflight codes, handoffs |
-| [`docs/project-status.md`](docs/project-status.md) | current capabilities, limitations and dated verification evidence |
+| [`docs/qa/README.md`](docs/qa/README.md) | dated verification evidence per item: checks, Docker, browsers, live providers, evaluations |
 | [`docs/completion-plan.md`](docs/completion-plan.md) | remaining implementation and validation steps, dependencies and acceptance criteria |
 | [`docs/architecture.md`](docs/architecture.md) | package layout, layering, the core loop, v1.1 extension points |
 | [`docs/security.md`](docs/security.md) | trust, taint, control plane, suppression, command policy |

@@ -5,9 +5,9 @@ See [status](#status-september-27-2026) for each item.
 
 This plan covers every unfinished implementation, validation and usability step identified
 in the project review and the previous execution queue. The
-[project status](project-status.md) records implemented behavior and measured evidence.
-Earlier notes are [archived](history/implementation-log-through-2026-09-23.md).
-The original 49-task completion count is not reused for this plan.
+[verification evidence](qa/README.md) records measured evidence, and
+[remaining work](../WORK-REMAINING.md) holds the current state. The original 49-task
+completion count is not reused for this plan.
 
 ## Completion rules
 
