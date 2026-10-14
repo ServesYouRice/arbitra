@@ -236,8 +236,18 @@ the commit after it unless it says open:
   (not measured: 31 calls of 42,000 tokens in and 12,000 out, the notes and the outline as they were, and 15
   follow-up calls assumed), still the largest stage of a one-auditor run. Whether every accepted issue gets a
   task written out in full, or only those above a severity, is the owner's decision.
-- Open: a follow-up call (a tool turn or a repair) is a new call that resends the whole exchange and reads nothing
-  from a cache. It is 111 of the 169 verification calls of this run.
+- A follow-up call (a tool turn) was a new call that resent the whole exchange as one message: 111 of the 169
+  verification calls of this run. On Claude Code a tool turn now continues the CLI's own session with the tool
+  results alone (October 14: 91% of a continued turn's prompt came from the cache, 19% when sent whole). Open: the
+  same for Codex (`exec resume`) and the Antigravity CLI (`--conversation`).
+- The run's single output ceiling had to fit the smallest model of a lineup (Gemini 3.8 Flash, 65,536), so Opus 5.5
+  (128,000) was held to 64,000. Each call now asks for its own model's ceiling.
+
+**The 2.6.0 panel run (October 13 and 14) failed in plan revision.** Its plan, written task by task (31 tasks of
+about 20,000 characters), left one critique item whose revision context did not fit
+(`PLANNER_REVISION_ITEM_CONTEXT_LIMIT_EXCEEDED`), after a wait of four hours for the Claude window. Open: a plan
+in one call where the ceiling allows (91 issues at 128,000 output tokens), and a revision item that reads only the
+tasks it changes.
 
 **First timed run of the speed build (October 13): one Opus-only audit.** It had a call in flight for 27 minutes
 (17 for the same audit before the build) and used 6.9M tokens (1.0M before). Verification worked as meant: 51
