@@ -1,4 +1,4 @@
-import { clustersFrom, deterministicClusteringStrategy, mergeParent, parentFrom, SAME_ANSWER_SIGNAL } from "./deterministic.js";
+import { clustersFrom, deterministicClusteringStrategy, mergeParent, parentFrom, SAME_ANSWER_SIGNAL, STRUCTURAL_SIGNAL } from "./deterministic.js";
 import type { AmbiguousPair, ClusterOperation, ClusteringMetrics, ClusteringResult, ClusteringStrategy, ClusterRelationship, ValidatedClusterInput } from "./types.js";
 
 export interface SemanticClusteringDecision { readonly relationship: ClusterRelationship; readonly inputTokens: number | null; readonly outputTokens: number | null; readonly cost: number | null }
@@ -6,15 +6,16 @@ export interface SemanticClusteringPair { readonly left: ValidatedClusterInput; 
 export interface SemanticClusteringRuntime { readonly capability: "fast" | "balanced"; classify(pair: SemanticClusteringPair): Promise<SemanticClusteringDecision>;
   /** Optional: classifies several pairs in as few calls as the runtime can. Decisions come back in pair order, with the number of calls made. */
   classifyMany?(pairs: readonly SemanticClusteringPair[]): Promise<{ readonly decisions: readonly SemanticClusteringDecision[]; readonly calls: number }> }
-/** `escalateSharedLines`: every pair held back from one answer, and every pair whose findings cite overlapping
- * lines, is classified too, beyond `maximumEscalatedPairs`. */
+/** `escalateSharedLines`: every pair held back from one answer, every pair the structural rule would have joined,
+ * and every pair whose findings cite overlapping lines, is classified too, beyond `maximumEscalatedPairs`. */
 export interface ClusterOptions { readonly strategy?: ClusteringStrategy; readonly semantic?: SemanticClusteringRuntime; readonly maximumEscalatedPairs?: number; readonly escalateSharedLines?: boolean }
 
 export async function cluster(findings: readonly ValidatedClusterInput[], options: ClusterOptions = {}): Promise<ClusteringResult> {
   const strategy = options.strategy ?? deterministicClusteringStrategy;
-  const base = strategy.cluster(findings); const bound = options.maximumEscalatedPairs ?? 0;
+  // With shared lines escalated, the structural rule proposes its pairs to the semantic check instead of joining them.
+  const base = strategy.cluster(findings, { proposeStructural: options.escalateSharedLines === true && options.semantic !== undefined }); const bound = options.maximumEscalatedPairs ?? 0;
   if (!Number.isSafeInteger(bound) || bound < 0) throw new Error("INVALID_CLUSTERING_ESCALATION_LIMIT");
-  const leading = base.ambiguousPairs.findIndex(({ signals }) => !signals.includes(SAME_ANSWER_SIGNAL) && !signals.includes("overlapping_lines"));
+  const leading = base.ambiguousPairs.findIndex(({ signals }) => !signals.includes(SAME_ANSWER_SIGNAL) && !signals.includes(STRUCTURAL_SIGNAL) && !signals.includes("overlapping_lines"));
   const maximum = options.escalateSharedLines === true ? Math.max(bound, leading < 0 ? base.ambiguousPairs.length : leading) : bound;
   const byId = new Map(base.findings.map((finding) => [finding.finding.sourceFindingId, finding])); const parent = parentFrom(base.clusters); const operations: ClusterOperation[] = [...base.operations]; const pairs: AmbiguousPair[] = [];
   // The escalated pairs are the first `maximum` ambiguous pairs. Their decisions do not depend on one another,

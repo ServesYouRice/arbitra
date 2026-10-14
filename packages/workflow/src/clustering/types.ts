@@ -7,5 +7,7 @@ export interface AmbiguousPair { readonly leftId: string; readonly rightId: stri
 export type ClusterOperation = { readonly type: "merge"; readonly sourceFindingIds: readonly string[]; readonly reason: "exact" | "structural" | "semantic" } | { readonly type: "split"; readonly sourceFindingId: string; readonly candidateIds: readonly string[]; readonly reason: string };
 export interface ClusteringMetrics { readonly deterministicPairsResolved: number; readonly escalatedPairs: number; readonly semanticClusteringCalls: number; readonly semanticClusteringTokens: number | null; readonly semanticClusteringCost: number | null }
 export interface StrategyResult { readonly findings: readonly ValidatedClusterInput[]; readonly clusters: readonly FindingCluster[]; readonly ambiguousPairs: readonly AmbiguousPair[]; readonly operations: readonly ClusterOperation[]; readonly deterministicPairsResolved: number }
-export interface ClusteringStrategy { readonly id: string; cluster(findings: readonly ValidatedClusterInput[]): StrategyResult }
+/** `proposeStructural`: a pair the structural rule would join is held as a proposal for the semantic check
+ * instead (signal `structural`); only exact duplicates are joined by the rule. */
+export interface ClusteringStrategy { readonly id: string; cluster(findings: readonly ValidatedClusterInput[], options?: { readonly proposeStructural?: boolean }): StrategyResult }
 export interface ClusteringResult { readonly clusters: readonly FindingCluster[]; readonly ambiguousPairs: readonly AmbiguousPair[]; readonly operations: readonly ClusterOperation[]; readonly metrics: ClusteringMetrics }

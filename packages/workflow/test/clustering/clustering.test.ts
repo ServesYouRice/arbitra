@@ -100,6 +100,18 @@ describe("deterministic clustering", () => {
     expect(asked).toEqual([]);
   });
 
+  it("has the semantic check decide a pair the structural rule would join when shared lines are escalated", async () => {
+    // Observed live (October 14): overlapping lines and one category joined three different defects into one issue.
+    const leak = input("auditor-a/leak", { category: "CORRECTNESS", title: "Reserved stock is never released on a declined payment", problem: "Reservations stay taken", recommendedFix: "Release on failure", locations: [{ path: "src/checkout.ts", startLine: 10, endLine: 12 }], failureMechanisms: [] });
+    const coupon = input("auditor-b/coupon", { category: "CORRECTNESS", title: "Coupon percent is unbounded", problem: "A percent over 100 gives a negative charge", recommendedFix: "Bound the percent", locations: [{ path: "src/checkout.ts", startLine: 11, endLine: 12 }], failureMechanisms: [] });
+    expect((await cluster([leak, coupon], { strategy: deterministicClusteringStrategy })).clusters).toHaveLength(1);
+    const unrelated = { capability: "fast" as const, async classify() { return { relationship: "unrelated" as const, inputTokens: 0, outputTokens: 0, cost: 0 }; } };
+    const asked = await cluster([leak, coupon], { strategy: deterministicClusteringStrategy, maximumEscalatedPairs: 0, escalateSharedLines: true, semantic: unrelated });
+    expect(asked.clusters).toHaveLength(2);
+    expect(asked.ambiguousPairs).toMatchObject([{ signals: expect.arrayContaining(["structural"]) as unknown, relationship: "unrelated" }]);
+    expect(asked.operations).toHaveLength(0);
+  });
+
   it("still merges one defect filed under two ordinary categories", async () => {
     const result = await cluster([input("auditor-a/RACE-1", { category: "RELIABILITY", title: "Stock race", problem: "A race lets two reservations oversell", locations: [{ path: "src/inventory.ts", startLine: 2, endLine: 5 }], failureMechanisms: [] }), input("auditor-b/RACE-2", { category: "CORRECTNESS", title: "Reservation race condition", problem: "Concurrent calls race between check and write", locations: [{ path: "src/inventory.ts", startLine: 3, endLine: 5 }], failureMechanisms: [] })], { strategy: deterministicClusteringStrategy });
     expect(result.clusters).toHaveLength(1);

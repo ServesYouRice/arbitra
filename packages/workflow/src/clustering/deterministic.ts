@@ -4,6 +4,8 @@ import type { AmbiguousPair, ClusterOperation, ClusteringStrategy, FindingCluste
 export const deterministicClusteringStrategy: ClusteringStrategy = Object.freeze({ id: "structural-v3", cluster: deterministicCluster });
 /** The signal of a pair held back because both findings came in one answer. */
 export const SAME_ANSWER_SIGNAL = "same_answer";
+/** The signal of a pair the structural rule proposes for the semantic check instead of joining. */
+export const STRUCTURAL_SIGNAL = "structural";
 
 /** A prompt-injection report is about repository text aimed at the auditor, never the defect beside
  * it, so it clusters only with other such reports (observed: the P18 real-model corpus merged it with
@@ -19,7 +21,7 @@ const ISOLATED_CATEGORIES: ReadonlySet<string> = new Set(["PROMPT_INJECTION"]);
  * findings of one answer; one put a planted high-severity defect under the title of a low-severity finding, the
  * check rejected that title and the defect was lost. On the labelled corpora the rule takes false merges from
  * 11 to 2 (authored) and from 22 to 19 (P06 real models) and loses no true merge. */
-export function deterministicCluster(inputs: readonly ValidatedClusterInput[]): StrategyResult {
+export function deterministicCluster(inputs: readonly ValidatedClusterInput[], options: { readonly proposeStructural?: boolean } = {}): StrategyResult {
   const findings = [...inputs].sort((a, b) => a.finding.sourceFindingId.localeCompare(b.finding.sourceFindingId));
   if (findings.some(({ validation }) => validation !== "accepted")) throw new Error("CLUSTERING_REQUIRES_VALIDATED_FINDINGS");
   const ids = findings.map(({ finding }) => finding.sourceFindingId); if (new Set(ids).size !== ids.length) throw new Error("DUPLICATE_CLUSTER_SOURCE_FINDING");
@@ -44,6 +46,13 @@ export function deterministicCluster(inputs: readonly ValidatedClusterInput[]): 
   }
   const held: AmbiguousPair[] = [];
   for (const pair of structural.sort((x, y) => y.score - x.score || y.shared - x.shared || x.a.localeCompare(y.a) || x.b.localeCompare(y.b))) {
+    // With a semantic check to ask, the rule only proposes: overlapping lines and one category are signals, not
+    // one defect. Observed live (October 14, a three-model shakedown): the rule joined a stock leak, an unbounded
+    // coupon and missing input checks, which the semantic check had judged unrelated, into one issue of 9 findings.
+    if (options.proposeStructural === true) {
+      held.push(Object.freeze({ leftId: pair.a, rightId: pair.b, signals: Object.freeze([...pair.names, STRUCTURAL_SIGNAL]), score: pair.score, relationship: null }));
+      continue;
+    }
     const left = find(parent, pair.a); const right = find(parent, pair.b);
     if (left !== right && [...answers.get(left) ?? []].some((answer) => answers.get(right)?.has(answer) === true)) {
       held.push(Object.freeze({ leftId: pair.a, rightId: pair.b, signals: Object.freeze([...pair.names, SAME_ANSWER_SIGNAL]), score: pair.score, relationship: null }));
