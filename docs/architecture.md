@@ -1,8 +1,7 @@
 # Architecture
 
-This describes the system as built. [Project status](project-status.md) records dated
-verification evidence; the [completion plan](completion-plan.md) tracks unfinished
-implementation and validation. The original build specification is a locally retained
+This describes the system as built. [Verification evidence](qa/README.md) records dated
+evidence; [remaining work](../WORK-REMAINING.md) tracks what is unfinished. The original build specification is a locally retained
 working input and is not required to read this public documentation set.
 
 ## Layering
@@ -301,8 +300,8 @@ The [completion plan](completion-plan.md) records dependencies and acceptance cr
   trace browser is covered by browser acceptance (see [`qa/p10/`](qa/p10/README.md)).
   Evaluation corpora are durable, and the P06 driver
   (`packages/testing/src/premise-evaluation/`) imports live observations into them.
-- Browser acceptance has run on macOS and Linux arm64, and CI on `ubuntu-latest` and
-  `macos-latest`; see [verification evidence](project-status.md#verification-evidence).
+- Browser acceptance has run on macOS and Linux arm64, and the full check runs locally and in
+  a Linux container; see [verification evidence](qa/README.md).
 
 ## v1.1 extension points
 
