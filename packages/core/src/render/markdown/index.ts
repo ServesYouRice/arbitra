@@ -48,7 +48,23 @@ export function renderRequirements(manifest: ImplementationManifest): string {
 }
 
 export function renderIssue(issue: NonNullable<ImplementationManifest["issues"]>[number]): string {
-  return markdownFile([`# ${inlineCode(issue.id)}`, `Status: ${inlineCode(issue.status ?? "unknown")}. Provenance is retained.`, frameUntrusted(issue.title ?? "Untitled issue"), frameUntrusted(issue.description ?? "No description supplied."), "## Dissent", issue.dissent?.length ? issue.dissent.map(frameUntrusted).join("\n\n") : "No dissent recorded.", "## Provenance", listCode(issue.provenance ?? [])]);
+  const facts = [
+    ...(issue.severity === undefined ? [] : [`Severity: ${inlineCode(issue.severity)}.`]),
+    ...(issue.foundBy === undefined ? [] : [`Reported by ${issue.foundBy} independent auditor${issue.foundBy === 1 ? "" : "s"}.`]),
+    ...(issue.verification === undefined ? [] : [`Verification: ${inlineCode(issue.verification.outcome ?? "not verified")}${issue.verification.confidence === null ? "" : `, confidence ${issue.verification.confidence}`}.`]),
+  ];
+  const audit = issue.locations === undefined && issue.evidence === undefined ? [] : [
+    "## Where", listCode(issue.locations ?? []),
+    ...(issue.trigger === undefined ? [] : ["## Trigger", frameUntrusted(issue.trigger)]),
+    "## Evidence", issue.evidence?.length ? issue.evidence.map(({ text, locations }) => `${listInline(locations)}\n${frameUntrusted(text)}`).join("\n\n") : "No quoted evidence recorded.",
+  ];
+  const reproduce = issue.reproduceFirst !== true ? [] : [
+    "## Reproduce first",
+    "Before changing code, write a test that fails on the current code for the reason this issue gives, and that passes once the fix is in. If no such test can be written, record why as the issue's proof gap and go on. Never edit or remove an existing test to make a check pass.",
+    "## Result",
+    `Report this issue's result in ${inlineCode("progress.jsonl")} with the task that addresses it: ${inlineCode("fixed")}, ${inlineCode("not_reproducible")}, ${inlineCode("no_change_needed")} or ${inlineCode("blocked")}, with the test or the reason as proof.`,
+  ];
+  return markdownFile([`# ${inlineCode(issue.id)}`, `Status: ${inlineCode(issue.status ?? "unknown")}. Provenance is retained.`, ...(facts.length === 0 ? [] : [facts.join(" ")]), frameUntrusted(issue.title ?? "Untitled issue"), frameUntrusted(issue.description ?? "No description supplied."), ...audit, ...reproduce, "## Dissent", issue.dissent?.length ? issue.dissent.map(frameUntrusted).join("\n\n") : "No dissent recorded.", "## Provenance", listCode(issue.provenance ?? [])]);
 }
 
 export function renderTask(task: ManifestTask, writeScope: readonly string[], readFirst: readonly string[]): string {

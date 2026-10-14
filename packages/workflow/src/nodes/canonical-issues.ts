@@ -12,7 +12,9 @@ interface Vote { readonly authorId: string; readonly disposition: "accept" | "re
 interface BoardCandidate { readonly candidateId: string; readonly claim: { readonly title: string; readonly description: string }; readonly sourceFindingIds: readonly string[]; readonly severity: Severity; readonly blocker: boolean; readonly counterEvidence: readonly Evidence[]; readonly remediationSupplements?: readonly string[]; readonly verificationSupplements?: readonly string[] }
 interface CandidateConsensus { readonly candidateId: string; readonly outcome: ConsensusOutcome; readonly supportCount: number; readonly reviewDenominator: number; readonly dissent: readonly Vote[]; readonly coverage: { readonly reviewedBy: readonly string[]; readonly missingReviewers: readonly string[] }; readonly reason: string }
 export interface CanonicalisationBoard { readonly candidates: Readonly<Record<string, BoardCandidate>>; readonly consensus: { readonly auditorCount: number; readonly candidates: readonly CandidateConsensus[] } }
-export interface CanonicalVerification { readonly candidateId: string; readonly outcome: VerificationOutcome }
+/** `claim` and `sourceFindingIds`, when given, replace the candidate's: a rejected merge whose findings were then
+ * checked one place at a time stands for the findings that were confirmed, under their own title. */
+export interface CanonicalVerification { readonly candidateId: string; readonly outcome: VerificationOutcome; readonly claim?: { readonly title: string; readonly description: string }; readonly sourceFindingIds?: readonly string[] }
 export interface CanonicalCoverage {
   readonly securityCoverage: { readonly degraded: boolean; readonly reason: string | null; readonly requiredAction?: string };
   readonly suppressionCandidates: readonly unknown[];
@@ -45,11 +47,14 @@ export function canonicaliseIssues(board: CanonicalisationBoard, verification: r
     if (candidate.sourceFindingIds.length === 0) throw new Error(`CANONICAL_ISSUE_REQUIRES_SOURCE_FINDING:${candidate.candidateId}`);
     const consensus = consensusById.get(candidate.candidateId); if (consensus === undefined) throw new Error(`MISSING_CANONICAL_CONSENSUS:${candidate.candidateId}`);
     if (consensus.reviewDenominator !== board.consensus.auditorCount) throw new Error(`CANONICAL_REVIEW_DENOMINATOR_MISMATCH:${candidate.candidateId}`);
-    const verified = verificationById.get(candidate.candidateId)?.outcome ?? null;
+    const verification = verificationById.get(candidate.candidateId);
+    const verified = verification?.outcome ?? null;
+    const claim = verification?.claim ?? candidate.claim;
+    if (verification?.sourceFindingIds !== undefined && (verification.sourceFindingIds.length === 0 || verification.sourceFindingIds.some((id) => !candidate.sourceFindingIds.includes(id)))) throw new Error(`CANONICAL_VERIFIED_FINDINGS_OUTSIDE_CANDIDATE:${candidate.candidateId}`);
     const disposition: CanonicalDisposition = singleSource ? (verified === "CONFIRMED" ? "verified_single_source" : "single_source") : verified === "CONFIRMED" ? "accepted" : verified === "REJECTED" ? "rejected" : verified === "STILL_NEEDS_VERIFICATION" ? "needs_verification" : consensus.outcome;
     return Object.freeze({
       candidateId: candidate.candidateId,
-      claim: Object.freeze({ trust: "untrusted_data" as const, title: candidate.claim.title, description: candidate.claim.description }),
+      claim: Object.freeze({ trust: "untrusted_data" as const, title: claim.title, description: claim.description }),
       severity: candidate.severity,
       blocker: candidate.blocker,
       disposition,
@@ -60,7 +65,7 @@ export function canonicaliseIssues(board: CanonicalisationBoard, verification: r
       counterEvidence: Object.freeze(candidate.counterEvidence.map((evidence) => Object.freeze({ ...evidence, locationIds: Object.freeze([...evidence.locationIds]) }))),
       ...(candidate.remediationSupplements === undefined ? {} : { remediationSupplements: Object.freeze([...candidate.remediationSupplements]) }),
       ...(candidate.verificationSupplements === undefined ? {} : { verificationSupplements: Object.freeze([...candidate.verificationSupplements]) }),
-      sourceFindingIds: Object.freeze([...new Set(candidate.sourceFindingIds)].sort()),
+      sourceFindingIds: Object.freeze([...new Set(verification?.sourceFindingIds ?? candidate.sourceFindingIds)].sort()),
       verificationOutcome: verified,
       coverage: Object.freeze({ reviewedBy: Object.freeze([...consensus.coverage.reviewedBy].sort()), missingReviewers: Object.freeze([...consensus.coverage.missingReviewers].sort()) }),
       singleSource,

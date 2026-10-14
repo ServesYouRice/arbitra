@@ -40,6 +40,10 @@ export async function evaluationMetrics(store: RunStore, traces: readonly ModelA
     totalCostUsd, currency: totalCostUsd === null ? null : "USD", costPerTrueAcceptedIssue: null,
     inputTokens: knownSum(traces.map(({ tokenUsage }) => tokenUsage?.inputTokens ?? null)),
     outputTokens: knownSum(traces.map(({ tokenUsage }) => tokenUsage?.outputTokens ?? null)),
+    // inputTokens counts the whole prompt; the part read from a prompt cache, and the part written to one, are
+    // priced apart by every vendor (a cached token at a tenth of an input token or less), so they are reported apart.
+    cacheReadTokens: knownSum(traces.map(({ tokenUsage }) => tokenUsage?.cacheReadTokens ?? null)),
+    cacheWriteTokens: knownSum(traces.map(({ tokenUsage }) => tokenUsage?.cacheWriteTokens ?? null)),
     consensusPrecision: null, consensusRecall: null, verificationResolutionRate: verification === null || verificationCount === 0 ? null : verification.resolvedDisputes / verificationCount,
     cacheHitRate: cacheRate(traces), escalatedPairs: clustering?.metrics.escalatedPairs ?? null,
     securityOverlapBudget: null, suppressionCandidateCount: issues?.coverage.suppressionCandidates.length ?? null,

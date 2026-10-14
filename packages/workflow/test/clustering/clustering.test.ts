@@ -67,7 +67,7 @@ describe("deterministic clustering", () => {
     const locale = input("auditor-a/scope-1/key-ignores-locale", { category: "CORRECTNESS", title: "Cache key ignores the locale", problem: "Two locales share one cached page", recommendedFix: "Add the locale to the key", locations: [{ path: "src/cache.ts", startLine: 46, endLine: 46 }], failureMechanisms: [] });
     const apart = await cluster([stale, locale], { strategy: deterministicClusteringStrategy });
     expect(apart.clusters).toHaveLength(2); expect(apart.operations).toHaveLength(0);
-    expect(apart.ambiguousPairs).toEqual([{ leftId: "auditor-a/scope-1/key-ignores-locale", rightId: "auditor-a/scope-1/stale-entry-served", signals: ["same_path", "overlapping_lines", "same_category"], score: 5, relationship: null }]);
+    expect(apart.ambiguousPairs).toEqual([{ leftId: "auditor-a/scope-1/key-ignores-locale", rightId: "auditor-a/scope-1/stale-entry-served", signals: ["same_path", "overlapping_lines", "same_category", "same_answer"], score: 5, relationship: null }]);
     // The pair is first in line for the semantic check, which may still establish one root cause.
     expect((await cluster([stale, locale], { strategy: deterministicClusteringStrategy, maximumEscalatedPairs: 1, semantic: semantic("same_root_cause") })).clusters).toHaveLength(1);
     // Another auditor's report of the first defect joins the finding it shares more lines with; the second stays apart.
@@ -78,6 +78,26 @@ describe("deterministic clustering", () => {
     // The same auditor's finding from another scope is another answer and merges as before.
     const elsewhere = input("auditor-a/scope-2/stale-again", { category: "CORRECTNESS", title: "Deadline skipped on read", problem: "A stale value may be returned", recommendedFix: "Reorder the check", locations: [{ path: "src/cache.ts", startLine: 40, endLine: 52 }], failureMechanisms: [] });
     expect((await cluster([stale, elsewhere], { strategy: deterministicClusteringStrategy })).clusters).toHaveLength(1);
+  });
+
+  it("classifies every pair that cites overlapping lines when asked to, beyond the bound, and those pairs first", async () => {
+    // Two auditors' reports of one defect that share few signals, and an unrelated pair in the same file.
+    const findings = [
+      input("auditor-a/1", { category: "CORRECTNESS", title: "Refund total ignores fees", problem: "Fees are not subtracted", recommendedFix: "Subtract fees", locations: [{ path: "src/refund.ts", startLine: 10, endLine: 14 }], failureMechanisms: [] }),
+      input("auditor-b/1", { category: "RELIABILITY", title: "Wrong refund amount", problem: "The amount overstates what is owed", recommendedFix: "Compute the net", locations: [{ path: "src/refund.ts", startLine: 12, endLine: 12 }], failureMechanisms: [] }),
+      input("auditor-c/1", { category: "CORRECTNESS", title: "Log line leaks the card", problem: "The card number is logged", recommendedFix: "Mask it", locations: [{ path: "src/refund.ts", startLine: 40, endLine: 41 }], failureMechanisms: [] }),
+    ];
+    const asked: string[] = [];
+    const runtime = { capability: "fast" as const, async classify({ left, right }: { left: { finding: { sourceFindingId: string } }; right: { finding: { sourceFindingId: string } } }) { asked.push(`${left.finding.sourceFindingId}|${right.finding.sourceFindingId}`); return { relationship: "same_root_cause" as const, inputTokens: 0, outputTokens: 0, cost: 0 }; } };
+    const base = await cluster(findings, { strategy: deterministicClusteringStrategy });
+    expect(base.ambiguousPairs[0]?.signals).toContain("overlapping_lines");
+    // With no bound of its own the overlapping pair is still classified, and only it.
+    const shared = await cluster(findings, { strategy: deterministicClusteringStrategy, maximumEscalatedPairs: 0, escalateSharedLines: true, semantic: runtime });
+    expect(asked).toEqual(["auditor-a/1|auditor-b/1"]);
+    expect(shared.clusters.map(({ sourceFindingIds }) => sourceFindingIds)).toEqual(expect.arrayContaining([["auditor-a/1", "auditor-b/1"], ["auditor-c/1"]]));
+    asked.length = 0;
+    await cluster(findings, { strategy: deterministicClusteringStrategy, maximumEscalatedPairs: 0, semantic: runtime });
+    expect(asked).toEqual([]);
   });
 
   it("still merges one defect filed under two ordinary categories", async () => {

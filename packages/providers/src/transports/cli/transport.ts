@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -66,6 +66,8 @@ export class CliTransport implements ProviderTransport {
   readonly #now: () => number;
   #executable: Promise<{ readonly executable: CliExecutable; readonly version: string }> | undefined;
   readonly #conversations = new Map<string, CliConversation>();
+  /** Secret to this transport: the calls of one stage frame their transcripts alike, and no repository text can. */
+  readonly #markerSeed = randomBytes(16).toString("hex");
 
   constructor(configuration: TransportConfiguration, private readonly dialect: CliDialect, options: CliTransportOptions = {}) {
     this.#support = dialect.support;
@@ -93,7 +95,7 @@ export class CliTransport implements ProviderTransport {
     if (oauthToken === "") throw new TransportError("AUTH", `Credential environment variable ${this.#oauthTokenEnv ?? ""} is not set`, false, null, noUsage("credential_missing"));
     const { executable, version } = await this.#resolve();
     const nativeSchema = this.dialect.nativeSchema(request);
-    const prompt = serializeCliPrompt(request, { nativeSchema, systemInArguments: true });
+    const prompt = serializeCliPrompt(request, { nativeSchema, systemInArguments: true, markerSeed: this.#markerSeed });
     const run = { request, signal, oauthToken, executable, version, nativeSchema };
     await this.#sweep();
     // A conversation that offers tools runs in the CLI's own session. When the model asked for tools, the next turn
@@ -105,7 +107,7 @@ export class CliTransport implements ProviderTransport {
     const previous = last < 0 ? undefined : this.#take(conversationKey(request, last));
     if (previous !== undefined) {
       try {
-        const followUp: CliPrompt = { system: prompt.system, body: serializeCliFollowUp(request, last + 1, previous.boundary), boundary: prompt.boundary };
+        const followUp: CliPrompt = { system: prompt.system, body: serializeCliFollowUp(request, last + 1, previous.boundary), boundary: prompt.boundary, callIds: prompt.callIds };
         return await this.#call(run, followUp, previous.directories, { id: previous.sessionId, resume: true }, previous.boundary, previous.usage);
       } catch (error) {
         // A session that cannot be continued is sent whole once more. A usage limit, a cancellation, a timeout or an
@@ -140,7 +142,7 @@ export class CliTransport implements ProviderTransport {
       // A provider's notice in place of an answer is a refusal, not a reply to parse.
       const refusal = this.dialect.refusal?.(outcome.text) ?? null;
       const text = sessionBoundary === undefined || sessionBoundary === prompt.boundary ? outcome.text : unframedAssistant(outcome.text, sessionBoundary);
-      const reply = refusal === null ? interpretCliReply(text, request, prompt.boundary, outcome.structured) : { text: null, structured: null, toolCalls: Object.freeze([]) };
+      const reply = refusal === null ? interpretCliReply(text, request, prompt.boundary, outcome.structured, prompt.callIds) : { text: null, structured: null, toolCalls: Object.freeze([]) };
       await this.#limits?.clear(this.id).catch(() => undefined);
       const usage: CliUsage = Object.freeze({ inputTokens: outcome.usage.inputTokens ?? null, outputTokens: outcome.usage.outputTokens ?? null, cacheReadTokens: outcome.usage.cacheReadTokens ?? null, cacheWriteTokens: outcome.usage.cacheWriteTokens ?? null });
       if (session !== undefined && sessionBoundary !== undefined && reply.toolCalls.length > 0) {

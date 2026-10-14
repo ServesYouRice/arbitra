@@ -90,7 +90,16 @@ environment and its agent tools, MCP, hooks, skills, plugins and project instruc
 disabled, and kills the process tree on exit. Tool use is emulated: the transcript lists
 arbitra's tools and the model replies with `{"toolCalls":[{"name","arguments"}]}` or its final
 answer; calls get IDs derived from the conversation hash, so the canonical harness's durable
-tool loop is unchanged. On Claude Code a conversation that offers tools runs in the CLI's own
+tool loop is unchanged. The transcript's markers carry a boundary derived from a secret of the
+transport and from what a stage's calls share (instructions, tools, schema), so every call of a
+stage starts with the same text and its CLI can read that start from the prompt cache; a
+message that happens to contain the boundary gets the request's own hash instead. Before
+October 14, 2026 every transcript began with its request's hash, and questions that offer
+tools read nothing from the cache. Each stage's input puts its source first and the call's own
+question after it, as Anthropic advises for long documents. Measured (October 14, Claude Code
+2.1.296, its system prompt replaced): a call in another directory read 26,032 of 26,387
+prompt tokens from the cache another call wrote, so a fresh directory a call costs about 355
+tokens of cache, not the prompt. On Claude Code a conversation that offers tools runs in the CLI's own
 session: the first call starts it (`--session-id`), and a tool turn continues it (`--resume`)
 in the same working directory with only the tool results, so the CLI reads the conversation
 so far from its prompt cache. The directory and the stored session are removed when the
@@ -197,7 +206,7 @@ the same model name. Request model identity must also match the trace context.
 The run schema validates optional `workflow.modelExecution` settings: `endpoints`,
 `modelEndpoints`, `maximumOutputTokens`, optional `maximumDiscoveryTokens` and
 `maximumContextTokens`, `timeoutMs`, `maximumRetries`, `maximumTokens`,
-per-provider `rateLimits`, optional `batch` lanes (see [Batch lane](#batch-lane)), and `roles` (`planner`, `verifier`, optional `critic`). Endpoint credentials are named by `apiKeyEnvVar`; values
+per-provider `rateLimits`, optional `batch` lanes (see [Batch lane](#batch-lane)), and `roles` (`planner`, `verifier`, optional `critic` and `critiqueChecker`). Endpoint credentials are named by `apiKeyEnvVar`; values
 are resolved only at dispatch; `run` first checks that each referenced variable is set
 (`PROVIDER_CREDENTIAL_MISSING:<endpoint>`) without reading the value into any output.
 Limits are supplied by the operator, not inferred from a provider-name table. The CLI/server executes a bounded source-snapshot Audit when these
@@ -243,8 +252,23 @@ to the full, risk-weighted or minimal policy. Later rounds use candidate deltas;
 votes and objections are retained. A changed disposition requires new cited evidence.
 Round artifacts record dispatch decisions, and accepted citations map back to their
 original evidence IDs outside the model context. Verification asks a targeted model
-question when deterministic checks cannot establish the claim: one for every candidate the
-review left undecided, up to `maximumParallelCalls` at a time.
+question when deterministic checks cannot establish the claim: one for every candidate,
+including those the peer vote accepted or rejected, up to `maximumParallelCalls` at a time.
+A vote ranks a candidate; it does not decide it (models agree on 60% of the answers both get
+wrong, and in one measured three-vendor run 26 of 53 accepted issues had reached the plan on
+votes alone; [design audit](design-audit.md)). The questions go out most severe first, then by
+how many reviewers supported the candidate, so a bound leaves out the least important. A
+question names the places its findings cite, not the candidate's title, and the verifier reads
+each finding's location, trigger, problem and quoted evidence under neutral references: not
+which model found it, nor its severity, status or confidence, and with evidence and location IDs
+renamed (a judge leans towards claims stated with authority, and towards its own family's).
+Answering that the source cannot decide is named as an expected answer; such an issue is
+reported as unverified and not planned. A rejected candidate whose findings cite places that do
+not overlap is asked about one place at a time, in order, until one is confirmed; the issue then
+stands for those findings under their own title (`verification-places-<id>`,
+`verification-held-findings`). Observed: a merge gave a real defect another finding's title,
+and the question about that title was rejected. The accepted list is ranked by severity, then by
+how many auditors found the issue, then by the verifier's confidence (`issue-ranking`).
 `verification.maxModelQuestionsPerRound` bounds the questions when it is set (zero disables
 model verification). A question reads the files its candidate cites (every other file is a
 tool call away, and its instruction says to read what the answer depends on), and the
@@ -321,8 +345,12 @@ reviewers, disagreement, or stale source claims keep the conflict unresolved and
 receives those proposals. These
 conflicts remain explicit coverage gaps, even if verification confirms the underlying
 defect. Reviewer order does not select a winning structural claim.
-Ambiguous finding pairs now use durable semantic classification through the verifier profile.
-`maximumClusteringPairs` defaults to 20 (0 disables escalation; maximum 1000).
+Ambiguous finding pairs now use durable semantic classification through the verifier profile,
+reading the files the two findings cite. Unless `maximumClusteringPairs` is set, every pair whose
+findings cite overlapping lines is classified, and the pairs two findings of one answer form,
+with the first 20 of the rest; those pairs come first. Set, it is an exact bound (0 disables
+escalation; maximum 1000). Observed: with the first 20 pairs in id order, 40 pairs of one run's
+53 accepted issues overlapped, and each duplicate paid for its own verification and task.
 
 ## One pass per review stage
 
@@ -346,6 +374,22 @@ that the review had not rejected.
   call when that fits and otherwise in batches of complete records with the global index.
   Records of different batches are compared pair by pair only when `review.criticPairChecks`
   is true. (Feature plans keep their pair coverage.)
+- **The critic is asked only what code cannot check** (protocol `plan-critic` 1.1.0, the
+  audit's default): a task that would leave its issue unfixed, a regression, verification that
+  would pass while the defect remains. A blocking item names the failure it prevents and quotes
+  its task; at most ten non-blocking items are kept from a call. With `roles.critiqueChecker`
+  set, each blocking item is checked by that model before the revision, one question an item
+  against the tasks, issues and files it names (protocol `critique-check`); an item that does
+  not hold stays in the feedback as non-blocking, with the reason (`critique-checks`). A model
+  of neither the planner's nor the critic's family judges between them most evenly.
+- **A plan may cover only the most severe accepted issues**
+  (`modelExecution.planScope.minimumSeverity`, off unless set). The others stay on the
+  accepted list with their evidence and are listed in `plan-scope` and in the handoff.
+- **The audit hands off its final plan** as an implementation tree (`implementation`): one
+  file per accepted or unverified issue with where it is, the quoted evidence, the verifier's
+  answer and how many auditors reported it; a planned issue asks for a test that fails before the
+  fix and for a result the executor reports in `progress.jsonl` (`fixed`,
+  `not_reproducible`, `no_change_needed` or `blocked`, with proof).
 - **One critic, one revision.** The critic reads the revised plan again only when
   `review.recheckRevisedPlan` is true. Otherwise `critic-feedback` keeps the critique and adds
   a `revision` record: which blocking items the revision resolved and which it could not revise.
