@@ -7,7 +7,8 @@ Updated October 14, 2026 (branch `beta`).
 - **No P20 runner is alive.** The 2.6.0 panel run failed in plan revision on October 14 at 02:40 (see "Open
   findings"). Claude's week stood at 84% that afternoon (the runner stops at 90%; reset Saturday, October 17,
   04:00), so the runs wait for the reset, and the week went to the rebuild the owner asked for ("The rebuild of
-  October 14" below). The private `HANDOFF.md` holds the P20 state and how to start protocol 2.7.0.
+  October 14" below). Protocol 2.7.0 is ready on build de060b6; the private `HANDOFF.md` holds the P20 state and
+  how to start it.
 
 ## Handoff, October 10, 2026
 
