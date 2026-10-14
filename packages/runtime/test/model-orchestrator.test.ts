@@ -15,7 +15,7 @@ import type { TestSandbox } from "../src/test-sandbox.js";
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
-async function fixture(options: { secondFile?: boolean; revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; ambiguousClustering?: boolean; oversizedRepository?: boolean; planQuestion?: boolean; verifierContextTokens?: number; invalidVerification?: boolean } = {}) {
+async function fixture(options: { secondFile?: boolean; revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; ambiguousClustering?: boolean; oversizedRepository?: boolean; planQuestion?: boolean; verifierContextTokens?: number; invalidVerification?: boolean; invalidGroupVerification?: boolean } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "arbitra-model-run-")); directories.push(directory);
   const manyIssues = options.largePeerContext === true || options.largePlannerContext === true;
   await writeFile(join(directory, "a.ts"), "const value = null;\n".repeat(manyIssues ? 4 : options.ambiguousClustering === true ? 3 : 1), "utf8");
@@ -166,7 +166,8 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
       requests.push({ stage: "verification-group", url: request.url });
       const input = JSON.parse(user) as { questions: { request: { candidateId: string; context: { citedContext: { evidenceId: string }[] } } }[]; repository: { path: string }[] };
       for (const { request: question } of input.questions) verificationInputs.push({ candidateId: question.candidateId, unresolvedPeerOperations: [], sourcePaths: input.repository.map(({ path }) => path) });
-      output = { answers: input.questions.map(({ request: question }) => ({ candidateId: question.candidateId, outcome: "CONFIRMED", evidenceIds: question.context.citedContext.map(({ evidenceId }) => evidenceId), confidence: 0.8 })) };
+      // A group answer that misses its questions is refused until its repairs run out.
+      output = options.invalidGroupVerification === true ? { answers: [] } : { answers: input.questions.map(({ request: question }) => ({ candidateId: question.candidateId, outcome: "CONFIRMED", evidenceIds: question.context.citedContext.map(({ evidenceId }) => evidenceId), confidence: 0.8 })) };
     } else if (system.startsWith("Read the complete accepted issues")) {
       requests.push({ stage: "planner-brief", url: request.url });
       const input = JSON.parse(user) as { canonicalIssues: { candidateId: string; remediationSupplements: string[] }[] };
@@ -879,6 +880,23 @@ describe("composed model audits", () => {
     expect(new Set(groups.flatMap(({ candidateIds }) => candidateIds)).size).toBe(metrics.itemCount);
     expect(metrics).toMatchObject({ modelCalls: metrics.itemCount, modelQuestionCalls: groups.length });
     expect(requests.filter(({ stage }) => stage === "verification-group" || stage === "verification")).toHaveLength(groups.length);
+    const issues = await read<{ issues: { verificationOutcome: string | null }[] }>("canonical-issues");
+    expect(issues.issues.every(({ verificationOutcome }) => verificationOutcome === "CONFIRMED")).toBe(true);
+  });
+
+  it("asks a group's questions one at a time when the group's answer stays invalid", async () => {
+    const { create, config, requests } = await fixture({ largePeerContext: true, invalidGroupVerification: true });
+    config.verification = { ...config.verification, maxQuestionsPerCall: 3 };
+    const core = create(); const result = await core.run(config);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
+    const artifacts = await core.artifacts(result.runId);
+    const read = async <T>(kind: string) => JSON.parse((await core.artifact(result.runId, artifacts.find((artifact) => artifact.kind === kind)?.artifactId ?? "") as { content: string }).content) as T;
+    const groups = (await read<{ candidateIds: string[] }[]>("verification-groups")).filter(({ candidateIds }) => candidateIds.length > 1);
+    expect(groups.length).toBeGreaterThan(0);
+    expect(artifacts.filter(({ kind }) => kind.startsWith("verification-group-split-"))).toHaveLength(groups.length);
+    // Every grouped question was asked again alone, and answered.
+    expect(requests.filter(({ stage }) => stage === "verification")).toHaveLength(groups.flatMap(({ candidateIds }) => candidateIds).length + (await read<{ candidateIds: string[] }[]>("verification-groups")).filter(({ candidateIds }) => candidateIds.length === 1).length);
     const issues = await read<{ issues: { verificationOutcome: string | null }[] }>("canonical-issues");
     expect(issues.issues.every(({ verificationOutcome }) => verificationOutcome === "CONFIRMED")).toBe(true);
   });
