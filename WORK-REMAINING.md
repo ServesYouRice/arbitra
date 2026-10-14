@@ -266,6 +266,44 @@ side in rounds. Replayed on that run's stored plan and critique: 28 calls in 5 r
 characters. A plan in one call where the ceiling allows (91 issues at 128,000 output tokens) came with the
 per-model ceiling (cd04742).
 
+**A review of the runs and the code (October 14, evening).** Fixed the same evening, before any 2.7.0 run:
+
+- **Codex never received arbitra's instructions (fixed in 1e000da).** Codex 0.162 ignores `base_instructions` and
+  says so only as an error item. Every Codex call of the pilot (GPT-6.1 Sol, GPT-6 Luna) ran without the stage's
+  instruction, its protocol and the schema prose; a live check with a secret word confirmed it. They now travel
+  in `model_instructions_file`, which also replaces Codex's own agent prompt (a minimal call: 4,849 input tokens
+  where it read 14,532), and an ignored setting fails the call. Every panel result so far measured Sol and Luna
+  without instructions.
+- **A quarter of the critic's blocking items objected to edges the run adds itself (fixed in 7a8212f).** In the
+  2.6.0 panel, 27 of 108 blocking items named an edge between two tasks that edit the same file, mostly as
+  spurious; such edges are added by the run to order the edits. The waiting task now says why, and the critic is
+  told.
+- **A revision call could not be joined when an earlier call of its round had retired a task it named (fixed in
+  44ccc10).**
+- **One hard question left a whole group of verification questions unanswered (fixed in bdb2f34):** the group is
+  asked again one question at a time.
+
+Open, measured on the stored 2.6.0 runs:
+
+- **The audit is the smallest stage.** In the 2.6.0 panel (13.7M tokens before it failed) the plan took 37% of the
+  tokens, the critic 27%, verification 15%, discovery 11%, peer review 10%; in the Opus-only run the plan took 64%
+  and verification 31%. The owner's shape has the audit as the longest part.
+- **The critic multiplies the plan's cost.** With tasks of 20,000 characters it reviewed one task a call (37
+  calls, Gemini, 1.3M output tokens) and raised 238 items, 108 blocking; each blocking item is revision work. To
+  decide: a cap on blocking items, items that must name the defect they would cause, or a critic only for what
+  the run cannot check itself (coverage, order and traceability already are).
+- **The accepted list is long and repetitive.** 53 accepted issues in the 2.6.0 panel, 40 pairs of them citing
+  overlapping lines (31 issues), 20 of low severity; 30 found by one auditor only. Candidate: merge accepted
+  issues that cite the same lines before the plan, and rank the list (severity, corroboration).
+- **Sections of a plan do not see each other.** In the sections' plan of the comparison, 34 of the 47 files its
+  tasks edit are edited by tasks of more than one section, joined only by the run's ordering edges. Candidate: a
+  join check over the tasks that share a file, or sections formed by the files tasks write.
+- **Token counts include cache reads.** Since sessions continue, most of a follow-up's input is a cache read, which
+  subscriptions count for less; reports should show cache reads apart from new input.
+- **CLIs update themselves.** The Antigravity CLI went from 1.3.3 to 1.3.5 during the pilot, and the Codex change
+  above shows what an update can do. Each run records the versions; pin a copy of each CLI for a protocol, as is
+  done for Claude Code.
+
 **The rebuild of October 14 (before protocol 2.7.0).** The owner asked for a rebuild while the runs wait for the
 Claude week (plan quality must not regress; any change to calls and follow-ups; no single 64,000 ceiling). Built:
 
