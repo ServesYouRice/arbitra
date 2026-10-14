@@ -35,7 +35,7 @@ import { reviseWithContext } from "./revision-context.js";
 import { createHash } from "node:crypto";
 import type { SemanticClusteringDecision, SemanticClusteringPair } from "@arbitra/workflow/clustering/escalate.js";
 import type { ModelActivityRequest } from "./model-activities.js";
-import { expectedRecordCapacity, inputBytesPerToken, isCapacityError, ModelOutputLimitError, ModelRefusalError, OUTPUT_TOKENS_PER_RECORD, outputRecordLimit, replanOnOutputLimit, stageBudget, type EffortStage } from "./context-budget.js";
+import { expectedRecordCapacity, inputBytesPerToken, outputCeiling, isCapacityError, ModelOutputLimitError, ModelRefusalError, OUTPUT_TOKENS_PER_RECORD, outputRecordLimit, replanOnOutputLimit, stageBudget, type EffortStage } from "./context-budget.js";
 import { agreedConflictResolution, conflictId, conflictResolutionView, independentConflicts, type ConflictResolutionVote } from "./model-conflict-resolution.js";
 import { sideBySide } from "./side-by-side.js";
 import { validateBatchLanes } from "./model-batch-lane.js";
@@ -690,7 +690,7 @@ export class ModelAuditPipeline {
     // costs, so the whole prompt is measured a few times a call and not once a file.
     // Where the transport takes only so many bytes of a prompt, the sum stops there too.
     const byteLimit = promptByteLimit(this.config.models[input.modelProfileId]?.transport ?? "");
-    const sizingMaximum = byteLimit === null ? maximum : Math.min(maximum, Math.floor(byteLimit / inputBytesPerToken(this.config).usual) + execution.maximumOutputTokens);
+    const sizingMaximum = byteLimit === null ? maximum : Math.min(maximum, Math.floor(byteLimit / inputBytesPerToken(this.config).usual) + outputCeiling(this.config, input.modelProfileId));
     const allocated = allocateStageContext(input.input, { fits, sizing: { measure, maximum: sizingMaximum, of: (source) => this.#activities.estimateSourceTokens(source) },
       ...(input.sourceScope === undefined ? {} : { scope: input.sourceScope }), ...(input.citedPaths === undefined ? {} : { citedPaths: input.citedPaths }), ...(input.preferredPaths === undefined ? {} : { preferredPaths: input.preferredPaths }), ...(asRequired ? { smaller: withConflictOutlines(input.input),
       admits: (payload: unknown) => withinStringBudget(payload, maximum * inputBytesPerToken(this.config).required) && this.#activities.estimateRequiredTokens(request(payload)) <= maximum } : {}) });

@@ -224,6 +224,44 @@ describe.each(VENDORS)("%s subscription CLI transport", { timeout: 30_000 }, (ve
 });
 
 describe("Claude Code specifics", { timeout: 30_000 }, () => {
+  it("continues its own session on a tool turn with the tool results alone, and removes the session when the conversation ends", async () => {
+    // Measured (October 14, 2026): a continued turn read 91% of its prompt from Claude Code's cache, a turn sent whole 19%.
+    const envelope = "{\"toolCalls\":[{\"name\":\"repo.readFile\",\"arguments\":{\"path\":\"a.ts\"}}]}";
+    const f = await fixture({ vendor: "claude-code", replies: [{ kind: "text", text: envelope }, { kind: "text", text: "{\"summary\":\"done\"}" }] });
+    const tools = [{ name: "repo.readFile", description: "Read a file", inputSchema: { type: "object", properties: { path: { type: "string" } } } }];
+    const first = await send(f.transport, request({ tools }));
+    const opened = await f.report(0);
+    const started = opened.argv.indexOf("--session-id");
+    expect(started).toBeGreaterThan(-1); expect(opened.argv[started + 1]).toMatch(/^[0-9a-f-]{36}$/u); expect(opened.argv).not.toContain("--no-session-persistence");
+    // What Claude Code stores for a session sits under its configuration directory, by working directory.
+    const stored = join(f.home, ".claude", "projects", opened.cwd.replace(/[^a-zA-Z0-9]/gu, "-"));
+    await mkdir(stored, { recursive: true });
+    const followUp = [...request().messages, { role: "assistant" as const, content: "", toolCalls: first.toolCalls }, { role: "tool" as const, content: "{\"content\":\"export {}\"}", toolCallId: first.toolCalls[0]?.id ?? "", toolName: "repo.readFile" }];
+    expect(await send(f.transport, request({ tools, messages: followUp }))).toMatchObject({ text: "{\"summary\":\"done\"}", toolCalls: [] });
+    const continued = await f.report(1);
+    expect(continued.argv.slice(continued.argv.indexOf("--resume"), continued.argv.indexOf("--resume") + 2)).toEqual(["--resume", "stand-in-session-0"]);
+    expect(continued.cwd).toBe(opened.cwd);
+    expect(continued.stdin.startsWith("The tool results you asked for follow")).toBe(true);
+    expect(continued.stdin).toContain("export {}"); expect(continued.stdin).not.toContain("Say pong.");
+    // The answer ended the conversation: its directory and the session Claude Code stored are gone.
+    expect(existsSync(opened.cwd)).toBe(false); expect(existsSync(stored)).toBe(false);
+    // A call that offers no tools keeps no session.
+    await send(f.transport);
+    expect((await f.report(2)).argv).toContain("--no-session-persistence");
+  });
+
+  it("sends a tool turn whole when its session cannot be continued", async () => {
+    const envelope = "{\"toolCalls\":[{\"name\":\"repo.readFile\",\"arguments\":{\"path\":\"a.ts\"}}]}";
+    const f = await fixture({ vendor: "claude-code", replies: [{ kind: "text", text: envelope }, { kind: "malformed" }, { kind: "text", text: "{\"summary\":\"done\"}" }] });
+    const tools = [{ name: "repo.readFile", description: "Read a file", inputSchema: { type: "object", properties: { path: { type: "string" } } } }];
+    const first = await send(f.transport, request({ tools }));
+    const followUp = [...request().messages, { role: "assistant" as const, content: "", toolCalls: first.toolCalls }, { role: "tool" as const, content: "{\"content\":\"export {}\"}", toolCallId: first.toolCalls[0]?.id ?? "", toolName: "repo.readFile" }];
+    expect(await send(f.transport, request({ tools, messages: followUp }))).toMatchObject({ text: "{\"summary\":\"done\"}" });
+    expect((await f.report(1)).argv).toContain("--resume");
+    const whole = await f.report(2);
+    expect(whole.argv).toContain("--session-id"); expect(whole.stdin).toContain("Say pong."); expect(whole.stdin).toContain("export {}");
+  });
+
   it("uses an isolated home and configuration directory with a token from the named variable", async () => {
     const f = await fixture({ vendor: "claude-code", replies: [{ kind: "text", text: "pong" }] }, { auth: "oauth_token", env: { ARBITRA_CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-token-value" } });
     await send(f.transport);

@@ -41,6 +41,18 @@ const request = () => ({ activityId: "auditor-a/discovery", modelProfileId: "aud
 });
 
 describe("durable canonical model harness", () => {
+  it("asks each model for its own output ceiling, not the run's when the model writes less", async () => {
+    // Observed (P20 pilot): one ceiling for every model, held at the smallest model's limit, stopped a plan of 52 issues.
+    const { store, send, requests, config } = await setup(0);
+    const profile = config.models["auditor-a"]; if (profile === undefined) throw new Error("FIXTURE_PROFILE_ABSENT");
+    const smaller = { ...config, models: { "auditor-a": { ...profile, limits: { ...profile.limits, maxOutputTokens: 300 } } } };
+    send.mockImplementation(async (value) => { requests.push(value); return { status: 200, headers: {}, body: { output_text: '{"answer":"ok"}', usage: { input_tokens: 10, output_tokens: 10 } } }; });
+    const harness = new ModelHarness(new ModelActivities(store, smaller, { client: { send }, credential: () => "fixture-credential" }), smaller, snapshot, store);
+    expect(await harness.invoke({ ...request(), activityId: "auditor-a/review" })).toEqual({ answer: "ok" });
+    expect((requests[0]?.body as { max_output_tokens: number }).max_output_tokens).toBe(300);
+    expect(harness.estimateInitialTokens({ ...request(), activityId: "auditor-a/other" }) - new ModelHarness(new ModelActivities(store, config, { client: { send }, credential: () => "fixture-credential" }), config, snapshot, store).estimateInitialTokens({ ...request(), activityId: "auditor-a/other" })).toBe(300 - 500);
+  });
+
   it("re-asks once after a reply fails validation, durably, and fails with the original error when repairs are exhausted", async () => {
     const replies = ['<quotes>q</quotes>\nThe answer follows.', '{"answer":"repaired"}'];
     const review = () => ({ ...request(), activityId: "auditor-a/review" });

@@ -60,6 +60,21 @@ export function serializeCliPrompt(request: TransportRequest, options: { readonl
   return Object.freeze({ system, body: sections.join("\n\n"), boundary });
 }
 
+/**
+ * What a CLI's own session has not seen yet: the tool results that answer its last tool request, in blocks marked
+ * with the boundary the session's first message named. Anything else after that request is not a follow-up.
+ */
+export function serializeCliFollowUp(request: TransportRequest, fromIndex: number, boundary: string): string {
+  const sections = [`The tool results you asked for follow, each between <<<BEGIN ...>>> and <<<END ...>>> markers that carry the boundary ${boundary}. Write only your next reply, as the conversation instructs: another tool request, or your final answer.`];
+  const rest = request.messages.slice(fromIndex);
+  if (rest.length === 0) throw new TransportError("INVALID_REQUEST", "CLI_SESSION_FOLLOW_UP_EMPTY", false);
+  for (const message of rest) {
+    if (message.role !== "tool" || !message.toolCallId) throw new TransportError("INVALID_REQUEST", "CLI_SESSION_FOLLOW_UP_NOT_TOOL_RESULTS", false);
+    sections.push(block(`tool-result id=${message.toolCallId}${message.toolName === undefined ? "" : ` name=${message.toolName}`}`, boundary, message.content));
+  }
+  return sections.join("\n\n");
+}
+
 function block(label: string, boundary: string, content: string): string {
   return `<<<BEGIN ${label} ${boundary}>>>\n${content}\n<<<END ${label.split(" ")[0] ?? label} ${boundary}>>>`;
 }

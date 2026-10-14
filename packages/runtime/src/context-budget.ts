@@ -14,6 +14,14 @@ export function stageBudget(config: RunConfig, modelProfileId: string): StageBud
   return { maximumInputTokens: Math.floor(context * 0.8), outputCapacity: Math.min(execution.maximumOutputTokens, profile?.limits.maxOutputTokens ?? Number.POSITIVE_INFINITY) };
 }
 
+/** The output ceiling of a call to one model: the run's ceiling, lowered to what that model's profile can write. Each
+ * model is held to its own limit, so the model with the smallest limit in a lineup no longer sets every model's
+ * ceiling. Observed (P20 pilot): one ceiling of 64,000 for Opus 5.5 (which writes 128,000) because Gemini 3.8
+ * Flash writes 65,536, and a plan of 52 issues stopped at it. */
+export function outputCeiling(config: RunConfig, modelProfileId: string): number {
+  return stageBudget(config, modelProfileId).outputCapacity;
+}
+
 /** arbitra sizes what it sends at one token a byte unless the run sets `estimatedBytesPerToken`. Real prompts
  * measured 1.9 to 2.4 bytes a token, so one byte a token overstates them about twice, which keeps calls small.
  * What a call must carry whole is another matter: refused at that rate it fails the run, although the provider

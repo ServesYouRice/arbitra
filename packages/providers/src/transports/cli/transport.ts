@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,7 +9,7 @@ import { resetTime } from "./classify.js";
 import { CLI_DIALECTS, type CliDialect, type CliInvocationContext } from "./dialects.js";
 import { childPath, resolveCliExecutable, type CliExecutable, type HostLookup } from "./discovery.js";
 import { defaultLimitLedgerPath, fileLimitLedger, type CliLimitLedger } from "./limits.js";
-import { interpretCliReply, serializeCliPrompt } from "./prompt.js";
+import { interpretCliReply, serializeCliFollowUp, serializeCliPrompt, type CliPrompt } from "./prompt.js";
 import type { CliAuthMode, CliTransportSupport } from "./support.js";
 
 export interface CliTransportOptions {
@@ -29,6 +30,11 @@ export interface CliTransportOptions {
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1_000;
 const DEFAULT_MAXIMUM_OUTPUT_BYTES = 16 * 1024 * 1024;
 const PROBE_TIMEOUT_MS = 30_000;
+const CONVERSATION_TTL_MS = 2 * 60 * 60 * 1_000;
+
+interface CliDirectories { readonly root: string; readonly work: string; readonly control: string; readonly isolatedHome: string; readonly scratch: string }
+/** A CLI session whose model asked for tools, kept for the turn that answers them. */
+interface CliConversation { readonly sessionId: string; readonly boundary: string; readonly directories: CliDirectories; readonly at: number }
 
 /** Host variables a CLI may need to find its login, locale and user identity. Nothing else crosses. */
 const PASSTHROUGH = ["USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE"] as const;
@@ -39,7 +45,9 @@ const WINDOWS_PASSTHROUGH = ["SystemRoot", "SYSTEMROOT", "APPDATA", "LOCALAPPDAT
  * root holding an empty working directory, a separate control directory for arbitra's own
  * files, and (for token auth) an isolated home; the environment is rebuilt from an allowlist;
  * the CLI version is checked against the support matrix before first use; the process tree
- * is killed on every exit path; and the root is removed afterwards.
+ * is killed on every exit path; and the root is removed afterwards. The one exception is a conversation that
+ * offers tools on a CLI that keeps sessions: while its model waits for tool results, its root and the CLI's session
+ * stay for the turn that continues it, and both are removed when the conversation ends (or after two hours).
  */
 export class CliTransport implements ProviderTransport {
   readonly id: TransportId;
@@ -56,6 +64,7 @@ export class CliTransport implements ProviderTransport {
   readonly #limits: CliLimitLedger | null;
   readonly #now: () => number;
   #executable: Promise<{ readonly executable: CliExecutable; readonly version: string }> | undefined;
+  readonly #conversations = new Map<string, CliConversation>();
 
   constructor(configuration: TransportConfiguration, private readonly dialect: CliDialect, options: CliTransportOptions = {}) {
     this.#support = dialect.support;
@@ -84,23 +93,52 @@ export class CliTransport implements ProviderTransport {
     const { executable, version } = await this.#resolve();
     const nativeSchema = this.dialect.nativeSchema(request);
     const prompt = serializeCliPrompt(request, { nativeSchema, systemInArguments: true });
-    const root = await realpath(await mkdtemp(join(this.#temporary ?? tmpdir(), "arbitra-cli-")));
+    const run = { request, signal, oauthToken, executable, version, nativeSchema };
+    await this.#sweep();
+    // A conversation that offers tools runs in the CLI's own session. When the model asked for tools, the next turn
+    // continues that session with the tool results alone; the CLI reads the rest from its cache. Measured on Claude
+    // Code (October 14, 2026, 14,000 tokens of source): a continued turn read 91% of its prompt from the cache, a
+    // turn sent whole 19%, and the whole one wrote the rest to the cache again.
+    if (this.dialect.session === undefined || (request.tools?.length ?? 0) === 0) return this.#call(run, prompt, await this.#directories(), undefined);
+    const last = lastToolRequest(request.messages);
+    const previous = last < 0 ? undefined : this.#take(conversationKey(request, last));
+    if (previous !== undefined) {
+      try {
+        const followUp: CliPrompt = { system: prompt.system, body: serializeCliFollowUp(request, last + 1, previous.boundary), boundary: prompt.boundary };
+        return await this.#call(run, followUp, previous.directories, { id: previous.sessionId, resume: true }, previous.boundary);
+      } catch (error) {
+        // A session that cannot be continued is sent whole once more. A usage limit, a cancellation, a timeout or an
+        // output ceiling is the same either way and is not repeated.
+        if (!(error instanceof TransportError) || ["QUOTA", "CANCELLED", "TIMEOUT", "OUTPUT_LIMIT", "AUTH"].includes(error.code)) throw error;
+      }
+    }
+    return this.#call(run, prompt, await this.#directories(), { id: randomUUID(), resume: false }, prompt.boundary);
+  }
+
+  /** One CLI process. A session whose model asked for tools is kept for the next turn; everything else is removed. */
+  async #call(run: { readonly request: TransportRequest; readonly signal: AbortSignal; readonly oauthToken: string | null; readonly executable: CliExecutable; readonly version: string; readonly nativeSchema: boolean },
+    prompt: CliPrompt, directories: CliDirectories, session: CliInvocationContext["session"], sessionBoundary?: string): Promise<TransportResponse> {
+    const { request, signal, oauthToken, executable, version, nativeSchema } = run;
+    let kept = false;
     try {
-      const work = join(root, "work"); const control = join(root, "control"); const isolatedHome = join(root, "home"); const scratch = join(root, "tmp");
-      await Promise.all([work, control, isolatedHome, scratch].map((directory) => mkdir(directory, { mode: 0o700 })));
-      const context: CliInvocationContext = { request, prompt, work, control, isolatedHome, auth: this.#auth, oauthToken, nativeSchema, lookup: this.#lookup, timeoutMs: this.#timeoutMs, platform: this.#platform,
-        hostHome: this.#hostHome(), base: this.#baseEnvironment(executable, scratch) };
+      const context: CliInvocationContext = { request, prompt, work: directories.work, control: directories.control, isolatedHome: directories.isolatedHome, auth: this.#auth, oauthToken, nativeSchema, lookup: this.#lookup, timeoutMs: this.#timeoutMs, platform: this.#platform,
+        hostHome: this.#hostHome(), base: this.#baseEnvironment(executable, directories.scratch), ...(session === undefined ? {} : { session }) };
       const invocation = await this.dialect.prepare(context);
       const reader = this.dialect.reader(context);
-      const result = await this.#process.run({ executable: executable.command, arguments: [...executable.prefixArguments, ...invocation.arguments], cwd: work,
+      const result = await this.#process.run({ executable: executable.command, arguments: [...executable.prefixArguments, ...invocation.arguments], cwd: directories.work,
         environment: invocation.environment, stdin: invocation.stdin, timeoutMs: this.#timeoutMs, maximumOutputBytes: this.#maximumOutputBytes, signal, onLine: (line) => reader.line(line) });
       this.#assertStopped(result, signal);
       const outcome = reader.finish(result.exitCode, result.stderr);
       if (!result.treeTerminated) throw new TransportError("HTTP", `CLI_PROCESS_TREE_NOT_TERMINATED: ${this.#support.displayName} left processes running`, false);
       // A provider's notice in place of an answer is a refusal, not a reply to parse.
       const refusal = this.dialect.refusal?.(outcome.text) ?? null;
-      const reply = refusal === null ? interpretCliReply(outcome.text, request, prompt.boundary, outcome.structured) : { text: null, structured: null, toolCalls: Object.freeze([]) };
+      const text = sessionBoundary === undefined || sessionBoundary === prompt.boundary ? outcome.text : unframedAssistant(outcome.text, sessionBoundary);
+      const reply = refusal === null ? interpretCliReply(text, request, prompt.boundary, outcome.structured) : { text: null, structured: null, toolCalls: Object.freeze([]) };
       await this.#limits?.clear(this.id).catch(() => undefined);
+      if (session !== undefined && sessionBoundary !== undefined && reply.toolCalls.length > 0) {
+        this.#conversations.set(conversationKey(request, request.messages.length), { sessionId: outcome.sessionId ?? session.id, boundary: sessionBoundary, directories, at: this.#now() });
+        kept = true;
+      }
       return Object.freeze({
         text: reply.text, structured: reply.structured, toolCalls: reply.toolCalls, refusal,
         usage: Object.freeze({ inputTokens: outcome.usage.inputTokens ?? null, outputTokens: outcome.usage.outputTokens ?? null, cacheReadTokens: outcome.usage.cacheReadTokens ?? null, cacheWriteTokens: outcome.usage.cacheWriteTokens ?? null }),
@@ -114,7 +152,36 @@ export class CliTransport implements ProviderTransport {
       }
       throw error;
     } finally {
-      await rm(root, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined);
+      if (!kept) await this.#remove(directories, session !== undefined);
+    }
+  }
+
+  /** A fresh temporary root: an empty working directory, a control directory for arbitra's own files, an isolated home. */
+  async #directories(): Promise<CliDirectories> {
+    const root = await realpath(await mkdtemp(join(this.#temporary ?? tmpdir(), "arbitra-cli-")));
+    const directories = { root, work: join(root, "work"), control: join(root, "control"), isolatedHome: join(root, "home"), scratch: join(root, "tmp") };
+    await Promise.all([directories.work, directories.control, directories.isolatedHome, directories.scratch].map((directory) => mkdir(directory, { mode: 0o700 })));
+    return directories;
+  }
+
+  async #remove(directories: CliDirectories, withSession: boolean): Promise<void> {
+    if (withSession) await this.dialect.session?.forget(directories.work, { auth: this.#auth, isolatedHome: directories.isolatedHome, lookup: this.#lookup, hostHome: this.#hostHome() }).catch(() => undefined);
+    await rm(directories.root, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined);
+  }
+
+  #take(key: string): CliConversation | undefined {
+    const conversation = this.#conversations.get(key);
+    if (conversation !== undefined) this.#conversations.delete(key);
+    return conversation;
+  }
+
+  /** A conversation that was never continued (its run stopped) is removed after two hours. */
+  async #sweep(): Promise<void> {
+    const now = this.#now();
+    for (const [key, conversation] of [...this.#conversations]) {
+      if (now - conversation.at < CONVERSATION_TTL_MS) continue;
+      this.#conversations.delete(key);
+      await this.#remove(conversation.directories, true);
     }
   }
 
@@ -196,3 +263,23 @@ export function cliTransportFactory(dialectId: string) {
   };
 }
 
+
+/** The conversation a request's first `length` messages make, for the CLI and model it goes to. */
+function conversationKey(request: TransportRequest, length: number): string {
+  return createHash("sha256").update(JSON.stringify({ model: request.modelId, tools: request.tools ?? [], schema: request.responseSchema ?? null, messages: request.messages.slice(0, length) })).digest("hex");
+}
+
+/** The index of the last assistant message that asked for tools, or -1. */
+function lastToolRequest(messages: TransportRequest["messages"]): number {
+  for (let index = messages.length - 1; index >= 0; index -= 1) if (messages[index]?.role === "assistant" && (messages[index]?.toolCalls?.length ?? 0) > 0) return index;
+  return -1;
+}
+
+/** A continued session's reply may come inside the markers of the session's first boundary; they are removed. */
+function unframedAssistant(reply: string, boundary: string): string {
+  const begin = `<<<BEGIN assistant ${boundary}>>>`; const end = `<<<END assistant ${boundary}>>>`;
+  const trimmed = reply.trim();
+  if (!trimmed.startsWith(begin)) return reply;
+  const inner = trimmed.slice(begin.length).trim();
+  return inner.endsWith(end) ? inner.slice(0, -end.length).trim() : inner;
+}
