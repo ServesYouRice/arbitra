@@ -92,14 +92,16 @@ arbitra's tools and the model replies with `{"toolCalls":[{"name","arguments"}]}
 answer; calls get IDs derived from the conversation hash, so the canonical harness's durable
 tool loop is unchanged. The transcript's markers carry a boundary derived from a secret of the
 transport and from what a stage's calls share (instructions, tools, schema), so every call of a
-stage starts with the same text and its CLI can read that start from the prompt cache; a
-message that happens to contain the boundary gets the request's own hash instead. Before
-October 14, 2026 every transcript began with its request's hash, and questions that offer
-tools read nothing from the cache. Each stage's input puts its source first and the call's own
-question after it, as Anthropic advises for long documents. Measured (October 14, Claude Code
-2.1.296, its system prompt replaced): a call in another directory read 26,032 of 26,387
-prompt tokens from the cache another call wrote, so a fresh directory a call costs about 355
-tokens of cache, not the prompt. On Claude Code a conversation that offers tools runs in the CLI's own
+stage starts with the same text; a message that happens to contain the boundary gets the
+request's own hash instead. Before October 14, 2026 every transcript that offers tools began
+with its request's hash. A provider that caches any shared prefix (OpenAI and Google cache
+automatically) can now read that start from its cache; Claude Code caches at the ends of its
+system prompt and of the conversation, so its separate calls share the system prompt only, and
+its savings come from continued sessions. Each stage's input puts its source first and the
+call's own question after it, as Anthropic advises for long documents. Measured (October 14,
+Claude Code 2.1.296, its system prompt replaced): a call in another directory read 26,032 of
+26,387 prompt tokens from the cache another call wrote, so a fresh directory a call costs about
+355 tokens of cache, not the prompt. On Claude Code a conversation that offers tools runs in the CLI's own
 session: the first call starts it (`--session-id`), and a tool turn continues it (`--resume`)
 in the same working directory with only the tool results, so the CLI reads the conversation
 so far from its prompt cache. The directory and the stored session are removed when the
@@ -347,10 +349,14 @@ conflicts remain explicit coverage gaps, even if verification confirms the under
 defect. Reviewer order does not select a winning structural claim.
 Ambiguous finding pairs now use durable semantic classification through the verifier profile,
 reading the files the two findings cite. Unless `maximumClusteringPairs` is set, every pair whose
-findings cite overlapping lines is classified, and the pairs two findings of one answer form,
-with the first 20 of the rest; those pairs come first. Set, it is an exact bound (0 disables
-escalation; maximum 1000). Observed: with the first 20 pairs in id order, 40 pairs of one run's
-53 accepted issues overlapped, and each duplicate paid for its own verification and task.
+findings cite overlapping lines is classified, with the pairs two findings of one answer form and
+the pairs the structural rule would have joined, and the first 20 of the rest; those pairs come
+first. The structural rule then joins only exact duplicates and proposes the rest. Set, the bound
+is exact (0 disables escalation; maximum 1000) and the structural rule joins as before. Observed:
+with the first 20 pairs in id order, 40 pairs of one run's 53 accepted issues overlapped, and
+each duplicate paid for its own verification and task; in a three-model shakedown on October 14
+the structural rule joined a stock leak, an unbounded coupon and missing input checks into one
+issue of 9 findings, pairs the semantic check had judged unrelated.
 
 ## One pass per review stage
 
