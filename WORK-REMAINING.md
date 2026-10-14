@@ -257,7 +257,10 @@ about 20,000 characters), left one critique item whose revision context did not 
 (`PLANNER_REVISION_ITEM_CONTEXT_LIMIT_EXCEEDED`), after a wait of four hours for the Claude window. The critic had
 raised 108 blocking items on 30 tasks, and each item was revised in a call of its own that read and wrote the
 whole plan header (302 open questions, 138,000 characters) with every neighbouring task in full: the first item
-came to over 300,000 characters. Fixed on October 14 (ba8e1a9): a call answers the items that name the same tasks,
+came to over 300,000 characters. What it had decided before it failed, scored afterwards: its accepted list of
+53 issues held all 7 planted defects (the 2.4.0 panel's list of 6 held 2), with 13 issues rejected after 38
+verification questions; 37 of the 53 accepted reports are outside the answer key, so the list is long. Fixed on
+October 14 (ba8e1a9): a call answers the items that name the same tasks,
 reads those tasks and what belongs to them, writes only what it changes, and calls on disjoint tasks run side by
 side in rounds. Replayed on that run's stored plan and critique: 28 calls in 5 rounds, the largest reading 252,000
 characters. A plan in one call where the ceiling allows (91 issues at 128,000 output tokens) came with the
