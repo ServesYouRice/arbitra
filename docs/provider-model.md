@@ -96,7 +96,19 @@ in the same working directory with only the tool results, so the CLI reads the c
 so far from its prompt cache. The directory and the stored session are removed when the
 conversation ends (after two hours at the latest), and a session that cannot be continued is
 sent whole once. Measured (October 14, 2026): a continued turn read 91% of its prompt from the
-cache, the same turn sent whole 19%, writing the rest to the cache again. Codex (`--output-schema`), Claude Code and the Antigravity CLI (`--json-schema`; the answer is
+cache, the same turn sent whole 19%, writing the rest to the cache again. Codex and the
+Antigravity CLI keep sessions the same way: Codex starts one by leaving out `--ephemeral` and
+continues it with `codex exec resume <thread>`, the Antigravity CLI with `--conversation <id>`
+(its turn then leaves out the instructions, which the conversation already holds). Both report
+a continued turn's usage for the whole conversation so far, so the turn is charged the
+difference. Codex keeps its databases in the call's control directory (`CODEX_SQLITE_HOME`) and
+its session as a rollout file that is removed with the conversation; the Antigravity CLI stores
+every call's conversation in the operator's home with no flag against it (1.2 GB after the P20
+pilot), so every call's conversation is removed when the call ends. Measured the same day through
+the transport: a continued Codex turn read 16,768 of 17,092 prompt tokens from the cache (98%);
+a continued Antigravity turn read 21,246 tokens from the cache in one check and none in another
+(Gemini's cache is implicit). The Antigravity CLI's `input_tokens` leaves out cache reads, so its
+prompt is counted as the two together. Codex (`--output-schema`), Claude Code and the Antigravity CLI (`--json-schema`; the answer is
 read from `structured_output`, and a SUCCESS without it is `MALFORMED_RESPONSE`) enforce a
 response schema natively when one is requested without tools; otherwise output is prompt JSON.
 Usage is mapped as reported (unknown stays `null`), cost is unknown, the provider request ID is

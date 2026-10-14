@@ -33,8 +33,9 @@ const PROBE_TIMEOUT_MS = 30_000;
 const CONVERSATION_TTL_MS = 2 * 60 * 60 * 1_000;
 
 interface CliDirectories { readonly root: string; readonly work: string; readonly control: string; readonly isolatedHome: string; readonly scratch: string }
-/** A CLI session whose model asked for tools, kept for the turn that answers them. */
-interface CliConversation { readonly sessionId: string; readonly boundary: string; readonly directories: CliDirectories; readonly at: number }
+type CliUsage = TransportResponse["usage"];
+/** A CLI session whose model asked for tools, kept for the turn that answers them, with the usage it reported so far. */
+interface CliConversation { readonly sessionId: string; readonly boundary: string; readonly directories: CliDirectories; readonly at: number; readonly usage: CliUsage }
 
 /** Host variables a CLI may need to find its login, locale and user identity. Nothing else crosses. */
 const PASSTHROUGH = ["USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE"] as const;
@@ -105,7 +106,7 @@ export class CliTransport implements ProviderTransport {
     if (previous !== undefined) {
       try {
         const followUp: CliPrompt = { system: prompt.system, body: serializeCliFollowUp(request, last + 1, previous.boundary), boundary: prompt.boundary };
-        return await this.#call(run, followUp, previous.directories, { id: previous.sessionId, resume: true }, previous.boundary);
+        return await this.#call(run, followUp, previous.directories, { id: previous.sessionId, resume: true }, previous.boundary, previous.usage);
       } catch (error) {
         // A session that cannot be continued is sent whole once more. A usage limit, a cancellation, a timeout or an
         // output ceiling is the same either way and is not repeated.
@@ -115,33 +116,40 @@ export class CliTransport implements ProviderTransport {
     return this.#call(run, prompt, await this.#directories(), { id: randomUUID(), resume: false }, prompt.boundary);
   }
 
-  /** One CLI process. A session whose model asked for tools is kept for the next turn; everything else is removed. */
+  /**
+   * One CLI process. A session whose model asked for tools is kept for the next turn; everything else is removed. A
+   * continued session whose CLI reports usage for the whole conversation (`reported`: what it reported up to the turn
+   * before) is charged the difference, the turn alone.
+   */
   async #call(run: { readonly request: TransportRequest; readonly signal: AbortSignal; readonly oauthToken: string | null; readonly executable: CliExecutable; readonly version: string; readonly nativeSchema: boolean },
-    prompt: CliPrompt, directories: CliDirectories, session: CliInvocationContext["session"], sessionBoundary?: string): Promise<TransportResponse> {
+    prompt: CliPrompt, directories: CliDirectories, session: CliInvocationContext["session"], sessionBoundary?: string, reported?: CliUsage): Promise<TransportResponse> {
     const { request, signal, oauthToken, executable, version, nativeSchema } = run;
-    let kept = false;
+    let kept = false; let sessionId: () => string | null = () => session?.resume === true ? session.id : null;
     try {
       const context: CliInvocationContext = { request, prompt, work: directories.work, control: directories.control, isolatedHome: directories.isolatedHome, auth: this.#auth, oauthToken, nativeSchema, lookup: this.#lookup, timeoutMs: this.#timeoutMs, platform: this.#platform,
         hostHome: this.#hostHome(), base: this.#baseEnvironment(executable, directories.scratch), ...(session === undefined ? {} : { session }) };
       const invocation = await this.dialect.prepare(context);
       const reader = this.dialect.reader(context);
+      const fallback = sessionId; sessionId = () => reader.sessionId?.() ?? fallback();
       const result = await this.#process.run({ executable: executable.command, arguments: [...executable.prefixArguments, ...invocation.arguments], cwd: directories.work,
         environment: invocation.environment, stdin: invocation.stdin, timeoutMs: this.#timeoutMs, maximumOutputBytes: this.#maximumOutputBytes, signal, onLine: (line) => reader.line(line) });
       this.#assertStopped(result, signal);
       const outcome = reader.finish(result.exitCode, result.stderr);
+      if (outcome.sessionId !== null) sessionId = () => outcome.sessionId;
       if (!result.treeTerminated) throw new TransportError("HTTP", `CLI_PROCESS_TREE_NOT_TERMINATED: ${this.#support.displayName} left processes running`, false);
       // A provider's notice in place of an answer is a refusal, not a reply to parse.
       const refusal = this.dialect.refusal?.(outcome.text) ?? null;
       const text = sessionBoundary === undefined || sessionBoundary === prompt.boundary ? outcome.text : unframedAssistant(outcome.text, sessionBoundary);
       const reply = refusal === null ? interpretCliReply(text, request, prompt.boundary, outcome.structured) : { text: null, structured: null, toolCalls: Object.freeze([]) };
       await this.#limits?.clear(this.id).catch(() => undefined);
+      const usage: CliUsage = Object.freeze({ inputTokens: outcome.usage.inputTokens ?? null, outputTokens: outcome.usage.outputTokens ?? null, cacheReadTokens: outcome.usage.cacheReadTokens ?? null, cacheWriteTokens: outcome.usage.cacheWriteTokens ?? null });
       if (session !== undefined && sessionBoundary !== undefined && reply.toolCalls.length > 0) {
-        this.#conversations.set(conversationKey(request, request.messages.length), { sessionId: outcome.sessionId ?? session.id, boundary: sessionBoundary, directories, at: this.#now() });
+        this.#conversations.set(conversationKey(request, request.messages.length), { sessionId: outcome.sessionId ?? session.id, boundary: sessionBoundary, directories, at: this.#now(), usage });
         kept = true;
       }
       return Object.freeze({
         text: reply.text, structured: reply.structured, toolCalls: reply.toolCalls, refusal,
-        usage: Object.freeze({ inputTokens: outcome.usage.inputTokens ?? null, outputTokens: outcome.usage.outputTokens ?? null, cacheReadTokens: outcome.usage.cacheReadTokens ?? null, cacheWriteTokens: outcome.usage.cacheWriteTokens ?? null }),
+        usage: session?.resume === true && reported !== undefined && this.dialect.session?.cumulativeUsage === true ? turnUsage(usage, reported) : usage,
         continuation: null, structuredOutputTier: request.responseSchema === undefined ? "prompt_json" : nativeSchema ? "native_structured" : "prompt_json",
         providerRequestId: outcome.sessionId, transportVersion: `${this.#support.vendor}/${version}`,
       });
@@ -152,7 +160,7 @@ export class CliTransport implements ProviderTransport {
       }
       throw error;
     } finally {
-      if (!kept) await this.#remove(directories, session !== undefined);
+      if (!kept) await this.#remove(directories, session !== undefined || this.dialect.session?.storesEveryCall === true ? sessionId() : undefined);
     }
   }
 
@@ -164,8 +172,9 @@ export class CliTransport implements ProviderTransport {
     return directories;
   }
 
-  async #remove(directories: CliDirectories, withSession: boolean): Promise<void> {
-    if (withSession) await this.dialect.session?.forget(directories.work, { auth: this.#auth, isolatedHome: directories.isolatedHome, lookup: this.#lookup, hostHome: this.#hostHome() }).catch(() => undefined);
+  /** Removes a call's directories and, when `session` is given (null: its ID was never seen), what the CLI stored for it. */
+  async #remove(directories: CliDirectories, session: string | null | undefined): Promise<void> {
+    if (session !== undefined) await this.dialect.session?.forget(directories.work, session, { auth: this.#auth, isolatedHome: directories.isolatedHome, lookup: this.#lookup, hostHome: this.#hostHome() }).catch(() => undefined);
     await rm(directories.root, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined);
   }
 
@@ -181,7 +190,7 @@ export class CliTransport implements ProviderTransport {
     for (const [key, conversation] of [...this.#conversations]) {
       if (now - conversation.at < CONVERSATION_TTL_MS) continue;
       this.#conversations.delete(key);
-      await this.#remove(conversation.directories, true);
+      await this.#remove(conversation.directories, conversation.sessionId);
     }
   }
 
@@ -267,6 +276,13 @@ export function cliTransportFactory(dialectId: string) {
 /** The conversation a request's first `length` messages make, for the CLI and model it goes to. */
 function conversationKey(request: TransportRequest, length: number): string {
   return createHash("sha256").update(JSON.stringify({ model: request.modelId, tools: request.tools ?? [], schema: request.responseSchema ?? null, messages: request.messages.slice(0, length) })).digest("hex");
+}
+
+/** A continued turn's own usage, where the CLI reports the whole conversation's: what it reports less what it had. */
+function turnUsage(usage: CliUsage, before: CliUsage): CliUsage {
+  const less = (now: number | null, then: number | null): number | null => now === null ? null : Math.max(0, now - (then ?? 0));
+  return Object.freeze({ inputTokens: less(usage.inputTokens, before.inputTokens), outputTokens: less(usage.outputTokens, before.outputTokens),
+    cacheReadTokens: less(usage.cacheReadTokens, before.cacheReadTokens), cacheWriteTokens: less(usage.cacheWriteTokens, before.cacheWriteTokens) });
 }
 
 /** The index of the last assistant message that asked for tools, or -1. */

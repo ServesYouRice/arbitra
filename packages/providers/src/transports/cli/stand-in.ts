@@ -123,11 +123,20 @@ function run() {
     }
   }
   if (s.vendor === "codex") {
-    out({ type: "thread.started", thread_id: "stand-in-thread-" + index }); out({ type: "turn.started" });
+    // "exec resume <thread> -" continues a stored session, which then reports the usage of all its turns so far.
+    // Codex stores a session as sessions/<year>/<month>/<day>/rollout-<time>-<thread>.jsonl under its home.
+    const resumed = args[1] === "resume";
+    const thread = resumed ? args[args.length - 2] : "stand-in-thread-" + index;
+    const today = new Date(); const pad = (value) => String(value).padStart(2, "0");
+    const sessions = path.join(process.env.CODEX_HOME ?? path.join(process.env.HOME ?? process.env.USERPROFILE, ".codex"), "sessions", String(today.getFullYear()), pad(today.getMonth() + 1), pad(today.getDate()));
+    const rollout = path.join(sessions, "rollout-" + today.getFullYear() + "-" + pad(today.getMonth() + 1) + "-" + pad(today.getDate()) + "T00-00-00-" + thread + ".jsonl");
+    if (resumed && !fs.existsSync(rollout)) { process.stderr.write("Error: thread not found\n"); process.exit(1); }
+    if (!args.includes("--ephemeral") && !resumed) { fs.mkdirSync(sessions, { recursive: true }); fs.writeFileSync(rollout, ""); }
+    out({ type: "thread.started", thread_id: thread }); out({ type: "turn.started" });
     switch (reply.kind) {
       case "text": out({ type: "item.completed", item: { id: "item_0", type: "reasoning", text: "thinking" } });
         out({ type: "item.completed", item: { id: "item_1", type: "agent_message", text: reply.text } });
-        out({ type: "turn.completed", usage: reply.usage === false ? undefined : { input_tokens: 12, cached_input_tokens: 4, output_tokens: 6, reasoning_output_tokens: 1 } }); process.exit(0);
+        out({ type: "turn.completed", usage: reply.usage === false ? undefined : resumed ? { input_tokens: 30, cached_input_tokens: 20, output_tokens: 9, reasoning_output_tokens: 2 } : { input_tokens: 12, cached_input_tokens: 4, output_tokens: 6, reasoning_output_tokens: 1 } }); process.exit(0);
       case "tool_use": out({ type: "item.started", item: { id: "item_1", type: "command_execution", command: "ls", status: "in_progress" } }); return hang();
       case "not_logged_in": process.stderr.write("Error: Not logged in. Run codex login\n"); process.exit(1);
       case "usage_limit": out({ type: "turn.failed", error: { message: "You've hit your usage limit. Upgrade to Pro or try again in 2 hours 5 minutes." } }); process.exit(1);
@@ -137,7 +146,12 @@ function run() {
     }
   }
   if (s.vendor === "antigravity") {
-    const conversation = "stand-in-conversation-" + index;
+    // --conversation <id> continues a stored conversation, which then reports the usage of all its turns so far.
+    const continued = args.includes("--conversation") ? args[args.indexOf("--conversation") + 1] : null;
+    const conversation = continued ?? "stand-in-conversation-" + index;
+    const stored = path.join(process.env.HOME ?? process.env.USERPROFILE, ".gemini", "antigravity-cli", "conversations", conversation + ".db");
+    if (continued !== null && !fs.existsSync(stored)) { out({ event: "result", result: { status: "ERROR", response: "", error: "conversation not found" } }); process.exit(1); }
+    if (continued === null && reply.kind === "text") { fs.mkdirSync(path.dirname(stored), { recursive: true }); fs.writeFileSync(stored, ""); }
     const result = (fields) => out({ event: "result", result: { conversation_id: conversation, duration_seconds: 1, num_turns: 1, ...fields } });
     const envelope = (status, extra) => { result({ status, ...extra }); process.exit(status === "SUCCESS" ? 0 : 1); };
     const step = (fields) => out({ event: "step_update", step_update: { conversation_id: conversation, state: "DONE", ...fields } });
@@ -145,7 +159,8 @@ function run() {
     step({ step_index: 0, step_type: "user_input" });
     switch (reply.kind) {
       case "text": { const schema = args.includes("--json-schema"); step({ step_index: 1, step_type: "agent_response", text_delta: reply.text + "\n" }); step({ step_index: 2, step_type: "finish" });
-        return envelope("SUCCESS", { response: reply.text, ...(schema ? { structured_output: JSON.parse(reply.text) } : {}), ...(reply.usage === false ? {} : { usage: reply.usage === "thinking_in_output" ? { input_tokens: 30, output_tokens: 8, thinking_tokens: 6, cache_read_tokens: 0, total_tokens: 38 } : { input_tokens: 30, output_tokens: 8, thinking_tokens: 2, cache_read_tokens: 10, total_tokens: 40 } }) }); }
+        return envelope("SUCCESS", { response: reply.text, ...(schema ? { structured_output: JSON.parse(reply.text) } : {}), ...(reply.usage === false ? {} : { usage: reply.usage === "thinking_in_output" ? { input_tokens: 30, output_tokens: 8, thinking_tokens: 6, cache_read_tokens: 0, total_tokens: 38 }
+          : continued !== null ? { input_tokens: 45, output_tokens: 15, thinking_tokens: 3, cache_read_tokens: 40, total_tokens: 63 } : { input_tokens: 30, output_tokens: 8, thinking_tokens: 2, cache_read_tokens: 10, total_tokens: 40 } }) }); }
       // The shape agy 1.3.3 streams for a failed model call (observed live): the step carries no text. The reason is a
       // string inside a protobuf payload in the CLI's conversation database, and the CLI then retries by itself.
       case "model_error": {
