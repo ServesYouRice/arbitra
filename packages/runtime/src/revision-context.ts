@@ -80,6 +80,8 @@ export async function reviseWithContext(input: ModelRevisionInput, port: Planner
   let current = original;
   // Each original task's current descendants, so a later item still reaches what replaced the task it names.
   let lineage = new Map(original.tasks.map(({ id }) => [id, [id]]));
+  // Every task a patch has retired, with the tasks that carry its work on.
+  const retiredTo = new Map<string, readonly string[]>();
   const resolutions = new Map<string, string>();
   const notRevised: string[] = [];
   const applied: { activityId: string; round: number; critiqueItemIds: readonly string[]; selectedTaskIds: readonly string[]; lineage: PlanRevisionPatch["lineage"] }[] = [];
@@ -133,7 +135,7 @@ export async function reviseWithContext(input: ModelRevisionInput, port: Planner
         sourcePaths: [...new Set([...selectedTasks, ...retiredOriginalTasks].flatMap(({ scope: taskScope, readFirst }) => [...taskScope.likelyFiles, ...readFirst]))],
         // Every patch rule runs inside the call, so a violating reply is refused and repaired (maximumOutputRepairs)
         // instead of failing the run after the spend (observed live: a patch added a task no lineage entry named).
-        schema: { parse: (value: unknown) => { const patch = planRevisionPatchSchema.parse(value); validatePlan(applyRevisionPatch(base, patch, scope)); return patch; } },
+        schema: { parse: (value: unknown) => { const patch = planRevisionPatchSchema.parse(value); validatePlan(applyRevisionPatch(base, patch, scope, retiredTo)); return patch; } },
         jsonSchema: planRevisionPatchSchema.toJSONSchema(),
       };
       return { stage, scope };
@@ -169,7 +171,7 @@ export async function reviseWithContext(input: ModelRevisionInput, port: Planner
     for (const [index, { batch, stage, scope }] of sent.entries()) {
       const patch = planRevisionPatchSchema.parse(replies[index]);
       let next: PlanIR;
-      try { next = applyRevisionPatch(current, patch, scope); validatePlan(next); }
+      try { next = applyRevisionPatch(current, patch, scope, retiredTo); validatePlan(next); }
       catch (error) {
         // Valid on the plan the round started from, but not beside an earlier call of the round (a dependency cycle
         // across both, for example): its items stay open rather than the run failing.
@@ -179,6 +181,7 @@ export async function reviseWithContext(input: ModelRevisionInput, port: Planner
       const renamed = renamedTaskIds(current, patch, scope);
       const replacements = new Map(patch.lineage.map(({ previousTaskId, nextTaskIds }) => [previousTaskId, nextTaskIds.map((id) => renamed.get(id) ?? id)]));
       lineage = new Map([...lineage].map(([originalId, descendants]) => [originalId, [...new Set(descendants.length === 0 ? replacements.get(originalId) ?? [] : descendants.flatMap((id) => replacements.get(id) ?? [id]))]]));
+      for (const id of patch.retiredTaskIds) retiredTo.set(id, replacements.get(id) ?? []);
       current = next;
       // The resolution the critic receives names the task lineage and the retired tasks.
       for (const { critiqueItemId, resolution } of patch.resolutions) resolutions.set(critiqueItemId, `${resolution}\nTask lineage: ${JSON.stringify(patch.lineage.map((entry) => ({ ...entry, nextTaskIds: entry.nextTaskIds.map((id) => renamed.get(id) ?? id) })))}\nRetired tasks: ${JSON.stringify(patch.retiredTaskIds)}`);
@@ -199,7 +202,7 @@ export async function reviseWithContext(input: ModelRevisionInput, port: Planner
  * retired task's references elsewhere move to the tasks its lineage names, and the task graph and routing
  * recommendations are rebuilt from the tasks.
  */
-export function applyRevisionPatch(plan: PlanIR, patch: PlanRevisionPatch, scope: BatchScope): PlanIR {
+export function applyRevisionPatch(plan: PlanIR, patch: PlanRevisionPatch, scope: BatchScope, earlier: ReadonlyMap<string, readonly string[]> = new Map()): PlanIR {
   if (!sameIds(scope.critiqueIds, patch.resolutions.map(({ critiqueItemId }) => critiqueItemId))) throw new Error(`REVISION_PATCH_CRITIQUE_MISMATCH: give exactly one resolution for each of ${scope.critiqueIds.join(", ")}`);
   const currentIds = new Set(plan.tasks.map(({ id }) => id));
   const changedIds = patch.tasks.map(({ id }) => id);
@@ -236,9 +239,15 @@ export function applyRevisionPatch(plan: PlanIR, patch: PlanRevisionPatch, scope
   }
   const unnamed = added.map(({ id }) => id).filter((id) => ![...successors.values()].some((next) => next.includes(id)));
   if (unnamed.length > 0 && scope.selectedIds.size > 0) throw new Error(`REVISION_NEW_TASK_LINEAGE_ABSENT: list each new task in the nextTaskIds of the lineage entry for the selected task it splits or replaces; unnamed: ${unnamed.map((id) => [...renamed].find(([, to]) => to === id)?.[0] ?? id).join(", ")}`);
-  // A reference to a retired task moves to the tasks that carry its work on.
+  // A reference to a retired task moves to the tasks that carry its work on: this patch's, and those of tasks an
+  // earlier patch retired (`earlier`), which a call of the same round still saw in the plan it read.
   const retired = new Set(patch.retiredTaskIds);
-  const moved = (ids: readonly string[], self: string) => [...new Set(ids.flatMap((id) => retired.has(id) ? successors.get(id) ?? [] : [id]))].filter((id) => id !== self);
+  const carried = (id: string, seen: ReadonlySet<string>): readonly string[] => {
+    if (retired.has(id)) return successors.get(id) ?? [];
+    const next = finalIds.has(id) || seen.has(id) ? undefined : earlier.get(id);
+    return next === undefined ? [id] : next.flatMap((successor) => carried(successor, new Set([...seen, id])));
+  };
+  const moved = (ids: readonly string[], self: string) => [...new Set(ids.flatMap((id) => carried(id, new Set())))].filter((id) => id !== self);
   const finalTasks = [...kept, ...added].map((task) => ({ ...task, dependencies: { dependsOn: moved(task.dependencies.dependsOn, task.id), blocks: moved(task.dependencies.blocks, task.id), conflictsWith: moved(task.dependencies.conflictsWith, task.id) } }));
   const changed = new Set(tasks.map(({ id }) => id));
   const routing = [...plan.routingRecommendations.filter(({ taskId }) => finalIds.has(taskId) && !changed.has(taskId)),
