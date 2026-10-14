@@ -873,8 +873,10 @@ describe("composed model audits", () => {
     const read = async <T>(kind: string) => { const descriptor = (await core.artifacts(result.runId)).find((artifact) => artifact.kind === kind); return JSON.parse((await core.artifact(result.runId, descriptor?.artifactId ?? "") as { content: string }).content) as T; };
     const metrics = await read<{ itemCount: number; modelCalls: number; modelQuestionCalls: number }>("verification-metrics");
     const groups = await read<{ candidateIds: string[] }[]>("verification-groups");
-    // Every claim cites the fixture's one file, so the questions go three to a call.
-    expect(groups.map(({ candidateIds }) => candidateIds.length)).toEqual(Array.from({ length: Math.ceil(metrics.itemCount / 3) }, (_, index) => Math.min(3, metrics.itemCount - index * 3)));
+    // The claims cite the fixture's files, so questions share calls, three at most, and every question is in one group.
+    expect(groups.every(({ candidateIds }) => candidateIds.length >= 1 && candidateIds.length <= 3)).toBe(true);
+    expect(groups.length).toBeLessThan(metrics.itemCount);
+    expect(new Set(groups.flatMap(({ candidateIds }) => candidateIds)).size).toBe(metrics.itemCount);
     expect(metrics).toMatchObject({ modelCalls: metrics.itemCount, modelQuestionCalls: groups.length });
     expect(requests.filter(({ stage }) => stage === "verification-group" || stage === "verification")).toHaveLength(groups.length);
     const issues = await read<{ issues: { verificationOutcome: string | null }[] }>("canonical-issues");

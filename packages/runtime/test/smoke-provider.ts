@@ -218,6 +218,9 @@ async function smokeCli(root: string, answer: (protocol: WireProtocol, system: s
     await writeFile(path, "#!/bin/sh\nexit 1\n"); await chmod(path, 0o755);
     env[support.executableEnvVar] = path;
   }
+  // A tool turn continues the CLI's own session with the tool results alone, so each session keeps what its first
+  // call was asked: the instruction and the user message.
+  const sessions = new Map<string, { readonly instruction: string; readonly user: string }>(); let started = 0;
   const done = (stdout: string, exitCode = 0): NativeProcessResult => ({ pid: null, exitCode, exitSignal: null, stopped: null, violation: null, stdout, stderr: "", treeTerminated: true });
   const process: NativeProcessPort = { async run(request: NativeProcessRequest): Promise<NativeProcessResult> {
     const vendor = basename(request.executable);
@@ -235,12 +238,18 @@ async function smokeCli(root: string, answer: (protocol: WireProtocol, system: s
     const instruction = system.startsWith(CLI_ENGINE_PREAMBLE) ? system.slice(CLI_ENGINE_PREAMBLE.length).replace(/^\n\n/u, "") : system;
     const first = /^<<<BEGIN user ([a-f0-9]{16})>>>\n([\s\S]*?)\n<<<END user \1>>>/mu.exec(stdin);
     const protocol = ({ claude: "claude-code-cli", codex: "codex-cli", gemini: "gemini-cli", agy: "antigravity-cli" } as const)[vendor as "claude" | "codex" | "gemini" | "agy"];
-    const output = answer(protocol, instruction, first?.[2] ?? stdin, stdin.includes("<<<BEGIN tool-result") ? "\"role\":\"tool\"" : "");
+    const after = (flag: string) => args.includes(flag) ? args[args.indexOf(flag) + 1] : undefined;
+    const resumed = vendor === "claude" ? after("--resume") : vendor === "codex" && args[1] === "resume" ? args[args.length - 2] : vendor === "agy" ? after("--conversation") : undefined;
+    started += 1;
+    const sessionId = resumed ?? (vendor === "claude" ? after("--session-id") ?? "smoke" : `smoke-${started}`);
+    const asked = resumed === undefined ? { instruction, user: first?.[2] ?? stdin } : sessions.get(resumed) ?? { instruction, user: stdin };
+    sessions.set(sessionId, asked);
+    const output = answer(protocol, asked.instruction, asked.user, stdin.includes("<<<BEGIN tool-result") ? "\"role\":\"tool\"" : "");
     const call = (output as { toolCall?: { name: string; arguments: unknown } }).toolCall;
     const text = JSON.stringify(call === undefined ? output : { toolCalls: [{ name: call.name, arguments: call.arguments }] });
-    const lines = vendor === "claude" ? [{ type: "system", subtype: "init", session_id: "smoke", tools: [], mcp_servers: [], apiKeySource: "none" }, { type: "result", is_error: false, result: text, session_id: "smoke", usage: { input_tokens: 20, output_tokens: 30 } }]
-      : vendor === "codex" ? [{ type: "thread.started", thread_id: "smoke" }, { type: "item.completed", item: { type: "agent_message", text } }, { type: "turn.completed", usage: { input_tokens: 20, cached_input_tokens: 0, output_tokens: 30 } }]
-        : vendor === "agy" ? [{ event: "step_update", step_update: { step_type: "agent_response", text_delta: text } }, { event: "result", result: { conversation_id: "smoke", status: "SUCCESS", response: `${text}\n`, num_turns: 1, usage: { input_tokens: 20, output_tokens: 30, thinking_tokens: 0, cache_read_tokens: 0, total_tokens: 50 } } }]
+    const lines = vendor === "claude" ? [{ type: "system", subtype: "init", session_id: sessionId, tools: [], mcp_servers: [], apiKeySource: "none" }, { type: "result", is_error: false, result: text, session_id: sessionId, usage: { input_tokens: 20, output_tokens: 30 } }]
+      : vendor === "codex" ? [{ type: "thread.started", thread_id: sessionId }, { type: "item.completed", item: { type: "agent_message", text } }, { type: "turn.completed", usage: { input_tokens: 20, cached_input_tokens: 0, output_tokens: 30 } }]
+        : vendor === "agy" ? [{ event: "step_update", step_update: { step_type: "agent_response", text_delta: text } }, { event: "result", result: { conversation_id: sessionId, status: "SUCCESS", response: `${text}\n`, num_turns: 1, usage: { input_tokens: 20, output_tokens: 30, thinking_tokens: 0, cache_read_tokens: 0, total_tokens: 50 } } }]
         : [{ type: "init", session_id: "smoke" }, { type: "message", role: "assistant", content: text, delta: true }, { type: "result", status: "success", stats: { input_tokens: 20, output_tokens: 30, cached: 0 } }];
     for (const line of lines) {
       try { request.onLine?.(JSON.stringify(line)); }
