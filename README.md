@@ -162,6 +162,7 @@ tooling/              ESLint rules that enforce architecture invariants
 | [`docs/task-ir.md`](docs/task-ir.md) | Task IR, Validation Contract, Plan IR, traceability |
 | [`docs/durability.md`](docs/durability.md) | journal, activities, resume, crash semantics |
 | [`docs/evaluation.md`](docs/evaluation.md) | corpora, metrics, replay, the premise test |
+| [`docs/research.md`](docs/research.md) | the public research the design was checked against: model labs, comparable tools, papers |
 
 Presentation is governed by [`docs/DESIGN-LANGUAGE.md`](docs/DESIGN-LANGUAGE.md) and the
 assets in [`docs/brand/`](docs/brand). Those are normative inputs: this document set
