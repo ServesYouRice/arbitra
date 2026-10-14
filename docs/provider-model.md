@@ -629,14 +629,26 @@ original feedback and proposed resolutions as untrusted claims, and remaining bl
 feedback still fails the gate. Without it the resolutions are published with the revision
 and are not checked by a model ([one pass per review stage](#one-pass-per-review-stage)).
 Original plan/critique, revision output and final review remain durable; restart reuses
-completed work. If a complete revision prompt does not fit, the planner applies one
-atomic patch per blocking critique item. Each patch receives complete current task
-bodies for that critique and their direct dependency/conflict neighbors, relevant
-canonical issues, full global plan metadata, and a compact index of other tasks.
-Only selected tasks may be replaced or retired; unchanged task bodies are preserved.
-Every patch must retain valid global traceability and dependencies. Explicit lineage
-keeps later critiques attached to replacement tasks, including reintroduced work after
-retirement. Existing unresolved questions cannot silently disappear from a patch.
+completed work. If a complete revision prompt does not fit, the plan is revised in parts.
+A call answers the critique items that name the same tasks (at most 12 items, and tasks
+filling at most half of the planner's output ceiling when written out again) and reads only
+what those tasks need: the tasks in full, an index of every task, the plan header without
+its questions, the open questions, validation assertions and issue links of those tasks,
+their canonical issues and the files they name. It writes only what it changes
+(`planRevisionPatchSchema`): the tasks it rewrites or adds, retired tasks with their
+lineage, new questions and assertions, the links of its own issues, and additions to the
+plan's notes. A reference elsewhere to a retired task moves to the tasks its lineage names,
+and the task graph and routing recommendations are rebuilt from the tasks, so a call never
+restates them. New tasks, questions and assertions are renumbered per call. Calls whose tasks
+do not overlap run side by side in rounds and are applied in item order; an item whose tasks
+span two calls of a round waits for the next round and reads the result. Only selected tasks
+may be replaced or retired; unchanged task bodies are preserved, and existing questions are
+carried over by the runtime. Explicit lineage keeps later critiques attached to replacement
+tasks, including reintroduced work after retirement. Observed live (P20 pilot): one call per
+item, each reading and writing the whole plan header (302 open questions, 138,000 characters)
+with every neighbouring task in full; for 108 blocking items that was 108 calls one after
+another, and the first item already did not fit. Replayed on that run's stored plan and
+critique, the same items take 28 calls in 5 rounds, the largest reading 252,000 characters.
 
 Re-review batches keep each prior critique together with its resolution claim and check
 those records against every current task, issue and validation record. Missing or

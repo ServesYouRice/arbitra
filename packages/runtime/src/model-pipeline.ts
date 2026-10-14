@@ -35,7 +35,7 @@ import { reviseWithContext } from "./revision-context.js";
 import { createHash } from "node:crypto";
 import type { SemanticClusteringDecision, SemanticClusteringPair } from "@arbitra/workflow/clustering/escalate.js";
 import type { ModelActivityRequest } from "./model-activities.js";
-import { expectedRecordCapacity, inputBytesPerToken, outputCeiling, isCapacityError, ModelOutputLimitError, ModelRefusalError, OUTPUT_TOKENS_PER_RECORD, outputRecordLimit, replanOnOutputLimit, stageBudget, type EffortStage } from "./context-budget.js";
+import { expectedRecordCapacity, inputBytesPerToken, outputCeiling, isCapacityError, PLAN_TASK_CHARACTERS_PER_OUTPUT_TOKEN, ModelOutputLimitError, ModelRefusalError, OUTPUT_TOKENS_PER_RECORD, outputRecordLimit, replanOnOutputLimit, stageBudget, type EffortStage } from "./context-budget.js";
 import { agreedConflictResolution, conflictId, conflictResolutionView, independentConflicts, type ConflictResolutionVote } from "./model-conflict-resolution.js";
 import { sideBySide } from "./side-by-side.js";
 import { validateBatchLanes } from "./model-batch-lane.js";
@@ -627,14 +627,21 @@ export class ModelAuditPipeline {
       await this.context.store.publish("critic-initial-feedback", feedback);
       const revised = await revisePlanOnce("Resolve accepted issues while preserving intended behavior.", plan, feedback.items, { modelProfileId: this.#roles.planner }, {
         revise: async (request) => {
-          const stageInput = (composed: PlannerStage): ModelStageInput<unknown> => ({ ...composed, modelProfileId: this.#roles.planner, protocol: "planner", signal, stage: "revision" });
+          // A part of the plan reads the files of its own tasks; the whole plan reads every file as far as it fits.
+          const stageInput = ({ sourcePaths, ...composed }: PlannerStage): ModelStageInput<unknown> => ({ ...composed, modelProfileId: this.#roles.planner, protocol: "planner", signal, stage: "revision",
+            ...(sourcePaths === undefined ? {} : { sourceScope: "cited" as const, citedPaths: sourcePaths }) });
+          const parallel = providerExecutionSchema.parse(this.config.workflow["modelExecution"]).maximumParallelCalls ?? 1;
+          // A call writes its tasks out again, so the tasks it takes on fill at most half of its output ceiling; the
+          // rest is for its items' resolutions and for more thinking than one task needs.
+          const maximumTaskCharacters = Math.floor(stageBudget(this.config, this.#roles.planner).outputCapacity / 2 * PLAN_TASK_CHARACTERS_PER_OUTPUT_TOKEN);
           return replanOnOutputLimit(() => reviseWithContext({ ...request, canonicalIssues: planned, repository: this.repository() }, {
             fits: (stage) => this.sendable(stageInput(stage), false),
             admits: (stage) => this.sendable(stageInput(stage), true),
             outputLimited: (stage) => this.#activities.outputLimited(stage.activityId),
+            together: (items, run) => sideBySide(items, parallel, run),
             call: (stage) => this.call(stageInput(stage)),
             publish: (kind, value) => this.context.store.publish(kind, value),
-          }));
+          }, undefined, { maximumTaskCharacters }));
         },
       });
       await this.context.store.publish("plan-revision", revised);

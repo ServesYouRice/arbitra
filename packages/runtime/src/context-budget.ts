@@ -58,6 +58,10 @@ export const OUTPUT_TOKENS_PER_RECORD = Object.freeze({
   clusteringPair: 300,
 });
 
+/** Characters of a complete plan task written per output token, thinking included: tasks of about 20,000 characters
+ * took about 12,000 output tokens each to write out (P20 pilot, Opus 5.5 at xhigh). */
+export const PLAN_TASK_CHARACTERS_PER_OUTPUT_TOKEN = 20_000 / 12_000;
+
 /** How many records one answer is expected to hold, for a stage that can go on in smaller parts and asks before
  * it spends on one call that cannot hold them all. A reserve is what a record adds to a large answer, so an answer
  * of a dozen records is not judged by it and is asked for whole, as it was before. */

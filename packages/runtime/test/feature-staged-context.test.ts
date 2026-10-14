@@ -84,12 +84,12 @@ async function fixture(failExpansion: boolean) {
       const scope = input["reviewScope"] as { kind: string; recordIds: string[] } | undefined;
       const blocking = stage === "critic" && scope?.kind === "review" && scope.recordIds.includes("task:TASK-001");
       output = { summary: "Reviewed batch", items: blocking ? [{ id: "critique", category: "weak_verification", blocking: true, summary: "Missing renewal regression", taskIds: ["TASK-001"], issueIds: [] }] : [] };
-    } else if (system.startsWith("Apply one atomic revision")) {
+    } else if (system.startsWith("Revise the selected tasks")) {
       stage = "revision-patch"; const selected = input["selectedTasks"] as PlanIR["tasks"];
-      const globalPlan: Partial<PlanIR> = { ...plan }; delete globalPlan.tasks;
-      output = { critiqueItemId: (input["critique"] as { id: string }).id, resolution: "Added renewal regression", globalPlan,
-        tasks: selected.map((task) => task.id === "TASK-001" ? { ...task, acceptanceCriteria: [...task.acceptanceCriteria, "Renewal keeps preferences."] } : task), retiredTaskIds: [],
-        lineage: selected.map(({ id }) => ({ previousTaskId: id, nextTaskIds: [id], rationale: "Updated in place" })) };
+      output = { resolutions: (input["critique"] as { id: string }[]).map(({ id }) => ({ critiqueItemId: id, resolution: "Added renewal regression" })),
+        tasks: selected.filter((task) => task.id === "TASK-001").map((task) => ({ ...task, acceptanceCriteria: [...task.acceptanceCriteria, "Renewal keeps preferences."] })), retiredTaskIds: [],
+        lineage: (input["selectedTaskIds"] as string[]).map((id) => ({ previousTaskId: id, nextTaskIds: [id], rationale: "Updated in place" })),
+        addedQuestions: [], addedValidation: [], issueToValidation: [], requirementLinks: [], planAdditions: { implementationStrategy: [], dependencies: [], rolloutConcerns: [], migrationConcerns: [] } };
     } else throw new Error(`UNEXPECTED_FEATURE_PROMPT:${system.slice(0, 80)}`);
     calls.push({ stage, key: createHash("sha256").update(request.url).update(system).update(JSON.stringify(input)).digest("hex"), input });
     return { status: 200, headers: {}, body: request.url.includes("anthropic.fixture")
