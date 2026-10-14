@@ -1,8 +1,9 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { NativeProcessPort, NativeProcessResult } from "../../src/process.js";
 import { ProviderRegistry, type ProviderEndpoint } from "../../src/registry.js";
 import { TransportError, type ProviderTransport, type TransportRequest } from "../../src/transport-contract.js";
 import { classifyCliFailure, resetTime, retryHint } from "../../src/transports/cli/classify.js";
@@ -71,7 +72,7 @@ describe.each(VENDORS)("%s subscription CLI transport", { timeout: 30_000 }, (ve
       antigravity: { inputTokens: 40, outputTokens: 10, cacheReadTokens: 10, cacheWriteTokens: null } }[vendor]);
     const report = await f.report();
     expect(report.cwd.startsWith(f.temporary)).toBe(true);
-    expect(report.cwd.endsWith("/work")).toBe(true);
+    expect(basename(report.cwd)).toBe("work");
     expect(report.files).toEqual(vendor === "gemini" ? [".gemini"] : []);
     for (const leaked of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "UNRELATED_SECRET", f.support.executableEnvVar]) expect(report.env[leaked]).toBeUndefined();
     expect(report.env["HOME"]).toBe(f.home);
@@ -261,6 +262,92 @@ describe("Claude Code specifics", { timeout: 30_000 }, () => {
     expect((await f.report(1)).argv).toContain("--resume");
     const whole = await f.report(2);
     expect(whole.argv).toContain("--session-id"); expect(whole.stdin).toContain("Say pong."); expect(whole.stdin).toContain("export {}");
+  });
+});
+
+/**
+ * A Claude Code transport over an injected process port, so these run alike on every host: `answer` gives each model
+ * call's stream from its index and arguments; `state` names the version the CLI reports and keeps every call's arguments.
+ */
+async function injected(answer: (call: number, argv: readonly string[]) => { readonly lines: readonly unknown[]; readonly exitCode: number }) {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "arbitra-cli-port-"))); roots.push(root);
+  const home = join(root, "home"); const temporary = join(root, "tmp"); const executable = join(root, "claude");
+  await Promise.all([home, temporary].map((directory) => mkdir(directory)));
+  await writeFile(executable, "", { mode: 0o755 });
+  const state = { version: "2.1.296", probes: 0, calls: [] as string[][] };
+  const port: NativeProcessPort = { async run(input): Promise<NativeProcessResult> {
+    const result = { pid: null, exitCode: 0, exitSignal: null, stopped: null, violation: null, stdout: "", stderr: "", treeTerminated: true };
+    if (input.arguments.includes("--version")) { state.probes += 1; return { ...result, stdout: `${state.version} (Claude Code)\n` }; }
+    state.calls.push([...input.arguments]);
+    const reply = answer(state.calls.length - 1, input.arguments);
+    for (const line of reply.lines) input.onLine?.(JSON.stringify(line));
+    return { ...result, exitCode: reply.exitCode };
+  } };
+  const support = requireCliTransportSupport("claude-code-cli");
+  const env: Record<string, string> = { HOME: home, USERPROFILE: home, [support.executableEnvVar]: executable };
+  const registry = new ProviderRegistry([{ id: "sub", providerId: "anthropic", transport: support.transport, endpoint: support.endpoint, auth: "subscription_login" }],
+    { cli: { lookup: (name) => env[name], process: port, temporaryDirectory: temporary, limits: null } });
+  return { home, temporary, executable, registry, transport: registry.transports["sub"] as ProviderTransport, state };
+}
+
+describe("Claude Code over an injected process", { timeout: 30_000 }, () => {
+  const envelope = "{\"toolCalls\":[{\"name\":\"repo.readFile\",\"arguments\":{\"path\":\"a.ts\"}}]}";
+  const tools = [{ name: "repo.readFile", description: "Read a file", inputSchema: { type: "object", properties: { path: { type: "string" } } } }];
+  const followUpOf = (first: { toolCalls: readonly { id: string }[] }) => [...request().messages, { role: "assistant" as const, content: "", toolCalls: first.toolCalls as never },
+    { role: "tool" as const, content: "{\"content\":\"export {}\"}", toolCallId: first.toolCalls[0]?.id ?? "", toolName: "repo.readFile" }];
+  /** Claude Code's stream for one call: its start, then its result; a failed call exits 1. */
+  const stream = (session: string, text: string, failed = false) => ({ exitCode: failed ? 1 : 0, lines: [{ type: "system", subtype: "init", session_id: session, tools: [], mcp_servers: [], apiKeySource: "none" },
+    { type: "result", subtype: "success", is_error: failed, result: text, session_id: session, usage: { input_tokens: 10, output_tokens: 5 } }] });
+  const kind = (argv: readonly string[]) => argv.includes("--resume") ? "resume" : argv.includes("--session-id") ? "whole" : "plain";
+
+  it("leaves a throttled or refused continuation to the caller, and sends whole at once only a session that cannot be continued", async () => {
+    // Resent whole at once, a throttled continuation skipped the CLI's retry hint and the caller's backoff.
+    for (const [reported, expected] of [["API Error: 429 rate_limit_error: Too many requests, retry in 30 seconds", { code: "RATE_LIMIT", retryable: true, retryAfterMs: 30_000 }],
+      ["API Error: 503 Service Unavailable", { code: "HTTP", retryable: true }], ["invalid model: model-x", { code: "INVALID_REQUEST", retryable: false }]] as const) {
+      const f = await injected((call, argv) => argv.includes("--resume") ? stream(`session-${call}`, reported, true) : stream(`session-${call}`, call === 0 ? envelope : "{\"summary\":\"done\"}"));
+      const first = await send(f.transport, request({ tools }));
+      expect(await failure(send(f.transport, request({ tools, messages: followUpOf(first) })))).toMatchObject(expected);
+      expect(f.state.calls.map(kind)).toEqual(["whole", "resume"]);
+      // The caller's retry sends the conversation whole; the failed session's directory is already gone.
+      expect(await readdir(f.temporary)).toEqual([]);
+      expect(await send(f.transport, request({ tools, messages: followUpOf(first) }))).toMatchObject({ text: "{\"summary\":\"done\"}" });
+      expect(f.state.calls.map(kind)).toEqual(["whole", "resume", "whole"]);
+    }
+    // A resume the CLI fails without a known cause is how a session that cannot be continued shows up: one whole call follows.
+    const f = await injected((call, argv) => argv.includes("--resume") ? stream(`session-${call}`, "No conversation found with session ID", true) : stream(`session-${call}`, call === 0 ? envelope : "{\"summary\":\"done\"}"));
+    const first = await send(f.transport, request({ tools }));
+    expect(await send(f.transport, request({ tools, messages: followUpOf(first) }))).toMatchObject({ text: "{\"summary\":\"done\"}" });
+    expect(f.state.calls.map(kind)).toEqual(["whole", "resume", "whole"]);
+  });
+
+  it("removes a conversation kept for a tool turn when the run closes its transports, and stays usable", async () => {
+    // Each run builds its own transports, so the two-hour sweep of a later call never reached a run's last kept conversation.
+    const f = await injected((call) => stream(`session-${call}`, call === 0 ? envelope : "pong"));
+    expect((await send(f.transport, request({ tools }))).toolCalls).toHaveLength(1);
+    const kept = await readdir(f.temporary);
+    expect(kept).toEqual([expect.stringMatching(/^arbitra-cli-/u)]);
+    // What Claude Code stores for a session sits under its configuration directory, by working directory.
+    const stored = join(f.home, ".claude", "projects", join(f.temporary, kept[0] ?? "", "work").replace(/[^a-zA-Z0-9]/gu, "-"));
+    await mkdir(stored, { recursive: true });
+    await f.registry.close();
+    expect(await readdir(f.temporary)).toEqual([]); expect(existsSync(stored)).toBe(false);
+    expect(await send(f.transport)).toMatchObject({ text: "pong" });
+  });
+
+  it("probes the version again, and checks its range, when the executable changes in place", async () => {
+    // npm's Codex and winget's agy are updated at the same path; the version probed first went on describing the old file.
+    const f = await injected((call) => stream(`session-${call}`, "pong"));
+    await utimes(f.executable, 1_700_000_000, 1_700_000_000);
+    expect((await send(f.transport)).transportVersion).toBe("claude-code/2.1.296");
+    await send(f.transport);
+    expect(f.state.probes).toBe(1);
+    f.state.version = "2.1.300"; await utimes(f.executable, 1_700_000_100, 1_700_000_100);
+    expect((await send(f.transport)).transportVersion).toBe("claude-code/2.1.300");
+    expect(f.state.probes).toBe(2);
+    f.state.version = "3.0.0"; await writeFile(f.executable, "updated");
+    const refused = await failure(send(f.transport));
+    expect(refused).toMatchObject({ code: "INVALID_REQUEST", retryable: false }); expect(refused.message).toContain("CLI_VERSION_UNSUPPORTED");
+    expect(f.state.probes).toBe(3); expect(f.state.calls).toHaveLength(3);
   });
 });
 

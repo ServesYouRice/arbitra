@@ -84,8 +84,10 @@ endpoint is `cli://<vendor>` with `auth` (`subscription_login`, or `oauth_token`
 `oauthTokenEnvVar` for Claude Code); no key or URL is configured. Each call: resolves the
 executable (override variable, PATH, documented install locations), refuses a CLI version
 outside the matrix range, serializes the conversation deterministically into one framed
-transcript (system text through the CLI's own system-prompt mechanism, with its default
-prompt replaced), runs the CLI in an empty temporary directory with an allowlisted
+transcript (system messages through the CLI's own system-prompt mechanism, with its default
+prompt replaced; a compiled stage prompt — protocol, schema, tools and instruction — is one user
+message, so the system prompt carries only arbitra's short engine preamble and the stage prompt
+travels in the transcript), runs the CLI in an empty temporary directory with an allowlisted
 environment and its agent tools, MCP, hooks, skills, plugins and project instructions
 disabled, and kills the process tree on exit. Tool use is emulated: the transcript lists
 arbitra's tools and the model replies with `{"toolCalls":[{"name","arguments"}]}` or its final
@@ -105,8 +107,11 @@ Claude Code 2.1.296, its system prompt replaced): a call in another directory re
 session: the first call starts it (`--session-id`), and a tool turn continues it (`--resume`)
 in the same working directory with only the tool results, so the CLI reads the conversation
 so far from its prompt cache. The directory and the stored session are removed when the
-conversation ends (after two hours at the latest), and a session that cannot be continued is
-sent whole once. Measured (October 14, 2026): a continued turn read 91% of its prompt from the
+conversation ends, when the run that owns the transport settles (each run builds its own
+transports, so nothing else would remove a session its run left open), or after two hours. A
+session that cannot be continued is sent whole once; a continuation that is throttled or meets
+an upstream failure goes back to the runtime's retry, which waits its backoff and retry hint
+before sending the conversation whole. Measured (October 14, 2026): a continued turn read 91% of its prompt from the
 cache, the same turn sent whole 19%, writing the rest to the cache again. Codex and the
 Antigravity CLI keep sessions the same way: Codex starts one by leaving out `--ephemeral` and
 continues it with `codex exec resume <thread>`, the Antigravity CLI with `--conversation <id>`
@@ -189,7 +194,9 @@ what to do with reasoning content in history, sampling defaults, whether greedy 
 safe, the tool-loop limit, and whether prefill is supported.
 
 Encoding these as data rather than as conditionals is what lets one prompt compiler serve
-every provider.
+every provider. Today only `systemPromptSupport` and `toolLoopLimit` change what is sent:
+the others, and `structuredOutputDialect`, are validated and recorded with the run but no
+renderer or transport reads them yet, so setting one changes no request.
 
 ## Budget, scheduling and continuation
 
@@ -351,7 +358,10 @@ Ambiguous finding pairs now use durable semantic classification through the veri
 reading the files the two findings cite. Unless `maximumClusteringPairs` is set, every pair whose
 findings cite overlapping lines is classified, with the pairs two findings of one answer form and
 the pairs the structural rule would have joined, and the first 20 of the rest; those pairs come
-first. The structural rule then joins only exact duplicates and proposes the rest. Set, the bound
+first, up to 300 in all (`MAXIMUM_SHARED_LINE_PAIRS`): fifty findings on one line would
+otherwise be 1,225 pairs, about 370,000 output tokens. Pairs past the ceiling, the weakest, stay
+unclassified and reach verification as separate candidates. The structural rule then joins only
+exact duplicates and proposes the rest. Set, the bound
 is exact (0 disables escalation; maximum 1000) and the structural rule joins as before. Observed:
 with the first 20 pairs in id order, 40 pairs of one run's 53 accepted issues overlapped, and
 each duplicate paid for its own verification and task; in a three-model shakedown on October 14
@@ -505,9 +515,14 @@ engine support and unsuccessful checks remain visible as coverage gaps.
   `ProviderBudgetSuspendedError` rather than overspending. Every invocation emits an
   `InvocationTrace` to a `TraceSink`.
 - `packages/providers/src/scheduler.ts` (`RateLimitScheduler`, `SchedulerLease`) paces
-  calls under a `RateLimitPolicy` and records scheduler metrics.
-- `packages/providers/src/cache-handle.ts` tracks prompt-cache handles so cache hit rate is
-  measured per node rather than estimated.
+  calls under a `RateLimitPolicy` and records scheduler metrics. Each run has its own
+  scheduler: runs side by side (one process each, as the P20 runners are) do not share
+  `maxConcurrent`, the per-minute rates or a retry hint. Only an exhausted usage window is
+  shared, through the CLI limit ledger.
+- `packages/providers/src/cache-handle.ts` defines prompt-cache handles, but no production
+  path uses them yet and the API codecs send no explicit cache control (`cache_control`,
+  `cachedContent`). Cache reads come from the providers' automatic caching and the CLIs'
+  own; usage reports them per call as cache reads and writes.
 - `packages/providers/src/continuation/store.ts` provides optional persistence for
   provider continuation handles. Composed model activities currently disable that store
   and send explicit durable context on each call. Completed recorded turns are reused;

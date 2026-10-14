@@ -110,6 +110,17 @@ describe("native wire formats", () => {
     expect((await transport.send(request(), signal())).usage).toEqual({ inputTokens: 110, outputTokens: 4, cacheReadTokens: 80, cacheWriteTokens: 20 });
     expect((await transport.send(request(), signal())).usage.inputTokens).toBeNull();
   });
+  it("counts Gemini's separately reported thinking as output without inventing missing usage", async () => {
+    // A reply of 2 answer and 90 thinking tokens (102 in all with the prompt) was charged 12.
+    const body = (usageMetadata: Record<string, unknown>) => ({ candidates: [{ content: { parts: [{ text: "ok" }] }, finishReason: "STOP" }], usageMetadata });
+    const counts = [{ promptTokenCount: 10, candidatesTokenCount: 2, thoughtsTokenCount: 90, totalTokenCount: 102 }, { promptTokenCount: 10, candidatesTokenCount: 2 },
+      { promptTokenCount: 10, candidatesTokenCount: 2, thoughtsTokenCount: 0 }, { promptTokenCount: 10, thoughtsTokenCount: 90 }, { promptTokenCount: 10, candidatesTokenCount: 2, thoughtsTokenCount: "90" }];
+    const transport = factory(GeminiNativeTransport)(new ScriptedHttpClient(counts.map((usage) => http(200, body(usage)))));
+    const output = [];
+    for (let i = 0; i < counts.length; i += 1) output.push((await transport.send(request(), signal())).usage.outputTokens);
+    // Present, absent, zero; and with the answer's count missing or the thinking count unreadable, unknown.
+    expect(output).toEqual([92, 2, 2, null, null]);
+  });
   const messages = [
     { role: "system" as const, content: "Instructions" },
     { role: "user" as const, content: "Look it up" },

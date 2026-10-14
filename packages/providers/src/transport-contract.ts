@@ -50,6 +50,8 @@ export interface TransportResponse {
 export interface ProviderTransport {
   readonly id: TransportId;
   send(request: TransportRequest, signal: AbortSignal): Promise<TransportResponse>;
+  /** Removes whatever the transport kept for a later turn (a CLI's open sessions). Called once the run that owns it settles. */
+  close?(): Promise<void>;
 }
 /** `QUOTA`: the account cannot pay for the call (exhausted credits or quota); retrying cannot help. */
 export type TransportErrorCode = "AUTH" | "INVALID_REQUEST" | "MALFORMED_RESPONSE" | "RATE_LIMIT" | "QUOTA" | "TIMEOUT" | "CANCELLED" | "HTTP" | "OUTPUT_LIMIT";

@@ -73,6 +73,11 @@ export class ProviderRegistry {
 
   get transports(): Readonly<Record<string, ProviderTransport>> { return this.#transports; }
 
+  /** Closes every transport (a CLI's kept sessions) once the run that owns them settles; one that fails does not keep the others open. */
+  async close(): Promise<void> {
+    await Promise.allSettled(Object.values(this.#transports).map(async (transport) => transport.close?.()));
+  }
+
   binding(endpointId: string, expected?: { readonly providerId: string; readonly transport: string }): Readonly<ProviderEndpoint> {
     const binding = this.#bindings.get(endpointId);
     if (binding === undefined) throw new Error(`UNKNOWN_PROVIDER_ENDPOINT:${endpointId}`);

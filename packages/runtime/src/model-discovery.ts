@@ -77,7 +77,9 @@ async function discoverScopeWithModel(options: ScopeOptions): Promise<readonly S
     const locations = finding.locations.map((location) => ({ ...location }));
     const quotes = (location: (typeof locations)[number], text: string): boolean => {
       const file = byPath.get(location.path);
-      return file !== undefined && redactSecrets(file.lines.slice(location.startLine - 1, location.endLine).join("\n")).text.includes(text);
+      // In normal form C, as the prompt compiler showed the source: a file holding "e" and a combining accent would
+      // otherwise refuse an exact copy of the composed "é" the model read.
+      return file !== undefined && redactSecrets(file.lines.slice(location.startLine - 1, location.endLine).join("\n")).text.normalize("NFC").includes(text.normalize("NFC"));
     };
     const grounded = finding.evidence.every((evidence) => {
       const cited = evidence.locationIds.flatMap((id) => locations.filter((item) => item.id === id));

@@ -76,6 +76,31 @@ describe("durable canonical model harness", () => {
   });
 
 
+  it("traces an output repair, and the failed tool calls whose results a turn reads", async () => {
+    // Every trace said no repairs and no tool errors, so metrics and the trace view showed none.
+    const terminals = async (store: Awaited<ReturnType<typeof setup>>["store"]) => {
+      const traces = new Map<string, { repairCount: number; toolCallErrors: number; toolCallCount: number }>();
+      for (const { kind, artifactId } of await store.listArtifacts()) {
+        if (!kind.endsWith("-trace")) continue;
+        const { activityId, terminal } = JSON.parse((await store.readArtifact(artifactId)).content) as { activityId: string; terminal: { repairCount: number; toolCallErrors: number; toolCallCount: number } };
+        traces.set(activityId, terminal);
+      }
+      return traces;
+    };
+    const repaired = await setup(2, 0, 1); let index = 0;
+    repaired.send.mockImplementation(async () => { index += 1; return { status: 200, headers: {}, body: { output_text: index === 1 ? "No JSON here." : '{"answer":"repaired"}', usage: { input_tokens: 10, output_tokens: 10 } } }; });
+    expect(await repaired.create().invoke({ ...request(), activityId: "auditor-a/review" })).toEqual({ answer: "repaired" });
+    const repairTraces = await terminals(repaired.store);
+    expect(repairTraces.get("auditor-a/review/turn-0")?.repairCount).toBe(0);
+    expect(repairTraces.get("auditor-a/review/repair-1/turn-0")?.repairCount).toBe(1);
+    // The first turn reads a path outside its scope; the second turn reads that failure.
+    const scoped = await setup();
+    expect(await scoped.create().invoke({ ...request(), sourcePaths: [] })).toEqual({ answer: "ok" });
+    const toolTraces = await terminals(scoped.store);
+    expect(toolTraces.get("auditor-a/discovery/turn-0")).toMatchObject({ toolCallCount: 1, toolCallErrors: 0, repairCount: 0 });
+    expect(toolTraces.get("auditor-a/discovery/turn-1")).toMatchObject({ toolCallCount: 0, toolCallErrors: 1, repairCount: 0 });
+  });
+
   it("records a provider's refusal durably, with no repair and no second call after restart", async () => {
     // Observed live (P20 pilot): Gemini's content filter answered one discovery unit three times; read as a reply, it was repaired as invalid JSON until the run failed.
     const { store, config } = await setup(2, 0, 2);

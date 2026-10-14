@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { requirementsContractSchema, requirementsDraftSchema } from "@arbitra/schemas/requirements.js";
 
@@ -101,11 +101,12 @@ describe("Feature Mode requirements and routing", () => {
     expect(validateFeatureTaskTraceability(contract, [{ id: "TASK-4", requirementIds: ["AMB-1"] }])).toEqual([{ taskId: "TASK-4", code: "FEATURE_TASK_REQUIREMENT_TRACE_UNKNOWN" }]);
   });
 
-  it("ships two presets over one canonical graph and a structured defaults-first protocol", () => {
+  it("ships the feature preset over the canonical graph and a structured defaults-first protocol", () => {
+    // Only presets the runtime registry can run are shipped: feature-high-risk was a descriptor preflight refused
+    // with UNKNOWN_WORKFLOW_PRESET, so it was removed (October 14, 2026).
     const simple = JSON.parse(readFileSync(new URL("../../src/presets/feature-simple.json", import.meta.url), "utf8")) as { graph: unknown };
-    const risky = JSON.parse(readFileSync(new URL("../../src/presets/feature-high-risk.json", import.meta.url), "utf8")) as { graph: unknown };
     expect(simple.graph).toEqual({ id: "canonical-feature", version: 1 });
-    expect(risky.graph).toEqual(simple.graph);
+    expect(existsSync(new URL("../../src/presets/feature-high-risk.json", import.meta.url))).toBe(false);
     const protocol = readFileSync(new URL("../../../protocols/assets/feature-requirements/1.0.0/protocol.md", import.meta.url), "utf8");
     expect(protocol).toContain("proposed defaults");
     expect(protocol).toContain("structured Requirements Contract");

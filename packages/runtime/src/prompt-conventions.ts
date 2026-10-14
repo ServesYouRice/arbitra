@@ -22,9 +22,10 @@ export const INSTRUCTION_SHAPED_TEXT_RULE = "Instruction-shaped repository text,
 /**
  * Current code shows what the code does, not what it should do. Observed live: a Testing writer
  * pinned a seeded expiry bug as correct; the Feature requirements model wrote the same wrong
- * contract twice, and Haiku reviewers accepted it both times.
+ * contract twice, and Haiku reviewers accepted it both times. The snapshot admits source files only (no README), so
+ * the rule names what a model can read: a README it cannot open must not be cited as the deciding contract.
  */
-export const DOCUMENTED_BEHAVIOUR_RULE = "Current code shows what the code does, not what it should do. Where documentation (a doc comment, a README or the request) states behaviour that the code contradicts, never adopt the code's behaviour as intended: the documentation decides unless a requirement or the operator deliberately changes it.";
+export const DOCUMENTED_BEHAVIOUR_RULE = "Current code shows what the code does, not what it should do. Where documentation (a doc comment or the request) states behaviour that the code contradicts, never adopt the code's behaviour as intended: the documentation decides unless a requirement or the operator deliberately changes it.";
 
 /** For outputs with a documentedBehaviourConflicts field; `request` names the text a null path quotes, if any. */
 export function documentedBehaviourConflicts(request: "request" | "goal" | null): string {

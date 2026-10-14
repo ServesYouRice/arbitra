@@ -1,8 +1,0 @@
-{
-  "presetId": "feature-high-risk",
-  "mode": "feature",
-  "requirementsMode": "interactive",
-  "graph": { "id": "canonical-feature", "version": 1 },
-  "stages": ["requirements", "targeted_exploration", "targeted_review", "planner", "critic", "renderer"]
-}
-

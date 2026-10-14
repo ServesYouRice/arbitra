@@ -31,6 +31,16 @@ it("takes the quoted text as authoritative when the stated range has the wrong l
   expect(anchorLineEvidence(evidence(3, 6, text), file)).toEqual(evidence(4, 6, text));
 });
 
+it("matches a quote copied from the composed form the prompt shows, and keeps the file's own text", () => {
+  // The prompt compiler sends source in normal form C; a file with a decomposed accent refused the exact copy.
+  const decomposed = { ...file, lines: ["// sessions", "const label = \"café\";", "}"] };
+  const quote = "const label = \"café\";";
+  expect(anchorLineEvidence(evidence(2, 2, quote), decomposed)).toEqual(evidence(2, 2, "const label = \"café\";"));
+  expect(anchorLineEvidence(evidence(3, 3, quote), decomposed)).toEqual(evidence(2, 2, "const label = \"café\";"));
+  expect(widenToQuote({ startLine: 3, endLine: 3 }, quote, decomposed)).toEqual({ startLine: 2, endLine: 3 });
+  expect(anchorLineEvidence(evidence(2, 2, "const label = \"cafe\";"), decomposed)).toBeNull();
+});
+
 it("widens a cited range to its one nearby quotation and never elsewhere", () => {
   // Observed live: the quote starts with the doc comment one line above the cited function.
   expect(widenToQuote({ startLine: 4, endLine: 6 }, lines.slice(2, 6).join("\n"), file)).toEqual({ startLine: 3, endLine: 6 });

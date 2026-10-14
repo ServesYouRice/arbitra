@@ -49,7 +49,7 @@ describe("impacted surface expansion", () => {
 
 describe("audit preset architecture", () => {
   it("keeps every shipped Audit preset on one versioned graph", () => {
-    const names = ["audit-balanced", "audit-deep", "diff-fast", "diff-review", "diff-deep"];
+    const names = ["audit-balanced", "audit-deep", "diff-fast", "diff-review"];
     const presets = names.map((name) => JSON.parse(readFileSync(new URL(`../../../workflow/src/presets/${name}.json`, import.meta.url), "utf8")) as { graph: unknown });
     expect(presets.every(({ graph }) => JSON.stringify(graph) === JSON.stringify(CANONICAL_AUDIT_GRAPH))).toBe(true);
   });

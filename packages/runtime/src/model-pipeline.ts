@@ -14,7 +14,7 @@ import type { VerificationAttempt, VerificationTools } from "@arbitra/workflow/n
 import type { TransportFactoryOptions } from "@arbitra/providers/registry.js";
 import { promptByteLimit } from "@arbitra/providers/transports/cli/dialects.js";
 import { ModelActivities } from "./model-activities.js";
-import { ModelProtocols } from "./model-protocols.js";
+import { AUDIT_PROTOCOL_DEFAULTS, ModelProtocols } from "./model-protocols.js";
 import { isModelOutputRejection, ModelHarness } from "./model-harness.js";
 import { discoverWithModel } from "./model-discovery.js";
 import { INSTRUCTION_SHAPED_TEXT_RULE } from "./prompt-conventions.js";
@@ -149,9 +149,13 @@ export class ModelAuditPipeline {
     this.#activities = new ModelHarness(new ModelActivities(context.store, config, options, units?.seed), config, context.snapshot, context.store);
     this.#units = units === undefined ? undefined : new DiscoveryUnits(context.store, config, context.snapshot, units.identity, units.seed);
     this.#peerReviewSeed = units?.seed?.contract.peerReviewSeed ?? undefined;
-    // The audit's critic follows the narrower protocol unless the run selects another version.
-    this.#protocols = new ModelProtocols(context.store, { "plan-critic": "1.1.0", ...config.protocols });
+    // The audit's critic follows the narrower protocol unless the run selects another version. It is a default, not a
+    // selection: a run that pinned the earlier default keeps its pin when it resumes on this build.
+    this.#protocols = new ModelProtocols(context.store, config.protocols, undefined, AUDIT_PROTOCOL_DEFAULTS);
   }
+
+  /** Removes what the run's transports keep for a later turn; called once the run settles. */
+  async close(): Promise<void> { await this.#activities.close(); }
 
   async prepareProtocols(): Promise<void> {
     await settleAll(["production-audit", "peer-review", "peer-conflict-resolution", "semantic-clustering", "targeted-verification", "planner", ...(this.context.criticEnabled ? ["plan-critic"] : []), ...(this.context.criticEnabled && this.#roles.critiqueChecker !== undefined ? ["critique-check"] : [])].map((id) => this.#protocols.resolve(id)));
@@ -232,8 +236,9 @@ export class ModelAuditPipeline {
       return { decisions: pairs.map((pair) => { const decision = decisions.get(pairIdOf(pair)); if (decision === undefined) throw new Error("CLUSTERING_DECISION_ABSENT"); return decision; }), calls };
     };
     const initial = await converge({ ...context, maximumRounds: 0 }, findings, {
-      // Unless the run sets a bound, every pair whose findings cite overlapping lines is classified, with the first
-      // 20 of the rest: a duplicate left unmerged pays for its own verification and its own task.
+      // Unless the run sets a bound, every pair whose findings cite overlapping lines is classified (300 pairs at most,
+      // MAXIMUM_SHARED_LINE_PAIRS), with the first 20 of the rest: a duplicate left unmerged pays for its own
+      // verification and its own task.
       maximumEscalatedPairs: execution.maximumClusteringPairs ?? 20, escalateSharedLines: execution.maximumClusteringPairs === undefined,
       semantic: { capability: "balanced", classify, classifyMany },
     });
@@ -813,7 +818,7 @@ export class ModelAuditPipeline {
             together: (items, run) => sideBySide(items, parallel, run),
             call: (stage) => this.call(stageInput(stage)),
             publish: (kind, value) => this.context.store.publish(kind, value),
-          }, undefined, { maximumTaskCharacters }));
+          }, undefined, { maximumTaskCharacters, rechecked: review.recheckRevisedPlan === true }));
         },
       });
       await this.context.store.publish("plan-revision", revised);

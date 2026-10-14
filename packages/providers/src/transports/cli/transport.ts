@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runNativeProcess, type NativeProcessPort, type NativeProcessResult } from "../../process.js";
@@ -36,6 +36,8 @@ interface CliDirectories { readonly root: string; readonly work: string; readonl
 type CliUsage = TransportResponse["usage"];
 /** A CLI session whose model asked for tools, kept for the turn that answers them, with the usage it reported so far. */
 interface CliConversation { readonly sessionId: string; readonly boundary: string; readonly directories: CliDirectories; readonly at: number; readonly usage: CliUsage }
+/** The CLI a transport runs and the version it reported, with its file's size and modification time then (null: unreadable). */
+interface CliResolution { readonly executable: CliExecutable; readonly version: string; readonly stamp: string | null }
 
 /** Host variables a CLI may need to find its login, locale and user identity. Nothing else crosses. */
 const PASSTHROUGH = ["USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE"] as const;
@@ -48,7 +50,8 @@ const WINDOWS_PASSTHROUGH = ["SystemRoot", "SYSTEMROOT", "APPDATA", "LOCALAPPDAT
  * the CLI version is checked against the support matrix before first use; the process tree
  * is killed on every exit path; and the root is removed afterwards. The one exception is a conversation that
  * offers tools on a CLI that keeps sessions: while its model waits for tool results, its root and the CLI's session
- * stay for the turn that continues it, and both are removed when the conversation ends (or after two hours).
+ * stay for the turn that continues it, and both are removed when the conversation ends, when the run that owns the
+ * transport closes it, or after two hours.
  */
 export class CliTransport implements ProviderTransport {
   readonly id: TransportId;
@@ -64,7 +67,7 @@ export class CliTransport implements ProviderTransport {
   readonly #maximumOutputBytes: number;
   readonly #limits: CliLimitLedger | null;
   readonly #now: () => number;
-  #executable: Promise<{ readonly executable: CliExecutable; readonly version: string }> | undefined;
+  #executable: Promise<CliResolution> | undefined;
   readonly #conversations = new Map<string, CliConversation>();
   /** Secret to this transport: the calls of one stage frame their transcripts alike, and no repository text can. */
   readonly #markerSeed = randomBytes(16).toString("hex");
@@ -110,12 +113,26 @@ export class CliTransport implements ProviderTransport {
         const followUp: CliPrompt = { system: prompt.system, body: serializeCliFollowUp(request, last + 1, previous.boundary), boundary: prompt.boundary, callIds: prompt.callIds };
         return await this.#call(run, followUp, previous.directories, { id: previous.sessionId, resume: true }, previous.boundary, previous.usage);
       } catch (error) {
-        // A session that cannot be continued is sent whole once more. A usage limit, a cancellation, a timeout or an
-        // output ceiling is the same either way and is not repeated.
-        if (!(error instanceof TransportError) || ["QUOTA", "CANCELLED", "TIMEOUT", "OUTPUT_LIMIT", "AUTH"].includes(error.code)) throw error;
+        // A session that cannot be continued (the CLI fails the resume, or answers it unreadably) is sent whole once
+        // more. Anything retryable, a throttle above all, goes to the caller's retry, which waits out its backoff or
+        // retry hint before sending the conversation whole: resent here at once, it would skip that wait. A usage limit,
+        // an auth failure, a refused model or failed start, a cancellation, a timeout or an output ceiling would fail
+        // the same way whole and is not repeated.
+        if (!(error instanceof TransportError) || error.retryable || ["QUOTA", "CANCELLED", "TIMEOUT", "OUTPUT_LIMIT", "AUTH", "RATE_LIMIT", "INVALID_REQUEST"].includes(error.code)) throw error;
       }
     }
     return this.#call(run, prompt, await this.#directories(), { id: randomUUID(), resume: false }, prompt.boundary);
+  }
+
+  /**
+   * Removes every conversation still kept for a turn that will not come: the run that owns the transport has settled.
+   * Each run is its own process with its own transports, so the two-hour sweep of a later call would never reach them.
+   * The transport stays usable.
+   */
+  async close(): Promise<void> {
+    const conversations = [...this.#conversations.values()];
+    this.#conversations.clear();
+    await Promise.all(conversations.map((conversation) => this.#remove(conversation.directories, conversation.sessionId)));
   }
 
   /**
@@ -208,16 +225,26 @@ export class CliTransport implements ProviderTransport {
     throw new TransportError("INVALID_REQUEST", `CLI_SPAWN_FAILED: ${this.#support.displayName} could not be started`, false, null, noUsage("cli_not_started"));
   }
 
-  #resolve(): Promise<{ readonly executable: CliExecutable; readonly version: string }> {
+  async #resolve(): Promise<CliResolution> {
+    // A CLI updated in place (npm's Codex, winget's agy) runs new code under the path it had: each call compares the
+    // file's size and modification time with the probe's, and a changed file is resolved and its version probed again.
+    const cached = this.#executable;
+    if (cached !== undefined) {
+      const resolved = await cached;
+      if (resolved.stamp === null || await executableStamp(resolved.executable.path) === resolved.stamp) return resolved;
+      if (this.#executable === cached) this.#executable = undefined;
+    }
     this.#executable ??= (async () => {
       const resolution = await resolveCliExecutable(this.#support, { platform: this.#platform, lookup: this.#lookup, nodeExecutable: this.#node });
       if (!resolution.found) throw new TransportError("INVALID_REQUEST", `CLI_NOT_INSTALLED: ${resolution.detail}. ${this.#support.installInstruction}`, false, null, noUsage("cli_unavailable"));
+      // Taken before the probe, so a change while it runs is seen on the next call.
+      const stamp = await executableStamp(resolution.executable.path);
       const version = await probeCliVersion(resolution.executable, this.#support, this.#probeOptions());
       if (version === null) throw new TransportError("INVALID_REQUEST", `CLI_VERSION_UNREADABLE: ${this.#support.displayName} at ${resolution.executable.path} did not report a version`, false, null, noUsage("cli_unavailable"));
       if (!versionInRange(version, this.#support.versionRange)) {
         throw new TransportError("INVALID_REQUEST", `CLI_VERSION_UNSUPPORTED: ${this.#support.displayName} ${version} is outside the supported range ${this.#support.versionRange.minimum} to below ${this.#support.versionRange.below}`, false, null, noUsage("cli_unavailable"));
       }
-      return { executable: resolution.executable, version };
+      return Object.freeze({ executable: resolution.executable, version, stamp });
     })();
     // A failed resolution is retried on the next call (the operator may have installed or upgraded the CLI).
     this.#executable.catch(() => { this.#executable = undefined; });
@@ -257,6 +284,11 @@ export async function runCliCommand(executable: CliExecutable, commandArguments:
     return await (options.process ?? { run: runNativeProcess }).run({ executable: executable.command, arguments: [...executable.prefixArguments, ...commandArguments], cwd: root,
       environment, stdin: "", timeoutMs: PROBE_TIMEOUT_MS, maximumOutputBytes: 256 * 1024, signal: new AbortController().signal });
   } finally { await rm(root, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined); }
+}
+
+/** An executable file's size and modification time, which an update in place changes; null when it cannot be read. */
+async function executableStamp(path: string): Promise<string | null> {
+  return stat(path).then((file) => `${file.size}:${file.mtimeMs}`, () => null);
 }
 
 /** The CLI's own version (`2.1.282 (Claude Code)`, `codex-cli 0.154.0-alpha.6`, `0.61.0`) as major.minor.patch. */

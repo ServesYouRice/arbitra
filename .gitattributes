@@ -1,4 +1,7 @@
 docs/** text eol=lf
+# The glyph table is shipped verbatim: a test compares these two files byte for byte, so neither takes CRLF.
+docs/brand/glyphs.ts text eol=lf
+packages/schemas/src/glyphs.ts text eol=lf
 # Screenshots and other images are binary evidence, never line-normalised.
 *.jpg binary
 *.jpeg binary

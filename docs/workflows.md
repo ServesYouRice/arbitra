@@ -277,7 +277,12 @@ review denominator.
 **Verification.** `packages/workflow/src/nodes/verification/` is a `subgraph`. Its ladder
 (`ladder.ts`) tries deterministic methods first — cited lines, symbol or call path, route
 and middleware config, dependency path, an allowlisted safe test, a bounded deterministic
-check — and only then asks a single model question (`engine.ts`). A high-risk, evidence-
+check — and only then asks a single model question (`engine.ts`). In a live-model run the
+deterministic rungs are placeholders that answer *inconclusive* (`inconclusiveTools` in
+`packages/runtime/src/model-pipeline.ts`): only a configured allowlisted test runs, and its
+output goes to the model question rather than deciding the claim. Every live claim is
+therefore decided by a model; the execution rung is a planned experiment
+([design audit](design-audit.md#what-changes), item 16). A high-risk, evidence-
 backed, location-citing objection escalates an issue here rather than being outvoted. The
 number of disputes verification resolves is reported, because that number is what says
 whether the stage was worth building.
@@ -351,8 +356,9 @@ does not override disputed review.
 Observed live: the requirements model adopted a seeded expiry bug as the contract twice, and
 Haiku reviewers accepted it both times. The requirements model, exploration and reviewers now
 carry `DOCUMENTED_BEHAVIOUR_RULE`. Exploration and each reviewer report every contradiction
-between documentation (a doc comment, a README or the request) and the code that a requirement
-adopts or leaves undecided, as `documentedBehaviourConflicts`. Each conflict gives:
+between documentation (a doc comment or the request) and the code that a requirement
+adopts or leaves undecided, as `documentedBehaviourConflicts`. A README is not named: the
+snapshot holds source files only, so no stage can read one. Each conflict gives:
 
 - the requirement IDs it bears on;
 - `contractPosition`: `adopts_code` when those requirements keep the code's contradicting
