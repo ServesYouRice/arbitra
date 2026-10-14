@@ -7,8 +7,8 @@ Updated October 14, 2026 (branch `beta`).
 - **No P20 runner is alive.** The 2.6.0 panel run failed in plan revision on October 14 at 02:40 (see "Open
   findings"). Claude's week stood at 84% that afternoon (the runner stops at 90%; reset Saturday, October 17,
   04:00), so the runs wait for the reset, and the week went to the rebuild the owner asked for ("The rebuild of
-  October 14" below). Protocol 2.7.0 is ready on build de060b6; the private `HANDOFF.md` holds the P20 state and
-  how to start it.
+  October 14" below). Protocol 2.7.0 now carries the design audit's changes ("The design audit of October 14"
+  below); the private `HANDOFF.md` holds the P20 state, the build and how to start it.
 
 ## Handoff, October 10, 2026
 
@@ -303,6 +303,33 @@ Open, measured on the stored 2.6.0 runs:
 - **CLIs update themselves.** The Antigravity CLI went from 1.3.3 to 1.3.5 during the pilot, and the Codex change
   above shows what an update can do. Each run records the versions; pin a copy of each CLI for a protocol, as is
   done for Claude Code.
+
+**The design audit of October 14 ([design audit](docs/design-audit.md)).** The owner asked whether the research
+behind each step held up against the labs' own practice. Five audits read the labs' review and security products,
+the commercial reviewers, the papers on each stage, the transports' terms and caching, and evaluation practice.
+The research had checked the shape of multi-agent systems stage by stage, not how the labs' own bug-finding
+pipelines run end to end: several finders, every candidate verified, duplicates merged by location and defect,
+findings ranked, then fixed one at a time with a failing test first. Built the same evening (all in protocol 2.7.0):
+
+- every candidate is verified, the ones the peer vote accepted too (in the 2.6.0 panel 26 of 53 accepted issues
+  had never been checked against the source); a question names the places its findings cite and the verifier
+  reads them under neutral references; abstaining is named as expected; a rejected merge is asked about one place
+  at a time;
+- every pair of findings citing overlapping lines is classified for a merge (40 overlapping pairs in that list);
+  the accepted list is ranked; `planScope.minimumSeverity` plans only the most severe;
+- `plan-critic` 1.1.0 asks only what code cannot check, ten non-blocking items a call at most, and
+  `roles.critiqueChecker` checks each blocking item before the revision;
+- the audit renders a handoff with each issue's evidence, a failing test first and a result to report;
+- CLI transcripts no longer begin with their request's hash, so a stage's calls share a cached start; source
+  first, question last. A shared working directory was measured unnecessary (another directory costs about 355
+  tokens of cache).
+
+Still open from the audit, to be measured before any becomes a default: a pipeline without peer review
+(`maxConsensusRounds: 0`); discovery at high against xhigh and Gemini at medium; a second, varied discovery pass and
+smaller units; a cheaper verifier first; a verifier of another family on a sample; an execution rung; a static
+analyser. For P20 (private `EVALUATION-AUDIT.md`): compare at matched cost, judge every report outside the key,
+write the held-out protocol with a power analysis, run each held-out panel more than once, close the vendors'
+training settings (the owner's), and score plans by executing them.
 
 **Approved on October 14, after the check against the labs' guidance ([research](docs/research.md#1-the-october-14-check)).**
 The owner approved six of the seven proposals above on condition that Anthropic's guidance supports them. To build,
