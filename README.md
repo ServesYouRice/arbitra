@@ -163,6 +163,7 @@ tooling/              ESLint rules that enforce architecture invariants
 | [`docs/durability.md`](docs/durability.md) | journal, activities, resume, crash semantics |
 | [`docs/evaluation.md`](docs/evaluation.md) | corpora, metrics, replay, the premise test |
 | [`docs/research.md`](docs/research.md) | the public research the design was checked against: model labs, comparable tools, papers |
+| [`docs/design-audit.md`](docs/design-audit.md) | the October 14 audit of every stage against the labs' own pipelines, and what changes |
 
 Presentation is governed by [`docs/DESIGN-LANGUAGE.md`](docs/DESIGN-LANGUAGE.md) and the
 assets in [`docs/brand/`](docs/brand). Those are normative inputs: this document set

@@ -3,7 +3,9 @@
 This page collects the public research arbitra's design was checked against: guidance published by the model
 labs, Western and Eastern, the review tools of comparable products, and academic papers. It records what each
 source says, with quotations, and what arbitra took from it, declined, or changed because of it. Section 1 is
-the latest check (October 14, 2026); the per-source sections that follow are the reference.
+the latest check (October 14, 2026); the per-source sections that follow are the reference. The
+[design audit](design-audit.md) of the same evening checks the whole design, stage by stage, against the labs' own
+bug-finding pipelines and records what changes because of it.
 
 arbitra was conceived independently, and this research was used to pressure-test and refine it. The sources are
 cited as technical literature. Naming a lab or product implies no affiliation, endorsement or compatibility, and
@@ -58,6 +60,7 @@ instructions now travel in `model_instructions_file`, which replaces Codex's bui
 | October 11 | Comparable reviewers: Karpathy's llm-council, Claude Code's code-review plugin, PR-Agent, claude-code-security-review | Calls side by side; no repair call for a whole reply (keep the valid operations); a finding checked against the code it cites |
 | October 12 | Anthropic's guidance on review, critics and effort | One pass per review stage; every undecided candidate verified; checking stages one effort step below the audit ([provider model](provider-model.md#one-pass-per-review-stage)) |
 | October 14 | Eleven labs and the papers below | Section 1 |
+| October 14, evening | Five audits of the whole design: the labs' review and security products, commercial reviewers, papers on each stage, transports and terms, evaluation practice | Every candidate verified; questions from the finding's mechanism; per-issue handoff packets; shared cache directory; side-by-side tests of peer review, effort and discovery passes ([design audit](design-audit.md)) |
 
 ## 3. Anthropic
 
@@ -388,6 +391,12 @@ These held in August and still hold, with the October additions marked.
    for position and length bias.
 9. *October:* **Precision before volume.** Findings and critiques a person must act on are filtered for signal first
    (OpenAI, Google Research, Anthropic's nit caps); finders still report everything, and filtering is a separate step.
+10. *October audit:* **Copy the shape of the labs' own bug-finding pipelines.** Several finders, every candidate
+    verified, duplicates merged by location and defect, findings ranked, then fixed one at a time with a test that
+    fails before the fix. Votes, plans covering many issues and critics of plan text have no precedent there
+    ([design audit](design-audit.md)).
+11. *October audit:* **Check how stages combine, not only each stage.** A rule one stage keeps can be undone by the
+    next (a peer vote accepting what verification never saw).
 
 ## 11. Source index
 
