@@ -301,8 +301,8 @@ Open, measured on the stored 2.6.0 runs:
 - **Token counts include cache reads.** Since sessions continue, most of a follow-up's input is a cache read, which
   subscriptions count for less; reports should show cache reads apart from new input.
 - **CLIs update themselves.** The Antigravity CLI went from 1.3.3 to 1.3.5 during the pilot, and the Codex change
-  above shows what an update can do. Each run records the versions; pin a copy of each CLI for a protocol, as is
-  done for Claude Code.
+  above shows what an update can do. Each run records the versions, and since October 14 a CLI updated in place is
+  probed again before its next call; pin a copy of each CLI for a protocol, as is done for Claude Code.
 
 **The design audit of October 14 ([design audit](docs/design-audit.md)).** The owner asked whether the research
 behind each step held up against the labs' own practice. Five audits read the labs' review and security products,
@@ -338,6 +338,30 @@ smaller units; a cheaper verifier first; a verifier of another family on a sampl
 analyser. For P20 (private `EVALUATION-AUDIT.md`): compare at matched cost, judge every report outside the key,
 write the held-out protocol with a power analysis, run each held-out panel more than once, close the vendors'
 training settings (the owner's), and score plans by executing them.
+
+**The engineering review of October 14 ([design audit](docs/design-audit.md#engineering-review-of-october-14)).**
+Codex reviewed the code itself (31 findings, each reproduced offline), and every finding was checked against the
+current code. The following were fixed the same evening:
+
+- a throttled CLI continuation now waits for the runtime's retry;
+- kept CLI sessions are removed when their run settles;
+- a CLI updated in place is probed again;
+- clustering classifies at most 300 shared-line pairs;
+- a saved answer is not paid for twice;
+- traces count repairs and tool errors;
+- old critic pins resume, and incremental audits reuse a critic's base;
+- Gemini API thinking counts as output;
+- docs that claimed more than the code does were corrected.
+
+Still open, with sizes, in the design audit:
+
+- Windows process trees;
+- admission shared across runs;
+- a stage prompt in the CLI system prompt (to measure);
+- per-stage envelopes;
+- clustering by representatives;
+- Feature and Testing staging;
+- the paid APIs' reasoning state.
 
 **Approved on October 14, after the check against the labs' guidance ([research](docs/research.md#1-the-october-14-check)).**
 The owner approved six of the seven proposals above on condition that Anthropic's guidance supports them. To build,

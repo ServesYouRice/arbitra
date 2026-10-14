@@ -30,7 +30,7 @@ import { testingExecutionSchema } from "@arbitra/schemas/testing.js";
 import { requirementsApprovalSchema } from "@arbitra/schemas/feature-execution.js";
 import { requirementsDraftSchema } from "@arbitra/schemas/requirements.js";
 import { RequirementsCheckpoint } from "./requirements-checkpoint.js";
-import { ModelProtocols } from "./model-protocols.js";
+import { AUDIT_PROTOCOL_DEFAULTS, ModelProtocols } from "./model-protocols.js";
 import { readRequirementsProposal } from "./requirements-revision.js";
 import { GraphCheckpoints, validateGraphCheckpoints, type CheckpointView, type GatePolicyRegistry } from "@arbitra/core/runner/graph-checkpoints.js";
 import { checkpointPolicySchema, checkpointResponseSchema, PLAN_QUESTIONS_CHECKPOINT_ID, type CheckpointPolicy } from "@arbitra/schemas/checkpoint-policy.js";
@@ -281,9 +281,9 @@ export class Orchestrator {
       base: base.store, baseState: base.state, baseContext: base.context, repository: selectedRepository, config: modelConfiguration, criticEnabled: storedContext.criticEnabled, snapshot, identity, git: defaultGit,
       // Reuse is bound to the executed graph: a saved graph reuses only from a base that ran the same graph.
       graph: { reference: authored ?? null, version: WorkflowGraphStore.versionOf(graph) }, baseGraph: await this.#executedGraphIdentity(base.store, base.context),
-      targetPin: (id) => registryProtocolPin(modelConfiguration.protocols, id),
+      targetPin: (id) => registryProtocolPin(modelConfiguration.protocols, id, AUDIT_PROTOCOL_DEFAULTS),
       // A protocol the base never pinned produced no base output, so assuming the new pin cannot enable reuse.
-      basePin: async (id) => await storedProtocolPin(base.store, id) ?? registryProtocolPin(modelConfiguration.protocols, id),
+      basePin: async (id) => await storedProtocolPin(base.store, id) ?? registryProtocolPin(modelConfiguration.protocols, id, AUDIT_PROTOCOL_DEFAULTS),
     });
     if (runId === contract?.baseRunId) throw new Error("INCREMENTAL_MUST_CREATE_NEW_RUN");
     await store.saveContext(storedContext);
@@ -299,8 +299,9 @@ export class Orchestrator {
       maximumRounds: storedContext.maximumRounds,
       criticEnabled: storedContext.criticEnabled,
     });
-    const handle = this.#runner(store, context, undefined, modelConfiguration, checkpointPolicy, undefined, units).start(graph, { runId });
-    this.#track(runId, handle);
+    const { runner, close } = this.#runner(store, context, undefined, modelConfiguration, checkpointPolicy, undefined, units);
+    const handle = runner.start(graph, { runId });
+    this.#track(runId, handle, close);
     return Object.freeze({ runId, state: handle.state, resumable: true, checkpoints: Object.freeze([]), preservedArtifacts: 0 });
   }
 
@@ -426,8 +427,9 @@ export class Orchestrator {
     if (approved !== undefined) await approved.copyTo(store);
     const seed = new ReplaySeed(source, store, contract);
     const context: AuditContext = Object.freeze({ snapshot, store, auditors: [], auditorKind: "model_auditors", policy: Object.freeze({ name: config.consensusPolicy, quorum: 2, minimumIndependentGroupsForHighRisk: 2 }), maximumRounds: config.maxConsensusRounds, criticEnabled: false });
-    const handle = this.#runner(store, context, undefined, config, checkpointPolicy, seed).start(graph, { runId });
-    this.#track(runId, handle);
+    const { runner, close } = this.#runner(store, context, undefined, config, checkpointPolicy, seed);
+    const handle = runner.start(graph, { runId });
+    this.#track(runId, handle, close);
     return Object.freeze({ runId, sourceRunId, mode, state: handle.state, stages, execution });
   }
 
@@ -457,8 +459,9 @@ export class Orchestrator {
       for (const { auditorId } of auditors) await store.publish(`discovery-validation-${auditorId}`, await readStage(source, `discovery-validation-${auditorId}`), auditorId);
     }
     const context: AuditContext = Object.freeze({ snapshot, store, auditors, auditorKind: original.modelConfiguration === undefined ? "scripted_auditors" : "model_auditors", policy: Object.freeze({ name: overrides.consensusPolicy, quorum: 2, minimumIndependentGroupsForHighRisk: 2 }), maximumRounds: overrides.maximumRounds, criticEnabled: overrides.criticEnabled });
-    const handle = this.#runner(store, context, findings, original.modelConfiguration, original.checkpointPolicy).start(replayGraph, { ...definition.config, runId });
-    this.#track(runId, handle);
+    const { runner, close } = this.#runner(store, context, findings, original.modelConfiguration, original.checkpointPolicy);
+    const handle = runner.start(replayGraph, { ...definition.config, runId });
+    this.#track(runId, handle, close);
     return Object.freeze({ runId, sourceRunId, mode: "audit" as const, state: handle.state });
   }
 
@@ -511,8 +514,9 @@ export class Orchestrator {
     // never re-decides reuse from the current configuration.
     const seed = modelReplay && sourceStore !== undefined ? new ReplaySeed(sourceStore, store, await resumableReplayContract(store, storedContext)) : undefined;
     const units = storedContext.modelConfiguration?.mode === "audit" && reused === undefined ? await this.#resumeUnits(store, snapshot, storedContext.repositoryDigest) : undefined;
-    const handle = this.#runner(store, context, reused, storedContext.modelConfiguration, storedContext.checkpointPolicy, seed, units).resume(runId);
-    this.#track(runId, handle);
+    const { runner, close } = this.#runner(store, context, reused, storedContext.modelConfiguration, storedContext.checkpointPolicy, seed, units);
+    const handle = runner.resume(runId);
+    this.#track(runId, handle, close);
     return Object.freeze({ runId, state: handle.state, resumable: true, checkpoints: Object.freeze([]), preservedArtifacts: (await store.listArtifacts()).length });
   }
 
@@ -767,7 +771,10 @@ export class Orchestrator {
     this.#resuming.add(runId);
     try {
       if ((await this.status(runId)).state !== "BLOCKED") throw Object.assign(new Error("REQUIREMENTS_EDIT_REQUIRES_BLOCKED_RUN"), { statusCode: 409 });
-      return await change(await this.#featurePipeline(runId));
+      const pipeline = await this.#featurePipeline(runId);
+      // Its transports are closed as a run's are (see `#track`).
+      try { return await change(pipeline); }
+      finally { await pipeline.close().catch(() => undefined); }
     } catch (error) {
       if (error instanceof Error && error.message === "STALE_REQUIREMENTS_CHECKPOINT") throw Object.assign(error, { statusCode: 409 });
       throw error;
@@ -1021,14 +1028,15 @@ export class Orchestrator {
     return reasons;
   }
 
-  #runner(store: RunStore, context: AuditContext, reusedFindings: Readonly<Record<string, readonly AuditFinding[]>> | undefined, modelConfiguration: RunConfig | undefined, checkpointPolicy: CheckpointPolicy | undefined, replay?: ReplaySeed, units?: AuditUnitOptions): WorkflowRunner {
+  /** The runner of one run, and what closes the run's model transports once the run settles (see `#track`). */
+  #runner(store: RunStore, context: AuditContext, reusedFindings: Readonly<Record<string, readonly AuditFinding[]>> | undefined, modelConfiguration: RunConfig | undefined, checkpointPolicy: CheckpointPolicy | undefined, replay?: ReplaySeed, units?: AuditUnitOptions): { readonly runner: WorkflowRunner; readonly close: () => Promise<void> } {
     // Every mode gets the same generic gate/human executors; none has an implicit pass.
     const checkpoints = this.#checkpoints(store, checkpointPolicy).executors();
     if (modelConfiguration?.mode === "testing") {
       // A planning replay holds no sandbox at all, so it cannot dispatch checks.
       const planReplay = replay !== undefined && replay.contract.execution.mode !== "execute";
       const testing = new TestingPipeline(store, this.configurations.validate(modelConfiguration), context.snapshot, this.#providerOptions, planReplay ? undefined : this.#testSandbox, replay);
-      return new WorkflowRunner({ journal: store.journalPort(), artifacts: store.artifacts, definitions: store.definitions(), loadRecords: () => store.loadRecords(), executors: {
+      return { close: () => testing.close(), runner: new WorkflowRunner({ journal: store.journalPort(), artifacts: store.artifacts, definitions: store.definitions(), loadRecords: () => store.loadRecords(), executors: {
         deterministic: async ({ node }) => {
           if (node.id === "render") return testing.render();
           const result = { mode: "testing", fileCount: context.snapshot.files.length, readOnly: true, testsExecuted: false };
@@ -1039,11 +1047,11 @@ export class Orchestrator {
           return testing.execute(signal);
         },
         ...checkpoints,
-      } });
+      } }) };
     }
     if (modelConfiguration?.mode === "feature") {
       const feature = new FeaturePipeline(store, this.configurations.validate(modelConfiguration), context.snapshot, this.#providerOptions, replay);
-      return new WorkflowRunner({ journal: store.journalPort(), artifacts: store.artifacts, definitions: store.definitions(), loadRecords: () => store.loadRecords(), executors: {
+      return { close: () => feature.close(), runner: new WorkflowRunner({ journal: store.journalPort(), artifacts: store.artifacts, definitions: store.definitions(), loadRecords: () => store.loadRecords(), executors: {
         deterministic: async ({ node }) => {
           if (node.id === "render") return feature.render();
           const result = { mode: "feature", fileCount: context.snapshot.files.length, sourceOnly: true };
@@ -1051,12 +1059,12 @@ export class Orchestrator {
         },
         subgraph: ({ signal }) => feature.run(signal),
         ...checkpoints,
-      } });
+      } }) };
     }
     const models = modelConfiguration === undefined ? undefined : new ModelAuditPipeline(context, this.configurations.validate(modelConfiguration), this.#providerOptions, this.#testSandbox, units);
     // Stages hand off through the artifact store rather than through closure state, so a
     // resumed run can start at any node with every earlier stage's output still readable.
-    return new WorkflowRunner({
+    return { close: async () => { await models?.close(); }, runner: new WorkflowRunner({
       journal: store.journalPort(),
       artifacts: store.artifacts,
       definitions: store.definitions(),
@@ -1099,7 +1107,7 @@ export class Orchestrator {
         },
         ...checkpoints,
       },
-    });
+    }) };
   }
 
   async #collectFindings(store: RunStore, context: AuditContext): Promise<Readonly<Record<string, readonly AuditFinding[]>>> {
@@ -1107,9 +1115,13 @@ export class Orchestrator {
     return Object.fromEntries(entries);
   }
 
-  #track(runId: string, handle: RunHandle): void {
+  #track(runId: string, handle: RunHandle, close: () => Promise<void>): void {
     this.#live.set(runId, handle);
     void handle.result.finally(() => { if (this.#live.get(runId) === handle) this.#live.delete(runId); }).catch(() => undefined);
+    // A CLI transport keeps a session for its next tool turn and sweeps old ones only inside a later call, which a
+    // settled run never makes. Its transports are closed once its result settles, whatever the outcome; a
+    // failure to close is never the run's result. A resume builds its own pipeline and transports.
+    void handle.result.then(() => close(), () => close()).catch(() => undefined);
   }
 }
 
@@ -1236,8 +1248,8 @@ function testingReplayConfiguration(config: RunConfig, execution: TestingReplayR
 }
 
 /** The protocol a new run would pin, resolved without writing anything. */
-async function registryProtocolPin(selections: Readonly<Record<string, unknown>>, id: string): Promise<ProtocolPin> {
-  const selected = Object.hasOwn(selections, id) ? selections[id] : "1.0.0";
+async function registryProtocolPin(selections: Readonly<Record<string, unknown>>, id: string, defaults: Readonly<Record<string, string>> = {}): Promise<ProtocolPin> {
+  const selected = Object.hasOwn(selections, id) ? selections[id] : Object.hasOwn(defaults, id) ? defaults[id] : "1.0.0";
   if (typeof selected !== "string") throw new Error(`INVALID_PROTOCOL_SELECTION:${id}`);
   const protocol = await new ProtocolRegistry(bundledProtocolControlPlane()).resolve(id, selected);
   return { protocolVersion: protocol.protocolVersion, protocolHash: protocol.protocolHash };

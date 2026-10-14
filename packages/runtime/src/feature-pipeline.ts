@@ -55,6 +55,9 @@ export class FeaturePipeline {
     this.harness = new ModelHarness(new ModelActivities(store, config, transport, replay), config, snapshot, store);
   }
 
+  /** Removes what the run's transports keep for a later turn; called once the run settles. */
+  async close(): Promise<void> { await this.harness.close(); }
+
   async requirements(signal: AbortSignal) {
     return modelRequirements(this.store, this.config, this.snapshot, { modelProfileId: this.settings.roles.requirements, mode: this.settings.mode, signal, harness: this.harness, transport: this.transport });
   }

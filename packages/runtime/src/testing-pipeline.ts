@@ -68,6 +68,9 @@ export class TestingPipeline {
     this.harness = new ModelHarness(this.activities, config, snapshot, store);
   }
 
+  /** Removes what the run's transports keep for a later turn; called once the run settles. */
+  async close(): Promise<void> { await this.activities.close(); }
+
   async execute(signal: AbortSignal) {
     if (this.settings.mode !== "execute") throw new Error("TESTING_EXECUTION_NOT_ENABLED");
     const plan = await readStage<TestingOutcome>(this.store, "testing-outcome");

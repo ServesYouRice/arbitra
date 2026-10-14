@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promis
 import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -28,7 +29,8 @@ afterEach(async () => {
   }
 });
 
-const repositoryRoot = resolve(new URL("../../..", import.meta.url).pathname);
+// fileURLToPath, not URL.pathname: on Windows the pathname is "/C:/..." and resolves to "C:\C:\...".
+const repositoryRoot = resolve(fileURLToPath(new URL("../../..", import.meta.url)));
 const committedConfiguration = JSON.parse(readFileSync(join(repositoryRoot, "docs/qa/p06/configs/audit-mixed-providers.json"), "utf8")) as RunConfig;
 
 const truth: PremiseGroundTruth = { fixtureId: "smoke-fixture", version: 1, items: [
@@ -244,7 +246,8 @@ describe("P06 premise evaluation driver (scripted providers, no credentials)", (
     const { root, protocol } = await workspace();
     const fixture = protocol.fixtures[0] as EvaluationProtocol["fixtures"][number];
     await writeFile(join(root, "fixture", "repo", "src", "hint.ts"), "// see SMOKE-DEFECT\n");
-    await expect(async () => prepareCheckout(root, fixture, truth, join(root, "leaky"))).rejects.toThrow("P06_GROUND_TRUTH_LEAK:src/hint.ts");
+    // The leak names the file as a path relative to the checkout, in the platform's separators.
+    await expect(async () => prepareCheckout(root, fixture, truth, join(root, "leaky"))).rejects.toThrow(`P06_GROUND_TRUTH_LEAK:${join("src", "hint.ts")}`);
     // The refused checkout is removed, so it cannot stop a later attempt once the fixture is fixed.
     expect(existsSync(join(root, "leaky"))).toBe(false);
     await mkdir(join(root, "named"), { recursive: true });

@@ -44,6 +44,17 @@ describe("run protocol pins", () => {
     await expect(new ModelProtocols(run, {}, plane("Changed")).resolve("planner")).rejects.toThrow("INVALID_STORED_PROTOCOL");
   });
 
+  it("keeps a run's pin of an earlier default, while a version the run selects must match its pin", async () => {
+    // The audit critic's default moved to 1.1.0, and a run that pinned the 1.0.0 default failed on resume.
+    const run = await store();
+    expect((await new ModelProtocols(run, {}).resolve("plan-critic")).protocolVersion).toBe("1.0.0");
+    const resumed = await new ModelProtocols(run, {}, undefined, { "plan-critic": "1.1.0" }).resolve("plan-critic");
+    expect(resumed.protocolVersion).toBe("1.0.0");
+    await expect(new ModelProtocols(run, { "plan-critic": "1.1.0" }, undefined, { "plan-critic": "1.1.0" }).resolve("plan-critic")).rejects.toThrow("INVALID_STORED_PROTOCOL:plan-critic");
+    // A new run takes the default.
+    expect((await new ModelProtocols(await store(), {}, undefined, { "plan-critic": "1.1.0" }).resolve("plan-critic")).protocolVersion).toBe("1.1.0");
+  });
+
   it("honors the verification selector used by shipped configurations", async () => {
     const run = await store();
     await expect(new ModelProtocols(run, { verification: "9.9.9" }).resolve("targeted-verification")).rejects.toThrow("was not found");

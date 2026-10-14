@@ -66,6 +66,15 @@ describe("planner revision in parts", () => {
     expect(artifacts.get("planner-revision-composition")).toMatchObject({ logicalModelCalls: 1, rounds: 1, originalTaskLineage: { "TASK-001": ["TASK-003"], "TASK-002": ["TASK-002"] }, notRevisedCritiqueItemIds: [] });
   });
 
+  it("tells a call that a critic rechecks its result only when one does", async () => {
+    // An Audit rechecks a revised plan only when the run asks for it, and the reviser was promised a recheck regardless.
+    const promise = "A separate critic will recheck the result";
+    const unchecked = await fixture(); await reviseWithContext(unchecked.input, unchecked.port);
+    expect(requiredAt(unchecked.calls, 0).instruction).not.toContain(promise);
+    const rechecked = await fixture(); await reviseWithContext(rechecked.input, rechecked.port, undefined, { rechecked: true });
+    expect(requiredAt(rechecked.calls, 0).instruction).toContain(promise);
+  });
+
   it("revises disjoint tasks side by side and leaves an item that spans both for the next round", async () => {
     const { input, port, calls } = await fixture();
     input.blockingCritique = [

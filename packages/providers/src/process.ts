@@ -87,7 +87,8 @@ export function runNativeProcess(request: NativeProcessRequest): Promise<NativeP
 }
 
 function killTree(pid: number): void {
-  if (process.platform === "win32") { spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" }); return; }
+  // Bounded: this blocks the event loop, and a taskkill that hangs would otherwise stop every timer, cancellation and run in the process.
+  if (process.platform === "win32") { spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true, stdio: "ignore", timeout: 10_000 }); return; }
   // macOS reports EPERM for a group whose remaining members are zombies awaiting
   // reaping. This runs from process event handlers, so it must not throw; whether
   // the tree is really gone is established separately by `waitForTree`.

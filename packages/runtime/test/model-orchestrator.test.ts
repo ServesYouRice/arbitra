@@ -1,10 +1,11 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { runConfigSchema } from "@arbitra/schemas/config.js";
 import { planIRSchema } from "@arbitra/schemas/plan.js";
 import type { HttpRequest, HttpResponse } from "@arbitra/providers/transport-contract.js";
+import { BUILTIN_TRANSPORT_FACTORIES, type TransportFactory, type TransportFactoryOptions } from "@arbitra/providers/registry.js";
 import { Orchestrator } from "../src/orchestrator.js";
 import { controlPlaneCore } from "../src/control-plane-core.js";
 import { orchestratorCore } from "../src/cli-core.js";
@@ -244,7 +245,7 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
       : { output_text: text, usage: { input_tokens: 10, output_tokens: 20 } };
     return { status: 200, headers: {}, body: response };
   };
-  const create = (testSandbox?: TestSandbox) => new Orchestrator({ repository: directory, stateDirectory: join(directory, ".runs"), providerOptions: { client: { send }, credential: () => "fixture-credential" }, ...(testSandbox === undefined ? {} : { testSandbox }) });
+  const create = (testSandbox?: TestSandbox, providerOptions: TransportFactoryOptions & { readonly factories?: Readonly<Record<string, TransportFactory>> } = {}) => new Orchestrator({ repository: directory, stateDirectory: join(directory, ".runs"), providerOptions: { client: { send }, credential: () => "fixture-credential", ...providerOptions }, ...(testSandbox === undefined ? {} : { testSandbox }) });
   return { create, config, requests, verificationInputs, plannerContexts, plannerReads, reviewInputs, packedChecks, criticIssueIds, verificationFlight, mergedListedPair: () => mergedListedPair, failRevisionPatch: (value: boolean) => { failRevisionPatch = value; }, failExpansion: (value: boolean) => { failExpansion = value; }, failCritic: (value: boolean) => { failCritic = value; }, failVerification: (value: boolean) => { failVerification = value; }, blockDiscovery: (callback: () => void) => { blockDiscovery = callback; } };
 }
 
@@ -283,6 +284,22 @@ describe("composed model audits", () => {
     expect(JSON.parse((await resumed.artifact(run.runId, checks.artifactId) as { content: string }).content)).toMatchObject({ records: [{ state: "completed", result: { stdout: "fixture test output" } }] });
     const prompts = await Promise.all(artifacts.filter(({ kind }) => kind.startsWith("compiled-prompt-")).map(({ artifactId }) => resumed.artifact(run.runId, artifactId)));
     expect(prompts.some((artifact) => (artifact as { content: string }).content.includes("fixture test output"))).toBe(true);
+  });
+  it("closes a run's transports once the run settles, when it fails and when its resume completes", async () => {
+    // A CLI transport keeps a session for its next tool turn and sweeps it only inside a later call, which a
+    // settled run never makes.
+    const setup = await fixture(); const closed: string[] = [];
+    const factories = Object.fromEntries(Object.entries(BUILTIN_TRANSPORT_FACTORIES).map(([id, factory]): [string, TransportFactory] => [id,
+      (configuration, options) => Object.assign(factory(configuration, options), { async close() { closed.push(configuration.endpoint); } })]));
+    const endpoints = ["https://auditor-a.example/v1", "https://auditor-b.example/v1", "https://auditor-c.example/v1"];
+    const failing = setup.create(undefined, { factories, client: { async send() { return { status: 503, headers: {}, body: {} }; } } });
+    const failed = await failing.run(setup.config);
+    expect(failed.state).toBe("FAILED");
+    await vi.waitFor(() => { expect([...closed].sort()).toEqual(endpoints); });
+    closed.length = 0;
+    const resumed = setup.create(undefined, { factories }); await resumed.resume(failed.runId);
+    expect((await resumed.wait(failed.runId)).state).toBe("COMPLETED");
+    await vi.waitFor(() => { expect([...closed].sort()).toEqual(endpoints); });
   });
   it.each(["resolved", "still_blocking"] as const)("resumes oversized planner revisions and rechecks every critique claim: %s", async (revision) => {
     const { create, config, requests, failRevisionPatch } = await fixture({ largeCriticContext: true, revision });

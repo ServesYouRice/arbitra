@@ -222,7 +222,7 @@ describe("CLI commands", () => {
     [["--preset", "diff-fast", "--staged"], { kind: "diff", target: "staged" }],
     [["--preset", "diff-fast", "--working-tree"], { kind: "diff", target: "working_tree" }],
     [["--preset", "diff-review", "--base", "origin/trunk", "--head", "HEAD"], { kind: "diff", target: "range", base: "origin/trunk", head: "HEAD" }],
-    [["--preset", "diff-deep", "--range", "release...topic"], { kind: "diff", target: "range", range: "release...topic" }],
+    [["--preset", "diff-review", "--range", "release...topic"], { kind: "diff", target: "range", range: "release...topic" }],
   ] as const)("executes an Audit target through the canonical graph: %j", async (args, target) => {
     const core = new FakeWorkflowCore(); const capture = captureIo();
     const execution = await runCli(["audit", ...args, "--json"], core, capture.io);

@@ -162,6 +162,8 @@ describe("Gemini batch driver", () => {
     const results = await driver.results("batches/abc", signal);
     expect(results.map(({ customId, outcome }) => ({ customId, outcome }))).toEqual([{ customId: "a1-b", outcome: "errored" }, { customId: "a1-a", outcome: "succeeded" }]);
     expect(driver.parse(results[1]?.body, request)).toMatchObject({ text: "hi", usage: { inputTokens: 4, outputTokens: 2 } });
+    // Thinking reported apart from the answer is output in batch results too.
+    expect(driver.usage({ candidates: [{ content: { parts: [{ text: "hi" }] } }], usageMetadata: { promptTokenCount: 4, candidatesTokenCount: 2, thoughtsTokenCount: 90 } })).toMatchObject({ inputTokens: 4, outputTokens: 92 });
     await expect(driver.find("arbitra-key", "configured-model", signal)).resolves.toEqual({ kind: "found", providerJobId: "batches/abc" });
     await expect(driver.find("absent", "configured-model", signal)).resolves.toEqual({ kind: "not_found" });
     await driver.cancel("batches/abc", signal);

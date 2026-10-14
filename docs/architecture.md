@@ -78,7 +78,7 @@ the six kinds in `packages/schemas/src/glyphs.ts` — the taxonomy is closed, an
 ■ clustering           deterministic; escalated pairs recorded
 ■ issue board          built from an append-only operation log
 ◆ peer review          bounded rounds, dissent retained
-▣ verification         deterministic ladder first, one model question last
+▣ verification         ladder (live runs: rungs inconclusive), one model question last
 ■ canonical issues     support count, review denominator, dissent, coverage
 ◆ planner              Validation Contract, Task DAG, capability routing
 ◆ critic               conditional; skipped with a recorded reason

@@ -165,6 +165,70 @@ October 14 ([provider model](provider-model.md#one-pass-per-review-stage)); item
 more than once, write the held-out protocol with a power analysis before any held-out run, and score plans by
 executing them.
 
+## Engineering review of October 14
+
+A second review read the code rather than the design. Codex (OpenAI's coding agent) traced 218 operations and the
+handoffs between stages at 8a26cdb, reproduced each finding offline and reported 31. Each was then checked against
+d05ecfa by reading the code. Thirty held. The thirty-first, distinct defects on one line merged, had already been
+fixed by aa601c7. Several were rated by their worst case on the paid APIs, which the owner's runs do not use. The
+review missed that each run builds its own transports in its own process, which makes two findings real today: kept
+sessions and unshared limits.
+
+Built the same day:
+
+- A continued CLI session that is throttled or meets an upstream failure goes back to the runtime's retry, which
+  waits out its backoff and the CLI's retry hint; it was resent whole at once. A refused model is no longer resent.
+- A run closes its transports when it settles. CLI sessions and directories kept for a tool turn that never came
+  stayed on disk, because the two-hour sweep runs only inside a later call of the same process.
+- A CLI updated in place is probed again: its file's size and modification time are compared on each call.
+- Clustering classifies at most 300 shared-line pairs. Since the structural rule only proposes, 50 findings on one
+  line were 1,225 pairs, about 370,000 output tokens.
+- A validated answer whose mapping write failed is taken from its trace instead of being paid for again.
+- Traces count repairs and failed tool calls. Both were always 0 in the metrics and the trace view.
+- A run pinned to the critic's earlier default protocol resumes. An incremental audit predicts the critic's default,
+  so a base that ran a critic can be reused.
+- The reviser is promised a critic's recheck only when one is configured.
+- A quote copied from source shown in normal form C grounds in a file with decomposed accents.
+- Gemini API thinking tokens count as output. `taskkill` is bounded at ten seconds. Two preset files that could not
+  run are removed. Three test suites no longer fail on Windows paths or line endings.
+- Docs now say that:
+  - the CLI system prompt carries only arbitra's preamble;
+  - most model quirks are recorded, not applied;
+  - scheduling is per run;
+  - cache handles are unused;
+  - live verification rungs answer *inconclusive*.
+
+  The documented-behaviour rule no longer names a README, which no stage can read.
+
+Open:
+
+| For | Change | Why | Size |
+|---|---|---|---|
+| Subscription runs | Windows process trees: check `taskkill`'s result, skip it when the leader has exited, confirm with `process.kill(pid, 0)`, report cleanup as unknown rather than done; a Job Object for descendants | The tree is always reported terminated on Windows. A descendant holding stdout keeps a call open until the 30-minute CLI timeout. The leftover-process checks never fire | medium |
+| Subscription runs | Admission shared across runs: a lease per account beside the CLI limit ledger, for `maxConcurrent` and retry hints | Panels side by side are separate processes with separate schedulers; only an exhausted usage window is shared | medium |
+| Subscription runs | A stage prompt's stable part (protocol, schema, tools, instruction) in the CLI's system-prompt file, measured on a timed run | It travels as one user message. Claude Code caches at the end of its system prompt, which holds only the preamble, so a stage's separate calls may share more from cache. Every prompt fingerprint changes | medium, experiment |
+| Subscription runs | Envelopes per stage: attempts, repairs, tool turns and replans recorded per stage, and a stage stopped when it makes no progress | Local limits multiply (64 replans, each with repairs, tool turns and retries); only the run's token budget bounds the product | medium |
+| Clustering | Compare a finding with each cluster's representatives instead of every pair; refuse a transitive merge that joins two findings judged unrelated | Pairs past the 300 ceiling stay unmerged, and no later stage merges accepted issues by location; semantic merges join transitively | small to medium |
+| Local I/O | An append-only artifact index, once profiling shows it matters | Each publish rewrites the whole index. The largest local run index (2,394 entries, 1.47 MB) means about 1.75 GB written over its run | medium, low priority |
+| Saved graphs | Refuse non-default edge contracts when a graph is saved, until they are enforced | Edge input, output and context contracts are validated and stored, but no runner applies them | small |
+| Feature, Testing | One staged-call port for every mode: source selection, admission, `stageEffort`, calls side by side | `staged-model-port.ts` sends the whole repository, and five stages hard-code `high` effort | large |
+| Feature, Testing | Selected README and spec files as untrusted evidence | The snapshot holds source only, so intent documented outside comments and the request cannot be read | small to medium |
+| Paid APIs | Opaque turn state per assistant message: Anthropic thinking and redacted-thinking blocks, Responses reasoning items, `reasoning_content` on compatible endpoints | The codecs keep text and tool calls only. Anthropic needs thinking kept while a tool use waits ([thinking](https://platform.claude.com/docs/en/build-with-claude/thinking)); OpenAI advises passing reasoning items back ([reasoning items](https://developers.openai.com/cookbook/examples/responses_api/reasoning_items)); DeepSeek refuses a follow-up without its reasoning ([thinking mode](https://api-docs.deepseek.com/guides/thinking_mode)); Kimi and GLM keep reasoning across tool turns. The `round_trip_opaque` quirk is parsed but unused | medium |
+| Paid APIs | Native output schemas, in a final turn without tools | The canonical path sends no schema, and the CLI dialects switch it off whenever tools are offered | medium |
+| Paid APIs | Explicit cache control (`cache_control`, `cachedContent`) at measured reuse points | The API codecs send none, and the Messages API caches nothing without it | small |
+| Tests | Native harness stand-ins that run on Windows | `stand-in.ts` writes POSIX shebang scripts, so those tests stop at spawn on Windows; the suite runs in Linux Docker meanwhile | medium |
+
+Added to the comparisons above:
+
+- Item 9's length budget for tasks also covers repetition. Every task carries a full contract and routing, which the
+  critic and the revision read again.
+- Plan sections (approved item 4 in [remaining work](../WORK-REMAINING.md)): a pass for semantic dependencies across
+  files, which the join cannot see because it only orders shared files. Examples: a migration before its use, or a
+  shared contract. A blind judge preferred the sections' plan for 41 issues against 10, so measure before adding a
+  call.
+- Evaluation: a survival ledger that traces every source finding through clustering, verification and planning, to a
+  task or a named reason, so a lost finding names the stage that lost it.
+
 ## Not found
 
 - Any controlled comparison of one plan for many issues against fixing per issue.

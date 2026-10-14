@@ -78,6 +78,23 @@ describe("durable model activities", () => {
     expect(send).toHaveBeenCalledTimes(2);
   });
 
+  it("takes a validated answer from its trace when the answer's mapping was never written, and never asks again", async () => {
+    // The answer and its trace were saved, the mapping write failed, and the next call paid for the answer twice.
+    const { create, send, store } = await fixture();
+    const publish = store.publish.bind(store);
+    const failing = vi.spyOn(store, "publish").mockImplementation(async (kind, value, nodeId) => {
+      if (/^model-activity-[0-9a-f]{64}$/u.test(kind)) throw new Error("MAPPING_WRITE_FAILED");
+      return publish(kind, value, nodeId);
+    });
+    await expect(create().invoke(request())).rejects.toThrow("MAPPING_WRITE_FAILED");
+    failing.mockRestore();
+    // Only the same request may take it.
+    await expect(create().invoke({ ...request(), protocol: "discovery@2" })).rejects.toThrow("MODEL_ACTIVITY_INPUT_CHANGED");
+    expect(await create().invoke(request())).toEqual({ answer: "ok" });
+    expect(await create().invoke(request())).toEqual({ answer: "ok" });
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
   it("does not persist invalid JSON as a completed result and retains both attempts", async () => {
     const { create, send, store } = await fixture();
     send.mockResolvedValueOnce({ status: 200, headers: {}, body: { output_text: "not JSON" } });

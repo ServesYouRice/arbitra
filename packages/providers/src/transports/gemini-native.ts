@@ -42,8 +42,11 @@ export const geminiNativeCodec: ProtocolCodec = {
         calls.push({ id: string(call["id"]) ?? `gemini-call-${calls.length}`, name: string(call["name"]) ?? "", arguments: call["args"], ...(signature === null ? {} : { providerState: { thoughtSignature: signature } }) }); }
     }
     const usage = object(root["usageMetadata"] ?? {}, "usage");
+    // Gemini reports thinking apart from the answer (thoughtsTokenCount) and bills it as output; a count it leaves out
+    // is none, one it gives unreadably makes the output unknown.
+    const candidates = number(usage["candidatesTokenCount"]); const thoughts = usage["thoughtsTokenCount"] === undefined ? 0 : number(usage["thoughtsTokenCount"]);
     return response(request, { text, toolCalls: calls,
-      refusal, usage: { inputTokens: number(usage["promptTokenCount"]), outputTokens: number(usage["candidatesTokenCount"]),
+      refusal, usage: { inputTokens: number(usage["promptTokenCount"]), outputTokens: candidates === null || thoughts === null ? null : candidates + thoughts,
         cacheReadTokens: number(usage["cachedContentTokenCount"]) }, requestId: string(root["responseId"]) ?? headers["x-request-id"] ?? null });
   },
 };

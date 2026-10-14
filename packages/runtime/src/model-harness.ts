@@ -25,6 +25,9 @@ export class ModelHarness {
   #outputLimited: Promise<Set<string>> | undefined;
   constructor(private readonly activities: ModelActivities, private readonly config: RunConfig, private readonly snapshot: RepositorySnapshot, private readonly store: RunStore, private readonly testing?: TestingToolExtension) {}
 
+  /** Closes the transports of the activities this harness drives, once the run that owns them settles. */
+  async close(): Promise<void> { await this.activities.close(); }
+
   /** Whether this durable activity previously stopped at the output ceiling. */
   async outputLimited(activityId: string): Promise<boolean> {
     this.#outputLimited ??= this.store.listArtifacts().then((artifacts) => new Set(artifacts.map(({ kind }) => kind).filter((kind) => kind.startsWith("model-output-limit-") || kind.startsWith("model-refusal-"))));
@@ -80,7 +83,8 @@ export class ModelHarness {
         // quote model output, so they stay framed as data; the fixed trusted instruction says
         // what they are (observed live: without it, a model reported the repair request as a
         // prompt injection).
-        attempt = { ...input, activityId: `${input.activityId}/repair-${repair}`, messages: [...input.messages, { role: "system", content: OUTPUT_REPAIR_INSTRUCTION },
+        // The repair is traced as one (every trace said none, so metrics showed no repairs).
+        attempt = { ...input, activityId: `${input.activityId}/repair-${repair}`, repairCount: 1, messages: [...input.messages, { role: "system", content: OUTPUT_REPAIR_INSTRUCTION },
           { role: "user", content: JSON.stringify({ outputRejected: { attempt: repair, reason: error.reason, rejectedReply: error.reply.slice(0, 32_000) } }) }] };
       }
     }
@@ -118,6 +122,7 @@ export class ModelHarness {
     const allowedPaths = input.sourcePaths === undefined ? null : new Set(input.sourcePaths);
     const toolSet = snapshotTools(allowedPaths === null ? this.snapshot : { ...this.snapshot, files: this.snapshot.files.filter(({ path }) => allowedPaths.has(path)) }, this.store, input.activityId);
     const maximumContext = Math.min(execution.maximumContextTokens ?? 128_000, profile.limits.contextTokens ?? Number.POSITIVE_INFINITY);
+    const events: HarnessEvent[] = [];
     const adapter = new CanonicalHarnessAdapter({ invoke: async (request, context) => {
       // A request admitted as required input keeps that rate through its tool turns, or its first turn could not
       // be sent. Every other request is measured, and its history archived, as before.
@@ -128,6 +133,10 @@ export class ModelHarness {
       return this.activities.invoke({
         ...input, activityId: `${input.activityId}/turn-${context.turn}`, messages: bounded.messages,
         tools: request.tools, responseMode: "harness_turn", schema: modelTurnResultSchema,
+        // Traced only. A repair is counted once, on its first turn; the previous turn's tool calls ran (and failed)
+        // after that turn's trace was written, so this turn, which reads their results, carries their failures.
+        repairCount: context.turn === 0 ? input.repairCount ?? 0 : 0,
+        toolCallErrors: events.filter((event) => event.type === "tool_result" && event.turn === context.turn - 1 && !event.result.ok).length,
         harnessIdentity: { id: harnessProfile.id, version: harnessProfile.version, policyHash: createHash("sha256").update(JSON.stringify({ policy: harnessProfile.policy, sourcePaths: input.sourcePaths === undefined ? null : [...input.sourcePaths].sort(), historyPolicy: "archive-complete-exchanges-v1", maximumContext, ...(this.testing === undefined ? {} : { testingWritePolicy: this.testing.policyIdentity }) })).digest("hex") },
       });
     } }, harnessProfile);
@@ -138,7 +147,6 @@ export class ModelHarness {
       requirements: { structuredEvents: true, enforcesExternalPolicy: true, reportsUsage: true }, signal: input.signal,
       toolContext: { protect: (content, meta) => frameUntrusted(redactSecrets(content).text, meta) },
     });
-    const events: HarnessEvent[] = [];
     try {
       for await (const event of run.events) {
         events.push(event);

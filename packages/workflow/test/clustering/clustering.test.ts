@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cluster, deterministicClusteringStrategy, recordSplit, type ClusteringStrategy, type ClusterRelationship, type ValidatedClusterInput } from "../../src/clustering/index.js";
+import { cluster, deterministicClusteringStrategy, MAXIMUM_SHARED_LINE_PAIRS, recordSplit, type ClusteringStrategy, type ClusterRelationship, type ValidatedClusterInput } from "../../src/clustering/index.js";
 
 function input(id: string, changes: Partial<ValidatedClusterInput["finding"]> = {}): ValidatedClusterInput { const auditorId = id.split("/")[0]; if (auditorId === undefined) throw new Error("Missing fixture auditor id"); return { validation: "accepted", auditorId, finding: { sourceFindingId: id, category: "SECURITY", title: "Authorization bypass", problem: "Authorization validation is missing", recommendedFix: "Validate authorization before access", locations: [{ path: "src/auth.ts", startLine: 10, endLine: 15, symbol: "authorize" }], failureMechanisms: ["authorization"], ...changes } }; }
 
@@ -110,6 +110,28 @@ describe("deterministic clustering", () => {
     expect(asked.clusters).toHaveLength(2);
     expect(asked.ambiguousPairs).toMatchObject([{ signals: expect.arrayContaining(["structural"]) as unknown, relationship: "unrelated" }]);
     expect(asked.operations).toHaveLength(0);
+  });
+
+  it("classifies at most MAXIMUM_SHARED_LINE_PAIRS escalated pairs, unless the bound asks for more", async () => {
+    // Fifty findings of one answer on one line are 1,225 proposed pairs; each is a classification the runtime pays for.
+    const findings = Array.from({ length: 50 }, (_, index) => input(`auditor-a/scope/finding-${index}`, { category: "CORRECTNESS", title: `Distinct claim ${index}`, problem: `Mechanism ${index}`, recommendedFix: `Remedy ${index}`, locations: [{ path: "src/a.ts", startLine: 1, endLine: 1 }], failureMechanisms: [] }));
+    const received: number[] = []; let single = 0;
+    // As the runtime does, a batch takes a bounded number of pairs per call.
+    const runtime = { capability: "balanced" as const, async classify() { single += 1; return { relationship: "unrelated" as const, inputTokens: 0, outputTokens: 0, cost: 0 }; },
+      async classifyMany(pairs: readonly unknown[]) { received.push(pairs.length); return { calls: Math.ceil(pairs.length / 20), decisions: pairs.map(() => ({ relationship: "unrelated" as const, inputTokens: 0, outputTokens: 0, cost: 0 })) }; } };
+    const capped = await cluster(findings, { strategy: deterministicClusteringStrategy, maximumEscalatedPairs: 20, escalateSharedLines: true, semantic: runtime });
+    expect(MAXIMUM_SHARED_LINE_PAIRS).toBe(300); expect(capped.ambiguousPairs).toHaveLength(1_225);
+    expect(received).toEqual([300]); expect(single).toBe(0);
+    expect(capped.metrics).toMatchObject({ escalatedPairs: 300, semanticClusteringCalls: 15 });
+    expect(capped.ambiguousPairs.filter(({ relationship }) => relationship !== null)).toHaveLength(300);
+    // A pair left unclassified is left unmerged.
+    expect(capped.clusters).toHaveLength(50); expect(capped.operations).toHaveLength(0);
+    // An explicit bound above the ceiling is honoured, and a run may set its own ceiling.
+    received.length = 0;
+    expect((await cluster(findings, { strategy: deterministicClusteringStrategy, maximumEscalatedPairs: 400, escalateSharedLines: true, semantic: runtime })).metrics.escalatedPairs).toBe(400);
+    expect((await cluster(findings, { strategy: deterministicClusteringStrategy, maximumEscalatedPairs: 0, escalateSharedLines: true, maximumSharedLinePairs: 30, semantic: runtime })).metrics.escalatedPairs).toBe(30);
+    expect(received).toEqual([400, 30]);
+    await expect(cluster(findings, { strategy: deterministicClusteringStrategy, escalateSharedLines: true, maximumSharedLinePairs: -1, semantic: runtime })).rejects.toThrow("INVALID_CLUSTERING_ESCALATION_LIMIT");
   });
 
   it("still merges one defect filed under two ordinary categories", async () => {

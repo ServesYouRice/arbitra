@@ -76,6 +76,18 @@ describe("provider endpoint registry", () => {
     expect(registry.transports["custom"]?.id).toBe("custom-protocol");
   });
 
+  it("closes every transport that keeps state when the run settles, even when one of them fails to close", async () => {
+    const closed: string[] = [];
+    const registry = new ProviderRegistry([endpoint(), endpoint({ id: "failing", transport: "failing" }), endpoint({ id: "closing", transport: "closing" })], {
+      factories: {
+        failing: () => ({ id: "failing", async send() { throw new Error("fixture only"); }, close(): Promise<void> { throw new Error("CLOSE_FAILED"); } }),
+        closing: () => ({ id: "closing", async send() { throw new Error("fixture only"); }, async close() { closed.push("closing"); } }),
+      },
+    });
+    await expect(registry.close()).resolves.toBeUndefined();
+    expect(closed).toEqual(["closing"]);
+  });
+
   it.each([
     { endpoint: "https://user:password@example.test" },
     { endpoint: "https://example.test/?key=secret" },

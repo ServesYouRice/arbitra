@@ -43,6 +43,12 @@ export interface ModelActivityRequest<T> {
   /** The input was admitted at the rate for required input (see inputBytesPerToken), and its tool
    * history is bounded at that rate. It is not part of the identity: the messages are. */
   readonly admittedAsRequired?: boolean;
+  /** Traced only, never part of the identity: the output repairs this call starts. The harness sets 1 on the first
+   * turn of a repair (`/repair-N`), so a sum over traces counts repairs, not the turns they took. */
+  readonly repairCount?: number;
+  /** Traced only, never part of the identity: failed tool calls whose results this call reads. The tools a turn asks
+   * for run after its trace is written, so their failures are counted on the turn that receives them. */
+  readonly toolCallErrors?: number;
 }
 
 export interface AdvisorActivityIdentity {
@@ -75,6 +81,7 @@ export class ModelActivities {
   readonly #batch: BatchLane | null;
   readonly #replay: ActivityReplaySource | undefined;
   readonly #budget: DurableTokenBudget;
+  readonly #registry: ProviderRegistry;
 
   constructor(private readonly store: RunStore, config: RunConfig, options: TransportFactoryOptions = {}, replay?: ActivityReplaySource) {
     this.#replay = replay;
@@ -82,6 +89,7 @@ export class ModelActivities {
     this.#execution = providerExecutionSchema.parse(this.#config.workflow["modelExecution"]);
     const execution = this.#execution;
     const registry = new ProviderRegistry(execution.endpoints, options);
+    this.#registry = registry;
     const budget = new DurableTokenBudget(execution.maximumTokens, {
       load: () => this.read("model-token-budget"),
       save: async (state) => { await store.publish("model-token-budget", state); },
@@ -112,6 +120,13 @@ export class ModelActivities {
         backend: runStoreBatchBackend(store), traces, requestTimeoutMs: execution.timeoutMs });
     }
   }
+
+  /**
+   * Removes what the transports keep for a later turn (a CLI's sessions and their directories). Called once the run
+   * that owns these activities settles: a transport only sweeps its kept sessions inside a later call, and a settled
+   * run makes none. A transport that fails to close does not keep the others open.
+   */
+  async close(): Promise<void> { await this.#registry.close(); }
 
   /** Collects late results and retries reconciliation of uncertain submissions. Never resubmits. */
   async reconcileBatches() { return this.#batchLane().reconcile(); }
@@ -174,6 +189,19 @@ export class ModelActivities {
     if (existing !== null) {
       if (existing.fingerprint !== fingerprint) throw new Error("MODEL_ACTIVITY_INPUT_CHANGED");
       return input.schema.parse(existing.value);
+    }
+    // A paid answer is saved, then its trace, then the mapping above. When the mapping write fails, or the process
+    // stops before it, the answer is on disk but unmapped, and asking the provider again pays for it twice.
+    // The trace names the saved answer, so it is taken from there, and only from a trace of this exact request that
+    // validated its output, with the output intact under its content address and bound to the same fingerprint.
+    // Writing the mapping first instead would not cover a failed mapping write, and a process stopping after it
+    // would leave a completed activity without its trace.
+    const prior = await this.read(`${key}-trace`) as ActivityTraceArtifact | null;
+    const recovered = await this.#validatedOutput(prior, fingerprint);
+    if (recovered !== null) {
+      const value = input.schema.parse(recovered.value);
+      await this.store.publish(key, { fingerprint, value, replayIdentity }, input.activityId);
+      return value;
     }
     if (input.replayOnly === true) throw new Error("MODEL_ACTIVITY_NOT_COMPLETED");
     // A replay run consults its source only for activities it has not started itself.
@@ -241,7 +269,6 @@ export class ModelActivities {
     } finally {
       const traces = this.#traces.get(input.activityId) ?? [];
       this.#traces.delete(input.activityId);
-      const prior = await this.read(`${key}-trace`) as { attempts?: InvocationTrace[]; executions?: number } | null;
       const executions = await this.store.nextModelTraceAttempt(input.activityId);
       const endpointId = this.#execution.modelEndpoints[input.modelProfileId];
       const endpoint = this.#execution.endpoints.find(({ id }) => id === endpointId);
@@ -260,7 +287,7 @@ export class ModelActivities {
         inputArtifactRefs: [requestArtifact.ref.relativePath], outputArtifactRef,
         durationMs: Math.max(0, Date.now() - startedAt), tokenUsage: usage, costUsd: null,
         cacheHitRate: usage?.inputTokens != null && usage.inputTokens > 0 && usage.cacheReadTokens !== null ? Math.min(1, usage.cacheReadTokens / usage.inputTokens) : null,
-        toolCallCount: result?.response.toolCalls.length ?? 0, toolCallErrors: 0, repairCount: 0,
+        toolCallCount: result?.response.toolCalls.length ?? 0, toolCallErrors: input.toolCallErrors ?? 0, repairCount: input.repairCount ?? 0,
         refusal: outcome === "refusal" ? refusal : null,
         error: outcome === "error" || outcome === "cancelled" ? { code: outcome === "cancelled" ? "CANCELLED" : failure instanceof Error ? failure.name : "UNKNOWN", message: failure instanceof Error ? failure.message : outcome } : null,
         continuationState: null, outcome,
@@ -310,11 +337,25 @@ export class ModelActivities {
     return { usage: trace.terminal.tokenUsage, outcome: trace.terminal.outcome };
   }
 
+  /** The answer a trace of this request recorded as validated, when its saved copy is intact and of the same request. */
+  async #validatedOutput(trace: ActivityTraceArtifact | null, fingerprint: string): Promise<{ readonly value: unknown } | null> {
+    const ref = trace?.terminal?.outputArtifactRef;
+    if (trace?.outputValidated !== true || trace.fingerprint !== fingerprint || typeof ref !== "string") return null;
+    try {
+      // Read by content address: a file whose bytes do not hash to its name is refused.
+      const output = await this.store.artifacts.getByRelativePath<{ fingerprint?: unknown; value?: unknown }>(ref);
+      return output.fingerprint === fingerprint && Object.hasOwn(output, "value") ? { value: output.value } : null;
+    } catch { return null; }
+  }
+
   private async read(kind: string): Promise<unknown> {
     const artifact = (await this.store.listArtifacts()).find((item) => item.kind === kind);
     return artifact === undefined ? null : JSON.parse((await this.store.readArtifact(artifact.artifactId)).content) as unknown;
   }
 }
+
+/** The `-trace` artifact of an activity, as far as a later call of it reads it. */
+interface ActivityTraceArtifact { readonly attempts?: InvocationTrace[]; readonly executions?: number; readonly fingerprint?: unknown; readonly outputValidated?: unknown; readonly terminal?: { readonly outputArtifactRef?: unknown } }
 
 function isDiscoveryActivity(activityId: string): boolean { return activityId.endsWith("/discovery") || activityId.split("/").includes("discovery"); }
 function hash(value: unknown): string { return createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
