@@ -130,7 +130,10 @@ function covers(a: string, b: string): boolean { return a === b || a.startsWith(
  * (P20 pilot): a plan for 45 issues left such pairs unordered and was refused, and the repair wrote the whole
  * plan again, 60,000 output tokens in eight minutes, to add the edges the refusal had spelled out. Testing
  * plans are returned as they are (their execution serialises shared writes itself), and so is a task without
- * `dependencies`; `validateSharedWriteOrder` still reports whatever stays unordered.
+ * `dependencies`; `validateSharedWriteOrder` still reports whatever stays unordered. A task with `context` says why it
+ * waits (`SHARED_WRITE_ORDER_NOTE`), so a reader does not take the edge for a functional dependency: observed live
+ * (P20 pilot), 27 of a critic's 108 blocking items objected to such edges as spurious, and its revision would have
+ * removed edges the run adds back.
  */
 export function withSharedWritesOrdered<TPlan extends { readonly mode: TraceablePlan["mode"]; readonly tasks: readonly WriteScopedTask[]; readonly taskGraph?: TraceablePlan["taskGraph"] }>(plan: TPlan): TPlan {
   if (plan.mode === "testing") return plan;
@@ -141,22 +144,31 @@ export function withSharedWritesOrdered<TPlan extends { readonly mode: Traceable
     return false;
   };
   const writers = writeScopes(plan.tasks).sort((left, right) => left.task.id.localeCompare(right.task.id));
-  const added: { from: string; to: string }[] = [];
+  const added: { from: string; to: string; paths: readonly string[] }[] = [];
   for (const [position, second] of writers.entries()) {
     if (second.task.dependencies === undefined) continue;
     // The nearest earlier writer first, so the writers of one file form a chain and not every pair.
     for (const first of writers.slice(0, position).reverse()) {
-      if (first.task.id === second.task.id || ![...first.paths.keys()].some((path) => [...second.paths.keys()].some((other) => covers(path, other)))) continue;
+      const shared = [...first.paths].filter(([path]) => [...second.paths.keys()].some((other) => covers(path, other))).map(([, original]) => original);
+      if (first.task.id === second.task.id || shared.length === 0) continue;
       if (reaches(first.task.id, second.task.id) || reaches(second.task.id, first.task.id)) continue;
-      edges.get(first.task.id)?.add(second.task.id); added.push({ from: first.task.id, to: second.task.id });
+      edges.get(first.task.id)?.add(second.task.id); added.push({ from: first.task.id, to: second.task.id, paths: shared });
     }
   }
   if (added.length === 0) return plan;
   return { ...plan,
     tasks: plan.tasks.map((task) => {
-      const earlier = added.filter(({ to }) => to === task.id).map(({ from }) => from);
-      return earlier.length === 0 || task.dependencies === undefined ? task : { ...task, dependencies: { ...task.dependencies, dependsOn: [...task.dependencies.dependsOn, ...earlier] } };
+      const earlier = added.filter(({ to }) => to === task.id);
+      if (earlier.length === 0 || task.dependencies === undefined) return task;
+      const context = (task as { readonly context?: unknown }).context;
+      return { ...task, dependencies: { ...task.dependencies, dependsOn: [...task.dependencies.dependsOn, ...earlier.map(({ from }) => from)] },
+        ...(Array.isArray(context) ? { context: [...context as string[], ...earlier.map(({ from, paths }) => sharedWriteOrderNote(from, paths))] } : {}) };
     }),
-    ...(plan.taskGraph === undefined ? {} : { taskGraph: [...plan.taskGraph, ...added] }) } as TPlan;
+    ...(plan.taskGraph === undefined ? {} : { taskGraph: [...plan.taskGraph, ...added.map(({ from, to }) => ({ from, to }))] }) } as TPlan;
+}
+/** The start of what a task's context says about a dependency the run added only to order edits to shared files. */
+export const SHARED_WRITE_ORDER_NOTE = "Ordered by arbitra, not a functional dependency:";
+function sharedWriteOrderNote(from: string, paths: readonly string[]): string {
+  return `${SHARED_WRITE_ORDER_NOTE} waits for ${from} because both edit ${paths.slice(0, 3).join(", ")}${paths.length > 3 ? " and more" : ""}, so their changes land one after the other.`;
 }
 function diagnostic(code: TraceabilityDiagnostic["code"], path: string, message: string): TraceabilityDiagnostic { return Object.freeze({ code, path, message }); }

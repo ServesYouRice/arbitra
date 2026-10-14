@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { plannerNode, withoutSelfReferences, type PlannerInput, type PlannerRequest, type PlannerSchema } from "../../src/nodes/planner/node.js";
-import { validateTraceability, withSharedWritesOrdered, type TraceablePlan } from "../../src/nodes/planner/traceability.js";
+import { SHARED_WRITE_ORDER_NOTE, validateTraceability, withSharedWritesOrdered, type TraceablePlan } from "../../src/nodes/planner/traceability.js";
 
 describe("single coherent Planner", () => {
   it("reports staged logical model calls without equating them with provider attempts", async () => {
@@ -107,6 +107,9 @@ describe("shared write scope ordering", () => {
     expect(waits(ordered)).toEqual([[], ["TASK-001"], ["TASK-002"], []]);
     expect(ordered.taskGraph).toEqual([{ from: "TASK-001", to: "TASK-002" }, { from: "TASK-002", to: "TASK-003" }]);
     expect(validateTraceability(ordered)).toEqual([]);
+    // The waiting task says why, so a critic does not take the edge for a functional dependency.
+    const notes = ordered.tasks[1]?.context ?? [];
+    expect(notes.filter((line) => line.startsWith(SHARED_WRITE_ORDER_NOTE))).toEqual([expect.stringContaining("waits for TASK-001 because both edit")]);
     // An order the plan states is kept, whichever way it runs, and a plan with nothing to order is returned as it is.
     const stated: TraceablePlan = { ...unordered, tasks: [{ ...first, dependencies: { ...free, dependsOn: ["TASK-003"] } }, task("TASK-002"), task("TASK-003")], taskGraph: [{ from: "TASK-003", to: "TASK-001" }], routingRecommendations: routed(tasks.slice(0, 3)) };
     const kept = withSharedWritesOrdered(stated);
