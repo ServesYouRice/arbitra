@@ -48,8 +48,9 @@ describe.each(["claude-code", "codex", "gemini", "antigravity"] as const)("canon
     const second = JSON.parse(await readFile(`${join(root, "report")}.1`, "utf8")) as { stdin: string; argv: string[] };
     expect(second.stdin).toContain(`<<<BEGIN tool-result id=${callId} name=repo.readFile`);
     expect(second.stdin).toContain("export const a = 1;");
-    // Claude Code continues its own session, which already holds the tool request; the other CLIs get the whole transcript.
-    if (vendor === "claude-code") { expect(second.argv).toContain("--resume"); expect(second.stdin).not.toContain("Audit the source."); }
-    else expect(second.stdin).toContain(`"toolCalls":[{"id":"${callId}","name":"repo.readFile"`);
+    // Claude Code, Codex and the Antigravity CLI continue their own session, which already holds the tool request; the
+    // Gemini CLI gets the whole transcript.
+    if (vendor === "gemini") expect(second.stdin).toContain(`"toolCalls":[{"id":"${callId}","name":"repo.readFile"`);
+    else { expect(second.argv).toContain({ "claude-code": "--resume", codex: "resume", antigravity: "--conversation" }[vendor]); expect(second.stdin).not.toContain("Audit the source."); }
   });
 });

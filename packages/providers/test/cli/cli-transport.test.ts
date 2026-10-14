@@ -68,7 +68,7 @@ describe.each(VENDORS)("%s subscription CLI transport", { timeout: 30_000 }, (ve
     expect(response.providerRequestId).toMatch(/^stand-in-/u);
     expect(response.usage).toEqual({ "claude-code": { inputTokens: 15, outputTokens: 5, cacheReadTokens: 3, cacheWriteTokens: 2 },
       codex: { inputTokens: 12, outputTokens: 6, cacheReadTokens: 4, cacheWriteTokens: null }, gemini: { inputTokens: 20, outputTokens: 7, cacheReadTokens: 5, cacheWriteTokens: null },
-      antigravity: { inputTokens: 30, outputTokens: 10, cacheReadTokens: 10, cacheWriteTokens: null } }[vendor]);
+      antigravity: { inputTokens: 40, outputTokens: 10, cacheReadTokens: 10, cacheWriteTokens: null } }[vendor]);
     const report = await f.report();
     expect(report.cwd.startsWith(f.temporary)).toBe(true);
     expect(report.cwd.endsWith("/work")).toBe(true);
@@ -260,6 +260,55 @@ describe("Claude Code specifics", { timeout: 30_000 }, () => {
     expect((await f.report(1)).argv).toContain("--resume");
     const whole = await f.report(2);
     expect(whole.argv).toContain("--session-id"); expect(whole.stdin).toContain("Say pong."); expect(whole.stdin).toContain("export {}");
+  });
+});
+
+describe("sessions of Codex and the Antigravity CLI", { timeout: 30_000 }, () => {
+  const envelope = "{\"toolCalls\":[{\"name\":\"repo.readFile\",\"arguments\":{\"path\":\"a.ts\"}}]}";
+  const tools = [{ name: "repo.readFile", description: "Read a file", inputSchema: { type: "object", properties: { path: { type: "string" } } } }];
+  const followUpOf = (first: { toolCalls: readonly { id: string }[] }) => [...request().messages, { role: "assistant" as const, content: "", toolCalls: first.toolCalls as never },
+    { role: "tool" as const, content: "{\"content\":\"export {}\"}", toolCallId: first.toolCalls[0]?.id ?? "", toolName: "repo.readFile" }];
+  const today = () => { const day = new Date(); return [String(day.getFullYear()), String(day.getMonth() + 1).padStart(2, "0"), String(day.getDate()).padStart(2, "0")]; };
+
+  it("Codex continues its thread with exec resume, charges the turn alone and removes the thread's rollout at the end", async () => {
+    const f = await fixture({ vendor: "codex", replies: [{ kind: "text", text: envelope }, { kind: "text", text: "{\"summary\":\"done\"}" }] });
+    const first = await send(f.transport, request({ tools }));
+    const opened = await f.report(0);
+    expect(opened.argv).not.toContain("--ephemeral"); expect(opened.argv.slice(0, 2)).toEqual(["exec", "--sandbox"]);
+    // Codex's own databases stay in the call's control directory, out of the operator's.
+    expect(opened.env["CODEX_SQLITE_HOME"]?.startsWith(f.temporary)).toBe(true);
+    const sessions = join(f.home, ".codex", "sessions", ...today());
+    expect(await readdir(sessions)).toEqual([expect.stringMatching(/-stand-in-thread-0\.jsonl$/u)]);
+    const second = await send(f.transport, request({ tools, messages: followUpOf(first) }));
+    expect(second).toMatchObject({ text: "{\"summary\":\"done\"}", toolCalls: [] });
+    // Codex reports the thread's usage so far (30 in, 20 cached, 9 out after 12, 4 and 6): the turn is the difference.
+    expect(second.usage).toEqual({ inputTokens: 18, outputTokens: 3, cacheReadTokens: 16, cacheWriteTokens: null });
+    const continued = await f.report(1);
+    expect(continued.argv.slice(0, 2)).toEqual(["exec", "resume"]); expect(continued.argv.slice(-2)).toEqual(["stand-in-thread-0", "-"]);
+    expect(continued.argv).toContain("sandbox_mode=\"read-only\""); expect(continued.cwd).toBe(opened.cwd);
+    expect(continued.stdin.startsWith("The tool results you asked for follow")).toBe(true); expect(continued.stdin).not.toContain("Say pong.");
+    expect(existsSync(opened.cwd)).toBe(false); expect(await readdir(sessions)).toEqual([]);
+    await send(f.transport);
+    expect((await f.report(2)).argv).toContain("--ephemeral");
+  });
+
+  it("the Antigravity CLI continues its conversation with the tool results alone, and every call's conversation is removed", async () => {
+    const f = await fixture({ vendor: "antigravity", replies: [{ kind: "text", text: envelope }, { kind: "text", text: "{\"summary\":\"done\"}" }, { kind: "text", text: "pong" }] });
+    const conversations = join(f.home, ".gemini", "antigravity-cli", "conversations");
+    const first = await send(f.transport, request({ tools }));
+    expect(await readdir(conversations)).toEqual(["stand-in-conversation-0.db"]);
+    const second = await send(f.transport, request({ tools, messages: followUpOf(first) }));
+    expect(second).toMatchObject({ text: "{\"summary\":\"done\"}", toolCalls: [] });
+    // Cumulative usage: 45 + 40 cached in, 18 out after 30 + 10 and 10.
+    expect(second.usage).toEqual({ inputTokens: 45, outputTokens: 8, cacheReadTokens: 30, cacheWriteTokens: null });
+    const continued = await f.report(1);
+    expect(continued.argv.slice(continued.argv.indexOf("--conversation"), continued.argv.indexOf("--conversation") + 2)).toEqual(["--conversation", "stand-in-conversation-0"]);
+    expect(continued.stdin.startsWith("The tool results you asked for follow")).toBe(true);
+    expect(continued.stdin).not.toContain(CLI_ENGINE_PREAMBLE); expect(continued.stdin).not.toContain("Say pong.");
+    expect(await readdir(conversations)).toEqual([]);
+    // A call without tools keeps no conversation either: the CLI stores it, and it is removed when the call ends.
+    await send(f.transport);
+    expect((await f.report(2)).argv).not.toContain("--conversation"); expect(await readdir(conversations)).toEqual([]);
   });
 
   it("uses an isolated home and configuration directory with a token from the named variable", async () => {

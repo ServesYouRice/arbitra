@@ -1,4 +1,4 @@
-import { writeFile, mkdir, rm } from "node:fs/promises";
+import { writeFile, mkdir, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { noUsage, TransportError, withUsageEvidence, type TransportRequest, type TransportUsage } from "../../transport-contract.js";
@@ -36,6 +36,8 @@ export interface CliInvocation { readonly arguments: readonly string[]; readonly
 export interface CliOutcome { readonly text: string; readonly usage: Partial<TransportUsage>; readonly sessionId: string | null; readonly structured?: unknown }
 export interface CliStreamReader {
   line(line: string): void;
+  /** The CLI's own session or conversation ID, once the stream has named it. */
+  sessionId?(): string | null;
   /** The completed reply, or a classified failure. Called only when the process was not stopped. */
   finish(exitCode: number | null, stderr: string): CliOutcome;
 }
@@ -49,10 +51,18 @@ export interface CliDialect {
   refusal?(reply: string): string | null;
   /**
    * A CLI that can continue its own session: a tool turn then sends only the tool results, and the CLI reads the
-   * conversation so far from its prompt cache instead of being sent all of it again. `forget` removes what the CLI
-   * stored for a session that ran in `work`, once the conversation has ended.
+   * conversation so far from its prompt cache instead of being sent all of it again.
    */
-  readonly session?: { forget(work: string, context: Pick<CliInvocationContext, "auth" | "isolatedHome" | "lookup" | "hostHome">): Promise<void> };
+  readonly session?: CliSessions;
+}
+
+export interface CliSessions {
+  /** Removes what the CLI stored for the session `id` that ran in `work`, once its conversation has ended. */
+  forget(work: string, id: string | null, context: Pick<CliInvocationContext, "auth" | "isolatedHome" | "lookup" | "hostHome">): Promise<void>;
+  /** The usage a continued session reports adds up every turn of the conversation so far, not the turn alone. */
+  readonly cumulativeUsage?: boolean;
+  /** The CLI stores every call's conversation and has no flag against it, so every call is forgotten when it ends. */
+  readonly storesEveryCall?: boolean;
 }
 
 /**
@@ -116,7 +126,7 @@ export const claudeCodeDialect: CliDialect = {
   support: CLAUDE,
   // Claude Code keeps a session per working directory under its configuration directory, in projects/<the
   // directory with every other character a dash>.
-  session: { async forget(work, context) {
+  session: { async forget(work, _id, context) {
     const configuration = context.auth === "oauth_token" ? join(context.isolatedHome, ".claude") : context.lookup("CLAUDE_CONFIG_DIR") ?? (context.hostHome === undefined ? undefined : join(context.hostHome, ".claude"));
     if (configuration !== undefined) await rm(join(configuration, "projects", work.replace(/[^a-zA-Z0-9]/gu, "-")), { recursive: true, force: true }).catch(() => undefined);
   } },
@@ -206,30 +216,59 @@ export const CODEX_DISABLED_FEATURES: readonly string[] = Object.freeze(["shell_
   "multi_agent", "view_image", "hooks", "skill_search", "tool_suggest", "goals", "sleep_tool", "in_app_browser", "shell_snapshot", "workspace_dependencies", "remote_plugin", "skill_mcp_dependency_install"]);
 const CODEX_ALLOWED_ITEMS = new Set(["agent_message", "reasoning", "error"]);
 
+/** The local date Codex names a session folder by: year, month, day. */
+function codexDay(at: number): readonly string[] {
+  const day = new Date(at);
+  return [String(day.getFullYear()), String(day.getMonth() + 1).padStart(2, "0"), String(day.getDate()).padStart(2, "0")];
+}
+
 /**
- * `codex exec` with an ephemeral session, no user config or rules, the read-only sandbox,
- * approvals never granted and every optional tool feature disabled. Codex still declares a
- * few built-in functions that cannot be switched off, so any command, file, MCP, search or
- * collaboration item in the event stream stops the process and fails the call.
+ * `codex exec` with no user config or rules, the read-only sandbox, approvals never granted and
+ * every optional tool feature disabled. Codex still declares a few built-in functions that cannot
+ * be switched off, so any command, file, MCP, search or collaboration item in the event stream
+ * stops the process and fails the call. A call saves no session (`--ephemeral`) unless it starts
+ * one, and a tool turn continues it with `codex exec resume`. Codex's own databases (thread index,
+ * logs) go to the call's control directory, so arbitra's calls never enter the operator's.
  */
 export const codexDialect: CliDialect = {
   support: CODEX,
+  // Codex keeps a session as one rollout file under its home, sessions/<year>/<month>/<day>/rollout-<time>-<thread>.jsonl,
+  // by the local date it started; a conversation lives at most two hours, so that is today or yesterday. Measured on
+  // 0.162.1 (October 14, 2026): a continued turn read 98% of its prompt from the cache, and the usage it reports adds
+  // up every turn of the thread so far.
+  session: { cumulativeUsage: true, async forget(_work, id, context) {
+    if (id === null || !/^[A-Za-z0-9-]{1,80}$/u.test(id)) return;
+    const home = context.lookup("CODEX_HOME") ?? (context.hostHome === undefined ? undefined : join(context.hostHome, ".codex"));
+    if (home === undefined) return;
+    const now = Date.now();
+    for (const day of [codexDay(now), codexDay(now - 24 * 60 * 60 * 1_000)]) {
+      const directory = join(home, "sessions", ...day);
+      const names = await readdir(directory).catch(() => [] as string[]);
+      await Promise.all(names.filter((name) => name.startsWith("rollout-") && name.endsWith(`-${id}.jsonl`)).map((name) => rm(join(directory, name), { force: true }).catch(() => undefined)));
+    }
+  } },
   nativeSchema: (request) => request.responseSchema !== undefined && (request.tools?.length ?? 0) === 0,
   async prepare(context) {
     const effort = effortParameter(context.request, CODEX, { effort: (value) => typeof value === "string" && ["minimal", "low", "medium", "high", "xhigh", "max"].includes(value) });
     const schemaPath = join(context.control, "schema.json");
     if (context.nativeSchema) await writeFile(schemaPath, JSON.stringify(context.request.responseSchema), { mode: 0o600 });
     const codexHome = context.lookup("CODEX_HOME");
+    const state = join(context.control, "codex-state");
+    await mkdir(state, { recursive: true, mode: 0o700 });
     const toml = (value: string) => JSON.stringify(value);
+    const shared = ["--ignore-user-config", "--ignore-rules", "--skip-git-repo-check", "--json", "--model", context.request.modelId, ...CODEX_DISABLED_FEATURES.flatMap((feature) => ["--disable", feature]),
+      "-c", "web_search=\"disabled\"", "-c", "project_doc_max_bytes=0", "-c", "include_environment_context=false", "-c", "include_apps_instructions=false",
+      "-c", "include_permissions_instructions=false", "-c", "include_collaboration_mode_instructions=false", "-c", "approval_policy=\"never\"", "-c", "mcp_servers={}",
+      "-c", `base_instructions=${toml(context.prompt.system)}`,
+      ...(typeof effort["effort"] === "string" ? ["-c", `model_reasoning_effort=${toml(effort["effort"])}`] : [])];
+    // `exec resume` takes neither --sandbox nor --cd: the sandbox is set as configuration, and the process already runs
+    // in the session's working directory.
+    const commandArguments = context.session?.resume === true ? ["exec", "resume", ...shared, "-c", "sandbox_mode=\"read-only\"", context.session.id, "-"]
+      : ["exec", ...(context.session === undefined ? ["--ephemeral"] : []), "--sandbox", "read-only", "--color", "never", "--cd", context.work, ...shared,
+        ...(context.nativeSchema ? ["--output-schema", schemaPath] : []), "-"];
     return {
-      arguments: ["exec", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--skip-git-repo-check", "--sandbox", "read-only", "--json", "--color", "never",
-        "--cd", context.work, "--model", context.request.modelId, ...CODEX_DISABLED_FEATURES.flatMap((feature) => ["--disable", feature]),
-        "-c", "web_search=\"disabled\"", "-c", "project_doc_max_bytes=0", "-c", "include_environment_context=false", "-c", "include_apps_instructions=false",
-        "-c", "include_permissions_instructions=false", "-c", "include_collaboration_mode_instructions=false", "-c", "approval_policy=\"never\"", "-c", "mcp_servers={}",
-        "-c", `base_instructions=${toml(context.prompt.system)}`,
-        ...(typeof effort["effort"] === "string" ? ["-c", `model_reasoning_effort=${toml(effort["effort"])}`] : []),
-        ...(context.nativeSchema ? ["--output-schema", schemaPath] : []), "-"],
-      environment: { ...context.base, ...(codexHome === undefined ? {} : { CODEX_HOME: codexHome }) },
+      arguments: commandArguments,
+      environment: { ...context.base, ...(codexHome === undefined ? {} : { CODEX_HOME: codexHome }), CODEX_SQLITE_HOME: state },
       stdin: context.prompt.body,
     };
   },
@@ -237,6 +276,7 @@ export const codexDialect: CliDialect = {
     let threadId: string | null = null; let reply: string | null = null; let usage: Record<string, unknown> | null = null;
     let completed = false; const failures: string[] = [];
     return {
+      sessionId: () => threadId,
       line(line) {
         const event = parseLine(line);
         if (event === null) return;
@@ -382,21 +422,38 @@ function antigravityModelFailure(home: string | undefined, step: Record<string, 
   return failure.message.startsWith("CLI_FAILED") ? new TransportError("HTTP", `CLI_MODEL_CALL_FAILED: the Antigravity CLI reported a failed model call: ${cliFailureDetail(lines.join(" "))}`, true) : failure;
 }
 
+/** What the Antigravity CLI keeps of one conversation under its home: the database, the agent's notes and annotations. */
+function antigravityConversationFiles(home: string, id: string): readonly string[] {
+  const root = join(home, ".gemini", "antigravity-cli");
+  return [...["", "-wal", "-shm", "-journal"].map((suffix) => join(root, "conversations", `${id}.db${suffix}`)), join(root, "brain", id), join(root, "annotations", `${id}.pbtxt`), join(root, "implicit", `${id}.pb`)];
+}
+
 /**
  * Antigravity CLI (`agy`), Google's CLI for personal Google AI subscriptions, in headless
  * print mode with stream-json events. It has no documented system-prompt flag, so the engine
  * preamble and system text lead the prompt; `--sandbox` confines it, permissions are never
  * skipped, and tool steps in the stream or soft-denied tool notices on stderr fail the call.
  * The prompt travels as the `-p` argument or on stdin (`antigravityPromptChannel`); on stdin
- * a response schema goes in a file, so no model-sized text is on the command line.
+ * a response schema goes in a file, so no model-sized text is on the command line. A tool turn
+ * continues the conversation (`--conversation`) with the tool results alone.
  */
 export const antigravityDialect: CliDialect = {
   support: ANTIGRAVITY,
   refusal: geminiFilterNotice,
+  // The CLI stores every conversation in the operator's home, one to two megabytes each (observed: 1.2 GB after the
+  // P20 pilot's calls), and has no flag against it, so every call's conversation is removed once it has ended.
+  // Measured on 1.3.5 (October 14, 2026): a continued turn read 21,246 tokens from the cache where the first read
+  // none, and its usage, duration and turn count add up every turn of the conversation so far.
+  session: { cumulativeUsage: true, storesEveryCall: true, async forget(_work, id, context) {
+    if (id === null || !/^[A-Za-z0-9-]{1,80}$/u.test(id) || context.hostHome === undefined) return;
+    await Promise.all(antigravityConversationFiles(context.hostHome, id).map((path) => rm(path, { recursive: true, force: true }).catch(() => undefined)));
+  } },
   nativeSchema: (request) => request.responseSchema !== undefined && (request.tools?.length ?? 0) === 0,
   async prepare(context) {
     const effort = effortParameter(context.request, ANTIGRAVITY, { effort: (value) => typeof value === "string" && ["low", "medium", "high", "max"].includes(value) });
-    const prompt = `${context.prompt.system}\n\n${context.prompt.body}`;
+    // A continued conversation already holds the instructions; its turn sends the tool results alone.
+    const continued = context.session?.resume === true ? context.session.id : null;
+    const prompt = continued === null ? `${context.prompt.system}\n\n${context.prompt.body}` : context.prompt.body;
     const bytes = Buffer.byteLength(prompt, "utf8");
     if (bytes > ANTIGRAVITY_PROMPT_LIMIT) throw new TransportError("INVALID_REQUEST", `CLI_PROMPT_TOO_LARGE: the Antigravity CLI keeps at most ${ANTIGRAVITY_PROMPT_LIMIT} bytes of a prompt (it silently drops the rest of a longer one); this request has ${bytes}. Lower limits.contextTokens for profiles on this endpoint (see docs/setup.md) or use another transport for this role`, false);
     const passthrough = Object.fromEntries(["DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"].flatMap((name) => { const value = context.lookup(name); return value === undefined || value === "" ? [] : [[name, value]]; }));
@@ -406,7 +463,8 @@ export const antigravityDialect: CliDialect = {
     return {
       // Effort is usually part of the model slug (gemini-3.8-flash-low); a bare slug such as
       // gemini-3.8-flash needs effort.params {"effort": ...} or the CLI refuses the selection.
-      arguments: [...(onStdin ? ["--input-format", "stream-json"] : ["-p", prompt]), "--output-format", "stream-json", "--model", context.request.modelId, ...(typeof effort["effort"] === "string" ? ["--effort", effort["effort"]] : []),
+      arguments: [...(onStdin ? ["--input-format", "stream-json"] : ["-p", prompt]), "--output-format", "stream-json", ...(continued === null ? [] : ["--conversation", continued]),
+        "--model", context.request.modelId, ...(typeof effort["effort"] === "string" ? ["--effort", effort["effort"]] : []),
         "--sandbox", "--disable-slash-commands", "--print-timeout", `${Math.max(1, Math.ceil(context.timeoutMs / 1_000))}s`,
         ...(context.nativeSchema ? ["--json-schema", onStdin ? schemaPath : JSON.stringify(context.request.responseSchema)] : [])],
       // One message per line; the CLI runs its single turn and exits when stdin ends.
@@ -414,14 +472,16 @@ export const antigravityDialect: CliDialect = {
     };
   },
   reader(context) {
-    let envelope: Record<string, unknown> | null = null; let streamed = "";
+    let envelope: Record<string, unknown> | null = null; let streamed = ""; let conversation: string | null = null;
     return {
+      sessionId: () => conversation,
       // Events are {"event": <kind>, <kind>: {...}}: init, step_update (one per agent step) and result.
       line(line) {
         const event = parseLine(line);
         if (event === null) return;
         const kind = String(event["event"] ?? "");
         const payload = record(event[kind]);
+        conversation = text(event["conversation_id"]) ?? text(payload?.["conversation_id"]) ?? conversation;
         if (kind === "step_update") {
           const step = String(payload?.["step_type"] ?? "unknown");
           if (step === "error_message") throw antigravityModelFailure(context.hostHome, payload);
@@ -452,12 +512,15 @@ export const antigravityDialect: CliDialect = {
         if (reply.trim() === "") throw new TransportError("MALFORMED_RESPONSE", "CLI_EMPTY_SUCCESS: the Antigravity CLI reported SUCCESS with an empty response", true);
         const usage = record(envelope["usage"]);
         const input = count(usage?.["input_tokens"]); const output = count(usage?.["output_tokens"]); const thinking = count(usage?.["thinking_tokens"]);
+        const read = count(usage?.["cache_read_tokens"]);
         // agy 1.3.3 counts thinking inside output_tokens (total_tokens is input_tokens + output_tokens, observed
         // live); adding it again nearly doubled Gemini's reported output. Where the total does not show that,
         // thinking is added: over-counting keeps the run budget conservative.
         const thinkingInOutput = input !== null && output !== null && count(usage?.["total_tokens"]) === input + output;
-        return { text: reply, sessionId: text(envelope["conversation_id"]), ...(present ? { structured } : {}),
-          usage: { inputTokens: input, outputTokens: output === null ? null : output + (thinkingInOutput ? 0 : thinking ?? 0), cacheReadTokens: count(usage?.["cache_read_tokens"]), cacheWriteTokens: null } };
+        // input_tokens leaves out what was read from the cache (agy 1.3.5, observed live: a continued turn added 6,755
+        // input tokens and 21,246 cache reads), so the prompt is the two together, as for the other CLIs.
+        return { text: reply, sessionId: text(envelope["conversation_id"]) ?? conversation, ...(present ? { structured } : {}),
+          usage: { inputTokens: input === null ? null : input + (read ?? 0), outputTokens: output === null ? null : output + (thinkingInOutput ? 0 : thinking ?? 0), cacheReadTokens: read, cacheWriteTokens: null } };
       },
     };
   },
