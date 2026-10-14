@@ -18,7 +18,7 @@ export const planTaskIRSchema = taskIRSchema.extend({
   estimatedTurns: z.number().int().positive().nullable(),
 }).strict();
 
-const requirementLinkSchema = z.object({
+export const requirementLinkSchema = z.object({
   requirementId: z.string().min(1),
   validationIds: z.array(z.string().min(1)).min(1),
   taskIds: z.array(z.string().min(1)).min(1),

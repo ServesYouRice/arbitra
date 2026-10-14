@@ -136,8 +136,12 @@ truncated. When they do not fit, the stage is recomposed:
   expands each task against its complete original records. Audit plans trace accepted issues;
   Feature and Testing plans trace requirement IDs (`PlannerRecordSet`,
   `requirement-records.ts`).
-- **Atomic revision patches.** `reviseWithContext` applies one patch per blocking critique over
-  the complete selected tasks and their neighbours, with mode-specific traceability.
+- **Revision in parts.** A plan too large for one revision call is revised by calls that each
+  read the tasks their critique items name, in full, with an index of every task and the open
+  questions, validation and issues of those tasks only, and write the tasks they change and what
+  they add (`planRevisionPatchSchema`). Items on the same tasks share a call within an output
+  budget; calls on disjoint tasks run side by side in rounds and are applied in order, with
+  mode-specific traceability (`reviseWithContext`).
 - **Exact line windows.** Discovery reads a file larger than the whole budget as windows of
   original line numbers with a 20-line overlap; evidence is validated against the whole file.
 - **Smaller discovery units after an output limit.** A discovery call that stops at the output
@@ -240,8 +244,10 @@ cannot be asked for in smaller parts. When the call for one stops at the model's
 the run goes on and the plan says what is missing:
 
 - A revision item: the plan keeps its tasks, the item's resolution says it was not revised, a
-  blocking question `revision-<n>/not-revised` names it, and `planner-revision-composition` lists
-  it under `notRevisedCritiqueItemIds`.
+  blocking question `revision-<round>.<call>/not-revised/<item>` names it, and
+  `planner-revision-composition` lists it under `notRevisedCritiqueItemIds`. A call's patch that
+  is valid on its own but cannot be joined with an earlier call of its round (a dependency
+  cycle across both) leaves its items open the same way.
 - A task expansion: it is asked for once more in its scoped form. If that stops at the ceiling
   too, the task keeps its outline (goal, scope, routing, dependencies, validation links) with
   empty guidance, a blocking question `expansion-<task>/not-expanded` names it, and
@@ -258,7 +264,7 @@ audit pipeline also the rate for required input):
 - `PLANNER_ISSUE_CONTEXT_LIMIT_EXCEEDED:<id>` and `PLANNER_TASK_CONTEXT_LIMIT_EXCEEDED:<task>`:
   one complete issue/requirement record, or one task expansion with its records and the global
   outline, does not fit. `PLANNER_REVISION_ITEM_CONTEXT_LIMIT_EXCEEDED:<critique>`: likewise
-  for one atomic revision patch.
+  for one critique item with the tasks it names.
 - `TESTING_SELECTION_CANDIDATE_CONTEXT_EXCEEDED:<gap>`, `FEATURE_REVIEW_REQUIREMENT_CONTEXT_EXCEEDED:<id>`:
   one candidate or requirement with its grounded context does not fit.
 - `PLANNER_OUTLINE_RECORD_CONTEXT_LIMIT_EXCEEDED:<id>`: one brief plus the outline context does

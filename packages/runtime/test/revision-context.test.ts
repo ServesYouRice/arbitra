@@ -6,13 +6,23 @@ import type { CanonicalIssue } from "@arbitra/workflow/nodes/canonical-issues.js
 import { reviseWithContext, type ModelRevisionInput } from "../src/revision-context.js";
 import type { PlannerStage } from "../src/planner-context.js";
 
+type Supplied = { selectedTasks: PlanIR["tasks"]; selectedTaskIds: string[]; retiredOriginalTasks: PlanIR["tasks"]; critique: { id: string }[]; taskIndex: { id: string }[];
+  unresolvedQuestions: PlanIR["unresolvedQuestions"]; validation: { id: string }[]; nextValidationId: string; planHeader: Record<string, unknown> };
+const none = { implementationStrategy: [], dependencies: [], rolloutConcerns: [], migrationConcerns: [] };
+/** A patch that answers every item of a call and changes nothing. */
+function unchanged(supplied: Supplied, extra: Partial<PlanRevisionPatch> = {}): PlanRevisionPatch {
+  return { resolutions: supplied.critique.map(({ id }) => ({ critiqueItemId: id, resolution: "Concrete revision" })), tasks: [], retiredTaskIds: [],
+    lineage: supplied.selectedTaskIds.map((id) => ({ previousTaskId: id, nextTaskIds: supplied.selectedTasks.some((task) => task.id === id) ? [id] : [], rationale: "Kept" })),
+    addedQuestions: [], addedValidation: [], issueToValidation: [], requirementLinks: [], planAdditions: none, ...extra };
+}
+
 async function fixture() {
   const plan = planIRSchema.parse(JSON.parse(await readFile(new URL("../../schemas/test/golden/plan-ir.valid.json", import.meta.url), "utf8")));
-  const task = plan.tasks[0]; if (task === undefined) throw new Error("FIXTURE_TASK_ABSENT");
-  plan.tasks.push({ ...task, id: "TASK-002", scope: { ...task.scope, likelyFiles: task.scope.likelyFiles.map((path) => `other/${path}`) }, implementationGuidance: ["Unchanged detailed task body"] });
+  const task = requiredAt(plan.tasks, 0);
+  plan.tasks.push({ ...task, id: "TASK-002", scope: { ...task.scope, likelyFiles: task.scope.likelyFiles.map((path) => `other/${path}`) }, readFirst: [], implementationGuidance: ["Unchanged detailed task body"] });
   plan.routingRecommendations.push({ ...requiredAt(plan.routingRecommendations, 0), taskId: "TASK-002" });
   const issue: CanonicalIssue = { candidateId: "C-001", claim: { trust: "untrusted_data", title: "Original issue", description: "Complete original description" }, severity: "high", blocker: false, disposition: "accepted", consensusClaim: null, supportCount: 2, reviewDenominator: 3, dissent: [], counterEvidence: [], sourceFindingIds: ["source-1"], verificationOutcome: "CONFIRMED", coverage: { reviewedBy: [], missingReviewers: [] }, singleSource: false };
-  const input: ModelRevisionInput = { originalPlan: plan, originalGoal: "Fix accepted issue", plannerConfiguration: { modelProfileId: "planner" }, canonicalIssues: [issue], repository: [],
+  const input: { -readonly [K in keyof ModelRevisionInput]: ModelRevisionInput[K] } = { originalPlan: plan, originalGoal: "Fix accepted issue", plannerConfiguration: { modelProfileId: "planner" }, canonicalIssues: [issue], repository: [],
     blockingCritique: [{ id: "critique-1", category: "weak_verification", blocking: true, summary: "Replace task and strengthen tests", taskIds: ["TASK-001"], issueIds: [] }, { id: "critique-2", category: "weak_acceptance_criteria", blocking: true, summary: "Improve replacement acceptance", taskIds: ["TASK-001"], issueIds: [] }],
   };
   const calls: PlannerStage[] = []; const artifacts = new Map<string, unknown>();
@@ -21,60 +31,101 @@ async function fixture() {
     async call(stage: PlannerStage): Promise<unknown> {
       calls.push(stage);
       if (stage.activityId === "planner/revision") return { plan, resolutions: input.blockingCritique.map(({ id }) => ({ critiqueItemId: id, resolution: "Resolved" })) };
-      const supplied = stage.input as { selectedTasks: PlanIR["tasks"]; globalPlan: Omit<PlanIR, "tasks">; critique: { id: string } };
-      const selected = supplied.selectedTasks[0]; if (selected === undefined) throw new Error("SELECTED_TASK_ABSENT");
-      const newId = supplied.critique.id === "critique-1" ? "TASK-003" : selected.id;
-      const patch: PlanRevisionPatch = { critiqueItemId: supplied.critique.id, resolution: "Concrete revision", globalPlan: { ...supplied.globalPlan, routingRecommendations: supplied.globalPlan.routingRecommendations.map((routing) => ({ ...routing, taskId: routing.taskId === selected.id ? newId : routing.taskId })) },
-        tasks: [{ ...selected, id: newId, acceptanceCriteria: ["Acceptance after concrete revision"] }], retiredTaskIds: newId === selected.id ? [] : [selected.id], lineage: [{ previousTaskId: selected.id, nextTaskIds: [newId], rationale: "Replacement keeps the original responsibility" }],
-      };
-      return patch;
+      const supplied = stage.input as Supplied;
+      const selected = supplied.selectedTasks.find(({ id }) => id === "TASK-001"); if (selected === undefined) throw new Error("SELECTED_TASK_ABSENT");
+      // Replaces TASK-001 with a new task under a local name.
+      return unchanged(supplied, { tasks: [{ ...selected, id: "TASK-900", acceptanceCriteria: ["Acceptance after concrete revision"] }], retiredTaskIds: ["TASK-001"],
+        lineage: supplied.selectedTaskIds.map((id) => ({ previousTaskId: id, nextTaskIds: id === "TASK-001" ? ["TASK-900"] : [id], rationale: "Replacement keeps the original responsibility" })) });
     },
     async publish(kind: string, value: unknown) { artifacts.set(kind, structuredClone(value)); },
   };
   return { input, port, calls, artifacts };
 }
 
-describe("bounded atomic planner revisions", () => {
-  it("includes dependency neighbors so replacement can update reciprocal references atomically", async () => {
-    const { input, port } = await fixture();
+describe("planner revision in parts", () => {
+  it("answers the items on one task in one call that reads that task, not its neighbours, and writes only what it changes", async () => {
+    const { input, port, calls, artifacts } = await fixture();
     requiredAt(input.originalPlan.tasks, 1).dependencies = { dependsOn: ["TASK-001"], blocks: [], conflictsWith: [] };
     input.originalPlan.taskGraph = [{ from: "TASK-001", to: "TASK-002" }];
-    const result = await reviseWithContext({ ...input, blockingCritique: input.blockingCritique.slice(0, 1) }, { ...port, call: async (stage) => {
-      const supplied = stage.input as { selectedTasks: PlanIR["tasks"]; globalPlan: Omit<PlanIR, "tasks">; critique: { id: string } };
-      expect(supplied.selectedTasks.map(({ id }) => id)).toEqual(["TASK-001", "TASK-002"]);
-      return { critiqueItemId: supplied.critique.id, resolution: "Replaced predecessor and updated its dependent", globalPlan: { ...supplied.globalPlan, taskGraph: [{ from: "TASK-003", to: "TASK-002" }], routingRecommendations: supplied.globalPlan.routingRecommendations.map((routing) => ({ ...routing, taskId: routing.taskId === "TASK-001" ? "TASK-003" : routing.taskId })) },
-        tasks: supplied.selectedTasks.map((task) => ({ ...task, id: task.id === "TASK-001" ? "TASK-003" : task.id, dependencies: { ...task.dependencies, dependsOn: task.dependencies.dependsOn.map((id) => id === "TASK-001" ? "TASK-003" : id) } })), retiredTaskIds: ["TASK-001"],
-        lineage: [{ previousTaskId: "TASK-001", nextTaskIds: ["TASK-003"], rationale: "Replacement" }, { previousTaskId: "TASK-002", nextTaskIds: ["TASK-002"], rationale: "Updated dependency" }],
-      };
-    } });
-    expect(result.plan.tasks.find(({ id }) => id === "TASK-002")?.dependencies.dependsOn).toEqual(["TASK-003"]);
-    expect(result.plan.taskGraph).toEqual([{ from: "TASK-003", to: "TASK-002" }]);
-  });
-
-  it("preserves the original body for a later critique after retirement and tracks reintroduced work", async () => {
-    const { input, port, artifacts } = await fixture();
-    const result = await reviseWithContext(input, { ...port, call: async (stage) => {
-      const supplied = stage.input as { selectedTasks: PlanIR["tasks"]; retiredOriginalTasks: PlanIR["tasks"]; globalPlan: Omit<PlanIR, "tasks">; critique: { id: string } };
-      if (supplied.critique.id === "critique-1") return { critiqueItemId: "critique-1", resolution: "Removed redundant task", globalPlan: { ...supplied.globalPlan, routingRecommendations: supplied.globalPlan.routingRecommendations.filter(({ taskId }) => taskId !== "TASK-001") }, tasks: [], retiredTaskIds: ["TASK-001"], lineage: [{ previousTaskId: "TASK-001", nextTaskIds: [], rationale: "Other task covers the accepted issue" }] };
-      expect(supplied.selectedTasks).toEqual([]); expect(supplied.retiredOriginalTasks).toEqual([input.originalPlan.tasks[0]]);
-      expect(stage.input).toMatchObject({ canonicalIssues: input.canonicalIssues });
-      const original = requiredAt(input.originalPlan.tasks, 0);
-      return { critiqueItemId: "critique-2", resolution: "Reintroduced the omitted acceptance responsibility", globalPlan: { ...supplied.globalPlan, routingRecommendations: [...supplied.globalPlan.routingRecommendations, { taskId: "TASK-003", capability: original.routing.capability, effort: original.routing.effort, reason: original.routing.reason }] }, tasks: [{ ...original, id: "TASK-003" }], retiredTaskIds: [], lineage: [{ previousTaskId: "TASK-001", nextTaskIds: ["TASK-003"], rationale: "Reintroduced responsibility" }] };
-    } });
-    expect(result.plan.tasks.map(({ id }) => id)).toEqual(["TASK-002", "TASK-003"]);
-    expect(artifacts.get("planner-revision-composition")).toMatchObject({ originalTaskLineage: { "TASK-001": ["TASK-003"] } });
-  });
-
-  it("preserves unchanged tasks, complete selected inputs and original critique lineage after replacement", async () => {
-    const { input, port, calls, artifacts } = await fixture();
     const result = await reviseWithContext(input, port);
-    expect(result.plan.tasks.find(({ id }) => id === "TASK-002")).toEqual(input.originalPlan.tasks[1]);
-    expect(result.plan.tasks.find(({ id }) => id === "TASK-001")).toBeUndefined();
-    expect(result.plan.tasks.find(({ id }) => id === "TASK-003")?.acceptanceCriteria).toEqual(["Acceptance after concrete revision"]);
+    expect(calls).toHaveLength(1);
+    const supplied = requiredAt(calls, 0).input as Supplied;
+    expect(supplied.critique.map(({ id }) => id)).toEqual(["critique-1", "critique-2"]);
+    expect(supplied.selectedTasks.map(({ id }) => id)).toEqual(["TASK-001"]);
+    expect(supplied.taskIndex.map(({ id }) => id)).toEqual(["TASK-001", "TASK-002"]);
+    expect(supplied.planHeader).not.toHaveProperty("unresolvedQuestions"); expect(supplied.planHeader).not.toHaveProperty("tasks");
+    expect(requiredAt(calls, 0).sourcePaths).toEqual(["src/auth.ts", "test/auth.test.ts"]);
+    // The new task is renumbered into the call's own range; the dependent's reference and the graph follow it.
+    expect(result.plan.tasks.map(({ id }) => id)).toEqual(["TASK-002", "TASK-003"]);
+    expect(result.plan.tasks.find(({ id }) => id === "TASK-002")).toEqual({ ...requiredAt(input.originalPlan.tasks, 1), dependencies: { dependsOn: ["TASK-003"], blocks: [], conflictsWith: [] } });
+    expect(result.plan.taskGraph).toEqual([{ from: "TASK-003", to: "TASK-002" }]);
+    expect(result.plan.routingRecommendations.map(({ taskId }) => taskId)).toEqual(["TASK-002", "TASK-003"]);
+    expect(result.plan.unresolvedQuestions).toEqual(input.originalPlan.unresolvedQuestions);
     expect(result.resolutions.map(({ critiqueItemId }) => critiqueItemId)).toEqual(["critique-1", "critique-2"]);
-    expect(calls[0]?.input).toMatchObject({ selectedTasks: [input.originalPlan.tasks[0]], canonicalIssues: input.canonicalIssues });
-    expect(calls[1]?.input).toMatchObject({ selectedTasks: [{ id: "TASK-003" }], originalTaskLineage: { "TASK-001": ["TASK-003"] }, critique: input.blockingCritique[1], priorResolutions: [{ critiqueItemId: "critique-1" }] });
-    expect(artifacts.get("planner-revision-composition")).toMatchObject({ logicalModelCalls: 2, originalTaskLineage: { "TASK-001": ["TASK-003"] } });
+    expect(result.resolutions[0]?.resolution).toContain("TASK-003");
+    expect(artifacts.get("planner-revision-composition")).toMatchObject({ logicalModelCalls: 1, rounds: 1, originalTaskLineage: { "TASK-001": ["TASK-003"], "TASK-002": ["TASK-002"] }, notRevisedCritiqueItemIds: [] });
+  });
+
+  it("revises disjoint tasks side by side and leaves an item that spans both for the next round", async () => {
+    const { input, port, calls } = await fixture();
+    input.blockingCritique = [
+      { id: "on-1", category: "weak_verification", blocking: true, summary: "Strengthen task 1", taskIds: ["TASK-001"], issueIds: [] },
+      { id: "on-2", category: "weak_verification", blocking: true, summary: "Strengthen task 2", taskIds: ["TASK-002"], issueIds: [] },
+      { id: "on-both", category: "wrong_dependencies", blocking: true, summary: "Order the two", taskIds: ["TASK-001", "TASK-002"], issueIds: [] },
+    ];
+    const rounds: string[][] = [];
+    const result = await reviseWithContext(input, { ...port,
+      together: async <T, R>(items: readonly T[], run: (item: T) => Promise<R>) => { rounds.push(items.map((item) => (item as { stage: PlannerStage }).stage.activityId)); return Promise.all(items.map(run)); },
+      call: async (stage: PlannerStage) => {
+        calls.push(stage); const supplied = stage.input as Supplied;
+        if (supplied.critique.some(({ id }) => id === "on-both")) {
+          // The second round reads what the first wrote.
+          expect(supplied.selectedTasks.map(({ acceptanceCriteria }) => acceptanceCriteria.at(-1))).toEqual(["Strengthened", "Strengthened"]);
+          const second = requiredAt(supplied.selectedTasks, 1);
+          return unchanged(supplied, { tasks: [{ ...second, dependencies: { ...second.dependencies, dependsOn: ["TASK-001"] } }] });
+        }
+        return unchanged(supplied, { tasks: supplied.selectedTasks.map((task) => ({ ...task, acceptanceCriteria: [...task.acceptanceCriteria, "Strengthened"] })) });
+      } });
+    expect(rounds.map((round) => round.length)).toEqual([2, 1]);
+    expect(rounds[0]?.every((id) => id.startsWith("planner/revision-batch/1."))).toBe(true);
+    expect(result.plan.tasks.find(({ id }) => id === "TASK-002")?.dependencies.dependsOn).toEqual(["TASK-001"]);
+    expect(result.plan.taskGraph).toEqual([{ from: "TASK-001", to: "TASK-002" }]);
+    expect(result.resolutions.map(({ critiqueItemId }) => critiqueItemId)).toEqual(["on-1", "on-2", "on-both"]);
+  });
+
+  it("supplies a retired task's original body to a later item, which can bring its work back", async () => {
+    const { input, port, artifacts } = await fixture();
+    input.blockingCritique = [requiredAt(input.blockingCritique, 0), { ...requiredAt(input.blockingCritique, 1), taskIds: ["TASK-001", "TASK-002"] }];
+    const result = await reviseWithContext(input, { ...port, call: async (stage) => {
+      const supplied = stage.input as Supplied;
+      if (supplied.critique[0]?.id === "critique-1") return unchanged(supplied, { retiredTaskIds: ["TASK-001"], lineage: [{ previousTaskId: "TASK-001", nextTaskIds: [], rationale: "Other task covers the accepted issue" }] });
+      expect(supplied.selectedTaskIds).toEqual(["TASK-001", "TASK-002"]); expect(supplied.selectedTasks.map(({ id }) => id)).toEqual(["TASK-002"]);
+      expect(supplied.retiredOriginalTasks).toEqual([input.originalPlan.tasks[0]]);
+      expect(stage.input).toMatchObject({ canonicalIssues: input.canonicalIssues });
+      return unchanged(supplied, { tasks: [{ ...requiredAt(input.originalPlan.tasks, 0), id: "TASK-901" }], lineage: [{ previousTaskId: "TASK-001", nextTaskIds: ["TASK-901"], rationale: "Reintroduced responsibility" }, { previousTaskId: "TASK-002", nextTaskIds: ["TASK-002"], rationale: "Kept" }] });
+    } }, undefined, { maximumItems: 1 });
+    expect(result.plan.tasks.map(({ id }) => id)).toEqual(["TASK-002", "TASK-003"]);
+    expect(artifacts.get("planner-revision-composition")).toMatchObject({ rounds: 2, originalTaskLineage: { "TASK-001": ["TASK-003"] } });
+  });
+
+  it("gives a call the questions and assertions of its tasks only, and renumbers what it adds", async () => {
+    const { input, port, calls } = await fixture();
+    input.originalPlan.unresolvedQuestions.push({ id: "brief-x/Q-777", question: "Unrelated decision", blocking: false, blastRadius: "low" }, { id: "expansion-TASK-001/Q-1", question: "Scope of the guard", blocking: false, blastRadius: "low" });
+    input.blockingCritique = [{ id: "on-1", category: "weak_verification", blocking: true, summary: "Q-001 is unresolved for task 1", taskIds: ["TASK-001"], issueIds: [] }, { id: "on-2", category: "weak_verification", blocking: true, summary: "Strengthen task 2", taskIds: ["TASK-002"], issueIds: [] }];
+    const result = await reviseWithContext(input, { ...port, call: async (stage) => {
+      calls.push(stage); const supplied = stage.input as Supplied;
+      if (supplied.critique[0]?.id === "on-1") expect(supplied.unresolvedQuestions.map(({ id }) => id)).toEqual(["Q-001", "expansion-TASK-001/Q-1"]);
+      expect(supplied.validation.map(({ id }) => id)).toEqual(["VAL-001"]); expect(supplied.nextValidationId).toBe("VAL-002");
+      const task = requiredAt(supplied.selectedTasks, 0);
+      // Both calls of the round name their new assertion VAL-002.
+      return unchanged(supplied, { tasks: [{ ...task, addresses: { ...task.addresses, validation: [...task.addresses.validation, "VAL-002"] }, context: ["resolves:Q-new"] }],
+        addedValidation: [{ id: "VAL-002", assertion: `Checked by ${task.id}`, evidence: ["test"] }], addedQuestions: [{ id: "Q-new", question: `Open for ${task.id}`, blocking: false, blastRadius: "low" }] });
+    } });
+    expect(calls).toHaveLength(2);
+    expect(result.plan.validationContract.validation.map(({ id, assertion }) => [id, assertion])).toEqual([["VAL-001", "Support headers cannot bypass role enforcement."], ["VAL-002", "Checked by TASK-001"], ["VAL-003", "Checked by TASK-002"]]);
+    expect(result.plan.tasks.map(({ addresses }) => addresses.validation)).toEqual([["VAL-001", "VAL-002"], ["VAL-001", "VAL-003"]]);
+    expect(result.plan.tasks.map(({ context }) => context)).toEqual([["resolves:revision-1.1/Q-new"], ["resolves:revision-1.2/Q-new"]]);
+    expect(result.plan.unresolvedQuestions.slice(-2).map(({ id }) => id)).toEqual(["revision-1.1/Q-new", "revision-1.2/Q-new"]);
   });
 
   it("uses the original complete-plan revision when it fits", async () => {
@@ -83,37 +134,49 @@ describe("bounded atomic planner revisions", () => {
     expect(result.plan).toEqual(input.originalPlan); expect(calls.map(({ activityId }) => activityId)).toEqual(["planner/revision"]);
   });
 
-  it.each(["wrong_critique", "unselected_task", "missing_lineage", "unknown_lineage", "questions", "provenance", "coverage", "self_resolution"])("rejects an invalid atomic patch: %s", async (mode) => {
+  it.each(["wrong_critique", "unselected_task", "missing_lineage", "unknown_lineage", "link_scope", "taken_validation", "self_resolution"])("refuses an invalid patch inside the call: %s", async (mode) => {
     const { input, port, calls } = await fixture();
-    const expected = { wrong_critique: "REVISION_PATCH_CRITIQUE_MISMATCH", unselected_task: "REVISION_PATCH_TASK_SCOPE_INVALID", missing_lineage: "REVISION_PATCH_LINEAGE_INCOMPLETE", unknown_lineage: "REVISION_PATCH_LINEAGE_INVALID", questions: "REVISION_PATCH_QUESTION_DROPPED", provenance: "MODEL_REVISION_PROVENANCE_MISMATCH", coverage: "MODEL_REVISION_TRACEABILITY_INVALID", self_resolution: "HIGH_BLAST_RADIUS_QUESTION_SILENTLY_RESOLVED" };
+    const expected = { wrong_critique: "REVISION_PATCH_CRITIQUE_MISMATCH", unselected_task: "REVISION_PATCH_TASK_SCOPE_INVALID", missing_lineage: "REVISION_PATCH_LINEAGE_INCOMPLETE", unknown_lineage: "REVISION_PATCH_LINEAGE_INVALID", link_scope: "REVISION_PATCH_LINK_SCOPE_INVALID", taken_validation: "REVISION_PATCH_VALIDATION_ID_TAKEN", self_resolution: "HIGH_BLAST_RADIUS_QUESTION_SILENTLY_RESOLVED" };
     await expect(reviseWithContext(input, { ...port, call: async (stage) => {
       const patch = await port.call(stage) as PlanRevisionPatch;
-      if (mode === "wrong_critique") patch.critiqueItemId = "different";
+      if (mode === "wrong_critique") requiredAt(patch.resolutions, 0).critiqueItemId = "different";
       if (mode === "unselected_task") patch.tasks.push(requiredAt(input.originalPlan.tasks, 1));
       if (mode === "missing_lineage") patch.lineage = [];
       if (mode === "unknown_lineage") requiredAt(patch.lineage, 0).nextTaskIds = ["TASK-999"];
-      if (mode === "questions") patch.globalPlan.unresolvedQuestions = [];
-      if (mode === "provenance") patch.globalPlan.premiseReport = { ...patch.globalPlan.premiseReport, status: "unavailable" };
-      if (mode === "coverage") patch.globalPlan.acceptedIssueIds = [];
-      if (mode === "self_resolution") { patch.globalPlan.unresolvedQuestions = [...patch.globalPlan.unresolvedQuestions, { id: "new", question: "Need a decision", blocking: true, blastRadius: "high" }]; requiredAt(patch.tasks, 0).context = ["resolves:new"]; }
-      return patch;
+      if (mode === "link_scope") patch.issueToValidation = [{ issueId: "C-999", validationIds: ["VAL-001"] }];
+      if (mode === "taken_validation") patch.addedValidation = [{ id: "VAL-001", assertion: "Again", evidence: ["test"] }];
+      if (mode === "self_resolution") { patch.addedQuestions = [{ id: "new", question: "Need a decision", blocking: true, blastRadius: "high" }]; requiredAt(patch.tasks, 0).context = ["resolves:new"]; }
+      return stage.schema.parse(patch);
     } })).rejects.toThrow(expected[mode as keyof typeof expected]);
     expect(calls).toHaveLength(1);
   });
 
-  it("refuses an atomic patch inside the call, so the harness can repair it instead of failing the run", async () => {
+  it("refuses a patch inside the call, so the harness can repair it instead of failing the run", async () => {
     const { input, port } = await fixture();
     const refusals: string[] = [];
-    const result = await reviseWithContext({ ...input, blockingCritique: input.blockingCritique.slice(0, 1) }, { ...port, call: async (stage) => {
+    const result = await reviseWithContext(input, { ...port, call: async (stage) => {
       const patch = await port.call(stage) as PlanRevisionPatch;
       // Observed live: a patch added a task that no lineage entry named.
-      const unnamed = structuredClone(patch); unnamed.tasks.push({ ...requiredAt(patch.tasks, 0), id: "TASK-004" });
+      const unnamed = structuredClone(patch); unnamed.tasks.push({ ...requiredAt(patch.tasks, 0), id: "TASK-901" });
       try { stage.schema.parse(unnamed); } catch (error) { refusals.push(String(error)); }
       return stage.schema.parse(patch);
     } });
     expect(refusals).toEqual([expect.stringContaining("REVISION_NEW_TASK_LINEAGE_ABSENT")]);
-    expect(refusals[0]).toContain("unnamed: TASK-004");
+    expect(refusals[0]).toContain("unnamed: TASK-901");
     expect(result.plan.tasks.map(({ id }) => id)).toEqual(["TASK-002", "TASK-003"]);
+  });
+
+  it("leaves the items of a call open when its patch cannot be joined with an earlier one of its round", async () => {
+    const { input, port, artifacts } = await fixture();
+    input.blockingCritique = [{ id: "on-1", category: "wrong_dependencies", blocking: true, summary: "Task 1 waits for task 2", taskIds: ["TASK-001"], issueIds: [] }, { id: "on-2", category: "wrong_dependencies", blocking: true, summary: "Task 2 waits for task 1", taskIds: ["TASK-002"], issueIds: [] }];
+    const result = await reviseWithContext(input, { ...port, call: async (stage) => {
+      const supplied = stage.input as Supplied; const task = requiredAt(supplied.selectedTasks, 0);
+      return unchanged(supplied, { tasks: [{ ...task, dependencies: { ...task.dependencies, dependsOn: [task.id === "TASK-001" ? "TASK-002" : "TASK-001"] } }] });
+    } });
+    expect(result.plan.tasks.map(({ dependencies }) => dependencies.dependsOn)).toEqual([["TASK-002"], []]);
+    expect(result.resolutions[1]?.resolution).toMatch(/^Not revised: its revision could not be joined/u);
+    expect(result.plan.unresolvedQuestions.at(-1)).toMatchObject({ blocking: true, blastRadius: "high" });
+    expect(artifacts.get("planner-revision-composition")).toMatchObject({ notRevisedCritiqueItemIds: ["on-2"] });
   });
 
   it("rejects missing complete-plan resolutions before accepting the one-call result", async () => {
@@ -127,27 +190,31 @@ describe("bounded atomic planner revisions", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it("leaves a critique item open in the plan when its revision call stopped at the output ceiling", async () => {
+  it("leaves a critique item open in the plan when its revision call stopped at the output ceiling, and asks for the rest without it", async () => {
     const { input, port, calls, artifacts } = await fixture();
-    const limited = (stage: PlannerStage) => stage.activityId.startsWith("planner/revision-item/1-");
+    const limited = (stage: PlannerStage) => Array.isArray((stage.input as Supplied).critique) && (stage.input as Supplied).critique.some(({ id }) => id === "critique-1");
     const tight = { ...port, fits: async (stage: PlannerStage) => !limited(stage) && await port.fits(stage) };
     // Without the reason it is refused as before.
-    await expect(reviseWithContext(input, tight)).rejects.toThrow("PLANNER_REVISION_ITEM_CONTEXT_LIMIT_EXCEEDED:critique-2");
+    await expect(reviseWithContext(input, tight)).rejects.toThrow("PLANNER_REVISION_ITEM_CONTEXT_LIMIT_EXCEEDED:critique-1");
     calls.length = 0;
     const result = await reviseWithContext(input, { ...tight, outputLimited: async (stage) => limited(stage) });
-    expect(calls.map(({ activityId }) => activityId.split("/")[1])).toEqual(["revision-item"]);
-    expect(result.resolutions.map(({ critiqueItemId, resolution }) => [critiqueItemId, resolution.startsWith("Not revised")])).toEqual([["critique-1", false], ["critique-2", true]]);
-    expect(result.plan.unresolvedQuestions.at(-1)).toMatchObject({ id: "revision-1/not-revised", blocking: true, blastRadius: "high" });
-    expect(artifacts.get("planner-revision-composition")).toMatchObject({ logicalModelCalls: 1, notRevisedCritiqueItemIds: ["critique-2"] });
+    expect(calls.map((stage) => (stage.input as Supplied).critique.map(({ id }) => id))).toEqual([["critique-2"]]);
+    expect(result.resolutions.map(({ critiqueItemId, resolution }) => [critiqueItemId, resolution.startsWith("Not revised")])).toEqual([["critique-1", true], ["critique-2", false]]);
+    expect(result.plan.unresolvedQuestions.find(({ id }) => id.startsWith("revision-1.1/not-revised/"))).toMatchObject({ blocking: true, blastRadius: "high" });
+    expect(artifacts.get("planner-revision-composition")).toMatchObject({ logicalModelCalls: 1, notRevisedCritiqueItemIds: ["critique-1"] });
   });
 
-  it("sends a critique item that fits no usual size as required input", async () => {
+  it("splits a call that would rewrite more than its share of tasks, and sends an item that fits no usual size as required input", async () => {
     const { input, port, calls } = await fixture();
+    input.blockingCritique = [{ ...requiredAt(input.blockingCritique, 0), taskIds: ["TASK-001", "TASK-002"] }, requiredAt(input.blockingCritique, 1)];
+    // The first item alone names both tasks; the second would make no difference to the call's tasks but more items than allowed.
+    await reviseWithContext(input, { ...port, call: async (stage) => { calls.push(stage); return unchanged(stage.input as Supplied); } }, undefined, { maximumItems: 1 });
+    expect(calls.map((stage) => (stage.input as Supplied).critique.map(({ id }) => id))).toEqual([["critique-1"], ["critique-2"]]);
+    calls.length = 0;
     const asked: string[] = [];
-    const result = await reviseWithContext(input, { ...port, fits: async () => false, admits: async (stage) => { asked.push(stage.activityId); return true; } });
-    expect(asked).toHaveLength(input.blockingCritique.length);
-    expect(asked.every((id) => id.startsWith("planner/revision-item/"))).toBe(true);
-    expect(calls).toHaveLength(asked.length);
+    const result = await reviseWithContext(input, { ...port, fits: async () => false, admits: async (stage) => { asked.push(stage.activityId); return true; }, call: async (stage) => { calls.push(stage); return unchanged(stage.input as Supplied); } });
+    expect(asked.every((id) => id.startsWith("planner/revision-batch/"))).toBe(true);
+    expect(calls).toHaveLength(2);
     expect(result.resolutions).toHaveLength(input.blockingCritique.length);
   });
 });

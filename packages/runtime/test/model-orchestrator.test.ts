@@ -200,13 +200,17 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
       expect(input.operatorAnswers).toEqual([{ questionId: "Q-null", question: "Throw or default when the value is null?", answer: "Throw a typed error." }]);
       // The reply keeps the answered question; the runtime removes it.
       output = { ...input.plan, title: "Answered plan" };
-    } else if (system.startsWith("Apply one atomic revision")) {
+    } else if (system.startsWith("Revise the selected tasks")) {
       requests.push({ stage: "revision-patch", url: request.url });
       if (failRevisionPatch && requests.filter(({ stage }) => stage === "revision-patch").length === 2) return { status: 503, headers: {}, body: {} };
-      const input = JSON.parse(user) as { globalPlan: Omit<ReturnType<typeof planIRSchema.parse>, "tasks">; selectedTasks: ReturnType<typeof planIRSchema.parse>["tasks"]; critique: { id: string } };
+      const input = JSON.parse(user) as { selectedTasks: ReturnType<typeof planIRSchema.parse>["tasks"]; selectedTaskIds: string[]; critique: { id: string }[] };
       expect(input.selectedTasks.length).toBeGreaterThan(0);
       expect(input.selectedTasks.every(({ implementationGuidance }) => implementationGuidance[0]?.startsWith("Review this implementation detail."))).toBe(true);
-      output = { critiqueItemId: input.critique.id, resolution: "Added the required acceptance assertion and retained original implementation detail", globalPlan: { ...input.globalPlan, title: "Revised plan" }, tasks: input.selectedTasks.map((task) => ({ ...task, acceptanceCriteria: [...task.acceptanceCriteria, `Resolved ${input.critique.id}`] })), retiredTaskIds: [], lineage: input.selectedTasks.map(({ id }) => ({ previousTaskId: id, nextTaskIds: [id], rationale: "Same behavioral task with improved acceptance" })) };
+      // A part of the plan cannot retitle it; what it adds to the plan marks it revised for the critic.
+      output = { resolutions: input.critique.map(({ id }) => ({ critiqueItemId: id, resolution: "Added the required acceptance assertion and retained original implementation detail" })),
+        tasks: input.selectedTasks.map((task) => ({ ...task, acceptanceCriteria: [...task.acceptanceCriteria, ...input.critique.map(({ id }) => `Resolved ${id}`)] })), retiredTaskIds: [],
+        lineage: input.selectedTaskIds.map((id) => ({ previousTaskId: id, nextTaskIds: [id], rationale: "Same behavioral task with improved acceptance" })),
+        addedQuestions: [], addedValidation: [], issueToValidation: [], requirementLinks: [], planAdditions: { implementationStrategy: [], dependencies: [], rolloutConcerns: ["Revised plan"], migrationConcerns: [] } };
     } else if (system.startsWith("Revise the supplied")) {
       requests.push({ stage: "revision", url: request.url });
       const input = JSON.parse(user) as { originalPlan: ReturnType<typeof planIRSchema.parse>; blockingCritique: { id: string }[] };
@@ -214,10 +218,10 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
     } else if (system.startsWith("Critique the plan")) {
       requests.push({ stage: "critic", url: request.url });
       if (failCritic && requests.filter(({ stage }) => stage === "critic").length === 2) return { status: 503, headers: {}, body: {} };
-      const input = JSON.parse(user) as { plan: { title: string; tasks: { id: string }[] }; canonicalIssues: { candidateId: string }[]; reviewScope?: { globalIndex: { tasks: { id: string }[] } } };
+      const input = JSON.parse(user) as { plan: { title: string; rolloutConcerns?: string[]; tasks: { id: string }[] }; canonicalIssues: { candidateId: string }[]; reviewScope?: { globalIndex: { tasks: { id: string }[] } } };
       criticIssueIds.push(input.canonicalIssues.map(({ candidateId }) => candidateId));
       const taskId = input.plan.tasks[0]?.id ?? input.reviewScope?.globalIndex.tasks[0]?.id;
-      const blocking = options.revision !== undefined && (input.plan.title !== "Revised plan" || options.revision === "still_blocking");
+      const blocking = options.revision !== undefined && (input.plan.title !== "Revised plan" && !(input.plan.rolloutConcerns ?? []).includes("Revised plan") || options.revision === "still_blocking");
       output = { summary: "Fixture critique", items: options.largeCriticContext === true || blocking ? [{ id: "local-1", category: "weak_verification", blocking, summary: "Fixture mapped feedback", taskIds: [taskId], issueIds: [] }] : [] };
     } else throw new Error("UNKNOWN_FIXTURE_STAGE");
     const text = JSON.stringify(output);
@@ -288,7 +292,10 @@ describe("composed model audits", () => {
     const revised = await read("plan-revision") as { revisionCalls: number; resolutions: { critiqueItemId: string }[]; plan: ReturnType<typeof planIRSchema.parse> };
     expect(revised.revisionCalls).toBe(1);
     expect(revised.resolutions.map(({ critiqueItemId }) => critiqueItemId)).toEqual(original.items.map(({ id }) => id));
-    expect(requests.filter(({ stage }) => stage === "revision-patch")).toHaveLength(original.items.length + 1);
+    // Items on the same tasks share a call; the call that failed before the resume is one more.
+    const patches = await read("planner-revision-patches") as { critiqueItemIds: string[] }[];
+    expect(patches.flatMap(({ critiqueItemIds }) => critiqueItemIds).sort()).toEqual(original.items.map(({ id }) => id).sort());
+    expect(requests.filter(({ stage }) => stage === "revision-patch")).toHaveLength(patches.length + 1);
     expect(requests.filter(({ stage }) => stage === "revision")).toHaveLength(0);
     expect(revised.plan.tasks).toHaveLength(4);
     expect(revised.plan.tasks.every(({ implementationGuidance }) => implementationGuidance[0]?.startsWith("Review this implementation detail."))).toBe(true);
