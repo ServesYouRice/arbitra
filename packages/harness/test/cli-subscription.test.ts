@@ -45,9 +45,11 @@ describe.each(["claude-code", "codex", "gemini", "antigravity"] as const)("canon
     expect(invoked[0]).toMatchObject({ name: "repo.readFile", args: { path: "src/a.ts" } });
     const callId = invoked[0]?.callId ?? "";
     expect(callId).toMatch(/^call_[a-f0-9]{24}$/u);
-    const second = JSON.parse(await readFile(`${join(root, "report")}.1`, "utf8")) as { stdin: string };
+    const second = JSON.parse(await readFile(`${join(root, "report")}.1`, "utf8")) as { stdin: string; argv: string[] };
     expect(second.stdin).toContain(`<<<BEGIN tool-result id=${callId} name=repo.readFile`);
     expect(second.stdin).toContain("export const a = 1;");
-    expect(second.stdin).toContain(`"toolCalls":[{"id":"${callId}","name":"repo.readFile"`);
+    // Claude Code continues its own session, which already holds the tool request; the other CLIs get the whole transcript.
+    if (vendor === "claude-code") { expect(second.argv).toContain("--resume"); expect(second.stdin).not.toContain("Audit the source."); }
+    else expect(second.stdin).toContain(`"toolCalls":[{"id":"${callId}","name":"repo.readFile"`);
   });
 });
