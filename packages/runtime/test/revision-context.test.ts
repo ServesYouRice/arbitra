@@ -166,6 +166,23 @@ describe("planner revision in parts", () => {
     expect(result.plan.tasks.map(({ id }) => id)).toEqual(["TASK-002", "TASK-003"]);
   });
 
+  it("moves a call's references to a task an earlier call of its round retired to that task's successors", async () => {
+    const { input, port } = await fixture();
+    requiredAt(input.originalPlan.tasks, 1).dependencies = { dependsOn: ["TASK-001"], blocks: [], conflictsWith: [] };
+    input.originalPlan.taskGraph = [{ from: "TASK-001", to: "TASK-002" }];
+    input.blockingCritique = [{ id: "on-1", category: "task_sizing", blocking: true, summary: "Replace task 1", taskIds: ["TASK-001"], issueIds: [] }, { id: "on-2", category: "weak_verification", blocking: true, summary: "Strengthen task 2", taskIds: ["TASK-002"], issueIds: [] }];
+    const result = await reviseWithContext(input, { ...port, call: async (stage) => {
+      const supplied = stage.input as Supplied;
+      if (supplied.critique[0]?.id === "on-1") return port.call(stage);
+      // The second call read the plan as the round began, where task 2 still waits for task 1.
+      const task = requiredAt(supplied.selectedTasks, 0);
+      return unchanged(supplied, { tasks: [{ ...task, acceptanceCriteria: [...task.acceptanceCriteria, "Strengthened"] }] });
+    } });
+    expect(result.resolutions.every(({ resolution }) => !resolution.startsWith("Not revised"))).toBe(true);
+    expect(result.plan.tasks.find(({ id }) => id === "TASK-002")).toMatchObject({ dependencies: { dependsOn: ["TASK-003"] }, acceptanceCriteria: expect.arrayContaining(["Strengthened"]) as unknown });
+    expect(result.plan.taskGraph).toEqual([{ from: "TASK-003", to: "TASK-002" }]);
+  });
+
   it("leaves the items of a call open when its patch cannot be joined with an earlier one of its round", async () => {
     const { input, port, artifacts } = await fixture();
     input.blockingCritique = [{ id: "on-1", category: "wrong_dependencies", blocking: true, summary: "Task 1 waits for task 2", taskIds: ["TASK-001"], issueIds: [] }, { id: "on-2", category: "wrong_dependencies", blocking: true, summary: "Task 2 waits for task 1", taskIds: ["TASK-002"], issueIds: [] }];
