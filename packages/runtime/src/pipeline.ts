@@ -74,6 +74,8 @@ export interface ConvergenceResult {
  * re-examines it and votes on what it finds, while an auditor without that rule abstains
  * and is recorded as a missing reviewer rather than as a silent accept.
  */
+const LEAD_SEVERITY: Readonly<Record<string, number>> = Object.freeze({ critical: 0, high: 1, medium: 2, low: 3, informational: 4 });
+
 export async function converge(context: AuditContext, byAuditor: Readonly<Record<string, readonly AuditFinding[]>>, clustering: ClusterOptions = {}): Promise<ConvergenceResult> {
   const snapshot: ValidationSnapshot = Object.freeze({
     files: Object.fromEntries(context.snapshot.files.map((file) => [file.path, Object.freeze({ lineCount: file.lines.length, lineStartBytes: file.lineStartBytes, byteLength: file.byteLength })])),
@@ -102,7 +104,10 @@ export async function converge(context: AuditContext, byAuditor: Readonly<Record
   const candidateFindings: Record<string, readonly AuditFinding[]> = {};
   for (const cluster of clustered.clusters) {
     const members = cluster.sourceFindingIds.flatMap((id) => { const value = findingById.get(id); return value === undefined ? [] : [value]; });
-    const lead = members[0];
+    // The most severe member leads the candidate (ties in id order): its title and severity stand for the cluster.
+    // Observed live (P20 pilot): a high-severity defect merged under a low-severity finding's title was rejected
+    // with that title; in a shakedown, three high findings were filed under a medium one.
+    const lead = [...members].sort((a, b) => (LEAD_SEVERITY[a.severity] ?? 5) - (LEAD_SEVERITY[b.severity] ?? 5))[0];
     if (lead === undefined) continue;
     const rule = ruleOf(lead.sourceFindingId);
     const votes: ConsensusVote[] = [];
