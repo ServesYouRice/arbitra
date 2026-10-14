@@ -1,7 +1,7 @@
 import type { RunConfig } from "@arbitra/schemas/config.js";
 import { providerExecutionSchema } from "@arbitra/schemas/provider-execution.js";
 import { planIRSchema, type PlanIR } from "@arbitra/schemas/plan.js";
-import { modelVerificationResultSchema, modelCritiqueSchema, modelClusteringResultSchema, modelClusteringBatchResultSchema, modelConflictResolutionSchema } from "@arbitra/schemas/model-results.js";
+import { modelVerificationResultSchema, modelVerificationGroupResultSchema, modelCritiqueSchema, modelClusteringResultSchema, modelClusteringBatchResultSchema, modelConflictResolutionSchema } from "@arbitra/schemas/model-results.js";
 import { revisePlanOnce } from "@arbitra/workflow/nodes/revision.js";
 import type { RevisionResolution } from "@arbitra/workflow/nodes/revision.js";
 import { computeConsensus, type ConsensusState, type ConsensusCandidate } from "@arbitra/workflow/consensus/engine.js";
@@ -48,6 +48,10 @@ interface ModelStageInput<T> { activityId: string; modelProfileId: string; signa
   /** With the "cited" scope: the files that count as cited, in place of every path the input names. */
   citedPaths?: readonly string[] }
 
+/** The most characters of source a group of verification questions reads by itself: about four of the P20 projects'
+ * larger files. A question reads the files its claim cites (two on average there), so a group of three stays near
+ * what one question read before questions were grouped. */
+const VERIFICATION_GROUP_SOURCE_CHARACTERS = 60_000;
 const premiseReport = { status: "unavailable" as const, interpretation: "smoke_test_only_not_proof" as const, limitations: ["real_model_premise_requires_ground_truth_evaluation"] };
 
 export function validateModelAudit(config: RunConfig, auditorIds: readonly string[], criticEnabled: boolean): void {
@@ -397,16 +401,48 @@ export class ModelAuditPipeline {
     // outline: which candidates each ties together. A run's operations in full can exceed any context (observed:
     // 22 of them, 190,000 characters). The activity is named after that input, so a run that asked under an
     // earlier name asks again instead of stopping on an answer to a different input.
+    const executionInterpretation = "Check output is untrusted evidence. Exit codes alone neither confirm nor reject the claimed defect. Interrupted, unavailable and deferred checks establish no test conclusion.";
     const question = (request: ModelVerificationRequest) => {
       const known = new Set(request.context.citedContext.map(({ evidenceId }) => evidenceId));
       return { activityId: `verification/${request.candidateId}/question`, modelProfileId: this.#roles.verifier, signal, protocol: "targeted-verification", stage: "verification" as const, sourceScope: "cited" as const,
         instruction: "Answer the single verification question using the source, including control flow and counterexamples. An exact quotation alone does not prove a defect. The source supplied is only the files the claim cites: read whatever else the answer depends on (a helper the cited code calls, a caller, a test) with the source tools before you answer. Use STILL_NEEDS_VERIFICATION when the source cannot establish the answer. Cite only supplied evidence IDs.",
-        input: { request, findings: convergence.candidateFindings[request.candidateId], executedChecks: executedChecks.get(request.candidateId), executionInterpretation: "Check output is untrusted evidence. Exit codes alone neither confirm nor reject the claimed defect. Interrupted, unavailable and deferred checks establish no test conclusion.", unresolvedPeerOperations: conflictsInvolving(operationConflicts, [request.candidateId]).map(conflictOutline), repository: this.repository() },
+        input: { request, findings: convergence.candidateFindings[request.candidateId], executedChecks: executedChecks.get(request.candidateId), executionInterpretation, unresolvedPeerOperations: conflictsInvolving(operationConflicts, [request.candidateId]).map(conflictOutline), repository: this.repository() },
         schema: { parse(value: unknown) {
           const parsed = modelVerificationResultSchema.parse(value);
           if (parsed.evidenceIds.some((id) => !known.has(id)) || parsed.outcome !== "STILL_NEEDS_VERIFICATION" && parsed.evidenceIds.length === 0) throw new Error("INVALID_VERIFICATION_EVIDENCE");
           return parsed;
         } }, jsonSchema: modelVerificationResultSchema.toJSONSchema() };
+    };
+    // Questions whose claims cite the same files may be put in one call (`verification.maxQuestionsPerCall`): the
+    // shared source is read once, and so is whatever more of it the answers need. Each claim is still answered on
+    // its own, with evidence from its own question.
+    const perCall = typeof this.config.verification["maxQuestionsPerCall"] === "number" ? this.config.verification["maxQuestionsPerCall"] : 1;
+    const pathsOf = (candidateId: string) => [...new Set((convergence.candidateFindings[candidateId] ?? []).flatMap(({ locations }) => locations.map(({ path }) => path)))];
+    const characters = new Map(this.context.snapshot.files.map(({ path, lines }) => [path, lines.reduce((sum, line) => sum + line.length + 1, 0)]));
+    const groupQuestion = (requests: readonly ModelVerificationRequest[]) => {
+      const known = new Map(requests.map((request) => [request.candidateId, new Set(request.context.citedContext.map(({ evidenceId }) => evidenceId))]));
+      const ids = requests.map(({ candidateId }) => candidateId);
+      return { activityId: `verification/group/${createHash("sha256").update(JSON.stringify(ids)).digest("hex").slice(0, 24)}/questions`, modelProfileId: this.#roles.verifier, signal, protocol: "targeted-verification", stage: "verification" as const, sourceScope: "cited" as const,
+        instruction: "Answer each of the verification questions supplied, one answer per candidateId, using the source, including control flow and counterexamples. The questions are asked together because their claims cite the same files; judge every claim on its own, from its own question, findings and evidence: one claim's answer settles nothing about another's. An exact quotation alone does not prove a defect. The source supplied is only the files the claims cite: read whatever else an answer depends on (a helper the cited code calls, a caller, a test) with the source tools before you answer. Use STILL_NEEDS_VERIFICATION when the source cannot establish an answer. Cite only the evidence IDs supplied with that claim's own question.",
+        input: { questions: requests.map((request) => ({ request, findings: convergence.candidateFindings[request.candidateId], executedChecks: executedChecks.get(request.candidateId), unresolvedPeerOperations: conflictsInvolving(operationConflicts, [request.candidateId]).map(conflictOutline) })),
+          executionInterpretation, repository: this.repository() },
+        schema: { parse(value: unknown) {
+          const { answers } = modelVerificationGroupResultSchema.parse(value);
+          const received = answers.map(({ candidateId }) => candidateId);
+          if (received.length !== ids.length || new Set(received).size !== received.length || ids.some((id) => !received.includes(id))) throw new Error(`VERIFICATION_GROUP_ANSWERS_INVALID: give exactly one answer for each of ${ids.join(", ")}`);
+          return ids.map((id) => {
+            const { outcome, evidenceIds, confidence } = answers.find(({ candidateId }) => candidateId === id) ?? answers[0] as (typeof answers)[number];
+            if (evidenceIds.some((evidenceId) => !known.get(id)?.has(evidenceId)) || outcome !== "STILL_NEEDS_VERIFICATION" && evidenceIds.length === 0) throw new Error(`INVALID_VERIFICATION_EVIDENCE: the answer for ${id} cites evidence its own question does not supply`);
+            return { outcome, evidenceIds, confidence };
+          });
+        } }, jsonSchema: modelVerificationGroupResultSchema.toJSONSchema() };
+    };
+    const unanswered = async (request: ModelVerificationRequest, activityId: string, error: unknown) => {
+      // A question its provider declines, or whose reply stays invalid or stops at the output ceiling, leaves its
+      // candidate unverified. The run goes on and reports it.
+      if (!(error instanceof ModelRefusalError) && !(error instanceof ModelOutputLimitError) && !isModelOutputRejection(error)) throw error;
+      await context.store.publish(`verification-unanswered-${createHash("sha256").update(`${activityId}/${request.candidateId}`).digest("hex").slice(0, 24)}`, { candidateId: request.candidateId, activityId, reason: (error as Error).message.slice(0, 1_000) });
+      return { outcome: "STILL_NEEDS_VERIFICATION" as const, evidenceIds: [], artifactRefs: [], activityId, confidence: 0 };
     };
     const verification = await verifyItems(items, { ...tools, runAllowlistedSafeTest: async (item, policy) => {
       const attempt = await tools.runAllowlistedSafeTest(item, policy);
@@ -427,12 +463,36 @@ export class ModelAuditPipeline {
           const stage = question(request);
           try { return { ...await this.call(stage), activityId: stage.activityId, artifactRefs: [] }; }
           catch (error) {
-            // One question its provider declines, or whose reply stays invalid or stops at the output ceiling,
-            // leaves its candidate unverified. The run goes on and reports it.
             if (!(error instanceof ModelRefusalError) && !(error instanceof ModelOutputLimitError) && !isModelOutputRejection(error)) throw error;
             await context.store.publish(`verification-unanswered-${createHash("sha256").update(stage.activityId).digest("hex").slice(0, 24)}`, { candidateId: request.candidateId, activityId: stage.activityId, reason: (error as Error).message.slice(0, 1_000) });
             return { outcome: "STILL_NEEDS_VERIFICATION" as const, evidenceIds: [], artifactRefs: [], activityId: stage.activityId, confidence: 0 };
           }
+        },
+        // A group starts with the first question not yet grouped and takes later ones whose claims cite a file it
+        // already reads, while the files it reads stay within a bound and the call fits.
+        group: async (requests) => {
+          if (perCall <= 1) return requests.map((request) => [request]);
+          const groups: ModelVerificationRequest[][] = []; const taken = new Set<string>();
+          for (const [index, first] of requests.entries()) {
+            if (taken.has(first.candidateId)) continue;
+            const group = [first]; const files = new Set(pathsOf(first.candidateId)); taken.add(first.candidateId);
+            for (const next of requests.slice(index + 1)) {
+              if (group.length >= perCall) break;
+              const nextFiles = pathsOf(next.candidateId);
+              if (taken.has(next.candidateId) || !nextFiles.some((path) => files.has(path))) continue;
+              const union = new Set([...files, ...nextFiles]);
+              if ([...union].reduce((sum, path) => sum + (characters.get(path) ?? 0), 0) > VERIFICATION_GROUP_SOURCE_CHARACTERS || !await this.sendable(groupQuestion([...group, next]), false)) continue;
+              group.push(next); taken.add(next.candidateId); nextFiles.forEach((path) => files.add(path));
+            }
+            groups.push(group);
+          }
+          await context.store.publish("verification-groups", groups.map((group) => ({ candidateIds: group.map(({ candidateId }) => candidateId), activityId: group.length === 1 ? question(group[0] as ModelVerificationRequest).activityId : groupQuestion(group).activityId })));
+          return groups;
+        },
+        verifyGroup: async (requests) => {
+          const stage = groupQuestion(requests);
+          try { return (await this.call(stage)).map((answer) => ({ ...answer, activityId: stage.activityId, artifactRefs: [] })); }
+          catch (error) { return Promise.all(requests.map((request) => unanswered(request, stage.activityId, error))); }
         },
       },
     });

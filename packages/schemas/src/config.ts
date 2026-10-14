@@ -41,6 +41,10 @@ export const runConfigSchema = z.object({
     if (maximum !== undefined && (typeof maximum !== "number" || !Number.isSafeInteger(maximum) || maximum < 0)) {
       context.addIssue({ code: "custom", path: ["maxModelQuestionsPerRound"], message: "Expected a nonnegative safe integer" });
     }
+    const perCall = verification["maxQuestionsPerCall"];
+    if (perCall !== undefined && (typeof perCall !== "number" || !Number.isSafeInteger(perCall) || perCall < 1)) {
+      context.addIssue({ code: "custom", path: ["maxQuestionsPerCall"], message: "Expected a positive safe integer" });
+    }
   }),
   models: z.record(z.string(), modelProfileSchema),
   harness: z.object({

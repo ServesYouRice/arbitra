@@ -10,11 +10,17 @@ export interface VerificationModel {
   /** False when the question cannot be put to the model at all, because what it must carry exceeds the model's
    * context. The item then stays unverified and spends none of the run's model questions. */
   fits?(request: ModelVerificationRequest): Promise<boolean>;
+  /**
+   * The questions that may share one call, as groups in question order. A group of more than one question is put
+   * with `verifyGroup`, which answers in the group's order. Without both every question is asked alone.
+   */
+  group?(requests: readonly ModelVerificationRequest[]): Promise<readonly (readonly ModelVerificationRequest[])[]>;
+  verifyGroup?(requests: readonly ModelVerificationRequest[]): Promise<readonly ModelVerificationResponse[]>;
 }
 export interface VerificationIssueOperation { readonly operationId: string; readonly candidateId: string; readonly authorId: "verification"; readonly round: number; readonly type: "accept" | "reject" | "needs_verification"; readonly citedEvidenceIds: readonly string[]; readonly reason: string; readonly verification: { readonly result: VerificationOutcome; readonly method: VerificationMethod; readonly evidenceIds: readonly string[]; readonly artifactRefs: readonly string[]; readonly toolCallIds: readonly string[]; readonly activityId: string; readonly confidence: number | null } }
 export interface VerificationOperationSink { append(operation: VerificationIssueOperation): Promise<void> }
 export interface VerificationResult { readonly candidateId: string; readonly outcome: VerificationOutcome; readonly method: VerificationMethod; readonly operation: VerificationIssueOperation; readonly attempts: readonly VerificationAttempt[]; readonly modelCalls: 0 | 1; readonly contextLimited: boolean }
-export interface VerificationRunMetrics { readonly itemCount: number; readonly resolvedDisputes: number; readonly modelCalls: number; readonly deferredItemIds: readonly string[]; readonly contextLimitedItemIds: readonly string[]; readonly rungDistribution: Readonly<Record<VerificationMethod, number>> }
+export interface VerificationRunMetrics { readonly itemCount: number; readonly resolvedDisputes: number; readonly modelCalls: number; readonly modelQuestionCalls: number; readonly deferredItemIds: readonly string[]; readonly contextLimitedItemIds: readonly string[]; readonly rungDistribution: Readonly<Record<VerificationMethod, number>> }
 
 export function escalateToVerification(issue: VerificationIssue): boolean { return (issue.severity === "critical" || issue.severity === "high") && issue.objections.some((objection) => objection.citesLocation && objection.evidenceType !== "speculation" && objection.resolvedBy === null); }
 
@@ -66,11 +72,23 @@ export async function verifyItems(items: readonly VerificationItem[], tools: Ver
   }
   const model = dependencies.model;
   const together: VerificationTogether = dependencies.together ?? (async (list, run) => { const out = []; for (const entry of list) out.push(await run(entry)); return out; });
-  const responses = await together(prepared, async ({ request, contextLimited }) => request !== null && !contextLimited && model !== undefined ? model.verify(request) : null);
+  const asked = prepared.flatMap(({ request, contextLimited }) => request !== null && !contextLimited && model !== undefined ? [request] : []);
+  const groups = model?.group !== undefined && model.verifyGroup !== undefined ? await model.group(asked) : asked.map((request) => [request]);
+  const grouped = groups.flatMap((group) => group.map(({ candidateId }) => candidateId));
+  // Every question in exactly one group; the outcomes are still recorded in item order.
+  if (grouped.length !== asked.length || new Set(grouped).size !== grouped.length || asked.some(({ candidateId }) => !grouped.includes(candidateId))) throw new Error("VERIFICATION_GROUPS_INVALID");
+  const answers = await together(groups, async (group) => {
+    const [only] = group;
+    if (model === undefined || only === undefined) return [];
+    const replies = group.length === 1 || model.verifyGroup === undefined ? [await model.verify(only)] : await model.verifyGroup(group);
+    if (replies.length !== group.length) throw new Error("VERIFICATION_GROUP_ANSWER_COUNT");
+    return replies;
+  });
+  const responses = new Map(groups.flatMap((group, index) => group.map(({ candidateId }, position) => [candidateId, answers[index]?.[position] ?? null] as const)));
   const results: VerificationResult[] = [];
-  for (const [index, entry] of prepared.entries()) results.push(await settleItem(entry, responses[index] ?? null, { sink: dependencies.sink, round: config.round }));
+  for (const entry of prepared) results.push(await settleItem(entry, responses.get(entry.item.candidateId) ?? null, { sink: dependencies.sink, round: config.round }));
   const distribution = Object.fromEntries((["cited_lines", "symbol_or_call_path", "route_config_middleware", "dependency_or_import_path", "allowlisted_safe_test", "bounded_deterministic_check", "single_model_question"] as VerificationMethod[]).map((method) => [method, results.filter((result) => result.method === method).length])) as Record<VerificationMethod, number>;
-  return Object.freeze({ results: Object.freeze(results), metrics: Object.freeze({ itemCount: results.length, resolvedDisputes: results.filter(({ outcome }) => outcome !== "STILL_NEEDS_VERIFICATION").length, modelCalls: results.reduce((sum, result) => sum + result.modelCalls, 0), deferredItemIds: Object.freeze(deferred), contextLimitedItemIds: Object.freeze(results.filter(({ contextLimited }) => contextLimited).map(({ candidateId }) => candidateId)), rungDistribution: Object.freeze(distribution) }) });
+  return Object.freeze({ results: Object.freeze(results), metrics: Object.freeze({ itemCount: results.length, resolvedDisputes: results.filter(({ outcome }) => outcome !== "STILL_NEEDS_VERIFICATION").length, modelCalls: results.reduce((sum, result) => sum + result.modelCalls, 0), modelQuestionCalls: groups.length, deferredItemIds: Object.freeze(deferred), contextLimitedItemIds: Object.freeze(results.filter(({ contextLimited }) => contextLimited).map(({ candidateId }) => candidateId)), rungDistribution: Object.freeze(distribution) }) });
 }
 
 function operationFor(item: VerificationItem, round: number, outcome: VerificationOutcome, method: VerificationMethod, evidenceIds: readonly string[], artifactRefs: readonly string[], toolCallIds: readonly string[], activityId: string, confidence: number | null): VerificationIssueOperation { const type = outcome === "CONFIRMED" ? "accept" : outcome === "REJECTED" ? "reject" : "needs_verification"; return Object.freeze({ operationId: `verification:${round}:${item.candidateId}`, candidateId: item.candidateId, authorId: "verification", round, type, citedEvidenceIds: Object.freeze([...evidenceIds]), reason: `Verification ${outcome.toLocaleLowerCase("en-US")} via ${method}.`, verification: Object.freeze({ result: outcome, method, evidenceIds: Object.freeze([...evidenceIds]), artifactRefs: Object.freeze([...artifactRefs]), toolCallIds: Object.freeze([...toolCallIds]), activityId, confidence }) }); }
