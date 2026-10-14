@@ -1,6 +1,13 @@
 # Remaining work
 
-Updated October 11, 2026 (branch `beta`).
+Updated October 14, 2026 (branch `beta`).
+
+## State on October 14
+
+- **No P20 runner is alive.** The 2.6.0 panel run failed in plan revision on October 14 at 02:40 (see "Open
+  findings"). Claude's week stood at 84% that afternoon (the runner stops at 90%; reset Saturday, October 17,
+  04:00), so the runs wait for the reset, and the week went to the rebuild the owner asked for ("The rebuild of
+  October 14" below). The private `HANDOFF.md` holds the P20 state and how to start protocol 2.7.0.
 
 ## Handoff, October 10, 2026
 
@@ -239,15 +246,42 @@ the commit after it unless it says open:
 - A follow-up call (a tool turn) was a new call that resent the whole exchange as one message: 111 of the 169
   verification calls of this run. On Claude Code a tool turn now continues the CLI's own session with the tool
   results alone (October 14: 91% of a continued turn's prompt came from the cache, 19% when sent whole). Open: the
-  same for Codex (`exec resume`) and the Antigravity CLI (`--conversation`).
+  same for Codex (`exec resume`) and the Antigravity CLI (`--conversation`), done on October 14 (66c7b17): a
+  continued Codex turn read 16,768 of 17,092 prompt tokens from the cache.
 - The run's single output ceiling had to fit the smallest model of a lineup (Gemini 3.8 Flash, 65,536), so Opus 5.5
   (128,000) was held to 64,000. Each call now asks for its own model's ceiling.
 
 **The 2.6.0 panel run (October 13 and 14) failed in plan revision.** Its plan, written task by task (31 tasks of
 about 20,000 characters), left one critique item whose revision context did not fit
-(`PLANNER_REVISION_ITEM_CONTEXT_LIMIT_EXCEEDED`), after a wait of four hours for the Claude window. Open: a plan
-in one call where the ceiling allows (91 issues at 128,000 output tokens), and a revision item that reads only the
-tasks it changes.
+(`PLANNER_REVISION_ITEM_CONTEXT_LIMIT_EXCEEDED`), after a wait of four hours for the Claude window. The critic had
+raised 108 blocking items on 30 tasks, and each item was revised in a call of its own that read and wrote the
+whole plan header (302 open questions, 138,000 characters) with every neighbouring task in full: the first item
+came to over 300,000 characters. Fixed on October 14 (ba8e1a9): a call answers the items that name the same tasks,
+reads those tasks and what belongs to them, writes only what it changes, and calls on disjoint tasks run side by
+side in rounds. Replayed on that run's stored plan and critique: 28 calls in 5 rounds, the largest reading 252,000
+characters. A plan in one call where the ceiling allows (91 issues at 128,000 output tokens) came with the
+per-model ceiling (cd04742).
+
+**The rebuild of October 14 (before protocol 2.7.0).** The owner asked for a rebuild while the runs wait for the
+Claude week (plan quality must not regress; any change to calls and follow-ups; no single 64,000 ceiling). Built:
+
+- each call held to its own model's output ceiling, and a tool turn continuing the CLI's own session on Claude
+  Code (cd04742), Codex and the Antigravity CLI (66c7b17). The Antigravity CLI kept every call's conversation in
+  the operator's home (1.2 GB after the pilot); each is now removed when its call ends, and its `input_tokens`,
+  which leaves out cache reads, is counted with them;
+- plan revision in parts (ba8e1a9, above);
+- verification questions whose claims cite the same files may share a call (`verification.maxQuestionsPerCall`,
+  9f20f6d). Replayed on 58 stored questions, three to a call made 25 calls and cut the source read first from
+  656,000 to 428,000 characters. Default one a call: Anthropic's guidance favours one consideration per call, so
+  the verdicts are to be compared on a timed run before it becomes the default;
+- a plan written in sections of related issues side by side (`modelExecution.planSections`, 99b3a17), compared
+  first with the planner as it was on the same 52 stored issues (`tooling/planner-compare`, Opus 5.5 at the
+  2.7.0 limits): one call 10.3 minutes, 0.18M tokens, 25 tasks; four sections 7.4 minutes, 0.39M tokens, 49
+  tasks. A blind judge (GPT-6.1 Sol, issue by issue) preferred the sections' plan for 41 issues, the one call's
+  for 10, one tie, and scored it higher on all five criteria (verification 4.21 against 3.50 of 5); the side a
+  plan was shown on made no difference. It stays off by default in arbitra; the pilot uses it from 2.7.0.
+  Open: the sections' plan is 2.4 times as long, and the critic and the revision grow with the plan. Measure
+  them on the first 2.7.0 runs (2.6.0's critic raised 238 items, 108 blocking, on a plan of 30 tasks).
 
 **First timed run of the speed build (October 13): one Opus-only audit.** It had a call in flight for 27 minutes
 (17 for the same audit before the build) and used 6.9M tokens (1.0M before). Verification worked as meant: 51
