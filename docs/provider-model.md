@@ -361,6 +361,20 @@ that the review had not rejected.
   An outline of more issues than one answer holds is written in sections of equal size, side by
   side; each section's rules (its own records only, every question kept, no reference outside
   it) are checked inside its call, so a reply that breaks one is sent back with the rule.
+- **A plan of many issues may be written in sections side by side**
+  (`modelExecution.planSections.issuesPerSection`, audit plans, off unless set). The issues are
+  put in order of the files they cite and cut into sections of even size; each section is
+  planned whole in one call, checked inside it, and the sections are joined by numbering
+  (tasks of different sections that write the same files are ordered by the run). Compared on
+  the 52 accepted issues of a stored run with Opus 5.5 as planner (October 14,
+  `tooling/planner-compare`): one call took 10.3 minutes and 0.18M tokens for a plan of 25
+  tasks; four sections side by side took 7.4 minutes and 0.39M tokens for 49 tasks. A blind
+  judge (GPT-6.1 Sol, each issue's tasks from both plans in an order drawn per issue) preferred
+  the sections' plan for 41 issues and the one call's for 10, with one tie, and scored it higher
+  on correctness (4.38 against 4.23 of 5), completeness, verification (4.21 against 3.50) and
+  safety; the side a plan was shown on made no difference (26 and 25 wins). The sections' plan
+  is 2.4 times as long, and a judge may favour detail, so the next timed runs check what the
+  critic and the revision make of it.
 - **A task is written out against its own part of the plan.** When the outline has more than
   eight tasks, the call that writes one task out reads that task's dependency neighbourhood in
   full and an index of every task, not the whole outline. It reads the files its task names and
