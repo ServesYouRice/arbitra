@@ -90,7 +90,13 @@ environment and its agent tools, MCP, hooks, skills, plugins and project instruc
 disabled, and kills the process tree on exit. Tool use is emulated: the transcript lists
 arbitra's tools and the model replies with `{"toolCalls":[{"name","arguments"}]}` or its final
 answer; calls get IDs derived from the conversation hash, so the canonical harness's durable
-tool loop is unchanged. Codex (`--output-schema`), Claude Code and the Antigravity CLI (`--json-schema`; the answer is
+tool loop is unchanged. On Claude Code a conversation that offers tools runs in the CLI's own
+session: the first call starts it (`--session-id`), and a tool turn continues it (`--resume`)
+in the same working directory with only the tool results, so the CLI reads the conversation
+so far from its prompt cache. The directory and the stored session are removed when the
+conversation ends (after two hours at the latest), and a session that cannot be continued is
+sent whole once. Measured (October 14, 2026): a continued turn read 91% of its prompt from the
+cache, the same turn sent whole 19%, writing the rest to the cache again. Codex (`--output-schema`), Claude Code and the Antigravity CLI (`--json-schema`; the answer is
 read from `structured_output`, and a SUCCESS without it is `MALFORMED_RESPONSE`) enforce a
 response schema natively when one is requested without tools; otherwise output is prompt JSON.
 Usage is mapped as reported (unknown stays `null`), cost is unknown, the provider request ID is

@@ -7,7 +7,7 @@ import { DurableTokenBudget } from "@arbitra/providers/token-budget.js";
 import { ContinuationStateStore } from "@arbitra/providers/continuation/store.js";
 import { ProviderBudgetSuspendedError, ProviderInvocationFailure, type InvocationTrace, type TraceSink } from "@arbitra/providers/runtime.js";
 import { BatchItemFailedError, BatchLane, type BatchResolution, type BatchSubmissionRecord, type BatchSubmissionView } from "@arbitra/providers/batch/lane.js";
-import { inputBytesPerToken, ModelOutputLimitError } from "./context-budget.js";
+import { inputBytesPerToken, ModelOutputLimitError, outputCeiling } from "./context-budget.js";
 import type { TransportMessage, TransportTool } from "@arbitra/providers/transport-contract.js";
 import { runConfigSchema, type RunConfig } from "@arbitra/schemas/config.js";
 import { providerExecutionSchema } from "@arbitra/schemas/provider-execution.js";
@@ -162,7 +162,7 @@ export class ModelActivities {
   #replayIdentity(input: ModelActivityRequest<unknown>, profile: unknown, messages: readonly TransportMessage[]): string {
     const endpointId = this.#execution.modelEndpoints[input.modelProfileId];
     return hash({ protocol: input.protocol, protocolIdentity: input.protocolIdentity ?? null, modelProfileId: input.modelProfileId, profile,
-      endpoint: this.#execution.endpoints.find(({ id }) => id === endpointId) ?? null, maximumOutputTokens: input.maximumOutputTokens ?? this.#execution.maximumOutputTokens,
+      endpoint: this.#execution.endpoints.find(({ id }) => id === endpointId) ?? null, maximumOutputTokens: input.maximumOutputTokens ?? outputCeiling(this.#config, input.modelProfileId),
       messages, effort: input.effort ?? null, responseMode: input.responseMode ?? "json", tools: input.tools ?? [], harnessIdentity: input.harnessIdentity ?? null,
       sourcePaths: input.sourcePaths === undefined ? null : [...input.sourcePaths].sort() });
   }
@@ -196,7 +196,7 @@ export class ModelActivities {
     const identity = await this.read(`${key}-input`) as { fingerprint?: unknown } | null;
     if (identity !== null && identity.fingerprint !== fingerprint) throw new Error("MODEL_ACTIVITY_INPUT_CHANGED");
     const requestArtifact = await this.store.publish(`${key}-input`, { activityId: input.activityId, fingerprint, protocol: input.protocol, modelProfileId: input.modelProfileId, messages, tools: input.tools ?? [] });
-    const maximumOutputTokens = input.maximumOutputTokens ?? this.#execution.maximumOutputTokens;
+    const maximumOutputTokens = input.maximumOutputTokens ?? outputCeiling(this.#config, input.modelProfileId);
     // UTF-8 bytes at the run's rate provide an admission estimate, not actual token usage. Input admitted as
     // required is counted at its own rate here too, or the provider pool would refuse what the stage admitted.
     const rates = inputBytesPerToken(this.#config);

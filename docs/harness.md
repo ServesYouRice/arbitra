@@ -104,8 +104,10 @@ and inspection footprints.
 Every model stage is admitted against a bounded budget before any spend. The input budget
 is 80% of `min(modelExecution.maximumContextTokens ?? 128000, profile.limits.contextTokens)`,
 measured as a conservative UTF-8 byte estimate of the compiled prompt, tool definitions and
-the full `maximumOutputTokens` reserve. Output capacity is
-`min(maximumOutputTokens, profile.limits.maxOutputTokens)`. Both are computed by
+the model's full output reserve. Output capacity is
+`min(maximumOutputTokens, profile.limits.maxOutputTokens)`, per model: every call to a model
+asks for that model's capacity (`outputCeiling`), so `maximumOutputTokens` can be set to the
+largest model's limit and a smaller model is held to its own. Both are computed by
 `stageBudget` in `packages/runtime/src/context-budget.ts`.
 
 Source files are always optional context: `allocateModelContext` keeps every decision and

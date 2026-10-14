@@ -1,4 +1,4 @@
-import { writeFile, mkdir } from "node:fs/promises";
+import { writeFile, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { noUsage, TransportError, withUsageEvidence, type TransportRequest, type TransportUsage } from "../../transport-contract.js";
@@ -28,6 +28,9 @@ export interface CliInvocationContext {
   readonly nativeSchema: boolean;
   readonly timeoutMs: number;
   readonly platform: NodeJS.Platform;
+  /** The CLI's own session this call starts (`resume: false`) or continues (`resume: true`), when the dialect keeps
+   * sessions (`CliDialect.session`) and the conversation offers tools. Absent: a call that saves no session. */
+  readonly session?: { readonly id: string; readonly resume: boolean };
 }
 export interface CliInvocation { readonly arguments: readonly string[]; readonly environment: Readonly<Record<string, string>>; readonly stdin: string }
 export interface CliOutcome { readonly text: string; readonly usage: Partial<TransportUsage>; readonly sessionId: string | null; readonly structured?: unknown }
@@ -44,6 +47,12 @@ export interface CliDialect {
   reader(context: CliInvocationContext): CliStreamReader;
   /** The provider's own notice when it answered in place of the model (a content filter), else null. */
   refusal?(reply: string): string | null;
+  /**
+   * A CLI that can continue its own session: a tool turn then sends only the tool results, and the CLI reads the
+   * conversation so far from its prompt cache instead of being sent all of it again. `forget` removes what the CLI
+   * stored for a session that ran in `work`, once the conversation has ended.
+   */
+  readonly session?: { forget(work: string, context: Pick<CliInvocationContext, "auth" | "isolatedHome" | "lookup" | "hostHome">): Promise<void> };
 }
 
 /**
@@ -92,6 +101,11 @@ const CODEX = requireCliTransportSupport("codex-cli");
 const GEMINI = requireCliTransportSupport("gemini-cli");
 const ANTIGRAVITY = requireCliTransportSupport("antigravity-cli");
 
+/** Claude Code saves no session unless the call starts one (`--session-id`) or continues one (`--resume`). */
+function sessionArguments(session: CliInvocationContext["session"]): readonly string[] {
+  return session === undefined ? ["--no-session-persistence"] : session.resume ? ["--resume", session.id] : ["--session-id", session.id];
+}
+
 /**
  * Claude Code in print mode. `--tools ""` removes every built-in tool, `--safe-mode` disables
  * CLAUDE.md, skills, plugins, hooks and MCP, `--setting-sources ""` ignores settings files,
@@ -100,6 +114,12 @@ const ANTIGRAVITY = requireCliTransportSupport("antigravity-cli");
  */
 export const claudeCodeDialect: CliDialect = {
   support: CLAUDE,
+  // Claude Code keeps a session per working directory under its configuration directory, in projects/<the
+  // directory with every other character a dash>.
+  session: { async forget(work, context) {
+    const configuration = context.auth === "oauth_token" ? join(context.isolatedHome, ".claude") : context.lookup("CLAUDE_CONFIG_DIR") ?? (context.hostHome === undefined ? undefined : join(context.hostHome, ".claude"));
+    if (configuration !== undefined) await rm(join(configuration, "projects", work.replace(/[^a-zA-Z0-9]/gu, "-")), { recursive: true, force: true }).catch(() => undefined);
+  } },
   nativeSchema: (request) => request.responseSchema !== undefined && (request.tools?.length ?? 0) === 0,
   async prepare(context) {
     const effort = effortParameter(context.request, CLAUDE, { effort: (value) => typeof value === "string" && ["low", "medium", "high", "xhigh", "max"].includes(value), thinkingTokens: (value) => count(value) !== null });
@@ -118,7 +138,7 @@ export const claudeCodeDialect: CliDialect = {
     const schema = context.nativeSchema && context.request.responseSchema !== undefined ? ["--json-schema", JSON.stringify(context.request.responseSchema)] : [];
     return {
       arguments: ["-p", "--output-format", "stream-json", "--verbose", "--model", context.request.modelId, "--tools", "", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}",
-        "--setting-sources", "", "--safe-mode", "--no-session-persistence", "--disable-slash-commands", "--system-prompt-file", join(context.control, "system.md"),
+        "--setting-sources", "", "--safe-mode", ...sessionArguments(context.session), "--disable-slash-commands", "--system-prompt-file", join(context.control, "system.md"),
         ...(typeof effort["effort"] === "string" ? ["--effort", effort["effort"]] : []), ...schema],
       environment, stdin: context.prompt.body,
     };
