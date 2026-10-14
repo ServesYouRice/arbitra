@@ -19,8 +19,8 @@ kinds of fault followed:
   title, so a bad merge could reject a real defect. Each stage was right on its own.
 - **Numbers never checked.** Unit size, one discovery pass, discovery at `xhigh`, the verifier's effort: none was
   compared with a published measurement.
-- **The transports were checked for behaviour, not for cost.** Claude Code shares its prompt cache only between calls
-  in the same directory (below); arbitra gives every call a new one.
+- **The transports were checked for behaviour, not for cost.** Every transcript of a call that offers tools began
+  with a hash of its own request, so no two such calls shared a cached prefix (below).
 
 ## What the reference pipelines do
 
@@ -102,7 +102,8 @@ yields a 27.2% success rate" against 17.9% for the best single model. Against it
 |---|---|---|
 | Durable graph, one activity per call, budgets | Holds | Temporal, Restate, Inngest |
 | Layered prompt, untrusted framing, instruction last | Holds | Every lab's caching and long-context guidance |
-| A new temporary directory for every CLI call | **Behind**: no cache shared between calls | Claude Code [prompt caching](https://code.claude.com/docs/en/prompt-caching): "the cache is effectively scoped to one machine and directory … Two sessions in different directories therefore build different prefixes and miss each other's cache"; "Sessions you run in parallel in the same directory build matching prefixes and read each other's cache" |
+| A new temporary directory for every CLI call | Holds, measured | Claude Code [prompt caching](https://code.claude.com/docs/en/prompt-caching): "the cache is effectively scoped to one machine and directory … Two sessions in different directories therefore build different prefixes and miss each other's cache". Measured with arbitra's flags (the system prompt replaced): a call in another directory read 26,032 of 26,387 prompt tokens from the cache, so the directory costs about 355 tokens. The audit's first reading was wrong here. |
+| A transcript that begins with its request's hash | **Behind**: no cache shared between calls that offer tools | The boundary marking the transcript's messages was a hash of the whole request and its first line; every verification question differed from the first token |
 | Cache reads counted as full input | Behind | Vendors price a cached token at about a tenth of input, or less, and output at about five times input |
 | Planner, critic and revision | Behind on cost | Plan and critic took about two thirds of a three-vendor run's tokens; Anthropic's harness cost "over 20x" its solo run and was worth it only beyond "what the current model does reliably solo" |
 | Every stage at the audit's effort, Gemini at high | Contradicted until measured | All three vendors default to medium; SWE-Serve's +1 point for +76% cost |
@@ -121,7 +122,9 @@ yields a 27.2% success rate" against 17.9% for the best single model. Against it
 ## What changes
 
 Built in this order. The first two groups fix faults against arbitra's own rules or carry out changes the owner
-approved; the third are options compared side by side before any becomes a default.
+approved; the third are options compared side by side before any becomes a default. Items 1 to 10 were built on
+October 14 ([provider model](provider-model.md#one-pass-per-review-stage)); item 11 needs no code
+(`maxConsensusRounds: 0`).
 
 **Faults**
 1. Every clustered candidate is verified; the peer vote ranks, it neither accepts nor rejects.
@@ -129,7 +132,9 @@ approved; the third are options compared side by side before any becomes a defau
    behaviour). A rejected candidate merged from findings with different mechanisms has each finding checked alone.
 3. Abstention is real: the verifier may answer that the source cannot decide, and those issues go to an
    *unverified* list, neither planned nor dropped. Confidence orders the list.
-4. Claude Code calls of one run share a working directory, so they share the cache.
+4. A transcript's markers carry a boundary shared by a stage's calls (secret to the transport), so they share the
+   cached start of the prompt; a stage's input puts its source first and its question last. (A shared working
+   directory was planned here and measured unnecessary.)
 5. Usage is reported as uncached input, cache reads, cache writes and output, with a price-weighted total.
 
 **Approved changes, reshaped by the audit**
@@ -138,12 +143,13 @@ approved; the third are options compared side by side before any becomes a defau
    is ranked by severity, then by how many models found the issue.
 7. Prompts put stable content first and the per-call question last.
 8. Tasks only for the issues above a severity bar; the rest are listed with their evidence.
-9. The handoff carries one packet per issue (or per group of issues editing the same files): the verified
-   evidence, a check that fails before the fix, scope and files not to touch, and a status the executor reports
-   (fixed, not reproducible, no change needed, blocked). Tasks have a length budget, and open questions are few and
-   asked before the handoff. This replaces the planned join step.
+9. The handoff carries one file per issue: the verified evidence, a test that fails before the fix, and a result
+   the executor reports (fixed, not reproducible, no change needed, blocked), beside the plan's tasks. Still open: a
+   length budget for tasks, few open questions asked before the handoff, and packets grouped by the files they edit
+   in place of the planned join step; these wait for the plans to be scored by executing them.
 10. The critic is asked only what code cannot check; each blocking item quotes the task and names the failure; its
-    claims are checked before they force a revision; non-blocking items are capped.
+    claims are checked by a model of a third family before they force a revision (`roles.critiqueChecker`);
+    non-blocking items are capped at ten a call.
 
 **Compared side by side before any becomes a default**
 

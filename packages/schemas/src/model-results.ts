@@ -58,6 +58,12 @@ export const modelVerificationGroupResultSchema = z.object({
   }).strict()),
 }).strict();
 
+/** Whether a blocking critique of a plan holds, as a second model judges it against the plan and the source. */
+export const modelCritiqueCheckSchema = z.object({
+  verdict: z.enum(["HOLDS", "DOES_NOT_HOLD", "UNCLEAR"]),
+  reason: z.string().min(1),
+}).strict();
+
 export const modelCritiqueSchema = z.object({
   summary: z.string().min(1),
   items: z.array(z.object({

@@ -15,16 +15,27 @@ export interface CliPrompt {
   readonly system: string;
   /** Everything else, delivered on stdin. */
   readonly body: string;
-  /** Hash-derived boundary for transcript markers and tool-call IDs. */
+  /** The boundary the transcript markers carry. */
   readonly boundary: string;
+  /** The hash of the whole request, from which tool-call IDs are derived: unique to each turn. */
+  readonly callIds: string;
 }
 
 /** System text larger than this travels in the transcript rather than on a command line. */
 export const MAXIMUM_SYSTEM_ARGUMENT_BYTES = 32 * 1024;
 
-export function serializeCliPrompt(request: TransportRequest, options: { readonly nativeSchema: boolean; readonly systemInArguments: boolean }): CliPrompt {
-  const boundary = createHash("sha256").update(JSON.stringify({ messages: request.messages, tools: request.tools ?? [], schema: request.responseSchema ?? null })).digest("hex").slice(0, 16);
+/**
+ * `markerSeed`: a secret of the transport's own. The markers then carry a boundary derived from it and from what a
+ * stage's calls share (instructions, tools, schema), so the transcript of every call of a stage starts with the same
+ * text and the CLI can read that start from its prompt cache. Without it, or when any message happens to contain
+ * that boundary, the markers carry the hash of the whole request, which no message can contain. Observed live (P20
+ * pilot): verification questions offer tools, began with their own hash, and read nothing from the cache.
+ */
+export function serializeCliPrompt(request: TransportRequest, options: { readonly nativeSchema: boolean; readonly systemInArguments: boolean; readonly markerSeed?: string }): CliPrompt {
+  const callIds = createHash("sha256").update(JSON.stringify({ messages: request.messages, tools: request.tools ?? [], schema: request.responseSchema ?? null })).digest("hex").slice(0, 16);
   const systemText = request.messages.filter(({ role }) => role === "system").map(({ content }) => content).join("\n\n");
+  const shared = options.markerSeed === undefined ? null : createHash("sha256").update(JSON.stringify({ seed: options.markerSeed, system: systemText, tools: request.tools ?? [], schema: request.responseSchema ?? null })).digest("hex").slice(0, 16);
+  const boundary = shared === null || request.messages.some(({ content }) => content.includes(shared)) ? callIds : shared;
   const inlineSystem = options.systemInArguments && Buffer.byteLength(systemText, "utf8") > MAXIMUM_SYSTEM_ARGUMENT_BYTES;
   const system = inlineSystem || systemText === "" ? CLI_ENGINE_PREAMBLE : `${CLI_ENGINE_PREAMBLE}\n\n${systemText}`;
   const conversation = request.messages.filter(({ role }) => role !== "system");
@@ -57,7 +68,7 @@ export function serializeCliPrompt(request: TransportRequest, options: { readonl
   if (request.responseSchema !== undefined && !options.nativeSchema) {
     sections.push(`Reply with only a JSON document that satisfies this JSON Schema, with no text before or after it:\n${JSON.stringify(request.responseSchema)}`);
   }
-  return Object.freeze({ system, body: sections.join("\n\n"), boundary });
+  return Object.freeze({ system, body: sections.join("\n\n"), boundary, callIds });
 }
 
 /**
@@ -82,7 +93,7 @@ function block(label: string, boundary: string, content: string): string {
 export interface CliReply { readonly text: string | null; readonly toolCalls: readonly TransportToolCall[]; readonly structured: unknown }
 
 /** Interprets the model's reply: a tool-call envelope (only when tools were offered) or the final answer. */
-export function interpretCliReply(reply: string, request: TransportRequest, boundary: string, nativeStructured?: unknown): CliReply {
+export function interpretCliReply(reply: string, request: TransportRequest, boundary: string, nativeStructured?: unknown, callIds: string = boundary): CliReply {
   const text = unframed(reply, boundary);
   const tools = request.tools ?? [];
   const trailing = trailingJson(text);
@@ -94,7 +105,7 @@ export function interpretCliReply(reply: string, request: TransportRequest, boun
   if (tools.length > 0 && isEnvelope(document)) {
     const calls = document.toolCalls;
     if (!Array.isArray(calls) || calls.length === 0) throw new TransportError("MALFORMED_RESPONSE", "CLI_TOOL_CALL_ENVELOPE_INVALID: toolCalls must be a non-empty array", false);
-    return Object.freeze({ text: null, structured: null, toolCalls: Object.freeze(calls.map((call, index) => toolCall(call, index, boundary))) });
+    return Object.freeze({ text: null, structured: null, toolCalls: Object.freeze(calls.map((call, index) => toolCall(call, index, callIds))) });
   }
   if (request.responseSchema === undefined) return Object.freeze({ text, toolCalls: Object.freeze([]), structured: null });
   const structured = nativeStructured ?? document;

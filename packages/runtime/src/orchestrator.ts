@@ -1067,11 +1067,14 @@ export class Orchestrator {
           if (node.id === "planner") {
             const issues = await readStage<CanonicalIssueSet>(store, "canonical-issues");
             const produced = models === undefined ? await plan(context, issues) : await models.plan(issues, signal);
+            // Without a critic the plan is final here, and the handoff is rendered from it.
+            if (models !== undefined && !context.criticEnabled) await models.handoff();
             return { tasks: produced.tasks.length, acceptedIssues: produced.acceptedIssueIds.length };
           }
           if (node.id === "critic") {
             const issues = await readStage<CanonicalIssueSet>(store, "canonical-issues");
             const reviewed = models === undefined ? await critique(context, await readStage<Plan>(store, "plan-ir"), issues) : await models.critique(await readStage<PlanIR>(store, "plan-ir"), issues, signal);
+            if (models !== undefined) await models.handoff();
             return { items: reviewed?.items.length ?? 0, blocking: reviewed?.items.filter(({ blocking }) => blocking).length ?? 0 };
           }
           const discovered = reusedFindings === undefined ? models === undefined ? discover(context, node.id) : await models.discover(node.id, signal) : reusedFindings[node.id];

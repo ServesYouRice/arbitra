@@ -65,7 +65,9 @@ const stageEffortLevel = z.enum(["low", "medium", "high"]);
 export const providerExecutionSchema = z.object({
   endpoints: z.array(providerEndpointSchema).min(1),
   modelEndpoints: z.record(identifier, identifier),
-  roles: z.object({ planner: identifier, verifier: identifier, critic: identifier.optional() }).strict().optional(),
+  /** `critiqueChecker`: the model that checks each blocking critique before it forces a revision. Off unless set;
+   * a model of neither the planner's nor the critic's family judges the claim between them most evenly. */
+  roles: z.object({ planner: identifier, verifier: identifier, critic: identifier.optional(), critiqueChecker: identifier.optional() }).strict().optional(),
   maximumClusteringPairs: z.number().int().min(0).max(1000).optional(),
   maximumOutputTokens: z.number().int().positive(),
   maximumDiscoveryTokens: z.number().int().positive().optional(),
@@ -87,6 +89,9 @@ export const providerExecutionSchema = z.object({
    * whole plan in one call, and joined. Off unless set: the plan is one call while it fits, else notes, an outline
    * and one call a task. */
   planSections: z.object({ issuesPerSection: z.number().int().min(1).max(500) }).strict().optional(),
+  /** An audit plan covers the accepted issues of at least this severity; the others are listed with their evidence,
+   * without tasks. Off unless set: every accepted issue is planned. */
+  planScope: z.object({ minimumSeverity: z.enum(["critical", "high", "medium", "low", "informational"]) }).strict().optional(),
   timeoutMs: z.number().int().positive().max(2_147_483_647),
   maximumRetries: z.number().int().min(0).max(10),
   /** Re-asks, per model stage, after a reply fails output validation (invalid JSON, schema or grounding). Each is a separate durable, budgeted activity. */

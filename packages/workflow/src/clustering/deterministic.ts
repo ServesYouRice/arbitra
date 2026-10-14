@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import type { AmbiguousPair, ClusterOperation, ClusteringStrategy, FindingCluster, StrategyResult, ValidatedClusterInput } from "./types.js";
 
 export const deterministicClusteringStrategy: ClusteringStrategy = Object.freeze({ id: "structural-v3", cluster: deterministicCluster });
+/** The signal of a pair held back because both findings came in one answer. */
+export const SAME_ANSWER_SIGNAL = "same_answer";
 
 /** A prompt-injection report is about repository text aimed at the auditor, never the defect beside
  * it, so it clusters only with other such reports (observed: the P18 real-model corpus merged it with
@@ -44,12 +46,16 @@ export function deterministicCluster(inputs: readonly ValidatedClusterInput[]): 
   for (const pair of structural.sort((x, y) => y.score - x.score || y.shared - x.shared || x.a.localeCompare(y.a) || x.b.localeCompare(y.b))) {
     const left = find(parent, pair.a); const right = find(parent, pair.b);
     if (left !== right && [...answers.get(left) ?? []].some((answer) => answers.get(right)?.has(answer) === true)) {
-      held.push(Object.freeze({ leftId: pair.a, rightId: pair.b, signals: Object.freeze([...pair.names]), score: pair.score, relationship: null }));
+      held.push(Object.freeze({ leftId: pair.a, rightId: pair.b, signals: Object.freeze([...pair.names, SAME_ANSWER_SIGNAL]), score: pair.score, relationship: null }));
       continue;
     }
     join(pair.a, pair.b); operations.push(Object.freeze({ type: "merge", sourceFindingIds: Object.freeze([pair.a, pair.b]), reason: "structural" })); deterministicPairsResolved += 1;
   }
-  return Object.freeze({ findings: Object.freeze(findings), clusters: clustersFrom(parent), ambiguousPairs: Object.freeze([...held, ...ambiguousPairs]), operations: Object.freeze(operations), deterministicPairsResolved });
+  // After the held pairs, the pairs that cite overlapping lines come first: of the ambiguous pairs, those are the
+  // likely duplicates (design audit: duplicates are keyed by location and defect). Observed live (P20 pilot): with
+  // the first 20 pairs checked in id order, 40 pairs of one run's 53 accepted issues overlapped.
+  const ranked = [...ambiguousPairs].sort((x, y) => Number(y.signals.includes("overlapping_lines")) - Number(x.signals.includes("overlapping_lines")) || y.score - x.score || x.leftId.localeCompare(y.leftId) || x.rightId.localeCompare(y.rightId));
+  return Object.freeze({ findings: Object.freeze(findings), clusters: clustersFrom(parent), ambiguousPairs: Object.freeze([...held, ...ranked]), operations: Object.freeze(operations), deterministicPairsResolved });
 }
 
 /** The answer a finding came in: its id without the last part (auditor and scope in a model audit, auditor and

@@ -15,7 +15,7 @@ import type { TestSandbox } from "../src/test-sandbox.js";
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
-async function fixture(options: { secondFile?: boolean; revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; ambiguousClustering?: boolean; oversizedRepository?: boolean; planQuestion?: boolean; verifierContextTokens?: number; invalidVerification?: boolean; invalidGroupVerification?: boolean } = {}) {
+async function fixture(options: { secondFile?: boolean; revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; ambiguousClustering?: boolean; oversizedRepository?: boolean; planQuestion?: boolean; verifierContextTokens?: number; invalidVerification?: boolean; invalidGroupVerification?: boolean; unanimousReview?: boolean; verificationByPlace?: boolean; severities?: readonly string[]; critiqueVerdict?: "HOLDS" | "DOES_NOT_HOLD" } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "arbitra-model-run-")); directories.push(directory);
   const manyIssues = options.largePeerContext === true || options.largePlannerContext === true;
   await writeFile(join(directory, "a.ts"), "const value = null;\n".repeat(manyIssues ? 4 : options.ambiguousClustering === true ? 3 : 1), "utf8");
@@ -55,7 +55,7 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
     execution.modelEndpoints["verifier-model"] = "auditor-b"; execution.roles.verifier = "verifier-model";
   }
   const requests: { stage: string; url: string }[] = [];
-  const verificationInputs: { candidateId: string; unresolvedPeerOperations: { candidateIds: string[] }[]; sourcePaths: string[] }[] = [];
+  const verificationInputs: { candidateId: string; unresolvedPeerOperations: { candidateIds: string[] }[]; sourcePaths: string[]; question?: string; findings?: Record<string, unknown>[] }[] = [];
   const plannerContexts: { unresolvedPeerOperations: { candidateIds: string[] }[] }[] = [];
   // What the staged planner's calls read: the files, and for an expansion the locations and the findings of its issues.
   const plannerReads: { stage: "outline" | "expand"; sourcePaths: string[]; locationIds: string[]; sourceFindingIds: string[] }[] = [];
@@ -96,7 +96,7 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
       if (manyIssues) {
         const envelope = output as { findings: Record<string, unknown>[] };
         const original = envelope.findings[0];
-        envelope.findings = Array.from({ length: 4 }, (_, index) => ({ ...original, sourceFindingId: `${auditorId}/${index + 1}`, title: `Null claim ${index}`, recommendedFix: `${index}: ` + "Check guard. ".repeat(options.packedPeerContext === true ? 600 : options.largePeerContext === true ? 750 : 1), locations: [{ id: `${auditorId}-L${index}`, path: "a.ts", startLine: index + 1, endLine: index + 1 }], evidence: [{ id: `${auditorId}-E${index}`, text: "const value = null;", locationIds: [`${auditorId}-L${index}`] }] }));
+        envelope.findings = Array.from({ length: 4 }, (_, index) => ({ ...original, severity: options.severities?.[index] ?? original?.["severity"], sourceFindingId: `${auditorId}/${index + 1}`, title: `Null claim ${index}`, recommendedFix: `${index}: ` + "Check guard. ".repeat(options.packedPeerContext === true ? 600 : options.largePeerContext === true ? 750 : 1), locations: [{ id: `${auditorId}-L${index}`, path: "a.ts", startLine: index + 1, endLine: index + 1 }], evidence: [{ id: `${auditorId}-E${index}`, text: "const value = null;", locationIds: [`${auditorId}-L${index}`] }] }));
       }
     } else if (system.startsWith("Compare the supplied candidate pair")) {
       requests.push({ stage: "merge-check", url: request.url });
@@ -129,7 +129,7 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
       // One reviewer's reply to more than one candidate stops at the output ceiling (the OpenAI Responses shape).
       if (options.reviewOutputLimit === true && request.url.includes("auditor-a") && Object.keys(input.candidates).length > 1) return { status: 200, headers: {}, body: { status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, output_text: '{"operations":', usage: { input_tokens: 10, output_tokens: 2_000 } } };
       expect(user).not.toMatch(/auditor-[abc]/u);
-      output = { operations: Object.values(input.candidates).map(({ candidateId, sources }, index) => ({ operationId: `new:vote-${index}`, candidateId, authorId: "self", round: input.round, type: request.url.includes("auditor-b") ? "reject" : "accept", citedEvidenceIds: sources.flatMap(({ evidence }) => evidence.map(({ id }) => id)), reason: "Fixture review of supplied evidence" })), locations: [], findings: [] };
+      output = { operations: Object.values(input.candidates).map(({ candidateId, sources }, index) => ({ operationId: `new:vote-${index}`, candidateId, authorId: "self", round: input.round, type: request.url.includes("auditor-b") && options.unanimousReview !== true ? "reject" : "accept", citedEvidenceIds: sources.flatMap(({ evidence }) => evidence.map(({ id }) => id)), reason: "Fixture review of supplied evidence" })), locations: [], findings: [] };
       if (options.largePlannerContext === true && input.round === 1 && request.url.includes("auditor-a")) {
         (output as { operations: unknown[] }).operations.push(...Object.values(input.candidates).map(({ candidateId, sources }, index) => ({ operationId: `new:supplement-${index}`, candidateId, authorId: "self", round: 1, type: "supplement_remediation", citedEvidenceIds: sources.flatMap(({ evidence }) => evidence.map(({ id }) => id)), text: `Original detail ${candidateId}: ` + "Preserve guard. ".repeat(1200) })));
       }
@@ -154,14 +154,17 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
     } else if (system.startsWith("Answer the single")) {
       requests.push({ stage: "verification", url: request.url });
       if (failVerification) return { status: 503, headers: {}, body: {} };
-      const input = JSON.parse(user) as { request: { candidateId: string; context: { citedContext: { evidenceId: string }[] } }; unresolvedPeerOperations: { candidateIds: string[] }[]; repository: { path: string }[] };
-      verificationInputs.push({ candidateId: input.request.candidateId, unresolvedPeerOperations: input.unresolvedPeerOperations, sourcePaths: input.repository.map(({ path }) => path) });
+      const input = JSON.parse(user) as { request: { candidateId: string; question: string; context: { citedContext: { evidenceId: string }[] } }; findings: Record<string, unknown>[]; unresolvedPeerOperations: { candidateIds: string[] }[]; repository: { path: string }[] };
+      verificationInputs.push({ candidateId: input.request.candidateId, unresolvedPeerOperations: input.unresolvedPeerOperations, sourcePaths: input.repository.map(({ path }) => path), question: input.request.question, findings: input.findings });
       // The answers take a moment, so questions asked side by side are in flight together.
       verificationFlight.now += 1; verificationFlight.most = Math.max(verificationFlight.most, verificationFlight.now);
       await new Promise((resolve) => setTimeout(resolve, 60));
       verificationFlight.now -= 1;
       // An answer that cites evidence the question did not supply is refused.
-      output = { outcome: "CONFIRMED", evidenceIds: options.invalidVerification === true ? ["evidence-never-supplied"] : input.request.context.citedContext.map(({ evidenceId }) => evidenceId), confidence: 0.8 };
+      // By place: a question about more than one place is rejected, and of the places only the second line holds.
+      const places = input.request.question.match(/a\.ts:\d+/gu) ?? [];
+      const outcome = options.verificationByPlace === true && (places.length > 1 || places[0] !== "a.ts:2") ? "REJECTED" : "CONFIRMED";
+      output = { outcome, evidenceIds: options.invalidVerification === true ? ["evidence-never-supplied"] : input.request.context.citedContext.map(({ evidenceId }) => evidenceId), confidence: 0.8 };
     } else if (system.startsWith("Answer each of the verification questions")) {
       requests.push({ stage: "verification-group", url: request.url });
       const input = JSON.parse(user) as { questions: { request: { candidateId: string; context: { citedContext: { evidenceId: string }[] } } }[]; repository: { path: string }[] };
@@ -221,6 +224,11 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
       requests.push({ stage: "revision", url: request.url });
       const input = JSON.parse(user) as { originalPlan: ReturnType<typeof planIRSchema.parse>; blockingCritique: { id: string }[] };
       output = { plan: { ...input.originalPlan, title: "Revised plan", ...(options.revision === "invalid_traceability" ? { acceptedIssueIds: [] } : {}) }, resolutions: options.revision === "missing_resolution" ? [] : input.blockingCritique.map(({ id }) => ({ critiqueItemId: id, resolution: "Added the requested validation" })) };
+    } else if (system.startsWith("Decide whether the supplied blocking critique")) {
+      requests.push({ stage: "critique-check", url: request.url });
+      const input = JSON.parse(user) as { critique: { summary: string }; tasks: { id: string }[] };
+      expect(input.tasks.length).toBeGreaterThan(0);
+      output = { verdict: options.critiqueVerdict ?? "HOLDS", reason: "Fixture check of the named task against the source" };
     } else if (system.startsWith("Critique the plan")) {
       requests.push({ stage: "critic", url: request.url });
       if (failCritic && requests.filter(({ stage }) => stage === "critic").length === 2) return { status: 503, headers: {}, body: {} };
@@ -865,6 +873,64 @@ describe("composed model audits", () => {
     expect(issues.issues.every(({ disposition, verificationOutcome }) => disposition === "accepted" && verificationOutcome === "CONFIRMED")).toBe(true);
   });
 
+  it("verifies a candidate the reviewers all accepted, asking about its places and not its finders", async () => {
+    const { create, config, verificationInputs } = await fixture({ unanimousReview: true });
+    const core = create(); const result = await core.run(config);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
+    const consensus = JSON.parse((await core.artifact(result.runId, (await core.artifacts(result.runId)).find(({ kind }) => kind === "consensus-state")?.artifactId ?? "") as { content: string }).content) as { consensus: { candidates: { outcome: string }[] } };
+    expect(consensus.consensus.candidates.map(({ outcome }) => outcome)).toEqual(["accepted"]);
+    // The vote accepted it, and it is still checked against the source.
+    expect(verificationInputs).toHaveLength(1);
+    expect(verificationInputs[0]?.question).toBe("Does the source show the defect the supplied findings describe at a.ts:1?");
+    // The verifier reads what each finding claims, not who found it nor how sure the finder was.
+    const presented = verificationInputs[0]?.findings ?? [];
+    expect(presented.length).toBeGreaterThan(0);
+    expect(presented.every((finding) => finding["findingRef"] !== undefined && finding["severity"] === undefined && finding["confidence"] === undefined && finding["status"] === undefined && finding["sourceFindingId"] === undefined)).toBe(true);
+    expect(JSON.stringify(presented)).not.toMatch(/auditor-[abc]/u);
+  });
+
+  it("plans only the accepted issues of the run's minimum severity, ranked, and lists the rest", async () => {
+    const { create, config, criticIssueIds } = await fixture({ largePeerContext: true, severities: ["low", "high", "low", "critical"] });
+    (config.workflow["modelExecution"] as { planScope?: { minimumSeverity: string } }).planScope = { minimumSeverity: "high" };
+    const core = create(); const result = await core.run(config);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
+    const artifacts = await core.artifacts(result.runId);
+    const read = async <T>(kind: string) => JSON.parse((await core.artifact(result.runId, artifacts.find((artifact) => artifact.kind === kind)?.artifactId ?? "") as { content: string }).content) as T;
+    // The list is ranked most severe first.
+    const issues = await read<{ issues: { candidateId: string; severity: string; disposition: string }[] }>("canonical-issues");
+    expect(issues.issues.map(({ severity }) => severity)).toEqual(["critical", "high", "low", "low"]);
+    expect((await read<{ rank: number }[]>("issue-ranking")).map(({ rank }) => rank)).toEqual([1, 2, 3, 4]);
+    const high = issues.issues.filter(({ severity }) => severity !== "low").map(({ candidateId }) => candidateId);
+    const plan = await read<{ acceptedIssueIds: string[] }>("plan-ir");
+    expect([...plan.acceptedIssueIds].sort()).toEqual([...high].sort());
+    expect(await read<{ notPlanned: { severity: string }[] }>("plan-scope")).toMatchObject({ minimumSeverity: "high", notPlanned: [{ severity: "low" }, { severity: "low" }] });
+    // The critic reads the issues the plan covers.
+    expect(criticIssueIds.every((ids) => ids.every((id) => high.includes(id)))).toBe(true);
+  });
+
+  it("asks about each place of a rejected merge on its own, and keeps the place that holds", async () => {
+    // Observed live (P20 pilot): a merge gave a real defect another finding's title, and the question was rejected.
+    const { create, config, verificationInputs } = await fixture({ ambiguousClustering: true, verificationByPlace: true });
+    const core = create(); const result = await core.run(config);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
+    const artifacts = await core.artifacts(result.runId);
+    const read = async <T>(kind: string) => JSON.parse((await core.artifact(result.runId, artifacts.find((artifact) => artifact.kind === kind)?.artifactId ?? "") as { content: string }).content) as T;
+    // The merged question names three places and is rejected; the places are then asked in order until one holds.
+    expect(verificationInputs.map(({ question }) => question)).toEqual([
+      "Does the source show the defect the supplied findings describe at a.ts:1, a.ts:2, a.ts:3?",
+      "Does the source show the defect the supplied findings describe at a.ts:1?",
+      "Does the source show the defect the supplied findings describe at a.ts:2?",
+    ]);
+    const places = artifacts.filter(({ kind }) => kind.startsWith("verification-places-"));
+    expect(places).toHaveLength(1);
+    const issues = await read<{ issues: { disposition: string; verificationOutcome: string; sourceFindingIds: string[] }[] }>("canonical-issues");
+    expect(issues.issues.map(({ disposition, verificationOutcome, sourceFindingIds }) => [disposition, verificationOutcome, sourceFindingIds])).toEqual([["accepted", "CONFIRMED", ["auditor-b/1"]]]);
+    expect(await read<Record<string, string[]>>("verification-held-findings")).toEqual({ [Object.keys(await read<Record<string, string[]>>("verification-held-findings"))[0] ?? ""]: ["auditor-b/1"] });
+  });
+
   it("puts questions whose claims cite the same files in one call when the run allows it, and answers each on its own", async () => {
     const { create, config, requests } = await fixture({ largePeerContext: true });
     config.verification = { ...config.verification, maxQuestionsPerCall: 3 };
@@ -941,6 +1007,48 @@ describe("composed model audits", () => {
     // The critic read the issues the plan resolves, and those only.
     const plan = await read<{ acceptedIssueIds: string[] }>("plan-ir");
     expect(criticIssueIds).toEqual([plan.acceptedIssueIds]);
+  });
+
+  it("checks each blocking critique with the critique checker and revises only for the items that hold", async () => {
+    for (const verdict of ["DOES_NOT_HOLD", "HOLDS"] as const) {
+      const { create, config, requests } = await fixture({ revision: "still_blocking", critiqueVerdict: verdict });
+      (config.workflow["modelExecution"] as { roles: Record<string, string> }).roles["critiqueChecker"] = "auditor-b";
+      const core = create(); const result = await core.run(config);
+      const events = []; for await (const event of core.events(result.runId)) events.push(event);
+      expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
+      expect(requests.filter(({ stage }) => stage === "critique-check").map(({ url }) => url.includes("auditor-b"))).toEqual([true]);
+      const read = async <T>(kind: string) => { const descriptor = (await core.artifacts(result.runId)).find((artifact) => artifact.kind === kind); return JSON.parse((await core.artifact(result.runId, descriptor?.artifactId ?? "") as { content: string }).content) as T; };
+      expect(await read<{ verdict: string }[]>("critique-checks")).toMatchObject([{ verdict }]);
+      const feedback = await read<{ items: { blocking: boolean; summary: string }[] }>("critic-feedback");
+      if (verdict === "DOES_NOT_HOLD") {
+        // The item stays in the feedback, not blocking, with the reason; no revision is asked for and the gate is not held.
+        expect(feedback.items).toMatchObject([{ blocking: false, summary: expect.stringContaining("does not hold") as unknown }]);
+        expect(requests.some(({ stage }) => stage === "revision" || stage === "revision-patch")).toBe(false);
+        expect((await core.gate(result.runId)).reasons).not.toContain("blocking_critic_feedback");
+      } else {
+        expect(feedback.items.filter(({ blocking }) => blocking)).toHaveLength(1);
+        expect(requests.filter(({ stage }) => stage === "revision")).toHaveLength(1);
+      }
+    }
+  });
+
+  it("hands off the final plan with each issue's evidence, a failing test first, and a result to report", async () => {
+    const { create, config } = await fixture();
+    const core = create(); const result = await core.run(config);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
+    const artifacts = await core.artifacts(result.runId);
+    expect(artifacts.some(({ kind }) => kind === "implementation-unavailable")).toBe(false);
+    const tree = JSON.parse((await core.artifact(result.runId, artifacts.find(({ kind }) => kind === "implementation")?.artifactId ?? "") as { content: string }).content) as Record<string, string>;
+    const plan = JSON.parse((await core.artifact(result.runId, artifacts.find(({ kind }) => kind === "plan-ir")?.artifactId ?? "") as { content: string }).content) as { acceptedIssueIds: string[] };
+    const [issueId] = plan.acceptedIssueIds;
+    const issue = tree[`issues/${issueId}.md`] ?? "";
+    expect(issue).toContain("## Where");
+    expect(issue).toContain("a.ts:1");
+    expect(issue).toContain("const value = null;");
+    expect(issue).toContain("Verification: `CONFIRMED`");
+    expect(issue).toContain("## Reproduce first");
+    expect(JSON.parse(tree["progress.schema.json"] ?? "{}")).toMatchObject({ properties: { issues: { items: { properties: { issueId: { enum: [issueId] }, result: { enum: ["fixed", "not_reproducible", "no_change_needed", "blocked"] } } } } } });
   });
 
   it("gives the critic only the issues the plan has to resolve", async () => {

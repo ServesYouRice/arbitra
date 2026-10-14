@@ -64,7 +64,12 @@ consensusPrecision · consensusRecall · costPerTrueAcceptedIssue
 verificationResolutionRate · cacheHitRate · escalatedPairs
 securityOverlapBudget { budget, used, usage } · suppressionCandidateCount
 totalCostUsd · currency
+inputTokens · outputTokens · cacheReadTokens · cacheWriteTokens
 ```
+
+`inputTokens` counts whole prompts; the part read from a prompt cache and the part written to one
+are reported apart, because every vendor prices a cached token at a tenth of an input token or
+less. A token budget compared across runs should weigh them.
 
 Two deliberate nulls: `verificationResolutionRate` is `null` when no verification items
 existed rather than `1` or `0`, and `totalCostUsd` is `null` if *any* activity's cost is

@@ -29,6 +29,24 @@ export interface ManifestTask {
   readonly estimatedTurns?: number;
 }
 
+/**
+ * An issue as the executor reads it. An audit's issue carries what was verified about it, so the executor starts from
+ * the evidence: where it is, the quoted source, the verifier's answer, and whether a test must reproduce it first.
+ */
+export interface ManifestIssue {
+  readonly id: string; readonly title?: string; readonly description?: string; readonly status?: string;
+  readonly dissent?: readonly string[]; readonly provenance?: readonly string[];
+  readonly severity?: string;
+  /** How many independent auditors reported it. */
+  readonly foundBy?: number;
+  readonly trigger?: string;
+  readonly locations?: readonly string[];
+  readonly evidence?: readonly { readonly text: string; readonly locations: readonly string[] }[];
+  readonly verification?: { readonly outcome: string | null; readonly confidence: number | null };
+  /** The executor writes a failing test before the fix and reports a result for the issue. */
+  readonly reproduceFirst?: boolean;
+}
+
 export interface ImplementationManifest {
   readonly manifestVersion: string;
   readonly trustWarning?: string;
@@ -48,7 +66,7 @@ export interface ImplementationManifest {
     readonly outOfScope?: readonly string[];
   };
   readonly unresolvedQuestions?: readonly { readonly id: string; readonly question?: string; readonly statement?: string; readonly blastRadius?: string }[];
-  readonly issues?: readonly { readonly id: string; readonly title?: string; readonly description?: string; readonly status?: string; readonly dissent?: readonly string[]; readonly provenance?: readonly string[] }[];
+  readonly issues?: readonly ManifestIssue[];
   readonly validation: readonly { readonly id: string; readonly assertion: string; readonly evidence?: readonly string[]; readonly addresses?: readonly string[] }[];
   readonly phases?: readonly { readonly id: string; readonly title: string; readonly goal?: string }[];
   readonly tasks: readonly ManifestTask[];
