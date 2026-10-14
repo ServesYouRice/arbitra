@@ -320,9 +320,17 @@ findings ranked, then fixed one at a time with a failing test first. Built the s
 - `plan-critic` 1.1.0 asks only what code cannot check, ten non-blocking items a call at most, and
   `roles.critiqueChecker` checks each blocking item before the revision;
 - the audit renders a handoff with each issue's evidence, a failing test first and a result to report;
-- CLI transcripts no longer begin with their request's hash, so a stage's calls share a cached start; source
-  first, question last. A shared working directory was measured unnecessary (another directory costs about 355
-  tokens of cache).
+- CLI transcripts no longer begin with their request's hash, so a stage's calls share a cached start where the
+  provider caches any prefix (OpenAI, Google); source first, question last. A shared working directory was measured
+  unnecessary (another directory costs about 355 tokens of cache).
+
+Two live shakedowns the same night (the premium lineup at low effort on a 4-file shop with two planted defects)
+found one more fault: the structural rule joined a stock leak, an unbounded coupon and missing input checks into one
+issue of 9 findings, pairs the semantic check had judged unrelated. Fixed: with shared lines escalated, the rule
+only proposes, and the most severe finding leads a cluster. On the fixed build (d03b1d8) both defects stood as
+separate issues ranked first and second, the verifier abstained once, and Sol judged a critic's blocking item not
+to hold. Gemini as critic wrote 50,000 to 54,000 output tokens in 5.5 to 6 minutes on plans of 3 and 4 tasks, the
+largest call of both runs.
 
 Still open from the audit, to be measured before any becomes a default: a pipeline without peer review
 (`maxConsensusRounds: 0`); discovery at high against xhigh and Gemini at medium; a second, varied discovery pass and
