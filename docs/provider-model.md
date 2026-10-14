@@ -251,7 +251,17 @@ tool call away, and its instruction says to read what the answer depends on), an
 unresolved peer operations that involve its own candidate in outline; the plan reads those
 that involve accepted issues in full. A wider source was measured and dropped: with the files
 of the cited files' modules, each of 51 questions read 47 of a project's 57 files, because one
-chain of imports joins most of a project, and the questions of one run read 5.3M tokens. A question its provider declines, or whose reply stays invalid or stops at the output
+chain of imports joins most of a project, and the questions of one run read 5.3M tokens.
+`verification.maxQuestionsPerCall` (default 1) lets questions whose claims cite the same files
+share a call: a group starts with the first question not yet grouped and takes later ones that
+cite a file it already reads, while the files it reads stay within 60,000 characters and the
+call fits. The call answers every question on its own, with evidence from that question only
+(`verification-groups` lists the groups; `modelQuestionCalls` in the metrics counts the calls).
+Replayed on a run's 58 stored questions, three to a call made 25 calls where there were 58, and
+the source they read first fell from 656,000 to 428,000 characters. Anthropic's guidance favours
+one consideration per call ("LLMs generally perform better when each consideration is handled by
+a separate LLM call"), so the default stays one question a call until a timed run shows the
+verdicts hold. A question its provider declines, or whose reply stays invalid or stops at the output
 ceiling, leaves its candidate unverified and the run records
 `verification_question_unanswered:<n>`. A stage whose
 required input cannot fit its context is tried as required input before it gives up:

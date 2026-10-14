@@ -87,6 +87,26 @@ describe("verification subgraph", () => {
     expect(operations.map(({ candidateId }) => candidateId)).toEqual(["C-1", "C-2", "C-3", "C-4"]);
     expect(run.metrics).toMatchObject({ itemCount: 4, modelCalls: 2, resolvedDisputes: 3 });
   });
+
+  it("puts the questions a model groups to it in one call each, and records every answer under its own item", async () => {
+    const singles: string[] = []; const groups: string[][] = []; const operations: VerificationIssueOperation[] = [];
+    const run = await verifyItems(["C-1", "C-2", "C-3"].map((candidateId) => item({ candidateId })), tools(),
+      { maximumItems: 3, allowModelCall: true, round: 1 },
+      { sink: { async append(operation) { operations.push(operation); } },
+        model: {
+          // C-1 and C-3 share the files they cite; C-2 is asked alone.
+          async group(requests) { const byId = new Map(requests.map((request) => [request.candidateId, request])); return [[byId.get("C-1"), byId.get("C-3")], [byId.get("C-2")]].map((group) => group.filter((entry): entry is ModelVerificationRequest => entry !== undefined)); },
+          async verifyGroup(requests) { groups.push(requests.map(({ candidateId }) => candidateId)); return requests.map(({ candidateId }) => ({ outcome: candidateId === "C-1" ? "CONFIRMED" as const : "REJECTED" as const, evidenceIds: ["ev-1"], artifactRefs: [], activityId: "model:group", confidence: 0.8 })); },
+          async verify({ candidateId }) { singles.push(candidateId); return { outcome: "CONFIRMED", evidenceIds: ["ev-1"], artifactRefs: [], activityId: `model:${candidateId}`, confidence: 0.9 }; },
+        } });
+    expect(groups).toEqual([["C-1", "C-3"]]); expect(singles).toEqual(["C-2"]);
+    expect(run.results.map(({ candidateId, outcome }) => [candidateId, outcome])).toEqual([["C-1", "CONFIRMED"], ["C-2", "CONFIRMED"], ["C-3", "REJECTED"]]);
+    expect(operations.map(({ candidateId }) => candidateId)).toEqual(["C-1", "C-2", "C-3"]);
+    expect(run.metrics).toMatchObject({ modelCalls: 3, modelQuestionCalls: 2 });
+    // A grouping that leaves a question out is refused.
+    await expect(verifyItems([item()], tools(), { maximumItems: 1, allowModelCall: true, round: 1 }, { sink: { async append() {} },
+      model: { async group() { return []; }, async verifyGroup() { return []; }, async verify() { throw new Error("unreachable"); } } })).rejects.toThrow("VERIFICATION_GROUPS_INVALID");
+  });
 });
 
 function requiredAt<T>(values: readonly T[], index: number): T { const value = values[index]; if (value === undefined) throw new RangeError(`Missing test value at index ${index}`); return value; }

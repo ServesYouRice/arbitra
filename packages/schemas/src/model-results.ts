@@ -48,6 +48,16 @@ export const modelVerificationResultSchema = z.object({
   confidence: z.number().min(0).max(1),
 }).strict();
 
+/** The answers to verification questions put in one call, one per candidate. */
+export const modelVerificationGroupResultSchema = z.object({
+  answers: z.array(z.object({
+    candidateId: z.string().min(1),
+    outcome: z.enum(["CONFIRMED", "REJECTED", "STILL_NEEDS_VERIFICATION"]),
+    evidenceIds: z.array(z.string().min(1)),
+    confidence: z.number().min(0).max(1),
+  }).strict()),
+}).strict();
+
 export const modelCritiqueSchema = z.object({
   summary: z.string().min(1),
   items: z.array(z.object({

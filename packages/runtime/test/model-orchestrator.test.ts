@@ -162,6 +162,11 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
       verificationFlight.now -= 1;
       // An answer that cites evidence the question did not supply is refused.
       output = { outcome: "CONFIRMED", evidenceIds: options.invalidVerification === true ? ["evidence-never-supplied"] : input.request.context.citedContext.map(({ evidenceId }) => evidenceId), confidence: 0.8 };
+    } else if (system.startsWith("Answer each of the verification questions")) {
+      requests.push({ stage: "verification-group", url: request.url });
+      const input = JSON.parse(user) as { questions: { request: { candidateId: string; context: { citedContext: { evidenceId: string }[] } } }[]; repository: { path: string }[] };
+      for (const { request: question } of input.questions) verificationInputs.push({ candidateId: question.candidateId, unresolvedPeerOperations: [], sourcePaths: input.repository.map(({ path }) => path) });
+      output = { answers: input.questions.map(({ request: question }) => ({ candidateId: question.candidateId, outcome: "CONFIRMED", evidenceIds: question.context.citedContext.map(({ evidenceId }) => evidenceId), confidence: 0.8 })) };
     } else if (system.startsWith("Read the complete accepted issues")) {
       requests.push({ stage: "planner-brief", url: request.url });
       const input = JSON.parse(user) as { canonicalIssues: { candidateId: string; remediationSupplements: string[] }[] };
@@ -857,6 +862,23 @@ describe("composed model audits", () => {
     expect(requests.some(({ stage }) => stage === "merge-check")).toBe(false);
     const issues = await read<{ issues: { disposition: string; verificationOutcome: string | null }[] }>("canonical-issues");
     expect(issues.issues.every(({ disposition, verificationOutcome }) => disposition === "accepted" && verificationOutcome === "CONFIRMED")).toBe(true);
+  });
+
+  it("puts questions whose claims cite the same files in one call when the run allows it, and answers each on its own", async () => {
+    const { create, config, requests } = await fixture({ largePeerContext: true });
+    config.verification = { ...config.verification, maxQuestionsPerCall: 3 };
+    const core = create(); const result = await core.run(config);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
+    const read = async <T>(kind: string) => { const descriptor = (await core.artifacts(result.runId)).find((artifact) => artifact.kind === kind); return JSON.parse((await core.artifact(result.runId, descriptor?.artifactId ?? "") as { content: string }).content) as T; };
+    const metrics = await read<{ itemCount: number; modelCalls: number; modelQuestionCalls: number }>("verification-metrics");
+    const groups = await read<{ candidateIds: string[] }[]>("verification-groups");
+    // Every claim cites the fixture's one file, so the questions go three to a call.
+    expect(groups.map(({ candidateIds }) => candidateIds.length)).toEqual(Array.from({ length: Math.ceil(metrics.itemCount / 3) }, (_, index) => Math.min(3, metrics.itemCount - index * 3)));
+    expect(metrics).toMatchObject({ modelCalls: metrics.itemCount, modelQuestionCalls: groups.length });
+    expect(requests.filter(({ stage }) => stage === "verification-group" || stage === "verification")).toHaveLength(groups.length);
+    const issues = await read<{ issues: { verificationOutcome: string | null }[] }>("canonical-issues");
+    expect(issues.issues.every(({ verificationOutcome }) => verificationOutcome === "CONFIRMED")).toBe(true);
   });
 
   it("gives a verification question only the files its candidate cites", async () => {
