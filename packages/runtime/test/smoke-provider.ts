@@ -233,7 +233,7 @@ async function smokeCli(root: string, answer: (protocol: WireProtocol, system: s
     const transcriptAt = agyPrompt.indexOf("\n\nThe input is a conversation transcript.");
     const stdin = vendor === "agy" ? transcriptAt < 0 ? agyPrompt : agyPrompt.slice(transcriptAt + 2) : request.stdin;
     const system = vendor === "claude" ? readFileSync(args[args.indexOf("--system-prompt-file") + 1] ?? "", "utf8")
-      : vendor === "codex" ? JSON.parse((args.find((value) => value.startsWith("base_instructions=")) ?? "base_instructions=\"\"").slice("base_instructions=".length)) as string
+      : vendor === "codex" ? readFileSync(JSON.parse((args.find((value) => value.startsWith("model_instructions_file=")) ?? "model_instructions_file=\"\"").slice("model_instructions_file=".length)) as string, "utf8")
         : vendor === "agy" ? transcriptAt < 0 ? "" : agyPrompt.slice(0, transcriptAt) : readFileSync(request.environment["GEMINI_SYSTEM_MD"] ?? "", "utf8");
     const instruction = system.startsWith(CLI_ENGINE_PREAMBLE) ? system.slice(CLI_ENGINE_PREAMBLE.length).replace(/^\n\n/u, "") : system;
     const first = /^<<<BEGIN user ([a-f0-9]{16})>>>\n([\s\S]*?)\n<<<END user \1>>>/mu.exec(stdin);
