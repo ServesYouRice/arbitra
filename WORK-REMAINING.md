@@ -304,6 +304,26 @@ Open, measured on the stored 2.6.0 runs:
   above shows what an update can do. Each run records the versions; pin a copy of each CLI for a protocol, as is
   done for Claude Code.
 
+**Approved on October 14, after the check against the labs' guidance ([research](docs/research.md#1-the-october-14-check)).**
+The owner approved six of the seven proposals above on condition that Anthropic's guidance supports them. To build,
+in this order:
+
+1. Stable repository text first in every prompt, the per-call item last, effort and schema the same across a stage
+   (supported by every lab with caching guidance; Anthropic and Google also report better answers with the question
+   last).
+2. Merge accepted issues that cite the same lines **and** describe the same defect, and rank the list by severity,
+   then by how many models found an issue (Anthropic's Code Review and Codex's review rubric work this way).
+3. The critic: each blocking item names the failure it would cause; the critic is asked only what the run cannot
+   check itself; non-blocking items are capped, blocking ones are not; a critic's claim is checked before it forces
+   a revision.
+4. Plan sections formed by the files their tasks edit, with a join check over tasks that still share a file.
+5. A plan for the ranked issues above a severity bar, the rest listed without tasks (needs 2; partly supported: the
+   sources say measure what the plan adds).
+
+Not built: accepting a finding without a verification question when several vendors' models found it. Every
+Anthropic review tool verifies each finding, and papers show models of different vendors share their errors
+("models agree 60% of the time when both models err"); agreement ranks an issue instead (item 2).
+
 **The rebuild of October 14 (before protocol 2.7.0).** The owner asked for a rebuild while the runs wait for the
 Claude week (plan quality must not regress; any change to calls and follow-ups; no single 64,000 ceiling). Built:
 

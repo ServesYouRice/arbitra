@@ -258,10 +258,11 @@ cite a file it already reads, while the files it reads stay within 60,000 charac
 call fits. The call answers every question on its own, with evidence from that question only
 (`verification-groups` lists the groups; `modelQuestionCalls` in the metrics counts the calls).
 Replayed on a run's 58 stored questions, three to a call made 25 calls where there were 58, and
-the source they read first fell from 656,000 to 428,000 characters. Anthropic's guidance favours
-one consideration per call ("LLMs generally perform better when each consideration is handled by
-a separate LLM call"), so the default stays one question a call until a timed run shows the
-verdicts hold. A question its provider declines, or whose reply stays invalid or stops at the output
+the source they read first fell from 656,000 to 428,000 characters. It stays off: every lab's
+own review tool checks one finding per sub-task, and papers measured lower accuracy when
+different reasoning problems share a prompt (worse in 81.7% of mixed cases, by 13.5 points on
+average; [research](research.md#9-papers)). The P20 pilot set it for protocol 2.7.0 and took it
+out the same evening, before any run. A question its provider declines, or whose reply stays invalid or stops at the output
 ceiling, leaves its candidate unverified and the run records
 `verification_question_unanswered:<n>`. A stage whose
 required input cannot fit its context is tried as required input before it gives up:
