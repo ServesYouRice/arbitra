@@ -350,3 +350,59 @@ describe("hierarchical global outline when all briefs cannot share one outline",
     expect(calls.some(({ activityId }) => activityId.startsWith("planner/outline"))).toBe(false);
   });
 });
+
+describe("an audit plan written in sections side by side", () => {
+  /** Five issues: C-1, C-3 and C-5 cite billing.ts, C-2 and C-4 cite users.ts. Each section call plans its issues
+   * with local identifiers, and the section of C-5 shares billing.ts with a task of another section. */
+  async function sections() {
+    const { input: base, plan: template } = await fixture();
+    const task = template.tasks[0]; if (task === undefined) throw new Error("FIXTURE_TASK_ABSENT");
+    const issues = [1, 2, 3, 4, 5].map((index) => ({ ...base.canonicalIssues[0] as PlannerInput["canonicalIssues"][number], candidateId: `C-${index}`, claim: { trust: "untrusted_data" as const, title: `Issue ${index}`, description: `Issue ${index}` } }));
+    const input: PlannerInput = { ...base, canonicalIssues: issues };
+    const file = (id: string) => ["C-2", "C-4"].includes(id) ? "users.ts" : "billing.ts";
+    const records = { ...auditPlannerRecords(input), sourcePaths: (ids: readonly string[]) => [...new Set(ids.map(file))] };
+    const calls: PlannerStage[] = []; const artifacts = new Map<string, unknown>(); const together: number[] = [];
+    const port = {
+      async fits(stage: PlannerStage) { return stage.activityId.startsWith("planner/section/"); },
+      together: async <T, R>(items: readonly T[], run: (item: T) => Promise<R>) => { together.push(items.length); return Promise.all(items.map(run)); },
+      async call(stage: PlannerStage): Promise<unknown> {
+        calls.push(stage);
+        const ids = (stage.input as { planningScope: { recordIds: string[] } }).planningScope.recordIds;
+        const tasks = ids.map((issueId, index) => ({ ...task, id: `TASK-00${index + 1}`, title: `Fix ${issueId}`, addresses: { issues: [issueId], validation: ["VAL-001"], requirements: [] }, scope: { ...task.scope, likelyFiles: [file(issueId)] },
+          dependencies: { dependsOn: index > 0 ? [`TASK-00${index}`] : [], blocks: [], conflictsWith: [] }, context: ["resolves:Q-1"] }));
+        return stage.schema.parse({ ...template, title: `Plan for ${ids.join(", ")}`, acceptedIssueIds: ids, tasks, unresolvedQuestions: [{ id: "Q-1", question: `Decide for ${ids.join(", ")}`, blocking: false, blastRadius: "low" }],
+          taskGraph: tasks.slice(1).map(({ id }, index) => ({ from: `TASK-00${index + 1}`, to: id })), traceability: { ...template.traceability, issueToValidation: ids.map((issueId) => ({ issueId, validationIds: ["VAL-001"] })) },
+          routingRecommendations: tasks.map(({ id, routing }) => ({ taskId: id, capability: routing.capability, effort: routing.effort, reason: routing.reason })) });
+      },
+      async publish(kind: string, value: unknown) { artifacts.set(kind, value); },
+    };
+    return { input, records, port, calls, artifacts, together };
+  }
+
+  it("plans related issues together, side by side, and joins them with global numbers and ordered shared writes", async () => {
+    const { input, records, port, calls, artifacts, together } = await sections();
+    const plan = await planWithContext(input, port, { records, recordsPerSection: 3 });
+    // Ordered by the files they cite: the three billing issues, then the two users issues.
+    expect(calls.map((stage) => (stage.input as { planningScope: { recordIds: string[] } }).planningScope.recordIds)).toEqual([["C-1", "C-3", "C-5"], ["C-2", "C-4"]]);
+    expect(together).toEqual([2]);
+    expect(calls[0]?.sourcePaths).toEqual(["billing.ts"]);
+    expect((calls[1]?.input as { planningScope: { otherIssues: { candidateId: string }[] } }).planningScope.otherIssues.map(({ candidateId }) => candidateId)).toEqual(["C-1", "C-3", "C-5"]);
+    expect(plan.tasks.map(({ id, title }) => [id, title])).toEqual([["TASK-001", "Fix C-1"], ["TASK-002", "Fix C-3"], ["TASK-003", "Fix C-5"], ["TASK-004", "Fix C-2"], ["TASK-005", "Fix C-4"]]);
+    expect(plan.validationContract.validation.map(({ id }) => id)).toEqual(["VAL-001", "VAL-002"]);
+    expect(plan.tasks.map(({ addresses }) => addresses.validation[0])).toEqual(["VAL-001", "VAL-001", "VAL-001", "VAL-002", "VAL-002"]);
+    expect(plan.taskGraph).toEqual([{ from: "TASK-001", to: "TASK-002" }, { from: "TASK-002", to: "TASK-003" }, { from: "TASK-004", to: "TASK-005" }]);
+    expect(plan.unresolvedQuestions.map(({ id }) => id)).toEqual([expect.stringMatching(/^section-[0-9a-f]{24}\/Q-1$/u), expect.stringMatching(/^section-[0-9a-f]{24}\/Q-1$/u)]);
+    expect(plan.tasks.map(({ context }) => context[0])).toEqual([...Array(3).fill(`resolves:${plan.unresolvedQuestions[0]?.id}`), ...Array(2).fill(`resolves:${plan.unresolvedQuestions[1]?.id}`)]);
+    expect(plan.acceptedIssueIds).toEqual(["C-1", "C-2", "C-3", "C-4", "C-5"]);
+    expect(artifacts.get("planner-composition")).toMatchObject({ kind: "sections_side_by_side", sections: 2, logicalModelCalls: 2 });
+  });
+
+  it("plans a section that does not fit as two halves, and leaves a plan within one section to one call", async () => {
+    const { input, records, port, calls } = await sections();
+    await planWithContext(input, { ...port, fits: async (stage) => stage.activityId.startsWith("planner/section/") && (stage.input as { planningScope: { recordIds: string[] } }).planningScope.recordIds.length < 3 }, { records, recordsPerSection: 3 });
+    expect(calls.map((stage) => (stage.input as { planningScope: { recordIds: string[] } }).planningScope.recordIds)).toEqual([["C-1", "C-3"], ["C-5"], ["C-2", "C-4"]]);
+    calls.length = 0;
+    await expect(planWithContext(input, { ...port, fits: async () => false }, { records, recordsPerSection: 5 })).rejects.toThrow();
+    expect(calls.some(({ activityId }) => activityId.startsWith("planner/section/"))).toBe(false);
+  });
+});
