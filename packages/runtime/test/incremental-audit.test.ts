@@ -161,7 +161,8 @@ describe("incremental and repeat audits", () => {
     const next = await orchestrator.run(incremental(f.config, base.runId));
     const incrementalCalls = [...f.calls];
     expect([full.state, next.state]).toEqual(["COMPLETED", "COMPLETED"]);
-    const expected = ["Unchecked parse alpha|accepted|none|2", "Unchecked parse delta|accepted|none|2", "Unchecked parse gamma|accepted|none|2"];
+    // Every accepted issue was also put to the verifier: a peer vote ranks a candidate, it does not decide it.
+    const expected = ["Unchecked parse alpha|accepted|CONFIRMED|2", "Unchecked parse delta|accepted|CONFIRMED|2", "Unchecked parse gamma|accepted|CONFIRMED|2"];
     expect(await issues(orchestrator, full.runId)).toEqual(expected);
     expect(await issues(orchestrator, next.runId)).toEqual(expected);
     const summary = async (runId: string) => { const rest = { ...await orchestrator.summary(runId) as Record<string, unknown> }; delete rest["runId"]; delete rest["artifacts"]; delete rest["incremental"]; return rest; };
@@ -210,7 +211,7 @@ describe("incremental and repeat audits", () => {
     const report = await resumed.incrementalReport(failed.runId);
     expect(regenerated(report)).toEqual(["pkg/gamma.ts", "src/alpha.ts"]);
     expect(report.units.filter(({ paths }) => paths.includes("src/beta.ts")).every(({ decision }) => decision === "reuse")).toBe(true);
-    expect(await issues(resumed, failed.runId)).toEqual(["Unchecked parse alpha-two|accepted|none|2", "Unchecked parse alpha|accepted|none|2", "Unchecked parse beta|accepted|none|2"]);
+    expect(await issues(resumed, failed.runId)).toEqual(["Unchecked parse alpha-two|accepted|CONFIRMED|2", "Unchecked parse alpha|accepted|CONFIRMED|2", "Unchecked parse beta|accepted|CONFIRMED|2"]);
   });
 
   it("falls back to a full audit for an unfinished base, and records why", async () => {
