@@ -559,6 +559,7 @@ export class ModelAuditPipeline {
         const maximumPlanRecords = expectedRecordCapacity(outputCapacity, OUTPUT_TOKENS_PER_RECORD.plannerPlanIssue);
         const maximumOutlineRecords = expectedRecordCapacity(outputCapacity, OUTPUT_TOKENS_PER_RECORD.plannerOutlineIssue);
         const parallel = providerExecutionSchema.parse(this.config.workflow["modelExecution"]).maximumParallelCalls ?? 1;
+        const recordsPerSection = providerExecutionSchema.parse(this.config.workflow["modelExecution"]).planSections?.issuesPerSection;
         return replanOnOutputLimit(() => { plannerCalls = 0; return planWithContext(request.input, {
           fits: (stage) => this.sendable(stageInput(stage), false),
           admits: (stage) => this.sendable(stageInput(stage), true),
@@ -566,7 +567,7 @@ export class ModelAuditPipeline {
           together: (items, run) => sideBySide(items, parallel, run),
           call: (stage) => { plannerCalls += 1; return this.call(stageInput(stage)); },
           publish: (kind, value) => this.context.store.publish(kind, value),
-        }, { maximumBriefRecords, maximumPlanRecords, maximumOutlineRecords, records: records(request.input), fullSchema: traceablePlanSchema("audit", null, request.input.canonicalIssues.filter(isPlannable).map(({ candidateId }) => candidateId)) }); });
+        }, { maximumBriefRecords, maximumPlanRecords, maximumOutlineRecords, ...(recordsPerSection === undefined ? {} : { recordsPerSection }), records: records(request.input), fullSchema: traceablePlanSchema("audit", null, request.input.canonicalIssues.filter(isPlannable).map(({ candidateId }) => candidateId)) }); });
       } },
     });
     const { plan, modelCalls } = await planner.run({

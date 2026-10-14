@@ -83,6 +83,10 @@ export const providerExecutionSchema = z.object({
    * batches are not compared for a merge, plan records of different critic batches are not compared, and the
    * critic does not read the revised plan again. */
   review: z.object({ crossBatchMergeChecks: z.boolean(), criticPairChecks: z.boolean(), recheckRevisedPlan: z.boolean() }).partial().strict().optional(),
+  /** An audit plan of more accepted issues than this is written in sections of related issues side by side, each a
+   * whole plan in one call, and joined. Off unless set: the plan is one call while it fits, else notes, an outline
+   * and one call a task. */
+  planSections: z.object({ issuesPerSection: z.number().int().min(1).max(500) }).strict().optional(),
   timeoutMs: z.number().int().positive().max(2_147_483_647),
   maximumRetries: z.number().int().min(0).max(10),
   /** Re-asks, per model stage, after a reply fails output validation (invalid JSON, schema or grounding). Each is a separate durable, budgeted activity. */
