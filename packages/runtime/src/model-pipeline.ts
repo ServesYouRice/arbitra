@@ -492,7 +492,19 @@ export class ModelAuditPipeline {
         verifyGroup: async (requests) => {
           const stage = groupQuestion(requests);
           try { return (await this.call(stage)).map((answer) => ({ ...answer, activityId: stage.activityId, artifactRefs: [] })); }
-          catch (error) { return Promise.all(requests.map((request) => unanswered(request, stage.activityId, error))); }
+          catch (error) {
+            // A group its provider declines, or whose reply stays invalid or stops at the output ceiling, is asked
+            // again one question at a time, so one hard question does not leave the others of its group open.
+            if (!(error instanceof ModelRefusalError) && !(error instanceof ModelOutputLimitError) && !isModelOutputRejection(error)) throw error;
+            await context.store.publish(`verification-group-split-${createHash("sha256").update(stage.activityId).digest("hex").slice(0, 24)}`, { activityId: stage.activityId, candidateIds: requests.map(({ candidateId }) => candidateId), reason: (error as Error).message.slice(0, 1_000) });
+            const answers = [];
+            for (const request of requests) {
+              const single = question(request);
+              try { answers.push({ ...await this.call(single), activityId: single.activityId, artifactRefs: [] }); }
+              catch (failure) { answers.push(await unanswered(request, single.activityId, failure)); }
+            }
+            return answers;
+          }
         },
       },
     });
