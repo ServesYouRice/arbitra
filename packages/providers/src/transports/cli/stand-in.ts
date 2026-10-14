@@ -25,7 +25,9 @@ export type CliStandInReply =
   /** Antigravity only: a tool call soft-denied on stderr, a SUCCESS with an empty response, or a run waiting for approval. */
   | { readonly kind: "soft_denied" }
   | { readonly kind: "empty_success" }
-  | { readonly kind: "waiting" };
+  | { readonly kind: "waiting" }
+  /** Codex only: a configuration setting it ignores, reported as an error item, then an ordinary answer. */
+  | { readonly kind: "ignored_setting" };
 
 export interface CliStandInScenario {
   readonly vendor: CliVendor;
@@ -97,7 +99,8 @@ function run() {
   const prompt = s.vendor !== "antigravity" ? stdin : streamInput ? message?.message?.content ?? null : args[args.indexOf("-p") + 1];
   if (s.reportFile) fs.writeFileSync(s.reportFile + "." + index, JSON.stringify({ cwd: process.cwd(), argv: args, env: process.env, stdin: prompt,
     files: fs.readdirSync(process.cwd()).sort(), geminiSettings: fs.existsSync(".gemini/settings.json") ? JSON.parse(fs.readFileSync(".gemini/settings.json", "utf8")) : null,
-    system: s.vendor === "gemini" ? fs.readFileSync(process.env.GEMINI_SYSTEM_MD, "utf8") : args.includes("--system-prompt-file") ? fs.readFileSync(systemFile, "utf8") : null,
+    system: s.vendor === "gemini" ? fs.readFileSync(process.env.GEMINI_SYSTEM_MD, "utf8") : args.includes("--system-prompt-file") ? fs.readFileSync(systemFile, "utf8")
+      : s.vendor === "codex" && args.some((value) => value.startsWith("model_instructions_file=")) ? fs.readFileSync(JSON.parse(args.find((value) => value.startsWith("model_instructions_file=")).slice("model_instructions_file=".length)), "utf8") : null,
     schema: args.includes(schemaFlag) && fs.existsSync(schemaFile) ? JSON.parse(fs.readFileSync(schemaFile, "utf8")) : null }));
   // agy 1.3.3 accepts only {"event":"user","message":{"content":...}} and answers anything else with an ERROR result;
   // the stand-in also refuses a -p beside it, which the dialect never sends.
@@ -132,11 +135,15 @@ function run() {
     const rollout = path.join(sessions, "rollout-" + today.getFullYear() + "-" + pad(today.getMonth() + 1) + "-" + pad(today.getDate()) + "T00-00-00-" + thread + ".jsonl");
     if (resumed && !fs.existsSync(rollout)) { process.stderr.write("Error: thread not found\n"); process.exit(1); }
     if (!args.includes("--ephemeral") && !resumed) { fs.mkdirSync(sessions, { recursive: true }); fs.writeFileSync(rollout, ""); }
-    out({ type: "thread.started", thread_id: thread }); out({ type: "turn.started" });
+    out({ type: "thread.started", thread_id: thread });
+    // Codex 0.162 reports a configuration setting it ignores as an error item before the turn (observed live).
+    if (reply.kind === "ignored_setting") out({ type: "item.completed", item: { id: "item_0", type: "error", message: "Codex is ignoring 1 unrecognized configuration setting. Check for typos or deprecated settings.\n  session-flags: 'base_instructions' is ignored." } });
+    out({ type: "turn.started" });
     switch (reply.kind) {
       case "text": out({ type: "item.completed", item: { id: "item_0", type: "reasoning", text: "thinking" } });
         out({ type: "item.completed", item: { id: "item_1", type: "agent_message", text: reply.text } });
         out({ type: "turn.completed", usage: reply.usage === false ? undefined : resumed ? { input_tokens: 30, cached_input_tokens: 20, output_tokens: 9, reasoning_output_tokens: 2 } : { input_tokens: 12, cached_input_tokens: 4, output_tokens: 6, reasoning_output_tokens: 1 } }); process.exit(0);
+      case "ignored_setting": out({ type: "item.completed", item: { id: "item_1", type: "agent_message", text: "NONE" } }); out({ type: "turn.completed", usage: { input_tokens: 12, cached_input_tokens: 4, output_tokens: 6 } }); process.exit(0);
       case "tool_use": out({ type: "item.started", item: { id: "item_1", type: "command_execution", command: "ls", status: "in_progress" } }); return hang();
       case "not_logged_in": process.stderr.write("Error: Not logged in. Run codex login\n"); process.exit(1);
       case "usage_limit": out({ type: "turn.failed", error: { message: "You've hit your usage limit. Upgrade to Pro or try again in 2 hours 5 minutes." } }); process.exit(1);

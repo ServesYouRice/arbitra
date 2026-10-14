@@ -79,8 +79,9 @@ describe.each(VENDORS)("%s subscription CLI transport", { timeout: 30_000 }, (ve
     expect(report.stdin).toContain("Say pong.");
     // The Antigravity CLI has no system-prompt flag: the instructions lead its prompt.
     if (vendor === "antigravity") expect(report.stdin).toBe(`${CLI_ENGINE_PREAMBLE}\n\nAnswer tersely.\n\nSay pong.`);
-    else if (vendor !== "codex") expect(report.system).toBe(`${CLI_ENGINE_PREAMBLE}\n\nAnswer tersely.`);
-    else expect(report.argv.find((value) => value.startsWith("base_instructions="))).toBe(`base_instructions=${JSON.stringify(`${CLI_ENGINE_PREAMBLE}\n\nAnswer tersely.`)}`);
+    else expect(report.system).toBe(`${CLI_ENGINE_PREAMBLE}\n\nAnswer tersely.`);
+    // Codex reads the instructions from a file in the call's control directory, outside its working directory.
+    if (vendor === "codex") expect(JSON.parse(report.argv.find((value) => value.startsWith("model_instructions_file="))?.slice("model_instructions_file=".length) ?? "\"\"")).not.toContain(report.cwd);
     const flags = { "claude-code": ["--tools", "", "--safe-mode", "--strict-mcp-config", "--setting-sources", "--no-session-persistence", "--disable-slash-commands"],
       codex: ["--ephemeral", "--ignore-user-config", "--ignore-rules", "read-only", "shell_tool", "unified_exec", "project_doc_max_bytes=0", "approval_policy=\"never\""],
       gemini: ["--approval-mode", "plan", "--extensions", "none"], antigravity: ["--output-format", "stream-json", "--sandbox", "--disable-slash-commands", "--print-timeout", "20s"] }[vendor];
@@ -290,6 +291,14 @@ describe("sessions of Codex and the Antigravity CLI", { timeout: 30_000 }, () =>
     expect(existsSync(opened.cwd)).toBe(false); expect(await readdir(sessions)).toEqual([]);
     await send(f.transport);
     expect((await f.report(2)).argv).toContain("--ephemeral");
+  });
+
+  it("fails a Codex call whose configuration Codex says it ignores, instead of answering without it", async () => {
+    // Observed live (Codex 0.162, October 14, 2026): base_instructions was ignored, so every call ran without arbitra's instructions.
+    const f = await fixture({ vendor: "codex", replies: [{ kind: "ignored_setting" }] });
+    const error = await failure(send(f.transport));
+    expect(error).toMatchObject({ code: "INVALID_REQUEST", retryable: false });
+    expect(error.message).toContain("CLI_CONFIGURATION_IGNORED");
   });
 
   it("the Antigravity CLI continues its conversation with the tool results alone, and every call's conversation is removed", async () => {

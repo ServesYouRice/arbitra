@@ -255,11 +255,17 @@ export const codexDialect: CliDialect = {
     const codexHome = context.lookup("CODEX_HOME");
     const state = join(context.control, "codex-state");
     await mkdir(state, { recursive: true, mode: 0o700 });
+    // The system text replaces Codex's own agent instructions. Codex 0.162 ignores `base_instructions` (it says so as
+    // an error item and goes on without the text: observed October 14, 2026, a secret word given there was unknown to
+    // the model), so every Codex call of the P20 pilot ran without arbitra's instructions; `model_instructions_file`
+    // carries them, and leaves out about 4,200 tokens of Codex's own prompt a call.
+    const instructions = join(context.control, "instructions.md");
+    await writeFile(instructions, context.prompt.system, { mode: 0o600 });
     const toml = (value: string) => JSON.stringify(value);
     const shared = ["--ignore-user-config", "--ignore-rules", "--skip-git-repo-check", "--json", "--model", context.request.modelId, ...CODEX_DISABLED_FEATURES.flatMap((feature) => ["--disable", feature]),
       "-c", "web_search=\"disabled\"", "-c", "project_doc_max_bytes=0", "-c", "include_environment_context=false", "-c", "include_apps_instructions=false",
       "-c", "include_permissions_instructions=false", "-c", "include_collaboration_mode_instructions=false", "-c", "approval_policy=\"never\"", "-c", "mcp_servers={}",
-      "-c", `base_instructions=${toml(context.prompt.system)}`,
+      "-c", `model_instructions_file=${toml(instructions)}`,
       ...(typeof effort["effort"] === "string" ? ["-c", `model_reasoning_effort=${toml(effort["effort"])}`] : [])];
     // `exec resume` takes neither --sandbox nor --cd: the sandbox is set as configuration, and the process already runs
     // in the session's working directory.
@@ -285,6 +291,9 @@ export const codexDialect: CliDialect = {
           const item = record(event["item"]);
           const kind = String(item?.["type"] ?? "unknown");
           if (!CODEX_ALLOWED_ITEMS.has(kind)) throw forbiddenToolUse(CODEX, `a ${kind} item`, true);
+          // A setting Codex ignores changes what the model is told without failing the call: it is a setup fault.
+          const notice = kind === "error" ? text(item?.["message"]) ?? "" : "";
+          if (/unrecognized configuration setting|is ignored/iu.test(notice)) throw new TransportError("INVALID_REQUEST", `CLI_CONFIGURATION_IGNORED: Codex ignored a setting arbitra relies on: ${notice.replace(/\s+/gu, " ").slice(0, 240)}`, false);
           if (kind === "agent_message" && event["type"] === "item.completed") reply = text(item?.["text"]);
         }
         if (event["type"] === "turn.completed") { completed = true; usage = record(event["usage"]); }
