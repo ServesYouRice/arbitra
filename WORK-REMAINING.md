@@ -155,6 +155,35 @@ Live configurations come from `tooling/live/bindings.subscription.json`. The API
 The owner asked on October 11 that every P20 run also serve as a test of arbitra itself: what fails, what costs
 too much and what is slow. Findings from the runs' own data go here, with their numbers.
 
+**The first Opus-only run on 9ef97b8 (October 17).** 21 minutes with a call in flight, 171 calls, 3.18M tokens, no
+failed call (the same audit on 28f2332: 62 minutes, 8.83M). Audit 8 minutes, clustering 1, verification 6, plan 6
+(three sections side by side). What it shows, largest first; none is applied mid-protocol:
+
+- **Verification is three quarters of the tokens:** 2.35M of 3.18M, 162 calls for 63 questions (2.6 turns a question,
+  265 tool calls; 77% of the follow-ups' input read from the cache). The 20 low-severity questions took 639K, and
+  low issues get no task under `planScope`. Candidates: a cheaper verifier for low severity (design audit item 14),
+  measured against the frontier verifier's verdicts on the same questions.
+- **No first call reads anything from Claude Code's cache:** 72 first calls (every audit unit, the clustering call,
+  63 first verification turns, 3 plan sections) wrote 1.18M tokens to the cache and read none; the run on 28f2332
+  likewise wrote 5.24M and read none. Each call is its own `claude -p` in its own directory; why not even the shared
+  preamble is read is not measured yet (a per-call directory in Claude Code's system prompt, or a shared start below
+  the shortest prompt the model caches). It belongs to the design audit's open experiment (the stage's stable part
+  in the system-prompt file, one directory per stage), and this run is its baseline.
+- **An abstention says nothing about why:** the verifier's answer is outcome, evidence IDs and confidence. Six
+  questions ended "cannot tell", and neither the report nor the handoff can say what would decide them. Two of the
+  six are one concern (a process-local lock with a pluggable store) reported from two discovery units. Candidate:
+  one sentence of what the source cannot show, required for "cannot tell" and "rejected", shown in the handoff.
+- **Duplicates between discovery units are never compared:** of 97 pairs the structural rule scored, the semantic
+  check classified the 37 that share lines, all within one unit; the 14 pairs from different units with the same
+  failure mechanism were left unclassified, and the two lock reports above were not a pair at all (different
+  files). Clustering merged one pair: 64 findings, 63 candidates. Candidate: send pairs across units with the
+  same failure mechanism to the semantic check, under the 300-pair cap.
+- **The longest unit sets the audit's time:** five units, 3.3 to 7.3 minutes (the longest wrote 48,500 output
+  tokens). Smaller or balanced units would shorten the audit by about two minutes; low priority while the audit is
+  meant to be the longest stage.
+- **One run takes a quarter of Claude's five-hour window** (2% to 25%). Three Opus-only runs and a panel do not fit
+  one window, so the runner's 80% guard paces each project.
+
 **Where a panel run's time goes.** The first panel run (Sonnet 5.5, GPT-6 Luna, Gemini 3.8 Flash on a project of
 54 files) made 141 calls in its first four and a half hours, almost all one after another. Replaying the
 recorded times of its first 128 calls (discovery, the first review round and its conflicts):
