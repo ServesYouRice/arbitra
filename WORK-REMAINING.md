@@ -217,6 +217,15 @@ Quality is scored in the private benchmark. What the third run adds:
   unknown tasks are still refused. Planner and runtime plan suites, typecheck and lint pass on Windows; the whole
   Linux check is due with the next run build. Protocol 2.7.0 keeps 9ef97b8.
 
+**The second panel run on 9ef97b8 (October 17, another project).** 52 minutes, 371 calls, 9.03M tokens, no failed
+call: 0.67 of the time and 0.69 of the tokens of three Opus-only runs (estimated from the one run on that project).
+What it adds:
+
+- **Four Antigravity CLI calls were recorded without token usage** (two audit turns, one review call, and the
+  critic's 8-minute call), so the run's token count is low by those calls. The first panel had none. Find out
+  whether the CLI omitted usage in its output or arbitra failed to read it. The budget does count them
+  (`unknownUsageRequests`: 4), but every token total leaves them out.
+
 **Where a panel run's time goes.** The first panel run (Sonnet 5.5, GPT-6 Luna, Gemini 3.8 Flash on a project of
 54 files) made 141 calls in its first four and a half hours, almost all one after another. Replaying the
 recorded times of its first 128 calls (discovery, the first review round and its conflicts):
