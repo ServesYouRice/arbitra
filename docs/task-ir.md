@@ -31,7 +31,12 @@ shared writes itself, so its plans are exempt. The run adds the orders a plan le
 later task by id waits for the nearest earlier one that writes the same files, in its
 `dependsOn` and in `taskGraph`. A plan states the orders that matter, so what it leaves
 unordered is independent work on the same files, and any order serialises it; an order the
-plan states is kept, whichever way it runs. The check stays as the last line. Planner calls
+plan states is kept, whichever way it runs. Before that, in every mode, it makes the plan's
+two statements of order agree (`withGraphMatchingDependencies`): an order a task's `dependsOn`
+or `blocks` states is added to `taskGraph`, an edge only in `taskGraph` is added to the later
+task's `dependsOn`, and an edge stated twice is kept once; edges naming unknown tasks are left
+to the check. Observed live: a plan section was refused for one `dependsOn` missing from
+`taskGraph`, and its repair wrote the section again. The check stays as the last line. Planner calls
 refuse the other violations inside the call, so the bounded output repair can fix them. `apps/web/src/views/plan/traceability.ts` walks the same chain
 in both directions in the UI.
 

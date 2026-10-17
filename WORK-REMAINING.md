@@ -203,6 +203,20 @@ to 68%. What it adds to the list above:
   duplicates one of another section, which the duplicates item above would have caught earlier. Candidate: merge
   the sections' questions before the plan is composed, and drop the ones the repository answers.
 
+**The first project complete on 9ef97b8 (October 17).** The second and third Opus-only runs took 24 and 25 minutes,
+199 and 186 calls, 3.63M and 3.53M tokens, no failed call. Against the three Opus-only runs together (70 minutes,
+10.34M tokens) the panel took 0.66 times the time and 0.76 times the tokens; the owner's aims allow 1.5 and 1.7.
+Quality is scored in the private benchmark. What the third run adds:
+
+- **A plan section was written twice for one missing graph edge.** One of three sections was refused
+  (`INVALID_TASK_GRAPH`: a task's `dependsOn` named a task the section's `taskGraph` left out), and the repair wrote
+  the whole section again: 86,000 tokens in, 30,300 out, 4 of the plan stage's 10 minutes. A plan states each order
+  twice, so the run can complete one statement from the other. Fixed on `beta` after 9ef97b8:
+  `withGraphMatchingDependencies` (in `withSharedWritesOrdered`, so every plan, outline and revision a model
+  returns gets it) adds an order stated in one place to the other and keeps a duplicated edge once; edges to
+  unknown tasks are still refused. Planner and runtime plan suites, typecheck and lint pass on Windows; the whole
+  Linux check is due with the next run build. Protocol 2.7.0 keeps 9ef97b8.
+
 **Where a panel run's time goes.** The first panel run (Sonnet 5.5, GPT-6 Luna, Gemini 3.8 Flash on a project of
 54 files) made 141 calls in its first four and a half hours, almost all one after another. Replaying the
 recorded times of its first 128 calls (discovery, the first review round and its conflicts):

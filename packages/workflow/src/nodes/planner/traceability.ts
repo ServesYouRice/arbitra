@@ -133,9 +133,11 @@ function covers(a: string, b: string): boolean { return a === b || a.startsWith(
  * `dependencies`; `validateSharedWriteOrder` still reports whatever stays unordered. A task with `context` says why it
  * waits (`SHARED_WRITE_ORDER_NOTE`), so a reader does not take the edge for a functional dependency: observed live
  * (P20 pilot), 27 of a critic's 108 blocking items objected to such edges as spurious, and its revision would have
- * removed edges the run adds back.
+ * removed edges the run adds back. It first makes the plan's two statements of order agree
+ * (`withGraphMatchingDependencies`), in every mode.
  */
-export function withSharedWritesOrdered<TPlan extends { readonly mode: TraceablePlan["mode"]; readonly tasks: readonly WriteScopedTask[]; readonly taskGraph?: TraceablePlan["taskGraph"] }>(plan: TPlan): TPlan {
+export function withSharedWritesOrdered<TPlan extends { readonly mode: TraceablePlan["mode"]; readonly tasks: readonly WriteScopedTask[]; readonly taskGraph?: TraceablePlan["taskGraph"] }>(stated: TPlan): TPlan {
+  const plan = withGraphMatchingDependencies(stated);
   if (plan.mode === "testing") return plan;
   const edges = dependencyEdges(plan.tasks, plan.taskGraph);
   const reaches = (from: string, to: string): boolean => {
@@ -165,6 +167,35 @@ export function withSharedWritesOrdered<TPlan extends { readonly mode: Traceable
         ...(Array.isArray(context) ? { context: [...context as string[], ...earlier.map(({ from, paths }) => sharedWriteOrderNote(from, paths))] } : {}) };
     }),
     ...(plan.taskGraph === undefined ? {} : { taskGraph: [...plan.taskGraph, ...added.map(({ from, to }) => ({ from, to }))] }) } as TPlan;
+}
+/**
+ * A plan states each order twice: in its tasks' `dependsOn` and `blocks`, and in `taskGraph`. Where the two disagree,
+ * an order stated in one place is added to the other, and an edge stated twice in `taskGraph` is kept once, so no
+ * stated order is lost and none is invented. An edge naming an unknown task or the task itself, and a cycle, are left
+ * to the full check. Observed live (P20 pilot, October 17): a plan section was refused because one `dependsOn` was
+ * missing from `taskGraph`, and its repair wrote the whole section again, 30,000 output tokens in four minutes.
+ */
+export function withGraphMatchingDependencies<TPlan extends { readonly tasks: readonly WriteScopedTask[]; readonly taskGraph?: TraceablePlan["taskGraph"] }>(plan: TPlan): TPlan {
+  if (plan.taskGraph === undefined) return plan;
+  const tasks = new Map(plan.tasks.map((task) => [task.id, task]));
+  const key = ({ from, to }: { readonly from: string; readonly to: string }) => JSON.stringify([from, to]);
+  const declared = new Map<string, { from: string; to: string }>();
+  for (const task of plan.tasks) {
+    for (const from of task.dependencies?.dependsOn ?? []) declared.set(key({ from, to: task.id }), { from, to: task.id });
+    for (const to of task.dependencies?.blocks ?? []) declared.set(key({ from: task.id, to }), { from: task.id, to });
+  }
+  const rendered = new Map(plan.taskGraph.map((edge) => [key(edge), edge]));
+  const known = ({ from, to }: { readonly from: string; readonly to: string }) => from !== to && tasks.has(from) && tasks.has(to);
+  const toGraph = [...declared].filter(([edge, stated]) => !rendered.has(edge) && known(stated)).map(([, stated]) => stated);
+  // The full check compares the two only where both tasks state their dependencies, so only those gain one.
+  const toTasks = [...rendered].filter(([edge, stated]) => !declared.has(edge) && known(stated) && tasks.get(stated.from)?.dependencies !== undefined && tasks.get(stated.to)?.dependencies !== undefined).map(([, stated]) => stated);
+  if (toGraph.length === 0 && toTasks.length === 0 && rendered.size === plan.taskGraph.length) return plan;
+  return { ...plan,
+    tasks: plan.tasks.map((task) => {
+      const earlier = toTasks.filter(({ to }) => to === task.id).map(({ from }) => from);
+      return earlier.length === 0 || task.dependencies === undefined ? task : { ...task, dependencies: { ...task.dependencies, dependsOn: [...task.dependencies.dependsOn, ...earlier] } };
+    }),
+    taskGraph: [...rendered.values(), ...toGraph] } as TPlan;
 }
 /** The start of what a task's context says about a dependency the run added only to order edits to shared files. */
 export const SHARED_WRITE_ORDER_NOTE = "Ordered by arbitra, not a functional dependency:";
