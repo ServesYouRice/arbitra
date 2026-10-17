@@ -122,6 +122,28 @@ describe("shared write scope ordering", () => {
     expect(withSharedWritesOrdered(testing)).toBe(testing);
   });
 
+  it("completes the task graph and the dependencies from each other, so no repair has to write the plan again", async () => {
+    // Observed live (P20 pilot): a plan section was refused for one dependsOn missing from taskGraph and written again.
+    const base = (await planSchema()).parse(plan()); const first = requiredAt(base.tasks, 0);
+    const free = { dependsOn: [], blocks: [], conflictsWith: [] };
+    const second = { ...first, id: "TASK-002", dependencies: { ...free, dependsOn: [first.id] } };
+    const third = { ...first, id: "TASK-003", dependencies: free, scope: { ...first.scope, likelyFiles: ["docs/unrelated.md"] } };
+    const tasks = [first, second, third];
+    const stated: TraceablePlan = { ...base, tasks, taskGraph: [], routingRecommendations: tasks.map(({ id }) => ({ taskId: id })) };
+    expect(validateTraceability(stated)).toContainEqual(expect.objectContaining({ code: "INVALID_TASK_GRAPH" }));
+    // A dependsOn missing from the graph is added to it, an edge only in the graph to the later task's dependsOn,
+    // and an edge stated twice is kept once.
+    const completed = withSharedWritesOrdered({ ...stated, taskGraph: [{ from: second.id, to: third.id }, { from: second.id, to: third.id }] });
+    expect(completed.taskGraph).toEqual([{ from: second.id, to: third.id }, { from: first.id, to: second.id }]);
+    expect(completed.tasks.map(({ dependencies }) => dependencies?.dependsOn)).toEqual([[], [first.id], [second.id]]);
+    expect(validateTraceability(completed)).toEqual([]);
+    expect(withSharedWritesOrdered(completed)).toBe(completed);
+    // An edge to an unknown task is not made up for: the full check still reports it.
+    expect(validateTraceability(withSharedWritesOrdered({ ...stated, taskGraph: [{ from: first.id, to: second.id }, { from: first.id, to: "TASK-404" }] }))).toEqual([expect.objectContaining({ code: "INVALID_TASK_GRAPH", message: "Invalid dependency TASK-001 -> TASK-404." })]);
+    // Testing plans have no shared-write ordering, but their two statements of order are made to agree as well.
+    expect(withSharedWritesOrdered({ ...stated, mode: "testing" }).taskGraph).toEqual([{ from: first.id, to: second.id }]);
+  });
+
   it("returns the ordered plan from the node instead of failing the stage", async () => {
     const base = plan(); const first = requiredAt(base.tasks, 0);
     const raw = { ...base, tasks: [first, { ...first, id: "TASK-002" }], routingRecommendations: [...base.routingRecommendations, { ...requiredAt(base.routingRecommendations, 0), taskId: "TASK-002" }] };
