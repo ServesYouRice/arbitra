@@ -226,6 +226,25 @@ What it adds:
   whether the CLI omitted usage in its output or arbitra failed to read it. The budget does count them
   (`unknownUsageRequests`: 4), but every token total leaves them out.
 
+**The first Opus-only run on a third project (October 17).** 19 minutes, 138 calls, 2.47M tokens, no failed call;
+audit 8 minutes (50 findings), clustering 1, verification 5 (36 confirmed, 11 rejected, 3 undecided), plan 5 (21
+tasks for 23 issues). What it adds:
+
+- **Verification dropped a real defect.** One of the 11 rejections was the only report of a defect the benchmark
+  plants, so the accepted list holds one defect fewer than the audit found. On the two earlier projects
+  verification also rejected a true report, but another report of the same defect was kept each time. Examine the
+  verifier's question and answer for that report (in the private run state) before design audit item 14 makes the
+  verifier cheaper: a false rejection costs more than a false confirmation, which the plan's review can still drop.
+
+**Claude Code's own `/code-review` on the first project (October 17).** Run headless at `max` with
+`--max-findings all`, Opus 5.5 at high effort, on a copy of the checkout arbitra audited: 79.5 minutes, 49 subagents,
+544 file reads, 73.0M tokens (62.6M read from the cache, 8.2M written to it, 2.2M output), $98 at list price, 68% of
+the Claude five-hour window and 9 points of the week. One arbitra Opus-only run on the same checkout took 21 to 25
+minutes and about 23% of the window; three took 70 minutes and about 71%. Quality is scored in the private benchmark:
+there `/code-review` matched one Opus-only run, and the panel did better than both. So arbitra's single-model
+pipeline gives the same result for about a third of the subscription cost, and its panel a better one in 46 minutes
+with 43% of the Claude window (plus its Codex and Gemini calls).
+
 **Where a panel run's time goes.** The first panel run (Sonnet 5.5, GPT-6 Luna, Gemini 3.8 Flash on a project of
 54 files) made 141 calls in its first four and a half hours, almost all one after another. Replaying the
 recorded times of its first 128 calls (discovery, the first review round and its conflicts):
