@@ -155,7 +155,7 @@ Live configurations come from `tooling/live/bindings.subscription.json`. The API
 The owner asked on October 11 that every P20 run also serve as a test of arbitra itself: what fails, what costs
 too much and what is slow. Findings from the runs' own data go here, with their numbers.
 
-**The first Opus-only run on 9ef97b8 (October 17).** 21 minutes with a call in flight, 171 calls, 3.18M tokens, no
+**The first Opus-only run on 9ef97b8 (October 17, protocol 2.7.0 of the private benchmark).** 21 minutes with a call in flight, 171 calls, 3.18M tokens, no
 failed call (the same audit on 28f2332: 62 minutes, 8.83M). Audit 8 minutes, clustering 1, verification 6, plan 6
 (three sections side by side). What it shows, largest first; none is applied mid-protocol:
 
@@ -171,11 +171,11 @@ failed call (the same audit on 28f2332: 62 minutes, 8.83M). Audit 8 minutes, clu
   in the system-prompt file, one directory per stage), and this run is its baseline.
 - **An abstention says nothing about why:** the verifier's answer is outcome, evidence IDs and confidence. Six
   questions ended "cannot tell", and neither the report nor the handoff can say what would decide them. Two of the
-  six are one concern (a process-local lock with a pluggable store) reported from two discovery units. Candidate:
+  six are one concern reported from two discovery units. Candidate:
   one sentence of what the source cannot show, required for "cannot tell" and "rejected", shown in the handoff.
 - **Duplicates between discovery units are never compared:** of 97 pairs the structural rule scored, the semantic
   check classified the 37 that share lines, all within one unit; the 14 pairs from different units with the same
-  failure mechanism were left unclassified, and the two lock reports above were not a pair at all (different
+  failure mechanism were left unclassified, and the two reports of one concern above were not a pair at all (different
   files). Clustering merged one pair: 64 findings, 63 candidates. Candidate: send pairs across units with the
   same failure mechanism to the semantic check, under the 300-pair cap.
 - **The longest unit sets the audit's time:** five units, 3.3 to 7.3 minutes (the longest wrote 48,500 output
@@ -183,6 +183,25 @@ failed call (the same audit on 28f2332: 62 minutes, 8.83M). Audit 8 minutes, clu
   meant to be the longest stage.
 - **One run takes a quarter of Claude's five-hour window** (2% to 25%). Three Opus-only runs and a panel do not fit
   one window, so the runner's 80% guard paces each project.
+
+**The first panel run on 9ef97b8 (October 17).** 46 minutes, 329 calls, 7.85M tokens, no failed call: about half of
+both aims (1.5 times the time and 1.7 times the tokens of three Opus-only runs, estimated from the first). Audit 7
+minutes, clustering 2, one review round 9, verification 11 (81 questions, 282 calls, 56% of the tokens), plan 9,
+critic 6 (26 remarks, 2 blocking; 10 checks, 2 held), revision 2 (2 calls). Claude's five-hour window went from 25%
+to 68%. What it adds to the list above:
+
+- **Stages call files of the repository missing.** Audit units and plan sections that are given part of the
+  repository write that other source files are "not in the snapshot" (four files that are in it, dozens of times
+  across the two runs), and both plans assume there is no package manifest, because the snapshot holds source only:
+  "Which test runner does the project use?" is asked twice, validation commands are left unknown ("so all commands
+  require approval"), and a question asks about an interface whose file the snapshot holds.
+  Candidates: say in every partial prompt that the files shown are part of a larger repository and list its file
+  index; give plan sections the source tools (no plan call used one); take package manifests and build configs
+  into the snapshot as untrusted evidence.
+- **Plan questions are not merged across sections.** 33 questions to the operator, 7 blocking (the Opus-only plan:
+  28, 5 blocking); one question is asked in three sections. Two questions say an issue of their section
+  duplicates one of another section, which the duplicates item above would have caught earlier. Candidate: merge
+  the sections' questions before the plan is composed, and drop the ones the repository answers.
 
 **Where a panel run's time goes.** The first panel run (Sonnet 5.5, GPT-6 Luna, Gemini 3.8 Flash on a project of
 54 files) made 141 calls in its first four and a half hours, almost all one after another. Replaying the
