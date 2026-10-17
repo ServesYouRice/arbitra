@@ -231,7 +231,9 @@ audit 8 minutes (50 findings), clustering 1, verification 5 (36 confirmed, 11 re
 tasks for 23 issues). What it adds:
 
 - **Verification dropped a real defect.** One of the 11 rejections was the only report of a defect the benchmark
-  plants, so the accepted list holds one defect fewer than the audit found. On the two earlier projects
+  plants, so the accepted list holds one defect fewer than the audit found. The second run on that project (19
+  minutes, 122 calls, 2.28M tokens) did the same: its audit reported every planted defect and its accepted list
+  lost one. On the two earlier projects
   verification also rejected a true report, but another report of the same defect was kept each time. Examine the
   verifier's question and answer for that report (in the private run state) before design audit item 14 makes the
   verifier cheaper: a false rejection costs more than a false confirmation, which the plan's review can still drop.
