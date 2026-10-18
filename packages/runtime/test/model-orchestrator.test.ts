@@ -16,12 +16,14 @@ import type { TestSandbox } from "../src/test-sandbox.js";
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
-async function fixture(options: { secondFile?: boolean; revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; ambiguousClustering?: boolean; oversizedRepository?: boolean; planQuestion?: boolean; verifierContextTokens?: number; invalidVerification?: boolean; invalidGroupVerification?: boolean; unanimousReview?: boolean; verificationByPlace?: boolean; severities?: readonly string[]; critiqueVerdict?: "HOLDS" | "DOES_NOT_HOLD" } = {}) {
+async function fixture(options: { secondFile?: boolean; revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; ambiguousClustering?: boolean; oversizedRepository?: boolean; packedReviewSource?: boolean; planQuestion?: boolean; verifierContextTokens?: number; invalidVerification?: boolean; invalidGroupVerification?: boolean; unanimousReview?: boolean; verificationByPlace?: boolean; severities?: readonly string[]; critiqueVerdict?: "HOLDS" | "DOES_NOT_HOLD" } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "arbitra-model-run-")); directories.push(directory);
   const manyIssues = options.largePeerContext === true || options.largePlannerContext === true;
   await writeFile(join(directory, "a.ts"), "const value = null;\n".repeat(manyIssues ? 4 : options.ambiguousClustering === true ? 3 : 1), "utf8");
   if (options.secondFile === true) await writeFile(join(directory, "b.ts"), "export const other = 1;\n", "utf8");
   if (options.oversizedRepository === true) await writeFile(join(directory, "large.ts"), "// unrelated source\n".repeat(12_000), "utf8");
+  // Many small files: a review carries as many as fit, so its prompt ends close to the size calls are packed to.
+  if (options.packedReviewSource === true) for (let index = 0; index < 30; index += 1) await writeFile(join(directory, `part-${index}.ts`), `export const part${index} = "unrelated";\n`.repeat(100), "utf8");
   const example = runConfigSchema.parse(JSON.parse(await readFile(new URL("../../../examples/audit-balanced.json", import.meta.url), "utf8")));
   const template = example.models["auditor-a"];
   if (template === undefined) throw new Error("FIXTURE_PROFILE_ABSENT");
@@ -141,7 +143,9 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
         output = { ...(output as object), operations: (output as { operations: { type: string }[] }).operations.map((operation) => ({ ...operation, type: "accept" })) };
       }
       // A reviewer whose reply always claims another author's authority.
-      if (options.invalidReview === true && request.url.includes("auditor-c")) output = { ...(output as object), operations: (output as { operations: { authorId: string }[] }).operations.map((operation) => ({ ...operation, authorId: "auditor-a" })) };
+      if (options.invalidReview === true && request.url.includes("auditor-c")) output = { ...(output as object), operations: (output as { operations: { authorId: string }[] }).operations.map((operation) => ({ ...operation, authorId: "auditor-a",
+        // A long rejected reply: its repair quotes it, so the repair does not fit beside the source the review carried.
+        ...(options.packedReviewSource === true ? { reason: "Fixture review of the \"supplied\" evidence. ".repeat(400) } : {}) })) };
       if ((options.structuralReview === true || options.conflictingReview === true) && input.round === 1 && (request.url.includes("auditor-a") || options.conflictingReview === true && request.url.includes("auditor-b"))) {
         const candidate = Object.values(input.candidates)[0];
         if (candidate === undefined) throw new Error("FIXTURE_CANDIDATE_ABSENT");
@@ -739,6 +743,28 @@ describe("composed model audits", () => {
     const value = JSON.parse((await core.artifact(result.runId, canonical?.artifactId ?? "") as { content: string }).content) as { limitations: string[]; coverage: { complete: boolean } };
     expect(value.limitations.some((limitation) => limitation.startsWith("peer_review_output_rejected:"))).toBe(true);
     expect(value.coverage.complete).toBe(false);
+  });
+
+  it("sends a review's output repair with less of the source its first attempt carried when the repair would not fit beside it", async () => {
+    // Observed live (P20 pilot): a review carried source up to its limit, the repair of its reply appended the reason
+    // and the rejected reply to all of it, and the run failed with MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED.
+    const { create, config, requests } = await fixture({ invalidReview: true, packedReviewSource: true });
+    (config.workflow["modelExecution"] as { maximumOutputRepairs: number }).maximumOutputRepairs = 1;
+    const core = create(); const result = await core.run(config);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
+    expect(requests.filter(({ stage, url }) => stage === "review" && url.includes("auditor-c")).length).toBe(2 * requests.filter(({ stage, url }) => stage === "review" && url.includes("auditor-a")).length);
+    const contexts = await Promise.all((await core.artifacts(result.runId)).filter(({ kind }) => kind.startsWith("model-context-")).map(async ({ artifactId }) => JSON.parse((await core.artifact(result.runId, artifactId) as { content: string }).content) as { activityId: string; fullPaths: string[]; omittedPaths: string[]; estimatedTokens: number; maximumEstimatedTokens: number }));
+    const repairs = contexts.filter(({ activityId }) => activityId.startsWith("peer-review/1/auditor-c") && activityId.endsWith("/repair-1"));
+    expect(repairs.length).toBeGreaterThan(0);
+    for (const repair of repairs) {
+      const first = contexts.find(({ activityId }) => activityId === repair.activityId.slice(0, -"/repair-1".length));
+      // The first attempt left source out, so its prompt was packed; the repair carries less of it, and fits.
+      expect(first?.omittedPaths.length).toBeGreaterThan(0);
+      expect(repair.fullPaths.length).toBeLessThan(first?.fullPaths.length ?? 0);
+      expect(repair.fullPaths).toContain("a.ts");
+      expect(repair.estimatedTokens).toBeLessThanOrEqual(repair.maximumEstimatedTokens);
+    }
   });
 
   it("shows a reviewer its earlier votes and has it repair a vote changed on the same evidence", async () => {

@@ -43,6 +43,10 @@ export interface ModelActivityRequest<T> {
   /** The input was admitted at the rate for required input (see inputBytesPerToken), and its tool
    * history is bounded at that rate. It is not part of the identity: the messages are. */
   readonly admittedAsRequired?: boolean;
+  /** Never part of the identity: this request composed again, under `activityId`, with `appended` at its end and sized
+   * as its stage sizes a first attempt, so optional source gives way to what is appended (an output repair's reason
+   * and rejected reply). Without it, a repair is the request's own messages with `appended` added. */
+  readonly refit?: (appended: readonly TransportMessage[], activityId: string) => Promise<{ readonly messages: readonly TransportMessage[]; readonly admittedAsRequired: boolean }>;
   /** Traced only, never part of the identity: the output repairs this call starts. The harness sets 1 on the first
    * turn of a repair (`/repair-N`), so a sum over traces counts repairs, not the turns they took. */
   readonly repairCount?: number;

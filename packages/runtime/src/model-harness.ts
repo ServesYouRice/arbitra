@@ -13,6 +13,7 @@ import { withinStringBudget } from "./model-context.js";
 import { promptByteLimit } from "@arbitra/providers/transports/cli/dialects.js";
 import { inputBytesPerToken, isModelOutputRejection, ModelOutputLimitError, ModelRefusalError, outputCeiling, outputLimitKind, refusalKind } from "./context-budget.js";
 import { ModelActivities, parsePromptJson, type ModelActivityRequest } from "./model-activities.js";
+import type { TransportMessage } from "@arbitra/providers/transport-contract.js";
 import { snapshotTools, SNAPSHOT_TOOLS } from "./snapshot-tools.js";
 import type { RepositorySnapshot } from "./repository.js";
 import type { RunStore } from "./run-store.js";
@@ -84,8 +85,13 @@ export class ModelHarness {
         // what they are (observed live: without it, a model reported the repair request as a
         // prompt injection).
         // The repair is traced as one (every trace said none, so metrics showed no repairs).
-        attempt = { ...input, activityId: `${input.activityId}/repair-${repair}`, repairCount: 1, messages: [...input.messages, { role: "system", content: OUTPUT_REPAIR_INSTRUCTION },
-          { role: "user", content: JSON.stringify({ outputRejected: { attempt: repair, reason: error.reason, rejectedReply: error.reply.slice(0, 32_000) } }) }] };
+        const activityId = `${input.activityId}/repair-${repair}`;
+        const appended: readonly TransportMessage[] = [{ role: "system", content: OUTPUT_REPAIR_INSTRUCTION },
+          { role: "user", content: JSON.stringify({ outputRejected: { attempt: repair, reason: error.reason, rejectedReply: error.reply.slice(0, 32_000) } }) }];
+        // What a repair appends has to fit beside what the request carries. A request that carries optional source up
+        // to its limit is composed again by its stage, with less source. Observed live (P20 pilot): a review packed to
+        // within 5,000 bytes of its transport's prompt limit failed the run when its repair added 16,000 bytes.
+        attempt = { ...input, activityId, repairCount: 1, ...(input.refit === undefined ? { messages: [...input.messages, ...appended] } : await input.refit(appended, activityId)) };
       }
     }
   }
