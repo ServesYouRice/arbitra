@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runConfigSchema } from "@arbitra/schemas/config.js";
-import type { HttpClient, HttpRequest } from "@arbitra/providers/transport-contract.js";
+import type { HttpClient, HttpRequest, TransportMessage } from "@arbitra/providers/transport-contract.js";
 import { ModelActivities } from "../src/model-activities.js";
 import { discoverWithModel } from "../src/model-discovery.js";
 import { ModelHarness } from "../src/model-harness.js";
@@ -75,6 +75,27 @@ describe("durable canonical model harness", () => {
     }
   });
 
+
+  it("has a request with a refit compose its output repair again, under the repair's own activity", async () => {
+    // A stage that carries optional source up to its limit sends its repair with less of it.
+    const { create, send, requests } = await setup(2, 0, 1);
+    let index = 0;
+    send.mockImplementation(async (value) => { requests.push(value); index += 1; return { status: 200, headers: {}, body: { output_text: index === 1 ? "No JSON here." : '{"answer":"repaired"}', usage: { input_tokens: 10, output_tokens: 10 } } }; });
+    const refits: { appended: readonly { role: string; content: string }[]; activityId: string }[] = [];
+    const review = { ...request(), activityId: "auditor-a/review", refit: async (appended: readonly TransportMessage[], activityId: string) => {
+      refits.push({ appended, activityId });
+      return { messages: [{ role: "system" as const, content: "Inspect the snapshot." }, { role: "user" as const, content: "Return JSON from less source." }, ...appended], admittedAsRequired: false };
+    } };
+    expect(await create().invoke(review)).toEqual({ answer: "repaired" });
+    expect(refits.map(({ activityId }) => activityId)).toEqual(["auditor-a/review/repair-1"]);
+    expect(refits[0]?.appended.map(({ role }) => role)).toEqual(["system", "user"]);
+    const repaired = JSON.stringify(requests[1]?.body);
+    expect(repaired).toContain("Return JSON from less source."); expect(repaired).toContain("outputRejected"); expect(repaired).toContain("No JSON here.");
+    expect(repaired).not.toContain("Return JSON.");
+    // A restarted harness composes the same repair and replays both durable activities without new spend.
+    expect(await create().invoke(review)).toEqual({ answer: "repaired" });
+    expect(requests).toHaveLength(2);
+  });
 
   it("traces an output repair, and the failed tool calls whose results a turn reads", async () => {
     // Every trace said no repairs and no tool errors, so metrics and the trace view showed none.
