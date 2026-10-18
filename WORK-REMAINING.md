@@ -247,6 +247,18 @@ there `/code-review` matched one Opus-only run, and the panel did better than bo
 pipeline gives the same result for about a third of the subscription cost, and its panel a better one in 46 minutes
 with 43% of the Claude window (plus its Codex and Gemini calls).
 
+**A panel run failed on an output repair (October 18, a fourth project).** One of the Antigravity CLI's peer-review
+batches carried source up to the CLI's prompt limit (185,262 of 190,000 bytes, 14 files); its reply was refused
+("operation must cite at least one evidence ID"), and the repair appended the reason and the rejected reply to the
+whole first prompt (201,488 bytes). `boundModelHistory` holds a first prompt as required, so the run failed with
+`MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED`. Stages size only a first attempt: with a token limit they pack to 0.8 of the
+context, which leaves room for a repair, but with a byte limit they pack to the limit itself. Fixed in b85048d (and
+on `p20-2.7.0-fix`, 9ef97b8 plus this commit alone, which the benchmark resumed the run on): a request may carry
+`refit`, and `call()` sizes the stage input again with the repair counted, so optional source makes room (the
+repair above went to 13 files, 188,969 bytes); a repair that already fits is unchanged. Still open: callers outside
+the audit pipeline (`staged-model-port`, feature review and critic, the testing writer) pass no `refit`, and a tool
+turn on a prompt within about 400 bytes of a byte limit cannot fit even the archive marker.
+
 **Where a panel run's time goes.** The first panel run (Sonnet 5.5, GPT-6 Luna, Gemini 3.8 Flash on a project of
 54 files) made 141 calls in its first four and a half hours, almost all one after another. Replaying the
 recorded times of its first 128 calls (discovery, the first review round and its conflicts):
