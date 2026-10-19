@@ -369,7 +369,8 @@ describe("an audit plan written in sections side by side", () => {
         calls.push(stage);
         const ids = (stage.input as { planningScope: { recordIds: string[] } }).planningScope.recordIds;
         const tasks = ids.map((issueId, index) => ({ ...task, id: `TASK-00${index + 1}`, title: `Fix ${issueId}`, addresses: { issues: [issueId], validation: ["VAL-001"], requirements: [] }, scope: { ...task.scope, likelyFiles: [file(issueId)] },
-          dependencies: { dependsOn: index > 0 ? [`TASK-00${index}`] : [], blocks: [], conflictsWith: [] }, context: ["resolves:Q-1"] }));
+          dependencies: { dependsOn: index > 0 ? [`TASK-00${index}`] : [], blocks: [], conflictsWith: [] }, context: ["resolves:Q-1"],
+          acceptanceCriteria: ["VAL-001 holds once Q-1 is answered."], implementationGuidance: [index > 0 ? `Build on TASK-00${index}, not TASK-0010.` : "Start here."] }));
         return stage.schema.parse({ ...template, title: `Plan for ${ids.join(", ")}`, acceptedIssueIds: ids, tasks, unresolvedQuestions: [{ id: "Q-1", question: `Decide for ${ids.join(", ")}`, blocking: false, blastRadius: "low" }],
           taskGraph: tasks.slice(1).map(({ id }, index) => ({ from: `TASK-00${index + 1}`, to: id })), traceability: { ...template.traceability, issueToValidation: ids.map((issueId) => ({ issueId, validationIds: ["VAL-001"] })) },
           routingRecommendations: tasks.map(({ id, routing }) => ({ taskId: id, capability: routing.capability, effort: routing.effort, reason: routing.reason })) });
@@ -393,6 +394,9 @@ describe("an audit plan written in sections side by side", () => {
     expect(plan.taskGraph).toEqual([{ from: "TASK-001", to: "TASK-002" }, { from: "TASK-002", to: "TASK-003" }, { from: "TASK-004", to: "TASK-005" }]);
     expect(plan.unresolvedQuestions.map(({ id }) => id)).toEqual([expect.stringMatching(/^section-[0-9a-f]{24}\/Q-1$/u), expect.stringMatching(/^section-[0-9a-f]{24}\/Q-1$/u)]);
     expect(plan.tasks.map(({ context }) => context[0])).toEqual([...Array(3).fill(`resolves:${plan.unresolvedQuestions[0]?.id}`), ...Array(2).fill(`resolves:${plan.unresolvedQuestions[1]?.id}`)]);
+    // The text of a later section's tasks names that section's own checks, tasks and questions, not the first section's.
+    expect(plan.tasks.map(({ acceptanceCriteria }) => acceptanceCriteria[0])).toEqual([...Array(3).fill(`VAL-001 holds once ${plan.unresolvedQuestions[0]?.id} is answered.`), ...Array(2).fill(`VAL-002 holds once ${plan.unresolvedQuestions[1]?.id} is answered.`)]);
+    expect(plan.tasks.map(({ implementationGuidance }) => implementationGuidance[0])).toEqual(["Start here.", "Build on TASK-001, not TASK-0010.", "Build on TASK-002, not TASK-0010.", "Start here.", "Build on TASK-004, not TASK-0010."]);
     expect(plan.acceptedIssueIds).toEqual(["C-1", "C-2", "C-3", "C-4", "C-5"]);
     expect(artifacts.get("planner-composition")).toMatchObject({ kind: "sections_side_by_side", sections: 2, logicalModelCalls: 2 });
   });

@@ -72,26 +72,32 @@ function checkedSection(value: unknown, sectionIds: readonly string[], premiseRe
   return plan;
 }
 
-/** A section's tasks and assertions take the next global numbers, and its questions the section's own prefix. */
+/**
+ * A section's tasks and assertions take the next global numbers, and its questions the section's own prefix,
+ * wherever the section names them: in its references and in its text (acceptance criteria, context, checks,
+ * guidance). Observed live (P20 pilot): when only the references were renumbered, every task after the first
+ * section cited the first section's checks in its acceptance criteria. One pass replaces every name at once, so
+ * a local name is never renumbered twice. A question's name is replaced in text only when it cannot be read as
+ * an issue ID or a word.
+ */
 function renumbered(plan: PlanIR, key: string, counters: { task: number; validation: number }): PlanIR {
-  const numbering = (localIds: readonly string[], prefix: string, counter: "task" | "validation") => {
-    const mapping = new Map<string, string>();
-    for (const id of localIds) { counters[counter] += 1; mapping.set(id, `${prefix}-${String(counters[counter]).padStart(3, "0")}`); }
-    return (id: string) => mapping.get(id) ?? id;
+  const names = new Map<string, string>();
+  const number = (localIds: readonly string[], prefix: "TASK" | "VAL", counter: "task" | "validation") => {
+    for (const id of localIds) { counters[counter] += 1; names.set(id, `${prefix}-${String(counters[counter]).padStart(3, "0")}`); }
   };
-  const task = numbering(plan.tasks.map(({ id }) => id), "TASK", "task");
-  const validation = numbering(plan.validationContract.validation.map(({ id }) => id), "VAL", "validation");
+  number(plan.tasks.map(({ id }) => id), "TASK", "task");
+  number(plan.validationContract.validation.map(({ id }) => id), "VAL", "validation");
   const questions = new Map(plan.unresolvedQuestions.map(({ id }) => [id, `section-${key}/${id}`]));
-  return { ...plan,
-    unresolvedQuestions: plan.unresolvedQuestions.map((question) => ({ ...question, id: questions.get(question.id) ?? question.id })),
-    validationContract: { ...plan.validationContract, validation: plan.validationContract.validation.map((entry) => ({ ...entry, id: validation(entry.id) })) },
-    tasks: plan.tasks.map((entry) => ({ ...entry, id: task(entry.id), addresses: { ...entry.addresses, validation: entry.addresses.validation.map(validation) },
-      dependencies: { dependsOn: entry.dependencies.dependsOn.map(task), blocks: entry.dependencies.blocks.map(task), conflictsWith: entry.dependencies.conflictsWith.map(task) },
-      context: entry.context.map((line) => line.startsWith("resolves:") && questions.has(line.slice(9)) ? `resolves:${questions.get(line.slice(9))}` : line) })),
-    taskGraph: plan.taskGraph.map(({ from, to }) => ({ from: task(from), to: task(to) })),
-    traceability: { issueToValidation: plan.traceability.issueToValidation.map((entry) => ({ ...entry, validationIds: entry.validationIds.map(validation) })),
-      requirementLinks: { ...plan.traceability.requirementLinks, links: plan.traceability.requirementLinks.links.map((link) => ({ ...link, taskIds: link.taskIds.map(task), validationIds: link.validationIds.map(validation) })) } },
-    routingRecommendations: plan.routingRecommendations.map((entry) => ({ ...entry, taskId: task(entry.taskId) })) };
+  const issues = new Set(plan.acceptedIssueIds);
+  for (const [id, scoped] of questions) if (!names.has(id) && !issues.has(id) && /^[A-Za-z][\w.-]*[0-9]/u.test(id)) names.set(id, scoped);
+  const mention = new RegExp(`(?<![\\w-])(?:${[...names.keys()].sort((left, right) => right.length - left.length).map((id) => id.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join("|")})(?![\\w-])`, "gu");
+  const rewrite = (value: unknown): unknown => typeof value === "string" ? (names.size === 0 ? value : value.replace(mention, (id) => names.get(id) ?? id))
+    : Array.isArray(value) ? value.map(rewrite)
+    : typeof value === "object" && value !== null ? Object.fromEntries(Object.entries(value).map(([field, entry]) => [field, rewrite(entry)])) : value;
+  const named = rewrite(plan) as PlanIR;
+  return { ...named, premiseReport: plan.premiseReport,
+    unresolvedQuestions: named.unresolvedQuestions.map((question, index) => ({ ...question, id: questions.get(plan.unresolvedQuestions[index]?.id ?? "") ?? question.id })),
+    tasks: named.tasks.map((entry) => ({ ...entry, context: entry.context.map((line) => line.startsWith("resolves:") && questions.has(line.slice(9)) ? `resolves:${questions.get(line.slice(9))}` : line) })) };
 }
 
 async function sequential<T, R>(items: readonly T[], run: (item: T) => Promise<R>): Promise<R[]> {
