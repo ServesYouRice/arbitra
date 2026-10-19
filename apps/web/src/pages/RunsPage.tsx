@@ -53,7 +53,7 @@ export function RunsPage(): ReactElement {
         <thead><tr><th scope="col">run</th><th scope="col">status</th><th scope="col">what ran</th><th scope="col">result</th><th scope="col">repository</th><th scope="col">started</th></tr></thead>
         <tbody>{items.map((item) => <tr key={item.runId} data-state={item.state ?? "unreadable"} onClick={(event) => { if (!(event.target instanceof Element && event.target.closest("a, button"))) navigate({ page: "run", runId: item.runId, tab: null, item: null }); }}>
           <td className="nowrap"><Link aria-label={`open run ${item.runId}`} className="run-list__id" to={{ page: "run", runId: item.runId, tab: null, item: null }}>{shortRunId(item.runId)}</Link></td>
-          <td><StateChip state={item.state} /></td>
+          <td><StateChip state={item.state} live={item.live} /></td>
           <td>{whatRan(item)}</td>
           <td><Result item={item} /></td>
           <td>{item.repository === null ? "unavailable" : <span title={item.repository}>{basename(item.repository)}</span>}</td>

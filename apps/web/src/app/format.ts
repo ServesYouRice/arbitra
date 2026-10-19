@@ -12,10 +12,14 @@ const PHASES: Readonly<Record<string, string>> = Object.freeze({
   CONSENSUS_COMPLETE: "consensus done", PLANNING: "planning", PLAN_REVIEW: "plan review", PLAN_REVISION: "plan revision", COMPILED: "writing the handoff",
 });
 
-export function runStateLabel(state: string | null): { readonly text: string; readonly tone: Tone | null } {
+/**
+ * `live`: this control plane is executing the run. A graph run records no state between CREATED and its end, so a
+ * live one reads "running" while its code still says CREATED (observed: a self-audit read "starting" 20 minutes in).
+ */
+export function runStateLabel(state: string | null, live = false): { readonly text: string; readonly tone: Tone | null } {
   switch (state) {
     case null: return { text: "unreadable", tone: "degraded" };
-    case "CREATED": return { text: "starting", tone: null };
+    case "CREATED": return { text: live ? "running" : "starting", tone: null };
     case "COMPLETED": return { text: "finished", tone: null };
     case "FAILED": return { text: "failed", tone: "refuted" };
     case "BLOCKED": return { text: "waiting for your decision", tone: "attention" };

@@ -1,9 +1,9 @@
 import type { ReactElement } from "react";
 import { gateReasonLabel, runStateLabel } from "./format.js";
 
-/** A run state in words, with the recorded state code beside it. */
-export function StateChip({ state }: { readonly state: string | null }): ReactElement {
-  const { text, tone } = runStateLabel(state);
+/** A run state in words, with the recorded state code beside it; `live`: this control plane is executing it. */
+export function StateChip({ state, live = false }: { readonly state: string | null; readonly live?: boolean }): ReactElement {
+  const { text, tone } = runStateLabel(state, live);
   // The space keeps words and code apart for a screen reader; flex layout sets the visual gap.
   return <span className="chip" data-tone={tone ?? undefined}>{text}{state === null ? null : <>{" "}<span className="chip__code">{state}</span></>}</span>;
 }

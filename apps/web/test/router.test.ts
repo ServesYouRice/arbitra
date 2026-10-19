@@ -49,6 +49,8 @@ describe("plain words beside recorded codes", () => {
   it("names every run state and says which ones still do work", () => {
     expect(runStateLabel("BLOCKED")).toEqual({ text: "waiting for your decision", tone: "attention" });
     expect(runStateLabel("FAILED")).toEqual({ text: "failed", tone: "refuted" });
+    expect(runStateLabel("CREATED")).toEqual({ text: "starting", tone: null });
+    expect(runStateLabel("CREATED", true)).toEqual({ text: "running", tone: null });
     expect(runStateLabel("PEER_REVIEW_RUNNING")).toEqual({ text: "running · peer review", tone: null });
     expect(runStateLabel("SOMETHING_NEW")).toEqual({ text: "running · something new", tone: null });
     expect(runStateLabel(null)).toEqual({ text: "unreadable", tone: "degraded" });

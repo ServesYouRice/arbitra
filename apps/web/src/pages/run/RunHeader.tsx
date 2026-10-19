@@ -40,7 +40,7 @@ export function RunHeader({ runId, mode, resource, overview, overviewError = nul
     <Link className="run-header__back" to={{ page: "runs" }}>all runs</Link>
     <div className="run-header__title">
       <h1 className="page-title">{MODE_LABELS[mode]} run{workflowId === null ? "" : ` · ${workflowId}`}</h1>
-      <StateChip state={state} />
+      <StateChip state={state} live={overview?.live === true} />
       <div className="actions">
         {isActive(state) && !elsewhere ? <button className="button" disabled={busy} type="button" onClick={() => { void act(() => runs.cancel(runId)); }}>cancel run</button> : null}
         {resumable ? <button className="button button--primary" disabled={busy} type="button" onClick={() => { void act(() => runs.resume(runId)); }}>resume run</button> : null}

@@ -5,7 +5,7 @@ test.describe("run lifecycle controls", () => {
   test("cancel a live run from its header, then resume it explicitly", async ({ page, request }, testInfo) => {
     const runId = await createRun(request, "feature-slow");
     await open(page, runId, "overview");
-    await expect(stateChip(page)).toHaveText(/^(running · .+|starting) [A-Z_]+$/u);
+    await expect(stateChip(page)).toHaveText(/^(running( · .+)?|starting) [A-Z_]+$/u);
     await page.getByRole("button", { name: "cancel run" }).click();
     await expect(stateChip(page)).toHaveText("cancelled CANCELLED");
     await expect(page.getByRole("region", { name: "result" })).toContainText("The run was cancelled. Resume it from the header");
