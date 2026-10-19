@@ -203,7 +203,8 @@ describe("durable canonical model harness", () => {
     const input = { ...request(), sourcePaths: [] };
     expect(await create().invoke(input)).toEqual({ answer: "ok" });
     const wire = JSON.stringify(requests[1]?.body);
-    expect(wire).toContain("PATH_NOT_IN_SNAPSHOT");
+    // The file exists outside the call's scope, and the refusal says so rather than that it is missing.
+    expect(wire).toContain("PATH_OUTSIDE_THIS_CALL");
     expect(wire).not.toContain("const value = null;");
     await expect(create().invoke({ ...input, sourcePaths: ["a.ts"] })).rejects.toThrow("MODEL_ACTIVITY_INPUT_CHANGED");
     expect(requests).toHaveLength(2);
@@ -239,6 +240,9 @@ describe("durable canonical model harness", () => {
     const context = { nodeId: "auditor-a/discovery", protect: (content: string) => content };
     expect(await runtime.invoke("artifact_read", { ref: peer.artifactId }, context)).toMatchObject({ ok: false, error: { code: "ARTIFACT_OUTSIDE_ACTIVITY_CONTEXT" } });
     expect(await runtime.invoke("repo_read_file", { path: "../outside.ts" }, context)).toMatchObject({ ok: false, error: { code: "PATH_NOT_IN_SNAPSHOT" } });
+    const unit = snapshotTools({ ...snapshot, files: [] }, store, "auditor-a/discovery", undefined, new Set(["a.ts"]));
+    expect(await unit.runtime.invoke("repo_read_file", { path: "a.ts" }, context)).toMatchObject({ ok: false, error: { code: "PATH_OUTSIDE_THIS_CALL" } });
+    expect(await unit.runtime.invoke("repo_read_file", { path: "b.ts" }, context)).toMatchObject({ ok: false, error: { code: "PATH_NOT_IN_SNAPSHOT" } });
     expect(await runtime.invoke("shell", { command: "ignored" }, context)).toMatchObject({ ok: false, error: { code: "TOOL_NOT_ALLOWED" } });
     const scoped = snapshotTools(snapshot, store, "scoped-history");
     const ref = await scoped.archive("Earlier tool result");

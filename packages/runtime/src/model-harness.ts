@@ -126,7 +126,8 @@ export class ModelHarness {
     const key = createHash("sha256").update(input.activityId).digest("hex");
     if (compiled !== undefined) await this.store.publish(`compiled-prompt-${key}`, { text: compiled.text, provenance: compiled.provenance, breakpoints: compiled.breakpoints }, input.activityId);
     const allowedPaths = input.sourcePaths === undefined ? null : new Set(input.sourcePaths);
-    const toolSet = snapshotTools(allowedPaths === null ? this.snapshot : { ...this.snapshot, files: this.snapshot.files.filter(({ path }) => allowedPaths.has(path)) }, this.store, input.activityId);
+    const toolSet = allowedPaths === null ? snapshotTools(this.snapshot, this.store, input.activityId)
+      : snapshotTools({ ...this.snapshot, files: this.snapshot.files.filter(({ path }) => allowedPaths.has(path)) }, this.store, input.activityId, undefined, new Set(this.snapshot.files.map(({ path }) => path)));
     const maximumContext = Math.min(execution.maximumContextTokens ?? 128_000, profile.limits.contextTokens ?? Number.POSITIVE_INFINITY);
     const events: HarnessEvent[] = [];
     const adapter = new CanonicalHarnessAdapter({ invoke: async (request, context) => {
@@ -141,8 +142,9 @@ export class ModelHarness {
         tools: request.tools, responseMode: "harness_turn", schema: modelTurnResultSchema,
         // Traced only. A repair is counted once, on its first turn; the previous turn's tool calls ran (and failed)
         // after that turn's trace was written, so this turn, which reads their results, carries their failures.
+        // A search that matched nothing is an answer, not a failure (observed live: 17 of 22 "errors" in one run).
         repairCount: context.turn === 0 ? input.repairCount ?? 0 : 0,
-        toolCallErrors: events.filter((event) => event.type === "tool_result" && event.turn === context.turn - 1 && !event.result.ok).length,
+        toolCallErrors: events.filter((event) => event.type === "tool_result" && event.turn === context.turn - 1 && !event.result.ok && event.result.error?.code !== "ZERO_RESULTS").length,
         harnessIdentity: { id: harnessProfile.id, version: harnessProfile.version, policyHash: createHash("sha256").update(JSON.stringify({ policy: harnessProfile.policy, sourcePaths: input.sourcePaths === undefined ? null : [...input.sourcePaths].sort(), historyPolicy: "archive-complete-exchanges-v1", maximumContext, ...(this.testing === undefined ? {} : { testingWritePolicy: this.testing.policyIdentity }) })).digest("hex") },
       });
     } }, harnessProfile);

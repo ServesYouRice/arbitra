@@ -15,11 +15,18 @@ export const SNAPSHOT_TOOLS: readonly HarnessToolDefinition[] = [
   { name: "artifact_read", description: "Read only a tool-output artifact produced by this activity.", inputSchema: { type: "object", properties: { ref: { type: "string" } }, required: ["ref"], additionalProperties: false } },
 ];
 
-export function snapshotTools(snapshot: RepositorySnapshot, store: RunStore, activityId: string, maximumBytes = 128_000): { runtime: HarnessToolRuntime; footprints: FootprintRecorder; archive(content: string): Promise<string> } {
+/**
+ * `repositoryPaths` names every file of the repository when `snapshot` holds only the files a call was given, so a
+ * read of another file says that it exists outside the call. Observed live (P20 pilot): told only
+ * PATH_NOT_IN_SNAPSHOT, a discovery unit wrote that two files of the repository were not in it, after 62,000 more
+ * tokens of reasoning about them.
+ */
+export function snapshotTools(snapshot: RepositorySnapshot, store: RunStore, activityId: string, maximumBytes = 128_000, repositoryPaths?: ReadonlySet<string>): { runtime: HarnessToolRuntime; footprints: FootprintRecorder; archive(content: string): Promise<string> } {
   const byPath = new Map(snapshot.files.map((file) => [file.path, file]));
   const selected = (scope?: string) => snapshot.files.filter(({ path }) => scope === undefined || scope === "." || path === scope || path.startsWith(`${scope.replace(/\/$/u, "")}/`));
   const read: ReadRepository["readFile"] = async (path) => {
     const file = byPath.get(path);
+    if (file === undefined && repositoryPaths?.has(path) === true) throw new Error(`PATH_OUTSIDE_THIS_CALL: ${path} is a file of the repository, but not one of the files this call was given, so it cannot be read here; do not report it as missing.`);
     if (file === undefined) throw new Error("PATH_NOT_IN_SNAPSHOT");
     return { path, content: file.lines.join("\n"), size: file.byteLength, modifiedAt: null };
   };
