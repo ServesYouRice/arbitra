@@ -51,6 +51,16 @@ describe("runtime repository snapshots", () => {
       await expect(snapshotRepository(root, 1, { scope: { kind: "diff", base: "--output=unsafe", head: "HEAD" }, git })).rejects.toThrow("INVALID_DIFF_REVISION");
     } finally { await rm(root, { recursive: true, force: true }); }
   });
+  it("reads Windows line endings as line ends, keeping the byte offsets of the file", async () => {
+    // Observed live (October 19, 2026): with "\r" kept in each line, no quotation of a CRLF file could be grounded.
+    const root = await mkdtemp(join(tmpdir(), "arbitra-snapshot-crlf-"));
+    try {
+      await writeFile(join(root, "a.ts"), "const a = 1;\r\nconst b = 2;\r\nconst c = 3;", "utf8");
+      const [file] = (await snapshotRepository(root, 1)).files;
+      expect(file?.lines).toEqual(["const a = 1;", "const b = 2;", "const c = 3;"]);
+      expect(file?.lineStartBytes).toEqual([0, 14, 28]);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
   it("never follows a source-file symlink outside the repository", async () => {
     const root = await mkdtemp(join(tmpdir(), "arbitra-snapshot-root-"));
     const outside = await mkdtemp(join(tmpdir(), "arbitra-snapshot-outside-"));

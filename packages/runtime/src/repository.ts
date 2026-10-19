@@ -80,10 +80,15 @@ async function walk(root: string, directory: string, into: string[], limit: numb
 function sourceFile(path: string, text: string): SourceFile {
   const byteLength = Buffer.byteLength(text, "utf8");
   if (byteLength > MAXIMUM_FILE_BYTES) throw new Error(`REPOSITORY_FILE_TOO_LARGE:${path}`);
-  const lines = text.split("\n");
+  // A line ends at "\n"; a "\r" before it (Windows line endings, which Git for Windows checks files out with by
+  // default) is not part of the line, though its byte still counts toward the next line's start. Observed live
+  // (October 19, 2026): with it kept, no quotation of a CRLF file could be grounded in whole lines, and every
+  // Feature and Testing run on such a checkout failed.
+  const raw = text.split("\n");
+  const lines = raw.map((line, index) => index < raw.length - 1 && line.endsWith("\r") ? line.slice(0, -1) : line);
   const lineStartBytes: number[] = [];
   let offset = 0;
-  for (const line of lines) { lineStartBytes.push(offset); offset += Buffer.byteLength(line, "utf8") + 1; }
+  for (const line of raw) { lineStartBytes.push(offset); offset += Buffer.byteLength(line, "utf8") + 1; }
   return Object.freeze({ path, lines: Object.freeze(lines), byteLength, lineStartBytes: Object.freeze(lineStartBytes) });
 }
 

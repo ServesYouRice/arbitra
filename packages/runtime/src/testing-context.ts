@@ -16,8 +16,10 @@ export function validateTestingSelection(value: unknown, candidates: readonly Te
 export interface RepositoryTestCommand { readonly command: string; readonly executionPolicy: "derived_repository_script" | "requires_approval"; readonly sourcePath: string; readonly source: string }
 
 export function validateTestingEvidence(value: unknown, snapshot: RepositorySnapshot) {
-  const evidence = anchorLineEvidence(testingEvidenceSchema.parse(value), snapshot.files.find(({ path }) => path === (value as { path?: unknown }).path));
-  if (evidence === null) throw new Error("TESTING_EVIDENCE_UNGROUNDED");
+  const parsed = testingEvidenceSchema.parse(value);
+  const evidence = anchorLineEvidence(parsed, snapshot.files.find(({ path }) => path === parsed.path));
+  // Named, so an output repair can correct the one quotation that failed.
+  if (evidence === null) throw new Error(`TESTING_EVIDENCE_UNGROUNDED: evidence at ${parsed.path} lines ${parsed.startLine}-${parsed.endLine} must quote whole lines of that file exactly`);
   return evidence;
 }
 

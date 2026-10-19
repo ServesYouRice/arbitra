@@ -25,7 +25,8 @@ export function validateFeatureExploration(value: unknown, requirements: Require
   exploration.evidence = exploration.evidence.map((evidence) => {
     const surface = surfaces.get(evidence.surfaceId);
     const anchored = surface === undefined || !surface.paths.includes(evidence.path) ? null : anchorLineEvidence(evidence, files.get(evidence.path));
-    if (anchored === null) throw new Error("FEATURE_EXPLORATION_UNGROUNDED_EVIDENCE");
+    // Named, so an output repair can correct the one quotation that failed.
+    if (anchored === null) throw new Error(`FEATURE_EXPLORATION_UNGROUNDED_EVIDENCE: evidence for surface ${evidence.surfaceId} at ${evidence.path} lines ${evidence.startLine}-${evidence.endLine} must quote whole lines of a path that surface lists, exactly`);
     return anchored;
   });
   exploration.documentedBehaviourConflicts = groundRequirementConflicts(exploration.documentedBehaviourConflicts, requirementIds, snapshot, contract.featureRequest);
