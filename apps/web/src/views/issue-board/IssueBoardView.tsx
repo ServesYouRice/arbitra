@@ -58,7 +58,8 @@ export function CoverageSummary({ issueSet }: { readonly issueSet: PersistedIssu
     </ul>
     {coverage.suppressionCandidates.length === 0 ? null : <ul aria-label="suppression candidates" className="board-coverage">{coverage.suppressionCandidates.map((entry, index) => <li className="state" data-state="tainted" key={index}>{describeSuppressionCandidate(entry)}</li>)}</ul>}
     {coverage.unexaminedSurfaces.length === 0 ? null : <ul aria-label="unexamined surfaces" className="board-coverage">{coverage.unexaminedSurfaces.map((entry, index) => <li className="state" data-state="unexamined" key={index}>{describeUnexaminedSurface(entry)}</li>)}</ul>}
-    {limitations.length === 0 ? null : <ul aria-label="recorded limitations" className="board-coverage">{limitations.map((limitation) => <li className="state" data-state="degraded" key={limitation}>{limitation}</li>)}</ul>}
+    {/* Folded: a model run records each auditor's notes in full (80 in one P20 panel run), which buried the issues. */}
+    {limitations.length === 0 ? null : <details className="board-limitations"><summary className="state" data-state="degraded">recorded limitations · {limitations.length}</summary><ul aria-label="recorded limitations" className="board-coverage">{limitations.map((limitation, index) => <li className="state" data-state="degraded" key={index}>{limitation}</li>)}</ul></details>}
   </>;
 }
 
