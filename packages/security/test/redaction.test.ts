@@ -30,10 +30,10 @@ describe("secret redaction", () => {
 
   it("leaves the escape of a following quote in place, so JSON text stays JSON", () => {
     // Observed live (P20 pilot): a source line ending in an assignment sat in JSON nested in a stored prompt.
-    const nested = JSON.stringify({ lines: [{ line: 1, text: "    apiKey: config.gateway.apiKey," }, { line: 2, text: "    clock," }] });
+    const nested = JSON.stringify({ lines: [{ line: 1, text: "    apiKey: gw7KeyForTheGateway," }, { line: 2, text: "    clock," }] });
     const stored = JSON.stringify({ text: nested });
     const once = redactSecrets(stored);
-    expect(once.text).not.toContain("config.gateway.apiKey");
+    expect(once.text).not.toContain("gw7KeyForTheGateway");
     const lines = (JSON.parse((JSON.parse(once.text) as { text: string }).text) as { lines: { text: string }[] }).lines;
     expect(lines.map(({ text }) => text)).toEqual(["    apiKey: [REDACTED:assigned_secret]", "    clock,"]);
     // A marker followed by an escaped quote is not a secret again.
@@ -45,6 +45,24 @@ describe("secret redaction", () => {
     expect(redactNamedValue("apiKey", "sk-abcdefghijklmnop")).toMatch(/^\[REDACTED:(?:api_token|assigned_secret)\]$/u);
     expect(redactNamedValue("title", "arbitrary-long-title")).toBe("arbitrary-long-title");
     expect(redactNamedValue("excerpt", "const apiKey = 'sk-abcdefghijklmnop';")).not.toContain("sk-abcdefghijklmnop");
+  });
+
+  it("leaves code that names where a secret comes from, and masks anything that may be the secret", () => {
+    // Observed live (P20 pilot): masking these lines hid how a project generated its lease tokens.
+    for (const code of [
+      "const grant = { token: this.deps.ids.leaseToken(), workerId };",
+      "  const token = env.JOBWELL_ADMIN_TOKEN ?? \"\";",
+      "await runCli([\"dead\"], { token: TOKENS.emails, transport });",
+      "    apiKey: config.gateway.apiKey,",
+      "password = readPassword(prompt);",
+    ]) expect(redactSecrets(code)).toMatchObject({ text: code, redactions: [] });
+    for (const secret of [
+      "token: 'plainLongSecretValue'",
+      "password = \"correct.horse.battery\"",
+      "token=abcdefghijklmnop",
+      "apiKey: process.env.KEY_V2_LONGNAME",
+      "secret: eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0.SflKxwRJSMeKKF2QT4",
+    ]) expect(redactSecrets(secret).redactions.map(({ kind }) => kind)).toEqual(["assigned_secret"]);
   });
 
   it.each([

@@ -1,4 +1,4 @@
-export const REDACTION_PATTERN_VERSION = "3" as const;
+export const REDACTION_PATTERN_VERSION = "4" as const;
 
 export type SecretKind =
   | "aws_access_key"
@@ -47,6 +47,17 @@ const DETECTORS: readonly Detector[] = [
   },
 ];
 
+/**
+ * An unquoted value that reads as code: a dotted name or a call, without a digit, such as `this.ids.leaseToken(),`
+ * or `env.ADMIN_TOKEN`. It names where a secret comes from, not the secret. Observed live (P20 pilot): masking such
+ * lines hid how a project generated its lease tokens, and the auditors wrote that they could not audit them. A
+ * quoted value, a bare word and anything with a digit are still masked, so the rule errs toward masking.
+ */
+const CODE_REFERENCE = /^[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*(?:\([^()]*\))?[,;)\]}]*$/u;
+function readsAsCode(secret: string, before: string): boolean {
+  return !/["']$/u.test(before) && !/[0-9]/u.test(secret) && CODE_REFERENCE.test(secret) && /[.(]/u.test(secret);
+}
+
 export function redactSecrets(text: string): RedactionResult {
   const matches: Array<{ kind: SecretKind; start: number; end: number }> = [];
   for (const detector of DETECTORS) {
@@ -54,6 +65,7 @@ export function redactSecrets(text: string): RedactionResult {
       const secret = match[detector.secretGroup];
       if (secret === undefined || match.index === undefined) continue;
       if (/^\[REDACTED:(?:aws_access_key|api_token|github_token|bearer_token|assigned_secret|private_key)\]$/u.test(secret)) continue;
+      if (detector.kind === "assigned_secret" && readsAsCode(secret, match[0].slice(0, match[0].indexOf(secret)))) continue;
       const offset = match[0].indexOf(secret);
       matches.push({ kind: detector.kind, start: match.index + offset, end: match.index + offset + secret.length });
     }
