@@ -6,6 +6,9 @@ type SnapshotFile = RepositorySnapshot["files"][number];
 const MAXIMUM_ANCHOR_DISTANCE = 5;
 const entities: Readonly<Record<string, string>> = { "&quot;": "\"", "&apos;": "'", "&lt;": "<", "&gt;": ">", "&amp;": "&" };
 
+/** A quotation as the source holds it, when a model copied the entities the untrusted-content frame shows. */
+export function unframedQuote(text: string): string { return text.replace(/&(?:quot|apos|lt|gt|amp);/gu, (entity) => entities[entity] ?? entity); }
+
 /**
  * Exact evidence, anchored to the snapshot. Real models quote the right lines but
  * miscount them (observed live: Gemini ranges one line late, or one line too long for the

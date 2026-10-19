@@ -174,6 +174,18 @@ describe("independent model discovery", () => {
     expect(JSON.parse((await store.readArtifact(descriptor?.artifactId ?? "")).content)).toMatchObject({ acceptedCount: 1, quoteRejections: ["auditor-a/2"], widenedLocations: [{ sourceFindingId: "auditor-a/1", locationId: "L1", from: [2, 4], to: [1, 4] }] });
   });
 
+  it("takes a quotation copied with the frame's entities as the source holds it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbitra-discovery-entities-")); directories.push(root);
+    const store = new RunStore(root, "run-entities");
+    const lines = ["export function isExpired(session, now) {", "  return now > session.expiresAt && session.active;", "}"];
+    const file = { path: "src/a.ts", lines, lineStartBytes: lines.map((_, index) => lines.slice(0, index).reduce((sum, line) => sum + line.length + 1, 0)), byteLength: lines.join("\n").length };
+    const framed = { ...finding("1", "  return now &gt; session.expiresAt &amp;&amp; session.active;"), locations: [{ id: "L1", path: "src/a.ts", startLine: 2, endLine: 2 }] };
+    const invented = { ...finding("2", "  return now &lt; session.expiresAt;"), locations: [{ id: "L1", path: "src/a.ts", startLine: 2, endLine: 2 }] };
+    const activities: Pick<ModelActivities, "invoke"> = { async invoke(input) { return input.schema.parse({ findings: [framed, invented], truncated: false, unexaminedDueToBudget: [], limitations: [] }); } };
+    const result = await discoverWithModel({ auditorId: "auditor-a", modelProfileId: "model", snapshot: { root: "fixture", files: [file] }, activities, store, signal: new AbortController().signal });
+    expect(result.map(({ sourceFindingId, evidence }) => [sourceFindingId, evidence[0]?.text])).toEqual([["auditor-a/1", lines[1]]]);
+  });
+
   it("does not expose stored peer findings to independent discovery", async () => {
     const { run, store, prompts } = await setup([]);
     await store.publish("findings-peer", { secretPeerClaim: "PEER_REASONING_SENTINEL" });

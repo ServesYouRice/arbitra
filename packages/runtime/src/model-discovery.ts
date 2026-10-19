@@ -11,7 +11,7 @@ import { createHash } from "node:crypto";
 import { isModelOutputRejection, ModelOutputLimitError, ModelRefusalError } from "./context-budget.js";
 import { allocateDiscoveryScopes } from "./discovery-scope.js";
 import { sideBySide } from "./side-by-side.js";
-import { widenToQuote } from "./evidence-grounding.js";
+import { unframedQuote, widenToQuote } from "./evidence-grounding.js";
 import type { DiscoveryUnit, DiscoveryUnitHooks } from "./incremental-audit.js";
 import { INSTRUCTION_SHAPED_TEXT_RULE } from "./prompt-conventions.js";
 
@@ -81,7 +81,15 @@ async function discoverScopeWithModel(options: ScopeOptions): Promise<readonly S
       // otherwise refuse an exact copy of the composed "é" the model read.
       return file !== undefined && redactSecrets(file.lines.slice(location.startLine - 1, location.endLine).join("\n")).text.normalize("NFC").includes(text.normalize("NFC"));
     };
-    const grounded = finding.evidence.every((evidence) => {
+    // The frame shows `<`, `>` and `&` as entities; a quotation copied as shown is taken as the source holds it.
+    // Observed live (P20 pilot): such quotations were refused, and auditors learned to leave those lines out.
+    const evidenceAsInSource = finding.evidence.map((evidence) => {
+      const plain = unframedQuote(evidence.text);
+      if (plain === evidence.text) return evidence;
+      const cited = evidence.locationIds.flatMap((id) => locations.filter((item) => item.id === id));
+      return cited.some((location) => quotes(location, evidence.text)) ? evidence : { ...evidence, text: plain };
+    });
+    const grounded = evidenceAsInSource.every((evidence) => {
       const cited = evidence.locationIds.flatMap((id) => locations.filter((item) => item.id === id));
       if (cited.some((location) => quotes(location, evidence.text))) return true;
       for (const location of cited) {
@@ -94,7 +102,7 @@ async function discoverScopeWithModel(options: ScopeOptions): Promise<readonly S
       }
       return false;
     });
-    if (grounded) accepted.push({ ...finding, locations });
+    if (grounded) accepted.push({ ...finding, evidence: evidenceAsInSource, locations });
     else quoteRejections.push(finding.sourceFindingId);
   }
   await store.publish(`discovery-validation-${artifactAuditorId}`, { summaries: validation.summaries, quoteRejections, ...(widenedLocations.length === 0 ? {} : { widenedLocations }), acceptedCount: accepted.length, rejectedCount: validation.rejected.length + quoteRejections.length,
