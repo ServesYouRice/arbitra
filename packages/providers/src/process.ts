@@ -34,6 +34,8 @@ export interface NativeProcessResult {
 export interface NativeProcessPort { run(request: NativeProcessRequest): Promise<NativeProcessResult> }
 
 const MAXIMUM_STDERR_BYTES = 64 * 1024;
+/** How long the pipes may stay open after the leader exits on Windows before its descendants are ended. */
+const WINDOWS_EXIT_GRACE_MS = 2_000;
 
 export function runNativeProcess(request: NativeProcessRequest): Promise<NativeProcessResult> {
   if (!Number.isSafeInteger(request.timeoutMs) || request.timeoutMs < 1 || !Number.isSafeInteger(request.maximumOutputBytes) || request.maximumOutputBytes < 1) throw new Error("INVALID_NATIVE_PROCESS_BOUND");
@@ -73,10 +75,18 @@ export function runNativeProcess(request: NativeProcessRequest): Promise<NativeP
     const timer = setTimeout(() => stop("timeout"), request.timeoutMs);
     child.on("error", () => { if (stopped === null) stopped = "spawn_error"; });
     // The leader exiting does not end its group: descendants holding stdout would keep
-    // the pipes open. Kill the remaining group so `close` is reached.
-    child.on("exit", () => { if (pid !== null && posix) killTree(pid); });
+    // the pipes open. Kill the remaining group so `close` is reached. Windows has no group, and
+    // taskkill /T needs a living root, so a descendant still holding the pipes after a short grace
+    // is found in the process table by its parent and ended; without this a call stayed open until
+    // its timeout (30 minutes for a CLI call).
+    let grace: NodeJS.Timeout | undefined;
+    child.on("exit", () => {
+      if (pid === null) return;
+      if (posix) { killTree(pid); return; }
+      grace = setTimeout(() => { for (const descendant of windowsDescendants(pid)) killTree(descendant); child.stdout.destroy(); child.stderr.destroy(); }, WINDOWS_EXIT_GRACE_MS);
+    });
     child.on("close", (exitCode, exitSignal) => {
-      clearTimeout(timer); request.signal.removeEventListener("abort", cancelled);
+      clearTimeout(timer); clearTimeout(grace); request.signal.removeEventListener("abort", cancelled);
       if (pending.length > 0) { deliver(pending); pending = Buffer.alloc(0); }
       if (pid !== null) killTree(pid);
       void waitForTree(pid).then((treeTerminated) => resolveResult({ pid, exitCode, exitSignal, stopped, violation,
@@ -84,6 +94,26 @@ export function runNativeProcess(request: NativeProcessRequest): Promise<NativeP
     });
     if (request.signal.aborted) cancelled();
   });
+}
+
+/**
+ * Every process descended from `root` by parent ID, read from the process table. Windows keeps a process's parent ID
+ * after the parent exits, so the descendants of a leader that has exited are still found. Bounded like taskkill.
+ */
+function windowsDescendants(root: number): number[] {
+  const listed = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", "Get-CimInstance Win32_Process | ForEach-Object { \"$($_.ProcessId) $($_.ParentProcessId)\" }"],
+    { windowsHide: true, encoding: "utf8", timeout: 10_000 });
+  if (listed.status !== 0 || typeof listed.stdout !== "string") return [];
+  const children = new Map<number, number[]>();
+  for (const line of listed.stdout.split(/\r?\n/u)) {
+    const [child, parent] = line.trim().split(/\s+/u).map(Number);
+    if (child !== undefined && parent !== undefined && Number.isSafeInteger(child) && Number.isSafeInteger(parent) && child !== parent) children.set(parent, [...(children.get(parent) ?? []), child]);
+  }
+  const found: number[] = [];
+  for (const queue = [root], seen = new Set(queue); queue.length > 0;) {
+    for (const child of children.get(queue.pop() ?? root) ?? []) if (!seen.has(child)) { seen.add(child); found.push(child); queue.push(child); }
+  }
+  return found;
 }
 
 function killTree(pid: number): void {
