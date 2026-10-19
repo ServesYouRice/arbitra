@@ -117,8 +117,9 @@ export class CliTransport implements ProviderTransport {
         // more. Anything retryable, a throttle above all, goes to the caller's retry, which waits out its backoff or
         // retry hint before sending the conversation whole: resent here at once, it would skip that wait. A usage limit,
         // an auth failure, a refused model or failed start, a cancellation, a timeout or an output ceiling would fail
-        // the same way whole and is not repeated.
-        if (!(error instanceof TransportError) || error.retryable || ["QUOTA", "CANCELLED", "TIMEOUT", "OUTPUT_LIMIT", "AUTH", "RATE_LIMIT", "INVALID_REQUEST"].includes(error.code)) throw error;
+        // the same way whole and is not repeated. An unreadable continued answer is the session's fault even when the CLI
+        // marks it retryable, so it is sent whole here rather than spending one of the caller's attempts.
+        if (!(error instanceof TransportError) || error.retryable && error.code !== "MALFORMED_RESPONSE" || ["QUOTA", "CANCELLED", "TIMEOUT", "OUTPUT_LIMIT", "AUTH", "RATE_LIMIT", "INVALID_REQUEST"].includes(error.code)) throw error;
       }
     }
     return this.#call(run, prompt, await this.#directories(), { id: randomUUID(), resume: false }, prompt.boundary);

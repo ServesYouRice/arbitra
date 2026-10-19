@@ -164,6 +164,9 @@ function run() {
     const step = (fields) => out({ event: "step_update", step_update: { conversation_id: conversation, state: "DONE", ...fields } });
     out({ event: "init", conversation_id: conversation, init: { model: args[args.indexOf("--model") + 1], tools: ["run_command", "browser_click_element"] } });
     step({ step_index: 0, step_type: "user_input" });
+    // A continued conversation starts with the CLI's own notice (agy 1.3.5: "All your subagents and background tasks
+    // have been stopped due to server restart. ...").
+    if (continued !== null) step({ step_index: 1, step_type: "system_message", duration_seconds: 0 });
     switch (reply.kind) {
       case "text": { const schema = args.includes("--json-schema"); step({ step_index: 1, step_type: "agent_response", text_delta: reply.text + "\n" }); step({ step_index: 2, step_type: "finish" });
         return envelope("SUCCESS", { response: reply.text, ...(schema ? { structured_output: JSON.parse(reply.text) } : {}), ...(reply.usage === false ? {} : { usage: reply.usage === "thinking_in_output" ? { input_tokens: 30, output_tokens: 8, thinking_tokens: 6, cache_read_tokens: 0, total_tokens: 38 }

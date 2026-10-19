@@ -115,7 +115,11 @@ before sending the conversation whole. Measured (October 14, 2026): a continued 
 cache, the same turn sent whole 19%, writing the rest to the cache again. Codex and the
 Antigravity CLI keep sessions the same way: Codex starts one by leaving out `--ephemeral` and
 continues it with `codex exec resume <thread>`, the Antigravity CLI with `--conversation <id>`
-(its turn then leaves out the instructions, which the conversation already holds). Both report
+(its turn then leaves out the instructions, which the conversation already holds; the CLI opens a
+continued conversation with a `system_message` notice of its own, which is read as part of a plain
+answer, not as tool use: until October 19, 2026 it failed every continued Antigravity turn, which
+was then sent whole). A continued answer that cannot be read is sent whole at once rather than
+spending one of the runtime's attempts. Both report
 a continued turn's usage for the whole conversation so far, so the turn is charged the
 difference. Codex keeps its databases in the call's control directory (`CODEX_SQLITE_HOME`) and
 its session as a rollout file that is removed with the conversation; the Antigravity CLI stores

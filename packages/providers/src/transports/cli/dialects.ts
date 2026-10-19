@@ -386,8 +386,13 @@ export function antigravityPromptChannel(platform: NodeJS.Platform): "argument" 
 
 /** stderr notices of a tool call soft-denied in headless mode (the run otherwise continues and exits 0). */
 const ANTIGRAVITY_DENIAL = /\b(?:tool|command|action|permission)\b[^\n]{0,120}\b(?:denied|requires? (?:approval|permission)|not (?:approved|permitted|allowed))|\bsoft[- ]denied\b|approval required/iu;
-/** Step types of a plain answer (observed live on agy 1.2.11); any other step is agent tool use. */
-const ANTIGRAVITY_STEPS = new Set(["user_input", "agent_response", "finish", "thinking", "reasoning", "planner_response"]);
+/**
+ * Step types of a plain answer (observed live on agy 1.2.11); any other step is agent tool use. A continued
+ * conversation (`--conversation`) starts with the CLI's own `system_message` notice (agy 1.3.5, October 19, 2026:
+ * "All your subagents and background tasks have been stopped due to server restart. ..."), which is not tool use.
+ * Taken for tool use, it failed every continued tool turn of the P20 pilot, which was then sent whole again.
+ */
+const ANTIGRAVITY_STEPS = new Set(["user_input", "agent_response", "finish", "thinking", "reasoning", "planner_response", "system_message"]);
 
 /**
  * The text the CLI stored for one step of a conversation, as lines, or none when it cannot
