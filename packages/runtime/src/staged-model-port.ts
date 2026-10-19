@@ -42,11 +42,13 @@ export function harnessStagePort(options: HarnessStagePortOptions): PlannerCompo
       { role: "user", content: JSON.stringify(payload) },
     ] });
   const repository = options.snapshot.files.map(({ path, lines }) => ({ path, content: lines.join("\n"), trust: "untrusted_data" }));
-  const allocate = async (stage: PlannerStage) => {
+  /** `appended` are messages the call carries after its input (an output repair's), measured with it. */
+  const allocate = async (stage: PlannerStage, appended: ModelActivityRequest<unknown>["messages"] = []) => {
     if (await options.harness.outputLimited(activityId(stage))) throw new ModelOutputLimitError(activityId(stage));
     const input = isFull(stage) ? options.full.input : stage.input;
     const record = typeof input === "object" && input !== null && !Array.isArray(input) ? input as Record<string, unknown> : { input };
-    return allocateModelContext({ ...record, repository }, (payload) => options.harness.withinInputBudget(payload, options.maximumInputTokens) && options.harness.estimateInitialTokens(request(stage, payload)) <= options.maximumInputTokens);
+    const withAppended = (payload: unknown) => { const sent = request(stage, payload); return { ...sent, messages: [...sent.messages, ...appended] }; };
+    return allocateModelContext({ ...record, repository }, (payload) => options.harness.withinInputBudget(payload, options.maximumInputTokens) && options.harness.estimateInitialTokens(withAppended(payload)) <= options.maximumInputTokens);
   };
   return {
     async fits(stage) {
@@ -57,7 +59,12 @@ export function harnessStagePort(options: HarnessStagePortOptions): PlannerCompo
       const allocated = await allocate(stage);
       const kind = isFull(stage) ? options.full.contextArtifact : `${options.full.contextArtifact}-${createHash("sha256").update(activityId(stage)).digest("hex").slice(0, 24)}`;
       await options.store.publish(kind, { ...(isFull(stage) ? {} : { activityId: activityId(stage) }), ...allocated.coverage, maximumEstimatedTokens: options.maximumInputTokens }, options.nodeId);
-      return options.harness.invoke(request(stage, allocated.input));
+      // A repair carries the stage's input with the validator's reason and the rejected reply after it; the optional
+      // source that filled the first attempt gives way to what the repair adds, as in the audit pipeline.
+      return options.harness.invoke({ ...request(stage, allocated.input), refit: async (appended) => {
+        const refitted = await allocate(stage, appended);
+        return { messages: [...request(stage, refitted.input).messages, ...appended], admittedAsRequired: false };
+      } });
     },
     publish: (kind, value) => options.store.publish(`${options.artifactPrefix}${kind}`, value, options.nodeId),
   };
