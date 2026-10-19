@@ -1,6 +1,7 @@
 # Remaining work
 
-Updated October 14, 2026 (branch `beta`).
+Updated October 19, 2026 (branch `beta`). The P20 pilot is complete and no runner is alive; what its last runs
+showed about arbitra is under "The runs of October 18" in "Open findings".
 
 ## State on October 14
 
@@ -258,6 +259,66 @@ on `p20-2.7.0-fix`, 9ef97b8 plus this commit alone, which the benchmark resumed 
 repair above went to 13 files, 188,969 bytes); a repair that already fits is unchanged. Still open: callers outside
 the audit pipeline (`staged-model-port`, feature review and critic, the testing writer) pass no `refit`, and a tool
 turn on a prompt within about 400 bytes of a byte limit cannot fit even the archive marker.
+
+**The runs of October 18 (four Opus-only runs and two panels on 9ef97b8 and 13be324), read on October 19.** Every
+run completed; the one panel that met Claude's usage limit failed its four calls in flight with `QUOTA`, kept its
+artifacts and resumed cleanly hours later, re-running only those calls. An Opus-only run took 28 to 29 minutes and
+4.1 to 4.6M tokens, a panel 53 minutes and 9.9M. Opening a panel run in the web UI the same day found the first
+item below. Largest first:
+
+- **Fixed (e3519fc): the run page was blank for every model run with a coverage gap.** The issue board read every
+  unexamined surface as a scripted run's weighted surface; a model run records gaps of five other shapes. Each is
+  now described by its shape, and a view that fails to render shows its error in place of its tab.
+- **Fixed (d3f2d4f): a plan written in sections cited other sections' tasks and checks.** Only the fields that hold
+  a name were renumbered at the join; acceptance criteria, context, checks and guidance kept each section's own
+  numbering, so from the second section on every task (17 of 17 to 29 of 29 tasks a run) named another section's
+  checks. In one panel the critic spent about 10 of its 27 remarks on it; Opus-only runs have no critic.
+- **Fixed (c6f2c3c): one operation of the wrong shape refused a whole peer-review reply.** Five votes without a
+  `type` refused a reply of 25 operations, whose repair took 100 seconds and changed other votes. The reply was
+  parsed whole before its operations were checked one by one.
+- **Test files are audited apart from the code they test.** Units are packed by top folder, so `test/` gets units
+  of its own (3 of 8 Opus units a run): about 250K tokens and 15 call-minutes a run, and 12 to 19 accepted issues a
+  run cite only test lines, 6 to 14 of them claims about production code that clustering cannot join to a report
+  citing the source. Candidate: pack a test file with the source files it imports.
+- **Discovery reads only its unit's files, and says the others do not exist.** A read outside the unit returns
+  `PATH_NOT_IN_SNAPSHOT` and `repo_list_tree` lists only the unit; a model that asked for two files that exist was
+  refused, then reasoned for 62,000 more tokens and wrote they were "not included in the snapshot". This is the
+  cause behind "Stages call files of the repository missing" above. Plan sections and the critic do have the source
+  tools and used none in six runs; package manifests are recorded by name, never given, and one plan named three
+  different test commands. Candidates: say "outside this unit" and list the whole index; give the manifests' content.
+- **Secret redaction hides ordinary code.** `assigned_secret` takes any 12 characters after `token:` or `token =`
+  for a secret, so expressions such as a call that generates a token or a constant's member were replaced by
+  `[REDACTED:assigned_secret]` (three places in one project), and auditors wrote they could not audit them.
+  Candidate: leave out unquoted values that are calls or member paths, keeping every quoted literal.
+- **Auditors avoid quoting lines with `<`, `>` or `&`.** The untrusted-content frame escapes them (11% of one
+  project's lines), and an auditor chose evidence that leaves such lines out; grounding already accepts either
+  form. Candidate: say so in the instruction (no frame change).
+- **Re-asking each source finding of a rejected merged candidate (design audit item 2) rarely changes the answer.**
+  Across four panels: 328 calls and 4.9M tokens (10 to 16% of each run), 50 re-asked, 7 confirmed, none a planted
+  defect. Candidate: re-ask only when the findings cite different files, or only at medium severity and above.
+- **Low and informational verification questions are 29 to 35% of an Opus-only run's tokens** (33 to 44 questions,
+  1.2 to 1.6M tokens); they get no task under `planScope`. Adds to item 14's case for a cheaper verifier there.
+- **The audit runs in two waves.** Eight Opus units run four at a time, so the audit is 14 of 28 minutes;
+  measuring eight at a time would likely save about 6 minutes a run.
+- **The critic works almost without source.** Its Gemini prompts sit at the 190,000-byte limit and leave out 153
+  to 278 cited files; it made no tool call, and `degradedReviewCoverage` stays false. The critique check found 7 of
+  9 and 5 of 7 remarks did not hold. Candidate: batch the critic by task with the files it cites, and report
+  degraded coverage when cited source is left out.
+- **Candidates added during peer review are never compared with existing ones** (2 of 5 and 2 of 7 additions
+  duplicated accepted issues and were verified twice). Candidate: the pair check between additions and candidates.
+- **Antigravity tool turns never continue their conversation.** Every continued turn failed its first attempt
+  with a retryable `MALFORMED_RESPONSE` (3 of 3 and 2 of 2) and was resent whole; arbitra then records the call's
+  usage as unknown (`model-activities.ts`: a failed attempt that may have consumed tokens), which is why four
+  calls had no usage. The attempt's message is not kept, so the cause is unknown. Candidates: keep each failed
+  attempt's message, probe `--conversation` live, and fall back inside the transport.
+- Smaller: `toolCallErrors` counts empty search results as errors; a failed call records `transportVersion` 1.0.0
+  and no effort; clustering's tokens are left empty; `verification-metrics.modelCalls` counts questions (99) where
+  345 calls were made; after a resume one Claude turn returned its own tool-call markup as text, and the repair
+  restarted the five-turn tool loop. The issue board shows each auditor's notes in full (80 in one run, 7 of them
+  saying no prompt injection was found), and a run's start time is its files' modification time, so a copied run
+  shows the date of the copy.
+- **No planted defect was lost to verification in these runs:** every one the audit found reached the accepted
+  list. The two rejections a keyword match counted as true made a different claim, and the rejection was right.
 
 **Where a panel run's time goes.** The first panel run (Sonnet 5.5, GPT-6 Luna, Gemini 3.8 Flash on a project of
 54 files) made 141 calls in its first four and a half hours, almost all one after another. Replaying the
