@@ -23,7 +23,7 @@ import type { AuditFinding } from "./auditors.js";
 import { SeededRng } from "@arbitra/core/services/rng.js";
 import { peerReviewRound } from "@arbitra/workflow/nodes/peer-review/round.js";
 import { peerReviewView } from "./peer-review-view.js";
-import { peerOperationsResultSchema } from "@arbitra/schemas/peer-operations.js";
+import { peerOperationsResultSchema, peerReplyEnvelopeSchema, type PeerReplyEnvelope } from "@arbitra/schemas/peer-operations.js";
 import { changedVotesWithoutNewEvidence, EARLIER_VOTES_RULE, earlierPeerVotes, translateValidPeerOperations, type PeerOperationBatch } from "./model-peer-operations.js";
 import { ModelPeerBoard } from "./model-peer-board.js";
 import { boardEvidenceSchema } from "@arbitra/schemas/board-operation.js";
@@ -266,7 +266,7 @@ export class ModelAuditPipeline {
           // An operation that fails its own validation, or a changed vote without new evidence, is left out and
           // the rest of the reply stands; the reply is refused only when it is invalid as a whole.
           const accepted = (value: unknown) => translateValidPeerOperations(value, scopedView, context.snapshot, auditorId, round, scopeId, (batch) => changedVotesWithoutNewEvidence(batch.operations, candidates, auditorId));
-          const input: ModelStageInput<ReturnType<typeof peerOperationsResultSchema.parse>> = {
+          const input: ModelStageInput<PeerReplyEnvelope> = {
           activityId: `peer-review/${round}/${auditorId}${scopeId === undefined ? "" : `/${scopeId}`}`, modelProfileId: auditorId, signal,
           protocol: "peer-review", stage: "peerReview", instruction: part.kind === "merge_check" && part.pairs !== undefined
             ? "Compare the supplied candidate pairs for a shared root cause requiring a merge. Every candidate was already reviewed in full in its own batch; the pairs in mergeCheckPairs have not been compared yet, so check each of them. Return one typed merge operation for each group of supplied candidates that share one root cause, with every candidate of the group in its sourceCandidateIds; no candidate may appear in two operations. Return an empty operations array if all should remain separate. Use authorId self, the supplied round, new:<unique-name> IDs, anonymous findingRef source references and supplied evidence IDs. Do not vote, split, add findings, or add evidence; locations and findings must be empty. This is a cross-batch duplicate check following full candidate review."
@@ -277,11 +277,15 @@ export class ModelAuditPipeline {
             // Round 1 has no earlier votes, so its input (and replay identity) is unchanged.
             ...(part.kind === "merge_check" || Object.keys(earlier).length === 0 ? {} : { yourEarlierVotes: { rule: EARLIER_VOTES_RULE, votes: earlier } }), repository: this.repository() },
           schema: { parse(value: unknown) {
-            const parsed = peerOperationsResultSchema.parse(value);
-            if (part.kind === "merge_check" && (parsed.findings.length > 0 || parsed.locations.length > 0)) throw new Error("INVALID_PEER_PAIR_OPERATIONS");
-            if (part.kind === "merge_check") assertMergeCheckOperations(parsed.operations, part);
-            accepted(parsed);
-            return parsed;
+            // A review reply keeps its operations of a valid shape (`wellFormedPeerReply`); a pair check stays whole.
+            const envelope = peerReplyEnvelopeSchema.parse(value);
+            if (part.kind === "merge_check") {
+              const parsed = peerOperationsResultSchema.parse(value);
+              if (parsed.findings.length > 0 || parsed.locations.length > 0) throw new Error("INVALID_PEER_PAIR_OPERATIONS");
+              assertMergeCheckOperations(parsed.operations, part);
+            }
+            accepted(envelope);
+            return envelope;
           } }, jsonSchema: PEER_OPERATIONS_OUTPUT_SCHEMA,
           };
           return { input, scopeId, accepted };

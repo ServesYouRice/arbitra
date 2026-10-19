@@ -1,5 +1,6 @@
 import { assertIssueOperation, type CandidateSeed, type IssueEvidence, type IssueOperation } from "@arbitra/core/issue-board/operations.js";
-import { peerOperationsResultSchema } from "@arbitra/schemas/peer-operations.js";
+import { boardOperationSchema } from "@arbitra/schemas/board-operation.js";
+import { peerOperationsResultSchema, peerReplyEnvelopeSchema, type PeerOperationsResult } from "@arbitra/schemas/peer-operations.js";
 import type { FindingLocation } from "@arbitra/schemas/finding.js";
 import type { ConsensusCandidate, ConsensusVote } from "@arbitra/workflow/consensus/engine.js";
 import type { AuditFinding } from "./auditors.js";
@@ -28,12 +29,12 @@ export interface RefusedPeerOperation { readonly operationId: string; readonly t
  */
 export function translateValidPeerOperations(value: unknown, view: View, snapshot: RepositorySnapshot, reviewerId: string, round: number, scopeId?: string,
   alsoRefuse: (batch: PeerOperationBatch) => readonly { readonly index: number; readonly reason: string }[] = () => []): { readonly batch: PeerOperationBatch; readonly refused: readonly RefusedPeerOperation[] } {
-  const original = peerOperationsResultSchema.parse(value);
+  const { reply: original, malformed, total } = wellFormedPeerReply(value);
   let parsed = original;
-  const refused: RefusedPeerOperation[] = [];
+  const refused: RefusedPeerOperation[] = [...malformed];
   const leaveOut = (index: number, reason: string, error: unknown): void => {
     const operation = parsed.operations[index];
-    if (operation === undefined || (refused.length + 1) * 2 > original.operations.length) throw error;
+    if (operation === undefined || (refused.length + 1) * 2 > total) throw error;
     refused.push({ operationId: operation.operationId, type: operation.type, candidateId: operation.candidateId, reason: reason.slice(0, 300) });
     const withdrawn = new Set(operation.type === "add_evidence" || operation.type === "add_counter_evidence" ? [operation.evidence.id] : operation.type === "add_missing_finding" ? operation.evidence.map(({ id }) => id) : []);
     const operations = parsed.operations.filter((_, at) => at !== index).map((other) => withdrawn.size === 0 ? other : { ...other, citedEvidenceIds: other.citedEvidenceIds.filter((id) => !withdrawn.has(id)) });
@@ -53,6 +54,34 @@ export function translateValidPeerOperations(value: unknown, view: View, snapsho
     if (next === undefined) return { batch, refused };
     leaveOut(next.index, next.reason, new Error(next.reason));
   }
+}
+
+/**
+ * The operations of a reply that have a valid shape, and a refusal for each that has not, so an operation of the
+ * wrong shape is left out like one that fails its other checks. A finding only such an operation introduced goes
+ * with it. The reply is refused whole, with the schema's own message, when its envelope is invalid or when more
+ * than half of its operations have the wrong shape. Observed live (P20 pilot): five votes without a `type` refused
+ * a reply of 25 operations, and its repair took 100 seconds and changed other votes.
+ */
+export function wellFormedPeerReply(value: unknown): { readonly reply: PeerOperationsResult; readonly malformed: readonly RefusedPeerOperation[]; readonly total: number } {
+  const envelope = peerReplyEnvelopeSchema.parse(value);
+  const malformed: RefusedPeerOperation[] = [];
+  const dropped = new Set<string>();
+  const operations = envelope.operations.flatMap((raw, index) => {
+    const checked = boardOperationSchema.safeParse(raw);
+    if (checked.success) return [checked.data];
+    const fields = typeof raw === "object" && raw !== null ? raw as Record<string, unknown> : {};
+    const text = (field: string, fallback: string) => typeof fields[field] === "string" ? fields[field] : fallback;
+    const candidate = typeof fields["candidate"] === "object" && fields["candidate"] !== null ? fields["candidate"] as Record<string, unknown> : {};
+    if (Array.isArray(candidate["sourceFindingIds"])) for (const id of candidate["sourceFindingIds"]) if (typeof id === "string") dropped.add(id);
+    malformed.push({ operationId: text("operationId", `operation ${index + 1}`), type: text("type", "untyped"), candidateId: text("candidateId", ""),
+      reason: checked.error.issues.map(({ path, message }) => `${path.join(".") || "operation"}: ${message}`).join("; ").slice(0, 300) });
+    return [];
+  });
+  if (malformed.length * 2 > envelope.operations.length) peerOperationsResultSchema.parse(value);
+  const introduced = new Set(operations.flatMap((operation) => operation.type === "add_missing_finding" ? operation.candidate.sourceFindingIds : []));
+  const findings = envelope.findings.filter(({ sourceFindingId }) => introduced.has(sourceFindingId) || !dropped.has(sourceFindingId));
+  return { reply: { ...envelope, operations, findings }, malformed, total: envelope.operations.length };
 }
 
 /** Validate model additions against immutable source and bind all local provenance. */

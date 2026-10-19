@@ -474,12 +474,13 @@ are put together in a fixed order. Each call in flight holds its own budget rese
 always asked together and recorded in the auditor order.
 
 A peer-review reply is checked operation by operation. A citation of another candidate's evidence is left
-out when the operation also cites evidence of its own candidate. An operation that fails its own validation
-is left out and recorded (`peer-review-refused-operations-*`, limitation
+out when the operation also cites evidence of its own candidate. An operation that fails its own validation,
+including one of the wrong shape (a vote without its `type`), is left out and recorded (`peer-review-refused-operations-*`, limitation
 `peer_review_operations_refused:<n>`), and evidence it would have added is withdrawn from the other
 operations' citations. A changed vote that cites no new evidence is left out the same way, so the earlier
-vote stands. The reply is refused, and repaired within `maximumOutputRepairs`, only when its shape, locations
-or findings are invalid, or when more than half of its operations would be left out.
+vote stands. The reply is refused, and repaired within `maximumOutputRepairs`, only when its envelope,
+locations or findings are invalid, or when more than half of its operations would be left out. A pair check
+(`merge_check`) is still checked whole.
 
 A provider's refusal of one call does not fail the audit. The CLI transports report a content-filter notice
 as a refusal instead of a reply, and the harness records it durably (`model-refusal-*`) and does not ask

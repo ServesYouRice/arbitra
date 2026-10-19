@@ -9,3 +9,11 @@ export const peerOperationsResultSchema = z.object({
   findings: z.array(sourceFindingSchema).max(20),
 }).strict();
 export type PeerOperationsResult = z.infer<typeof peerOperationsResultSchema>;
+
+/** The same reply with its operations left unchecked, so the runtime can check each one against its own shape. */
+export const peerReplyEnvelopeSchema = z.object({
+  operations: z.array(z.unknown()).max(100),
+  locations: z.array(findingLocationSchema).max(100),
+  findings: z.array(sourceFindingSchema).max(20),
+}).strict();
+export type PeerReplyEnvelope = z.infer<typeof peerReplyEnvelopeSchema>;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SeededRng } from "@arbitra/core/services/rng.js";
-import { translatePeerOperations, translateValidPeerOperations } from "../src/model-peer-operations.js";
+import { translatePeerOperations, translateValidPeerOperations, wellFormedPeerReply } from "../src/model-peer-operations.js";
 import { peerReviewView } from "../src/peer-review-view.js";
 import { ModelPeerBoard } from "../src/model-peer-board.js";
 import { computeConsensus, DEFAULT_CONSENSUS_POLICY } from "@arbitra/workflow/consensus/engine.js";
@@ -86,6 +86,25 @@ describe("model board operations", () => {
     const also = translateValidPeerOperations(response([{ ...base, type: "accept", reason: "Grounded" }, advice]), view, snapshot, "reviewer", 1, undefined, (batch) => batch.operations.flatMap(({ type }, index) => type === "accept" ? [{ index, reason: "FIXTURE_REFUSED" }] : []));
     expect(also.refused).toMatchObject([{ operationId: "new:op", reason: "FIXTURE_REFUSED" }]);
     expect(also.batch.operations.map(({ type }) => type)).toEqual(["supplement_remediation"]);
+  });
+
+  it("leaves out an operation of the wrong shape like any other invalid operation", () => {
+    // Observed live (P20 pilot): five votes without a type refused a reply of 25 operations.
+    const untyped = { operationId: "new:untyped", authorId: "self", round: 1, candidateId: "C2", citedEvidenceIds: ["C2/source-1/evidence-1"], reason: "Grounded" };
+    const advice = { ...base, operationId: "new:advice", type: "supplement_remediation", text: "Advice" };
+    const kept = translateValidPeerOperations(response([{ ...base, type: "accept", reason: "Grounded" }, untyped, advice]), view, snapshot, "reviewer", 1);
+    expect(kept.batch.operations.map(({ type }) => type)).toEqual(["accept", "supplement_remediation"]);
+    expect(kept.refused).toMatchObject([{ operationId: "new:untyped", type: "untyped", candidateId: "C2" }]);
+    expect(kept.refused[0]?.reason).toContain("type");
+    // A finding only the malformed operation introduced goes with it.
+    const finding = { schemaVersion: 1, sourceFindingId: "self/missing", category: "CORRECTNESS", title: "Missing", problem: "Missing claim", recommendedFix: "Fix", severity: "high", productionBlocker: false, status: "needs_verification", confidence: 0.5, productionImpact: "", trigger: "", verification: "", dependencies: [], relatedRisks: [],
+      locations: [{ id: "new:location", path: "a.ts", startLine: 1, endLine: 1 }], evidence: [{ id: "new:evidence", text: "return null;", locationIds: ["new:location"] }] };
+    // Without its evidence, the addition has the wrong shape.
+    const malformedAddition = { ...base, operationId: "new:addition", type: "add_missing_finding", candidateId: "new:added", candidate: { ...seed("new:added"), sourceFindingIds: ["self/missing"] } };
+    expect(wellFormedPeerReply(response([{ ...base, type: "accept", reason: "Grounded" }, malformedAddition, advice], [], [finding])).reply.findings).toEqual([]);
+    // More than half of the operations of the wrong shape, or a reply of the wrong shape, is refused whole.
+    expect(() => translateValidPeerOperations(response([untyped, { ...untyped, operationId: "new:untyped-2" }, advice]), view, snapshot, "reviewer", 1)).toThrow();
+    expect(() => translateValidPeerOperations({ operations: [advice] }, view, snapshot, "reviewer", 1)).toThrow();
   });
 
   it("applies structural changes with source context and removes retired claims from consensus", () => {
