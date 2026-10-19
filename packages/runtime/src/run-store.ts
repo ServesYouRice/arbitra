@@ -62,6 +62,7 @@ export class RunStore {
   readonly #index: string;
   readonly #definition: string;
   readonly #context: string;
+  readonly #created: string;
   readonly #journalPath: string;
   readonly #traces: TraceRecorder;
   readonly #runsDirectory: string;
@@ -85,6 +86,7 @@ export class RunStore {
     this.#index = join(this.directory, "artifacts.json");
     this.#definition = join(this.directory, "definition.json");
     this.#context = join(this.directory, "context.json");
+    this.#created = join(this.directory, "created.json");
     this.artifacts = new ArtifactStore(this.directory);
   }
 
@@ -168,6 +170,7 @@ export class RunStore {
     validateContext(context);
     await mkdir(this.directory, { recursive: true });
     await writeFile(this.#context, JSON.stringify(context, null, 2), { encoding: "utf8", flag: "wx" });
+    await writeFile(this.#created, JSON.stringify({ createdAt: new Date().toISOString() }), { encoding: "utf8", flag: "wx" });
   }
 
   async loadContext(): Promise<StoredRunContext> {
@@ -180,12 +183,16 @@ export class RunStore {
 
   /**
    * When the run was created, when it last recorded an event, and when its artifact index last
-   * changed. The context is written exactly once, at creation, every event is appended to one
-   * log, and every published artifact (including recorded decisions) rewrites the index, so
-   * their file modification times are those moments; a missing file reports null.
+   * changed. The creation time is recorded when the context is written; a run from before that
+   * record, like the other two, reads its file's modification time: every event is appended to
+   * one log, and every published artifact (including recorded decisions) rewrites the index. A
+   * missing file reports null. A copied or restored run keeps its recorded creation time; its
+   * modification times become the copy's.
    */
   async times(): Promise<{ readonly createdAt: string | null; readonly updatedAt: string | null; readonly artifactsAt: string | null }> {
-    return Object.freeze({ createdAt: await modifiedAt(this.#context), updatedAt: await modifiedAt(this.#events), artifactsAt: await modifiedAt(this.#index) });
+    const recorded = await readOptional(this.#created);
+    const createdAt = recorded === null ? null : (JSON.parse(recorded) as { createdAt?: unknown }).createdAt;
+    return Object.freeze({ createdAt: typeof createdAt === "string" ? createdAt : await modifiedAt(this.#context), updatedAt: await modifiedAt(this.#events), artifactsAt: await modifiedAt(this.#index) });
   }
 
   /**

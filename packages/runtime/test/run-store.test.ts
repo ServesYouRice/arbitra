@@ -1,4 +1,4 @@
-import { appendFile, mkdtemp, readFile, rm } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, rm, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -23,7 +23,7 @@ describe("run store paths", () => {
       expect(persisted).toContain("[REDACTED:");
       // A value filed under a secret's name is redacted, and JSON nested in a string survives redaction (observed
       // live: a stored prompt whose nested source line ended in an assignment no longer parsed).
-      const nested = JSON.stringify({ lines: [{ line: 1, text: "    apiKey: config.gateway.apiKey," }, { line: 2, text: "    clock," }] });
+      const nested = JSON.stringify({ lines: [{ line: 1, text: "    apiKey: gw7KeyForTheGateway," }, { line: 2, text: "    clock," }] });
       const stored = await resumed.publish("harness", { password: "arbitrary-long-secret", text: JSON.stringify({ layer: "round", value: nested }) });
       const read = JSON.parse((await resumed.readArtifact(stored.artifactId)).content) as { password: string; text: string };
       expect(read.password).toBe("[REDACTED:assigned_secret]");
@@ -46,9 +46,15 @@ describe("run store paths", () => {
     try {
       const store = new RunStore(directory, "run-context");
       const context = { repository: directory, repositoryDigest: "a".repeat(64), scope: { kind: "repository" as const }, consensusPolicy: "minimal" as const, maximumRounds: 1, criticEnabled: false };
+      const before = Date.now();
       await store.saveContext(context);
       await expect(store.loadContext()).resolves.toEqual(context);
       await expect(store.saveContext({ ...context, maximumRounds: -1 })).rejects.toThrow("INVALID_RUN_CONTEXT_ROUNDS");
+      // The creation time is recorded, so a copied run keeps it when its files take the copy's modification time.
+      const created = (await store.times()).createdAt;
+      expect(Date.parse(created ?? "")).toBeGreaterThanOrEqual(before - 1_000);
+      await utimes(join(store.directory, "context.json"), new Date("2030-01-01"), new Date("2030-01-01"));
+      expect((await store.times()).createdAt).toBe(created);
     } finally { await rm(directory, { recursive: true, force: true }); }
   });
 });
