@@ -768,6 +768,10 @@ export class ModelAuditPipeline {
       proposedResolutions: (await readStage<{ resolutions: readonly RevisionResolution[] }>(this.context.store, "plan-revision")).resolutions,
     };
     let criticCalls = 0;
+    // Files the plan's tasks and issues cite that a critic call carried neither whole nor as an excerpt. Recorded, not
+    // gating: observed live (P20 pilot), a critic at the Antigravity CLI's prompt limit left out 153 to 278 cited files,
+    // made no tool call, and most of its remarks did not hold against the source; the run reported full coverage.
+    const citedSourceLeftOut = new Set<string>();
     const critic = criticNode({ protocolVersion: protocol.protocolVersion, protocolHash: protocol.protocolHash, schema: modelCritiqueSchema,
       runtime: { critique: async (request) => {
         const requestFor = (part: CriticContextPart): ModelStageInput<ReturnType<typeof modelCritiqueSchema.parse>> => ({
@@ -780,11 +784,13 @@ export class ModelAuditPipeline {
           const parts = await criticContextParts(plan, planned, request.input.necessaryContext, (part) => this.sendable(requestFor(part), false),
             revisionContext, maximumRecords, {}, (part) => this.sendable(requestFor(part), true), review.criticPairChecks === true);
           await this.context.store.publish(phase === "initial" ? "critic-context-batches" : "critic-revision-context-batches", parts.map(({ kind, recordIds, segment, pairs }) => ({ kind, recordIds, ...(segment === undefined ? {} : { segment }), ...(pairs === undefined ? {} : { pairs }) })));
-          criticCalls = 0;
+          criticCalls = 0; citedSourceLeftOut.clear();
           // Each part is reviewed on its own, so the parts run side by side and are put together in part order.
           // Observed live (P20 pilot): seven parts one after another were 21 minutes of a panel run.
           const local = await sideBySide(parts, providerExecutionSchema.parse(this.config.workflow["modelExecution"]).maximumParallelCalls ?? 1, async (part) => {
-            const input = requestFor(part); const response = await this.call(input);
+            const input = requestFor(part);
+            for (const path of (await this.prepareCall(input, true)).coverage.citedPathsLeftOut) citedSourceLeftOut.add(path);
+            const response = await this.call(input);
             // Every blocking item is kept; of the others, the first few the critic put first.
             const kept = [...response.items.filter(({ blocking }) => blocking), ...response.items.filter(({ blocking }) => !blocking).slice(0, CRITIC_NON_BLOCKING_ITEMS)];
             return { ...response, items: kept.map((item) => ({ ...item, id: parts.length === 1 ? item.id : `${input.activityId}/${item.id}` })) };
@@ -800,7 +806,7 @@ export class ModelAuditPipeline {
       planner: { id: this.#roles.planner, capability: plannerProfile.capabilityTier, independenceGroup: plannerProfile.independenceGroup },
       pool: [{ id: criticId, capability: criticProfile.capabilityTier, independenceGroup: criticProfile.independenceGroup, available: true }],
     });
-    await this.context.store.publish("critic-result", { ...result, criticCalls });
+    await this.context.store.publish("critic-result", { ...result, criticCalls, citedSourceLeftOut: [...citedSourceLeftOut].sort() });
     const critiqued = result.status === "completed" ? result.critique : { summary: `critic ${result.status}`, items: [] };
     const feedback = phase === "initial" && result.status === "completed" && !result.degradedReviewCoverage ? await this.#checkCritique(critiqued, plan, planned, signal) : critiqued;
     await this.context.store.publish("critic-feedback", feedback);

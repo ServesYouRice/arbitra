@@ -525,7 +525,7 @@ describe("composed model audits", () => {
     expect(new Set(feedback.items.map(({ id }) => id)).size).toBe(batches.length);
     const resultDescriptor = artifacts.find(({ kind }) => kind === "critic-result");
     if (resultDescriptor === undefined) throw new Error("CRITIC_RESULT_ABSENT");
-    expect(JSON.parse((await resumed.artifact(result.runId, resultDescriptor.artifactId) as { content: string }).content)).toMatchObject({ criticCalls: batches.length, degradedReviewCoverage: false });
+    expect(JSON.parse((await resumed.artifact(result.runId, resultDescriptor.artifactId) as { content: string }).content)).toMatchObject({ criticCalls: batches.length, degradedReviewCoverage: false, citedSourceLeftOut: expect.any(Array) });
   });
 
   it("batches oversized peer context without losing candidate or cross-batch pair coverage", async () => {
