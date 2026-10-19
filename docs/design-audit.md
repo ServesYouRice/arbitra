@@ -204,7 +204,7 @@ Open:
 
 | For | Change | Why | Size |
 |---|---|---|---|
-| Subscription runs | Windows process trees: check `taskkill`'s result, skip it when the leader has exited, confirm with `process.kill(pid, 0)`, report cleanup as unknown rather than done; a Job Object for descendants | The tree is always reported terminated on Windows. A descendant holding stdout keeps a call open until the 30-minute CLI timeout. The leftover-process checks never fire | medium |
+| Subscription runs | Windows process trees: report cleanup as unknown rather than done; a Job Object for descendants. Since 2d19b2f a descendant still holding the pipes two seconds after the leader exits is found by parent ID and ended | The tree is always reported terminated on Windows, so the leftover-process checks never fire | small to medium |
 | Subscription runs | Admission shared across runs: a lease per account beside the CLI limit ledger, for `maxConcurrent` and retry hints | Panels side by side are separate processes with separate schedulers; only an exhausted usage window is shared | medium |
 | Subscription runs | A stage prompt's stable part (protocol, schema, tools, instruction) in the CLI's system-prompt file, measured on a timed run | It travels as one user message. Claude Code caches at the end of its system prompt, which holds only the preamble, so a stage's separate calls may share more from cache. Every prompt fingerprint changes | medium, experiment |
 | Subscription runs | Envelopes per stage: attempts, repairs, tool turns and replans recorded per stage, and a stage stopped when it makes no progress | Local limits multiply (64 replans, each with repairs, tool turns and retries); only the run's token budget bounds the product | medium |

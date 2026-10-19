@@ -43,9 +43,14 @@ protocol 2.1.0) ran Claude Sonnet 5, GPT-5.6 Luna and Gemini 3.8 Flash on three 
 with 10 planted defects. One Claude run found 25 of 30 defect chances, and three pooled runs
 found all 10 defects, whether they were repeated Claude runs or three model families. Under
 the prespecified rule, no comparison is decisive at that size
-([`docs/qa/p06-subscription`](docs/qa/p06-subscription/README.md)). The default suites run
-scripted auditors, and `packages/testing/src/metrics/premise.ts` scores a run against a
-ground-truth fixture.
+([`docs/qa/p06-subscription`](docs/qa/p06-subscription/README.md)). A harder, private
+benchmark (P20) was then run on its pilot only: on three projects built so that one Opus 5.5
+run misses defects, wherever three pooled Opus runs missed a planted defect, a panel of Opus
+5.5, GPT-6.1 Sol and Gemini 3.8 Flash found it, in about 0.6 times their time and 0.7 times
+their tokens. With 21 planted defects that is an estimate, not a test
+([completion plan](docs/completion-plan.md#p20--stress-test-the-premise-on-a-hard-benchmark)).
+The default suites run scripted auditors, and `packages/testing/src/metrics/premise.ts` scores
+a run against a ground-truth fixture.
 Every premise report carries `interpretation: "smoke_test_only_not_proof"`. See
 [`docs/evaluation.md`](docs/evaluation.md).
 

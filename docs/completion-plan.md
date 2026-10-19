@@ -123,7 +123,7 @@ Evidence is in `docs/qa/`.
 | P17 | **Complete** | — | — |
 | P18 | **Complete** | Prespecified criteria; local MiniLM candidate evaluated offline on two corpora. Authored findings: **reject** (W 36 → 49). P06 real-model findings (149 in 21 runs): **insufficient evidence** (94 of 100 same-label pairs; `E1` cut W only 7%, 25% required). Decision: **do not adopt; keep existing clustering** ([`qa/p18`](qa/p18/README.md)). The rerun also found `structural-v1` merging prompt-injection reports with the defect beside them (fixed in P19: `structural-v2`) | — |
 | P19 | **Complete** | Earlier cross-cutting fixes (quota classification, output repair, evidence re-anchoring, peer-review degradation, writer tool-loop handling, complete-context marking, sole-author coverage), then the owner's September 29 choice: all eight open findings fixed with regressions. The affected live acceptance passed on subscriptions on September 30 (Audit with an answered plan-questions checkpoint, planted-instruction follow-up, single-auditor planning, Feature and Testing on documented behaviour); the reruns found four more defects, all fixed. CI green on Linux and macOS at f77024d ([`qa/p19`](qa/p19/README.md)) | — |
-| P20 | In progress | Benchmark rebuilt as `p20-hard-v2` in the owner's private repository, and its pilot re-calibrated: one Opus run found 16 of 21 defects (October 10); lineup comparison tooling (`compare --lineups`); every lineup now runs on Windows | Pilot panels (running since October 10); prespecified held-out protocol; held-out runs; results summary here |
+| P20 | **Closed on its pilot** (owner, October 19) | Benchmark `p20-hard-v2` in the owner's private repository; pilot recalibrated (October 10), then hardened further for two pilot projects (v3, v4). On the three pilot projects, wherever three Opus-only runs together missed a planted defect, the premium panel found it, at 0.57 to 0.67 times their time and 0.69 to 0.76 times their tokens (21 planted defects: an estimate, not a test). Lineup comparison tooling (`compare --lineups`); every lineup runs on Windows | Not done, by the owner's decision: the held-out protocol and held-out runs, and the cheap and light lineups |
 | P21 | Pending | — | The completion report and final doc reconciliation, after P20 |
 
 ## P01 — Repair test discovery and platform reliability
@@ -461,6 +461,15 @@ owner replaced GPT-6 Astra with GPT-6.1 Sol and Claude Sonnet 5 with Claude Sonn
 the efforts and the output ceiling (64,000 tokens, because thinking counts as output), and the
 pilot started again under a new protocol version. Gemini 4 Argon is not offered by the
 Antigravity CLI yet.
+
+**Closed on the pilot, October 19, 2026.** The owner closed P20 without held-out runs. Two pilot
+projects were hardened again (v3, v4) until one Opus run missed defects, and the premium panel ran
+once on each pilot project. Wherever three Opus-only runs together missed a planted defect, the
+panel found it, using 0.57 to 0.67 times their time and 0.69 to 0.76 times their tokens. With 21
+planted defects this is an estimate, not a test of the premise, and it is reported as one; the
+cheap and light lineups were not run. The runs also served as product tests: what they found about
+arbitra is in [remaining work](../WORK-REMAINING.md). The acceptance below stands as written and
+is not met.
 
 **Acceptance.** Prespecify the protocol before any held-out run. The lineups are compared at
 matched cost:
