@@ -7,6 +7,7 @@ import { useApis } from "../../app/apis.js";
 import { modeOfWorkflow } from "../../app/format.js";
 import { Link, useNavigation, type RunTab } from "../../app/router.js";
 import { ArtifactView } from "../../controls/ArtifactView.js";
+import { ViewBoundary } from "../../controls/ViewBoundary.js";
 import type { WorkflowNode } from "../../graph/GraphView.js";
 import { recordedStages } from "../../graph/recorded-stages.js";
 import { EvaluationView } from "../../views/evaluation/EvaluationView.js";
@@ -91,8 +92,8 @@ export function RunPage({ runId, tab, item }: { readonly runId: string; readonly
     <DecisionBanner runId={runId} run={resource} onChanged={refresh} />
     <nav aria-label="run views" className="tabs">{tabs.map((key) => <Link aria-current={key === current ? "page" : undefined} key={key} to={{ page: "run", runId, tab: key === "overview" ? null : key, item: null }}>{TAB_LABELS[key]}</Link>)}</nav>
     <div className="run-body" data-details={details !== null}>
-      <div className="run-main">{content}</div>
-      {details}
+      <div className="run-main"><ViewBoundary key={current} label={`the ${current} tab`}>{content}</ViewBoundary></div>
+      {details === null ? null : <ViewBoundary key={selection === null ? "none" : `${selection.kind}:${selection.id}`} label="this item">{details}</ViewBoundary>}
     </div>
   </div>;
 }

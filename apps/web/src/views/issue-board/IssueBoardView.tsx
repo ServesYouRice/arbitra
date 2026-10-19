@@ -1,7 +1,7 @@
 import "./issue-board.css";
 import { useMemo, useState, type ReactElement } from "react";
 import { ArtifactApi } from "../../api/artifacts.js";
-import { EMPTY_FILTERS, filterIssues, filterOptions, issueRows, type IssueFilters, type IssueRow, type PersistedFinding, type PersistedIssueOp, type PersistedIssueSet, type PersistedVerification } from "./model.js";
+import { describeSuppressionCandidate, describeUnexaminedSurface, EMPTY_FILTERS, filterIssues, filterOptions, issueRows, type IssueFilters, type IssueRow, type PersistedFinding, type PersistedIssueOp, type PersistedIssueSet, type PersistedVerification } from "./model.js";
 import { RUN_ARTIFACT_KINDS, useRunArtifact, type RunArtifact } from "./run-artifacts.js";
 
 export interface IssueBoard { readonly issueSet: RunArtifact<PersistedIssueSet>; readonly findings: readonly PersistedFinding[]; readonly rows: readonly IssueRow[] }
@@ -56,8 +56,8 @@ export function CoverageSummary({ issueSet }: { readonly issueSet: PersistedIssu
       <li className="state" data-state={coverage.unexaminedSurfaces.length === 0 ? "verified" : "unexamined"}>unexamined surfaces · {coverage.unexaminedSurfaces.length}</li>
       <li className="state" data-state={minorityFindingIds.length === 0 ? "verified" : "dissent"}>minority findings retained · {minorityFindingIds.length}</li>
     </ul>
-    {coverage.suppressionCandidates.length === 0 ? null : <ul aria-label="suppression candidates" className="board-coverage">{coverage.suppressionCandidates.map(({ path, instructionRisk, readBy, note }) => <li className="state" data-state="tainted" key={path}>{path} · instruction risk {instructionRisk} · read by {readBy.join(", ") || "no auditor"} · {note}</li>)}</ul>}
-    {coverage.unexaminedSurfaces.length === 0 ? null : <ul aria-label="unexamined surfaces" className="board-coverage">{coverage.unexaminedSurfaces.map(({ surfaceId, weight, riskScore, paths, reasons }) => <li className="state" data-state="unexamined" key={surfaceId}>{surfaceId} · {weight} · risk {riskScore} · {paths.join(", ")} · {reasons.join(", ")}</li>)}</ul>}
+    {coverage.suppressionCandidates.length === 0 ? null : <ul aria-label="suppression candidates" className="board-coverage">{coverage.suppressionCandidates.map((entry, index) => <li className="state" data-state="tainted" key={index}>{describeSuppressionCandidate(entry)}</li>)}</ul>}
+    {coverage.unexaminedSurfaces.length === 0 ? null : <ul aria-label="unexamined surfaces" className="board-coverage">{coverage.unexaminedSurfaces.map((entry, index) => <li className="state" data-state="unexamined" key={index}>{describeUnexaminedSurface(entry)}</li>)}</ul>}
     {limitations.length === 0 ? null : <ul aria-label="recorded limitations" className="board-coverage">{limitations.map((limitation) => <li className="state" data-state="degraded" key={limitation}>{limitation}</li>)}</ul>}
   </>;
 }

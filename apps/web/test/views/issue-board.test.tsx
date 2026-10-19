@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ArtifactApi } from "../../src/api/artifacts.js";
-import { IssueBoardView } from "../../src/views/issue-board/IssueBoardView.js";
+import { CoverageSummary, IssueBoardView } from "../../src/views/issue-board/IssueBoardView.js";
 import { IssueDetails } from "../../src/views/issue-board/IssueDetails.js";
 import { EMPTY_FILTERS, filterIssues, issueRows } from "../../src/views/issue-board/model.js";
 import { ARTIFACT_CONTENT, findings, issueSet, operations, verifications } from "./fixtures.js";
@@ -22,6 +22,26 @@ describe("issue board over persisted artifacts", () => {
     expect(screen.getByText(/billing · critical · risk 0\.9/).dataset.state).toBe("unexamined");
     expect(screen.getByText("Third auditor produced no parsable findings.").dataset.state).toBe("degraded");
     expect(screen.getByText("minority findings retained · 1").dataset.state).toBe("dissent");
+  });
+
+  it("shows the coverage gaps a model run records, whose shapes differ from a scripted run's surfaces", () => {
+    const unexaminedSurfaces = [
+      { auditorId: "auditor-a", surface: "module_joint_context:src" },
+      { kind: "peer_review_output_rejected", round: 1, auditorId: "auditor-c", scopeId: null, reason: "operation must cite at least one evidence ID" },
+      { kind: "peer_operation_conflict", conflict: { candidateIds: ["C-1", "C-2"], operationIds: ["op-1", "op-2"], reason: "contradictory_severity" } },
+      { kind: "verification_check_incomplete_or_failed", candidateId: "C-3", checkId: "check-1", state: "completed", status: "exited", exitCode: 1 },
+      "C-4",
+      7,
+    ];
+    render(<CoverageSummary issueSet={{ ...issueSet, coverage: { ...issueSet.coverage, suppressionCandidates: [{ path: "src/auth.ts" }], unexaminedSurfaces } }} />);
+    expect(screen.getByText("unexamined surfaces · 6").dataset.state).toBe("unexamined");
+    expect(screen.getByText("module_joint_context:src · not examined by auditor-a within its budget")).toBeTruthy();
+    expect(screen.getByText("peer review output rejected · round 1 · auditor-c · operation must cite at least one evidence ID")).toBeTruthy();
+    expect(screen.getByText("peer operations conflict · contradictory_severity · C-1, C-2")).toBeTruthy();
+    expect(screen.getByText("verification check not passed · C-3 · check-1 · completed · exited · exit 1")).toBeTruthy();
+    expect(screen.getByText("verification deferred · C-4")).toBeTruthy();
+    expect(screen.getByText("7")).toBeTruthy();
+    expect(screen.getByText("src/auth.ts · instruction risk unavailable · read by no auditor · unavailable").dataset.state).toBe("tainted");
   });
 
   it("gives each issue one line: severity as stripe width, consensus with its support, verification and the first location", async () => {
