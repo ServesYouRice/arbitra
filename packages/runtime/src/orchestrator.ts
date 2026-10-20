@@ -1005,13 +1005,21 @@ export class Orchestrator {
     // A run that produced no canonical issue set established no trustworthy result, so it
     // fails rather than passing on the absence of anything to object to.
     if (summary.issues === null) return ["no_canonical_issue_set"];
-    const reasons = [
-      ...(await completed()),
-      ...(summary.unresolvedCount !== undefined && summary.unresolvedCount > 0 ? ["unresolved_issues"] : []),
-      ...(summary.coverageComplete === false ? ["degraded_coverage"] : []),
-    ];
     const store = new RunStore(this.#runsDirectory, runId);
     const artifacts = await store.listArtifacts();
+    // Issues the run chose not to verify because the plan leaves them out stay with the peer vote; one the vote left
+    // open is reported on the board but does not hold the gate.
+    let unresolved = summary.unresolvedCount ?? 0;
+    if (unresolved > 0 && artifacts.some(({ kind }) => kind === "verification-below-plan-scope")) {
+      const skipped = new Set((await readStage<{ candidateIds: readonly string[] }>(store, "verification-below-plan-scope")).candidateIds);
+      unresolved = (await readStage<{ issues: readonly { candidateId: string; disposition: string }[] }>(store, "canonical-issues")).issues
+        .filter(({ candidateId, disposition }) => disposition === "needs_verification" && !skipped.has(candidateId)).length;
+    }
+    const reasons = [
+      ...(await completed()),
+      ...(unresolved > 0 ? ["unresolved_issues"] : []),
+      ...(summary.coverageComplete === false ? ["degraded_coverage"] : []),
+    ];
     if (artifacts.some(({ kind }) => kind === "plan-ir")) {
       const plan = await readStage<{ unresolvedQuestions: readonly { blocking: boolean }[] }>(store, "plan-ir");
       if (plan.unresolvedQuestions.some(({ blocking }) => blocking)) reasons.push("blocking_plan_questions");

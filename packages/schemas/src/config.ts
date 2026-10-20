@@ -45,6 +45,12 @@ export const runConfigSchema = z.object({
     if (perCall !== undefined && (typeof perCall !== "number" || !Number.isSafeInteger(perCall) || perCall < 1)) {
       context.addIssue({ code: "custom", path: ["maxQuestionsPerCall"], message: "Expected a positive safe integer" });
     }
+    // `belowPlanScope: "skip"` leaves issues below the plan's minimum severity to the peer vote; `reaskMergedPlaces:
+    // "across_files"` re-asks a rejected merged issue place by place only when its places are in different files.
+    for (const [key, allowed] of [["belowPlanScope", ["verify", "skip"]], ["reaskMergedPlaces", ["always", "across_files"]]] as const) {
+      const value = verification[key];
+      if (value !== undefined && (typeof value !== "string" || !(allowed as readonly string[]).includes(value))) context.addIssue({ code: "custom", path: [key], message: `Expected one of ${allowed.join(", ")}` });
+    }
   }),
   models: z.record(z.string(), modelProfileSchema),
   harness: z.object({

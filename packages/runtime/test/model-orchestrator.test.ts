@@ -953,6 +953,23 @@ describe("composed model audits", () => {
     expect(criticIssueIds.every((ids) => ids.every((id) => high.includes(id)))).toBe(true);
   });
 
+  it("verifies only the issues the plan covers when asked to, leaving the others to the peer vote", async () => {
+    const { create, config, verificationInputs } = await fixture({ largePeerContext: true, severities: ["low", "high", "low", "critical"] });
+    (config.workflow["modelExecution"] as { planScope?: { minimumSeverity: string } }).planScope = { minimumSeverity: "high" };
+    const verifying = { ...config, verification: { ...config.verification, belowPlanScope: "skip" } };
+    const core = create(); const result = await core.run(verifying);
+    expect(result.state).toBe("COMPLETED");
+    const artifacts = await core.artifacts(result.runId);
+    const read = async <T>(kind: string) => JSON.parse((await core.artifact(result.runId, artifacts.find((artifact) => artifact.kind === kind)?.artifactId ?? "") as { content: string }).content) as T;
+    const issues = await read<{ issues: { candidateId: string; severity: string; verificationOutcome: string | null }[]; limitations: string[] }>("canonical-issues");
+    const low = issues.issues.filter(({ severity }) => severity === "low");
+    expect(low.map(({ verificationOutcome }) => verificationOutcome)).toEqual([null, null]);
+    expect(issues.issues.filter(({ severity }) => severity !== "low").every(({ verificationOutcome }) => verificationOutcome !== null)).toBe(true);
+    expect((await read<{ candidateIds: string[] }>("verification-below-plan-scope")).candidateIds.sort()).toEqual(low.map(({ candidateId }) => candidateId).sort());
+    expect(issues.limitations).toContain("verification_skipped_below_plan_scope:2");
+    expect(verificationInputs.length).toBeGreaterThan(0);
+  });
+
   it("asks about each place of a rejected merge on its own, and keeps the place that holds", async () => {
     // Observed live (P20 pilot): a merge gave a real defect another finding's title, and the question was rejected.
     const { create, config, verificationInputs } = await fixture({ ambiguousClustering: true, verificationByPlace: true });

@@ -440,7 +440,15 @@ export class ModelAuditPipeline {
       if (candidate === undefined) throw new Error("VERIFICATION_CANDIDATE_ABSENT");
       return { consensus, candidate };
     }).sort((a, b) => (SEVERITY_ORDER[a.candidate.severity] ?? 5) - (SEVERITY_ORDER[b.candidate.severity] ?? 5) || b.consensus.supportCount - a.consensus.supportCount || a.candidate.candidateId.localeCompare(b.candidate.candidateId));
-    const items = ranked.map(({ candidate }) => {
+    // An issue below the plan's minimum severity gets no task, so with `verification.belowPlanScope: "skip"` it is
+    // not put to the verifier: its disposition stays the peer vote's and its verification reads as not done.
+    // Observed (P20 pilot): the questions about low and informational issues were 29 to 35% of a run's tokens.
+    const scope = this.#planScope();
+    const bar = SEVERITY_ORDER[scope?.minimumSeverity ?? "informational"] ?? 4;
+    const skipped = this.config.verification["belowPlanScope"] === "skip" && scope?.minimumSeverity !== undefined
+      ? ranked.filter(({ candidate }) => (SEVERITY_ORDER[candidate.severity] ?? 5) > bar).map(({ candidate }) => candidate.candidateId) : [];
+    if (skipped.length > 0) await context.store.publish("verification-below-plan-scope", { minimumSeverity: scope?.minimumSeverity ?? null, candidateIds: skipped });
+    const items = ranked.filter(({ candidate }) => !skipped.includes(candidate.candidateId)).map(({ candidate }) => {
       const { candidateId } = candidate;
       const findings = convergence.candidateFindings[candidateId] ?? [];
       const evidence = findings.flatMap((finding) => finding.evidence);
@@ -520,6 +528,9 @@ export class ModelAuditPipeline {
     const separately = async (request: ModelVerificationRequest, rejected: ModelVerificationResponse): Promise<ModelVerificationResponse> => {
       const places = findingsByPlace(convergence.candidateFindings[request.candidateId] ?? []);
       if (places.length < 2) return rejected;
+      // Optionally only across files (`verification.reaskMergedPlaces: "across_files"`). Observed (P20 pilot): the
+      // re-asks were 10 to 16% of a panel's tokens and 7 of 50 confirmed, none of them a planted defect.
+      if (this.config.verification["reaskMergedPlaces"] === "across_files" && new Set(places.flatMap((findings) => findings.flatMap(({ locations }) => locations.map(({ path }) => path)))).size < 2) return rejected;
       const asked: { sourceFindingIds: readonly string[]; activityId: string; outcome: string | null }[] = [];
       let confirmed: ModelVerificationResponse | null = null;
       for (const findings of places) {
@@ -628,6 +639,7 @@ export class ModelAuditPipeline {
         ...(refusedOperations === 0 ? [] : [`peer_review_operations_refused:${refusedOperations}`]),
         ...(verification.metrics.contextLimitedItemIds.length === 0 ? [] : [`verification_question_exceeds_context:${verification.metrics.contextLimitedItemIds.length}`]),
         ...(unansweredQuestions === 0 ? [] : [`verification_question_unanswered:${unansweredQuestions}`]),
+        ...(skipped.length === 0 ? [] : [`verification_skipped_below_plan_scope:${skipped.length}`]),
         ...discoveryCoverage.flatMap(({ auditorId, truncated, limitations }) => [...(truncated ? [`discovery_truncated:${auditorId}`] : []), ...limitations.map((limitation) => `${auditorId}:${limitation}`)])],
     });
     // The list is ranked: most severe first, then by how many auditors found the issue, then by the verifier's

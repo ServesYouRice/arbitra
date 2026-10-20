@@ -8,7 +8,8 @@
   "consensusPolicy": "full",
   "maxConsensusRounds": 1,
   "verification": {
-    "deterministicFirst": true
+    "deterministicFirst": true,
+    "belowPlanScope": "skip"
   },
   "models": {
     "auditor-a": {

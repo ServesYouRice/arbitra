@@ -339,6 +339,14 @@ function ModelsSection({ draft, edit, offered, machine, onUseModels }: { readonl
       <input aria-label={limit.label} min={0} type="number" value={Number(getIn(draft, limit.path) ?? 0)} onChange={(event) => edit(limit.path, event.target.value === "" ? undefined : Number(event.target.value))} />
       <span className="field__hint">{limit.hint}</span>
     </label>)}</div>}
+    {getIn(draft, ["mode"]) !== "audit" ? null : <fieldset className="scope"><legend>verification</legend>
+      <label className="operator-check"><input aria-label="verify only the issues the plan covers" checked={getIn(draft, ["verification", "belowPlanScope"]) === "skip"} type="checkbox" onChange={(event) => edit(["verification", "belowPlanScope"], event.target.checked ? "skip" : undefined)} />
+        verify only the issues the plan covers{typeof getIn(draft, ["workflow", "modelExecution", "planScope", "minimumSeverity"]) === "string" ? ` (${String(getIn(draft, ["workflow", "modelExecution", "planScope", "minimumSeverity"]))} and up)` : " (needs a plan minimum severity)"}</label>
+      <p className="field__hint">Issues below it get no task, so they keep the peer vote and show as not verified. Saves about a third of a run&apos;s tokens.</p>
+      <label className="operator-check"><input aria-label="re-ask merged issues place by place only across files" checked={getIn(draft, ["verification", "reaskMergedPlaces"]) === "across_files"} type="checkbox" onChange={(event) => edit(["verification", "reaskMergedPlaces"], event.target.checked ? "across_files" : undefined)} />
+        re-ask a rejected merged issue place by place only when its places are in different files</label>
+      <p className="field__hint">Saves 10 to 16% of a run&apos;s tokens, but may miss a real defect that was merged with a false one in the same file.</p>
+    </fieldset>}
   </Section>;
 }
 
