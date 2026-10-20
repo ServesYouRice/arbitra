@@ -24,7 +24,17 @@ const MAXIMUM_FILE_BYTES = 512 * 1024;
 const TEST_METADATA = new Set(["package.json", "pnpm-workspace.yaml", "pyproject.toml", "pytest.ini", "tox.ini", "setup.cfg", "Cargo.toml", "go.mod", "Makefile", "build.gradle", "pom.xml"]);
 const runGit = promisify(execFile);
 export interface RepositoryGit { run(root: string, args: readonly string[]): Promise<string> }
-export const defaultGit: RepositoryGit = { async run(root, args) { return (await runGit("git", ["-C", root, ...args], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024, windowsHide: true })).stdout; } };
+/**
+ * The audited repository is untrusted, and its own Git configuration can name programs Git runs while reading it
+ * (`core.fsmonitor`, a filter's driver, an external diff), so reads switch those off (arbitra's audit of itself,
+ * October 19, 2026). `--no-ext-diff` and `--no-textconv` are options of diff and show, added where those run.
+ */
+const SAFE_GIT_READ = ["-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-c", "diff.external="] as const;
+export const defaultGit: RepositoryGit = { async run(root, args) {
+  const [command, ...rest] = args;
+  const safeArgs = command === "diff" ? ["diff", "--no-ext-diff", "--no-textconv", ...rest] : command === "show" ? ["show", "--no-textconv", ...rest] : args;
+  return (await runGit("git", [...SAFE_GIT_READ, "-C", root, ...safeArgs], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024, windowsHide: true })).stdout;
+} };
 
 /**
  * A read-only snapshot of the repository's source files.
