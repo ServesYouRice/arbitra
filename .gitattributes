@@ -6,3 +6,6 @@ packages/schemas/src/glyphs.ts text eol=lf
 *.jpg binary
 *.jpeg binary
 *.png binary
+# Windows batch files need CRLF line endings; the macOS/Linux launcher needs LF.
+*.cmd text eol=crlf
+*.command text eol=lf

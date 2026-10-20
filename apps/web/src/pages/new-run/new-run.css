@@ -18,3 +18,4 @@ tr[data-placeholder="true"] td:first-child { font-weight: 600; color: var(--ink)
 .advanced[open] > summary .panel-title::after { content: " · hide"; }
 .check { display: grid; gap: var(--s2); padding: var(--s3); border: var(--hairline) solid var(--line); background: var(--sunken); }
 @media (forced-colors: active) { .scope, .roles, .check, input.placeholder { border-color: CanvasText; } }
+.machine-models { display: grid; gap: var(--s2); padding-bottom: var(--s3); border-bottom: var(--hairline) solid var(--line-soft); }

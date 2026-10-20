@@ -7,6 +7,9 @@
 .run-header__title .actions { margin-inline-start: auto; }
 .run-header__meta { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s4); margin: 0; font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); }
 .run-header__meta > div { display: flex; gap: var(--s1); min-width: 0; }
+.run-report { font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); }
+.run-report > summary { cursor: pointer; color: var(--mute); width: fit-content; }
+.run-report__text { display: block; width: 100%; margin-block: var(--s2); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); background: var(--sunken); color: var(--ink); border: var(--hairline) solid var(--line); padding: var(--s2); resize: vertical; }
 .run-header__meta dt { color: var(--mute); }
 .run-header__meta dd { margin: 0; overflow-wrap: anywhere; }
 .run-missing { display: grid; gap: var(--s3); }

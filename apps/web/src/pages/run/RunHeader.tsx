@@ -1,9 +1,10 @@
-import { useState, type ReactElement } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import type { RunOverview, RunResource } from "../../api/runs.js";
 import { useApis } from "../../app/apis.js";
 import { formatTime, isActive, MODE_LABELS } from "../../app/format.js";
 import { GateVerdict, StateChip } from "../../app/marks.js";
 import { Link } from "../../app/router.js";
+import { modelName, modelProfiles } from "./models.js";
 
 /**
  * Who, what and where for one run, and the single lifecycle action its state allows. A
@@ -54,6 +55,7 @@ export function RunHeader({ runId, mode, resource, overview, overviewError = nul
       <div><dt>last activity</dt><dd>{overview === null ? absent : formatTime(overview.updatedAt)}</dd></div>
       <div><dt>executed by</dt><dd>{overview === null ? absent : executorText(overview)}</dd></div>
     </dl>
+    <RunReport runId={runId} />
     {state === "FAILED" ? <p className="state" data-state="refuted">failed · {reason ?? overview?.reason ?? "no reason recorded"}</p> : null}
     {elsewhere ? <p className="state" data-state="degraded">This control plane is not executing this run. Another arbitra process, such as the CLI, may be running it, or it stopped when its process did. Resume it only if nothing else is running it.</p> : null}
     {overview?.gate == null ? null : <GateVerdict gate={overview.gate} compact />}
@@ -65,9 +67,29 @@ export function RunHeader({ runId, mode, resource, overview, overviewError = nul
 
 export function executorText(overview: RunOverview): string {
   if (overview.executor === "scripted") return "scripted detectors · no model calls · a smoke test, not a model audit";
-  const models = overview.configuration?.["models"];
-  const count = typeof models === "object" && models !== null ? Object.keys(models).length : 0;
-  return count === 1 ? "1 model profile" : `${count} model profiles`;
+  const profiles = overview.configuration === null ? [] : modelProfiles(overview.configuration);
+  return profiles.length === 0 ? "no model profiles" : [...new Set(profiles.map(({ modelId }) => modelName(modelId)))].join(" · ");
+}
+
+/**
+ * The run's plain-text report, for a tester to copy and send: build, machine, models found, settings, each stage's
+ * calls and every failed call. Read when opened, so it reflects the run as it is then; it holds no source code.
+ */
+function RunReport({ runId }: { readonly runId: string }): ReactElement {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    setText(null);
+    void fetch(`/diagnostics/runs/${encodeURIComponent(runId)}`).then(async (response) => setText(response.ok ? await response.text() : `report unavailable · HTTP ${response.status}`), (error: unknown) => setText(`report unavailable · ${String(error)}`));
+  }, [open, runId]);
+  return <details className="run-report" onToggle={(event) => setOpen((event.currentTarget as HTMLDetailsElement).open)}>
+    <summary>report to send · copy it and send it to whoever helps you</summary>
+    {text === null ? <p className="state" data-state="unexamined">reading the run</p> : <>
+      <textarea aria-label="run report" className="run-report__text" readOnly rows={14} value={text} onFocus={(event) => event.currentTarget.select()} />
+      <CopyButton text={text} />
+    </>}
+  </details>;
 }
 
 function CopyButton({ text }: { readonly text: string }): ReactElement {

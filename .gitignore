@@ -22,6 +22,7 @@ docs/ROUND-TABLE.md
 # tracked (see spec §29.3), so these patterns must not match nested copies.
 # ---------------------------------------------------------------------------
 /.runs/
+/.arbitra-runtime/
 /implementation/
 
 # ---------------------------------------------------------------------------

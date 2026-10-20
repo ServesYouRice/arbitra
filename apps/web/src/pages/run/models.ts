@@ -52,6 +52,49 @@ export function modelProfiles(config: Readonly<Record<string, unknown>>): readon
   }));
 }
 
+/** A model ID as people say it: `claude-opus-5-5` → `Opus 5.5`, `gpt-6.1-sol` → `GPT-6.1 Sol`. Unknown IDs stay as they are. */
+export function modelName(modelId: string): string {
+  const claude = /^claude-(opus|sonnet|haiku)-(\d+)(?:-(\d+))?/u.exec(modelId);
+  if (claude !== null) return `${capitalise(claude[1] ?? "")} ${claude[2]}${claude[3] === undefined || claude[3].length > 2 ? "" : `.${claude[3]}`}`;
+  const gpt = /^gpt-([\d.]+)(?:-([a-z]+))?$/u.exec(modelId);
+  if (gpt !== null) return `GPT-${gpt[1]}${gpt[2] === undefined ? "" : ` ${capitalise(gpt[2])}`}`;
+  const gemini = /^gemini-([\d.]+)-([a-z]+)(?:-([a-z]+))?$/u.exec(modelId);
+  if (gemini !== null) return `Gemini ${gemini[1]} ${capitalise(gemini[2] ?? "")}${gemini[3] === undefined ? "" : ` ${gemini[3]}`}`;
+  return modelId;
+}
+function capitalise(word: string): string { return word.charAt(0).toUpperCase() + word.slice(1); }
+
+type EffortStage = "discovery" | "peerReview" | "verification" | "planner" | "critic";
+/**
+ * The effort a stage asks of a profile, in the vendor's own word: the stage's `stageEffort`, else the audit depth's
+ * (fast: low, balanced: medium, deep: high), translated by the profile's `effort.params` (deep runs Opus at "xhigh").
+ * Discovery always follows the depth. A model whose ID carries its effort (`gemini-3.8-flash-medium`) shows the level.
+ */
+export function effortFor(config: Readonly<Record<string, unknown>>, alias: string, stage: EffortStage): string {
+  const depth = config["auditDepth"];
+  const byDepth = depth === "fast" ? "low" : depth === "deep" ? "high" : "medium";
+  const configured = stage === "discovery" ? undefined : record(record(record(config["workflow"])["modelExecution"])["stageEffort"])[stage];
+  const level = typeof configured === "string" ? configured : byDepth;
+  const params = record(record(record(record(config["models"])[alias])["effort"])["params"])[level];
+  const vendor = record(params)["effort"] ?? record(params)["reasoning_effort"];
+  return typeof vendor === "string" ? vendor : level;
+}
+
+/** Each model node's label as the model that ran it and its effort, such as `Opus 5.5 · xhigh`, for graphs. */
+export function modelNodeLabels(config: Readonly<Record<string, unknown>> | null): ReadonlyMap<string, string> {
+  if (config === null || config["mode"] !== "audit") return new Map();
+  const profiles = modelProfiles(config);
+  const name = (alias: unknown) => typeof alias === "string" ? profiles.find((profile) => profile.alias === alias) : undefined;
+  const roles = record(record(record(config["workflow"])["modelExecution"])["roles"]);
+  const labels = new Map<string, string>();
+  for (const profile of profiles) if (profile.alias.startsWith("auditor-")) labels.set(profile.alias, `${modelName(profile.modelId)} · ${effortFor(config, profile.alias, "discovery")}`);
+  for (const [node, role, stage] of [["planner", "planner", "planner"], ["verification", "verifier", "verification"], ["critic", "critic", "critic"]] as const) {
+    const profile = name(roles[role]);
+    if (profile !== undefined) labels.set(node, `${modelName(profile.modelId)} · ${effortFor(config, profile.alias, stage)}`);
+  }
+  return labels;
+}
+
 export function record(value: unknown): Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }

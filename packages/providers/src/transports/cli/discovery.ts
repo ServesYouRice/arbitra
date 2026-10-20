@@ -30,25 +30,37 @@ export interface DiscoveryHost {
 }
 
 export async function resolveCliExecutable(support: CliTransportSupport, host: DiscoveryHost): Promise<CliExecutableResolution> {
+  const [first] = await cliExecutableCandidates(support, host);
+  return first ?? { found: false, reason: "not_found", detail: `${support.command} was not found through ${support.executableEnvVar}, PATH or the documented install locations` };
+}
+
+/**
+ * Every installation of the CLI this host has, in the order they are preferred: the override alone when it is set,
+ * otherwise each match on PATH, then the documented install locations. A caller that checks versions takes the first
+ * supported one, so an old CLI first on PATH does not hide a supported copy (observed: an npm Claude Code 2.0 on PATH
+ * hid the 2.1 bundled with the VS Code extension, and every run needed ARBITRA_CLAUDE_CODE_EXECUTABLE).
+ */
+export async function cliExecutableCandidates(support: CliTransportSupport, host: DiscoveryHost): Promise<readonly CliExecutableResolution[]> {
   const override = host.lookup(support.executableEnvVar);
   if (override !== undefined && override !== "") {
     if (!absolute(override, host.platform) || !await executable(override, host.platform)) {
-      return { found: false, reason: "override_invalid", detail: `${support.executableEnvVar} must be the absolute path of an existing executable file` };
+      return [{ found: false, reason: "override_invalid", detail: `${support.executableEnvVar} must be the absolute path of an existing executable file` }];
     }
-    return found(override, "override", host);
+    return [await found(override, "override", host)];
   }
   const names = host.platform === "win32" ? [".exe", ".cmd", ".bat", ""].map((extension) => `${support.command}${extension}`) : [support.command];
+  const paths: { readonly path: string; readonly source: CliExecutable["source"] }[] = [];
   for (const directory of (host.lookup(host.platform === "win32" ? "Path" : "PATH") ?? host.lookup("PATH") ?? "").split(host.platform === "win32" ? ";" : delimiter)) {
     if (directory === "" || !absolute(directory, host.platform)) continue;
     for (const name of names) {
       const candidate = join(directory, name);
-      if (await executable(candidate, host.platform)) return found(candidate, "path", host);
+      if (await executable(candidate, host.platform)) { paths.push({ path: candidate, source: "path" }); break; }
     }
   }
-  for (const candidate of await wellKnownLocations(support, host)) {
-    if (await executable(candidate, host.platform)) return found(candidate, "well_known", host);
-  }
-  return { found: false, reason: "not_found", detail: `${support.command} was not found through ${support.executableEnvVar}, PATH or the documented install locations` };
+  for (const candidate of await wellKnownLocations(support, host)) if (await executable(candidate, host.platform)) paths.push({ path: candidate, source: "well_known" });
+  const seen = new Set<string>();
+  const unique = paths.filter(({ path }) => { const key = host.platform === "win32" ? path.toLowerCase() : path; if (seen.has(key)) return false; seen.add(key); return true; });
+  return Promise.all(unique.map(({ path, source }) => found(path, source, host)));
 }
 
 async function found(path: string, source: CliExecutable["source"], host: DiscoveryHost): Promise<CliExecutableResolution> {

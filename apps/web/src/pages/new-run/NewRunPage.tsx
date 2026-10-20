@@ -8,7 +8,7 @@ import { useApis } from "../../app/apis.js";
 import { MODE_LABELS } from "../../app/format.js";
 import { useNavigation } from "../../app/router.js";
 import { stableJson } from "../../graph/editor-model.js";
-import { modelProfiles, PLACEHOLDER_PREFIX, record } from "../run/models.js";
+import { effortFor, modelName, modelProfiles, PLACEHOLDER_PREFIX, record } from "../run/models.js";
 import { getIn, graphOf, LIMITS, lines, modeOf, placeholders, presetOf, roleSlots, setIn, suggestedName, withGraph, withPreset, withScopeKind, type Draft, type RoleSlot } from "./draft.js";
 import { SCRIPTED_AUDIT, TEMPLATES } from "./templates.js";
 
@@ -269,11 +269,17 @@ function ModelsSection({ draft, edit }: { readonly draft: Draft; readonly edit: 
   const profiles = modelProfiles(draft);
   const aliases = profiles.map(({ alias }) => alias);
   if (profiles.length === 0) return <Section title="models" id="models">
+    <MachineModels />
     <p className="state" data-state="unexamined">no models · the auditors are deterministic detectors</p>
     <p className="prose">This run calls no model and spends nothing. It shows the pipeline works; it is not evidence about what models find. To audit with models, start from one of the model-backed templates.</p>
   </Section>;
+  const recommendable = profiles.filter((profile) => profile.placeholder && RECOMMENDED[profile.transport] !== undefined);
   return <Section title="models" id="models">
-    <p className="note">Each profile names a model on an endpoint. arbitra ships no model names, so fill in the model ID and family for each; the credentials themselves stay in the environment variables the endpoints name.</p>
+    <MachineModels />
+    <p className="note">Each profile names a model on an endpoint. Fill in the model ID and family for each, or use the recommended ones for the CLIs found above; the credentials themselves stay with the CLI or in the environment variables the endpoints name.</p>
+    {recommendable.length === 0 ? null : <p><button className="button" type="button" onClick={() => { for (const profile of recommendable) { const choice = RECOMMENDED[profile.transport]; if (choice !== undefined) { edit(["models", profile.alias, "modelId"], choice.modelId); edit(["models", profile.alias, "family"], choice.family); } } }}>
+      use the recommended models · {recommendable.map((profile) => modelName(RECOMMENDED[profile.transport]?.modelId ?? "")).join(", ")}</button></p>}
+    <p className="note">Effort per stage: {EFFORT_STAGES.map(({ label, stage }) => `${label} ${[...new Set(profiles.filter(({ roles }) => roles.some((role) => stage === "discovery" ? role.label.startsWith("auditor") : role.node === stage)).map(({ alias }) => effortFor(draft, alias, stage === "verification" ? "verification" : stage)))].join("/") || "-"}`).join(" · ")}. Audit depth sets the auditors&apos; effort; the later stages run at their own, usually lower, effort. Higher effort finds more and takes longer and more of your plan&apos;s usage.</p>
     <div className="table-scroll"><table aria-label="model profiles" className="table">
       <thead><tr><th scope="col">profile</th><th scope="col">provider · transport</th><th scope="col">model ID</th><th scope="col">family</th><th scope="col">tier · independence</th><th scope="col">roles</th></tr></thead>
       <tbody>{profiles.map((profile) => <tr data-placeholder={profile.placeholder} key={profile.alias}>
@@ -291,6 +297,40 @@ function ModelsSection({ draft, edit }: { readonly draft: Draft; readonly edit: 
       <span className="field__hint">{limit.hint}</span>
     </label>)}</div>}
   </Section>;
+}
+
+/** The models the P20 benchmark ran on each subscription CLI; a tester can still type any other. */
+const RECOMMENDED: Readonly<Record<string, { readonly modelId: string; readonly family: string }>> = {
+  "claude-code-cli": { modelId: "claude-opus-5-5", family: "claude" },
+  "codex-cli": { modelId: "gpt-6.1-sol", family: "gpt" },
+  "antigravity-cli": { modelId: "gemini-3.8-flash-medium", family: "gemini" },
+};
+const EFFORT_STAGES = [{ label: "auditors", stage: "discovery" }, { label: "verification", stage: "verification" }, { label: "plan", stage: "planner" }, { label: "critic", stage: "critic" }] as const;
+
+interface DetectedCli { readonly name: string; readonly state: string; readonly version: string | null; readonly note: string; readonly fix: string | null }
+interface DetectedEnvironment { readonly build: string; readonly clis: readonly DetectedCli[]; readonly apiKeys: Readonly<Record<string, boolean>> }
+
+/** The models this machine can run, found without a model call, with what to do about any that cannot run. */
+function MachineModels(): ReactElement {
+  const [environment, setEnvironment] = useState<DetectedEnvironment | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+  const load = (refresh: boolean): void => {
+    setFailure(null);
+    void fetch(`/diagnostics/environment${refresh ? "?refresh=1" : ""}`).then(async (response) => { if (!response.ok) throw new Error(`HTTP ${response.status}`); setEnvironment(await response.json() as DetectedEnvironment); })
+      .catch((error: unknown) => setFailure(error instanceof Error ? error.message : String(error)));
+  };
+  useEffect(() => { load(false); }, []);
+  if (failure !== null) return <p className="state" data-state="degraded">models on this machine could not be checked · {failure}</p>;
+  if (environment === null) return <p className="state" data-state="unexamined">checking the models on this machine</p>;
+  const keys = Object.entries(environment.apiKeys).filter(([, set]) => set).map(([name]) => name);
+  return <div className="machine-models" aria-label="models on this machine">
+    <h3 className="panel-title">on this machine</h3>
+    <ul className="plain-list">{environment.clis.map((cli) => <li className="state" data-state={cli.state === "ready" ? "verified" : "degraded"} key={cli.name}>
+      {cli.name}{cli.version === null ? "" : ` ${cli.version}`} · {cli.state === "ready" ? "ready" : cli.state.replaceAll("_", " ")} · {cli.note}{cli.fix === null ? null : <span className="field__hint"> {cli.fix}</span>}
+    </li>)}
+      <li className="state" data-state={keys.length === 0 ? "unexamined" : "verified"}>API keys · {keys.length === 0 ? "none set (subscription CLIs need none)" : keys.join(", ")}</li></ul>
+    <button className="link-button" type="button" onClick={() => load(true)}>check again</button>
+  </div>;
 }
 
 function RoleFields({ draft, edit, aliases }: { readonly draft: Draft; readonly edit: Edit; readonly aliases: readonly string[] }): ReactElement | null {

@@ -1,4 +1,4 @@
-import type { ReactElement } from "react";
+import { useMemo, type ReactElement } from "react";
 import type { ArtifactDescriptor } from "../../api/artifacts.js";
 import type { RunOverview, RunResource } from "../../api/runs.js";
 import type { RunEvent } from "../../api/sse.js";
@@ -6,7 +6,13 @@ import { useApis } from "../../app/apis.js";
 import { artifactName, shortPath } from "../../app/format.js";
 import { GraphView } from "../../graph/GraphView.js";
 import { TraceView } from "../../views/traces/TraceView.js";
+import { modelNodeLabels } from "./models.js";
 import type { Selection } from "./selection.js";
+
+function withModelLabels<T extends { readonly nodes: readonly { readonly id: string; readonly label: string }[] }>(workflow: T, configuration: Readonly<Record<string, unknown>> | null): T {
+  const labels = modelNodeLabels(configuration);
+  return labels.size === 0 ? workflow : { ...workflow, nodes: workflow.nodes.map((node) => labels.has(node.id) ? { ...node, label: `${node.label} · ${labels.get(node.id) ?? ""}` } : node) };
+}
 
 /**
  * What the run did, step by step: the executed graph with each node's status, every
@@ -22,9 +28,11 @@ export function ActivityTab({ runId, run, events, artifacts, overview, selection
   readonly onSelect: (selection: Selection) => void;
 }): ReactElement {
   const { traces } = useApis();
+  // Model nodes read as the model and effort that ran them ("Auditor A · Opus 5.5 · xhigh"), not only their role.
+  const workflow = useMemo(() => run?.workflow === undefined ? undefined : withModelLabels(run.workflow, overview?.configuration ?? null), [run?.workflow, overview?.configuration]);
   return <div className="activity">
     {run?.workflow === undefined ? <p className="state" data-state="unexamined">{run === null ? "reading the run" : "no workflow recorded for this run"}</p>
-      : <GraphView workflowJson={run.workflow} runEvents={events} artifacts={artifacts} selectedNodeId={selection?.kind === "node" ? selection.id : null} onSelect={(node) => onSelect({ kind: "node", id: node.id })} {...(run.workflowGraph === undefined ? {} : { identity: run.workflowGraph })} />}
+      : <GraphView workflowJson={workflow ?? run.workflow} runEvents={events} artifacts={artifacts} selectedNodeId={selection?.kind === "node" ? selection.id : null} onSelect={(node) => onSelect({ kind: "node", id: node.id })} {...(run.workflowGraph === undefined ? {} : { identity: run.workflowGraph })} />}
     <TraceView api={traces} runId={runId} refreshKey={events.length} selectedTraceId={selection?.kind === "attempt" ? selection.id : null} onSelect={(traceId) => onSelect({ kind: "attempt", id: traceId })}
       emptyNote={overview?.executor === "scripted" ? "no model attempts · scripted detectors make no model calls" : "no model attempt recorded yet"} />
     <ArtifactIndex artifacts={artifacts} selectedId={selection?.kind === "artifact" ? selection.id : null} onSelect={(artifactId) => onSelect({ kind: "artifact", id: artifactId })} />

@@ -1,6 +1,13 @@
 import { Orchestrator } from "@arbitra/runtime/orchestrator.js";
 import { controlPlaneCore } from "@arbitra/runtime/control-plane-core.js";
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { detectEnvironment, type DetectedEnvironment } from "@arbitra/runtime/environment.js";
+import { runReport } from "@arbitra/runtime/run-report.js";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { assertLoopbackHost, buildServer, DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT } from "./main.js";
+import { serveWebApp } from "./web-app.js";
 
 /**
  * The control plane's process entrypoint.
@@ -15,9 +22,27 @@ if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) throw new RangeErr
 
 const orchestrator = new Orchestrator({ repository: process.env["ARBITRA_REPOSITORY"] ?? process.cwd() });
 const app = buildServer(controlPlaneCore(orchestrator));
+// The built web app is served from the same address when it exists (`pnpm build` makes it); ARBITRA_WEB_DIST names
+// another build, and an empty value leaves the control plane alone, as for the Vite dev server.
+const webRoot = resolve(process.env["ARBITRA_WEB_DIST"] ?? join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "web", "dist"));
+const withWeb = process.env["ARBITRA_WEB_DIST"] !== "" && existsSync(join(webRoot, "index.html"));
+if (withWeb) serveWebApp(app, webRoot);
+
+// What a tester's machine can run, and a run's plain-text report to copy and send (see packages/runtime).
+const arbitraRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
+const build = (() => { try { return execFileSync("git", ["-C", arbitraRoot, "rev-parse", "--short", "HEAD"], { encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { return "unknown (not a git checkout)"; } })();
+let environment: Promise<DetectedEnvironment> = detectEnvironment();
+app.get<{ Querystring: { refresh?: string } }>("/diagnostics/environment", async (request) => {
+  if (request.query.refresh === "1") environment = detectEnvironment();
+  return { build, ...await environment };
+});
+app.get<{ Params: { runId: string } }>("/diagnostics/runs/:runId", async (request, reply) => {
+  const text = await runReport(orchestrator, request.params.runId, await environment.catch(() => null), build);
+  return reply.type("text/plain; charset=utf-8").send(text);
+});
 
 await app.listen({ host, port });
-process.stdout.write(`arbitra control plane on http://${host}:${port} (repository ${orchestrator.repository})\n`);
+process.stdout.write(`arbitra on http://${host}:${port}${withWeb ? "" : " (control plane only; run pnpm build for the web app)"} · repository ${orchestrator.repository}\n`);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => { void app.close().then(() => { process.exitCode = 0; }); });

@@ -7,7 +7,7 @@ import { versionInRange } from "../../semver.js";
 import { noUsage, TransportError, type ProviderTransport, type TransportConfiguration, type TransportId, type TransportRequest, type TransportResponse } from "../../transport-contract.js";
 import { resetTime } from "./classify.js";
 import { CLI_DIALECTS, type CliDialect, type CliInvocationContext } from "./dialects.js";
-import { childPath, resolveCliExecutable, type CliExecutable, type HostLookup } from "./discovery.js";
+import { childPath, cliExecutableCandidates, type CliExecutable, type CliExecutableResolution, type DiscoveryHost, type HostLookup } from "./discovery.js";
 import { defaultLimitLedgerPath, fileLimitLedger, type CliLimitLedger } from "./limits.js";
 import { interpretCliReply, serializeCliFollowUp, serializeCliPrompt, type CliPrompt } from "./prompt.js";
 import type { CliAuthMode, CliTransportSupport } from "./support.js";
@@ -236,11 +236,11 @@ export class CliTransport implements ProviderTransport {
       if (this.#executable === cached) this.#executable = undefined;
     }
     this.#executable ??= (async () => {
-      const resolution = await resolveCliExecutable(this.#support, { platform: this.#platform, lookup: this.#lookup, nodeExecutable: this.#node });
+      const { resolution, version: known } = await supportedCliExecutable(this.#support, { platform: this.#platform, lookup: this.#lookup, nodeExecutable: this.#node }, this.#probeOptions());
       if (!resolution.found) throw new TransportError("INVALID_REQUEST", `CLI_NOT_INSTALLED: ${resolution.detail}. ${this.#support.installInstruction}`, false, null, noUsage("cli_unavailable"));
       // Taken before the probe, so a change while it runs is seen on the next call.
       const stamp = await executableStamp(resolution.executable.path);
-      const version = await probeCliVersion(resolution.executable, this.#support, this.#probeOptions());
+      const version = known ?? await probeCliVersion(resolution.executable, this.#support, this.#probeOptions());
       if (version === null) throw new TransportError("INVALID_REQUEST", `CLI_VERSION_UNREADABLE: ${this.#support.displayName} at ${resolution.executable.path} did not report a version`, false, null, noUsage("cli_unavailable"));
       if (!versionInRange(version, this.#support.versionRange)) {
         throw new TransportError("INVALID_REQUEST", `CLI_VERSION_UNSUPPORTED: ${this.#support.displayName} ${version} is outside the supported range ${this.#support.versionRange.minimum} to below ${this.#support.versionRange.below}`, false, null, noUsage("cli_unavailable"));
@@ -297,6 +297,23 @@ export async function probeCliVersion(executable: CliExecutable, support: CliTra
   const result = await runCliCommand(executable, ["--version"], options);
   if (result.stopped !== null || result.exitCode !== 0) return null;
   return /(\d{1,6}\.\d{1,6}\.\d{1,6})/u.exec(result.stdout)?.[1] ?? null;
+}
+
+/**
+ * The installation a call uses: of several, the first whose version is supported, with that version; of one, or of
+ * several none of which is supported, the first, whose version the caller probes and reports.
+ */
+export async function supportedCliExecutable(support: CliTransportSupport, host: DiscoveryHost, options: CliCommandOptions): Promise<{ readonly resolution: CliExecutableResolution; readonly version: string | null }> {
+  const candidates = await cliExecutableCandidates(support, host);
+  const installed = candidates.filter((candidate) => candidate.found);
+  const first = candidates[0] ?? { found: false as const, reason: "not_found" as const, detail: `${support.command} was not found through ${support.executableEnvVar}, PATH or the documented install locations` };
+  if (installed.length <= 1) return { resolution: first, version: null };
+  for (const candidate of installed) {
+    if (!candidate.found) continue;
+    const version = await probeCliVersion(candidate.executable, support, options).catch(() => null);
+    if (version !== null && versionInRange(version, support.versionRange)) return { resolution: candidate, version };
+  }
+  return { resolution: first, version: null };
 }
 
 export function cliTransportFactory(dialectId: string) {

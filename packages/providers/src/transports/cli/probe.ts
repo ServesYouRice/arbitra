@@ -3,10 +3,10 @@ import { join } from "node:path";
 import type { NativeProcessPort } from "../../process.js";
 import { versionInRange } from "../../semver.js";
 import { cliFailureDetail } from "./classify.js";
-import { resolveCliExecutable, type CliExecutableResolution, type HostLookup } from "./discovery.js";
+import { type CliExecutableResolution, type HostLookup } from "./discovery.js";
 import { defaultLimitLedgerPath, fileLimitLedger, type CliLimitLedger, type CliUsageLimit } from "./limits.js";
 import { cliTransportSupport, type CliAuthMode, type CliTransportSupport } from "./support.js";
-import { probeCliVersion, runCliCommand, type CliCommandOptions } from "./transport.js";
+import { probeCliVersion, runCliCommand, supportedCliExecutable, type CliCommandOptions } from "./transport.js";
 
 /**
  * Model-free readiness of one subscription CLI: installed, supported version, signed in to a
@@ -44,9 +44,9 @@ export const probeCliReadiness: CliProbe = async (transport, options) => {
   const ledgerPath = options.limits === undefined ? defaultLimitLedgerPath(options.lookup, platform) : null;
   const ledger = options.limits === undefined ? ledgerPath === null ? null : fileLimitLedger(ledgerPath) : options.limits;
   const usageLimit = await ledger?.current(transport, options.now ?? Date.now()).catch(() => null) ?? null;
-  const executable = await resolveCliExecutable(support, { platform, lookup: options.lookup, nodeExecutable: options.nodeExecutable ?? process.execPath });
+  const { resolution: executable, version: known } = await supportedCliExecutable(support, { platform, lookup: options.lookup, nodeExecutable: options.nodeExecutable ?? process.execPath }, command);
   if (!executable.found) return Object.freeze({ support, executable, version: null, versionSupported: null, auth: null, authDetail: null, usageLimit });
-  const version = await probeCliVersion(executable.executable, support, command).catch(() => null);
+  const version = known ?? await probeCliVersion(executable.executable, support, command).catch(() => null);
   const versionSupported = version === null ? false : versionInRange(version, support.versionRange);
   const { auth, detail } = !versionSupported ? { auth: null, detail: null } : await authState(support, executable, options, command);
   return Object.freeze({ support, executable, version, versionSupported, auth, authDetail: detail, usageLimit });
