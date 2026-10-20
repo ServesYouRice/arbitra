@@ -27,6 +27,10 @@ interface Detector {
   readonly secretGroup: number;
 }
 
+/** A name that holds a secret, with any prefix: `password`, `DB_PASSWORD`, `AWS_SECRET_ACCESS_KEY`, `clientSecret`. */
+const SECRET_NAME = "[A-Za-z0-9_-]*?(?:api[_-]?key|secret(?:[_-]?access)?[_-]?key|secret|passw(?:or)?d|passphrase|token)";
+const SECRET_FIELD = new RegExp(`^${SECRET_NAME}$`, "iu");
+
 const DETECTORS: readonly Detector[] = [
   { kind: "aws_access_key", expression: /\b(AKIA[0-9A-Z]{16})\b/gu, secretGroup: 1 },
   { kind: "api_token", expression: /\b(sk-[A-Za-z0-9_-]{12,255})\b/gu, secretGroup: 1 },
@@ -37,12 +41,14 @@ const DETECTORS: readonly Detector[] = [
     // The value never ends in a backslash: inside JSON text that backslash escapes the quote after it. Observed
     // live (P20 pilot): a redaction marker followed by an escaped quote was taken for a secret again, the escape
     // was lost with it, and the stored artifact no longer parsed.
-    expression: /\b(?:api[_-]?key|secret|password|token)["']?\s*[:=]\s*["']?([^\s"']{11,}[^\s"'\\])["']?/giu,
+    // A name may carry a prefix (DB_PASSWORD, AWS_SECRET_ACCESS_KEY, clientSecret): `\b` alone fails inside a name
+    // joined by "_", which is a word character (found by arbitra's audit of itself, October 19, 2026).
+    expression: new RegExp(`\\b${SECRET_NAME}["']?\\s*[:=]\\s*["']?([^\\s"']{11,}[^\\s"'\\\\])["']?`, "giu"),
     secretGroup: 1,
   },
   {
     kind: "private_key",
-    expression: /(-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----)/gu,
+    expression: /(-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----)/gu,
     secretGroup: 1,
   },
 ];
@@ -98,13 +104,32 @@ export function redactSecrets(text: string): RedactionResult {
 /**
  * Redacts one string of structured data that is filed under `name`: the string on its own, and as the value
  * assigned to that name, so `{ password: "..." }` is caught without redacting encoded JSON text, whose escapes a
- * text-level redaction can cut through.
+ * text-level redaction can cut through. A value filed under a secret's name is masked whole, whatever it looks
+ * like: a passphrase of several words, or one written like a dotted name, is still the secret.
  */
 export function redactNamedValue(name: string, value: string): string {
+  if (SECRET_FIELD.test(name) && value.trim() !== "" && !/^\[REDACTED:[a-z_]+\]$/u.test(value)) return "[REDACTED:assigned_secret]";
   const own = redactSecrets(value).text;
   const prefix = `${name}: `;
   const assigned = redactSecrets(prefix + own).text;
   return assigned.startsWith(prefix) ? assigned.slice(prefix.length) : own;
+}
+
+/**
+ * Masks every line of a private key block in a whole file, keeping the line count, so that redaction applied later to
+ * one line at a time (a line of a discovery prompt, a range a tool reads) never sees a key's body without its BEGIN
+ * and END markers. A block without its END runs to the end of the file.
+ */
+export function maskPrivateKeyBlocks(text: string): string {
+  if (!/-----BEGIN [A-Z ]*PRIVATE KEY-----/u.test(text)) return text;
+  const lines = text.split("\n");
+  let inside = false;
+  return lines.map((line) => {
+    const begins = /-----BEGIN [A-Z ]*PRIVATE KEY-----/u.test(line);
+    if (!inside && !begins) return line;
+    inside = !/-----END [A-Z ]*PRIVATE KEY-----/u.test(line);
+    return line.endsWith("\r") ? "[REDACTED:private_key]\r" : "[REDACTED:private_key]";
+  }).join("\n");
 }
 
 /** Context assembly must use this boundary, so raw source text is never returned. */

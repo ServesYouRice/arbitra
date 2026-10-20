@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { assembleRedactedContext, redactNamedValue, redactSecrets } from "../src/redaction.js";
+import { assembleRedactedContext, maskPrivateKeyBlocks, redactNamedValue, redactSecrets } from "../src/redaction.js";
 
 describe("secret redaction", () => {
   it("redacts credentials and records only their locations and kinds", () => {
@@ -63,6 +63,18 @@ describe("secret redaction", () => {
       "apiKey: process.env.KEY_V2_LONGNAME",
       "secret: eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0.SflKxwRJSMeKKF2QT4",
     ]) expect(redactSecrets(secret).redactions.map(({ kind }) => kind)).toEqual(["assigned_secret"]);
+  });
+
+  it("finds secrets under prefixed names, masks named values whole and private keys line by line", () => {
+    // Found by arbitra's audit of itself (October 19, 2026).
+    for (const line of ["DB_PASSWORD=hunter2isNotSecret", "AWS_SECRET_ACCESS_KEY: 'wJalrXUtnFEMIK7MDENG'", "client_secret = \"abcdefghijk1\"", "clientSecret: 'abcdefghijk1'"])
+      expect(redactSecrets(line).redactions.map(({ kind }) => kind)).toEqual(["assigned_secret"]);
+    expect(redactNamedValue("password", "correct horse battery staple")).toBe("[REDACTED:assigned_secret]");
+    expect(redactNamedValue("dbPassword", "correct.horse.battery.staple")).toBe("[REDACTED:assigned_secret]");
+    expect(redactNamedValue("maxTokens", "12000")).toBe("12000");
+    const file = ["const a = 1;", "-----BEGIN ENCRYPTED PRIVATE KEY-----", "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC", "-----END ENCRYPTED PRIVATE KEY-----", "const b = 2;"].join("\n");
+    expect(maskPrivateKeyBlocks(file).split("\n")).toEqual(["const a = 1;", "[REDACTED:private_key]", "[REDACTED:private_key]", "[REDACTED:private_key]", "const b = 2;"]);
+    expect(maskPrivateKeyBlocks("x\n-----BEGIN RSA PRIVATE KEY-----\nbody")).toBe("x\n[REDACTED:private_key]\n[REDACTED:private_key]");
   });
 
   it.each([

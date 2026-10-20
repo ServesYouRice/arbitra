@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { join, relative, sep } from "node:path";
 import { RepositoryPathGuard } from "@arbitra/security/path-guard";
+import { maskPrivateKeyBlocks } from "@arbitra/security/redaction";
 import type { RunScope } from "@arbitra/schemas/config.js";
 
 export interface SourceFile {
@@ -84,7 +85,9 @@ function sourceFile(path: string, text: string): SourceFile {
   // default) is not part of the line, though its byte still counts toward the next line's start. Observed live
   // (October 19, 2026): with it kept, no quotation of a CRLF file could be grounded in whole lines, and every
   // Feature and Testing run on such a checkout failed.
-  const raw = text.split("\n");
+  // A private key is masked line by line here, in the whole file, because later redaction sees one line or range at
+  // a time and finds a key only with its BEGIN and END markers together (arbitra's audit of itself, October 19).
+  const raw = maskPrivateKeyBlocks(text).split("\n");
   const lines = raw.map((line, index) => index < raw.length - 1 && line.endsWith("\r") ? line.slice(0, -1) : line);
   const lineStartBytes: number[] = [];
   let offset = 0;
