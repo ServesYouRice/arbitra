@@ -13,3 +13,4 @@
 .plan-tasks td.ids { overflow-wrap: normal; word-break: normal; min-width: 8rem; }
 
 @media (forced-colors: active) { .plan-section .plain-list > li, .trace-trail > li { border-color: CanvasText; } }
+.plan-save { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }

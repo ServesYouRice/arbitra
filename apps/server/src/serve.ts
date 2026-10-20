@@ -3,6 +3,7 @@ import { controlPlaneCore } from "@arbitra/runtime/control-plane-core.js";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { detectEnvironment, type DetectedEnvironment } from "@arbitra/runtime/environment.js";
+import { exportPlan } from "@arbitra/runtime/plan-export.js";
 import { runReport } from "@arbitra/runtime/run-report.js";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,6 +37,8 @@ app.get<{ Querystring: { refresh?: string } }>("/diagnostics/environment", async
   if (request.query.refresh === "1") environment = detectEnvironment();
   return { build, ...await environment };
 });
+// Writes a run's plan into its repository as prompts, on the operator's explicit request only.
+app.post<{ Params: { runId: string } }>("/handoff/runs/:runId", async (request) => exportPlan(orchestrator, request.params.runId));
 app.get<{ Params: { runId: string } }>("/diagnostics/runs/:runId", async (request, reply) => {
   const text = await runReport(orchestrator, request.params.runId, await environment.catch(() => null), build);
   return reply.type("text/plain; charset=utf-8").send(text);
