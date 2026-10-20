@@ -141,7 +141,7 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
       <ScopeFields draft={draft} edit={edit} setDraft={setDraft} />
     </Section>
 
-    <ModelsSection draft={draft} edit={edit} />
+    <ModelsSection draft={draft} edit={edit} onUseModels={() => navigate({ page: "new-run", from: "template:subscription-audit", graph: null }, { replace: true })} />
 
     <AdvancedSection draft={draft} edit={edit} setDraft={setDraft} />
 
@@ -265,12 +265,13 @@ function LinesField({ label, name, rows, values, onChange }: { readonly label: s
   return <label className="field">{label}<textarea aria-label={name} rows={rows} value={text} onChange={(event) => { setText(event.target.value); onChange(lines(event.target.value)); }} /></label>;
 }
 
-function ModelsSection({ draft, edit }: { readonly draft: Draft; readonly edit: Edit }): ReactElement {
+function ModelsSection({ draft, edit, onUseModels }: { readonly draft: Draft; readonly edit: Edit; readonly onUseModels: () => void }): ReactElement {
   const profiles = modelProfiles(draft);
   const aliases = profiles.map(({ alias }) => alias);
   if (profiles.length === 0) return <Section title="models" id="models">
     <MachineModels />
     <p className="state" data-state="unexamined">no models · the auditors are deterministic detectors</p>
+    <p><button className="button button--primary" type="button" onClick={onUseModels}>audit with the subscription CLIs instead</button></p>
     <p className="prose">This run calls no model and spends nothing. It shows the pipeline works; it is not evidence about what models find. To audit with models, start from one of the model-backed templates.</p>
   </Section>;
   const recommendable = profiles.filter((profile) => profile.placeholder && RECOMMENDED[profile.transport] !== undefined);

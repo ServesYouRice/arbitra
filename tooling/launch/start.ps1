@@ -10,7 +10,7 @@ $nodeVersion = "22.23.2"
 $port = if ($env:ARBITRA_PORT) { $env:ARBITRA_PORT } else { "4178" }
 $url = "http://127.0.0.1:$port"
 
-function Say($text) { Write-Host "arbitra · $text" }
+function Say($text) { Write-Host "arbitra: $text" }
 
 # 1. Node 22: the one on PATH when it is 22.x, otherwise a private copy in .arbitra-runtime.
 $node = $null

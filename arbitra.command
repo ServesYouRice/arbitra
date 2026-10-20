@@ -5,7 +5,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")" && pwd)"
 runtime="$root/.arbitra-runtime"; mkdir -p "$runtime/logs"
 version="22.23.2"; port="${ARBITRA_PORT:-4178}"; url="http://127.0.0.1:$port"
-say() { echo "arbitra · $*"; }
+say() { echo "arbitra: $*"; }
 
 if command -v node >/dev/null 2>&1 && node --version | grep -q '^v22\.'; then node_bin="$(command -v node)"
 else
