@@ -30,8 +30,10 @@ if (Test-Path $corepack) {
   # The build calls pnpm from inside pnpm, so it has to be on PATH.
   $env:PATH = "$shims;$env:PATH"
 }
-if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) { throw "arbitra needs pnpm 10. Run: npm install -g pnpm@10, then start arbitra again." }
-function Pnpm { & pnpm @args; if ($LASTEXITCODE -ne 0) { throw "pnpm $args failed (exit $LASTEXITCODE)" } }
+$pnpm = (Get-Command pnpm -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+if (-not $pnpm) { throw "arbitra needs pnpm 10. Run: npm install -g pnpm@10, then start arbitra again." }
+# Named apart from pnpm: PowerShell names ignore case, and a function called Pnpm would call itself.
+function Invoke-Pnpm { & $pnpm @args; if ($LASTEXITCODE -ne 0) { throw "pnpm $args failed (exit $LASTEXITCODE)" } }
 
 # 3. Install and build when missing, or when the source changed since the last build.
 Set-Location $root
@@ -42,9 +44,9 @@ $built = if (Test-Path $stamp) { Get-Content $stamp } else { "" }
 $ready = (Test-Path "apps\server\dist\src\serve.js") -and (Test-Path "apps\web\dist\index.html") -and ($built -eq $current)
 if (-not $ready) {
   Say "installing (first start or after an update: a few minutes)"
-  Pnpm install --frozen-lockfile
+  Invoke-Pnpm install --frozen-lockfile
   Say "building"
-  Pnpm build
+  Invoke-Pnpm build
   Set-Content $stamp $current
 }
 
