@@ -37,14 +37,49 @@ Fixed on October 19, each with a test:
 - On Windows, a CLI's descendant holding its pipes kept a call open until its timeout (2d19b2f).
 - A Feature or Testing stage's output repair was not resized like its first attempt (eb8238e).
 - A copied or restored run showed the copy's date as its start (9558aef).
+- Windows line endings stayed inside each snapshot line, so every Feature and Testing run on a Git for Windows
+  checkout failed to ground its evidence (3541978; found by the live runs).
+- The details panel lost its trail across selections inside the new error boundary (b815f15); a running graph run
+  read "starting" for its whole run (565cea2).
+- From the self-audit: secrets under prefixed names (`DB_PASSWORD`, `AWS_SECRET_ACCESS_KEY`), passphrases filed under
+  a secret's name and private keys split across lines were not masked (e16a103); the Windows descendant scan could
+  match an unrelated process by a reused ID and blocked the event loop (c9c99ae); Git read the audited repository
+  with that repository's own configuration, which can name programs to run (570e436).
+
+**The self-audit (October 19, from the web UI).** The premium panel on the 25 files changed since 9ef97b8 (5,254
+lines): 63 minutes, 212 reports, 78 issues confirmed, 28 rejected, 39 undecided. Fixed above: 7. Still open,
+confirmed, for the improvement phase (most predate this week's changes; the audit read whole changed files):
+
+- Redaction: bracket index access after a secret's name is masked as a secret; JSON-encoded source loses escaped
+  newlines after redaction; redacting model input and output can make an exact quote impossible to ground.
+- Processes: POSIX descendants that start their own group escape termination; on Windows a descendant that holds no
+  pipe outlives a normal exit, and `treeTerminated` is assumed; leftover trees are checked only on success; a spawn
+  failure under EMFILE can raise an unhandled error.
+- CLI transports: identical request prefixes can resume the wrong conversation; three dialects do not enforce the
+  output ceiling; Antigravity's soft-denial pattern reads an ordinary "permission denied" on stderr as tool use.
+- Pipeline: peer conflict resolution fails the run on one invalid or output-limited reply; grouped verification
+  never re-asks a rejected merged candidate place by place, can exceed its question limit, and shows finder-named
+  IDs to the verifier; merge recovery stops after one rescued defect; a critic that does not complete is recorded
+  as feedback with no items, so the plan passes review; critic revisions bypass the blocking-question checkpoint;
+  one malformed evidence operation can leave dangling or remove valid citations; moving a shared location can
+  invalidate evidence grounded at its old range.
+- Discovery: dense instruction-shaped text merges into one oversized follow-up that is skipped; recursive scope
+  splitting multiplies concurrency and has no depth or spend bound; quote widening is quadratic on repetitive files.
+- Repository and Testing: diff paths are taken relative to the audited root, not the repository top level; the
+  `working_tree` diff leaves out untracked files; excluded directories are still walked; workspace test commands
+  default to npm in pnpm and Yarn monorepos; one unparsable package.json aborts the test-command catalog.
+- Smaller: a failed partial event append poisons later records; the issue board shows degraded rows while its
+  artifacts load; plan write-scope overlap understands only a trailing `/**`; the search tool records one match per
+  line. 36 low-severity issues and the 39 undecided are in the run's record.
 
 Still to do for the checkpoint:
 
-- **Branches (needs the owner):** tag `13be324` as `p20-build-13be324` (the private benchmark cites it), then delete
-  `p20-2.7.0-fix`, `agent/elegant-sagan-3tby00` (already in `beta`) and the dependabot fastify branch (superseded:
-  `beta` has fastify 5.12.5). The session's permission check refuses deleting remote branches.
-- The whole check in Linux, the browser tests (`pnpm --filter @arbitra/web e2e`), a live run per subscription, and
-  the self-audit from the web UI; then merge to `main`, tag and push.
+- **Branches (the owner's):** the tag `p20-build-13be324` is pushed (the private benchmark cites that commit); the
+  dependabot branch is gone; `p20-2.7.0-fix` and `agent/elegant-sagan-3tby00` (already in `beta`) are to be deleted.
+- Done on October 19: the whole check in Linux; the browser tests in Linux, 69 of 69 in Chromium, Firefox and WebKit
+  (on Windows WebKit does not move Tab between links, so one keyboard test cannot pass there); live runs on the three
+  subscriptions (Audit, Feature, Testing plan) after the line-ending fix; the self-audit. Then: merge to `main`, tag
+  `checkpoint-1`, push.
 
 ## Improvement phase
 
