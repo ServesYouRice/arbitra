@@ -1,7 +1,7 @@
 import "./issue-board.css";
 import { useMemo, useState, type ReactElement } from "react";
 import { ArtifactApi } from "../../api/artifacts.js";
-import { describeSuppressionCandidate, describeUnexaminedSurface, EMPTY_FILTERS, filterIssues, filterOptions, issueRows, type IssueFilters, type IssueRow, type PersistedFinding, type PersistedIssueOp, type PersistedIssueSet, type PersistedVerification } from "./model.js";
+import { describeSuppressionCandidate, describeUnexaminedSurface, EMPTY_FILTERS, filterIssues, filterOptions, issueRows, offeredFilters, type IssueFilters, type IssueRow, type PersistedFinding, type PersistedIssueOp, type PersistedIssueSet, type PersistedVerification } from "./model.js";
 import { RUN_ARTIFACT_KINDS, useRunArtifact, type RunArtifact } from "./run-artifacts.js";
 
 export interface IssueBoard { readonly issueSet: RunArtifact<PersistedIssueSet>; readonly findings: readonly PersistedFinding[]; readonly rows: readonly IssueRow[]; readonly pending: readonly string[] }
@@ -29,8 +29,9 @@ export interface IssueBoardViewProps { readonly runId: string | null; readonly a
  */
 export function IssueBoardView({ runId, api = SHARED_ARTIFACT_API, selectedId = null, onSelect, refreshKey = null }: IssueBoardViewProps): ReactElement {
   const { issueSet, rows, pending } = useIssueBoard(api, runId, refreshKey);
-  const [filters, setFilters] = useState<IssueFilters>(EMPTY_FILTERS);
+  const [chosen, setFilters] = useState<IssueFilters>(EMPTY_FILTERS);
   const options = useMemo(() => filterOptions(rows), [rows]);
+  const filters = useMemo(() => offeredFilters(chosen, options), [chosen, options]);
   const visible = useMemo(() => filterIssues(rows, filters), [rows, filters]);
   if (issueSet.state !== "loaded" || issueSet.value === null) return <section aria-label="issue board"><h2 className="panel-title">issue board</h2><p className="state" data-state={issueSet.state === "error" ? "degraded" : "unexamined"}>canonical issue artifact {issueSet.state === "error" ? `unavailable · ${issueSet.error ?? "error"}` : issueSet.state}</p></section>;
   const { summary } = issueSet.value;

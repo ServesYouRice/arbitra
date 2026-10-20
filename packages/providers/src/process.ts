@@ -38,7 +38,8 @@ const MAXIMUM_STDERR_BYTES = 64 * 1024;
 const WINDOWS_EXIT_GRACE_MS = 2_000;
 
 export function runNativeProcess(request: NativeProcessRequest): Promise<NativeProcessResult> {
-  if (!Number.isSafeInteger(request.timeoutMs) || request.timeoutMs < 1 || !Number.isSafeInteger(request.maximumOutputBytes) || request.maximumOutputBytes < 1) throw new Error("INVALID_NATIVE_PROCESS_BOUND");
+  // setTimeout fires at once for a delay above 2^31-1 ms, so a longer timeout would stop every process immediately.
+  if (!Number.isSafeInteger(request.timeoutMs) || request.timeoutMs < 1 || request.timeoutMs > 2_147_483_647 || !Number.isSafeInteger(request.maximumOutputBytes) || request.maximumOutputBytes < 1) throw new Error("INVALID_NATIVE_PROCESS_BOUND");
   if (request.signal.aborted) return Promise.resolve({ pid: null, exitCode: null, exitSignal: null, stopped: "cancelled", violation: null, stdout: "", stderr: "", treeTerminated: true });
   return new Promise((resolveResult) => {
     const posix = process.platform !== "win32";
@@ -57,7 +58,7 @@ export function runNativeProcess(request: NativeProcessRequest): Promise<NativeP
     let stderr = Buffer.alloc(0);
     const terminate = () => { if (pid !== null) killTree(pid); else child.kill("SIGKILL"); };
     const stop = (reason: NativeProcessStop) => { if (stopped === null) stopped = reason; terminate(); };
-    if (pid !== null) request.onSpawn?.(pid);
+    if (pid !== null) try { request.onSpawn?.(pid); } catch (error) { violation = error; stop("violation"); }
     child.stdin.on("error", () => undefined);
     child.stdin.end(request.stdin);
     const deliver = (line: Buffer) => {

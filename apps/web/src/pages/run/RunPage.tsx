@@ -93,7 +93,7 @@ export function RunPage({ runId, tab, item }: { readonly runId: string; readonly
     <nav aria-label="run views" className="tabs">{tabs.map((key) => <Link aria-current={key === current ? "page" : undefined} key={key} to={{ page: "run", runId, tab: key === "overview" ? null : key, item: null }}>{TAB_LABELS[key]}</Link>)}</nav>
     <div className="run-body" data-details={details !== null}>
       <div className="run-main"><ViewBoundary resetKey={current} label={`the ${current} tab`}>{content}</ViewBoundary></div>
-      {details === null ? null : <ViewBoundary resetKey={selection === null ? "none" : `${selection.kind}:${selection.id}`} label="this item">{details}</ViewBoundary>}
+      {details}
     </div>
   </div>;
 }

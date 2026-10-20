@@ -1,11 +1,12 @@
 import { useEffect, useRef, type ReactElement, type ReactNode } from "react";
 import { DETAILS_OVERLAY_QUERY, useMediaQuery } from "../../app/media.js";
+import { ViewBoundary } from "../../controls/ViewBoundary.js";
 
 /**
  * The one place a selected thing is explained: beside the page on a wide screen, over it
  * on a narrow one. It exists only while something is selected, so it never covers
  * controls with an empty panel. Escape closes it; as an overlay it takes focus and gives
- * it back when it closes.
+ * it back when it closes. A view that fails to render fails inside the panel, so its title and close stay.
  */
 export function DetailsPanel({ title, onClose, children }: { readonly title: string; readonly onClose: () => void; readonly children: ReactNode }): ReactElement {
   const overlay = useMediaQuery(DETAILS_OVERLAY_QUERY);
@@ -28,6 +29,6 @@ export function DetailsPanel({ title, onClose, children }: { readonly title: str
       <h2 className="details__title">{title}</h2>
       <button aria-label="close details" className="button" ref={close} type="button" onClick={onClose}>close</button>
     </div>
-    <div className="details__body">{children}</div>
+    <div className="details__body"><ViewBoundary resetKey={title} label="this item">{children}</ViewBoundary></div>
   </aside>;
 }

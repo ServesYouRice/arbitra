@@ -18,4 +18,8 @@
 .issue-row__location { color: var(--mute); overflow-wrap: anywhere; }
 .issue-row__dissent { margin: 0; overflow-wrap: anywhere; }
 
-@media (forced-colors: active) { .issue-row, .board-filters { border-color: CanvasText; } }
+@media (forced-colors: active) {
+  .issue-row, .board-filters { border-color: CanvasText; }
+  /* Background colours are replaced here, so the selected row is outlined instead. */
+  .issue-row[data-selected="true"] { border-inline-start-color: Highlight; outline: 2px solid Highlight; }
+}

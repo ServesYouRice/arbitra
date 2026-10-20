@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ArtifactApi } from "../../src/api/artifacts.js";
 import { CoverageSummary, IssueBoardView } from "../../src/views/issue-board/IssueBoardView.js";
 import { IssueDetails } from "../../src/views/issue-board/IssueDetails.js";
-import { EMPTY_FILTERS, filterIssues, issueRows } from "../../src/views/issue-board/model.js";
+import { EMPTY_FILTERS, filterIssues, filterOptions, issueRows, offeredFilters } from "../../src/views/issue-board/model.js";
 import { ARTIFACT_CONTENT, findings, issueSet, operations, verifications } from "./fixtures.js";
 import { fromPackageRoot } from "../package-root.js";
 
@@ -94,6 +94,14 @@ describe("issue board over persisted artifacts", () => {
     expect(screen.getByText("1 of 2 canonical issues shown")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("category"), { target: { value: "SECURITY" } });
     expect(screen.getByText("no canonical issue matches these filters").dataset.state).toBe("unexamined");
+  });
+
+  it("drops a chosen filter value the rows no longer offer instead of hiding every row behind 'any'", () => {
+    const rows = issueRows({ issueSet, findings, operations, verifications });
+    const options = filterOptions(rows);
+    const stale = offeredFilters({ ...EMPTY_FILTERS, status: "a status no row has", category: options.category[0] ?? null }, options);
+    expect(stale).toMatchObject({ status: null, category: options.category[0] ?? null });
+    expect(filterIssues(rows, stale).length).toBeGreaterThan(0);
   });
 
   it("selects an issue from its row", async () => {
