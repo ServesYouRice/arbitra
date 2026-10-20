@@ -20,6 +20,10 @@ export interface VerificationModel {
 export interface VerificationIssueOperation { readonly operationId: string; readonly candidateId: string; readonly authorId: "verification"; readonly round: number; readonly type: "accept" | "reject" | "needs_verification"; readonly citedEvidenceIds: readonly string[]; readonly reason: string; readonly verification: { readonly result: VerificationOutcome; readonly method: VerificationMethod; readonly evidenceIds: readonly string[]; readonly artifactRefs: readonly string[]; readonly toolCallIds: readonly string[]; readonly activityId: string; readonly confidence: number | null } }
 export interface VerificationOperationSink { append(operation: VerificationIssueOperation): Promise<void> }
 export interface VerificationResult { readonly candidateId: string; readonly outcome: VerificationOutcome; readonly method: VerificationMethod; readonly operation: VerificationIssueOperation; readonly attempts: readonly VerificationAttempt[]; readonly modelCalls: 0 | 1; readonly contextLimited: boolean }
+/**
+ * `modelCalls` counts model answers by item (a grouped question answers each of its items once); `modelQuestionCalls`
+ * counts the questions asked. Neither counts provider calls: retries and repairs are in the activity records.
+ */
 export interface VerificationRunMetrics { readonly itemCount: number; readonly resolvedDisputes: number; readonly modelCalls: number; readonly modelQuestionCalls: number; readonly deferredItemIds: readonly string[]; readonly contextLimitedItemIds: readonly string[]; readonly rungDistribution: Readonly<Record<VerificationMethod, number>> }
 
 export function escalateToVerification(issue: VerificationIssue): boolean { return (issue.severity === "critical" || issue.severity === "high") && issue.objections.some((objection) => objection.citesLocation && objection.evidenceType !== "speculation" && objection.resolvedBy === null); }

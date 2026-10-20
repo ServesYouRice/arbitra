@@ -36,6 +36,8 @@ export function snapshotTools(snapshot: RepositorySnapshot, store: RunStore, act
     async search(query, scope) {
       if (!query.trim()) throw new Error("SEARCH_QUERY_REQUIRED");
       const hits: SearchHit[] = [];
+      // One hit per matching line, at its first occurrence, as grep reports it: the line's text shows any others, and
+      // a hit per occurrence would repeat the same line to the model.
       for (const file of selected(scope)) for (const [index, text] of file.lines.entries()) {
         const column = text.indexOf(query);
         if (column < 0) continue;

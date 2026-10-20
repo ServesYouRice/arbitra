@@ -51,20 +51,28 @@ export function validateTestingRisk(value: unknown, snapshot: RepositorySnapshot
 /** Catalog records origin, not permission to execute repository-defined commands. */
 export function repositoryTestCommands(snapshot: RepositorySnapshot, settings: TestingExecution): readonly RepositoryTestCommand[] {
   const commands: RepositoryTestCommand[] = [];
-  for (const file of snapshot.files.filter(({ path }) => path === "package.json" || path.endsWith("/package.json"))) {
+  // A manifest that does not parse (a deliberately broken fixture, a vendored file) offers no commands; it does not
+  // stop the others or the configured ones.
+  const manifests = snapshot.files.filter(({ path }) => path === "package.json" || path.endsWith("/package.json")).flatMap((file) => {
     let parsed: unknown;
-    try { parsed = JSON.parse(file.lines.join("\n")); } catch { throw new Error(`TESTING_MANIFEST_INVALID:${file.path}`); }
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error(`TESTING_MANIFEST_INVALID:${file.path}`);
-    const manifest = parsed as { scripts?: unknown; packageManager?: unknown };
+    try { parsed = JSON.parse(file.lines.join("\n").replace(/^\u{FEFF}/u, "")); } catch { return []; }
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? [{ path: file.path, manifest: parsed as { scripts?: unknown; packageManager?: unknown } }] : [];
+  });
+  // Workspace packages name no package manager of their own: the repository root's field or lockfile decides.
+  const declared = (manifest: { packageManager?: unknown } | undefined) => typeof manifest?.packageManager === "string" ? /^(pnpm|yarn)@/u.exec(manifest.packageManager)?.[1] : undefined;
+  const paths = new Set(snapshot.files.map(({ path }) => path));
+  const rootManager = declared(manifests.find(({ path }) => path === "package.json")?.manifest)
+    ?? (paths.has("pnpm-lock.yaml") || paths.has("pnpm-workspace.yaml") ? "pnpm" : paths.has("yarn.lock") ? "yarn" : "npm");
+  for (const { path, manifest } of manifests) {
     if (typeof manifest.scripts !== "object" || manifest.scripts === null || Array.isArray(manifest.scripts)) continue;
-    const manager = typeof manifest.packageManager === "string" && /^(pnpm|yarn)@/u.test(manifest.packageManager) ? manifest.packageManager.split("@")[0] ?? "npm" : "npm";
-    const directory = file.path.slice(0, -"package.json".length).replace(/\/$/u, "");
+    const manager = declared(manifest) ?? rootManager;
+    const directory = path.slice(0, -"package.json".length).replace(/\/$/u, "");
     // Unusual names need an explicit, evidence-backed command rather than synthesized shell quoting.
     if (directory !== "" && !/^[A-Za-z0-9_./-]+$/u.test(directory)) continue;
     for (const [script, source] of Object.entries(manifest.scripts)) {
       if (!/^test(?::[A-Za-z0-9_.-]+)*$/u.test(script) || typeof source !== "string" || source.trim() === "") continue;
       const prefix = directory === "" ? "" : ` ${manager === "pnpm" ? "--dir" : manager === "yarn" ? "--cwd" : "--prefix"} ${directory}`;
-      commands.push({ command: `${manager}${prefix} run ${script}`, executionPolicy: "derived_repository_script", sourcePath: file.path, source });
+      commands.push({ command: `${manager}${prefix} run ${script}`, executionPolicy: "derived_repository_script", sourcePath: path, source });
     }
   }
   for (const configured of settings.commands) {

@@ -46,6 +46,13 @@ export function runNativeProcess(request: NativeProcessRequest): Promise<NativeP
     const child = spawn(request.executable, [...request.arguments], { cwd: request.cwd, env: { ...request.environment }, shell: false, windowsHide: true, detached: posix, stdio: ["pipe", "pipe", "pipe"] });
     const pid = child.pid ?? null;
     let stopped: NativeProcessStop | null = null; let violation: unknown = null;
+    child.on("error", () => { if (stopped === null) stopped = "spawn_error"; });
+    // Out of file descriptors (EMFILE, ENFILE), Node returns before it creates the pipes and only emits `error` on
+    // the next tick, so there is nothing to read or wait for.
+    if ((child.stdin as NodeJS.WritableStream | null) === null) {
+      resolveResult({ pid, exitCode: null, exitSignal: null, stopped: "spawn_error", violation: null, stdout: "", stderr: "", treeTerminated: true });
+      return;
+    }
     let stdoutBytes = 0; let pending = Buffer.alloc(0); const collected: Buffer[] = [];
     let stderr = Buffer.alloc(0);
     const terminate = () => { if (pid !== null) killTree(pid); else child.kill("SIGKILL"); };
@@ -74,7 +81,6 @@ export function runNativeProcess(request: NativeProcessRequest): Promise<NativeP
     const cancelled = () => stop("cancelled");
     request.signal.addEventListener("abort", cancelled, { once: true });
     const timer = setTimeout(() => stop("timeout"), request.timeoutMs);
-    child.on("error", () => { if (stopped === null) stopped = "spawn_error"; });
     // The leader exiting does not end its group: descendants holding stdout would keep
     // the pipes open. Kill the remaining group so `close` is reached. Windows has no group, and
     // taskkill /T needs a living root, so a descendant still holding the pipes after a short grace

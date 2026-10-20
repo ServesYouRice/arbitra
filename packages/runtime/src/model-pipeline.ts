@@ -784,25 +784,26 @@ export class ModelAuditPipeline {
           const parts = await criticContextParts(plan, planned, request.input.necessaryContext, (part) => this.sendable(requestFor(part), false),
             revisionContext, maximumRecords, {}, (part) => this.sendable(requestFor(part), true), review.criticPairChecks === true);
           await this.context.store.publish(phase === "initial" ? "critic-context-batches" : "critic-revision-context-batches", parts.map(({ kind, recordIds, segment, pairs }) => ({ kind, recordIds, ...(segment === undefined ? {} : { segment }), ...(pairs === undefined ? {} : { pairs }) })));
-          criticCalls = 0; citedSourceLeftOut.clear();
+          citedSourceLeftOut.clear();
           // Each part is reviewed on its own, so the parts run side by side and are put together in part order.
           // Observed live (P20 pilot): seven parts one after another were 21 minutes of a panel run.
           const local = await sideBySide(parts, providerExecutionSchema.parse(this.config.workflow["modelExecution"]).maximumParallelCalls ?? 1, async (part) => {
             const input = requestFor(part);
             for (const path of (await this.prepareCall(input, true)).coverage.citedPathsLeftOut) citedSourceLeftOut.add(path);
+            // Counted as made, across attempts an output limit replanned, not only those of the attempt that succeeded.
+            criticCalls += 1;
             const response = await this.call(input);
             // Every blocking item is kept; of the others, the first few the critic put first.
             const kept = [...response.items.filter(({ blocking }) => blocking), ...response.items.filter(({ blocking }) => !blocking).slice(0, CRITIC_NON_BLOCKING_ITEMS)];
             return { ...response, items: kept.map((item) => ({ ...item, id: parts.length === 1 ? item.id : `${input.activityId}/${item.id}` })) };
           });
-          criticCalls = parts.length;
           return local;
         });
         return { summary: responses.map(({ summary }) => summary).join("\n\n"), items: responses.flatMap(({ items }) => items) };
       } },
     });
     const result = await critic.run({ plan, validationContract: plan.validationContract, canonicalIssues: planned, necessaryContext: this.repository().map(({ path, content }) => ({ ref: path, content, trust: "repo" })) }, {
-      requirement: { deepMode: true, hasCriticalIssue: issues.issues.some(({ severity }) => severity === "critical") },
+      requirement: { deepMode: true, hasCriticalIssue: planned.some(({ severity }) => severity === "critical") },
       planner: { id: this.#roles.planner, capability: plannerProfile.capabilityTier, independenceGroup: plannerProfile.independenceGroup },
       pool: [{ id: criticId, capability: criticProfile.capabilityTier, independenceGroup: criticProfile.independenceGroup, available: true }],
     });

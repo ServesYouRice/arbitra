@@ -12,7 +12,7 @@ import type { CliVendor } from "./support.js";
  * runs prove the real CLIs emit this format.
  */
 export type CliStandInReply =
-  | { readonly kind: "text"; readonly text: string; readonly usage?: false | "thinking_in_output" }
+  | { readonly kind: "text"; readonly text: string; readonly usage?: false | "thinking_in_output"; /** Antigravity only: a line the CLI writes to stderr first. */ readonly stderr?: string }
   | { readonly kind: "tool_use" }
   | { readonly kind: "not_logged_in" }
   | { readonly kind: "usage_limit" }
@@ -168,7 +168,7 @@ function run() {
     // have been stopped due to server restart. ...").
     if (continued !== null) step({ step_index: 1, step_type: "system_message", duration_seconds: 0 });
     switch (reply.kind) {
-      case "text": { const schema = args.includes("--json-schema"); step({ step_index: 1, step_type: "agent_response", text_delta: reply.text + "\n" }); step({ step_index: 2, step_type: "finish" });
+      case "text": { if (typeof reply.stderr === "string") process.stderr.write(reply.stderr + "\n"); const schema = args.includes("--json-schema"); step({ step_index: 1, step_type: "agent_response", text_delta: reply.text + "\n" }); step({ step_index: 2, step_type: "finish" });
         return envelope("SUCCESS", { response: reply.text, ...(schema ? { structured_output: JSON.parse(reply.text) } : {}), ...(reply.usage === false ? {} : { usage: reply.usage === "thinking_in_output" ? { input_tokens: 30, output_tokens: 8, thinking_tokens: 6, cache_read_tokens: 0, total_tokens: 38 }
           : continued !== null ? { input_tokens: 45, output_tokens: 15, thinking_tokens: 3, cache_read_tokens: 40, total_tokens: 63 } : { input_tokens: 30, output_tokens: 8, thinking_tokens: 2, cache_read_tokens: 10, total_tokens: 40 } }) }); }
       // The shape agy 1.3.3 streams for a failed model call (observed live): the step carries no text. The reason is a

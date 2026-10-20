@@ -4,7 +4,7 @@ import { ArtifactApi } from "../../api/artifacts.js";
 import { describeSuppressionCandidate, describeUnexaminedSurface, EMPTY_FILTERS, filterIssues, filterOptions, issueRows, type IssueFilters, type IssueRow, type PersistedFinding, type PersistedIssueOp, type PersistedIssueSet, type PersistedVerification } from "./model.js";
 import { RUN_ARTIFACT_KINDS, useRunArtifact, type RunArtifact } from "./run-artifacts.js";
 
-export interface IssueBoard { readonly issueSet: RunArtifact<PersistedIssueSet>; readonly findings: readonly PersistedFinding[]; readonly rows: readonly IssueRow[] }
+export interface IssueBoard { readonly issueSet: RunArtifact<PersistedIssueSet>; readonly findings: readonly PersistedFinding[]; readonly rows: readonly IssueRow[]; readonly pending: readonly string[] }
 
 /** The four persisted artifacts the board reads, joined into rows. Nothing is computed that the run did not record. */
 export function useIssueBoard(api: ArtifactApi, runId: string | null, refreshKey: unknown): IssueBoard {
@@ -13,7 +13,11 @@ export function useIssueBoard(api: ArtifactApi, runId: string | null, refreshKey
   const operations = useRunArtifact<readonly PersistedIssueOp[]>(api, runId, RUN_ARTIFACT_KINDS.issueOperations, refreshKey);
   const verifications = useRunArtifact<readonly PersistedVerification[]>(api, runId, RUN_ARTIFACT_KINDS.verificationResults, refreshKey);
   const rows = useMemo(() => issueSet.value === null ? [] : issueRows({ issueSet: issueSet.value, findings: findings.value ?? [], operations: operations.value ?? [], verifications: verifications.value ?? [] }), [issueSet.value, findings.value, operations.value, verifications.value]);
-  return { issueSet, findings: findings.value ?? [], rows };
+  // Rows show while the other three load or after one fails, but say so: an empty location or status then means
+  // "not loaded", not "the run recorded none".
+  const pending = ([["source findings", findings], ["issue operations", operations], ["verification results", verifications]] as const)
+    .flatMap(([label, artifact]) => artifact.state === "loading" ? [`${label} loading`] : artifact.state === "error" ? [`${label} unavailable · ${artifact.error ?? "error"}`] : []);
+  return { issueSet, findings: findings.value ?? [], rows, pending };
 }
 
 export interface IssueBoardViewProps { readonly runId: string | null; readonly api?: ArtifactApi; readonly selectedId?: string | null; readonly onSelect?: (candidateId: string) => void; readonly refreshKey?: unknown }
@@ -24,7 +28,7 @@ export interface IssueBoardViewProps { readonly runId: string | null; readonly a
  * row itself (R5); the full record opens in the details panel.
  */
 export function IssueBoardView({ runId, api = SHARED_ARTIFACT_API, selectedId = null, onSelect, refreshKey = null }: IssueBoardViewProps): ReactElement {
-  const { issueSet, rows } = useIssueBoard(api, runId, refreshKey);
+  const { issueSet, rows, pending } = useIssueBoard(api, runId, refreshKey);
   const [filters, setFilters] = useState<IssueFilters>(EMPTY_FILTERS);
   const options = useMemo(() => filterOptions(rows), [rows]);
   const visible = useMemo(() => filterIssues(rows, filters), [rows, filters]);
@@ -34,6 +38,7 @@ export function IssueBoardView({ runId, api = SHARED_ARTIFACT_API, selectedId = 
   return <section aria-label="issue board" className="issue-board">
     <h2 className="panel-title">issue board</h2>
     <p className="board-summary">{summary.auditorCount} auditors · {summary.sourceFindingCount} source findings · {summary.acceptedCount} accepted · {summary.rejectedCount} rejected · {summary.unresolvedCount} unresolved · {summary.singleSourceCount} single-source</p>
+    {pending.length === 0 ? null : <p className="state" data-state={pending.some((line) => line.includes("unavailable")) ? "degraded" : "unexamined"}>{pending.join(" · ")} · locations, statuses and verification may show as missing until then</p>}
     <CoverageSummary issueSet={issueSet.value} />
     <div className="board-filters" role="group" aria-label="issue filters">
       {(["severity", "consensusState", "verificationOutcome", "auditor", "category", "status"] as const).map((field) => <label className="field" key={field}>{FILTER_LABELS[field]}<select aria-label={FILTER_LABELS[field]} value={filters[field] ?? ""} onChange={(event) => setFilters((current) => ({ ...current, [field]: event.target.value === "" ? null : event.target.value }))}><option value="">any</option>{options[field].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>)}
@@ -51,6 +56,7 @@ export function CoverageSummary({ issueSet }: { readonly issueSet: PersistedIssu
   const { coverage, limitations, minorityFindingIds } = issueSet;
   return <>
     <ul aria-label="run coverage summary" className="board-coverage">
+      {coverage.complete ? null : <li className="state" data-state="degraded">coverage · incomplete · the issues below do not cover everything in scope</li>}
       <li className="state" data-state={coverage.securityCoverage.degraded ? "degraded" : "verified"}>security coverage · {coverage.securityCoverage.degraded ? `degraded · ${coverage.securityCoverage.reason ?? "reason unavailable"}` : "complete"}</li>
       <li className="state" data-state={coverage.suppressionCandidates.length === 0 ? "verified" : "tainted"}>suppression candidates · {coverage.suppressionCandidates.length}</li>
       <li className="state" data-state={coverage.unexaminedSurfaces.length === 0 ? "verified" : "unexamined"}>unexamined surfaces · {coverage.unexaminedSurfaces.length}</li>

@@ -12,12 +12,14 @@ afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root,
 const settings = testingExecutionSchema.parse({ mode: "plan", goal: "Protect sessions", roles: { analyst: "model", planner: "model" } });
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "testing-context-")); roots.push(root);
-  await mkdir(join(root, "nested"));
+  await mkdir(join(root, "nested")); await mkdir(join(root, "broken"));
   await Promise.all([
     writeFile(join(root, "auth.ts"), "export const authorized = false;\n"),
     writeFile(join(root, "auth.test.ts"), "test('auth', () => {});\n"),
     writeFile(join(root, "package.json"), JSON.stringify({ packageManager: "pnpm@10.24.0", scripts: { test: "vitest run", "test:unit": "vitest run unit", build: "tsc", "test;echo": "unsafe" } })),
     writeFile(join(root, "nested", "package.json"), JSON.stringify({ scripts: { test: "node --test" } })),
+    // A fixture manifest that does not parse offers no commands and does not stop the others.
+    writeFile(join(root, "broken", "package.json"), "{ \"scripts\": "),
     writeFile(join(root, "commands.md"), "go test ./...\n"),
   ]);
   const snapshot = await snapshotRepository(root, 20, { includeTestMetadata: true, additionalPaths: ["commands.md"] });
@@ -38,7 +40,8 @@ it("derives commands from exact repository metadata and retains approval policy"
   const { snapshot } = await fixture();
   const command = { command: "go test ./...", evidence: { path: "commands.md", startLine: 1, endLine: 1, text: "go test ./..." } };
   expect(repositoryTestCommands(snapshot, { ...settings, commands: [command] })).toEqual([
-    { command: "npm --prefix nested run test", executionPolicy: "derived_repository_script", sourcePath: "nested/package.json", source: "node --test" },
+    // A workspace package names no package manager; the root does.
+    { command: "pnpm --dir nested run test", executionPolicy: "derived_repository_script", sourcePath: "nested/package.json", source: "node --test" },
     { command: "pnpm run test", executionPolicy: "derived_repository_script", sourcePath: "package.json", source: "vitest run" },
     { command: "pnpm run test:unit", executionPolicy: "derived_repository_script", sourcePath: "package.json", source: "vitest run unit" },
     { command: "go test ./...", executionPolicy: "requires_approval", sourcePath: "commands.md", source: "go test ./..." },

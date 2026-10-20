@@ -449,6 +449,11 @@ describe("Antigravity CLI specifics", { timeout: 30_000 }, () => {
     expect(emptied.message).toContain("CLI_EMPTY_SUCCESS");
   });
 
+  it("keeps a reply when stderr carries an ordinary permission error, not a soft-denied tool", async () => {
+    const f = await fixture({ vendor: "antigravity", replies: [{ kind: "text", text: "ok", stderr: "EACCES: permission denied, mkdir '/home/user/.cache/agy'" }] });
+    expect((await send(f.transport)).text).toBe("ok");
+  });
+
   it("answers plainly in a fresh process after an attempt that used the CLI's own tool", async () => {
     // Observed live (P20 pilot): a Gemini peer-review reply ran run_command once; the same call answered on the next attempt.
     const f = await fixture({ vendor: "antigravity", replies: [{ kind: "tool_use" }, { kind: "text", text: "pong" }] });

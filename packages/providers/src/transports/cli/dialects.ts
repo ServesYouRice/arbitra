@@ -384,8 +384,12 @@ export function promptByteLimit(transport: string): number | null { return trans
  */
 export function antigravityPromptChannel(platform: NodeJS.Platform): "argument" | "stdin" { return platform === "darwin" ? "argument" : "stdin"; }
 
-/** stderr notices of a tool call soft-denied in headless mode (the run otherwise continues and exits 0). */
-const ANTIGRAVITY_DENIAL = /\b(?:tool|command|action|permission)\b[^\n]{0,120}\b(?:denied|requires? (?:approval|permission)|not (?:approved|permitted|allowed))|\bsoft[- ]denied\b|approval required/iu;
+/**
+ * stderr notices of a tool call soft-denied in headless mode (the run otherwise continues and exits 0). A notice names
+ * the tool, command or action; an ordinary "permission denied" from the system (EACCES on a cache folder, a keyring
+ * warning) is not one.
+ */
+const ANTIGRAVITY_DENIAL = /\b(?:tool|command|action)\b[^\n]{0,120}\b(?:denied|requires? (?:approval|permission)|not (?:approved|permitted|allowed))|\bsoft[- ]denied\b|approval required/iu;
 /**
  * Step types of a plain answer (observed live on agy 1.2.11); any other step is agent tool use. A continued
  * conversation (`--conversation`) starts with the CLI's own `system_message` notice (agy 1.3.5, October 19, 2026:

@@ -1,6 +1,6 @@
 # Remaining work
 
-Updated October 19, 2026 (branch `beta`). Task status lives in the [completion plan](docs/completion-plan.md); this
+Updated October 20, 2026 (branch `friend-test`). Task status lives in the [completion plan](docs/completion-plan.md); this
 file says what is left and in what order. The measurements and decisions behind every item, from the P20 pilot
 (October 10 to 19), are in this file's history: `git show 9558aef:WORK-REMAINING.md`.
 
@@ -27,8 +27,15 @@ file says what is left and in what order. The measurements and decisions behind 
   served by the control plane itself); the CLIs a machine has are found, the first supported installation of each is
   used, and the New run page shows them with fixes and recommended models; graph nodes and "executed by" name the
   model and effort; each run has a plain-text report to copy and send (`/diagnostics/runs/:id`); the Plan tab saves
-  the plan into the project as prompts grouped by model tier (`.arbitra/plans/`). [`TESTERS.md`](TESTERS.md) is the
-  testers' guide. Later runs are on the owner's other projects, for real-world data.
+  the plan into the project as prompts grouped by model tier (`.arbitra/plans/`); each model is chosen from a list
+  rather than typed. [`TESTERS.md`](TESTERS.md) is the testers' guide. Later runs are on the owner's other projects,
+  for real-world data.
+- **Small fixes from the self-audit, on `friend-test` (October 20):** a system "permission denied" on Antigravity's
+  stderr no longer discards its reply as a soft-denied tool; a spawn that runs out of file descriptors no longer
+  raises an unhandled error; workspace packages take the root's package manager for their test commands, and a
+  package.json that does not parse no longer stops the catalog; the issue board says when its other records are
+  still loading or failed, and when the run's coverage is incomplete; the critic's requirement counts only the
+  planned issues, and its call count every call made; the verification counts say what they count.
 
 ## Checkpoint 1
 
@@ -62,24 +69,22 @@ confirmed, for the improvement phase (most predate this week's changes; the audi
 - Redaction: bracket index access after a secret's name is masked as a secret; JSON-encoded source loses escaped
   newlines after redaction; redacting model input and output can make an exact quote impossible to ground.
 - Processes: POSIX descendants that start their own group escape termination; on Windows a descendant that holds no
-  pipe outlives a normal exit, and `treeTerminated` is assumed; leftover trees are checked only on success; a spawn
-  failure under EMFILE can raise an unhandled error.
+  pipe outlives a normal exit, and `treeTerminated` is assumed; leftover trees are checked only on success.
 - CLI transports: identical request prefixes can resume the wrong conversation; three dialects do not enforce the
-  output ceiling; Antigravity's soft-denial pattern reads an ordinary "permission denied" on stderr as tool use.
+  output ceiling.
 - Pipeline: peer conflict resolution fails the run on one invalid or output-limited reply; grouped verification
   never re-asks a rejected merged candidate place by place, can exceed its question limit, and shows finder-named
-  IDs to the verifier; merge recovery stops after one rescued defect; a critic that does not complete is recorded
-  as feedback with no items, so the plan passes review; critic revisions bypass the blocking-question checkpoint;
+  IDs to the verifier; merge recovery stops after one rescued defect; with `recheckRevisedPlan`, a second critic
+  that does not complete replaces the first one's blocking items; critic revisions bypass the blocking-question checkpoint;
   one malformed evidence operation can leave dangling or remove valid citations; moving a shared location can
   invalidate evidence grounded at its old range.
 - Discovery: dense instruction-shaped text merges into one oversized follow-up that is skipped; recursive scope
   splitting multiplies concurrency and has no depth or spend bound; quote widening is quadratic on repetitive files.
 - Repository and Testing: diff paths are taken relative to the audited root, not the repository top level; the
-  `working_tree` diff leaves out untracked files; excluded directories are still walked; workspace test commands
-  default to npm in pnpm and Yarn monorepos; one unparsable package.json aborts the test-command catalog.
-- Smaller: a failed partial event append poisons later records; the issue board shows degraded rows while its
-  artifacts load; plan write-scope overlap understands only a trailing `/**`; the search tool records one match per
-  line. 36 low-severity issues and the 39 undecided are in the run's record.
+  `working_tree` diff leaves out untracked files; excluded directories are still walked.
+- Smaller: a failed partial event append poisons later records; plan write-scope overlap understands only a trailing
+  `/**`. (The search tool's one hit per line is deliberate, as grep reports it.) 36 low-severity issues and the 39
+  undecided are in the run's record.
 
 Still to do for the checkpoint:
 
@@ -136,7 +141,7 @@ changes checked against Anthropic's guidance first).
   staged port are).
 - Windows: `treeTerminated` is still assumed after the leader exits; the native harness stand-ins need POSIX.
 - Smaller: after a resume one Claude turn returned its tool-call markup as text and the repair restarted its tool
-  loop; `verification-metrics.modelCalls` counts questions, not calls.
+  loop.
 
 **Experiments** ([design audit](docs/design-audit.md#what-changes), items 11 to 17): no peer review, lower efforts,
 a second varied discovery pass, a cheaper verifier, a verifier of another vendor on a sample, an execution rung, a
@@ -176,10 +181,10 @@ Live configurations come from `tooling/live/bindings.subscription.json`. The API
 
 1. **Logins.** Sign in once in a terminal: `claude` (/login), `codex login` (Sign in with ChatGPT) and `agy`. The API keys in the gitignored `.env` are not used for owner testing.
 2. **Build.** Run `pnpm build`.
-3. **Web UI.** `node apps/server/dist/src/serve.js` from the repository to audit, then `pnpm --filter @arbitra/web dev`, and open http://127.0.0.1:4173.
+3. **Web UI.** `arbitra.cmd` (Windows) or `arbitra.command` builds when needed and opens http://127.0.0.1:4178, served by the control plane. For UI work, `pnpm --filter @arbitra/web dev` on http://127.0.0.1:4173 proxies to it.
 4. **Workflows (P03).**
    1. Generate the configurations: `node tooling/live/configure.mjs tooling/live/bindings.subscription.json .runs/live/configs-sub`.
-   2. Run one: `tooling/live/run.sh .runs/live/configs-sub <audit-mixed-providers|feature-automatic|feature-interactive|testing-plan|testing-execute>`. The script keeps the Mac awake; a sleeping host stretches every stage timeout.
+   2. Run one: `tooling/live/run.sh .runs/live/configs-sub <audit-mixed-providers|feature-automatic|feature-interactive|testing-plan|testing-execute>`. A sleeping host stretches every stage timeout, so keep the machine awake during a run.
    3. An interactive Feature stops `BLOCKED`. Inspect it with `requirements <run-id>`, then `revise-requirements` and/or `approve-requirements`, then run `tooling/live/resume.sh feature-interactive <run-id>`.
    4. Hand a Feature plan to fresh Claude Code executors: `node tooling/live/handoff.mjs <work-name> <run-id>`.
 
