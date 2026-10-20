@@ -199,8 +199,8 @@
       "roles": {
         "planner": "auditor-a",
         "verifier": "auditor-a",
-        "critic": "auditor-c",
-        "critiqueChecker": "auditor-b"
+        "critic": "auditor-b",
+        "critiqueChecker": "auditor-c"
       },
       "maximumOutputTokens": 128000,
       "maximumContextTokens": 1000000,

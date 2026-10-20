@@ -89,16 +89,20 @@ export function roleEffort(config: Readonly<Record<string, unknown>>, alias: str
 }
 
 /** Each model node's label as the model that ran it and its effort, such as `Opus 5.5 · xhigh`, for graphs. */
+const LEVEL_IN_ID = /-(low|medium|high|max)$/u;
+
 export function modelNodeLabels(config: Readonly<Record<string, unknown>> | null): ReadonlyMap<string, string> {
   if (config === null || config["mode"] !== "audit") return new Map();
   const profiles = modelProfiles(config);
   const name = (alias: unknown) => typeof alias === "string" ? profiles.find((profile) => profile.alias === alias) : undefined;
   const roles = record(record(record(config["workflow"])["modelExecution"])["roles"]);
   const labels = new Map<string, string>();
-  for (const profile of profiles) if (profile.alias.startsWith("auditor-")) labels.set(profile.alias, `${modelName(profile.modelId)} · ${effortFor(config, profile.alias, "discovery")}`);
+  // A model whose ID names its thinking level (Gemini 3.8 Flash high) already says its effort.
+  const label = (profile: ModelProfileSummary, stage: EffortStage) => LEVEL_IN_ID.test(profile.modelId) ? modelName(profile.modelId) : `${modelName(profile.modelId)} · ${effortFor(config, profile.alias, stage)}`;
+  for (const profile of profiles) if (profile.alias.startsWith("auditor-")) labels.set(profile.alias, label(profile, "discovery"));
   for (const [node, role, stage] of [["planner", "planner", "planner"], ["verification", "verifier", "verification"], ["critic", "critic", "critic"]] as const) {
     const profile = name(roles[role]);
-    if (profile !== undefined) labels.set(node, `${modelName(profile.modelId)} · ${effortFor(config, profile.alias, stage)}`);
+    if (profile !== undefined) labels.set(node, label(profile, stage));
   }
   return labels;
 }
