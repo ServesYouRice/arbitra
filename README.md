@@ -88,6 +88,10 @@ model run requires.
 
 ## Running it
 
+**To just use it:** double-click `arbitra.cmd` (Windows) or `arbitra.command` (macOS, Linux). It fetches Node 22 if
+the machine has none, installs and builds on first start, and opens the app on <http://127.0.0.1:4178>.
+[`TESTERS.md`](TESTERS.md) walks a first audit through.
+
 `packages/runtime` composes the workspace packages into one `Orchestrator`. Both
 interfaces call it — the CLI through `orchestratorCore`, the control plane through
 `controlPlaneCore` — so there is one run lifecycle, not two.
@@ -96,8 +100,8 @@ interfaces call it — the CLI through `orchestratorCore`, the control plane thr
 pnpm build                                  # both entrypoints run from dist/
 
 node apps/cli/dist/src/bin.js audit --preset audit-deep --module packages/tools  # --full: repositories up to 400 source files
-node apps/server/dist/src/serve.js          # control plane on 127.0.0.1:4178
-pnpm --filter @arbitra/web dev              # UI on 127.0.0.1:4173, proxied to the control plane
+node apps/server/dist/src/serve.js          # the app and its control plane on 127.0.0.1:4178
+pnpm --filter @arbitra/web dev              # for UI work: a dev server on 127.0.0.1:4173, proxied to the control plane
 ```
 
 With the control plane up, the UI opens on the list of runs. **New run** prepares a

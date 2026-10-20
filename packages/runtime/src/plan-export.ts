@@ -18,7 +18,7 @@ interface ExportPlan { readonly title: string; readonly tasks: readonly ExportTa
 interface ExportIssue { readonly candidateId: string; readonly severity: string; readonly disposition: string; readonly claim: { readonly title: string; readonly description: string } }
 
 const TIERS = {
-  frontier: { folder: "1-strong-model", model: "your strongest model (such as Claude Opus) at high effort", why: "reasoning across files, or a fix that is easy to get subtly wrong" },
+  frontier: { folder: "1-strong-model", model: "your strongest model (such as Claude Opus)", why: "reasoning across files, or a fix that is easy to get subtly wrong" },
   balanced: { folder: "2-balanced-model", model: "a balanced model (such as Claude Sonnet)", why: "a contained change with a clear target" },
   fast: { folder: "3-fast-model", model: "a fast, inexpensive model (such as Claude Haiku)", why: "a small, mechanical change" },
 } as const;
