@@ -24,6 +24,7 @@ fi
 say "node $("$node_bin" --version)"
 export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 # The build calls pnpm from inside pnpm, so pnpm has to be on PATH: corepack puts its shims in this folder.
+mkdir -p "$runtime/bin"
 "$(dirname "$node_bin")/corepack" enable --install-directory "$runtime/bin"
 export PATH="$runtime/bin:$PATH"
 

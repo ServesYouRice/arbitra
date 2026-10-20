@@ -32,6 +32,7 @@ $env:COREPACK_ENABLE_DOWNLOAD_PROMPT = "0"
 $corepack = Join-Path (Split-Path $node) "corepack.cmd"
 # The build calls pnpm from inside pnpm, so pnpm has to be on PATH: corepack puts its shims in this folder.
 $shims = Join-Path $runtime "bin"
+New-Item -ItemType Directory -Force $shims | Out-Null
 & $corepack enable --install-directory $shims
 if ($LASTEXITCODE -ne 0) { throw "corepack could not set up pnpm (exit $LASTEXITCODE)" }
 $env:PATH = "$shims;$env:PATH"
