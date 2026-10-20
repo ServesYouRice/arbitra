@@ -8,7 +8,8 @@ import { useApis } from "../../app/apis.js";
 import { MODE_LABELS } from "../../app/format.js";
 import { useNavigation } from "../../app/router.js";
 import { stableJson } from "../../graph/editor-model.js";
-import { effortFor, modelName, modelProfiles, PLACEHOLDER_PREFIX, record } from "../run/models.js";
+import { effortFor, modelName, modelProfiles, PLACEHOLDER_PREFIX, record, type ModelProfileSummary } from "../run/models.js";
+import { catalogModel, MODEL_CATALOG, type CatalogModel } from "./model-catalog.js";
 import { getIn, graphOf, LIMITS, lines, modeOf, placeholders, presetOf, roleSlots, setIn, suggestedName, withGraph, withPreset, withScopeKind, type Draft, type RoleSlot } from "./draft.js";
 import { SCRIPTED_AUDIT, TEMPLATES } from "./templates.js";
 
@@ -274,20 +275,19 @@ function ModelsSection({ draft, edit, onUseModels }: { readonly draft: Draft; re
     <p><button className="button button--primary" type="button" onClick={onUseModels}>audit with the subscription CLIs instead</button></p>
     <p className="prose">This run calls no model and spends nothing. It shows the pipeline works; it is not evidence about what models find. To audit with models, start from one of the model-backed templates.</p>
   </Section>;
-  const recommendable = profiles.filter((profile) => profile.placeholder && RECOMMENDED[profile.transport] !== undefined);
+  const recommendable = profiles.filter((profile) => profile.placeholder && MODEL_CATALOG[profile.transport] !== undefined);
   return <Section title="models" id="models">
     <MachineModels />
-    <p className="note">Each profile names a model on an endpoint. Fill in the model ID and family for each, or use the recommended ones for the CLIs found above; the credentials themselves stay with the CLI or in the environment variables the endpoints name.</p>
-    {recommendable.length === 0 ? null : <p><button className="button" type="button" onClick={() => { for (const profile of recommendable) { const choice = RECOMMENDED[profile.transport]; if (choice !== undefined) { edit(["models", profile.alias, "modelId"], choice.modelId); edit(["models", profile.alias, "family"], choice.family); } } }}>
-      use the recommended models · {recommendable.map((profile) => modelName(RECOMMENDED[profile.transport]?.modelId ?? "")).join(", ")}</button></p>}
+    <p className="note">Each profile names a model on an endpoint. Choose a model for each, or use the recommended ones; choosing one also sets its family and tier. The credentials themselves stay with the CLI or in the environment variables the endpoints name.</p>
+    {recommendable.length === 0 ? null : <p><button className="button" type="button" onClick={() => { for (const profile of recommendable) { const choice = MODEL_CATALOG[profile.transport]?.[0]; if (choice !== undefined) choose(edit, profile.alias, choice); } }}>
+      use the recommended models · {recommendable.map((profile) => modelName(MODEL_CATALOG[profile.transport]?.[0]?.modelId ?? "")).join(", ")}</button></p>}
     <p className="note">Effort per stage: {EFFORT_STAGES.map(({ label, stage }) => `${label} ${[...new Set(profiles.filter(({ roles }) => roles.some((role) => stage === "discovery" ? role.label.startsWith("auditor") : role.node === stage)).map(({ alias }) => effortFor(draft, alias, stage === "verification" ? "verification" : stage)))].join("/") || "-"}`).join(" · ")}. Audit depth sets the auditors&apos; effort; the later stages run at their own, usually lower, effort. Higher effort finds more and takes longer and more of your plan&apos;s usage.</p>
     <div className="table-scroll"><table aria-label="model profiles" className="table">
-      <thead><tr><th scope="col">profile</th><th scope="col">provider · transport</th><th scope="col">model ID</th><th scope="col">family</th><th scope="col">tier · independence</th><th scope="col">roles</th></tr></thead>
+      <thead><tr><th scope="col">profile</th><th scope="col">provider · transport</th><th scope="col">model</th><th scope="col">family</th><th scope="col">tier · independence</th><th scope="col">roles</th></tr></thead>
       <tbody>{profiles.map((profile) => <tr data-placeholder={profile.placeholder} key={profile.alias}>
         <td>{profile.alias}</td>
         <td>{profile.provider} · {profile.transport}</td>
-        <td><input aria-label={`model ID for ${profile.alias}`} className={profile.modelId.startsWith(PLACEHOLDER_PREFIX) ? "placeholder" : undefined} value={profile.modelId} onChange={(event) => edit(["models", profile.alias, "modelId"], event.target.value)} /></td>
-        <td><input aria-label={`family for ${profile.alias}`} className={profile.family.startsWith(PLACEHOLDER_PREFIX) ? "placeholder" : undefined} value={profile.family} onChange={(event) => edit(["models", profile.alias, "family"], event.target.value)} /></td>
+        <ModelChoice profile={profile} edit={edit} />
         <td>{profile.capabilityTier} · {profile.independenceGroup}</td>
         <td>{profile.roles.map(({ label }) => label).join(", ") || "none"}</td>
       </tr>)}</tbody>
@@ -300,12 +300,43 @@ function ModelsSection({ draft, edit, onUseModels }: { readonly draft: Draft; re
   </Section>;
 }
 
-/** The models the P20 benchmark ran on each subscription CLI; a tester can still type any other. */
-const RECOMMENDED: Readonly<Record<string, { readonly modelId: string; readonly family: string }>> = {
-  "claude-code-cli": { modelId: "claude-opus-5-5", family: "claude" },
-  "codex-cli": { modelId: "gpt-6.1-sol", family: "gpt" },
-  "antigravity-cli": { modelId: "gemini-3.8-flash-medium", family: "gemini" },
-};
+const OTHER_MODEL = "other";
+
+function choose(edit: Edit, alias: string, model: CatalogModel): void {
+  edit(["models", alias, "modelId"], model.modelId);
+  edit(["models", alias, "family"], model.family);
+  edit(["models", alias, "capabilityTier"], model.tier);
+}
+
+/**
+ * A profile's model chosen from the models known for its transport, so an ID cannot be mistyped. "Another model ID"
+ * opens a typed ID and family for a model not listed; a transport with no list (an OpenAI-compatible endpoint) is typed.
+ */
+function ModelChoice({ profile, edit }: { readonly profile: ModelProfileSummary; readonly edit: Edit }): ReactElement {
+  const catalog = MODEL_CATALOG[profile.transport];
+  const known = catalogModel(profile.transport, profile.modelId);
+  const unset = profile.modelId.startsWith(PLACEHOLDER_PREFIX);
+  const [otherChosen, setOtherChosen] = useState(false);
+  const typed = catalog === undefined || (known === undefined && (!unset || otherChosen));
+  const typedId = (value: string): void => {
+    edit(["models", profile.alias, "modelId"], value);
+    const match = catalogModel(profile.transport, value);
+    if (match !== undefined) choose(edit, profile.alias, match);
+  };
+  return <>
+    <td className="model-choice">
+      {catalog === undefined ? null : <select aria-label={`model for ${profile.alias}`} className={!typed && unset ? "placeholder" : undefined} value={typed ? OTHER_MODEL : known?.modelId ?? ""}
+        onChange={(event) => { const model = catalog.find(({ modelId }) => modelId === event.target.value); setOtherChosen(model === undefined); if (model !== undefined) choose(edit, profile.alias, model); }}>
+        <option disabled value="">choose a model</option>
+        {catalog.map((model, index) => <option key={model.modelId} value={model.modelId}>{modelName(model.modelId)}{index === 0 ? " (recommended)" : ""}{model.note === "" ? "" : ` · ${model.note}`}</option>)}
+        <option value={OTHER_MODEL}>another model ID…</option>
+      </select>}
+      {typed ? <input aria-label={`model ID for ${profile.alias}`} className={unset ? "placeholder" : undefined} value={profile.modelId} onChange={(event) => typedId(event.target.value)} /> : null}
+    </td>
+    <td>{typed ? <input aria-label={`family for ${profile.alias}`} className={profile.family.startsWith(PLACEHOLDER_PREFIX) ? "placeholder" : undefined} value={profile.family} onChange={(event) => edit(["models", profile.alias, "family"], event.target.value)} /> : profile.family}</td>
+  </>;
+}
+
 const EFFORT_STAGES = [{ label: "auditors", stage: "discovery" }, { label: "verification", stage: "verification" }, { label: "plan", stage: "planner" }, { label: "critic", stage: "critic" }] as const;
 
 interface DetectedCli { readonly name: string; readonly state: string; readonly version: string | null; readonly note: string; readonly fix: string | null }

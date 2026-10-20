@@ -68,8 +68,8 @@ test.describe("finding, starting and reading runs", () => {
     await page.goto("/?page=new-run&from=template:subscription-audit");
     const open = page.getByRole("list", { name: "placeholders to fill in" });
     await expect(open.getByRole("listitem")).toHaveCount(6);
-    await page.getByLabel("model ID for auditor-a").fill("fixture-model-a");
-    await expect(open.getByRole("listitem")).toHaveCount(5);
+    await page.getByLabel("model for auditor-a").selectOption("claude-sonnet-5");
+    await expect(open.getByRole("listitem")).toHaveCount(4);
     await page.getByRole("button", { name: "save and start" }).click();
     const result = page.getByRole("region", { name: "check result" });
     await expect(result).not.toContainText("ready to start");

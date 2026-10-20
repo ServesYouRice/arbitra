@@ -74,8 +74,13 @@ describe("the new-run page", () => {
     render(<App />);
     const list = await screen.findByRole("list", { name: "placeholders to fill in" });
     expect(within(list).getAllByRole("listitem")).toHaveLength(6);
-    fireEvent.change(screen.getByRole("textbox", { name: "model ID for auditor-a" }), { target: { value: "claude-sonnet-5" } });
-    await waitFor(() => expect(within(screen.getByRole("list", { name: "placeholders to fill in" })).getAllByRole("listitem")).toHaveLength(5));
+    fireEvent.change(screen.getByRole("combobox", { name: "model for auditor-a" }), { target: { value: "claude-sonnet-5" } });
+    await waitFor(() => expect(within(screen.getByRole("list", { name: "placeholders to fill in" })).getAllByRole("listitem")).toHaveLength(4));
+    expect(screen.queryByRole("textbox", { name: "model ID for auditor-a" })).toBeNull();
+    fireEvent.change(screen.getByRole("combobox", { name: "model for auditor-b" }), { target: { value: "other" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "model ID for auditor-b" }), { target: { value: "gpt-7-preview" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "family for auditor-b" }), { target: { value: "gpt" } });
+    await waitFor(() => expect(within(screen.getByRole("list", { name: "placeholders to fill in" })).getAllByRole("listitem")).toHaveLength(2));
     expect((screen.getByRole("combobox", { name: "planner role" }) as HTMLSelectElement).value).toBe("auditor-a");
   });
 

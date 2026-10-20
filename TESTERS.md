@@ -29,7 +29,8 @@ already have. It never changes your code.
 
 1. Click **New run**. Under **Models**, check that the tools you have show as **ready**; if one does not, the line
    says what to do.
-2. Click **audit with the subscription CLIs instead**, then **use the recommended models**.
+2. Click **audit with the subscription CLIs instead**, then **use the recommended models** (or pick another model
+   for each auditor from its list).
 3. In **repository path**, paste the full path of the project folder you want audited.
 4. Click **check configuration**, then **save and start**. A run of a mid-sized project takes about an hour and a
    good part of your plans' usage, so start with a small project.
