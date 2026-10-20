@@ -1,11 +1,12 @@
 import "./new-run.css";
-import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { useConfigurations } from "../../api/configurations.js";
 import type { PreflightResult } from "../../api/runs.js";
 import { useLoaded } from "../../api/runs.js";
 import type { AuthoredGraph, GraphListing } from "../../api/workflows.js";
 import { useApis } from "../../app/apis.js";
 import { MODE_LABELS } from "../../app/format.js";
+import { recommendedTokenLimit, tokens } from "../../app/token-limit.js";
 import { useNavigation } from "../../app/router.js";
 import { stableJson } from "../../graph/editor-model.js";
 import { effortFor, modelName, modelProfiles, PLACEHOLDER_PREFIX, record, roleEffort, type ModelProfileSummary } from "../run/models.js";
@@ -87,17 +88,33 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
   const open = placeholders(draft);
   const updating = loaded?.savedId != null && name === loaded.name;
 
-  const runCheck = async (): Promise<PreflightResult | null> => {
+  // The check measures the project, so it sets the token limit for its size unless the limit was set by hand: one
+  // still at the starting point's value, or at the value an earlier check set.
+  const autoLimit = useRef<number | null>(null);
+  const sizedLimit = (result: PreflightResult, current: Draft): Draft => {
+    const limit = getIn(current, TOKEN_LIMIT);
+    const estimate = result.estimate?.estimate;
+    if (estimate === undefined || typeof limit !== "number" || (limit !== getIn(loaded?.draft ?? {}, TOKEN_LIMIT) && limit !== autoLimit.current)) return current;
+    const recommended = recommendedTokenLimit(estimate.lines, estimate.auditors);
+    autoLimit.current = recommended;
+    return recommended === limit ? current : setIn(current, TOKEN_LIMIT, recommended);
+  };
+  const runCheck = async (): Promise<{ readonly result: PreflightResult; readonly draft: Draft } | null> => {
     setBusy("checking"); setFailure([]);
-    try { const result = await apis.runs.preflight(draft, repositoryPath); setCheck({ result, draft }); return result; }
+    try {
+      const result = await apis.runs.preflight(draft, repositoryPath);
+      const checked = sizedLimit(result, draft);
+      setDraft(checked); setCheck({ result, draft: checked });
+      return { result, draft: checked };
+    }
     catch (cause) { setFailure([message(cause)]); return null; }
     finally { setBusy(null); }
   };
-  const save = async (): Promise<string | null> => {
+  const save = async (target: Draft = draft): Promise<string | null> => {
     setBusy("saving"); setFailure([]); setNotice(null);
     try {
-      const saved = updating && loaded?.savedId != null ? await apis.configurations.update(loaded.savedId, name, draft) : await apis.configurations.save(name, draft);
-      setLoaded({ draft, name: saved.name, savedId: saved.id, source: `saved configuration ${saved.name}` });
+      const saved = updating && loaded?.savedId != null ? await apis.configurations.update(loaded.savedId, name, target) : await apis.configurations.save(name, target);
+      setLoaded({ draft: target, name: saved.name, savedId: saved.id, source: `saved configuration ${saved.name}` });
       setNotice(`saved as configuration ${saved.name}`);
       void reload();
       return saved.id;
@@ -105,9 +122,9 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
     finally { setBusy(null); }
   };
   const start = async (): Promise<void> => {
-    const result = await runCheck();
-    if (result === null || !result.ready) return;
-    const id = await save();
+    const checked = await runCheck();
+    if (checked === null || !checked.result.ready) return;
+    const id = await save(checked.draft);
     if (id === null) return;
     setBusy("starting");
     try {
@@ -179,7 +196,7 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
     <Section title="check and start" id="start-run">
       {open.length === 0 ? null : <div className="state" data-state="attention"><p>{open.length === 1 ? "1 value still needs filling in" : `${open.length} values still need filling in`}:</p><ul aria-label="placeholders to fill in" className="plain-list">{open.map((path) => <li key={path}><code>{path}</code></li>)}</ul></div>}
       <div className="actions"><button className="button" disabled={busy !== null} type="button" onClick={() => { void runCheck(); }}>{busy === "checking" ? "checking" : "check configuration"}</button></div>
-      {check === null ? null : <CheckResult result={check.result} stale={stale} />}
+      {check === null ? null : <CheckResult result={check.result} stale={stale} limit={getIn(draft, TOKEN_LIMIT)} onUseLimit={(value) => { autoLimit.current = value; edit(TOKEN_LIMIT, value); }} />}
       <label className="field">save as<input aria-label="configuration name" value={name} onChange={(event) => setName(event.target.value)} /></label>
       <p className="field__hint">{updating ? `Saving updates the saved configuration “${loaded?.name ?? ""}”.` : "Saving creates a new saved configuration under this name."} A run always starts from a saved configuration.</p>
       <div className="actions">
@@ -466,7 +483,9 @@ function AdvancedSection({ draft, edit, setDraft }: { readonly draft: Draft; rea
   </section>;
 }
 
-function CheckResult({ result, stale }: { readonly result: PreflightResult; readonly stale: boolean }): ReactElement {
+const TOKEN_LIMIT = ["workflow", "modelExecution", "maximumTokens"] as const;
+
+function CheckResult({ result, stale, limit, onUseLimit }: { readonly result: PreflightResult; readonly stale: boolean; readonly limit: unknown; readonly onUseLimit: (value: number) => void }): ReactElement {
   const errors = result.diagnostics.filter(({ severity }) => severity === "error");
   const warnings = result.diagnostics.filter(({ severity }) => severity === "warning");
   const estimate = result.estimate?.estimate ?? null;
@@ -482,6 +501,7 @@ function CheckResult({ result, stale }: { readonly result: PreflightResult; read
       <div><dt>files read</dt><dd>{estimate.files} files · {estimate.lines} lines</dd></div>
       <div><dt>workflow</dt><dd>{estimate.nodes} steps · {estimate.auditors} auditors</dd></div>
       <div><dt>model calls</dt><dd>{estimate.providerCalls === null ? "not known before the run" : estimate.providerCalls}</dd></div>
+      {typeof limit !== "number" ? null : <div><dt>token limit</dt><dd>{tokens(limit)}{recommendedTokenLimit(estimate.lines, estimate.auditors) === limit ? " · set for this project's size" : <> · {tokens(recommendedTokenLimit(estimate.lines, estimate.auditors))} recommended for this size <button className="link-button" type="button" onClick={() => onUseLimit(recommendedTokenLimit(estimate.lines, estimate.auditors))}>use it</button></>}</dd></div>}
       <div><dt>cost</dt><dd>{estimate.costUsd === null ? "unavailable · no pricing is configured" : `${estimate.costUsd} ${estimate.currency ?? "USD"}`}</dd></div>
       <div><dt>basis</dt><dd>{estimate.basis.replaceAll("_", " ")}</dd></div>
     </dl>}

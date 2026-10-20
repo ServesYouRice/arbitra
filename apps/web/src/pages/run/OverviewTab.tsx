@@ -52,7 +52,7 @@ function Result({ run, overview, reason }: { readonly run: RunResource | null; r
       : state === "BLOCKED" ? <p className="state" data-state="attention">The run is waiting for your decision. The banner above lists what it needs.</p>
       : state === "FAILED" ? <p className="state" data-state="refuted">The run failed · {reason ?? overview?.reason ?? "no reason recorded"}. Resume it from the header to retry from where it stopped.</p>
       : state === "CANCELLED" ? <p className="state" data-state="unexamined">The run was cancelled. Resume it from the header to continue from where it stopped.</p>
-      : state === "SUSPENDED_BUDGET" ? <p className="state" data-state="degraded">The run paused when it reached its token budget. It stays paused until you resume it, and a resume continues only as far as the budget allows.</p>
+      : state === "SUSPENDED_BUDGET" ? <p className="state" data-state="degraded">The run paused when it reached its token limit. Everything it has done is kept: raise the limit above and resume it to go on.</p>
       : state === "SUSPENDED_RATE_LIMIT" ? <p className="state" data-state="degraded">The run paused on a provider rate limit. Resume it once the limit has reset.</p>
       : isActive(state) ? <p className="note">The run is still working. Results appear below as its stages record them.</p>
       : <p role="status">reading the run</p>}

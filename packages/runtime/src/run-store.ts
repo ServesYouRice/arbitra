@@ -173,6 +173,15 @@ export class RunStore {
     await writeFile(this.#created, JSON.stringify({ createdAt: new Date().toISOString() }), { encoding: "utf8", flag: "wx" });
   }
 
+  /** Replaces an existing run's context, atomically. Only a raised token limit does this (`Orchestrator.resume`). */
+  async replaceContext(context: StoredRunContext): Promise<void> {
+    validateContext(context);
+    if (await readOptional(this.#context) === null) throw new Error(`RUN_CONTEXT_ABSENT:${this.runId}`);
+    const temporary = `${this.#context}.${process.pid}.${Date.now()}.tmp`;
+    await writeFile(temporary, JSON.stringify(context, null, 2), { encoding: "utf8", flag: "wx" });
+    await rename(temporary, this.#context);
+  }
+
   async loadContext(): Promise<StoredRunContext> {
     const text = await readOptional(this.#context);
     if (text === null) throw new Error(`RUN_CONTEXT_ABSENT:${this.runId}`);

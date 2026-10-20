@@ -894,6 +894,11 @@ describe("composed model audits", () => {
     expect(result.state).toBe("SUSPENDED_BUDGET"); expect(requests).toHaveLength(0);
     const resumed = create(); await resumed.resume(result.runId);
     expect((await resumed.wait(result.runId)).state).toBe("SUSPENDED_BUDGET"); expect(requests).toHaveLength(0);
+    // A limit is only raised, and a raised one lets the paused run go on to the end.
+    await expect(resumed.resume(result.runId, { maximumTokens: 1_000 })).rejects.toThrow("TOKEN_LIMIT_NOT_RAISED");
+    await resumed.resume(result.runId, { maximumTokens: 50_000_000 });
+    const finished = await resumed.wait(result.runId); const events = []; for await (const event of resumed.events(result.runId)) events.push(event);
+    expect(finished.state, JSON.stringify(events.slice(-3))).toBe("COMPLETED"); expect(requests.length).toBeGreaterThan(0);
   });
 
   it("puts every candidate the review left undecided to the verifier, side by side", async () => {

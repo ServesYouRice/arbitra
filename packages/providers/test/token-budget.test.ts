@@ -63,10 +63,13 @@ describe("durable token budget", () => {
     expect(await budget.reserve("a", 10)).toMatchObject({ allowed: true, reservationId: "reservation-1" });
   });
 
-  it("fails closed on corrupt state and changed limits", async () => {
+  it("fails closed on corrupt state and a lowered limit, and admits up to a raised one with every charge kept", async () => {
     const disk = backend();
     await new DurableTokenBudget(10, disk).reserve("a", 5);
-    await expect(new DurableTokenBudget(20, disk).reserve("a", 5)).rejects.toThrow("INVALID_TOKEN_BUDGET_STATE");
+    await expect(new DurableTokenBudget(4, disk).reserve("b", 1)).rejects.toThrow("INVALID_TOKEN_BUDGET_STATE");
+    const raised = new DurableTokenBudget(20, disk);
+    expect(await raised.reserve("b", 15)).toMatchObject({ allowed: true });
+    expect(await raised.reserve("c", 1)).toMatchObject({ allowed: false });
     const corrupt = new DurableTokenBudget(10, { async load() { return { schemaVersion: 1, maximumTokens: 10, reservations: [null] }; }, async save() {} });
     await expect(corrupt.reserve("a", 5)).rejects.toThrow("INVALID_TOKEN_BUDGET_STATE");
   });

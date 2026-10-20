@@ -4,7 +4,8 @@ import { useApis } from "../../app/apis.js";
 import { formatTime, isActive, MODE_LABELS } from "../../app/format.js";
 import { GateVerdict, StateChip } from "../../app/marks.js";
 import { Link } from "../../app/router.js";
-import { modelName, modelProfiles } from "./models.js";
+import { raisedTokenLimit, tokens } from "../../app/token-limit.js";
+import { modelName, modelProfiles, record } from "./models.js";
 
 /**
  * Who, what and where for one run, and the single lifecycle action its state allows. A
@@ -35,6 +36,10 @@ export function RunHeader({ runId, mode, resource, overview, overviewError = nul
   // or interrupted when its process stopped. Cancel cannot reach it; resume is the way on.
   const elsewhere = isActive(state) && overview !== null && !overview.live;
   const resumable = resource?.resumable === true && state !== null && (elsewhere || ["CANCELLED", "FAILED", "SUSPENDED_BUDGET", "SUSPENDED_RATE_LIMIT"].includes(state));
+  // A run paused on its token budget goes on only with a higher limit; everything it has charged stays charged.
+  const limit = record(record(overview?.configuration?.["workflow"])["modelExecution"])["maximumTokens"];
+  const [raised, setRaised] = useState(0);
+  useEffect(() => { if (typeof limit === "number") setRaised(raisedTokenLimit(limit)); }, [limit]);
   const workflowId = resource?.workflow?.id ?? overview?.workflowId ?? null;
   const absent = overviewError === null ? "loading" : "unavailable";
   return <header className="run-header">
@@ -44,7 +49,11 @@ export function RunHeader({ runId, mode, resource, overview, overviewError = nul
       <StateChip state={state} live={overview?.live === true} />
       <div className="actions">
         {isActive(state) && !elsewhere ? <button className="button" disabled={busy} type="button" onClick={() => { void act(() => runs.cancel(runId)); }}>cancel run</button> : null}
-        {resumable ? <button className="button button--primary" disabled={busy} type="button" onClick={() => { void act(() => runs.resume(runId)); }}>resume run</button> : null}
+        {resumable && state === "SUSPENDED_BUDGET" && typeof limit === "number" ? <form className="raise-limit" onSubmit={(event) => { event.preventDefault(); void act(() => runs.resume(runId, raised)); }}>
+          <label className="field">token limit · now {tokens(limit)}<input aria-label="new token limit" min={limit + 1} step={1_000_000} type="number" value={raised} onChange={(event) => setRaised(Number(event.target.value))} /></label>
+          <button className="button button--primary" disabled={busy || !(raised > limit)} type="submit">raise to {tokens(raised)} and resume</button>
+        </form>
+          : resumable ? <button className="button button--primary" disabled={busy} type="button" onClick={() => { void act(() => runs.resume(runId)); }}>resume run</button> : null}
         {state === "COMPLETED" ? <Link className="button" to={{ page: "new-run", from: `run:${runId}`, graph: null }}>new run with these settings</Link> : null}
       </div>
     </div>

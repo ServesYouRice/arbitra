@@ -72,7 +72,7 @@ export function controlPlaneCore(orchestrator: Orchestrator) {
       },
       start: async (body: unknown) => { const request = await configured(body); return orchestrator.start(request.config, request.repository); },
       status: (id: string) => orchestrator.status(id),
-      resume: (id: string) => orchestrator.resume(id),
+      resume: (id: string, body?: unknown) => orchestrator.resume(id, raisedLimit(body)),
       events: (id: string) => orchestrator.events(id),
       cancel: async (id: string) => orchestrator.cancel(id),
       respondCheckpoint: (id: string, checkpointId: string, body: unknown) => orchestrator.respondCheckpoint(id, checkpointId, body),
@@ -149,6 +149,14 @@ export function controlPlaneCore(orchestrator: Orchestrator) {
       },
     },
   };
+}
+
+/** A resume body's raised token limit, if it names one. */
+function raisedLimit(body: unknown): { readonly maximumTokens?: number } {
+  const value = typeof body === "object" && body !== null ? (body as { maximumTokens?: unknown }).maximumTokens : undefined;
+  if (value === undefined) return {};
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) throw Object.assign(new Error("INVALID_TOKEN_LIMIT"), { statusCode: 400 });
+  return { maximumTokens: value };
 }
 
 async function repositoryPath(value: unknown): Promise<string> {

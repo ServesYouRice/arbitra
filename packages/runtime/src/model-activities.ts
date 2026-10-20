@@ -158,8 +158,12 @@ export class ModelActivities {
     if (profile === undefined) throw new Error(`UNKNOWN_MODEL_PROFILE:${input.modelProfileId}`);
     const redacted = structuredClone(input.messages).map((message) => ({ ...message, content: redactSecrets(message.content).text }));
     const messages = profile.quirks.systemPromptSupport === "full" ? redacted : redacted.map((message) => message.role === "system" ? { ...message, role: "user" as const } : message);
-    const fingerprint = hash({ protocol: input.protocol, protocolIdentity: input.protocolIdentity ?? null, modelProfileId: input.modelProfileId, profile, execution: this.#execution, messages, effort: input.effort ?? null, responseMode: input.responseMode ?? "json", tools: input.tools ?? [], harnessIdentity: input.harnessIdentity ?? null, sourcePaths: input.sourcePaths === undefined ? null : [...input.sourcePaths].sort(),
+    // The run's token limit bounds its spending; it is not part of what a call is sent, so a run paused on its budget
+    // and resumed with a raised limit keeps its activities. Records made before this carry the limit (`legacy`).
+    const identity = (execution: unknown) => hash({ protocol: input.protocol, protocolIdentity: input.protocolIdentity ?? null, modelProfileId: input.modelProfileId, profile, execution, messages, effort: input.effort ?? null, responseMode: input.responseMode ?? "json", tools: input.tools ?? [], harnessIdentity: input.harnessIdentity ?? null, sourcePaths: input.sourcePaths === undefined ? null : [...input.sourcePaths].sort(),
       ...(input.maximumOutputTokens === undefined ? {} : { maximumOutputTokens: input.maximumOutputTokens }), ...(input.advisor === undefined ? {} : { advisor: input.advisor }) });
+    const fingerprint = identity({ ...this.#execution, maximumTokens: undefined });
+    const legacy = identity(this.#execution);
     const replayIdentity = this.#replayIdentity(input, profile, messages);
     const key = `model-activity-${hash(input.activityId)}`;
     const inflight = this.#inflight.get(key);
@@ -167,7 +171,7 @@ export class ModelActivities {
       if (inflight.fingerprint !== fingerprint) throw new Error("MODEL_ACTIVITY_INPUT_CHANGED");
       return input.schema.parse(await inflight.promise);
     }
-    const promise = this.execute(input, messages, fingerprint, key, replayIdentity);
+    const promise = this.execute(input, messages, fingerprint, key, replayIdentity, legacy);
     this.#inflight.set(key, { fingerprint, promise });
     try { return await promise; }
     finally { this.#inflight.delete(key); }
@@ -186,12 +190,12 @@ export class ModelActivities {
       sourcePaths: input.sourcePaths === undefined ? null : [...input.sourcePaths].sort() });
   }
 
-  private async execute<T>(input: ModelActivityRequest<T>, messages: readonly TransportMessage[], fingerprint: string, key: string, replayIdentity: string): Promise<T> {
+  private async execute<T>(input: ModelActivityRequest<T>, messages: readonly TransportMessage[], fingerprint: string, key: string, replayIdentity: string, legacy: string): Promise<T> {
     const profile = this.#config.models[input.modelProfileId];
     if (profile === undefined) throw new Error("TRACE_PROFILE_ABSENT");
     const existing = await this.read(key) as { fingerprint?: unknown; value?: unknown } | null;
     if (existing !== null) {
-      if (existing.fingerprint !== fingerprint) throw new Error("MODEL_ACTIVITY_INPUT_CHANGED");
+      if (existing.fingerprint !== fingerprint && existing.fingerprint !== legacy) throw new Error("MODEL_ACTIVITY_INPUT_CHANGED");
       return input.schema.parse(existing.value);
     }
     // A paid answer is saved, then its trace, then the mapping above. When the mapping write fails, or the process
@@ -201,7 +205,7 @@ export class ModelActivities {
     // Writing the mapping first instead would not cover a failed mapping write, and a process stopping after it
     // would leave a completed activity without its trace.
     const prior = await this.read(`${key}-trace`) as ActivityTraceArtifact | null;
-    const recovered = await this.#validatedOutput(prior, fingerprint);
+    const recovered = await this.#validatedOutput(prior, fingerprint, legacy);
     if (recovered !== null) {
       const value = input.schema.parse(recovered.value);
       await this.store.publish(key, { fingerprint, value, replayIdentity }, input.activityId);
@@ -226,7 +230,7 @@ export class ModelActivities {
     // Record identity before spend so a failed or interrupted activity cannot be
     // resumed with a different prompt/profile under the same durable activity ID.
     const identity = await this.read(`${key}-input`) as { fingerprint?: unknown } | null;
-    if (identity !== null && identity.fingerprint !== fingerprint) throw new Error("MODEL_ACTIVITY_INPUT_CHANGED");
+    if (identity !== null && identity.fingerprint !== fingerprint && identity.fingerprint !== legacy) throw new Error("MODEL_ACTIVITY_INPUT_CHANGED");
     const requestArtifact = await this.store.publish(`${key}-input`, { activityId: input.activityId, fingerprint, protocol: input.protocol, modelProfileId: input.modelProfileId, messages, tools: input.tools ?? [] });
     const maximumOutputTokens = input.maximumOutputTokens ?? outputCeiling(this.#config, input.modelProfileId);
     // UTF-8 bytes at the run's rate provide an admission estimate, not actual token usage. Input admitted as
@@ -342,13 +346,13 @@ export class ModelActivities {
   }
 
   /** The answer a trace of this request recorded as validated, when its saved copy is intact and of the same request. */
-  async #validatedOutput(trace: ActivityTraceArtifact | null, fingerprint: string): Promise<{ readonly value: unknown } | null> {
+  async #validatedOutput(trace: ActivityTraceArtifact | null, fingerprint: string, legacy: string): Promise<{ readonly value: unknown } | null> {
     const ref = trace?.terminal?.outputArtifactRef;
-    if (trace?.outputValidated !== true || trace.fingerprint !== fingerprint || typeof ref !== "string") return null;
+    if (trace?.outputValidated !== true || trace.fingerprint !== fingerprint && trace.fingerprint !== legacy || typeof ref !== "string") return null;
     try {
       // Read by content address: a file whose bytes do not hash to its name is refused.
       const output = await this.store.artifacts.getByRelativePath<{ fingerprint?: unknown; value?: unknown }>(ref);
-      return output.fingerprint === fingerprint && Object.hasOwn(output, "value") ? { value: output.value } : null;
+      return (output.fingerprint === fingerprint || output.fingerprint === legacy) && Object.hasOwn(output, "value") ? { value: output.value } : null;
     } catch { return null; }
   }
 

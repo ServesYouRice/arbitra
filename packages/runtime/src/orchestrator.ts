@@ -481,18 +481,19 @@ export class Orchestrator {
     return diffRuns(a, b);
   }
 
-  async resume(runId: string): Promise<RunResource> {
+  /** Resumes a run; `maximumTokens` raises a model run's token limit first (a run paused on its budget goes on). */
+  async resume(runId: string, options: { readonly maximumTokens?: number } = {}): Promise<RunResource> {
     if (this.#live.has(runId) || this.#resuming.has(runId)) throw new Error(`RUN_ALREADY_LIVE:${runId}`);
     this.#resuming.add(runId);
-    try { return await this.#resume(runId); }
+    try { return await this.#resume(runId, options.maximumTokens); }
     finally { this.#resuming.delete(runId); }
   }
 
-  async #resume(runId: string): Promise<RunResource> {
+  async #resume(runId: string, maximumTokens?: number): Promise<RunResource> {
     const previous = await this.status(runId);
     if (!previous.resumable) throw new Error(`RUN_NOT_RESUMABLE:${runId}`);
     const store = new RunStore(this.#runsDirectory, runId);
-    const storedContext = await store.loadContext();
+    const storedContext = maximumTokens === undefined ? await store.loadContext() : await raisedTokenLimit(store, await store.loadContext(), maximumTokens);
     const snapshot = await snapshotRepository(storedContext.repository, 400, { scope: storedContext.scope, ...testingSnapshotOptions(storedContext.modelConfiguration) });
     if (snapshotDigest(snapshot) !== storedContext.repositoryDigest) throw new Error(`RUN_REPOSITORY_CHANGED:${runId}`);
     const definition = await store.definitions().load(runId);
@@ -1330,4 +1331,18 @@ async function approvedRequirements(source: RunStore, sourceConfig: RunConfig, c
       await store.publish("replay-requirements", { sourceRunId: source.runId, artifactId: approvedArtifactId, copiedArtifactKinds: copies.map(({ kind }) => kind) }, "requirements");
     },
   };
+}
+
+/**
+ * The stored context with a model run's token limit raised. Only the limit changes, and only upwards: everything the
+ * run has charged stays charged, and every other setting stays the one it started with.
+ */
+async function raisedTokenLimit(store: RunStore, context: StoredRunContext, maximumTokens: number): Promise<StoredRunContext> {
+  const configuration = context.modelConfiguration;
+  const execution = configuration?.workflow["modelExecution"] as { maximumTokens?: unknown } | undefined;
+  if (configuration === undefined || execution === undefined || typeof execution.maximumTokens !== "number") throw Object.assign(new Error("RUN_HAS_NO_TOKEN_LIMIT"), { statusCode: 409 });
+  if (!Number.isSafeInteger(maximumTokens) || maximumTokens <= execution.maximumTokens) throw Object.assign(new Error(`TOKEN_LIMIT_NOT_RAISED: the run's limit is ${execution.maximumTokens}`), { statusCode: 400 });
+  const raised: StoredRunContext = { ...context, modelConfiguration: { ...configuration, workflow: { ...configuration.workflow, modelExecution: { ...execution, maximumTokens } } } };
+  await store.replaceContext(raised);
+  return raised;
 }

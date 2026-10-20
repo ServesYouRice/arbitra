@@ -81,7 +81,8 @@ export class DurableTokenBudget implements InvocationBudget {
     const stored = await this.backend.load();
     if (stored === null) return { schemaVersion: 1, maximumTokens: this.maximumTokens, reservations: [] };
     validateState(stored, this.maximumTokens);
-    this.state = structuredClone(stored);
+    // A run resumed with a raised limit keeps every charge so far and admits up to the new limit.
+    this.state = { ...structuredClone(stored), maximumTokens: this.maximumTokens };
     return this.state;
   }
 
@@ -118,7 +119,8 @@ function validateUsage(value: TransportUsage): void {
 function validateState(value: unknown, maximumTokens: number): asserts value is TokenBudgetState {
   if (typeof value !== "object" || value === null) throw new Error("INVALID_TOKEN_BUDGET_STATE");
   const state = value as TokenBudgetState;
-  if (state.schemaVersion !== 1 || state.maximumTokens !== maximumTokens || !Array.isArray(state.reservations)) throw new Error("INVALID_TOKEN_BUDGET_STATE");
+  // The limit may have been raised since (a budget-paused run resumed with more); it is never lowered.
+  if (state.schemaVersion !== 1 || !Number.isSafeInteger(state.maximumTokens) || state.maximumTokens > maximumTokens || !Array.isArray(state.reservations)) throw new Error("INVALID_TOKEN_BUDGET_STATE");
   for (const [index, item] of state.reservations.entries()) {
     if (typeof item !== "object" || item === null || item.id !== `reservation-${index + 1}` || typeof item.activityId !== "string" || item.activityId.trim() === "") throw new Error("INVALID_TOKEN_BUDGET_STATE");
     positiveInteger(item.estimatedTokens, "INVALID_TOKEN_BUDGET_STATE");

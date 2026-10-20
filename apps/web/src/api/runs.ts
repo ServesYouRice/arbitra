@@ -67,7 +67,8 @@ export class RunApi {
   estimate(configurationId: string, repository = ""): Promise<EstimateResource> { return this.request("/estimate", { method: "POST", body: JSON.stringify(runBody(configurationId, repository)) }); }
   start(configurationId: string, repository = ""): Promise<RunResource> { return this.request("/runs", { method: "POST", body: JSON.stringify(runBody(configurationId, repository)) }); }
   status(runId: string): Promise<RunResource> { return this.request(`/runs/${encodeURIComponent(runId)}`); }
-  resume(runId: string): Promise<RunResource> { return this.request(`/runs/${encodeURIComponent(runId)}/resume`, { method: "POST" }); }
+  /** `maximumTokens` raises the run's token limit before it resumes (a run paused on its budget). */
+  resume(runId: string, maximumTokens?: number): Promise<RunResource> { return this.request(`/runs/${encodeURIComponent(runId)}/resume`, { method: "POST", ...(maximumTokens === undefined ? {} : { body: JSON.stringify({ maximumTokens }) }) }); }
   cancel(runId: string): Promise<RunResource> { return this.request(`/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" }); }
   respondCheckpoint(runId: string, checkpointId: string, version: string, decision: "approve" | "reject"): Promise<{ readonly accepted: true }> { return this.request(`/runs/${encodeURIComponent(runId)}/checkpoints/${encodeURIComponent(checkpointId)}`, { method: "POST", body: JSON.stringify({ version, decision }) }); }
   answerPlanQuestions(runId: string, version: string, answers: readonly { readonly questionId: string; readonly answer: string }[]): Promise<{ readonly accepted: true }> { return this.request(`/runs/${encodeURIComponent(runId)}/checkpoints/plan-questions`, { method: "POST", body: JSON.stringify({ version, answers }) }); }

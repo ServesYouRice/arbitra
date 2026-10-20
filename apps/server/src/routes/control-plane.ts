@@ -8,7 +8,7 @@ export interface HttpSchemas { readonly [route: string]: unknown }
 export interface ControlPlaneCore {
   configurations: { list(): Promise<unknown>; save(body: unknown): Promise<unknown>; load(id: string): Promise<unknown>; update(id: string, body: unknown): Promise<unknown>; duplicate(id: string, body: unknown): Promise<unknown>; validate(body: unknown): unknown; export(id: string): Promise<unknown> };
   repositories: { select(body: unknown): Promise<unknown>; selected(): Promise<unknown> };
-  runs: { list(): Promise<unknown>; overview(id: string): Promise<unknown>; estimate(body: unknown): Promise<unknown>; preflight(body: unknown): Promise<unknown>; start(body: unknown): Promise<unknown>; status(id: string): Promise<unknown>; resume(id: string): Promise<unknown>; events(id: string): AsyncIterable<unknown>; cancel(id: string): Promise<unknown>; respondCheckpoint(id: string, checkpointId: string, body: unknown): Promise<unknown>; artifacts(id: string): Promise<unknown>; artifact(id: string, artifactId: string): Promise<unknown> };
+  runs: { list(): Promise<unknown>; overview(id: string): Promise<unknown>; estimate(body: unknown): Promise<unknown>; preflight(body: unknown): Promise<unknown>; start(body: unknown): Promise<unknown>; status(id: string): Promise<unknown>; resume(id: string, body?: unknown): Promise<unknown>; events(id: string): AsyncIterable<unknown>; cancel(id: string): Promise<unknown>; respondCheckpoint(id: string, checkpointId: string, body: unknown): Promise<unknown>; artifacts(id: string): Promise<unknown>; artifact(id: string, artifactId: string): Promise<unknown> };
 }
 
 export function registerControlPlaneRoutes(server: RouteServer, core: ControlPlaneCore, schemas: HttpSchemas): void {
@@ -29,7 +29,7 @@ export function registerControlPlaneRoutes(server: RouteServer, core: ControlPla
   route("POST", "/runs", ({ body }) => core.runs.start(body));
   route("GET", "/runs/:id", ({ params }) => core.runs.status(required(params, "id")));
   route("GET", "/runs/:id/overview", ({ params }) => core.runs.overview(required(params, "id")));
-  route("POST", "/runs/:id/resume", ({ params }) => core.runs.resume(required(params, "id")));
+  route("POST", "/runs/:id/resume", ({ params, body }) => core.runs.resume(required(params, "id"), body));
   route("GET", "/runs/:id/events", async ({ params }, reply) => streamSse(reply as SseReply, guardedEvents(core.runs.events(required(params, "id")))));
   route("POST", "/runs/:id/cancel", ({ params }) => core.runs.cancel(required(params, "id")));
   // Generic human checkpoints are durable run state owned by the orchestrator; the route
