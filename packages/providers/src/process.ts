@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from "node:child_process";
+import { execFile, spawn, spawnSync } from "node:child_process";
 
 /**
  * Bounded native-process execution with process-tree termination. On POSIX the native
@@ -42,6 +42,7 @@ export function runNativeProcess(request: NativeProcessRequest): Promise<NativeP
   if (request.signal.aborted) return Promise.resolve({ pid: null, exitCode: null, exitSignal: null, stopped: "cancelled", violation: null, stdout: "", stderr: "", treeTerminated: true });
   return new Promise((resolveResult) => {
     const posix = process.platform !== "win32";
+    const startedAt = Date.now();
     const child = spawn(request.executable, [...request.arguments], { cwd: request.cwd, env: { ...request.environment }, shell: false, windowsHide: true, detached: posix, stdio: ["pipe", "pipe", "pipe"] });
     const pid = child.pid ?? null;
     let stopped: NativeProcessStop | null = null; let violation: unknown = null;
@@ -83,7 +84,13 @@ export function runNativeProcess(request: NativeProcessRequest): Promise<NativeP
     child.on("exit", () => {
       if (pid === null) return;
       if (posix) { killTree(pid); return; }
-      grace = setTimeout(() => { for (const descendant of windowsDescendants(pid)) killTree(descendant); child.stdout.destroy(); child.stderr.destroy(); }, WINDOWS_EXIT_GRACE_MS);
+      const exitedAt = Date.now();
+      grace = setTimeout(() => {
+        void windowsDescendants(pid, startedAt, exitedAt).then((descendants) => {
+          for (const descendant of descendants) execFile("taskkill", ["/pid", String(descendant), "/F"], { windowsHide: true, timeout: 10_000 }, () => undefined);
+          child.stdout.destroy(); child.stderr.destroy();
+        });
+      }, WINDOWS_EXIT_GRACE_MS);
     });
     child.on("close", (exitCode, exitSignal) => {
       clearTimeout(timer); clearTimeout(grace); request.signal.removeEventListener("abort", cancelled);
@@ -97,23 +104,34 @@ export function runNativeProcess(request: NativeProcessRequest): Promise<NativeP
 }
 
 /**
- * Every process descended from `root` by parent ID, read from the process table. Windows keeps a process's parent ID
- * after the parent exits, so the descendants of a leader that has exited are still found. Bounded like taskkill.
+ * Every process descended from the exited leader `root`, read from the process table without blocking the event
+ * loop. Windows keeps a process's parent ID after the parent exits, and reuses process IDs, so a parent ID alone can
+ * name an unrelated process: a child of the leader must have been created while the leader ran, and each deeper
+ * descendant after its own parent (arbitra's audit of itself, October 19, 2026). A second of slack covers the clock.
  */
-function windowsDescendants(root: number): number[] {
-  const listed = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", "Get-CimInstance Win32_Process | ForEach-Object { \"$($_.ProcessId) $($_.ParentProcessId)\" }"],
-    { windowsHide: true, encoding: "utf8", timeout: 10_000 });
-  if (listed.status !== 0 || typeof listed.stdout !== "string") return [];
-  const children = new Map<number, number[]>();
-  for (const line of listed.stdout.split(/\r?\n/u)) {
-    const [child, parent] = line.trim().split(/\s+/u).map(Number);
-    if (child !== undefined && parent !== undefined && Number.isSafeInteger(child) && Number.isSafeInteger(parent) && child !== parent) children.set(parent, [...(children.get(parent) ?? []), child]);
-  }
-  const found: number[] = [];
-  for (const queue = [root], seen = new Set(queue); queue.length > 0;) {
-    for (const child of children.get(queue.pop() ?? root) ?? []) if (!seen.has(child)) { seen.add(child); found.push(child); queue.push(child); }
-  }
-  return found;
+function windowsDescendants(root: number, startedAt: number, exitedAt: number): Promise<number[]> {
+  const script = "Get-CimInstance Win32_Process | ForEach-Object { \"$($_.ProcessId) $($_.ParentProcessId) $(if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString('o') } else { '-' })\" }";
+  return new Promise((done) => {
+    execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { windowsHide: true, encoding: "utf8", timeout: 10_000, maxBuffer: 8 * 1024 * 1024 }, (error, stdout) => {
+      if (error !== null) { done([]); return; }
+      const children = new Map<number, { readonly pid: number; readonly created: number }[]>();
+      for (const line of stdout.split(/\r?\n/u)) {
+        const [child, parent, created] = line.trim().split(/\s+/u);
+        const pidOf = Number(child); const parentOf = Number(parent); const at = Date.parse(created ?? "");
+        if (!Number.isSafeInteger(pidOf) || !Number.isSafeInteger(parentOf) || pidOf === parentOf || Number.isNaN(at)) continue;
+        children.set(parentOf, [...(children.get(parentOf) ?? []), { pid: pidOf, created: at }]);
+      }
+      const found: number[] = [];
+      const queue = (children.get(root) ?? []).filter(({ created }) => created >= startedAt - 1_000 && created <= exitedAt + 1_000);
+      for (const seen = new Set<number>(); queue.length > 0;) {
+        const next = queue.pop();
+        if (next === undefined || seen.has(next.pid)) continue;
+        seen.add(next.pid); found.push(next.pid);
+        queue.push(...(children.get(next.pid) ?? []).filter(({ created }) => created >= next.created - 1_000));
+      }
+      done(found);
+    });
+  });
 }
 
 function killTree(pid: number): void {
