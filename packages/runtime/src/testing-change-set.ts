@@ -3,7 +3,7 @@ import { lstat, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { redactSecrets } from "@arbitra/security/redaction";
 import { concreteWritePath } from "@arbitra/security/write-partitions";
-import type { RepositorySnapshot } from "./repository.js";
+import { type RepositorySnapshot, fileContent } from "./repository.js";
 import type { TestingPlanExecutionOutcome } from "./testing-plan-executor.js";
 import { verificationSnapshotFingerprint } from "./verification-execution.js";
 
@@ -24,12 +24,12 @@ export function testingChangeSet(baseline: RepositorySnapshot, current: Reposito
     || outcome.tasks.length === 0 || outcome.tasks.some(({ state }) => state !== "completed")
     || outcome.finalVerification.length !== outcome.tasks.length
     || outcome.tasks.some(({ taskId }) => !outcome.finalVerification.some((result) => result.taskId === taskId && result.status === "passed" && result.snapshotFingerprint === fingerprint))) throw new Error("TESTING_VERIFIED_CHANGE_SET_REQUIRED");
-  const original = new Map(baseline.files.map(({ path, lines }) => [path, digest(lines.join("\n"))]));
+  const original = new Map(baseline.files.map((file) => [file.path, digest(fileContent(file))]));
   if (original.size !== baseline.files.length || new Set(current.files.map(({ path }) => path)).size !== current.files.length) throw new Error("TESTING_CHANGE_SET_DUPLICATE_PATH");
   if (baseline.files.some(({ path }) => !current.files.some((file) => file.path === path))) throw new Error("TESTING_CHANGE_SET_DELETION_UNSUPPORTED");
   const files: TestingChangeSet["files"][number][] = [];
-  for (const { path, lines } of current.files) {
-    const content = lines.join("\n"); const contentHash = digest(content); const expectedHash = original.get(path) ?? null;
+  for (const file of current.files) {
+    const { path } = file; const content = fileContent(file); const contentHash = digest(content); const expectedHash = original.get(path) ?? null;
     if (expectedHash === contentHash) continue;
     concreteWritePath(path);
     // Artifact persistence redacts secrets. Do not silently deliver altered bytes

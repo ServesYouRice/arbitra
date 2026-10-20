@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { canonicalJson } from "@arbitra/core/config/config-store.js";
 import { WritePartitions, type WriteLease } from "@arbitra/security/write-partitions";
-import type { RepositorySnapshot } from "./repository.js";
+import { type RepositorySnapshot, fileContent } from "./repository.js";
 import { RunStore } from "./run-store.js";
 import { TestingWorktree, type TestingFileUpdate, type TestingWorktreeHandle } from "./testing-worktree.js";
 
@@ -33,7 +33,7 @@ export class TestingWorkspace {
     const source = { root: snapshot.root, files: snapshot.files.map((file) => ({ ...file, lines: [...file.lines], lineStartBytes: [...file.lineStartBytes] })) };
     return this.serial(async () => {
       if (this.partitions.active().length > 0) throw new Error("TESTING_WORKSPACE_PREPARE_REQUIRES_IDLE_WRITERS");
-      const baseline = source.files.map(({ path, lines }) => ({ path, hash: hash(lines.join("\n")) })).sort((a, b) => a.path.localeCompare(b.path));
+      const baseline = source.files.map((file) => ({ path: file.path, hash: hash(fileContent(file)) })).sort((a, b) => a.path.localeCompare(b.path));
       const descriptor = (await this.store.listArtifacts()).find(({ kind }) => kind === ARTIFACT);
       let record = descriptor === undefined ? undefined : await this.store.artifacts.get<WorkspaceRecord>(descriptor.ref);
       if (record !== undefined && (record.version !== 1 || canonicalJson(record.baseline) !== canonicalJson(baseline))) throw new Error("TESTING_WORKSPACE_BASELINE_CHANGED");
@@ -76,7 +76,7 @@ export class TestingWorkspace {
       if (record.writes.length >= 256) throw new Error("TESTING_WRITE_ATTEMPT_LIMIT");
       const files = await worktree.snapshot();
       const actual = files.files.find(({ path }) => path === input.path);
-      if ((actual === undefined ? null : hash(actual.lines.join("\n"))) !== input.expectedHash) throw new Error(`TESTING_WRITE_CONFLICT:${input.path}`);
+      if ((actual === undefined ? null : hash(fileContent(actual))) !== input.expectedHash) throw new Error(`TESTING_WRITE_CONFLICT:${input.path}`);
       if (Buffer.byteLength(input.content) > 512 * 1024 || files.files.reduce((sum, file) => sum + file.byteLength, 0) - (actual?.byteLength ?? 0) + Buffer.byteLength(input.content) > 32 * 1024 * 1024) throw new Error("TESTING_WRITE_SIZE_LIMIT");
       const intent: WriteRecord = { operationId, taskId: lease.taskId, partitionId: lease.partitionId, path: input.path, beforeHash: input.expectedHash, afterHash, state: "reserved" };
       record = { ...record, writes: [...record.writes, intent] };
@@ -125,7 +125,7 @@ export class TestingWorkspace {
   }
 
   private async reconcile(): Promise<void> {
-    const actual = new Map((await this.ready().snapshot()).files.map(({ path, lines }) => [path, hash(lines.join("\n"))]));
+    const actual = new Map((await this.ready().snapshot()).files.map((file) => [file.path, hash(fileContent(file))]));
     const record = this.record();
     const expected = new Map(record.baseline.map(({ path, hash }) => [path, hash]));
     const writes: WriteRecord[] = []; let changed = false;

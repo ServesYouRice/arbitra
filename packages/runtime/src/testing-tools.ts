@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { fileContent } from "./repository.js";
 import { canonicalJson } from "@arbitra/core/config/config-store.js";
 import type { HarnessToolDefinition, HarnessToolRuntime, HarnessToolResult } from "@arbitra/harness/adapter.js";
 import { testingReadFileSchema, testingWriteFileSchema } from "@arbitra/schemas/testing-tools.js";
@@ -63,7 +64,7 @@ export function testingToolExtension(store: RunStore, workspace: TestingWorkspac
               if (end < start || start > file.lines.length || end > file.lines.length || column > Array.from(file.lines[start - 1] ?? "").length + 1) result = error("INVALID_TESTING_LINE_RANGE");
               else {
                 const excerpt = readExcerpt(file.lines, start, end, column);
-                result = success({ path: file.path, hash: createHash("sha256").update(file.lines.join("\n")).digest("hex"), startLine: start, startColumn: column, ...excerpt, totalLines: file.lines.length }, excerpt.nextLine !== null);
+                result = success({ path: file.path, hash: createHash("sha256").update(fileContent(file)).digest("hex"), startLine: start, startColumn: column, ...excerpt, totalLines: file.lines.length }, excerpt.nextLine !== null);
               }
             }
           }

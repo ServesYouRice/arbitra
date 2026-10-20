@@ -11,7 +11,12 @@ export interface SourceFile {
   readonly lines: readonly string[];
   readonly byteLength: number;
   readonly lineStartBytes: readonly number[];
+  /** Present when every line ended in "\r\n": the "\r" is then not in `lines`, and `fileContent` restores it. */
+  readonly lineEnding?: "\r\n";
 }
+
+/** The file's text as it is on disk (private key blocks masked), for hashing and writing; prompts read `lines`. */
+export function fileContent(file: Pick<SourceFile, "lines" | "lineEnding">): string { return file.lines.join(file.lineEnding ?? "\n"); }
 
 export interface RepositorySnapshot {
   readonly root: string;
@@ -91,18 +96,26 @@ async function walk(root: string, directory: string, into: string[], limit: numb
 function sourceFile(path: string, text: string): SourceFile {
   const byteLength = Buffer.byteLength(text, "utf8");
   if (byteLength > MAXIMUM_FILE_BYTES) throw new Error(`REPOSITORY_FILE_TOO_LARGE:${path}`);
-  // A line ends at "\n"; a "\r" before it (Windows line endings, which Git for Windows checks files out with by
-  // default) is not part of the line, though its byte still counts toward the next line's start. Observed live
-  // (October 19, 2026): with it kept, no quotation of a CRLF file could be grounded in whole lines, and every
-  // Feature and Testing run on such a checkout failed.
   // A private key is masked line by line here, in the whole file, because later redaction sees one line or range at
   // a time and finds a key only with its BEGIN and END markers together (arbitra's audit of itself, October 19).
-  const raw = maskPrivateKeyBlocks(text).split("\n");
-  const lines = raw.map((line, index) => index < raw.length - 1 && line.endsWith("\r") ? line.slice(0, -1) : line);
+  return Object.freeze({ path, byteLength, ...splitSourceText(maskPrivateKeyBlocks(text)) });
+}
+
+/**
+ * A file's text as lines. A line ends at "\n". In a file whose every line ends in "\r\n" (Windows line endings, which
+ * Git for Windows checks files out with by default) the "\r" is not part of the line, though its byte still counts
+ * toward the next line's start, and `lineEnding` keeps the file's exact text for Testing's hashes and writes. Observed
+ * live (October 19, 2026): with it kept, no quotation of a CRLF file could be grounded in whole lines, and every
+ * Feature and Testing run on such a checkout failed. A file with mixed endings keeps each "\r" as before.
+ */
+export function splitSourceText(text: string): Pick<SourceFile, "lines" | "lineStartBytes" | "lineEnding"> {
+  const raw = text.split("\n");
+  const crlf = raw.length > 1 && raw.slice(0, -1).every((line) => line.endsWith("\r"));
+  const lines = crlf ? raw.map((line, index) => index < raw.length - 1 ? line.slice(0, -1) : line) : raw;
   const lineStartBytes: number[] = [];
   let offset = 0;
   for (const line of raw) { lineStartBytes.push(offset); offset += Buffer.byteLength(line, "utf8") + 1; }
-  return Object.freeze({ path, lines: Object.freeze(lines), byteLength, lineStartBytes: Object.freeze(lineStartBytes) });
+  return { lines: Object.freeze(lines), lineStartBytes: Object.freeze(lineStartBytes), ...(crlf ? { lineEnding: "\r\n" as const } : {}) };
 }
 
 async function snapshotDiff(guard: RepositoryPathGuard, scope: RunScope, maximumFiles: number, git: RepositoryGit, eligible: (path: string) => boolean): Promise<RepositorySnapshot> {

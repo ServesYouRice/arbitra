@@ -4,7 +4,7 @@ import { chmod, lstat, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/p
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { verificationExecutionSchema, type VerificationExecution, type VerificationCheck } from "@arbitra/schemas/verification-execution.js";
-import type { RepositorySnapshot } from "./repository.js";
+import { type RepositorySnapshot, fileContent } from "./repository.js";
 
 export interface BoundedProcessResult {
   readonly exitCode: number | null;
@@ -143,7 +143,7 @@ export class DockerTestSandbox implements TestSandbox {
       for (const file of snapshot.files) {
         const destination = join(workspace, file.path);
         await mkdir(dirname(destination), { recursive: true, mode: 0o755 });
-        await writeFile(destination, file.lines.join("\n"), { encoding: "utf8", flag: "wx", mode: 0o444 });
+        await writeFile(destination, fileContent(file), { encoding: "utf8", flag: "wx", mode: 0o444 });
       }
       if (signal.aborted) throw new Error("VERIFICATION_CANCELLED");
       attempted = true;
@@ -225,7 +225,7 @@ function validateSnapshot(snapshot: RepositorySnapshot): void {
   for (const file of snapshot.files) {
     if (file.path.includes("\\") || file.path.includes(":") || file.path.startsWith("/") || /[\0\r\n]/u.test(file.path) || file.path.split("/").some((part) => part === "" || part === "." || part === "..")) throw new Error("INVALID_VERIFICATION_SOURCE_PATH");
     if (paths.has(file.path)) throw new Error("DUPLICATE_VERIFICATION_SOURCE_PATH");
-    paths.add(file.path); bytes += Buffer.byteLength(file.lines.join("\n"));
+    paths.add(file.path); bytes += Buffer.byteLength(fileContent(file));
     if (bytes > 32 * 1024 * 1024) throw new Error("VERIFICATION_SNAPSHOT_SIZE_LIMIT");
   }
 }

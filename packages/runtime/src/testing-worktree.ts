@@ -3,7 +3,7 @@ import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, rmdir, 
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { concreteWritePath, WritePartitions, type WriteLease } from "@arbitra/security/write-partitions";
-import type { RepositorySnapshot, SourceFile } from "./repository.js";
+import { type RepositorySnapshot, type SourceFile, fileContent, splitSourceText } from "./repository.js";
 import { runBoundedProcess, type ProcessPort } from "./test-sandbox.js";
 
 export interface TestingWorktreeHandle { readonly id: string; readonly directory: string; readonly snapshotDigest: string }
@@ -51,7 +51,7 @@ export class TestingWorktree {
         if (signal.aborted) throw new Error("TESTING_WORKTREE_CANCELLED");
         const destination = join(repository, file.path);
         await mkdir(dirname(destination), { recursive: true });
-        await writeFile(destination, file.lines.join("\n"), { flag: "wx" });
+        await writeFile(destination, fileContent(file), { flag: "wx" });
       }
       await git(["add", "--all", "--force", "--", "."]);
       await git(["commit", "--allow-empty", "-m", "Recorded Testing snapshot"]);
@@ -128,9 +128,7 @@ export class TestingWorktree {
           if (content.length > MAX_FILE_BYTES || bytes > MAX_SNAPSHOT_BYTES) throw new Error("TESTING_WORKTREE_SIZE_LIMIT");
           const text = content.toString("utf8");
           if (!Buffer.from(text).equals(content)) throw new Error("TESTING_WORKTREE_NON_UTF8_FILE");
-          const lines = text.split("\n"); let offset = 0;
-          const lineStartBytes = lines.map((line) => { const start = offset; offset += Buffer.byteLength(line) + 1; return start; });
-          files.push({ path, lines, lineStartBytes, byteLength: content.length });
+          files.push({ path, ...splitSourceText(text), byteLength: content.length });
         }
       };
       await walk("");
@@ -190,9 +188,9 @@ async function checkedDirectory(path: string): Promise<void> { const entry = awa
 async function checkedFile(path: string): Promise<void> { const entry = await lstat(path); if (!entry.isFile() || entry.isSymbolicLink() || entry.nlink !== 1) throw new Error("TESTING_WORKTREE_UNSAFE_FILE"); }
 async function fileHash(path: string): Promise<string | null> { try { await checkedFile(path); return hash(await readFile(path)); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; } }
 function hash(value: string | Uint8Array): string { return createHash("sha256").update(value).digest("hex"); }
-function digest(snapshot: RepositorySnapshot): string { return hash(JSON.stringify(snapshot.files.map(({ path, lines }) => ({ path, content: lines.join("\n") })).sort((a, b) => a.path.localeCompare(b.path)))); }
+function digest(snapshot: RepositorySnapshot): string { return hash(JSON.stringify(snapshot.files.map((file) => ({ path: file.path, content: fileContent(file) })).sort((a, b) => a.path.localeCompare(b.path)))); }
 function validateSnapshot(snapshot: RepositorySnapshot): void {
   new WritePartitions([{ id: "snapshot", paths: snapshot.files.map(({ path }) => path) }]);
   let total = 0;
-  for (const file of snapshot.files) { const bytes = Buffer.byteLength(file.lines.join("\n")); total += bytes; if (bytes > MAX_FILE_BYTES || total > MAX_SNAPSHOT_BYTES) throw new Error("TESTING_WORKTREE_SIZE_LIMIT"); }
+  for (const file of snapshot.files) { const bytes = Buffer.byteLength(fileContent(file)); total += bytes; if (bytes > MAX_FILE_BYTES || total > MAX_SNAPSHOT_BYTES) throw new Error("TESTING_WORKTREE_SIZE_LIMIT"); }
 }

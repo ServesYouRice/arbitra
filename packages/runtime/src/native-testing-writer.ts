@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { fileContent } from "./repository.js";
 import { lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
@@ -246,8 +247,8 @@ async function pinInput(store: RunStore, kind: string, binding: string, workspac
   let descriptor = (await store.listArtifacts()).find((entry) => entry.kind === kind);
   if (descriptor === undefined) {
     const current = await workspace.snapshot();
-    const files = current.files.filter(({ path }) => !isClaudeCodeControlPath(path)).map(({ path, lines }) => {
-      const original = lines.join("\n");
+    const files = current.files.filter(({ path }) => !isClaudeCodeControlPath(path)).map((file) => {
+      const { path } = file; const original = fileContent(file);
       return { path, content: redactSecrets(original).text, originalHash: sha(original) };
     });
     descriptor = await store.publish(kind, { binding, files, feedback } satisfies PinnedNativeInput, "testing-execution");
