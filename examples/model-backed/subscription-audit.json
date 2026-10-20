@@ -200,7 +200,7 @@
         "planner": "auditor-a",
         "verifier": "auditor-a",
         "critic": "auditor-b",
-        "critiqueChecker": "auditor-c"
+        "critiqueChecker": "auditor-a"
       },
       "maximumOutputTokens": 128000,
       "maximumContextTokens": 1000000,
