@@ -30,7 +30,18 @@ file says what is left and in what order. The measurements and decisions behind 
   the plan into the project as prompts grouped by model tier (`.arbitra/plans/`); each model is chosen from a list
   rather than typed; New run opens on three auditors on the subscription CLIs with the settings of the benchmark's
   premium panel (Gemini at high thinking, or Argon when the CLI offers it), and a browse button opens the system's
-  folder dialog. [`TESTERS.md`](TESTERS.md) is the testers' guide. Later runs are on the owner's other projects,
+  folder dialog. [`TESTERS.md`](TESTERS.md) is the testers' guide.
+- **The first real-project run (October 20): beachflag**, 84 files and 11,291 lines, from the downloaded zip at
+  145ed4c with the benchmark's settings (Gemini critic, every issue verified): 80 minutes, 613 calls, 17.6M tokens
+  (verification 10.6M of them: 132 questions in 341 calls plus 54 place re-asks in 180), one Gemini audit call at
+  its output ceiling. 210 findings became 81 accepted issues (3 high, 25 medium, 52 low), 40 rejected and 11 open;
+  the plan has 24 tasks for the 28 issues of medium and up, and 5 blocking questions only the owner can answer.
+  It led to: Sol as critic and Opus as critique checker, verification only of the issues the plan covers (58% of
+  the candidates were below it), the token limit sized from the project (3,500 tokens a line, about twice the
+  measured 1,560), raising the limit of a paused run, leaving files Git ignores out of the snapshot (a 600 KB
+  Playwright report refused the project), and opening model-activity artifacts (their IDs were too long a route).
+- **Next, after the owner's weekly limit resets (about October 23):** the same audit on rokavatar (140 files, about
+  9,200 lines) from a freshly downloaded zip with the new defaults, to measure the new settings against beachflag. Later runs are on the owner's other projects,
   for real-world data.
 - **Small fixes from the self-audit, on `friend-test` (October 20):** a system "permission denied" on Antigravity's
   stderr no longer discards its reply as a soft-denied tool; a spawn that runs out of file descriptors no longer

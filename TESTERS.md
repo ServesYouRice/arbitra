@@ -36,17 +36,23 @@ already have. It never changes your code.
 
 1. Click **New run**. Under **Models**, check that the tools you have show as **ready**; if one does not, the line
    says what to do.
-2. New run opens on three auditors on the subscription CLIs with the recommended models and settings (Opus 5.5 and
-   GPT-6.1 Sol at xhigh, Gemini 3.8 Flash at high thinking). You can pick another model for each from its list.
+2. New run opens on three auditors on the subscription CLIs with the recommended models and settings: Opus 5.5 and
+   GPT-6.1 Sol audit at xhigh, Gemini 3.8 Flash at high thinking; Opus then checks each issue against the code and
+   writes the plan, and Sol reviews it. You can pick another model for each from its list.
 3. Next to **repository path**, click **browse…** and choose the project folder you want audited (or paste its path).
-4. Click **check configuration**, then **save and start**. A run of a mid-sized project takes about an hour and a
-   good part of your plans' usage, so start with a small project.
+4. Click **check configuration**, then **save and start**. The check measures the project and sets the run's token
+   limit for its size. A project of about 11,000 lines took 80 minutes and 17.6 million tokens,
+   so start with a small project and mind your plans' usage.
 5. When it finishes, the run page leads with **the plan**: **save the plan into the project as prompts** writes a
    `.arbitra/plans/` folder into your project. It has one ready-to-paste prompt per fix, sorted by the kind of model
    each suits, and an `AGENTS.md` a coding agent follows: open the project in Claude Code or Codex and ask it to
-   work through `.arbitra/plans/<folder>`. The **Issues** tab lists what was found and how it was checked.
+   work through `.arbitra/plans/<folder>`. Answer the questions its README lists first: they are decisions only you
+   can make. The **Issues** tab lists what was found and how it was checked.
 
 ## If something goes wrong
+
+If a run pauses at its token limit, its page offers **raise to … and resume**: it goes on from where it stopped and
+keeps everything it has done. If a run stops on a usage limit of one of your plans, resume it once that limit resets.
 
 On the run's page, open **report to send**, click **copy**, and send the text to whoever gave you arbitra. It holds
 no source code and no secrets: the app's version, your system, which tools it found, the run's settings and any

@@ -86,7 +86,9 @@ function agents(ordered: readonly ExportTask[]): string {
 
 function readme(plan: ExportPlan, ordered: readonly ExportTask[], runId: string, workflow: string): string {
   const blocking = plan.unresolvedQuestions.filter(({ blocking: isBlocking }) => isBlocking);
-  return [`# ${plan.title}`, "", `From arbitra run \`${runId}\` (${workflow}).`, "",
+  // A plan written in sections carries every section's title joined into one; it reads as a summary, not a heading.
+  const fixes = new Set(ordered.flatMap((task) => task.addresses.issues)).size;
+  return [`# Plan · ${ordered.length} ${ordered.length === 1 ? "task" : "tasks"} for ${fixes} ${fixes === 1 ? "issue" : "issues"}`, "", plan.title.split(/;\s+/u).map((part) => `- ${part}`).join("\n"), "", `From arbitra run \`${runId}\` (${workflow}).`, "",
     "Work through the prompts in the order below. Each one is self-contained: paste it into your coding agent (Claude Code, Codex or another), or follow it yourself. The folder says which kind of model each task suits.", "",
     ...(blocking.length === 0 ? [] : ["## Answer these first", "", ...blocking.map(({ id, question }) => `- **${id}**: ${question}`), ""]),
     "## Order of work", "", ...ordered.map((task, index) => `${index + 1}. \`${task.id}\` ${task.title} · ${TIERS[task.routing.capability].folder}${task.dependencies.dependsOn.length === 0 ? "" : ` · after ${task.dependencies.dependsOn.join(", ")}`}`), "",

@@ -1,11 +1,11 @@
 /**
- * A run's token limit for a project of a given size. A guess with headroom, to be replaced by measured numbers: the
- * beachflag run (October 20, 2026; 84 files, 11,291 lines, three auditors) was past 16M tokens by mid-verification, so
- * about 2,200 tokens a line is assumed for a whole run, doubled to 4,500 for headroom, scaled by the number of
- * auditors, rounded up to 5M, and never under 20M.
+ * A run's token limit for a project of a given size. Measured once: the beachflag run (October 20, 2026; 84 files,
+ * 11,291 lines, three auditors, every issue verified) used 17.6M tokens, about 1,560 a line. The limit allows 3,500 a
+ * line, a little over twice that, for projects that turn up more issues per line; it scales with the number of
+ * auditors, rounds up to 5M and is never under 20M. More measured runs should replace the guess in the headroom.
  */
 export function recommendedTokenLimit(lines: number, auditors: number): number {
-  const estimate = Math.max(0, lines) * 4_500 * Math.max(1, auditors) / 3;
+  const estimate = Math.max(0, lines) * 3_500 * Math.max(1, auditors) / 3;
   return Math.max(20_000_000, Math.ceil(estimate / 5_000_000) * 5_000_000);
 }
 
