@@ -80,6 +80,18 @@ describe("runtime repository snapshots", () => {
     }
   });
 
+  it("leaves out files Git ignores, such as an oversized generated report, and keeps untracked ones", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbitra-snapshot-ignored-"));
+    const execute = promisify(execFile);
+    try {
+      await execute("git", ["-C", root, "init"], { windowsHide: true });
+      await mkdir(join(root, "playwright-report"));
+      await Promise.all([writeFile(join(root, ".gitignore"), "playwright-report/\n"), writeFile(join(root, "app.ts"), "export {};\n"),
+        writeFile(join(root, "playwright-report", "index.html"), `<script>${"x".repeat(600_000)}</script>\n`), writeFile(join(root, "playwright-report", "trace.js"), "export {};\n")]);
+      expect((await snapshotRepository(root)).files.map(({ path }) => path)).toEqual(["app.ts"]);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
   it("fails closed rather than silently truncating repository coverage", async () => {
     const root = await mkdtemp(join(tmpdir(), "arbitra-snapshot-limit-"));
     try {

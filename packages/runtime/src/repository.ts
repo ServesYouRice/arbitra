@@ -62,12 +62,21 @@ export async function snapshotRepository(root: string, maximumFiles = 400, optio
   if (scope.kind === "module" && (modules === undefined || modules.length === 0)) throw new Error("MODULE_SCOPE_REQUIRED");
   const modulePaths = modules?.map((path) => relative(guard.root, guard.resolve(path)).split(sep).join("/").replace(/\/$/u, ""));
   const included = (path: string): boolean => modulePaths === undefined || modulePaths.some((prefix) => prefix === "" || path === prefix || path.startsWith(`${prefix}/`));
+  // In a Git work tree, files Git ignores are left out: they are generated (test reports, coverage, builds), and one
+  // oversized report refused a tester's whole project (beachflag's playwright-report/index.html, October 20, 2026).
+  const listed = await gitListedFiles(guard.root, options.git ?? defaultGit);
   const paths: string[] = [];
-  await walk(root, root, paths, maximumFiles + 1, guard, (path) => included(path) && eligible(path));
+  await walk(root, root, paths, maximumFiles + 1, guard, (path) => (listed === null || listed.has(path)) && included(path) && eligible(path));
   if (paths.length > maximumFiles) throw new Error(`REPOSITORY_FILE_LIMIT_EXCEEDED:${maximumFiles}`);
   if (modulePaths !== undefined && paths.length === 0) throw new Error("MODULE_SCOPE_EMPTY");
   const files = await Promise.all(paths.sort().map(async (path): Promise<SourceFile> => sourceFile(path, await guard.readFile(path))));
   return Object.freeze({ root, files: Object.freeze(files) });
+}
+
+/** The files Git tracks or would track (untracked but not ignored), relative to `root`; null outside a work tree or without Git. */
+async function gitListedFiles(root: string, git: RepositoryGit): Promise<ReadonlySet<string> | null> {
+  try { return new Set((await git.run(root, ["ls-files", "--cached", "--others", "--exclude-standard", "-z"])).split("\0").filter((path) => path !== "")); }
+  catch { return null; }
 }
 
 async function walk(root: string, directory: string, into: string[], limit: number, guard: RepositoryPathGuard, included: (path: string) => boolean): Promise<void> {
