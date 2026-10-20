@@ -73,7 +73,7 @@ lists what exists, the acceptance criteria and how to run each part.
 
 ## Requirements
 
-Node 22 or 24 (`>=22 <25`; the whole check passes on both) and pnpm 10 (`>=10 <11`). No API key is needed to run the test
+Node 22.13 or newer (`>=22.13`; the whole check passes on 22.13, 24, 25 and 26) and pnpm 10 (`>=10 <11`). No API key is needed to run the test
 suites: the default suites make no network calls, and real-provider suites are
 environment-gated and skipped unless their variables are set.
 
@@ -88,7 +88,7 @@ model run requires.
 
 ## Running it
 
-**To just use it:** with Node.js 22 or 24 installed, double-click `arbitra.cmd` (Windows) or `arbitra.command` (macOS,
+**To just use it:** with Node.js 22.13 or newer installed, double-click `arbitra.cmd` (Windows) or `arbitra.command` (macOS,
 Linux). It installs and builds on first start and opens the app on <http://127.0.0.1:4178>.
 [`TESTERS.md`](TESTERS.md) walks a first audit through.
 

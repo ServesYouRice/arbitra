@@ -1,6 +1,6 @@
-# Starts arbitra on Windows: checks Node.js, installs and builds when they are missing or out of date, then opens the
-# app on http://127.0.0.1:4178 in the default browser. Started by arbitra.cmd at the repository root. Everything it
-# installs or builds stays inside this folder.
+# Starts arbitra on Windows: checks Node.js, sets up pnpm, installs and builds when they are missing or out of date,
+# then opens the app on http://127.0.0.1:4178 in the default browser. Started by arbitra.cmd at the repository root.
+# Everything it installs or builds stays inside this folder.
 $ErrorActionPreference = "Stop"
 $root = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 $runtime = Join-Path $root ".arbitra-runtime"
@@ -11,27 +11,30 @@ $url = "http://127.0.0.1:$port"
 
 function Say($text) { Write-Host "arbitra: $text" }
 
-# 1. Node.js 22 or newer must be installed; arbitra does not install it.
-$node = (Get-Command node -ErrorAction SilentlyContinue).Source
-$major = if ($node) { [int]((& node --version) -replace '^v(\d+)\..*$', '$1') } else { 0 }
-if ($major -lt 22) {
-  throw "arbitra needs Node.js 22 or newer$(if ($node) { " (found $(& node --version))" } else { ', and none was found' }). Install it from https://nodejs.org and start arbitra again."
+# 1. Node.js 22.13 or newer must be installed (any later version, current or LTS); arbitra does not install it.
+$node = (Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+$version = if ($node) { (& $node --version) -replace '^v', '' } else { "" }
+$parts = $version.Split(".")
+$supported = $node -and (([int]$parts[0] -gt 22) -or ([int]$parts[0] -eq 22 -and [int]$parts[1] -ge 13))
+if (-not $supported) {
+  $found = if ($node) { " (found $version)" } else { ", and none was found" }
+  throw "arbitra needs Node.js 22.13 or newer$found. Install the current LTS from https://nodejs.org and start arbitra again."
 }
-Say "node $(& node --version)"
+Say "node $version"
 
-# 2. pnpm: corepack's (shipped with Node up to 24) in a folder of our own, else one already on PATH.
-$shims = Join-Path $runtime "bin"
-$corepack = Join-Path (Split-Path $node) "corepack.cmd"
-$env:COREPACK_ENABLE_DOWNLOAD_PROMPT = "0"
-if (Test-Path $corepack) {
-  New-Item -ItemType Directory -Force $shims | Out-Null
-  & $corepack enable --install-directory $shims
-  if ($LASTEXITCODE -ne 0) { throw "corepack could not set up pnpm (exit $LASTEXITCODE)" }
-  # The build calls pnpm from inside pnpm, so it has to be on PATH.
-  $env:PATH = "$shims;$env:PATH"
+# 2. pnpm 10, pinned, installed once into this folder with the npm that comes with every Node: no admin rights and no
+# corepack, which Node 25 and later no longer ship. The build calls pnpm from inside pnpm, so it goes first on PATH.
+$pnpmHome = Join-Path $runtime "pnpm"
+$pnpmBin = Join-Path $pnpmHome "node_modules\.bin"
+$pnpm = Join-Path $pnpmBin "pnpm.cmd"
+if (-not (Test-Path $pnpm)) {
+  Say "installing pnpm (once)"
+  $npm = (Get-Command npm -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+  if (-not $npm) { throw "npm was not found next to Node.js; reinstall Node.js from https://nodejs.org" }
+  & $npm install --prefix $pnpmHome --no-audit --no-fund --loglevel=error pnpm@10.24.0
+  if ($LASTEXITCODE -ne 0 -or -not (Test-Path $pnpm)) { throw "pnpm could not be installed (exit $LASTEXITCODE)" }
 }
-$pnpm = (Get-Command pnpm -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
-if (-not $pnpm) { throw "arbitra needs pnpm 10. Run: npm install -g pnpm@10, then start arbitra again." }
+$env:PATH = "$pnpmBin;$env:PATH"
 # Named apart from pnpm: PowerShell names ignore case, and a function called Pnpm would call itself.
 function Invoke-Pnpm { & $pnpm @args; if ($LASTEXITCODE -ne 0) { throw "pnpm $args failed (exit $LASTEXITCODE)" } }
 

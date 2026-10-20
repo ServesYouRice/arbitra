@@ -7,8 +7,7 @@ already have. It never changes your code.
 ## What you need
 
 - Windows, macOS or Linux, and an internet connection.
-- **Node.js 22 or 24** (<https://nodejs.org>). pnpm comes with it; with Node 25 or later, install pnpm 10 too
-  (`npm install -g pnpm@10`).
+- **Node.js 22.13 or newer** (<https://nodejs.org>; any current or LTS version). arbitra sets up the rest itself.
 - At least one of these, installed and signed in with your subscription:
   - **Claude Code** (Claude Pro or Max): <https://docs.claude.com/en/docs/claude-code>. The copy inside the VS Code
     extension works too.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Double-click (macOS) or run (Linux) to start arbitra: checks Node.js, installs and builds when missing or out of
-# date, then opens http://127.0.0.1:4178. Everything it installs or builds stays inside this folder.
+# Double-click (macOS) or run (Linux) to start arbitra: checks Node.js, sets up pnpm, installs and builds when missing
+# or out of date, then opens http://127.0.0.1:4178. Everything it installs or builds stays inside this folder.
 set -euo pipefail
 root="$(cd "$(dirname "$0")" && pwd)"
 runtime="$root/.arbitra-runtime"; mkdir -p "$runtime/logs"
@@ -8,19 +8,22 @@ port="${ARBITRA_PORT:-4178}"; url="http://127.0.0.1:$port"
 say() { echo "arbitra: $*"; }
 fail() { echo "arbitra: $*" >&2; exit 1; }
 
-# Node.js 22 or newer must be installed; arbitra does not install it.
-command -v node >/dev/null 2>&1 || fail "arbitra needs Node.js 22 or newer, and none was found. Install it from https://nodejs.org and start arbitra again."
-major="$(node --version | sed -E 's/^v([0-9]+).*/\1/')"
-[ "$major" -ge 22 ] || fail "arbitra needs Node.js 22 or newer (found $(node --version)). Install it from https://nodejs.org and start arbitra again."
-say "node $(node --version)"
-
-# pnpm: corepack's (shipped with Node up to 24) in a folder of our own, else one already on PATH. The build calls pnpm
-# from inside pnpm, so it has to be on PATH.
-export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
-if command -v corepack >/dev/null 2>&1; then
-  mkdir -p "$runtime/bin"; corepack enable --install-directory "$runtime/bin"; export PATH="$runtime/bin:$PATH"
+# Node.js 22.13 or newer must be installed (any later version, current or LTS); arbitra does not install it.
+command -v node >/dev/null 2>&1 || fail "arbitra needs Node.js 22.13 or newer, and none was found. Install the current LTS from https://nodejs.org and start arbitra again."
+version="$(node --version | sed -E 's/^v//')"; major="${version%%.*}"; minor="$(echo "$version" | cut -d. -f2)"
+if [ "$major" -lt 22 ] || { [ "$major" -eq 22 ] && [ "$minor" -lt 13 ]; }; then
+  fail "arbitra needs Node.js 22.13 or newer (found $version). Install the current LTS from https://nodejs.org and start arbitra again."
 fi
-command -v pnpm >/dev/null 2>&1 || fail "arbitra needs pnpm 10. Run: npm install -g pnpm@10, then start arbitra again."
+say "node $version"
+
+# pnpm 10, pinned, installed once into this folder with the npm that comes with every Node: no root rights and no
+# corepack, which Node 25 and later no longer ship. The build calls pnpm from inside pnpm, so it goes first on PATH.
+pnpm_home="$runtime/pnpm"
+if [ ! -x "$pnpm_home/node_modules/.bin/pnpm" ]; then
+  say "installing pnpm (once)"
+  npm install --prefix "$pnpm_home" --no-audit --no-fund --loglevel=error pnpm@10.24.0 || fail "pnpm could not be installed"
+fi
+export PATH="$pnpm_home/node_modules/.bin:$PATH"
 
 cd "$root"
 current="$(git rev-parse HEAD 2>/dev/null || stat -f %m pnpm-lock.yaml 2>/dev/null || stat -c %Y pnpm-lock.yaml)"

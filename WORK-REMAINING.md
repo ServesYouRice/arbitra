@@ -23,7 +23,7 @@ file says what is left and in what order. The measurements and decisions behind 
 - **Checkpoint 1 is out** (October 20): `main` and the tag `checkpoint-1` at e8ef14b.
 - **First, a hand-off to testers (owner, October 20), on branch `friend-test`,** ahead of the UI phase because the
   owner's weekly usage is low and friends will test it on their projects: one file starts arbitra
-  (`arbitra.cmd`, `arbitra.command`; Node.js 22 or 24 required, install and build when out of date, the web app
+  (`arbitra.cmd`, `arbitra.command`; Node.js 22.13 or newer required, pnpm installed into the folder, install and build when out of date, the web app
   served by the control plane itself); the CLIs a machine has are found, the first supported installation of each is
   used, and the New run page shows them with fixes and recommended models; graph nodes and "executed by" name the
   model and effort; each run has a plain-text report to copy and send (`/diagnostics/runs/:id`); the Plan tab saves
