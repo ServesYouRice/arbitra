@@ -11,3 +11,7 @@ packages/schemas/src/glyphs.ts text eol=lf
 *.command text eol=lf
 # A download of the repository as a zip carries no Git history; this file then names the commit it was made from.
 tooling/launch/build-id export-subst
+# Downloads (GitHub's zip of a branch) carry what builds and runs arbitra; the documentation and evidence stay in
+# the repository. TESTERS.md and README.md stay in the download.
+docs/** export-ignore
+WORK-REMAINING.md export-ignore
