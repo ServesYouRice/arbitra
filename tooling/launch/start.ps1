@@ -30,7 +30,12 @@ if (-not $node) {
 Say "node $(& $node --version)"
 $env:COREPACK_ENABLE_DOWNLOAD_PROMPT = "0"
 $corepack = Join-Path (Split-Path $node) "corepack.cmd"
-function Pnpm { & $corepack pnpm @args; if ($LASTEXITCODE -ne 0) { throw "pnpm $args failed (exit $LASTEXITCODE)" } }
+# The build calls pnpm from inside pnpm, so pnpm has to be on PATH: corepack puts its shims in this folder.
+$shims = Join-Path $runtime "bin"
+& $corepack enable --install-directory $shims
+if ($LASTEXITCODE -ne 0) { throw "corepack could not set up pnpm (exit $LASTEXITCODE)" }
+$env:PATH = "$shims;$env:PATH"
+function Pnpm { & (Join-Path $shims "pnpm.cmd") @args; if ($LASTEXITCODE -ne 0) { throw "pnpm $args failed (exit $LASTEXITCODE)" } }
 
 # 2. Install and build when missing, or when the source changed since the last build.
 Set-Location $root

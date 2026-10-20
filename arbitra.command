@@ -23,7 +23,9 @@ else
 fi
 say "node $("$node_bin" --version)"
 export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
-pnpm() { "$(dirname "$node_bin")/corepack" pnpm "$@"; }
+# The build calls pnpm from inside pnpm, so pnpm has to be on PATH: corepack puts its shims in this folder.
+"$(dirname "$node_bin")/corepack" enable --install-directory "$runtime/bin"
+export PATH="$runtime/bin:$PATH"
 
 cd "$root"
 current="$(git rev-parse HEAD 2>/dev/null || stat -f %m pnpm-lock.yaml 2>/dev/null || stat -c %Y pnpm-lock.yaml)"

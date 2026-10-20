@@ -20,6 +20,15 @@ file says what is left and in what order. The measurements and decisions behind 
      original drag-and-drop "slots" idea is to be audited, not assumed.
   3. **Improvement phase**, on its own branch: the items below that change what the pipeline does, each measured.
   4. **P21**, the completion report, last.
+- **Checkpoint 1 is out** (October 20): `main` and the tag `checkpoint-1` at e8ef14b.
+- **First, a hand-off to testers (owner, October 20), on branch `friend-test`,** ahead of the UI phase because the
+  owner's weekly usage is low and friends will test it on their projects: one file starts arbitra
+  (`arbitra.cmd`, `arbitra.command`; Node 22 fetched when missing, install and build when out of date, the web app
+  served by the control plane itself); the CLIs a machine has are found, the first supported installation of each is
+  used, and the New run page shows them with fixes and recommended models; graph nodes and "executed by" name the
+  model and effort; each run has a plain-text report to copy and send (`/diagnostics/runs/:id`); the Plan tab saves
+  the plan into the project as prompts grouped by model tier (`.arbitra/plans/`). [`TESTERS.md`](TESTERS.md) is the
+  testers' guide. Later runs are on the owner's other projects, for real-world data.
 
 ## Checkpoint 1
 
