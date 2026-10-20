@@ -27,7 +27,8 @@ export type ServerCore = ControlPlaneCore & { readonly evaluation?: EvaluationCo
 export function buildServer(core: ServerCore, schemas: HttpSchemas = HTTP_ROUTE_SCHEMAS): FastifyInstance {
   // JSON unions must preserve their original types; coercion can turn model budgets
   // into strings while trying the first branch of a recursive JSON schema.
-  const app = Fastify({ logger: false, ajv: { customOptions: { coerceTypes: false, removeAdditional: false } } });
+  // Artifact IDs of model activities run to about 120 characters; Fastify refuses a path parameter over 100 by default.
+  const app = Fastify({ logger: false, maxParamLength: 512, ajv: { customOptions: { coerceTypes: false, removeAdditional: false } } });
   app.addHook("onRequest", async (request, reply) => {
     if (!localUrl(`http://${request.headers.host ?? ""}`) || request.headers.origin !== undefined && !localUrl(request.headers.origin)) {
       await reply.code(403).send({ error: "NON_LOCAL_CONTROL_PLANE_REQUEST" });

@@ -78,6 +78,9 @@ describe("localhost control plane contracts", () => {
     expect(response.statusCode).toBe(200); expect(response.json()).toEqual([]);
     const invalid = await app.inject({ method: "POST", url: "/configurations", payload: { name: "Invalid", config: { mode: "audit" } } });
     expect(invalid.statusCode).toBe(400);
+    // A model activity's artifact ID is longer than Fastify's default limit on a path parameter (observed live).
+    const long = await app.inject({ method: "GET", url: `/runs/run-1/artifacts/model-activity-${"c".repeat(64)}-input-${"b".repeat(16)}` });
+    expect(long.statusCode).not.toBe(414);
     await app.close();
   });
 
