@@ -1,5 +1,5 @@
 @echo off
-rem Double-click to start arbitra: downloads Node 22 if needed, installs, builds, opens http://127.0.0.1:4178.
+rem Double-click to start arbitra: checks Node.js 22 or newer, installs, builds, opens http://127.0.0.1:4178.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tooling\launch\start.ps1"
 if errorlevel 1 (
   echo.

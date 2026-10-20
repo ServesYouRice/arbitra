@@ -14,6 +14,7 @@ import { executorText } from "./RunHeader.js";
 import { ModelTable } from "./NodeDetails.js";
 import { modelProfiles } from "./models.js";
 import { selectionItem } from "./selection.js";
+import { SavePlan } from "../../views/plan/PlanView.js";
 
 const SEVERITY_ORDER = ["critical", "high", "medium", "low", "informational"];
 
@@ -27,7 +28,10 @@ export function OverviewTab({ runId, mode, run, overview, artifacts, reason, ref
   readonly reason: string | null;
   readonly refreshKey: unknown;
 }): ReactElement {
+  // A finished run with a plan leads with it: the plan saved into the project is what a person takes away.
+  const planned = artifacts.some(({ kind }) => kind === "plan-ir");
   return <div className="overview">
+    {planned && overview?.state === "COMPLETED" ? <section aria-label="take the plan" className="section plan-take"><h2 className="panel-title">the plan</h2><p className="prose">Save it into the project: a folder with one prompt per fix, sorted by the model each suits, and instructions a coding agent can follow.</p><SavePlan runId={runId} /></section> : null}
     <Result run={run} overview={overview} reason={reason} />
     {mode === "audit" ? <AuditSummary runId={runId} refreshKey={refreshKey} />
       : mode === "feature" ? <FeatureSummary runId={runId} run={run} artifacts={artifacts} refreshKey={refreshKey} />

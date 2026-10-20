@@ -11,7 +11,7 @@ export interface PlanData { readonly plan: RunArtifact<PersistedPlan>; readonly 
  * Writes the plan into the project as prompts (`.arbitra/plans/...`), grouped by the model tier each task suits, on
  * request only: a run itself never writes to the repository.
  */
-function SavePlan({ runId }: { readonly runId: string }): ReactElement {
+export function SavePlan({ runId }: { readonly runId: string }): ReactElement {
   const [state, setState] = useState<{ readonly busy: boolean; readonly result: string | null; readonly failed: boolean }>({ busy: false, result: null, failed: false });
   const save = (): void => {
     setState({ busy: true, result: null, failed: false });

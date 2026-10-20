@@ -25,7 +25,8 @@ const TIERS = {
 
 /**
  * Writes a run's plan into its repository as prompts a person or a coding agent can use directly, in
- * `.arbitra/plans/<date>-<run>/`: a README with the order of work, one prompt per task grouped by the model tier the
+ * `.arbitra/plans/<date>-<run>/`: a README with the order of work, AGENTS.md (and CLAUDE.md) telling a coding agent how
+ * to work through it, a PROGRESS.md checklist, one prompt per task grouped by the model tier the
  * planner chose for it, and the issues they fix. Each prompt follows Anthropic's prompting guidance: a role, the
  * context and why it matters, the material in tagged sections, clear steps, explicit success criteria and how to
  * check them. Only this explicit action writes to the repository; runs themselves never do.
@@ -49,6 +50,12 @@ export async function exportPlan(orchestrator: Orchestrator, runId: string): Pro
   const files = new Map<string, string>();
   ordered.forEach((task, index) => files.set(join("prompts", TIERS[task.routing.capability].folder, `${String(index + 1).padStart(2, "0")}-${task.id}.md`), prompt(task, issues, plan.tasks)));
   files.set("README.md", readme(plan, ordered, runId, overview.workflowId ?? "unknown"));
+  // A coding agent opened on the project, or on this folder alone, finds its instructions here; CLAUDE.md points
+  // Claude Code at the same file.
+  files.set("AGENTS.md", agents(ordered));
+  files.set("CLAUDE.md", "Read AGENTS.md in this folder and follow it.\n");
+  files.set("PROGRESS.md", ["# Progress", "", "Tick a task when it is done and verified; note anything left open under it.", "",
+    ...ordered.map((task, index) => `- [ ] ${String(index + 1).padStart(2, "0")} \`${task.id}\` ${task.title}`), ""].join("\n"));
   files.set("issues.md", ["# Issues this plan fixes", "", ...[...new Set(ordered.flatMap((task) => task.addresses.issues))].map((id) => issues.get(id)).filter((issue): issue is ExportIssue => issue !== undefined)
     .map((issue) => `## ${issue.claim.title}\n\n${issue.severity} · ${issue.disposition} · ${issue.candidateId}\n\n${issue.claim.description}\n`)].join("\n"));
   await mkdir(directory, { recursive: true });
@@ -57,6 +64,20 @@ export async function exportPlan(orchestrator: Orchestrator, runId: string): Pro
     await writeFile(join(directory, path), content, { encoding: "utf8", flag: "wx" });
   }
   return { directory, files: [...files.keys()].map((path) => relative(overview.repository ?? "", join(directory, path))) };
+}
+
+/** Instructions for a coding agent working through the folder, after Anthropic's guidance for agentic work: one task at a time, verify before moving on, keep state in a file. */
+function agents(ordered: readonly ExportTask[]): string {
+  return ["# Working through this plan", "",
+    "This folder is a plan to fix defects found in the project it sits in. It was written by arbitra, which audited the project with several models and checked each finding against the code.", "",
+    "How to work:", "",
+    "1. Read README.md for the order of work and any questions to answer first. If a question is marked as blocking, ask the person you are working with before starting the tasks it affects.",
+    "2. Take the first unticked task in PROGRESS.md and open its prompt under `prompts/`. Follow that prompt; it says what to read, what not to change, and how to check the result.",
+    "3. Do one task at a time. Verify it as its prompt says before you tick it in PROGRESS.md. If a check fails or the code does not match the prompt, stop and report instead of guessing.",
+    "4. Do not change anything in this folder except PROGRESS.md.", "",
+    "The prompt folders say which kind of model each task suits:", "",
+    ...Object.values(TIERS).map(({ folder, model, why }) => `- \`${folder}\`: ${model}, for ${why}.`), "",
+    `There are ${ordered.length} tasks.`, ""].join("\n");
 }
 
 function readme(plan: ExportPlan, ordered: readonly ExportTask[], runId: string, workflow: string): string {

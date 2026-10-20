@@ -7,7 +7,7 @@ or grants write access unless you make the explicit edits described in
 
 ## 1. Install and verify
 
-Requirements: Node 22 (`>=22 <23`), pnpm 10 (`>=10 <11`) and git. Docker is needed only
+Requirements: Node 22 or 24 (`>=22 <25`), pnpm 10 (`>=10 <11`) and git. Docker is needed only
 for Testing execution and optional Audit verification checks. Provider accounts are
 needed only for live runs.
 
