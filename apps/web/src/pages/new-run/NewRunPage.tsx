@@ -104,6 +104,8 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
     try {
       const result = await apis.runs.preflight(draft, repositoryPath);
       const checked = sizedLimit(result, draft);
+      // Sizing the limit is the check's own setting, like the starting point's: it leaves an unedited page unedited.
+      if (checked !== draft && loaded !== null && stableJson(draft) === stableJson(loaded.draft)) setLoaded({ ...loaded, draft: checked });
       setDraft(checked); setCheck({ result, draft: checked });
       return { result, draft: checked };
     }
