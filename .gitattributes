@@ -9,3 +9,5 @@ packages/schemas/src/glyphs.ts text eol=lf
 # Windows batch files need CRLF line endings; the macOS/Linux launcher needs LF.
 *.cmd text eol=crlf
 *.command text eol=lf
+# A download of the repository as a zip carries no Git history; this file then names the commit it was made from.
+tooling/launch/build-id export-subst

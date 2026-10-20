@@ -1,7 +1,7 @@
 import { Orchestrator } from "@arbitra/runtime/orchestrator.js";
 import { controlPlaneCore } from "@arbitra/runtime/control-plane-core.js";
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { detectEnvironment, type DetectedEnvironment } from "@arbitra/runtime/environment.js";
 import { exportPlan } from "@arbitra/runtime/plan-export.js";
 import { runReport } from "@arbitra/runtime/run-report.js";
@@ -31,7 +31,9 @@ if (withWeb) serveWebApp(app, webRoot);
 
 // What a tester's machine can run, and a run's plain-text report to copy and send (see packages/runtime).
 const arbitraRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
-const build = (() => { try { return execFileSync("git", ["-C", arbitraRoot, "rev-parse", "--short", "HEAD"], { encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { return "unknown (not a git checkout)"; } })();
+// A zip download has no Git history; Git wrote the commit into tooling/launch/build-id when it made the archive.
+const archived = (): string => { try { const id = readFileSync(join(arbitraRoot, "tooling", "launch", "build-id"), "utf8").trim(); return id.startsWith("$Format") ? "unknown" : `${id}, from a download`; } catch { return "unknown"; } };
+const build = (() => { try { return execFileSync("git", ["-C", arbitraRoot, "rev-parse", "--short", "HEAD"], { encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { return archived(); } })();
 let environment: Promise<DetectedEnvironment> = detectEnvironment();
 app.get<{ Querystring: { refresh?: string } }>("/diagnostics/environment", async (request) => {
   if (request.query.refresh === "1") environment = detectEnvironment();
