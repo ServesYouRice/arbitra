@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import type { Orchestrator } from "./orchestrator.js";
@@ -46,7 +47,10 @@ export async function exportPlan(orchestrator: Orchestrator, runId: string): Pro
   const issues = new Map(((await read<{ issues: readonly ExportIssue[] }>("canonical-issues"))?.issues ?? []).map((issue) => [issue.candidateId, issue]));
   const ordered = topological(plan.tasks);
   const stamp = new Date().toISOString().slice(0, 10);
-  const directory = join(overview.repository, ".arbitra", "plans", `${stamp}-${runId.replace(/^run-/u, "").slice(0, 8)}`);
+  // Saving again keeps the earlier copy (and any progress ticked in it) and writes a new folder beside it.
+  const base = join(overview.repository, ".arbitra", "plans", `${stamp}-${runId.replace(/^run-/u, "").slice(0, 8)}`);
+  let directory = base;
+  for (let copy = 2; existsSync(directory); copy += 1) directory = `${base}-${copy}`;
   const files = new Map<string, string>();
   ordered.forEach((task, index) => files.set(join("prompts", TIERS[task.routing.capability].folder, `${String(index + 1).padStart(2, "0")}-${task.id}.md`), prompt(task, issues, plan.tasks)));
   files.set("README.md", readme(plan, ordered, runId, overview.workflowId ?? "unknown"));
