@@ -63,19 +63,22 @@ test.describe("finding, starting and reading runs", () => {
     await expect(page.locator(".run-header__meta")).toContainText(repository.split("/").slice(-2).join("/"));
   });
 
-  test("a model-backed template lists what is left to fill in, and preflight refuses it until it is", async ({ page }, testInfo) => {
+  test("preflight refuses a run this machine cannot start, and an API-key template lists what is left to fill in", async ({ page }, testInfo) => {
     await guard(page);
-    await page.goto("/?page=new-run&from=template:audit-mixed-providers");
-    const open = page.getByRole("list", { name: "placeholders to fill in" });
-    await expect(open.getByRole("listitem")).toHaveCount(6);
-    await page.getByLabel("model for auditor-a").selectOption("gpt-6-luna");
-    await expect(open.getByRole("listitem")).toHaveCount(4);
+    // The default starting point is complete, but this machine has none of the subscription CLIs it needs.
+    await page.goto("/?page=new-run");
+    await expect(page.getByLabel("model for auditor-a")).toHaveValue("claude-opus-5-5");
     await page.getByRole("button", { name: "save and start" }).click();
     const result = page.getByRole("region", { name: "check result" });
     await expect(result).not.toContainText("ready to start");
     await expect(page.getByText("Starting needs a configuration that passes preflight; fix the problems above first.")).toBeVisible();
     await expect(page.getByRole("heading", { level: 1, name: "New run" })).toBeVisible();
     await shot(page, testInfo, "navigation-03-template-refused");
+    await page.goto("/?page=new-run&from=template:audit-mixed-providers");
+    const open = page.getByRole("list", { name: "placeholders to fill in" });
+    await expect(open.getByRole("listitem")).toHaveCount(6);
+    await page.getByLabel("model for auditor-a").selectOption("gpt-6-luna");
+    await expect(open.getByRole("listitem")).toHaveCount(4);
   });
 
   for (const width of [1100, 800]) {
