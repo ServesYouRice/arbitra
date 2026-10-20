@@ -8,10 +8,10 @@ import { useApis } from "../../app/apis.js";
 import { MODE_LABELS } from "../../app/format.js";
 import { useNavigation } from "../../app/router.js";
 import { stableJson } from "../../graph/editor-model.js";
-import { effortFor, modelName, modelProfiles, PLACEHOLDER_PREFIX, record, type ModelProfileSummary } from "../run/models.js";
-import { catalogModel, MODEL_CATALOG, type CatalogModel } from "./model-catalog.js";
+import { effortFor, modelName, modelProfiles, PLACEHOLDER_PREFIX, record, roleEffort, type ModelProfileSummary } from "../run/models.js";
+import { modelSettings, offeredCatalog, withStrongestOffered, type CatalogModel, type OfferedModels } from "./model-catalog.js";
 import { getIn, graphOf, LIMITS, lines, modeOf, placeholders, presetOf, roleSlots, setIn, suggestedName, withGraph, withPreset, withScopeKind, type Draft, type RoleSlot } from "./draft.js";
-import { SCRIPTED_AUDIT, TEMPLATES } from "./templates.js";
+import { DEFAULT_START, SCRIPTED_AUDIT, TEMPLATES } from "./templates.js";
 
 const PRESET_SHAPES: Readonly<Record<string, string>> = Object.freeze({
   "audit-deep": "Three independent auditors, bounded peer review, verification, a planner and a critic.",
@@ -50,6 +50,10 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
   const [busy, setBusy] = useState<"checking" | "saving" | "starting" | null>(null);
   const [failure, setFailure] = useState<readonly string[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
+  const [environment, setEnvironment] = useState<DetectedEnvironment | null>(null);
+  const [environmentFailure, setEnvironmentFailure] = useState<string | null>(null);
+  const [picking, setPicking] = useState(false);
+  const [pickFailure, setPickFailure] = useState<string | null>(null);
 
   // The starting point is part of the address, so a template or a rerun is a link.
   useEffect(() => {
@@ -60,6 +64,19 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
   }, [from, graph, apis]);
 
   const dirty = loaded !== null && (stableJson(draft) !== stableJson(loaded.draft) || name !== loaded.name);
+  const loadEnvironment = (refresh: boolean): void => {
+    setEnvironmentFailure(null);
+    void fetch(`/diagnostics/environment${refresh ? "?refresh=1" : ""}`).then(async (response) => { if (!response.ok) throw new Error(`HTTP ${response.status}`); setEnvironment(await response.json() as DetectedEnvironment); })
+      .catch((error: unknown) => setEnvironmentFailure(error instanceof Error ? error.message : String(error)));
+  };
+  useEffect(() => { loadEnvironment(false); }, []);
+  const offered = useMemo(() => offeredModels(environment), [environment]);
+  // A template not yet edited takes the strongest Gemini this machine's CLI offers (Argon), as it does for the others.
+  useEffect(() => {
+    if (loaded === null || dirty || !(from === null || from.startsWith("template:"))) return;
+    const upgraded = withStrongestOffered(loaded.draft, offered);
+    if (upgraded !== loaded.draft) { setLoaded({ ...loaded, draft: upgraded }); setDraft(upgraded); }
+  }, [offered, loaded, dirty, from]);
   useEffect(() => { setGuard(dirty ? LEAVE : null); }, [dirty, setGuard]);
   useEffect(() => () => setGuard(null), [setGuard]);
 
@@ -95,10 +112,17 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
     setBusy("starting");
     try {
       const run = await apis.runs.start(id, repositoryPath);
+      rememberRepository(repositoryPath);
       setGuard(null);
       navigate({ page: "run", runId: run.runId, tab: null, item: null });
     } catch (cause) { setFailure(message(cause).split("\n")); }
     finally { setBusy(null); }
+  };
+  const browse = async (): Promise<void> => {
+    setPicking(true); setPickFailure(null);
+    try { const { path } = await apis.runs.pickRepository(); if (path !== null) setRepository(path); }
+    catch (cause) { setPickFailure(`the folder dialog could not open · ${message(cause)} · paste the path instead`); }
+    finally { setPicking(false); }
   };
   const importFile = async (file: File): Promise<void> => {
     try {
@@ -108,7 +132,7 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
     } catch (cause) { setFailure([`import failed · ${message(cause)}`]); }
   };
 
-  const startKey = from ?? (graph === null ? "template:scripted-audit" : "graph");
+  const startKey = from ?? (graph === null ? DEFAULT_START : "graph");
   return <div className="new-run">
     <div className="page-head"><div className="page-head__text">
       <h1 className="page-title">New run</h1>
@@ -127,11 +151,17 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
       </label>
       <p className="prose">{describeStart(startKey, loaded)}</p>
       <label className="field import">import a configuration file (JSON)<input accept="application/json,.json" aria-label="import a configuration file" type="file" onChange={(event) => { const file = event.target.files?.[0]; if (file !== undefined) void importFile(file); event.target.value = ""; }} /></label>
+      <p className="field__hint">Optional. A configuration file is every setting on this page saved as JSON, such as one someone sent you or one exported from a saved configuration. Importing it fills in this page; nothing runs until you start it.</p>
     </Section>
 
     <Section title="repository" id="repository">
-      <label className="field">repository path<input aria-label="repository path" value={repositoryPath} onChange={(event) => setRepository(event.target.value)} /></label>
-      <p className="field__hint">The run reads a snapshot of this directory. Nothing in it is modified, in any mode.</p>
+      <div className="repository-row">
+        <label className="field">repository path<input aria-label="repository path" list="recent-repositories" value={repositoryPath} onChange={(event) => setRepository(event.target.value)} /></label>
+        <button className="button" disabled={picking} type="button" onClick={() => { void browse(); }}>{picking ? "choose the folder in the window that opened" : "browse…"}</button>
+      </div>
+      <datalist id="recent-repositories">{recentRepositories().map((path) => <option key={path} value={path} />)}</datalist>
+      <p className="field__hint">The project folder to read: browse to it or paste its full path; folders you ran before are offered as you type. The run reads a snapshot of it and never modifies it, in any mode.</p>
+      {pickFailure === null ? null : <p className="state" data-state="degraded" role="alert">{pickFailure}</p>}
     </Section>
 
     <Section title={`what to run · ${MODE_LABELS[mode]}`} id="what">
@@ -142,7 +172,7 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
       <ScopeFields draft={draft} edit={edit} setDraft={setDraft} />
     </Section>
 
-    <ModelsSection draft={draft} edit={edit} onUseModels={() => navigate({ page: "new-run", from: "template:subscription-audit", graph: null }, { replace: true })} />
+    <ModelsSection draft={draft} edit={edit} offered={offered} machine={<MachineModels environment={environment} failure={environmentFailure} onRefresh={() => loadEnvironment(true)} />} onUseModels={() => navigate({ page: "new-run", from: "template:subscription-audit", graph: null }, { replace: true })} />
 
     <AdvancedSection draft={draft} edit={edit} setDraft={setDraft} />
 
@@ -161,6 +191,18 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
       {failure.length === 0 ? null : <div className="state" data-state="refuted" role="alert">{failure.map((line) => <p key={line}>{line}</p>)}</div>}
     </Section>
   </div>;
+}
+
+const RECENT_REPOSITORIES = "arbitra.recentRepositories";
+
+/** The folders this browser started runs on, newest first; a convenience, so storage that fails is ignored. */
+function recentRepositories(): readonly string[] {
+  try { const value: unknown = JSON.parse(localStorage.getItem(RECENT_REPOSITORIES) ?? "[]"); return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : []; }
+  catch { return []; }
+}
+function rememberRepository(path: string): void {
+  if (path.trim() === "") return;
+  try { localStorage.setItem(RECENT_REPOSITORIES, JSON.stringify([path, ...recentRepositories().filter((entry) => entry !== path)].slice(0, 8))); } catch { /* not kept */ }
 }
 
 function Section({ title, id, children }: { readonly title: string; readonly id: string; readonly children: ReactNode }): ReactElement {
@@ -266,30 +308,30 @@ function LinesField({ label, name, rows, values, onChange }: { readonly label: s
   return <label className="field">{label}<textarea aria-label={name} rows={rows} value={text} onChange={(event) => { setText(event.target.value); onChange(lines(event.target.value)); }} /></label>;
 }
 
-function ModelsSection({ draft, edit, onUseModels }: { readonly draft: Draft; readonly edit: Edit; readonly onUseModels: () => void }): ReactElement {
+function ModelsSection({ draft, edit, offered, machine, onUseModels }: { readonly draft: Draft; readonly edit: Edit; readonly offered: OfferedModels; readonly machine: ReactElement; readonly onUseModels: () => void }): ReactElement {
   const profiles = modelProfiles(draft);
   const aliases = profiles.map(({ alias }) => alias);
   if (profiles.length === 0) return <Section title="models" id="models">
-    <MachineModels />
+    {machine}
     <p className="state" data-state="unexamined">no models · the auditors are deterministic detectors</p>
     <p><button className="button button--primary" type="button" onClick={onUseModels}>audit with the subscription CLIs instead</button></p>
     <p className="prose">This run calls no model and spends nothing. It shows the pipeline works; it is not evidence about what models find. To audit with models, start from one of the model-backed templates.</p>
   </Section>;
-  const recommendable = profiles.filter((profile) => profile.placeholder && MODEL_CATALOG[profile.transport] !== undefined);
+  const recommendable = profiles.filter((profile) => profile.placeholder && offeredCatalog(profile.transport, offered) !== undefined);
   return <Section title="models" id="models">
-    <MachineModels />
+    {machine}
     <p className="note">Each profile names a model on an endpoint. Choose a model for each, or use the recommended ones; choosing one also sets its family and tier. The credentials themselves stay with the CLI or in the environment variables the endpoints name.</p>
-    {recommendable.length === 0 ? null : <p><button className="button" type="button" onClick={() => { for (const profile of recommendable) { const choice = MODEL_CATALOG[profile.transport]?.[0]; if (choice !== undefined) choose(edit, profile.alias, choice); } }}>
-      use the recommended models · {recommendable.map((profile) => modelName(MODEL_CATALOG[profile.transport]?.[0]?.modelId ?? "")).join(", ")}</button></p>}
+    {recommendable.length === 0 ? null : <p><button className="button" type="button" onClick={() => { for (const profile of recommendable) { const choice = offeredCatalog(profile.transport, offered)?.[0]; if (choice !== undefined) choose(edit, profile.alias, choice); } }}>
+      use the recommended models · {recommendable.map((profile) => modelName(offeredCatalog(profile.transport, offered)?.[0]?.modelId ?? "")).join(", ")}</button></p>}
     <p className="note">Effort per stage: {EFFORT_STAGES.map(({ label, stage }) => `${label} ${[...new Set(profiles.filter(({ roles }) => roles.some((role) => stage === "discovery" ? role.label.startsWith("auditor") : role.node === stage)).map(({ alias }) => effortFor(draft, alias, stage === "verification" ? "verification" : stage)))].join("/") || "-"}`).join(" · ")}. Audit depth sets the auditors&apos; effort; the later stages run at their own, usually lower, effort. Higher effort finds more and takes longer and more of your plan&apos;s usage.</p>
     <div className="table-scroll"><table aria-label="model profiles" className="table">
-      <thead><tr><th scope="col">profile</th><th scope="col">provider · transport</th><th scope="col">model</th><th scope="col">family</th><th scope="col">tier · independence</th><th scope="col">roles</th></tr></thead>
+      <thead><tr><th scope="col">profile</th><th scope="col">provider · transport</th><th scope="col">model</th><th scope="col">family</th><th scope="col">tier · independence</th><th scope="col">roles · effort</th></tr></thead>
       <tbody>{profiles.map((profile) => <tr data-placeholder={profile.placeholder} key={profile.alias}>
         <td>{profile.alias}</td>
         <td>{profile.provider} · {profile.transport}</td>
-        <ModelChoice profile={profile} edit={edit} />
+        <ModelChoice profile={profile} edit={edit} catalog={offeredCatalog(profile.transport, offered)} />
         <td>{profile.capabilityTier} · {profile.independenceGroup}</td>
-        <td>{profile.roles.map(({ label }) => label).join(", ") || "none"}</td>
+        <td>{profile.roles.map(({ label, node }) => { const effort = roleEffort(draft, profile.alias, node); return effort === null ? label : `${label} · ${effort}`; }).join(", ") || "none"}</td>
       </tr>)}</tbody>
     </table></div>
     <RoleFields draft={draft} edit={edit} aliases={aliases} />
@@ -303,24 +345,21 @@ function ModelsSection({ draft, edit, onUseModels }: { readonly draft: Draft; re
 const OTHER_MODEL = "other";
 
 function choose(edit: Edit, alias: string, model: CatalogModel): void {
-  edit(["models", alias, "modelId"], model.modelId);
-  edit(["models", alias, "family"], model.family);
-  edit(["models", alias, "capabilityTier"], model.tier);
+  for (const [path, value] of modelSettings(model)) edit(["models", alias, ...path], value);
 }
 
 /**
  * A profile's model chosen from the models known for its transport, so an ID cannot be mistyped. "Another model ID"
  * opens a typed ID and family for a model not listed; a transport with no list (an OpenAI-compatible endpoint) is typed.
  */
-function ModelChoice({ profile, edit }: { readonly profile: ModelProfileSummary; readonly edit: Edit }): ReactElement {
-  const catalog = MODEL_CATALOG[profile.transport];
-  const known = catalogModel(profile.transport, profile.modelId);
+function ModelChoice({ profile, edit, catalog }: { readonly profile: ModelProfileSummary; readonly edit: Edit; readonly catalog: readonly CatalogModel[] | undefined }): ReactElement {
+  const known = catalog?.find(({ modelId }) => modelId === profile.modelId);
   const unset = profile.modelId.startsWith(PLACEHOLDER_PREFIX);
   const [otherChosen, setOtherChosen] = useState(false);
   const typed = catalog === undefined || (known === undefined && (!unset || otherChosen));
   const typedId = (value: string): void => {
     edit(["models", profile.alias, "modelId"], value);
-    const match = catalogModel(profile.transport, value);
+    const match = catalog?.find(({ modelId }) => modelId === value);
     if (match !== undefined) choose(edit, profile.alias, match);
   };
   return <>
@@ -339,19 +378,15 @@ function ModelChoice({ profile, edit }: { readonly profile: ModelProfileSummary;
 
 const EFFORT_STAGES = [{ label: "auditors", stage: "discovery" }, { label: "verification", stage: "verification" }, { label: "plan", stage: "planner" }, { label: "critic", stage: "critic" }] as const;
 
-interface DetectedCli { readonly name: string; readonly state: string; readonly version: string | null; readonly note: string; readonly fix: string | null }
+interface DetectedCli { readonly transport: string; readonly name: string; readonly state: string; readonly version: string | null; readonly note: string; readonly fix: string | null; readonly models?: readonly { readonly id: string; readonly name: string }[] }
 interface DetectedEnvironment { readonly build: string; readonly clis: readonly DetectedCli[]; readonly apiKeys: Readonly<Record<string, boolean>> }
 
 /** The models this machine can run, found without a model call, with what to do about any that cannot run. */
-function MachineModels(): ReactElement {
-  const [environment, setEnvironment] = useState<DetectedEnvironment | null>(null);
-  const [failure, setFailure] = useState<string | null>(null);
-  const load = (refresh: boolean): void => {
-    setFailure(null);
-    void fetch(`/diagnostics/environment${refresh ? "?refresh=1" : ""}`).then(async (response) => { if (!response.ok) throw new Error(`HTTP ${response.status}`); setEnvironment(await response.json() as DetectedEnvironment); })
-      .catch((error: unknown) => setFailure(error instanceof Error ? error.message : String(error)));
-  };
-  useEffect(() => { load(false); }, []);
+function offeredModels(environment: DetectedEnvironment | null): OfferedModels {
+  return Object.fromEntries((environment?.clis ?? []).flatMap(({ transport, models }) => models === undefined ? [] : [[transport, models]]));
+}
+
+function MachineModels({ environment, failure, onRefresh }: { readonly environment: DetectedEnvironment | null; readonly failure: string | null; readonly onRefresh: () => void }): ReactElement {
   if (failure !== null) return <p className="state" data-state="degraded">models on this machine could not be checked · {failure}</p>;
   if (environment === null) return <p className="state" data-state="unexamined">checking the models on this machine</p>;
   const keys = Object.entries(environment.apiKeys).filter(([, set]) => set).map(([name]) => name);
@@ -361,7 +396,7 @@ function MachineModels(): ReactElement {
       {cli.name}{cli.version === null ? "" : ` ${cli.version}`} · {cli.state === "ready" ? "ready" : cli.state.replaceAll("_", " ")} · {cli.note}{cli.fix === null ? null : <span className="field__hint"> {cli.fix}</span>}
     </li>)}
       <li className="state" data-state={keys.length === 0 ? "unexamined" : "verified"}>API keys · {keys.length === 0 ? "none set (subscription CLIs need none)" : keys.join(", ")}</li></ul>
-    <button className="link-button" type="button" onClick={() => load(true)}>check again</button>
+    <button className="link-button" type="button" onClick={onRefresh}>check again</button>
   </div>;
 }
 
@@ -409,6 +444,7 @@ function AdvancedSection({ draft, edit, setDraft }: { readonly draft: Draft; rea
         <label className="field">harness
           <select aria-label="harness" value={String(getIn(draft, ["harness", "mode"]) ?? "canonical")} onChange={(event) => edit(["harness", "mode"], event.target.value)}><option value="canonical">canonical · the same tool loop for every model</option><option value="native">native · the vendor's own agent (Testing writer only)</option></select>
         </label>
+        <p className="field__hint">Each model already runs in its own vendor&apos;s CLI, with prompts in the style that model reads best. The harness only decides who runs the tool loop while the models read the code: arbitra&apos;s own, the same for every model, so that independent findings can be compared. A vendor&apos;s own agent is allowed only for writing tests.</p>
         <p className="field__hint"><code>budgets</code>, <code>security</code> and <code>contextPolicies</code> are not enforced by the runtime; preflight warns when they are set. Spend is limited by the model limits above.</p>
         <label className="field">configuration JSON · {base === null ? "exactly what will be saved" : "edited, not yet applied"}<textarea aria-label="configuration JSON" rows={18} spellCheck={false} value={text} onChange={(event) => { if (base === null) setBase(formatted); setText(event.target.value); }} /></label>
         {stale ? <p className="state" data-state="degraded" role="status">the form changed after these JSON edits began · applying them is refused</p> : null}
@@ -465,7 +501,7 @@ async function startingPoint(from: string | null, graph: string | null, apis: Re
     const draft = withGraph(setIn(SCRIPTED_AUDIT, ["workflow", "checkpoints"], { mode: "interactive" }), { id, version });
     return { draft, name: suggestedName("graph", draft), savedId: null, source: `saved graph ${id} @ ${version}` };
   }
-  const template = TEMPLATES.find(({ id }) => `template:${id}` === (from ?? "template:scripted-audit")) ?? TEMPLATES[0];
+  const template = TEMPLATES.find(({ id }) => `template:${id}` === (from ?? DEFAULT_START)) ?? TEMPLATES[0];
   if (template === undefined) throw new Error("NO_TEMPLATES");
   return { draft: template.config, name: suggestedName(template.id, template.config), savedId: null, source: template.label };
 }

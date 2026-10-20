@@ -198,11 +198,12 @@
       },
       "roles": {
         "planner": "auditor-a",
-        "verifier": "auditor-b",
-        "critic": "auditor-c"
+        "verifier": "auditor-a",
+        "critic": "auditor-c",
+        "critiqueChecker": "auditor-b"
       },
-      "maximumOutputTokens": 32000,
-      "maximumContextTokens": 128000,
+      "maximumOutputTokens": 128000,
+      "maximumContextTokens": 1000000,
       "estimatedBytesPerToken": 2,
       "stageEffort": {
         "clustering": "low",
@@ -212,26 +213,33 @@
         "critic": "medium",
         "revision": "medium"
       },
-      "maximumTokens": 3000000,
-      "timeoutMs": 600000,
-      "maximumRetries": 1,
-      "maximumOutputRepairs": 1,
+      "maximumTokens": 40000000,
+      "timeoutMs": 900000,
+      "maximumRetries": 2,
+      "maximumOutputRepairs": 2,
       "rateLimits": {
         "anthropic": {
-          "rpm": 10,
-          "tpm": 2000000,
-          "maxConcurrent": 1
+          "rpm": 30,
+          "tpm": 4000000,
+          "maxConcurrent": 4
         },
         "openai": {
-          "rpm": 10,
-          "tpm": 2000000,
-          "maxConcurrent": 1
+          "rpm": 30,
+          "tpm": 4000000,
+          "maxConcurrent": 4
         },
         "google": {
           "rpm": 10,
-          "tpm": 2000000,
-          "maxConcurrent": 1
+          "tpm": 4000000,
+          "maxConcurrent": 4
         }
+      },
+      "planSections": {
+        "issuesPerSection": 13
+      },
+      "maximumParallelCalls": 4,
+      "planScope": {
+        "minimumSeverity": "medium"
       }
     }
   },

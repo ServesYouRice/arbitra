@@ -44,7 +44,7 @@ test.describe("finding, starting and reading runs", () => {
   test("a scripted run is checked and started from the new-run page", async ({ page, request }, testInfo) => {
     const { repository } = await (await request.post("/__fixture/repositories/audit")).json() as { repository: string };
     await guard(page);
-    await page.goto("/?page=new-run");
+    await page.goto("/?page=new-run&from=template:scripted-audit");
     await expect(page.getByLabel("starting point")).toHaveValue("template:scripted-audit");
     await expect(page.getByText("no models · the auditors are deterministic detectors")).toBeVisible();
     await page.getByLabel("repository path").fill(repository);
@@ -65,10 +65,10 @@ test.describe("finding, starting and reading runs", () => {
 
   test("a model-backed template lists what is left to fill in, and preflight refuses it until it is", async ({ page }, testInfo) => {
     await guard(page);
-    await page.goto("/?page=new-run&from=template:subscription-audit");
+    await page.goto("/?page=new-run&from=template:audit-mixed-providers");
     const open = page.getByRole("list", { name: "placeholders to fill in" });
     await expect(open.getByRole("listitem")).toHaveCount(6);
-    await page.getByLabel("model for auditor-a").selectOption("claude-sonnet-5");
+    await page.getByLabel("model for auditor-a").selectOption("gpt-6-luna");
     await expect(open.getByRole("listitem")).toHaveCount(4);
     await page.getByRole("button", { name: "save and start" }).click();
     const result = page.getByRole("region", { name: "check result" });

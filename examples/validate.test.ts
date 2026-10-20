@@ -165,7 +165,8 @@ describe("model-backed templates", () => {
       }
       const execution = providerExecutionSchema.parse(config.workflow["modelExecution"]);
       expect(execution.maximumTokens).toBeGreaterThan(0);
-      expect(execution.maximumRetries).toBeLessThanOrEqual(1);
+      // At most the two retries the benchmark runs used (the subscription Audit template carries their settings).
+      expect(execution.maximumRetries).toBeLessThanOrEqual(2);
       // `budgets` is not an enforced limit; the templates must not imply a cost cap.
       expect(config.budgets).toEqual({});
     }

@@ -20,7 +20,14 @@ already have. It never changes your code.
 ## Start it
 
 1. Download this folder (or unzip it) anywhere.
-2. Double-click **`arbitra.cmd`** on Windows, or **`arbitra.command`** on macOS (on Linux, run `./arbitra.command`).
+2. Start it:
+   - **Windows:** double-click **`arbitra.cmd`**. If Windows asks whether to run it, choose **Run** (or **More info**,
+     then **Run anyway**).
+   - **macOS:** open **Terminal**, type `bash ` (with a space), drag **`arbitra.command`** from the folder into the
+     Terminal window, and press Return. (Double-clicking it also works once macOS allows it, but a downloaded file is
+     blocked at first as "from an unidentified developer".)
+   - **Linux:** run `./arbitra.command`.
+
    The first start installs and builds arbitra and takes a few minutes; later starts take seconds. Keep the window
    open while you use arbitra; closing it stops arbitra.
 3. Your browser opens on arbitra. If it does not, open <http://127.0.0.1:4178>.
@@ -29,9 +36,9 @@ already have. It never changes your code.
 
 1. Click **New run**. Under **Models**, check that the tools you have show as **ready**; if one does not, the line
    says what to do.
-2. Click **audit with the subscription CLIs instead**, then **use the recommended models** (or pick another model
-   for each auditor from its list).
-3. In **repository path**, paste the full path of the project folder you want audited.
+2. New run opens on three auditors on the subscription CLIs with the recommended models and settings (Opus 5.5 and
+   GPT-6.1 Sol at xhigh, Gemini 3.8 Flash at high thinking). You can pick another model for each from its list.
+3. Next to **repository path**, click **browse…** and choose the project folder you want audited (or paste its path).
 4. Click **check configuration**, then **save and start**. A run of a mid-sized project takes about an hour and a
    good part of your plans' usage, so start with a small project.
 5. When it finishes, the run page leads with **the plan**: **save the plan into the project as prompts** writes a

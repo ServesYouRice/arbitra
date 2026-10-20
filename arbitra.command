@@ -9,6 +9,8 @@ say() { echo "arbitra: $*"; }
 fail() { echo "arbitra: $*" >&2; exit 1; }
 
 # Node.js 22.13 or newer must be installed (any later version, current or LTS); arbitra does not install it.
+# Started from Finder, the window may lack the folders Homebrew and the Node installer use; they go last on PATH.
+export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
 command -v node >/dev/null 2>&1 || fail "arbitra needs Node.js 22.13 or newer, and none was found. Install the current LTS from https://nodejs.org and start arbitra again."
 version="$(node --version | sed -E 's/^v//')"; major="${version%%.*}"; minor="$(echo "$version" | cut -d. -f2)"
 if [ "$major" -lt 22 ] || { [ "$major" -eq 22 ] && [ "$minor" -lt 13 ]; }; then

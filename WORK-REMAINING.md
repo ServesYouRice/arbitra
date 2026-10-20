@@ -28,7 +28,9 @@ file says what is left and in what order. The measurements and decisions behind 
   used, and the New run page shows them with fixes and recommended models; graph nodes and "executed by" name the
   model and effort; each run has a plain-text report to copy and send (`/diagnostics/runs/:id`); the Plan tab saves
   the plan into the project as prompts grouped by model tier (`.arbitra/plans/`); each model is chosen from a list
-  rather than typed. [`TESTERS.md`](TESTERS.md) is the testers' guide. Later runs are on the owner's other projects,
+  rather than typed; New run opens on three auditors on the subscription CLIs with the settings of the benchmark's
+  premium panel (Gemini at high thinking, or Argon when the CLI offers it), and a browse button opens the system's
+  folder dialog. [`TESTERS.md`](TESTERS.md) is the testers' guide. Later runs are on the owner's other projects,
   for real-world data.
 - **Small fixes from the self-audit, on `friend-test` (October 20):** a system "permission denied" on Antigravity's
   stderr no longer discards its reply as a soft-denied tool; a spawn that runs out of file descriptors no longer

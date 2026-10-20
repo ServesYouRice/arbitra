@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../src/app/App.js";
 import { getIn, lines, placeholders, roleSlots, setIn, withGraph, withPreset, withScopeKind } from "../../src/pages/new-run/draft.js";
 import { SCRIPTED_AUDIT, TEMPLATES } from "../../src/pages/new-run/templates.js";
+import { offeredCatalog, withStrongestOffered } from "../../src/pages/new-run/model-catalog.js";
 import { address, stubBrowser, stubControlPlane, visit } from "../support.js";
 import { artifactRoutes, overview, resource } from "./fixtures.js";
 
@@ -44,42 +45,68 @@ describe("configuration drafts", () => {
 
   it("lists every value a template leaves to fill in, by path", () => {
     expect(placeholders(SCRIPTED_AUDIT)).toEqual([]);
-    expect(placeholders(template("subscription-audit").config)).toEqual(["models.auditor-a.modelId", "models.auditor-a.family", "models.auditor-b.modelId", "models.auditor-b.family", "models.auditor-c.modelId", "models.auditor-c.family"]);
+    // The subscription templates come with the recommended models chosen; the API-key ones leave them open.
+    expect(placeholders(template("subscription-audit").config)).toEqual([]);
+    expect(placeholders(template("audit-mixed-providers").config)).toEqual(["models.auditor-a.modelId", "models.auditor-a.family", "models.auditor-b.modelId", "models.auditor-b.family", "models.auditor-c.modelId", "models.auditor-c.family"]);
     expect(placeholders(template("testing-execute").config)).toEqual(expect.arrayContaining(["workflow.testing.goal", "workflow.testing.execution.verification.execution.image"]));
   });
 
+  it("adds the Gemini models this machine's CLI offers, Argon first, and moves an untouched template to it", () => {
+    const offered = { "antigravity-cli": [{ id: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)" }, { id: "gemini-4-argon", name: "Gemini 4 Argon" }, { id: "claude-opus-4-6-thinking", name: "Claude Opus 4.6" }] };
+    expect(offeredCatalog("antigravity-cli", offered)?.map(({ modelId }) => modelId)).toEqual(["gemini-4-argon", "gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-3.8-flash-low"]);
+    const audit = template("subscription-audit").config;
+    expect(getIn(withStrongestOffered(audit, offered), ["models", "auditor-c", "modelId"])).toBe("gemini-4-argon");
+    expect(withStrongestOffered(audit, { "antigravity-cli": [] })).toBe(audit);
+  });
+
   it("offers every model-backed template, each in the mode it says", () => {
-    expect(TEMPLATES.map(({ id }) => id)).toEqual(["scripted-audit", "subscription-audit", "audit-mixed-providers", "audit-compatible-chat", "subscription-feature-interactive", "subscription-feature-automatic", "feature-interactive", "feature-automatic", "subscription-testing-plan", "subscription-testing-execute", "testing-plan", "testing-execute"]);
+    expect(TEMPLATES.map(({ id }) => id)).toEqual(["subscription-audit", "scripted-audit", "audit-mixed-providers", "audit-compatible-chat", "subscription-feature-interactive", "subscription-feature-automatic", "feature-interactive", "feature-automatic", "subscription-testing-plan", "subscription-testing-execute", "testing-plan", "testing-execute"]);
     for (const { mode, config } of TEMPLATES) expect(config["mode"]).toBe(mode);
   });
 });
 
 describe("the new-run page", () => {
-  it("starts from the scripted smoke test, says it calls no model, and describes the preset's steps", async () => {
+  it("starts from three auditors on the subscription CLIs with the recommended models at the benchmark's efforts", async () => {
     stubBrowser();
     stubControlPlane(BASE_ROUTES);
     visit("?page=new-run");
     render(<App />);
     expect(await screen.findByRole("heading", { level: 1, name: "New run" })).toBeTruthy();
+    expect((screen.getByRole("combobox", { name: "starting point" }) as HTMLSelectElement).value).toBe("template:subscription-audit");
+    expect((await screen.findByRole("combobox", { name: "model for auditor-a" }) as HTMLSelectElement).value).toBe("claude-opus-5-5");
+    expect((screen.getByRole("combobox", { name: "model for auditor-b" }) as HTMLSelectElement).value).toBe("gpt-6.1-sol");
+    expect((screen.getByRole("combobox", { name: "model for auditor-c" }) as HTMLSelectElement).value).toBe("gemini-3.8-flash-high");
+    const rows = within(screen.getByRole("table", { name: "model profiles" })).getAllByRole("row");
+    expect(rows[1]?.textContent).toContain("auditor a · xhigh");
+    expect(rows[3]?.textContent).toContain("auditor c · high");
+    expect(screen.queryByRole("list", { name: "placeholders to fill in" })).toBeNull();
+  });
+
+  it("starts the scripted smoke test, says it calls no model, and describes the preset's steps", async () => {
+    stubBrowser();
+    stubControlPlane(BASE_ROUTES);
+    visit("?page=new-run&from=template:scripted-audit");
+    render(<App />);
+    expect(await screen.findByRole("heading", { level: 1, name: "New run" })).toBeTruthy();
     expect((screen.getByRole("combobox", { name: "starting point" }) as HTMLSelectElement).value).toBe("template:scripted-audit");
     expect(await screen.findByText("no models · the auditors are deterministic detectors")).toBeTruthy();
     expect(await screen.findByText(/Steps: Preflight → Auditor A, Auditor B → Consensus\./u)).toBeTruthy();
-    expect((await screen.findByRole("textbox", { name: "repository path" }) as HTMLInputElement).value).toBe("/work/fixture");
+    expect((await screen.findByRole("combobox", { name: "repository path" }) as HTMLInputElement).value).toBe("/work/fixture");
   });
 
   it("lists what a template leaves open, and the list shrinks as values are filled in", async () => {
     stubBrowser();
     stubControlPlane(BASE_ROUTES);
-    visit("?page=new-run&from=template:subscription-audit");
+    visit("?page=new-run&from=template:audit-mixed-providers");
     render(<App />);
     const list = await screen.findByRole("list", { name: "placeholders to fill in" });
     expect(within(list).getAllByRole("listitem")).toHaveLength(6);
-    fireEvent.change(screen.getByRole("combobox", { name: "model for auditor-a" }), { target: { value: "claude-sonnet-5" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "model for auditor-a" }), { target: { value: "gpt-6-luna" } });
     await waitFor(() => expect(within(screen.getByRole("list", { name: "placeholders to fill in" })).getAllByRole("listitem")).toHaveLength(4));
     expect(screen.queryByRole("textbox", { name: "model ID for auditor-a" })).toBeNull();
     fireEvent.change(screen.getByRole("combobox", { name: "model for auditor-b" }), { target: { value: "other" } });
-    fireEvent.change(screen.getByRole("textbox", { name: "model ID for auditor-b" }), { target: { value: "gpt-7-preview" } });
-    fireEvent.change(screen.getByRole("textbox", { name: "family for auditor-b" }), { target: { value: "gpt" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "model ID for auditor-b" }), { target: { value: "claude-next-preview" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "family for auditor-b" }), { target: { value: "claude" } });
     await waitFor(() => expect(within(screen.getByRole("list", { name: "placeholders to fill in" })).getAllByRole("listitem")).toHaveLength(2));
     expect((screen.getByRole("combobox", { name: "planner role" }) as HTMLSelectElement).value).toBe("auditor-a");
   });
@@ -217,7 +244,7 @@ describe("the new-run page", () => {
     stubControlPlane({ ...BASE_ROUTES, "GET /runs/run-1/overview": overview({ repository: "/work/other" }) });
     visit("?page=new-run&from=run:run-1");
     render(<App />);
-    await waitFor(() => expect((screen.getByRole("textbox", { name: "repository path" }) as HTMLInputElement).value).toBe("/work/other"));
+    await waitFor(() => expect((screen.getByRole("combobox", { name: "repository path" }) as HTMLInputElement).value).toBe("/work/other"));
     expect(screen.getByText("Starting from the settings run run-1 was created with.")).toBeTruthy();
   });
 

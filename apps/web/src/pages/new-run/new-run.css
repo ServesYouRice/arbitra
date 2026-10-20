@@ -11,6 +11,9 @@ input.placeholder, select.placeholder { border-inline-start: var(--stripe) solid
 tr[data-placeholder="true"] td:first-child { font-weight: 600; color: var(--ink); }
 .limits .field { align-content: start; }
 .form-section .table input, .form-section .table select { min-width: 16rem; }
+/* The path field takes the width; browse sits at its end, and drops below it on a narrow screen. */
+.repository-row { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: end; }
+.repository-row .field { flex: 1 1 20rem; }
 .model-choice { display: grid; gap: var(--s1); }
 .diagnostics > li { display: grid; gap: var(--s1); padding-block: var(--s1); }
 .advanced > summary { list-style: none; cursor: pointer; }

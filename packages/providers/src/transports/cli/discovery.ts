@@ -111,7 +111,8 @@ async function wellKnownLocations(support: CliTransportSupport, host: DiscoveryH
     case "gemini": return commandIn(npmBins);
     case "antigravity": {
       const links = host.platform === "win32" && host.lookup("LOCALAPPDATA") !== undefined ? [join(host.lookup("LOCALAPPDATA") ?? "", "Microsoft", "WinGet", "Links", "agy.exe")] : [];
-      return [...(home === undefined ? [] : [join(home, ".local", "bin", `agy${exe}`)]), ...links];
+      // Homebrew and other package managers put it in the usual binary folders (on macOS, /opt/homebrew/bin).
+      return [...(home === undefined ? [] : [join(home, ".local", "bin", `agy${exe}`)]), ...links, ...commandIn(npmBins)];
     }
   }
 }

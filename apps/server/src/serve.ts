@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { detectEnvironment, type DetectedEnvironment } from "@arbitra/runtime/environment.js";
 import { exportPlan } from "@arbitra/runtime/plan-export.js";
+import { pickFolder } from "./folder-picker.js";
 import { runReport } from "@arbitra/runtime/run-report.js";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,6 +42,7 @@ app.get<{ Querystring: { refresh?: string } }>("/diagnostics/environment", async
 });
 // Writes a run's plan into its repository as prompts, on the operator's explicit request only.
 app.post<{ Params: { runId: string } }>("/handoff/runs/:runId", async (request) => exportPlan(orchestrator, request.params.runId));
+app.post("/repositories/pick", async () => ({ path: await pickFolder("Choose the project folder for arbitra to read") }));
 app.get<{ Params: { runId: string } }>("/diagnostics/runs/:runId", async (request, reply) => {
   const text = await runReport(orchestrator, request.params.runId, await environment.catch(() => null), build);
   return reply.type("text/plain; charset=utf-8").send(text);

@@ -82,6 +82,12 @@ export function effortFor(config: Readonly<Record<string, unknown>>, alias: stri
   return slug ?? level;
 }
 
+/** The effort a role runs at (an auditor at the audit's depth, a later stage at its own), or null for another role. */
+export function roleEffort(config: Readonly<Record<string, unknown>>, alias: string, node: string): string | null {
+  const stage = node.startsWith("auditor-") ? "discovery" : node;
+  return stage === "discovery" || stage === "verification" || stage === "planner" || stage === "critic" ? effortFor(config, alias, stage) : null;
+}
+
 /** Each model node's label as the model that ran it and its effort, such as `Opus 5.5 · xhigh`, for graphs. */
 export function modelNodeLabels(config: Readonly<Record<string, unknown>> | null): ReadonlyMap<string, string> {
   if (config === null || config["mode"] !== "audit") return new Map();

@@ -60,6 +60,8 @@ export class RunApi {
   list(): Promise<readonly RunListItem[]> { return this.request("/runs"); }
   overview(runId: string): Promise<RunOverview> { return this.request(`/runs/${encodeURIComponent(runId)}/overview`); }
   selectedRepository(): Promise<{ readonly repository: string }> { return this.request("/repositories/selected"); }
+  /** Opens the system's folder dialog on this machine (the control plane's); null when it was cancelled. */
+  pickRepository(): Promise<{ readonly path: string | null }> { return this.request("/repositories/pick", { method: "POST", body: "{}" }); }
   selectRepository(path: string): Promise<unknown> { return this.request("/repositories/select", { method: "POST", body: JSON.stringify({ path }) }); }
   preflight(config: unknown, repository = ""): Promise<PreflightResult> { return this.request("/preflight", { method: "POST", body: JSON.stringify(repository.trim() === "" ? { config } : { config, repository }) }); }
   estimate(configurationId: string, repository = ""): Promise<EstimateResource> { return this.request("/estimate", { method: "POST", body: JSON.stringify(runBody(configurationId, repository)) }); }
