@@ -19,7 +19,8 @@ already have. It never changes your code.
 
 ## Start it
 
-1. Download this folder (or unzip it) anywhere.
+1. Download the zip from the latest release, <https://github.com/ServesYouRice/arbitra/releases/latest>, and unzip it
+   anywhere.
 2. Start it:
    - **Windows:** double-click **`arbitra.cmd`**. If Windows asks whether to run it, choose **Run** (or **More info**,
      then **Run anyway**).
@@ -47,12 +48,16 @@ already have. It never changes your code.
    `.arbitra/plans/` folder into your project. It has one ready-to-paste prompt per fix, sorted by the kind of model
    each suits, and an `AGENTS.md` a coding agent follows: open the project in Claude Code or Codex and ask it to
    work through `.arbitra/plans/<folder>`. Answer the questions its README lists first: they are decisions only you
-   can make. The **Issues** tab lists what was found and how it was checked.
+   can make. Issues the models could not settle get a prompt of their own under `prompts/0-check-first`, which asks
+   a strong model to decide whether the defect is real and fix it if it is; `also-found.md` lists the smaller
+   defects the plan leaves out. The **Issues** tab lists what was found and how it was checked.
 
 ## If something goes wrong
 
 If a run pauses at its token limit, its page offers **raise to … and resume**: it goes on from where it stopped and
-keeps everything it has done. If a run stops on a usage limit of one of your plans, resume it once that limit resets.
+keeps everything it has done. If a run reaches a usage limit of one of your plans, it pauses and keeps everything too;
+when the plan says when the limit resets, arbitra resumes the run by itself a minute later while it stays open.
+Otherwise resume it from the run's page once the limit has reset.
 
 On the run's page, open **report to send**, click **copy**, and send the text to whoever gave you arbitra. It holds
 no source code and no secrets: the app's version, your system, which tools it found, the run's settings and any

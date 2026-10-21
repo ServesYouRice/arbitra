@@ -88,7 +88,8 @@ model run requires.
 
 ## Running it
 
-**To just use it:** with Node.js 22.13 or newer installed, double-click `arbitra.cmd` (Windows) or `arbitra.command` (macOS,
+**To just use it:** download the zip from the [latest release](https://github.com/ServesYouRice/arbitra/releases/latest)
+and, with Node.js 22.13 or newer installed, double-click `arbitra.cmd` (Windows) or `arbitra.command` (macOS,
 Linux). It installs and builds on first start and opens the app on <http://127.0.0.1:4178>.
 [`TESTERS.md`](TESTERS.md) walks a first audit through.
 
