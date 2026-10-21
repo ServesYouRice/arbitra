@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -250,7 +250,7 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
     return { status: 200, headers: {}, body: response };
   };
   const create = (testSandbox?: TestSandbox, providerOptions: TransportFactoryOptions & { readonly factories?: Readonly<Record<string, TransportFactory>> } = {}) => new Orchestrator({ repository: directory, stateDirectory: join(directory, ".runs"), providerOptions: { client: { send }, credential: () => "fixture-credential", ...providerOptions }, ...(testSandbox === undefined ? {} : { testSandbox }) });
-  return { create, config, requests, verificationInputs, plannerContexts, plannerReads, reviewInputs, packedChecks, criticIssueIds, verificationFlight, mergedListedPair: () => mergedListedPair, failRevisionPatch: (value: boolean) => { failRevisionPatch = value; }, failExpansion: (value: boolean) => { failExpansion = value; }, failCritic: (value: boolean) => { failCritic = value; }, failVerification: (value: boolean) => { failVerification = value; }, blockDiscovery: (callback: () => void) => { blockDiscovery = callback; } };
+  return { directory, create, config, requests, verificationInputs, plannerContexts, plannerReads, reviewInputs, packedChecks, criticIssueIds, verificationFlight, mergedListedPair: () => mergedListedPair, failRevisionPatch: (value: boolean) => { failRevisionPatch = value; }, failExpansion: (value: boolean) => { failExpansion = value; }, failCritic: (value: boolean) => { failCritic = value; }, failVerification: (value: boolean) => { failVerification = value; }, blockDiscovery: (callback: () => void) => { blockDiscovery = callback; } };
 }
 
 describe("composed model audits", () => {
@@ -447,7 +447,7 @@ describe("composed model audits", () => {
 
   it("waits for answers to blocking plan questions, then applies them with one planner call", async () => {
     // Observed live: an Audit plan correctly left "throw or clamp?" open and failed its gate, with no way to answer it.
-    const { create, config, requests } = await fixture({ planQuestion: true });
+    const { directory, create, config, requests } = await fixture({ planQuestion: true });
     const interactive = { ...config, workflow: { ...config.workflow, checkpoints: { mode: "interactive" } } };
     const core = create(); const result = await core.run(interactive);
     expect(result.state).toBe("BLOCKED");
@@ -459,6 +459,10 @@ describe("composed model audits", () => {
     // The run list counts the unanswered questions as the run's one pending decision.
     const listed = async () => (await core.listRuns()).find(({ runId }) => runId === result.runId);
     expect(await listed()).toMatchObject({ state: "BLOCKED", pendingDecisions: 1, gate: null });
+    // Observed live: a stage's work lands as artifacts between state changes, and "last activity" stayed at the run's start.
+    const later = new Date(Date.parse((await listed())?.updatedAt ?? "") + 60_000);
+    await utimes(join(directory, ".runs", "runs", result.runId, "artifacts.json"), later, later);
+    expect((await listed())?.updatedAt).toBe(later.toISOString());
     await expect(core.respondCheckpoint(result.runId, "plan-questions", { version: pending.version, answers: [{ questionId: "Q-other", answer: "Clamp." }] })).rejects.toThrow("PLAN_QUESTION_ANSWERS_INVALID");
     await expect(core.respondCheckpoint(result.runId, "plan-questions", { version: "0".repeat(64), answers: [{ questionId: "Q-null", answer: "Clamp." }] })).rejects.toThrow("STALE_CHECKPOINT");
     // The CLI reads the answers from a file: respond-checkpoint <run> plan-questions <version> answers.json

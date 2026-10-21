@@ -18,7 +18,7 @@ export async function runReport(orchestrator: Orchestrator, runId: string, envir
     for (const cli of environment.clis) add(`  ${cli.name}: ${cli.state}${cli.version === null ? "" : ` ${cli.version}`} · ${cli.note}`);
     add(`  API keys set: ${Object.entries(environment.apiKeys).filter(([, set]) => set).map(([name]) => name).join(", ") || "none"}`);
   }
-  add("", `run ${runId}`, `  mode ${overview.mode ?? "unknown"} · workflow ${overview.workflowId ?? "unknown"} · state ${overview.state ?? "unreadable"}${overview.reason === null ? "" : ` (${overview.reason})`}`,
+  add("", `run ${runId}`, `  mode ${overview.mode ?? "unknown"} · workflow ${overview.workflowId ?? "unknown"} · state ${overview.state ?? "unreadable"}${overview.reason === null ? "" : ` (${overview.reason})`}${overview.live ? " · running now" : ""}`,
     `  gate ${overview.gate === null ? "not reached" : `${overview.gate.status}${overview.gate.reasons.length === 0 ? "" : ` · ${overview.gate.reasons.join(", ")}`}`}`,
     `  created ${overview.createdAt ?? "unknown"} · last activity ${overview.updatedAt ?? "unknown"}`,
     `  scope ${JSON.stringify(overview.scope)}`);

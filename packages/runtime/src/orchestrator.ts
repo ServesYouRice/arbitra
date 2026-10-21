@@ -120,7 +120,7 @@ export interface RunListItem {
   readonly repository: string | null;
   /** A scripted Audit runs deterministic detectors and makes no model calls. */
   readonly executor: "models" | "scripted" | null;
-  /** When the run was created and when it last recorded an event (ISO-8601). */
+  /** When the run was created and when it last recorded an event or an artifact (ISO-8601). */
   readonly createdAt: string | null;
   readonly updatedAt: string | null;
   /**
@@ -874,7 +874,9 @@ export class Orchestrator {
 
   async #runListItem(runId: string): Promise<RunListItem> {
     const store = new RunStore(this.#runsDirectory, runId);
-    const { createdAt, updatedAt } = await store.times();
+    const { createdAt, updatedAt: eventAt, artifactsAt } = await store.times();
+    // Events record only state changes; a stage's work shows as artifacts, so an hour-long stage is not "last active" at its start.
+    const updatedAt = eventAt === null || artifactsAt !== null && artifactsAt > eventAt ? artifactsAt : eventAt;
     const times = { createdAt, updatedAt, live: this.#isLive(runId) };
     try {
       const context = await store.loadContext();
