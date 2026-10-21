@@ -1,7 +1,7 @@
 import "./issue-board.css";
 import { useMemo, useState, type ReactElement } from "react";
 import { ArtifactApi } from "../../api/artifacts.js";
-import { describeSuppressionCandidate, describeUnexaminedSurface, EMPTY_FILTERS, filterIssues, filterOptions, issueRows, offeredFilters, type IssueFilters, type IssueRow, type PersistedFinding, type PersistedIssueOp, type PersistedIssueSet, type PersistedVerification } from "./model.js";
+import { describeSuppressionCandidate, describeUnexaminedSurface, EMPTY_FILTERS, filterIssues, filterOptions, issueRows, offeredFilters, UNVERIFIED_NOTE, unverifiedUnresolved, type IssueFilters, type IssueRow, type PersistedFinding, type PersistedIssueOp, type PersistedIssueSet, type PersistedVerification } from "./model.js";
 import { RUN_ARTIFACT_KINDS, useRunArtifact, type RunArtifact } from "./run-artifacts.js";
 
 export interface IssueBoard { readonly issueSet: RunArtifact<PersistedIssueSet>; readonly findings: readonly PersistedFinding[]; readonly rows: readonly IssueRow[]; readonly pending: readonly string[] }
@@ -20,6 +20,12 @@ export function useIssueBoard(api: ArtifactApi, runId: string | null, refreshKey
   return { issueSet, findings: findings.value ?? [], rows, pending };
 }
 
+/** The unresolved count, with how many of them verification never checked, and the note that explains it. */
+export function unresolvedText(count: number, rows: readonly IssueRow[]): { readonly text: string; readonly note: string | undefined } {
+  const unverified = unverifiedUnresolved(rows);
+  return { text: `${count} unresolved${unverified === 0 ? "" : ` (${unverified} not verified)`}`, note: unverified === 0 ? undefined : UNVERIFIED_NOTE };
+}
+
 export interface IssueBoardViewProps { readonly runId: string | null; readonly api?: ArtifactApi; readonly selectedId?: string | null; readonly onSelect?: (candidateId: string) => void; readonly refreshKey?: unknown }
 
 /**
@@ -35,10 +41,11 @@ export function IssueBoardView({ runId, api = SHARED_ARTIFACT_API, selectedId = 
   const visible = useMemo(() => filterIssues(rows, filters), [rows, filters]);
   if (issueSet.state !== "loaded" || issueSet.value === null) return <section aria-label="issue board"><h2 className="panel-title">issue board</h2><p className="state" data-state={issueSet.state === "error" ? "degraded" : "unexamined"}>canonical issue artifact {issueSet.state === "error" ? `unavailable · ${issueSet.error ?? "error"}` : issueSet.state}</p></section>;
   const { summary } = issueSet.value;
-  const filtered = Object.values(filters).some((value) => value !== null);
+  const unresolved = unresolvedText(summary.unresolvedCount, rows);
+  const filtered =Object.values(filters).some((value) => value !== null);
   return <section aria-label="issue board" className="issue-board">
     <h2 className="panel-title">issue board</h2>
-    <p className="board-summary">{summary.auditorCount} auditors · {summary.sourceFindingCount} source findings · {summary.acceptedCount} accepted · {summary.rejectedCount} rejected · {summary.unresolvedCount} unresolved · {summary.singleSourceCount} single-source</p>
+    <p className="board-summary" title={unresolved.note}>{summary.auditorCount} auditors · {summary.sourceFindingCount} source findings · {summary.acceptedCount} accepted · {summary.rejectedCount} rejected · {unresolved.text} · {summary.singleSourceCount} single-source</p>
     {pending.length === 0 ? null : <p className="state" data-state={pending.some((line) => line.includes("unavailable")) ? "degraded" : "unexamined"}>{pending.join(" · ")} · locations, statuses and verification may show as missing until then</p>}
     <CoverageSummary issueSet={issueSet.value} />
     <div className="board-filters" role="group" aria-label="issue filters">

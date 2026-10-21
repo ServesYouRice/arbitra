@@ -17,7 +17,11 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
   try {
     const content = {
       "plan-ir": { title: "Section one; Section two", tasks: [task("TASK-2", "fast", ["TASK-1"]), task("TASK-1", "frontier")], unresolvedQuestions: [{ id: "Q-1", question: "Which way?", blocking: true }] },
-      "canonical-issues": { issues: [{ candidateId: "C-1", severity: "high", disposition: "accepted", claim: { title: "A defect", description: "It breaks." } }] },
+      "canonical-issues": { issues: [{ candidateId: "C-1", severity: "high", disposition: "accepted", claim: { title: "A defect", description: "It breaks." } },
+        { candidateId: "C-2", severity: "medium", disposition: "needs_verification", verificationOutcome: "STILL_NEEDS_VERIFICATION", claim: { title: "A disputed defect", description: "It may break." },
+          dissent: [{ authorId: "auditor-a", disposition: "reject", reason: "The caller guards it." }] },
+        { candidateId: "C-3", severity: "low", disposition: "needs_verification", verificationOutcome: null, claim: { title: "A minor defect", description: "It is untidy." } }] },
+      "plan-scope": { minimumSeverity: "medium" },
     };
     const orchestrator = {
       overview: async () => ({ repository, workflowId: "audit-deep" }),
@@ -29,6 +33,13 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
     const readme = await readFile(join(first.directory, "README.md"), "utf8");
     expect(readme).toMatch(/^# Plan · 2 tasks for 1 issue\n\n- Section one\n- Section two\n/u);
     expect(readme).toContain("**Q-1**: Which way?");
+    // An issue of the plan's scope the audit left open gets a prompt to settle it; one below the scope is only counted.
+    expect(readme).toContain("## Check these");
+    expect(readme).toContain("1. `C-2` A disputed defect · medium");
+    expect(readme).toContain("1 lower-severity issue was left unverified and is not planned");
+    const check = await readFile(join(first.directory, "prompts", "0-check-first", "01-C-2.md"), "utf8");
+    expect(check).toContain("<what_the_reviewers_said>\n- auditor-a (reject): The caller guards it.\n</what_the_reviewers_said>");
+    expect(await readFile(join(first.directory, "PROGRESS.md"), "utf8")).toMatch(/- \[ \] check 01 `C-2` A disputed defect\n- \[ \] 01 `TASK-1`/u);
     expect(await readFile(join(first.directory, "prompts", "3-fast-model", "02-TASK-2.md"), "utf8")).toContain("<done_before_this>\n- TASK-1 Fix TASK-1\n</done_before_this>");
     const second = await exportPlan(orchestrator, "run-12345678-abcd");
     expect(second.directory).toBe(`${first.directory}-2`);

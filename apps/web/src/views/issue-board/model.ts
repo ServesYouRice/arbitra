@@ -41,6 +41,17 @@ export function offeredFilters(filters: IssueFilters, options: ReturnType<typeof
 }
 export function filterOptions(rows: readonly IssueRow[]): Readonly<Record<"severity" | "status" | "auditor" | "category" | "consensusState" | "verificationOutcome", readonly string[]>> { return Object.freeze({ severity: unique(rows.map(({ severity }) => severity)), status: unique(rows.map(({ status }) => status)), auditor: unique(rows.flatMap(({ auditors }) => auditors)), category: unique(rows.flatMap(({ categories }) => categories)), consensusState: unique(rows.map(({ consensusState }) => consensusState)), verificationOutcome: unique(rows.map(({ verificationOutcome }) => verificationOutcome).filter((value): value is VerificationOutcome => value !== null)) }); }
 /** One line for an unexamined surface, whichever producer wrote it; an entry of an unknown shape is shown as recorded. */
+/**
+ * Unresolved issues verification never looked at, such as those below the plan's minimum severity. Observed live
+ * (October 21, 2026): 81 of a run's 95 unresolved issues were low or informational and skipped by design, which read
+ * as 95 open questions.
+ */
+export function unverifiedUnresolved(rows: readonly IssueRow[]): number {
+  return rows.filter(({ consensusState, verificationOutcome }) => (consensusState === "needs_verification" || consensusState === "non_consensus") && verificationOutcome === null).length;
+}
+
+export const UNVERIFIED_NOTE = "Not verified: unresolved issues verification did not check, such as those below the plan's minimum severity. They stay on the board but are not planned.";
+
 export function describeUnexaminedSurface(entry: PersistedCoverageEntry): string {
   if (typeof entry === "string") return `verification deferred · ${entry}`;
   const fields = record(entry);

@@ -7,7 +7,7 @@ import { formatTime, isActive } from "../../app/format.js";
 import { GateVerdict } from "../../app/marks.js";
 import { Link, type RunTab } from "../../app/router.js";
 import { FeatureOutcome, HandoffDownload } from "../../views/feature/FeatureView.js";
-import { CONSENSUS_LABELS, CoverageSummary, useIssueBoard } from "../../views/issue-board/IssueBoardView.js";
+import { CONSENSUS_LABELS, CoverageSummary, unresolvedText, useIssueBoard } from "../../views/issue-board/IssueBoardView.js";
 import { usePlan } from "../../views/plan/PlanView.js";
 import { Handoff, Outcome, Planning, useTestingView } from "../../views/testing/TestingView.js";
 import { executorText } from "./RunHeader.js";
@@ -77,7 +77,7 @@ function AuditSummary({ runId, refreshKey }: { readonly runId: string; readonly 
     <section aria-labelledby="issues-summary-title" className="section">
       <h2 className="panel-title" id="issues-summary-title">issues</h2>
       {issueSet.state !== "loaded" || issueSet.value === null ? <p className="state" data-state={issueSet.state === "error" ? "degraded" : "unexamined"}>{issueSet.state === "error" ? `issue set unavailable · ${issueSet.error ?? "error"}` : issueSet.state === "loading" ? "reading the issue set" : "no canonical issue set recorded yet"}</p> : <>
-        <p className="board-summary">{rows.length} canonical issues from {issueSet.value.summary.sourceFindingCount} source findings by {issueSet.value.summary.auditorCount} auditors · {issueSet.value.summary.acceptedCount} accepted · {issueSet.value.summary.rejectedCount} rejected · {issueSet.value.summary.unresolvedCount} unresolved · {rows.filter(({ blocker }) => blocker).length} blockers</p>
+        <p className="board-summary" title={unresolvedText(issueSet.value.summary.unresolvedCount, rows).note}>{rows.length} canonical issues from {issueSet.value.summary.sourceFindingCount} source findings by {issueSet.value.summary.auditorCount} auditors · {issueSet.value.summary.acceptedCount} accepted · {issueSet.value.summary.rejectedCount} rejected · {unresolvedText(issueSet.value.summary.unresolvedCount, rows).text} · {rows.filter(({ blocker }) => blocker).length} blockers</p>
         <CoverageSummary issueSet={issueSet.value} />
         {ranked.length === 0 ? null : <ul aria-label="most severe issues" className="plain-list">{ranked.map((row) => <li className="overview-issue" data-severity={row.severity} key={row.candidateId}>
           <Link to={{ page: "run", runId, tab: "issues", item: selectionItem({ kind: "issue", id: row.candidateId }) }}>{row.title}</Link>

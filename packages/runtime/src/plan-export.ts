@@ -16,7 +16,12 @@ interface ExportTask {
   readonly rollbackPlan: readonly string[];
 }
 interface ExportPlan { readonly title: string; readonly tasks: readonly ExportTask[]; readonly unresolvedQuestions: readonly { readonly id: string; readonly question: string; readonly blocking: boolean }[] }
-interface ExportIssue { readonly candidateId: string; readonly severity: string; readonly disposition: string; readonly claim: { readonly title: string; readonly description: string } }
+interface ExportIssue {
+  readonly candidateId: string; readonly severity: string; readonly disposition: string; readonly claim: { readonly title: string; readonly description: string };
+  readonly verificationOutcome?: string | null; readonly dissent?: readonly { readonly authorId: string; readonly disposition: string; readonly reason: string }[];
+}
+const SEVERITIES = ["informational", "low", "medium", "high", "critical"];
+const CHECK_FIRST = "0-check-first";
 
 const TIERS = {
   frontier: { folder: "1-strong-model", model: "your strongest model (such as Claude Opus)", why: "reasoning across files, or a fix that is easy to get subtly wrong" },
@@ -28,7 +33,7 @@ const TIERS = {
  * Writes a run's plan into its repository as prompts a person or a coding agent can use directly, in
  * `.arbitra/plans/<date>-<run>/`: a README with the order of work, AGENTS.md (and CLAUDE.md) telling a coding agent how
  * to work through it, a PROGRESS.md checklist, one prompt per task grouped by the model tier the
- * planner chose for it, and the issues they fix. Each prompt follows Anthropic's prompting guidance: a role, the
+ * planner chose for it, the issues they fix, and a prompt to check each issue of the plan's scope the audit left open. Each prompt follows Anthropic's prompting guidance: a role, the
  * context and why it matters, the material in tagged sections, clear steps, explicit success criteria and how to
  * check them. Only this explicit action writes to the repository; runs themselves never do.
  */
@@ -46,19 +51,24 @@ export async function exportPlan(orchestrator: Orchestrator, runId: string): Pro
   if (plan === null) throw Object.assign(new Error("RUN_HAS_NO_PLAN"), { statusCode: 409 });
   const issues = new Map(((await read<{ issues: readonly ExportIssue[] }>("canonical-issues"))?.issues ?? []).map((issue) => [issue.candidateId, issue]));
   const ordered = topological(plan.tasks);
+  const scope = await read<{ minimumSeverity?: string }>("plan-scope");
+  const unsettled = unsettledIssues([...issues.values()], ordered, scope?.minimumSeverity ?? null);
+  const unverified = [...issues.values()].filter((issue) => isUnresolved(issue) && (issue.verificationOutcome ?? null) === null && !unsettled.includes(issue)).length;
   const stamp = new Date().toISOString().slice(0, 10);
   // Saving again keeps the earlier copy (and any progress ticked in it) and writes a new folder beside it.
   const base = join(overview.repository, ".arbitra", "plans", `${stamp}-${runId.replace(/^run-/u, "").slice(0, 8)}`);
   let directory = base;
   for (let copy = 2; existsSync(directory); copy += 1) directory = `${base}-${copy}`;
   const files = new Map<string, string>();
+  unsettled.forEach((issue, index) => files.set(join("prompts", CHECK_FIRST, `${String(index + 1).padStart(2, "0")}-${issue.candidateId}.md`), checkPrompt(issue)));
   ordered.forEach((task, index) => files.set(join("prompts", TIERS[task.routing.capability].folder, `${String(index + 1).padStart(2, "0")}-${task.id}.md`), prompt(task, issues, plan.tasks)));
-  files.set("README.md", readme(plan, ordered, runId, overview.workflowId ?? "unknown"));
+  files.set("README.md", readme(plan, ordered, runId, overview.workflowId ?? "unknown", unsettled, unverified));
   // A coding agent opened on the project, or on this folder alone, finds its instructions here; CLAUDE.md points
   // Claude Code at the same file.
-  files.set("AGENTS.md", agents(ordered));
+  files.set("AGENTS.md", agents(ordered, unsettled.length));
   files.set("CLAUDE.md", "Read AGENTS.md in this folder and follow it.\n");
   files.set("PROGRESS.md", ["# Progress", "", "Tick a task when it is done and verified; note anything left open under it.", "",
+    ...unsettled.map((issue, index) => `- [ ] check ${String(index + 1).padStart(2, "0")} \`${issue.candidateId}\` ${issue.claim.title}`),
     ...ordered.map((task, index) => `- [ ] ${String(index + 1).padStart(2, "0")} \`${task.id}\` ${task.title}`), ""].join("\n"));
   files.set("issues.md", ["# Issues this plan fixes", "", ...[...new Set(ordered.flatMap((task) => task.addresses.issues))].map((id) => issues.get(id)).filter((issue): issue is ExportIssue => issue !== undefined)
     .map((issue) => `## ${issue.claim.title}\n\n${issue.severity} · ${issue.disposition} · ${issue.candidateId}\n\n${issue.claim.description}\n`)].join("\n"));
@@ -71,26 +81,31 @@ export async function exportPlan(orchestrator: Orchestrator, runId: string): Pro
 }
 
 /** Instructions for a coding agent working through the folder, after Anthropic's guidance for agentic work: one task at a time, verify before moving on, keep state in a file. */
-function agents(ordered: readonly ExportTask[]): string {
+function agents(ordered: readonly ExportTask[], checks: number): string {
   return ["# Working through this plan", "",
     "This folder is a plan to fix defects found in the project it sits in. It was written by arbitra, which audited the project with several models and checked each finding against the code.", "",
     "How to work:", "",
     "1. Read README.md for the order of work and any questions to answer first. If a question is marked as blocking, ask the person you are working with before starting the tasks it affects.",
-    "2. Take the first unticked task in PROGRESS.md and open its prompt under `prompts/`. Follow that prompt; it says what to read, what not to change, and how to check the result.",
+    "2. Take the first unticked item in PROGRESS.md and open its prompt under `prompts/`. Follow that prompt; it says what to read, what not to change, and how to check the result.",
     "3. Do one task at a time. Verify it as its prompt says before you tick it in PROGRESS.md. If a check fails or the code does not match the prompt, stop and report instead of guessing.",
     "4. Do not change anything in this folder except PROGRESS.md.", "",
     "The prompt folders say which kind of model each task suits:", "",
+    ...(checks === 0 ? [] : [`- \`${CHECK_FIRST}\`: your strongest model, to decide whether a reported defect the audit could not settle is real, and to fix it if it is.`]),
     ...Object.values(TIERS).map(({ folder, model, why }) => `- \`${folder}\`: ${model}, for ${why}.`), "",
-    `There are ${ordered.length} tasks.`, ""].join("\n");
+    `There are ${ordered.length} tasks${checks === 0 ? "" : ` and ${checks} ${checks === 1 ? "issue" : "issues"} to check`}.`, ""].join("\n");
 }
 
-function readme(plan: ExportPlan, ordered: readonly ExportTask[], runId: string, workflow: string): string {
+function readme(plan: ExportPlan, ordered: readonly ExportTask[], runId: string, workflow: string, unsettled: readonly ExportIssue[], unverified: number): string {
   const blocking = plan.unresolvedQuestions.filter(({ blocking: isBlocking }) => isBlocking);
   // A plan written in sections carries every section's title joined into one; it reads as a summary, not a heading.
   const fixes = new Set(ordered.flatMap((task) => task.addresses.issues)).size;
   return [`# Plan · ${ordered.length} ${ordered.length === 1 ? "task" : "tasks"} for ${fixes} ${fixes === 1 ? "issue" : "issues"}`, "", plan.title.split(/;\s+/u).map((part) => `- ${part}`).join("\n"), "", `From arbitra run \`${runId}\` (${workflow}).`, "",
     "Work through the prompts in the order below. Each one is self-contained: paste it into your coding agent (Claude Code, Codex or another), or follow it yourself. The folder says which kind of model each task suits.", "",
     ...(blocking.length === 0 ? [] : ["## Answer these first", "", ...blocking.map(({ id, question }) => `- **${id}**: ${question}`), ""]),
+    ...(unsettled.length === 0 ? [] : ["## Check these", "",
+      `The audit could not settle ${unsettled.length === 1 ? "this issue" : `these ${unsettled.length} issues`}: the auditors disagreed, and the verifier could not decide from the code it was shown. Each prompt in \`prompts/${CHECK_FIRST}\` asks a strong model to decide whether the defect is real, by reading the code and running it where that helps, and to fix it if it is.`, "",
+      ...unsettled.map((issue, index) => `${index + 1}. \`${issue.candidateId}\` ${issue.claim.title} · ${issue.severity}`), ""]),
+    ...(unverified === 0 ? [] : [`${unverified} lower-severity ${unverified === 1 ? "issue was" : "issues were"} left unverified and ${unverified === 1 ? "is" : "are"} not planned; the run's issue board lists them.`, ""]),
     "## Order of work", "", ...ordered.map((task, index) => `${index + 1}. \`${task.id}\` ${task.title} · ${TIERS[task.routing.capability].folder}${task.dependencies.dependsOn.length === 0 ? "" : ` · after ${task.dependencies.dependsOn.join(", ")}`}`), "",
     "## Model tiers", "", ...Object.values(TIERS).map(({ folder, model, why }) => `- \`${folder}\`: ${model}, for ${why}.`), ""].join("\n");
 }
@@ -115,6 +130,37 @@ function prompt(task: ExportTask, issues: ReadonlyMap<string, ExportIssue>, all:
     section("verify", `${list([...task.verification.preconditions, ...task.verification.checks])}${commands.length === 0 ? "" : `\n\nCommands:\n${commands.join("\n")}`}`), "",
     ...(task.rollbackPlan.length === 0 ? [] : [section("if_it_goes_wrong", list(task.rollbackPlan)), ""]),
     "When you finish, report what you changed, how you checked it, and anything you could not do.", ""].join("\n");
+}
+
+const isUnresolved = (issue: ExportIssue): boolean => issue.disposition === "needs_verification" || issue.disposition === "non_consensus";
+
+/**
+ * Unresolved issues of the plan's scope that no task addresses, most severe first. Without a recorded scope, those
+ * verification looked at. Observed live (October 21, 2026): 3 high and 11 medium issues the verifier could not settle
+ * fell out of the plan with no question or task naming them.
+ */
+function unsettledIssues(issues: readonly ExportIssue[], tasks: readonly ExportTask[], minimumSeverity: string | null): readonly ExportIssue[] {
+  const planned = new Set(tasks.flatMap((task) => task.addresses.issues));
+  const floor = minimumSeverity === null ? -1 : SEVERITIES.indexOf(minimumSeverity);
+  return issues.filter((issue) => isUnresolved(issue) && !planned.has(issue.candidateId)
+    && (floor < 0 ? (issue.verificationOutcome ?? null) !== null : SEVERITIES.indexOf(issue.severity) >= floor))
+    .sort((a, b) => SEVERITIES.indexOf(b.severity) - SEVERITIES.indexOf(a.severity));
+}
+
+/** A prompt to settle one issue the audit left open: decide whether it holds, from the code and by running it, then fix it if it does. */
+function checkPrompt(issue: ExportIssue): string {
+  const section = (tag: string, body: string) => `<${tag}>\n${body}\n</${tag}>`;
+  const views = (issue.dissent ?? []).map(({ authorId, disposition, reason }) => `- ${authorId} (${disposition.replace(/_/gu, " ")}): ${reason.replace(/\s+/gu, " ").slice(0, 1_200)}`);
+  return [`# Check ${issue.candidateId} · ${issue.claim.title}`, "", `Suggested model: ${TIERS.frontier.model}, effort high. Why: the audit could not settle this by reading alone.`, "",
+    "You are a careful senior engineer checking one reported defect in this repository before anyone fixes it. Several models audited the project; they disagreed about this one, and arbitra's verifier could not decide from the code it was shown. The report may be wrong, so treat it as a claim to test, not a fact.", "",
+    section("claim", `${issue.claim.title} (${issue.severity})\n\n${issue.claim.description.replace(/\s+/gu, " ").slice(0, 2_000)}`), "",
+    ...(views.length === 0 ? [] : [section("what_the_reviewers_said", views.join("\n")), ""]),
+    section("steps", ["1. Read the code the claim names, and what it calls, until you can say whether the claim holds.",
+      "2. Where reading cannot decide it, run the smallest check that can: an existing test, a short script, or the command the claim depends on. Ask before running anything that changes data or reaches the network.",
+      "3. If the claim does not hold, change nothing and say why, citing the lines or the output that decide it.",
+      "4. If it holds, make the smallest fix, add a test that fails without it, and run the project's checks."].join("\n")), "",
+    section("success_criteria", "- A clear verdict, holds or does not hold, with the lines or output that decide it.\n- If it holds: the fix and its test, with the project's checks passing."), "",
+    "When you finish, report the verdict, what you changed, and how you checked it.", ""].join("\n");
 }
 
 /** Tasks in an order that puts each after the tasks it depends on; the plan's own order breaks ties. */
