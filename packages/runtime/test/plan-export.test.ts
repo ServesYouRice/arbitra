@@ -20,8 +20,10 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
       "canonical-issues": { issues: [{ candidateId: "C-1", severity: "high", disposition: "accepted", claim: { title: "A defect", description: "It breaks." } },
         { candidateId: "C-2", severity: "medium", disposition: "needs_verification", verificationOutcome: "STILL_NEEDS_VERIFICATION", claim: { title: "A disputed defect", description: "It may break." },
           dissent: [{ authorId: "auditor-a", disposition: "reject", reason: "The caller guards it." }] },
-        { candidateId: "C-3", severity: "low", disposition: "needs_verification", verificationOutcome: null, claim: { title: "A minor defect", description: "It is untidy." } }] },
+        { candidateId: "C-3", severity: "low", disposition: "needs_verification", verificationOutcome: null, claim: { title: "A minor defect", description: "It is untidy." } },
+        { candidateId: "C-4", severity: "low", disposition: "accepted", verificationOutcome: null, claim: { title: "An agreed small defect", description: "It leaks a handle." } }] },
       "plan-scope": { minimumSeverity: "medium" },
+      "severity-restored": { minimumSeverity: "medium", issues: [{ candidateId: "C-1", foundAs: "high", loweredTo: "low", by: "auditor-a", reason: "Only a dev script." }] },
     };
     const orchestrator = {
       overview: async () => ({ repository, workflowId: "audit-deep" }),
@@ -37,6 +39,10 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
     expect(readme).toContain("## Check these");
     expect(readme).toContain("1. `C-2` A disputed defect · medium");
     expect(readme).toContain("1 lower-severity issue was left unverified and is not planned");
+    // A lowering one reviewer made alone is shown with its reason; accepted issues no task fixes are listed apart.
+    expect(readme).toContain("- `C-1` A defect: found as high; auditor-a proposed low: Only a dev script.");
+    expect(readme).toContain("`also-found.md` lists 1 more issue");
+    expect(await readFile(join(first.directory, "also-found.md"), "utf8")).toContain("## An agreed small defect\n\nlow · C-4\n\nIt leaks a handle.");
     const check = await readFile(join(first.directory, "prompts", "0-check-first", "01-C-2.md"), "utf8");
     expect(check).toContain("<what_the_reviewers_said>\n- auditor-a (reject): The caller guards it.\n</what_the_reviewers_said>");
     expect(await readFile(join(first.directory, "PROGRESS.md"), "utf8")).toMatch(/- \[ \] check 01 `C-2` A disputed defect\n- \[ \] 01 `TASK-1`/u);

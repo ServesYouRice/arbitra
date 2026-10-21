@@ -16,7 +16,7 @@ import type { TestSandbox } from "../src/test-sandbox.js";
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
-async function fixture(options: { secondFile?: boolean; revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; ambiguousClustering?: boolean; oversizedRepository?: boolean; packedReviewSource?: boolean; planQuestion?: boolean; verifierContextTokens?: number; invalidVerification?: boolean; invalidGroupVerification?: boolean; unanimousReview?: boolean; verificationByPlace?: boolean; severities?: readonly string[]; critiqueVerdict?: "HOLDS" | "DOES_NOT_HOLD" } = {}) {
+async function fixture(options: { secondFile?: boolean; revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; ambiguousClustering?: boolean; oversizedRepository?: boolean; packedReviewSource?: boolean; planQuestion?: boolean; verifierContextTokens?: number; invalidVerification?: boolean; invalidGroupVerification?: boolean; unanimousReview?: boolean; verificationByPlace?: boolean; severities?: readonly string[]; critiqueVerdict?: "HOLDS" | "DOES_NOT_HOLD"; lowerSeverity?: "one" | "two"; severeRejection?: "REJECTED" | "CONFIRMED" } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "arbitra-model-run-")); directories.push(directory);
   const manyIssues = options.largePeerContext === true || options.largePlannerContext === true;
   await writeFile(join(directory, "a.ts"), "const value = null;\n".repeat(manyIssues ? 4 : options.ambiguousClustering === true ? 3 : 1), "utf8");
@@ -137,6 +137,10 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
       if (options.largePlannerContext === true && input.round === 1 && request.url.includes("auditor-a")) {
         (output as { operations: unknown[] }).operations.push(...Object.values(input.candidates).map(({ candidateId, sources }, index) => ({ operationId: `new:supplement-${index}`, candidateId, authorId: "self", round: 1, type: "supplement_remediation", citedEvidenceIds: sources.flatMap(({ evidence }) => evidence.map(({ id }) => id)), text: `Original detail ${candidateId}: ` + "Preserve guard. ".repeat(1200) })));
       }
+      // One reviewer, or two, lower every candidate to low.
+      if (options.lowerSeverity !== undefined && input.round === 1 && (request.url.includes("auditor-a") || options.lowerSeverity === "two" && request.url.includes("auditor-b"))) {
+        (output as { operations: unknown[] }).operations.push(...Object.values(input.candidates).map(({ candidateId, sources }, index) => ({ operationId: `new:lower-${index}`, candidateId, authorId: "self", round: 1, type: "change_severity", severity: "low", reason: "Fixture: only a developer path", citedEvidenceIds: sources.flatMap(({ evidence }) => evidence.map(({ id }) => id)) })));
+      }
       const repair = JSON.stringify(request.body).includes("PEER_VOTE_CHANGED_WITHOUT_NEW_EVIDENCE");
       reviewInputs.push({ url: request.url, repair, input: JSON.parse(user) as (typeof reviewInputs)[number]["input"] });
       // A reviewer that changes its earlier reject to accept on the same evidence.
@@ -169,7 +173,9 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
       // An answer that cites evidence the question did not supply is refused.
       // By place: a question about more than one place is rejected, and of the places only the second line holds.
       const places = input.request.question.match(/a\.ts:\d+/gu) ?? [];
-      const outcome = options.verificationByPlace === true && (places.length > 1 || places[0] !== "a.ts:2") ? "REJECTED" : "CONFIRMED";
+      // The verifier (auditor-b) rejects; a second opinion comes from the critic's model (auditor-c).
+      const outcome = options.severeRejection !== undefined ? request.url.includes("auditor-c") ? options.severeRejection : "REJECTED"
+        : options.verificationByPlace === true && (places.length > 1 || places[0] !== "a.ts:2") ? "REJECTED" : "CONFIRMED";
       output = { outcome, evidenceIds: options.invalidVerification === true ? ["evidence-never-supplied"] : input.request.context.citedContext.map(({ evidenceId }) => evidenceId), confidence: 0.8 };
     } else if (system.startsWith("Answer each of the verification questions")) {
       requests.push({ stage: "verification-group", url: request.url });
@@ -991,6 +997,41 @@ describe("composed model audits", () => {
     expect((await read<{ candidateIds: string[] }>("verification-below-plan-scope")).candidateIds.sort()).toEqual(low.map(({ candidateId }) => candidateId).sort());
     expect(issues.limitations).toContain("verification_skipped_below_plan_scope:2");
     expect(verificationInputs.length).toBeGreaterThan(0);
+  });
+
+  it.each([["one", "high"], ["two", "low"]] as const)("keeps an issue in the plan's scope unless two reviewers lower it below: lowered by %s", async (lowered, severity) => {
+    // Observed live (rokavatar): 25 issues found at medium or higher were lowered to low by one reviewer each, so they
+    // were neither verified nor planned.
+    const { create, config, verificationInputs } = await fixture({ lowerSeverity: lowered });
+    (config.workflow["modelExecution"] as { planScope?: { minimumSeverity: string } }).planScope = { minimumSeverity: "medium" };
+    const core = create(); const result = await core.run({ ...config, verification: { ...config.verification, belowPlanScope: "skip" } });
+    expect(result.state).toBe("COMPLETED");
+    const artifacts = await core.artifacts(result.runId);
+    const read = async <T>(kind: string) => JSON.parse((await core.artifact(result.runId, artifacts.find((artifact) => artifact.kind === kind)?.artifactId ?? "") as { content: string }).content) as T;
+    const issues = (await read<{ issues: { candidateId: string; severity: string; verificationOutcome: string | null }[] }>("canonical-issues")).issues;
+    expect(issues.length).toBeGreaterThan(0);
+    expect(issues.every((issue) => issue.severity === severity)).toBe(true);
+    if (lowered === "one") {
+      expect(issues.every(({ verificationOutcome }) => verificationOutcome !== null)).toBe(true);
+      expect(await read<{ issues: unknown[] }>("severity-restored")).toMatchObject({ minimumSeverity: "medium", issues: issues.map(({ candidateId }) => ({ candidateId, foundAs: "high", loweredTo: "low", by: "auditor-a", reason: "Fixture: only a developer path" })) });
+    } else {
+      expect(verificationInputs).toHaveLength(0);
+      expect(artifacts.some(({ kind }) => kind === "severity-restored")).toBe(false);
+    }
+  });
+
+  it.each([["CONFIRMED", "needs_verification"], ["REJECTED", "rejected"]] as const)("asks a second model before rejecting a severe issue a reviewer backed: second answer %s", async (second, disposition) => {
+    // Observed live (rokavatar): 12 critical or high issues a reviewer backed were rejected by one question.
+    const { create, config, requests } = await fixture({ severeRejection: second });
+    const core = create(); const result = await core.run({ ...config, verification: { ...config.verification, secondOpinion: "severe_rejections" } });
+    expect(result.state).toBe("COMPLETED");
+    const artifacts = await core.artifacts(result.runId);
+    const read = async <T>(kind: string) => JSON.parse((await core.artifact(result.runId, artifacts.find((artifact) => artifact.kind === kind)?.artifactId ?? "") as { content: string }).content) as T;
+    const issues = (await read<{ issues: { candidateId: string; disposition: string }[] }>("canonical-issues")).issues;
+    expect(issues.map((issue) => issue.disposition)).toEqual(issues.map(() => disposition));
+    expect(requests.filter(({ stage, url }) => stage === "verification" && url.includes("auditor-c"))).toHaveLength(issues.length);
+    const [issue] = issues;
+    expect(await read(`verification-second-opinion-${issue?.candidateId ?? ""}`)).toMatchObject({ modelProfileId: "auditor-c", first: { outcome: "REJECTED" }, second: { outcome: second } });
   });
 
   it("asks about each place of a rejected merge on its own, and keeps the place that holds", async () => {

@@ -9,7 +9,8 @@
   "maxConsensusRounds": 1,
   "verification": {
     "deterministicFirst": true,
-    "belowPlanScope": "skip"
+    "belowPlanScope": "skip",
+    "secondOpinion": "severe_rejections"
   },
   "models": {
     "auditor-a": {

@@ -365,6 +365,9 @@ function ModelsSection({ draft, edit, offered, machine, onUseModels }: { readonl
       <label className="operator-check"><input aria-label="re-ask merged issues place by place only across files" checked={getIn(draft, ["verification", "reaskMergedPlaces"]) === "across_files"} type="checkbox" onChange={(event) => edit(["verification", "reaskMergedPlaces"], event.target.checked ? "across_files" : undefined)} />
         re-ask a rejected merged issue place by place only when its places are in different files</label>
       <p className="field__hint">Saves 10 to 16% of a run&apos;s tokens, but may miss a real defect that was merged with a false one in the same file.</p>
+      <label className="operator-check"><input aria-label="ask a second model before rejecting a severe issue" checked={getIn(draft, ["verification", "secondOpinion"]) === "severe_rejections"} type="checkbox" onChange={(event) => edit(["verification", "secondOpinion"], event.target.checked ? "severe_rejections" : undefined)} />
+        ask a second model before rejecting a critical or high issue a reviewer backed</label>
+      <p className="field__hint">When the two disagree the issue stays open, and the saved plan has a prompt to check it. Costs one more question per such issue.</p>
     </fieldset>}
   </Section>;
 }

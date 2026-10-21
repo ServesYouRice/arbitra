@@ -430,6 +430,8 @@ export class ModelAuditPipeline {
     const executedChecks = new Map<string, Awaited<ReturnType<VerificationExecutor["execute"]>>>();
     if (execution !== undefined) await this.#verificationExecutor.execute(context.snapshot, execution, [], signal);
     const operationConflicts = await readStage<readonly PeerOperationConflict[]>(context.store, "peer-operation-conflicts");
+    const restored = await this.#restoredSeverities(convergence);
+    const severityOf = (candidate: ConsensusCandidate): ConsensusCandidate["severity"] => restored.get(candidate.candidateId)?.severity ?? candidate.severity;
     // Every candidate is put to the verifier, the ones the peer vote accepted or rejected too: a vote ranks a
     // candidate, it does not decide it. Models from different vendors agree on 60% of the answers both get wrong
     // (design audit). Observed live (P20 pilot, 2.6.0): 26 of 53 accepted issues had reached the plan on two
@@ -439,20 +441,20 @@ export class ModelAuditPipeline {
       const candidate = convergence.board.candidates[consensus.candidateId];
       if (candidate === undefined) throw new Error("VERIFICATION_CANDIDATE_ABSENT");
       return { consensus, candidate };
-    }).sort((a, b) => (SEVERITY_ORDER[a.candidate.severity] ?? 5) - (SEVERITY_ORDER[b.candidate.severity] ?? 5) || b.consensus.supportCount - a.consensus.supportCount || a.candidate.candidateId.localeCompare(b.candidate.candidateId));
+    }).sort((a, b) => (SEVERITY_ORDER[severityOf(a.candidate)] ?? 5) - (SEVERITY_ORDER[severityOf(b.candidate)] ?? 5) || b.consensus.supportCount - a.consensus.supportCount || a.candidate.candidateId.localeCompare(b.candidate.candidateId));
     // An issue below the plan's minimum severity gets no task, so with `verification.belowPlanScope: "skip"` it is
     // not put to the verifier: its disposition stays the peer vote's and its verification reads as not done.
     // Observed (P20 pilot): the questions about low and informational issues were 29 to 35% of a run's tokens.
     const scope = this.#planScope();
     const bar = SEVERITY_ORDER[scope?.minimumSeverity ?? "informational"] ?? 4;
     const skipped = this.config.verification["belowPlanScope"] === "skip" && scope?.minimumSeverity !== undefined
-      ? ranked.filter(({ candidate }) => (SEVERITY_ORDER[candidate.severity] ?? 5) > bar).map(({ candidate }) => candidate.candidateId) : [];
+      ? ranked.filter(({ candidate }) => (SEVERITY_ORDER[severityOf(candidate)] ?? 5) > bar).map(({ candidate }) => candidate.candidateId) : [];
     if (skipped.length > 0) await context.store.publish("verification-below-plan-scope", { minimumSeverity: scope?.minimumSeverity ?? null, candidateIds: skipped });
     const items = ranked.filter(({ candidate }) => !skipped.includes(candidate.candidateId)).map(({ candidate }) => {
       const { candidateId } = candidate;
       const findings = convergence.candidateFindings[candidateId] ?? [];
       const evidence = findings.flatMap((finding) => finding.evidence);
-      return { candidateId, severity: candidate.severity, claim: candidate.claim.title, question: verificationQuestion(findings),
+      return { candidateId, severity: severityOf(candidate), claim: candidate.claim.title, question: verificationQuestion(findings),
           citedEvidenceIds: evidence.map(({ id }) => id), citedContext: evidence.map(({ id, text }) => ({ evidenceId: id, text })), symbols: [], routes: [], dependencies: [], ...(execution === undefined ? {} : { allowlistedTest: "operator-configured-checks", testExecutionPolicy: "allowlisted" as const }) };
     });
     const operations: VerificationIssueOperation[] = [];
@@ -549,6 +551,40 @@ export class ModelAuditPipeline {
       await context.store.publish(`verification-places-${request.candidateId}`, { candidateId: request.candidateId, rejectedAs: rejected.activityId, asked });
       return confirmed ?? rejected;
     };
+    // A critical or high issue a reviewer backed is rejected only when a second model, asked the same blind question,
+    // rejects it too; when the two disagree it stays open for a person or an agent to settle (`verification.
+    // secondOpinion`). Observed live (rokavatar, October 21, 2026): 12 such issues, several about access control, were
+    // rejected by one Opus question at medium effort, 4 of the critical ones without opening a file it was not given.
+    const secondOpinion = this.config.verification["secondOpinion"] === "severe_rejections" ? this.#secondOpinionProfile() : undefined;
+    const confirmRejection = async (request: ModelVerificationRequest, rejected: ModelVerificationResponse): Promise<ModelVerificationResponse> => {
+      const candidate = convergence.board.candidates[request.candidateId];
+      if (secondOpinion === undefined || rejected.outcome !== "REJECTED" || candidate === undefined || !["critical", "high"].includes(severityOf(candidate))
+        || !candidate.votes.some(({ disposition }) => disposition !== "reject")) return rejected;
+      const stage = { ...question(request, undefined, `verification/${request.candidateId}/second-opinion`), modelProfileId: secondOpinion };
+      let answer: ModelVerificationResponse;
+      try { answer = { ...await this.call(stage), activityId: stage.activityId, artifactRefs: [] }; }
+      catch (error) { answer = await unanswered(request, stage.activityId, error); }
+      await context.store.publish(`verification-second-opinion-${request.candidateId}`, { candidateId: request.candidateId, modelProfileId: secondOpinion,
+        first: { activityId: rejected.activityId, outcome: rejected.outcome, confidence: rejected.confidence }, second: { activityId: answer.activityId, outcome: answer.outcome, confidence: answer.confidence } });
+      return answer.outcome === "REJECTED" ? rejected : { outcome: "STILL_NEEDS_VERIFICATION", evidenceIds: [...new Set([...rejected.evidenceIds, ...answer.evidenceIds])], artifactRefs: [], activityId: answer.activityId, confidence: Math.min(rejected.confidence, answer.confidence) };
+    };
+    const askTogether = async (requests: readonly ModelVerificationRequest[]): Promise<readonly ModelVerificationResponse[]> => {
+      const stage = groupQuestion(requests);
+      try { return (await this.call(stage)).map((answer) => ({ ...answer, activityId: stage.activityId, artifactRefs: [] })); }
+      catch (error) {
+        // A group its provider declines, or whose reply stays invalid or stops at the output ceiling, is asked
+        // again one question at a time, so one hard question does not leave the others of its group open.
+        if (!(error instanceof ModelRefusalError) && !(error instanceof ModelOutputLimitError) && !isModelOutputRejection(error)) throw error;
+        await context.store.publish(`verification-group-split-${createHash("sha256").update(stage.activityId).digest("hex").slice(0, 24)}`, { activityId: stage.activityId, candidateIds: requests.map(({ candidateId }) => candidateId), reason: (error as Error).message.slice(0, 1_000) });
+        const answers: ModelVerificationResponse[] = [];
+        for (const request of requests) {
+          const single = question(request);
+          try { answers.push({ ...await this.call(single), activityId: single.activityId, artifactRefs: [] }); }
+          catch (failure) { answers.push(await unanswered(request, single.activityId, failure)); }
+        }
+        return answers;
+      }
+    };
     const verification = await verifyItems(items, { ...tools, runAllowlistedSafeTest: async (item, policy) => {
       const attempt = await tools.runAllowlistedSafeTest(item, policy);
       if (execution === undefined) return attempt;
@@ -569,7 +605,7 @@ export class ModelAuditPipeline {
           let answer;
           try { answer = { ...await this.call(stage), activityId: stage.activityId, artifactRefs: [] }; }
           catch (error) { return unanswered(request, stage.activityId, error); }
-          return answer.outcome === "REJECTED" ? separately(request, answer) : answer;
+          return answer.outcome === "REJECTED" ? confirmRejection(request, await separately(request, answer)) : answer;
         },
         // A group starts with the first question not yet grouped and takes later ones whose claims cite a file it
         // already reads, while the files it reads stay within a bound and the call fits.
@@ -593,21 +629,8 @@ export class ModelAuditPipeline {
           return groups;
         },
         verifyGroup: async (requests) => {
-          const stage = groupQuestion(requests);
-          try { return (await this.call(stage)).map((answer) => ({ ...answer, activityId: stage.activityId, artifactRefs: [] })); }
-          catch (error) {
-            // A group its provider declines, or whose reply stays invalid or stops at the output ceiling, is asked
-            // again one question at a time, so one hard question does not leave the others of its group open.
-            if (!(error instanceof ModelRefusalError) && !(error instanceof ModelOutputLimitError) && !isModelOutputRejection(error)) throw error;
-            await context.store.publish(`verification-group-split-${createHash("sha256").update(stage.activityId).digest("hex").slice(0, 24)}`, { activityId: stage.activityId, candidateIds: requests.map(({ candidateId }) => candidateId), reason: (error as Error).message.slice(0, 1_000) });
-            const answers = [];
-            for (const request of requests) {
-              const single = question(request);
-              try { answers.push({ ...await this.call(single), activityId: single.activityId, artifactRefs: [] }); }
-              catch (failure) { answers.push(await unanswered(request, single.activityId, failure)); }
-            }
-            return answers;
-          }
+          const answers = await askTogether(requests);
+          return Promise.all(answers.map((answer, index) => { const request = requests[index]; return request === undefined ? answer : confirmRejection(request, answer); }));
         },
       },
     });
@@ -630,7 +653,7 @@ export class ModelAuditPipeline {
       const [first] = findings ?? [];
       return findings === undefined || first === undefined ? result : { ...result, claim: { title: first.title, description: first.problem }, sourceFindingIds: findings.map(({ sourceFindingId }) => sourceFindingId) };
     });
-    const issues = canonicaliseIssues({ candidates: Object.fromEntries(Object.entries(convergence.board.candidates).map(([id, candidate]) => [id, { ...candidate, counterEvidence: boardEvidenceSchema.array().parse(candidate.counterEvidence) }])), consensus: convergence.consensus }, verified, {
+    const issues = canonicaliseIssues({ candidates: Object.fromEntries(Object.entries(convergence.board.candidates).map(([id, candidate]) => [id, { ...candidate, severity: severityOf(candidate), counterEvidence: boardEvidenceSchema.array().parse(candidate.counterEvidence) }])), consensus: convergence.consensus }, verified, {
       securityCoverage: { degraded: true, reason: "source_snapshot_only_no_runtime_or_deployment_security_evidence" },
       suppressionCandidates: [], unexaminedSurfaces: [...executionGaps, ...operationConflicts.map((conflict) => ({ kind: "peer_operation_conflict", conflict })), ...rejectedReviews.map(({ round, auditorId, scopeId, reason }) => ({ kind: "peer_review_output_rejected", round, auditorId, scopeId, reason })), ...verification.metrics.deferredItemIds, ...discoveryCoverage.flatMap(({ auditorId, unexaminedDueToBudget }) => unexaminedDueToBudget.map((surface) => ({ auditorId, surface })))],
       limitations: ["auditor_kind:model_auditors", "model_verification_is_not_executed_test_evidence", "real_model_premise_unmeasured", `findings_rejected_on_validation:${convergence.rejectedCount}`,
@@ -961,6 +984,42 @@ export class ModelAuditPipeline {
   }
 
   #planScope() { return providerExecutionSchema.parse(this.config.workflow["modelExecution"]).planScope; }
+  /**
+   * Issues one reviewer alone lowered below the plan's minimum severity, back at the severity they were found with:
+   * that severity decides whether they are verified and planned, and the lowering stays on record. Two reviewers
+   * lowering it, or a run without a minimum, leave the board's severity as it is. Observed live (rokavatar, October
+   * 21, 2026): 25 issues found at medium or higher were lowered to low by one reviewer each and were neither verified
+   * nor planned; four had been found as high.
+   */
+  async #restoredSeverities(convergence: ConvergenceResult): Promise<ReadonlyMap<string, { readonly severity: ConsensusCandidate["severity"] }>> {
+    const minimum = this.#planScope()?.minimumSeverity;
+    const restored = new Map<string, { readonly severity: ConsensusCandidate["severity"] }>();
+    if (minimum === undefined || !(await this.context.store.listArtifacts()).some(({ kind }) => kind === "board-operations")) return restored;
+    const bar = SEVERITY_ORDER[minimum] ?? 4;
+    const inScope = (severity: string) => (SEVERITY_ORDER[severity] ?? 5) <= bar;
+    type Seed = { readonly candidateId: string; readonly severity: ConsensusCandidate["severity"] };
+    type Operation = { readonly type: string; readonly authorId: string; readonly candidateId?: string; readonly severity?: string; readonly reason?: string; readonly candidate?: Seed; readonly candidates?: readonly Seed[] };
+    const operations = await readStage<readonly Operation[]>(this.context.store, "board-operations");
+    const found = new Map(operations.flatMap(({ candidate, candidates }) => [...(candidate === undefined ? [] : [candidate]), ...(candidates ?? [])]).map(({ candidateId, severity }) => [candidateId, severity]));
+    const record: { candidateId: string; foundAs: string; loweredTo: string; by: string; reason: string }[] = [];
+    for (const candidate of Object.values(convergence.board.candidates)) {
+      const initial = found.get(candidate.candidateId);
+      if (initial === undefined || !inScope(initial) || inScope(candidate.severity)) continue;
+      const lowering = operations.filter(({ type, candidateId, severity }) => type === "change_severity" && candidateId === candidate.candidateId && severity !== undefined && !inScope(severity));
+      const by = [...new Set(lowering.map(({ authorId }) => authorId))];
+      if (by.length !== 1) continue;
+      restored.set(candidate.candidateId, { severity: initial });
+      record.push({ candidateId: candidate.candidateId, foundAs: initial, loweredTo: candidate.severity, by: by[0] as string, reason: lowering.at(-1)?.reason ?? "" });
+    }
+    if (record.length > 0) await this.context.store.publish("severity-restored", { minimumSeverity: minimum, issues: record });
+    return restored;
+  }
+  /** Who answers a severe rejection a second time: the configured role, else the critic, else another auditor. */
+  #secondOpinionProfile(): string | undefined {
+    const verifier = this.#roles.verifier;
+    const chosen = this.#roles.secondOpinion ?? (this.#roles.critic !== undefined && this.#roles.critic !== verifier ? this.#roles.critic : this.context.auditors.map(({ auditorId }) => auditorId).find((id) => id !== verifier));
+    return chosen === verifier ? undefined : chosen;
+  }
   /** The accepted issues the plan covers: all of them, or those of at least the run's minimum severity. Anthropic's
    * reviewers rank and fix the most important first; the plan and its critic cost grow with every task. */
   #planned(issues: CanonicalIssueSet): CanonicalIssueSet["issues"] {

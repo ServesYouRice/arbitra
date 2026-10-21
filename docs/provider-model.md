@@ -219,7 +219,7 @@ the same model name. Request model identity must also match the trace context.
 The run schema validates optional `workflow.modelExecution` settings: `endpoints`,
 `modelEndpoints`, `maximumOutputTokens`, optional `maximumDiscoveryTokens` and
 `maximumContextTokens`, `timeoutMs`, `maximumRetries`, `maximumTokens`,
-per-provider `rateLimits`, optional `batch` lanes (see [Batch lane](#batch-lane)), and `roles` (`planner`, `verifier`, optional `critic` and `critiqueChecker`). Endpoint credentials are named by `apiKeyEnvVar`; values
+per-provider `rateLimits`, optional `batch` lanes (see [Batch lane](#batch-lane)), and `roles` (`planner`, `verifier`, optional `critic`, `critiqueChecker` and `secondOpinion`, the model asked again when `verification.secondOpinion: "severe_rejections"` and the verifier rejects a critical or high issue a reviewer backed; by default the critic, or another auditor than the verifier). Endpoint credentials are named by `apiKeyEnvVar`; values
 are resolved only at dispatch; `run` first checks that each referenced variable is set
 (`PROVIDER_CREDENTIAL_MISSING:<endpoint>`) without reading the value into any output.
 Limits are supplied by the operator, not inferred from a provider-name table. The CLI/server executes a bounded source-snapshot Audit when these

@@ -33,7 +33,8 @@ const TIERS = {
  * Writes a run's plan into its repository as prompts a person or a coding agent can use directly, in
  * `.arbitra/plans/<date>-<run>/`: a README with the order of work, AGENTS.md (and CLAUDE.md) telling a coding agent how
  * to work through it, a PROGRESS.md checklist, one prompt per task grouped by the model tier the
- * planner chose for it, the issues they fix, and a prompt to check each issue of the plan's scope the audit left open. Each prompt follows Anthropic's prompting guidance: a role, the
+ * planner chose for it, the issues they fix, a prompt to check each issue of the plan's scope the audit left open, and
+ * the accepted issues no task fixes. Each prompt follows Anthropic's prompting guidance: a role, the
  * context and why it matters, the material in tagged sections, clear steps, explicit success criteria and how to
  * check them. Only this explicit action writes to the repository; runs themselves never do.
  */
@@ -54,6 +55,11 @@ export async function exportPlan(orchestrator: Orchestrator, runId: string): Pro
   const scope = await read<{ minimumSeverity?: string }>("plan-scope");
   const unsettled = unsettledIssues([...issues.values()], ordered, scope?.minimumSeverity ?? null);
   const unverified = [...issues.values()].filter((issue) => isUnresolved(issue) && (issue.verificationOutcome ?? null) === null && !unsettled.includes(issue)).length;
+  // Issues the reviewers agreed are real that no task fixes, most below the plan's minimum severity, so none is lost.
+  const planned = new Set(ordered.flatMap((task) => task.addresses.issues));
+  const alsoFound = [...issues.values()].filter((issue) => (issue.disposition === "accepted" || issue.disposition === "verified_single_source") && !planned.has(issue.candidateId))
+    .sort((a, b) => SEVERITIES.indexOf(b.severity) - SEVERITIES.indexOf(a.severity));
+  const kept = ((await read<{ issues: readonly SeverityKept[] }>("severity-restored"))?.issues ?? []).map((entry) => ({ ...entry, title: issues.get(entry.candidateId)?.claim.title ?? entry.candidateId }));
   const stamp = new Date().toISOString().slice(0, 10);
   // Saving again keeps the earlier copy (and any progress ticked in it) and writes a new folder beside it.
   const base = join(overview.repository, ".arbitra", "plans", `${stamp}-${runId.replace(/^run-/u, "").slice(0, 8)}`);
@@ -62,7 +68,10 @@ export async function exportPlan(orchestrator: Orchestrator, runId: string): Pro
   const files = new Map<string, string>();
   unsettled.forEach((issue, index) => files.set(join("prompts", CHECK_FIRST, `${String(index + 1).padStart(2, "0")}-${issue.candidateId}.md`), checkPrompt(issue)));
   ordered.forEach((task, index) => files.set(join("prompts", TIERS[task.routing.capability].folder, `${String(index + 1).padStart(2, "0")}-${task.id}.md`), prompt(task, issues, plan.tasks)));
-  files.set("README.md", readme(plan, ordered, runId, overview.workflowId ?? "unknown", unsettled, unverified));
+  files.set("README.md", readme(plan, ordered, runId, overview.workflowId ?? "unknown", { unsettled, unverified, alsoFound: alsoFound.length, kept }));
+  if (alsoFound.length > 0) files.set("also-found.md", ["# Also found, not planned", "",
+    "The reviewers agreed these are real, but no task fixes them; most are below the plan's minimum severity. Fix them when convenient: each says where the defect is and what goes wrong.", "",
+    ...alsoFound.map((issue) => `## ${issue.claim.title}\n\n${issue.severity} · ${issue.candidateId}\n\n${issue.claim.description}\n`)].join("\n"));
   // A coding agent opened on the project, or on this folder alone, finds its instructions here; CLAUDE.md points
   // Claude Code at the same file.
   files.set("AGENTS.md", agents(ordered, unsettled.length));
@@ -95,7 +104,9 @@ function agents(ordered: readonly ExportTask[], checks: number): string {
     `There are ${ordered.length} tasks${checks === 0 ? "" : ` and ${checks} ${checks === 1 ? "issue" : "issues"} to check`}.`, ""].join("\n");
 }
 
-function readme(plan: ExportPlan, ordered: readonly ExportTask[], runId: string, workflow: string, unsettled: readonly ExportIssue[], unverified: number): string {
+interface SeverityKept { readonly candidateId: string; readonly foundAs: string; readonly loweredTo: string; readonly by: string; readonly reason: string }
+
+function readme(plan: ExportPlan, ordered: readonly ExportTask[], runId: string, workflow: string, { unsettled, unverified, alsoFound, kept }: { readonly unsettled: readonly ExportIssue[]; readonly unverified: number; readonly alsoFound: number; readonly kept: readonly (SeverityKept & { readonly title: string })[] }): string {
   const blocking = plan.unresolvedQuestions.filter(({ blocking: isBlocking }) => isBlocking);
   // A plan written in sections carries every section's title joined into one; it reads as a summary, not a heading.
   const fixes = new Set(ordered.flatMap((task) => task.addresses.issues)).size;
@@ -105,6 +116,10 @@ function readme(plan: ExportPlan, ordered: readonly ExportTask[], runId: string,
     ...(unsettled.length === 0 ? [] : ["## Check these", "",
       `The audit could not settle ${unsettled.length === 1 ? "this issue" : `these ${unsettled.length} issues`}: the auditors disagreed, and the verifier could not decide from the code it was shown. Each prompt in \`prompts/${CHECK_FIRST}\` asks a strong model to decide whether the defect is real, by reading the code and running it where that helps, and to fix it if it is.`, "",
       ...unsettled.map((issue, index) => `${index + 1}. \`${issue.candidateId}\` ${issue.claim.title} · ${issue.severity}`), ""]),
+    ...(kept.length === 0 ? [] : ["## Severity kept", "",
+      `One reviewer alone lowered ${kept.length === 1 ? "this issue" : `these ${kept.length} issues`} below the plan's minimum severity, so ${kept.length === 1 ? "it was" : "they were"} verified and planned at the severity ${kept.length === 1 ? "it was" : "they were"} found with. The reviewer's reason is worth weighing when you fix ${kept.length === 1 ? "it" : "them"}.`, "",
+      ...kept.map(({ candidateId, title, foundAs, loweredTo, by, reason }) => `- \`${candidateId}\` ${title}: found as ${foundAs}; ${by} proposed ${loweredTo}: ${reason.replace(/\s+/gu, " ").slice(0, 400)}`), ""]),
+    ...(alsoFound === 0 ? [] : [`\`also-found.md\` lists ${alsoFound} more ${alsoFound === 1 ? "issue" : "issues"} the reviewers agreed ${alsoFound === 1 ? "is" : "are"} real but no task fixes.`, ""]),
     ...(unverified === 0 ? [] : [`${unverified} lower-severity ${unverified === 1 ? "issue was" : "issues were"} left unverified and ${unverified === 1 ? "is" : "are"} not planned; the run's issue board lists them.`, ""]),
     "## Order of work", "", ...ordered.map((task, index) => `${index + 1}. \`${task.id}\` ${task.title} · ${TIERS[task.routing.capability].folder}${task.dependencies.dependsOn.length === 0 ? "" : ` · after ${task.dependencies.dependsOn.join(", ")}`}`), "",
     "## Model tiers", "", ...Object.values(TIERS).map(({ folder, model, why }) => `- \`${folder}\`: ${model}, for ${why}.`), ""].join("\n");

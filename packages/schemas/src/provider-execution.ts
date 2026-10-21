@@ -66,8 +66,10 @@ export const providerExecutionSchema = z.object({
   endpoints: z.array(providerEndpointSchema).min(1),
   modelEndpoints: z.record(identifier, identifier),
   /** `critiqueChecker`: the model that checks each blocking critique before it forces a revision. Off unless set;
-   * a model of neither the planner's nor the critic's family judges the claim between them most evenly. */
-  roles: z.object({ planner: identifier, verifier: identifier, critic: identifier.optional(), critiqueChecker: identifier.optional() }).strict().optional(),
+   * a model of neither the planner's nor the critic's family judges the claim between them most evenly.
+   * `secondOpinion`: the model asked again when the verifier rejects a severe issue a reviewer backed
+   * (`verification.secondOpinion`); by default the critic, or another auditor than the verifier. */
+  roles: z.object({ planner: identifier, verifier: identifier, critic: identifier.optional(), critiqueChecker: identifier.optional(), secondOpinion: identifier.optional() }).strict().optional(),
   maximumClusteringPairs: z.number().int().min(0).max(1000).optional(),
   maximumOutputTokens: z.number().int().positive(),
   maximumDiscoveryTokens: z.number().int().positive().optional(),

@@ -46,8 +46,10 @@ export const runConfigSchema = z.object({
       context.addIssue({ code: "custom", path: ["maxQuestionsPerCall"], message: "Expected a positive safe integer" });
     }
     // `belowPlanScope: "skip"` leaves issues below the plan's minimum severity to the peer vote; `reaskMergedPlaces:
-    // "across_files"` re-asks a rejected merged issue place by place only when its places are in different files.
-    for (const [key, allowed] of [["belowPlanScope", ["verify", "skip"]], ["reaskMergedPlaces", ["always", "across_files"]]] as const) {
+    // "across_files"` re-asks a rejected merged issue place by place only when its places are in different files;
+    // `secondOpinion: "severe_rejections"` asks a second model before a critical or high issue a reviewer backed is
+    // rejected, and leaves it open when the two disagree.
+    for (const [key, allowed] of [["belowPlanScope", ["verify", "skip"]], ["reaskMergedPlaces", ["always", "across_files"]], ["secondOpinion", ["off", "severe_rejections"]]] as const) {
       const value = verification[key];
       if (value !== undefined && (typeof value !== "string" || !(allowed as readonly string[]).includes(value))) context.addIssue({ code: "custom", path: [key], message: `Expected one of ${allowed.join(", ")}` });
     }
