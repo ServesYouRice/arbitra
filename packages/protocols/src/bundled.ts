@@ -4,9 +4,12 @@ import { dirname, join } from "node:path";
 import type { ProtocolControlPlane } from "./registry.js";
 import { assertProtocolId, parseSemver } from "./versioning.js";
 
-/** Resolve installed assets relative to this package, never the audited repository. */
+/**
+ * Resolve installed assets relative to this package, never the audited repository. The single-file app, which has no
+ * installed packages, names where it unpacked them in ARBITRA_PROTOCOL_ASSETS.
+ */
 export function bundledProtocolControlPlane(): ProtocolControlPlane {
-  const root = join(dirname(createRequire(import.meta.url).resolve("@arbitra/protocols/package.json")), "assets");
+  const root = process.env["ARBITRA_PROTOCOL_ASSETS"] ?? join(dirname(createRequire(import.meta.url).resolve("@arbitra/protocols/package.json")), "assets");
   return {
     async read(id, version) {
       assertProtocolId(id); parseSemver(version);
