@@ -15,3 +15,4 @@ tooling/launch/build-id export-subst
 # the repository. TESTERS.md and README.md stay in the download.
 docs/** export-ignore
 WORK-REMAINING.md export-ignore
+*.sh text eol=lf
