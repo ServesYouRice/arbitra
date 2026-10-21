@@ -45,7 +45,7 @@ file says what is left and in what order. The measurements and decisions behind 
   of planned issues only). Claude's week went from 86% to 91% by the critic. At 18:32, after 474 calls and about
   15M tokens (verification 6.7M in 356 calls for 78 questions; peer review 4.2M; Gemini 2.1M in 51 calls, 12 of
   them refused by its content filter and 5 stopped at its output ceiling, 560 call-minutes), Sol hit the Codex
-  five-hour window at the critic and the run failed; it is resumed after the reset. 212 candidates: 71 accepted,
+  five-hour window at the critic and the run failed; resumed at 21:35, it completed at 21:43: 480 calls, 15.6M tokens (1,455 a line; beachflag 1,560) and about 110 minutes of work (beachflag 80, 613 calls, 17.6M), a plan of 21 tasks for 23 issues with 2 blocking questions. Saved with the new export, it carries 14 check-first prompts and 48 also-found issues. 212 candidates: 71 accepted,
   46 rejected, 95 unresolved (81 low or informational, skipped by design; 14 medium or high the verifier could not
   settle). Fixed on `friend-test` because of it: a usage limit pauses the run and resumes it after the reset
   (b3626a8); "last activity" and the report's state during a stage (c3ca222); and, the owner's choice after the

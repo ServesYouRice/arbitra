@@ -42,7 +42,7 @@ already have. It never changes your code.
    writes the plan, and Sol reviews it. You can pick another model for each from its list.
 3. Next to **repository path**, click **browse…** and choose the project folder you want audited (or paste its path).
 4. Click **check configuration**, then **save and start**. The check measures the project and sets the run's token
-   limit for its size. A project of about 11,000 lines took 80 minutes and 17.6 million tokens,
+   limit for its size. Two projects of about 11,000 lines each took 80 to 110 minutes and 15 to 18 million tokens,
    so start with a small project and mind your plans' usage.
 5. When it finishes, the run page leads with **the plan**: **save the plan into the project as prompts** writes a
    `.arbitra/plans/` folder into your project. It has one ready-to-paste prompt per fix, sorted by the kind of model
