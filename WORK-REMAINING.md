@@ -1,6 +1,6 @@
 # Remaining work
 
-Updated October 20, 2026 (branch `friend-test`). Task status lives in the [completion plan](docs/completion-plan.md); this
+Updated October 21, 2026 (branch `friend-test`). Task status lives in the [completion plan](docs/completion-plan.md); this
 file says what is left and in what order. The measurements and decisions behind every item, from the P20 pilot
 (October 10 to 19), are in this file's history: `git show 9558aef:WORK-REMAINING.md`.
 
@@ -40,9 +40,25 @@ file says what is left and in what order. The measurements and decisions behind 
   the candidates were below it), the token limit sized from the project (3,500 tokens a line, about twice the
   measured 1,560), raising the limit of a paused run, leaving files Git ignores out of the snapshot (a 600 KB
   Playwright report refused the project), and opening model-activity artifacts (their IDs were too long a route).
-- **Next, after the owner's weekly limit resets (about October 23):** the same audit on rokavatar (140 files, about
-  9,200 lines) from a freshly downloaded zip with the new defaults, to measure the new settings against beachflag. Later runs are on the owner's other projects,
-  for real-world data.
+- **The rokavatar run (October 21, owner: "start it now and fix issues as we go"):** `run-757824f4`, 117 files and
+  10,716 lines, from a fresh zip of 2a819bf with the new defaults (Sol critic, Opus critique checker, verification
+  of planned issues only). Claude's week went from 86% to 91% by the critic. At 18:32, after 474 calls and about
+  15M tokens (verification 6.7M in 356 calls for 78 questions; peer review 4.2M; Gemini 2.1M in 51 calls, 12 of
+  them refused by its content filter and 5 stopped at its output ceiling, 560 call-minutes), Sol hit the Codex
+  five-hour window at the critic and the run failed; it is resumed after the reset. 212 candidates: 71 accepted,
+  46 rejected, 95 unresolved (81 low or informational, skipped by design; 14 medium or high the verifier could not
+  settle). Fixed on `friend-test` because of it: a usage limit pauses the run and resumes it after the reset
+  (b3626a8); "last activity" and the report's state during a stage (c3ca222); and, the owner's choice after the
+  findings were laid out, the safeguards against losing issues (6274c9e, 4368435): check-first prompts for issues
+  the verifier could not settle, a severity lowered by one reviewer alone no longer takes an issue out of the plan's
+  scope (25 such issues here, 22 lowered by Opus), a second model before a critical or high issue a reviewer backed
+  is rejected (12 here), and the accepted issues no task fixes listed in the saved plan (48 here). Together these
+  add about 37 questions to a run like this one, about 3M tokens.
+- **Then a public release (owner, October 21):** v0.1.0 on GitHub with a zip attached, after the rokavatar run is
+  done and its fixes are checked on Linux.
+- **Open from the rokavatar run:** Gemini's audit took 560 call-minutes and 2.1M tokens with 17 of 51 calls lost to
+  its filter or output ceiling; verification still costs about 86K tokens a question (beachflag 80K). Later runs are
+  on the owner's other projects, for real-world data.
 - **Small fixes from the self-audit, on `friend-test` (October 20):** a system "permission denied" on Antigravity's
   stderr no longer discards its reply as a soft-denied tool; a spawn that runs out of file descriptors no longer
   raises an unhandled error; workspace packages take the root's package manager for their test commands, and a
