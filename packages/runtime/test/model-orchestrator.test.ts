@@ -73,6 +73,7 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
   const reviewInputs: { url: string; repair: boolean; input: { round: number; yourEarlierVotes?: { votes: Record<string, { vote: string; citedEvidenceIds: string[] }> } } }[] = [];
   let failVerification = false;
   let failCritic = false;
+  let quotaUntil: string | null = null;
   let failExpansion = false;
   let failRevisionPatch = false;
   let blockDiscovery: (() => void) | undefined;
@@ -237,6 +238,7 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
     } else if (system.startsWith("Critique the plan")) {
       requests.push({ stage: "critic", url: request.url });
       if (failCritic && requests.filter(({ stage }) => stage === "critic").length === 2) return { status: 503, headers: {}, body: {} };
+      if (quotaUntil !== null && requests.filter(({ stage }) => stage === "critic").length === 1) return { status: 429, headers: {}, body: { error: { code: "insufficient_quota", message: `You exceeded your current quota until ${quotaUntil}` } } };
       const input = JSON.parse(user) as { plan: { title: string; rolloutConcerns?: string[]; tasks: { id: string }[] }; canonicalIssues: { candidateId: string }[]; reviewScope?: { globalIndex: { tasks: { id: string }[] } } };
       criticIssueIds.push(input.canonicalIssues.map(({ candidateId }) => candidateId));
       const taskId = input.plan.tasks[0]?.id ?? input.reviewScope?.globalIndex.tasks[0]?.id;
@@ -250,7 +252,7 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
     return { status: 200, headers: {}, body: response };
   };
   const create = (testSandbox?: TestSandbox, providerOptions: TransportFactoryOptions & { readonly factories?: Readonly<Record<string, TransportFactory>> } = {}) => new Orchestrator({ repository: directory, stateDirectory: join(directory, ".runs"), providerOptions: { client: { send }, credential: () => "fixture-credential", ...providerOptions }, ...(testSandbox === undefined ? {} : { testSandbox }) });
-  return { directory, create, config, requests, verificationInputs, plannerContexts, plannerReads, reviewInputs, packedChecks, criticIssueIds, verificationFlight, mergedListedPair: () => mergedListedPair, failRevisionPatch: (value: boolean) => { failRevisionPatch = value; }, failExpansion: (value: boolean) => { failExpansion = value; }, failCritic: (value: boolean) => { failCritic = value; }, failVerification: (value: boolean) => { failVerification = value; }, blockDiscovery: (callback: () => void) => { blockDiscovery = callback; } };
+  return { directory, create, config, requests, verificationInputs, plannerContexts, plannerReads, reviewInputs, packedChecks, criticIssueIds, verificationFlight, mergedListedPair: () => mergedListedPair, failRevisionPatch: (value: boolean) => { failRevisionPatch = value; }, failExpansion: (value: boolean) => { failExpansion = value; }, failCritic: (value: boolean) => { failCritic = value; }, quotaCritic: (until: string) => { quotaUntil = until; }, failVerification: (value: boolean) => { failVerification = value; }, blockDiscovery: (callback: () => void) => { blockDiscovery = callback; } };
 }
 
 describe("composed model audits", () => {
@@ -443,6 +445,18 @@ describe("composed model audits", () => {
     const descriptor = (await resumed.artifacts(result.runId)).find(({ kind }) => kind === "plan-ir");
     if (descriptor === undefined) throw new Error("PLAN_ABSENT");
     expect(JSON.parse((await resumed.artifact(result.runId, descriptor.artifactId) as { content: string }).content).title).toBe("Revised plan");
+  });
+
+  it("pauses on a used-up usage allowance instead of failing, and goes on by itself after the reset", async () => {
+    // Observed live: the Codex five-hour window ran out at the critic and failed a run whose audit and plan were done.
+    const { create, config, requests, quotaCritic } = await fixture();
+    // The reset is already past, so the wake-up resumes the run at once.
+    quotaCritic(new Date(Date.now() - 120_000).toISOString());
+    const core = create(); const result = await core.run(config);
+    expect(result.state).toBe("SUSPENDED_RATE_LIMIT");
+    expect((await core.overview(result.runId)).reason).toMatch(/^ProviderUsageLimitError: .*insufficient_quota/u);
+    await vi.waitFor(async () => { expect((await core.status(result.runId)).state).toBe("COMPLETED"); }, { timeout: 15_000, interval: 100 });
+    expect(requests.filter(({ stage }) => stage === "critic").length).toBeGreaterThan(1);
   });
 
   it("waits for answers to blocking plan questions, then applies them with one planner call", async () => {

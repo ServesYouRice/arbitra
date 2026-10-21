@@ -3,7 +3,7 @@ import type { ArtifactDescriptor } from "../../api/artifacts.js";
 import type { RunOverview, RunResource } from "../../api/runs.js";
 import { useLoaded } from "../../api/runs.js";
 import { useApis } from "../../app/apis.js";
-import { isActive } from "../../app/format.js";
+import { formatTime, isActive } from "../../app/format.js";
 import { GateVerdict } from "../../app/marks.js";
 import { Link, type RunTab } from "../../app/router.js";
 import { FeatureOutcome, HandoffDownload } from "../../views/feature/FeatureView.js";
@@ -53,10 +53,20 @@ function Result({ run, overview, reason }: { readonly run: RunResource | null; r
       : state === "FAILED" ? <p className="state" data-state="refuted">The run failed · {reason ?? overview?.reason ?? "no reason recorded"}. Resume it from the header to retry from where it stopped.</p>
       : state === "CANCELLED" ? <p className="state" data-state="unexamined">The run was cancelled. Resume it from the header to continue from where it stopped.</p>
       : state === "SUSPENDED_BUDGET" ? <p className="state" data-state="degraded">The run paused when it reached its token limit. Everything it has done is kept: raise the limit above and resume it to go on.</p>
-      : state === "SUSPENDED_RATE_LIMIT" ? <p className="state" data-state="degraded">The run paused on a provider rate limit. Resume it once the limit has reset.</p>
+      : state === "SUSPENDED_RATE_LIMIT" ? <UsageLimitPause reason={reason ?? overview?.reason ?? null} />
       : isActive(state) ? <p className="note">The run is still working. Results appear below as its stages record them.</p>
       : <p role="status">reading the run</p>}
   </section>;
+}
+
+/** Which allowance ran out and, when the provider said, when arbitra goes on by itself. */
+function UsageLimitPause({ reason }: { readonly reason: string | null }): ReactElement {
+  const until = /\buntil (\d{4}-\d{2}-\d{2}T[\d:.]+Z)/u.exec(reason ?? "")?.[1];
+  const who = /\bthe (.+?) subscription's usage allowance/u.exec(reason ?? "")?.[1] ?? /^\w+: Provider (\S+)/u.exec(reason ?? "")?.[1];
+  return <p className="state" data-state="degraded">
+    The run paused because {who === undefined ? "a model's" : `${who}'s`} usage limit was reached. Everything it has done is kept.{" "}
+    {until === undefined ? "Resume it from the header once the limit has reset." : <>The limit resets at {formatTime(until)}; arbitra resumes the run by itself a minute later while it stays open, or resume it from the header then.</>}
+  </p>;
 }
 
 function AuditSummary({ runId, refreshKey }: { readonly runId: string; readonly refreshKey: unknown }): ReactElement {

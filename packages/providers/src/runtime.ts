@@ -52,6 +52,15 @@ export class ProviderInvocationFailure extends Error {
   readonly resumable = true;
   constructor(message: string, readonly attempts: number, readonly causeCode: string) { super(message); this.name = "ProviderInvocationFailure"; }
 }
+/**
+ * A provider's usage allowance is used up (a subscription's window, an account's credit). Waiting is the only fix, so
+ * the run pauses as rate limited, its completed work kept, rather than failing. Observed live (October 21, 2026): the
+ * Codex five-hour window ran out at the critic and failed a run whose audit, verification and plan were done.
+ */
+export class ProviderUsageLimitError extends ProviderInvocationFailure {
+  readonly state = "SUSPENDED_RATE_LIMIT" as const;
+  constructor(message: string, attempts: number) { super(message, attempts, "QUOTA"); this.name = "ProviderUsageLimitError"; }
+}
 
 /** Sole production entrypoint to low-level provider transports. */
 export class ProviderInvocationRuntime {
@@ -120,6 +129,7 @@ export class ProviderInvocationRuntime {
     const code = lastError instanceof TransportError ? lastError.code : "UNKNOWN";
     // Transport messages are bounded and redacted at the source (providerErrorDetail).
     const detail = lastError instanceof TransportError ? `: ${lastError.message.slice(0, 300)}` : "";
+    if (code === "QUOTA") throw new ProviderUsageLimitError(`Provider ${context.providerId} reached its usage limit (${code}${detail}); the run pauses with its completed work kept and goes on when resumed after the reset.`, attempts);
     throw new ProviderInvocationFailure(`Provider ${context.providerId} failed after ${attempts} attempt${attempts === 1 ? "" : "s"} (${code}${detail}); completed artifacts are preserved and the run may resume with degraded completeness.`, attempts, code);
   }
 }

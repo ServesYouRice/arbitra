@@ -91,6 +91,14 @@ describe("provider invocation runtime", () => {
     await expect(pending).rejects.toMatchObject({ name: "ProviderInvocationFailure", attempts: 1, causeCode: "CANCELLED" });
   });
 
+  it("pauses the run as rate limited, not failed, when a usage allowance is used up", async () => {
+    // Observed live: the Codex five-hour window ran out at the critic and failed a run whose earlier stages were done.
+    const transport: ProviderTransport = { id: "fixture", async send() { throw new TransportError("QUOTA", "CLI_USAGE_LIMIT_REACHED: the Codex CLI subscription's usage allowance is exhausted until 2026-10-21T19:33:00.000Z", false, 1_000); } };
+    await expect(createRuntime(transport, scheduler()).invoke(request(), context({ maximumRetries: 3 }))).rejects.toMatchObject({
+      name: "ProviderUsageLimitError", state: "SUSPENDED_RATE_LIMIT", causeCode: "QUOTA", attempts: 1, message: expect.stringContaining("until 2026-10-21T19:33:00.000Z") as unknown,
+    });
+  });
+
   it("reports actual attempts and validates before touching the budget", async () => {
     const reserve = vi.fn(() => ({ allowed: true }));
     const transport: ProviderTransport = { id: "fixture", async send() { throw new TransportError("AUTH", "bad key", false); } };

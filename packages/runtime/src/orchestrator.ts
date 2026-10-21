@@ -166,6 +166,8 @@ export class Orchestrator {
   readonly #live = new Map<string, RunHandle>();
   readonly #listCache = new Map<string, { readonly stamp: string; readonly item: RunListItem }>();
   readonly #resuming = new Set<string>();
+  /** Runs paused on a usage limit that resume by themselves once it resets. */
+  readonly #wakeups = new Map<string, ReturnType<typeof setTimeout>>();
   readonly #providerOptions: TransportFactoryOptions;
   readonly #testSandbox: TestSandbox | undefined;
   readonly #graphs: Readonly<Record<string, RunnerGraph>>;
@@ -484,6 +486,7 @@ export class Orchestrator {
   /** Resumes a run; `maximumTokens` raises a model run's token limit first (a run paused on its budget goes on). */
   async resume(runId: string, options: { readonly maximumTokens?: number } = {}): Promise<RunResource> {
     if (this.#live.has(runId) || this.#resuming.has(runId)) throw new Error(`RUN_ALREADY_LIVE:${runId}`);
+    clearTimeout(this.#wakeups.get(runId)); this.#wakeups.delete(runId);
     this.#resuming.add(runId);
     try { return await this.#resume(runId, options.maximumTokens); }
     finally { this.#resuming.delete(runId); }
@@ -794,6 +797,9 @@ export class Orchestrator {
   async cancel(runId: string): Promise<RunResource> {
     const handle = this.#live.get(runId);
     if (handle === undefined) {
+      // A run waiting for its usage limit to reset stays paused and no longer resumes by itself.
+      const waking = this.#wakeups.get(runId);
+      if (waking !== undefined) { clearTimeout(waking); this.#wakeups.delete(runId); return await this.status(runId); }
       const existing = await this.status(runId);
       if (["COMPLETED", "FAILED", "CANCELLED"].includes(existing.state)) return existing;
       throw new Error(`RUN_NOT_LIVE:${runId}`);
@@ -1133,6 +1139,27 @@ export class Orchestrator {
     // settled run never makes. Its transports are closed once its result settles, whatever the outcome; a
     // failure to close is never the run's result. A resume builds its own pipeline and transports.
     void handle.result.then(() => close(), () => close()).catch(() => undefined);
+    void handle.result.then((state) => state === "SUSPENDED_RATE_LIMIT" ? this.#wakeAfterReset(runId) : undefined).catch(() => undefined);
+  }
+
+  /**
+   * A run paused on a usage limit whose reset time the provider gave goes on by itself a minute after the reset, while
+   * this process stays up; a resume or cancel before then removes the wake-up. Observed live (October 21, 2026): a
+   * tester's run stopped at the critic on the Codex five-hour window with the reset three hours away.
+   */
+  async #wakeAfterReset(runId: string): Promise<void> {
+    const events = await new RunStore(this.#runsDirectory, runId).loadEvents();
+    const reason = [...events].reverse().find((event): event is Extract<RunEvent, { t: "run_transition" }> => event.t === "run_transition")?.reason ?? "";
+    const until = Date.parse(/\buntil (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)/u.exec(reason)?.[1] ?? "");
+    // arbitra-determinism: allow -- a wake-up is wall-clock scheduling at the composition boundary, outside any run
+    const wait = until + 60_000 - Date.now();
+    if (!Number.isFinite(wait) || wait > MAXIMUM_WAKE_UP_MS || this.#live.has(runId)) return;
+    // arbitra-determinism: allow -- as above
+    const timer = setTimeout(() => { this.#wakeups.delete(runId); void this.resume(runId).catch(() => undefined); }, Math.max(0, wait));
+    // A pending wake-up never keeps the process alive on its own.
+    timer.unref();
+    clearTimeout(this.#wakeups.get(runId));
+    this.#wakeups.set(runId, timer);
   }
 }
 
@@ -1146,6 +1173,8 @@ function withoutRef(descriptor: ArtifactDescriptor): PublicArtifact {
 
 /** How many runs the run list reads at once. */
 const LIST_CONCURRENCY = 8;
+/** Seven days covers a weekly allowance; a reset further away is left to the operator. */
+const MAXIMUM_WAKE_UP_MS = 7 * 24 * 3_600_000;
 
 /**
  * A pending human checkpoint is one decision. A requirements checkpoint is listed only while

@@ -61,12 +61,25 @@ export function retryHint(text: string): number | null {
   return total > 0 ? Math.ceil(total) : null;
 }
 
-/** When a plan allowance resets: a relative hint, an epoch (`limit reached|1758900000`), or an ISO time. */
+/**
+ * When a plan allowance resets: a relative hint, an epoch (`limit reached|1758900000`), an ISO time, or a clock time
+ * on this machine's clock (`try again at 9:33 PM`, `resets 9pm`), taken as its next occurrence.
+ */
 export function resetTime(text: string, now: number): number | null {
   const epoch = /\|(\d{10})\b/u.exec(text)?.[1] ?? /resets?(?:_?at)?["':\s]+(\d{10})\b/iu.exec(text)?.[1];
   if (epoch !== undefined) return Number(epoch) * 1_000;
   const iso = /\b(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2}))\b/u.exec(text)?.[1];
   if (iso !== undefined && Number.isFinite(Date.parse(iso))) return Date.parse(iso);
   const relative = retryHint(text);
-  return relative === null ? null : now + relative;
+  if (relative !== null) return now + relative;
+  // Observed live (October 21, 2026): the Codex CLI said "You've hit your usage limit. ... try again at 9:33 PM."
+  const clock = /(?:try again|resets?)\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(?:([ap])\.?\s?m\b\.?|(?<=:\d{2}))/iu.exec(text);
+  if (clock === null) return null;
+  const hour = Number(clock[1]) % (clock[3] === undefined ? 24 : 12) + (clock[3]?.toLowerCase() === "p" ? 12 : 0);
+  const minute = Number(clock[2] ?? 0);
+  if (hour > 23 || minute > 59) return null;
+  const at = new Date(now); at.setHours(hour, minute, 0, 0);
+  // The limit was reached a moment ago, so a time already past is tomorrow's.
+  if (at.getTime() <= now) at.setDate(at.getDate() + 1);
+  return at.getTime();
 }

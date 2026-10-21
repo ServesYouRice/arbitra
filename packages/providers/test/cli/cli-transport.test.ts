@@ -659,6 +659,14 @@ describe("failure text classification", () => {
     expect(retryHint("try again in 2 hours 5 minutes")).toBe(7_500_000);
     expect(retryHint("Please retry in 23.5s")).toBe(23_500);
     expect(resetTime("Claude AI usage limit reached|1790388000", 0)).toBe(1_790_388_000_000);
+    // A clock time is this machine's, at its next occurrence. Observed live from the Codex CLI (October 21, 2026).
+    const evening = new Date(2026, 9, 21, 18, 32).getTime();
+    const codex = classifyCliFailure(requireCliTransportSupport("codex-cli"), "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/settings/usage to purchase more credits or try again at 9:33 PM.", 1, evening);
+    expect(codex).toMatchObject({ code: "QUOTA", retryAfterMs: new Date(2026, 9, 21, 21, 33).getTime() - evening, message: expect.stringContaining(`until ${new Date(2026, 9, 21, 21, 33).toISOString()}`) as unknown });
+    expect(resetTime("5-hour limit reached ∙ resets 3am", evening)).toBe(new Date(2026, 9, 22, 3, 0).getTime());
+    expect(resetTime("limit reached, try again at 17:05", evening)).toBe(new Date(2026, 9, 22, 17, 5).getTime());
+    expect(resetTime("limit reached, try again at 12:15 AM", evening)).toBe(new Date(2026, 9, 22, 0, 15).getTime());
+    expect(resetTime("usage limit reached, resets 9", evening)).toBeNull();
     expect(classifyCliFailure(claude, "IneligibleTierError: This client is no longer supported for Gemini Code Assist for individuals", 1)).toMatchObject({ code: "AUTH", message: expect.stringContaining("CLI_ACCOUNT_INELIGIBLE") as unknown });
     expect(classifyCliFailure(claude, "{\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-x' model is not supported when using Codex with a ChatGPT account.\"}}", 1)).toMatchObject({ code: "INVALID_REQUEST", retryable: false });
     expect(classifyCliFailure(claude, "API Error: Claude's response exceeded the 200 output token maximum", 1).code).toBe("OUTPUT_LIMIT");

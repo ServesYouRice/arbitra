@@ -25,7 +25,7 @@ export function runStateLabel(state: string | null, live = false): { readonly te
     case "BLOCKED": return { text: "waiting for your decision", tone: "attention" };
     case "CANCELLED": return { text: "cancelled", tone: "unexamined" };
     case "SUSPENDED_BUDGET": return { text: "paused · token budget reached", tone: "degraded" };
-    case "SUSPENDED_RATE_LIMIT": return { text: "paused · rate limited", tone: "degraded" };
+    case "SUSPENDED_RATE_LIMIT": return { text: "paused · usage limit", tone: "degraded" };
     default: return { text: `running · ${PHASES[state] ?? state.toLowerCase().replaceAll("_", " ")}`, tone: null };
   }
 }
