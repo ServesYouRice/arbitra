@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { NativeProcessPort } from "../../process.js";
 import { versionInRange } from "../../semver.js";
 import { cliFailureDetail } from "./classify.js";
-import { type CliExecutableResolution, type HostLookup } from "./discovery.js";
+import { hostNodeExecutable, type CliExecutableResolution, type HostLookup } from "./discovery.js";
 import { defaultLimitLedgerPath, fileLimitLedger, type CliLimitLedger, type CliUsageLimit } from "./limits.js";
 import { cliTransportSupport, type CliAuthMode, type CliTransportSupport } from "./support.js";
 import { probeCliVersion, runCliCommand, supportedCliExecutable, type CliCommandOptions } from "./transport.js";
@@ -44,7 +44,7 @@ export const probeCliReadiness: CliProbe = async (transport, options) => {
   const ledgerPath = options.limits === undefined ? defaultLimitLedgerPath(options.lookup, platform) : null;
   const ledger = options.limits === undefined ? ledgerPath === null ? null : fileLimitLedger(ledgerPath) : options.limits;
   const usageLimit = await ledger?.current(transport, options.now ?? Date.now()).catch(() => null) ?? null;
-  const { resolution: executable, version: known } = await supportedCliExecutable(support, { platform, lookup: options.lookup, nodeExecutable: options.nodeExecutable ?? process.execPath }, command);
+  const { resolution: executable, version: known } = await supportedCliExecutable(support, { platform, lookup: options.lookup, nodeExecutable: options.nodeExecutable ?? hostNodeExecutable() }, command);
   if (!executable.found) return Object.freeze({ support, executable, version: null, versionSupported: null, auth: null, authDetail: null, usageLimit });
   const version = known ?? await probeCliVersion(executable.executable, support, command).catch(() => null);
   const versionSupported = version === null ? false : versionInRange(version, support.versionRange);

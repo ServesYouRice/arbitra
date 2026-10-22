@@ -81,3 +81,6 @@ yarn-error.log*
 Thumbs.db
 .idea/
 *.swp
+
+# Single-file app builds (tooling/package/build.mjs)
+/dist-package/

@@ -18,7 +18,8 @@
     "smoke:examples": "pnpm --filter @arbitra/runtime exec vitest run test/example-smoke.test.ts test/subscription-smoke.test.ts test/preflight.test.ts",
     "test:lint-rules": "node --test tooling/eslint-rules/test/*.test.cjs",
     "test:watch": "vitest",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "package": "node tooling/package/build.mjs"
   },
   "pnpm": {
     "overrides": {
@@ -37,6 +38,7 @@
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "@types/node": "^22.19.1",
+    "esbuild": "0.27.0",
     "eslint": "^9.39.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.48.1",

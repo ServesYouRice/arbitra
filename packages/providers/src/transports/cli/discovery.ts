@@ -136,6 +136,12 @@ async function executable(path: string, platform: NodeJS.Platform): Promise<bool
 }
 
 /** PATH for the child: the CLI's own directory (and its resolved target's) plus Node's, then the system directories. */
+/**
+ * The Node that runs an npm-installed CLI script: this process, or the one ARBITRA_NODE_EXECUTABLE names. The single-file
+ * app sets it, because its own binary always runs arbitra and ignores a script argument.
+ */
+export function hostNodeExecutable(): string { return process.env["ARBITRA_NODE_EXECUTABLE"] ?? process.execPath; }
+
 export function childPath(executable: CliExecutable, resolvedTarget: string | null, platform: NodeJS.Platform, nodeExecutable: string, lookup: HostLookup): string {
   const system = platform === "win32" ? [join(lookup("SystemRoot") ?? "C:\\Windows", "System32"), lookup("SystemRoot") ?? "C:\\Windows"] : ["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
   const directories = [dirname(executable.path), ...(resolvedTarget === null ? [] : [dirname(resolvedTarget)]), dirname(nodeExecutable), ...system];

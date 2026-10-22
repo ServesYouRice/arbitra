@@ -7,7 +7,7 @@ import { versionInRange } from "../../semver.js";
 import { noUsage, TransportError, type ProviderTransport, type TransportConfiguration, type TransportId, type TransportRequest, type TransportResponse } from "../../transport-contract.js";
 import { resetTime } from "./classify.js";
 import { CLI_DIALECTS, type CliDialect, type CliInvocationContext } from "./dialects.js";
-import { childPath, cliExecutableCandidates, type CliExecutable, type CliExecutableResolution, type DiscoveryHost, type HostLookup } from "./discovery.js";
+import { childPath, cliExecutableCandidates, hostNodeExecutable, type CliExecutable, type CliExecutableResolution, type DiscoveryHost, type HostLookup } from "./discovery.js";
 import { defaultLimitLedgerPath, fileLimitLedger, type CliLimitLedger } from "./limits.js";
 import { interpretCliReply, serializeCliFollowUp, serializeCliPrompt, type CliPrompt } from "./prompt.js";
 import type { CliAuthMode, CliTransportSupport } from "./support.js";
@@ -83,7 +83,7 @@ export class CliTransport implements ProviderTransport {
     this.#lookup = options.lookup ?? ((name) => process.env[name]);
     this.#process = options.process ?? { run: runNativeProcess };
     this.#platform = options.platform ?? process.platform;
-    this.#node = options.nodeExecutable ?? process.execPath;
+    this.#node = options.nodeExecutable ?? hostNodeExecutable();
     this.#temporary = options.temporaryDirectory;
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.#maximumOutputBytes = options.maximumOutputBytes ?? DEFAULT_MAXIMUM_OUTPUT_BYTES;
@@ -280,7 +280,7 @@ export async function runCliCommand(executable: CliExecutable, commandArguments:
   const root = await realpath(await mkdtemp(join(options.temporaryDirectory ?? tmpdir(), "arbitra-cli-probe-")));
   try {
     const platform = options.platform ?? process.platform;
-    const environment = { ...cliBaseEnvironment(executable, root, { lookup: options.lookup, platform, nodeExecutable: options.nodeExecutable ?? process.execPath,
+    const environment = { ...cliBaseEnvironment(executable, root, { lookup: options.lookup, platform, nodeExecutable: options.nodeExecutable ?? hostNodeExecutable(),
       home: options.lookup(platform === "win32" ? "USERPROFILE" : "HOME") ?? options.lookup("HOME") }), ...options.extraEnvironment };
     return await (options.process ?? { run: runNativeProcess }).run({ executable: executable.command, arguments: [...executable.prefixArguments, ...commandArguments], cwd: root,
       environment, stdin: "", timeoutMs: PROBE_TIMEOUT_MS, maximumOutputBytes: 256 * 1024, signal: new AbortController().signal });
