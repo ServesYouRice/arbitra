@@ -79,6 +79,13 @@ file says what is left and in what order. The measurements and decisions behind 
     keeps Antigravity in the lineup: "we only use gemini for testing, if it dies, it dies".
   - The blog test run found that the snapshot read a fixed list of extensions and left out all 30 `.astro`
     files; Astro, shell, C-family and other common sources are now read (fcef7ee).
+- **The blog run (October 22):** `run-7fb6177a`, an Astro blog with a CMS, 164 files and 14,204 lines, from a
+  fresh zip of fcef7ee, Gemini at medium (owner). 63 minutes, 359 calls, 13.1M tokens (922 a line; rokavatar 1,455,
+  beachflag 1,560). 41 of 180 candidates confirmed (3 high, 38 medium), 320K tokens per confirmed issue; found alone by
+  Opus 16, Sol 7, Gemini 2. Peer review 4.0M tokens and verification 3.9M (219 calls). Gemini at medium took 135
+  call-minutes (560 at high on rokavatar), and 9 of its 47 calls were refused by its content filter. The plan has 33
+  tasks for 41 issues and 31 open questions, 1 blocking: questions are still not merged across sections. Its replay
+  without peer review (experiment 11) is `run-d6fbbf98`.
 - **Small fixes from the self-audit, on `friend-test` (October 20):** a system "permission denied" on Antigravity's
   stderr no longer discards its reply as a soft-denied tool; a spawn that runs out of file descriptors no longer
   raises an unhandled error; workspace packages take the root's package manager for their test commands, and a
