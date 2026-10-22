@@ -1,11 +1,13 @@
 # arbitra
 
-Just another multi-model software audit and implementation orchestrator. I was too lazy to do it manually, and others didn't really work for me, so I figured, "fine, I will do it myself".
+arbitra audits a repository with models from different vendors side by side, checks every issue its plan acts on
+against the source before planning it, and hands over the plan as prompts another agent can carry out. Every run can
+be replayed, and every run reports what it confirmed, what it rejected, what the source could not settle, and how many
+tokens each confirmed issue cost.
 
-arbitra runs several independent models over one repository snapshot, makes them argue in
-a structured way, resolves what it can deterministically, and emits a plan a different
-agent can execute. Its premise — that independent auditors find defects a single model
-misses — is treated as a hypothesis the system measures, not as a marketing claim.
+Whether models from several vendors find defects one model misses is a question arbitra measures and publishes,
+losses included, not a selling point: see [what is measured so far](#what-is-measured-so-far). What leaves your
+machine during a run is on one page: [privacy](docs/privacy.md).
 
 ## Status
 
@@ -37,22 +39,26 @@ work is [deferred](#deferred-to-a-later-phase-the-paid-api-bundle). See the
 [verification evidence](docs/qa/README.md) for what was measured, and
 [remaining work](WORK-REMAINING.md) for what remains.
 
-One thing is worth knowing before reading further: **the premise is measured, and the
-answer so far is "insufficient evidence".** The live evaluation (completion plan P06,
-protocol 2.1.0) ran Claude Sonnet 5, GPT-5.6 Luna and Gemini 3.8 Flash on three small fixtures
-with 10 planted defects. One Claude run found 25 of 30 defect chances, and three pooled runs
-found all 10 defects, whether they were repeated Claude runs or three model families. Under
-the prespecified rule, no comparison is decisive at that size
-([`docs/qa/p06-subscription`](docs/qa/p06-subscription/README.md)). A harder, private
-benchmark (P20) was then run on its pilot only: on three projects built so that one Opus 5.5
-run misses defects, wherever three pooled Opus runs missed a planted defect, a panel of Opus
-5.5, GPT-6.1 Sol and Gemini 3.8 Flash found it, in about 0.6 times their time and 0.7 times
-their tokens. With 21 planted defects that is an estimate, not a test
-([completion plan](docs/completion-plan.md#p20--stress-test-the-premise-on-a-hard-benchmark)).
-The default suites run scripted auditors, and `packages/testing/src/metrics/premise.ts` scores
-a run against a ground-truth fixture.
-Every premise report carries `interpretation: "smoke_test_only_not_proof"`. See
-[`docs/evaluation.md`](docs/evaluation.md).
+### What is measured so far
+
+- **Small fixtures (P06, 10 planted defects).** Claude Sonnet 5, GPT-5.6 Luna and Gemini 3.8 Flash: one Claude run
+  found 25 of 30 defect chances, and three pooled runs found all 10, whether they were repeated Claude runs or three
+  vendors. At that size no comparison decides anything ([record](docs/qa/p06-subscription/README.md)).
+- **A harder private benchmark, pilot only (P20, 3 projects, 21 planted defects).** Wherever three pooled Opus 5.5
+  runs missed a planted defect, a panel of Opus 5.5, GPT-6.1 Sol and Gemini 3.8 Flash found it, in about 0.6 times
+  their time and 0.7 times their tokens. Two caveats: 21 defects make this an estimate, not a test, and the pilot
+  projects were made harder until one Opus run missed defects, which favours a panel with other vendors in it. The
+  held-out part (9 projects, 63 defects) has not been run
+  ([completion plan](docs/completion-plan.md#p20--stress-test-the-premise-on-a-hard-benchmark)).
+- **Real projects.** On a 10,700-line web app (October 21) the panel confirmed 23 issues against the source (3 high,
+  20 medium) and rejected 46, at 677,000 tokens per confirmed issue. Of the 23, Opus alone found 12, Sol alone 2 and
+  Gemini alone none; 7 were found by more than one model. One run is not a measurement of the vendors; every run's
+  report and Evaluation tab now show these numbers, so they add up across projects.
+
+"Confirmed" means a verifier model found the defect in the source. It is not yet proof by execution: a step that
+writes a failing test for high and critical issues is planned ([design audit](docs/design-audit.md#what-changes),
+item 16). Runs without models use scripted detectors and are labelled `smoke_test_only_not_proof`
+([evaluation](docs/evaluation.md)).
 
 ### Deferred to a later phase: the paid-API bundle
 
@@ -165,6 +171,7 @@ tooling/              ESLint rules that enforce architecture invariants
 | [`docs/qa/README.md`](docs/qa/README.md) | dated verification evidence per item: checks, Docker, browsers, live providers, evaluations |
 | [`docs/completion-plan.md`](docs/completion-plan.md) | remaining implementation and validation steps, dependencies and acceptance criteria |
 | [`docs/architecture.md`](docs/architecture.md) | package layout, layering, the core loop, v1.1 extension points |
+| [`docs/privacy.md`](docs/privacy.md) | what leaves your machine, to whom, and how to send less |
 | [`docs/security.md`](docs/security.md) | trust, taint, control plane, suppression, command policy |
 | [`docs/workflows.md`](docs/workflows.md) | the graph model, node kinds, the three modes, presets |
 | [`docs/provider-model.md`](docs/provider-model.md) | model profiles, transports, effort, structured output |
@@ -231,6 +238,12 @@ No example carries a credential, and none can: `ConfigStore.validate`
 `…EnvVar`-shaped key to hold an uppercase environment-variable name rather than the secret
 itself. Credentials are resolved from the environment at call time and never reach disk or
 an HTTP response. See [`docs/security.md`](docs/security.md).
+
+## Why it exists
+
+Doing this by hand across several models got tedious, and the tools that existed didn't fit, so the maintainer built
+one. Its design was checked against the labs' published guidance and review pipelines: [research](docs/research.md)
+and the [design audit](docs/design-audit.md).
 
 ## Licence
 

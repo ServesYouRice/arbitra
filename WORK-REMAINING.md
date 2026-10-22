@@ -1,6 +1,6 @@
 # Remaining work
 
-Updated October 21, 2026 (branch `friend-test`). Task status lives in the [completion plan](docs/completion-plan.md); this
+Updated October 22, 2026 (branch `friend-test`). Task status lives in the [completion plan](docs/completion-plan.md); this
 file says what is left and in what order. The measurements and decisions behind every item, from the P20 pilot
 (October 10 to 19), are in this file's history: `git show 9558aef:WORK-REMAINING.md`.
 
@@ -59,6 +59,22 @@ file says what is left and in what order. The measurements and decisions behind 
 - **Open from the rokavatar run:** Gemini's audit took 560 call-minutes and 2.1M tokens with 17 of 51 calls lost to
   its filter or output ceiling; verification still costs about 86K tokens a question (beachflag 80K). Later runs are
   on the owner's other projects, for real-world data.
+- **An outside critique, checked against the code (October 22).** Of 17 points, 9 held, 4 partly, 2 were already
+  fixed and 2 described an older arbitra. Acted on the same day, on `friend-test`:
+  - Each run's report and Evaluation tab lead with what it confirmed against the source, tokens per confirmed issue,
+    and what each model found that no other did (ef98804). On rokavatar: 23 of 212 confirmed (3 high, 20 medium),
+    677K tokens each; found alone by Opus 12, Sol 2, Gemini 0, though Gemini's audit took 2.1M tokens and its peer
+    review 1.9M. The 48 "accepted" low issues were accepted by the vote and never checked; the README now claims
+    checking only for the issues the plan acts on.
+  - The README leads with checking and replay, not "Just another…", and gives the measurements with their caveats,
+    including that the P20 pilot projects were hardened until Opus missed defects. A one-page
+    [privacy](docs/privacy.md) answer: what is sent, to whom, how to send less.
+  - Google's terms, settled as far as reading goes: wrapping `agy` in another application "is not supported under
+    consumer plans", and third-party access "may be grounds for suspension" (FAQ and terms, read October 22). New
+    run, TESTERS.md and the privacy page say so; Google's route for tools is a Gemini API key (fcef7ee). Whether the
+    default lineup keeps Antigravity is the owner's decision.
+  - The blog test run found that the snapshot read a fixed list of extensions and left out all 30 `.astro`
+    files; Astro, shell, C-family and other common sources are now read (fcef7ee).
 - **Small fixes from the self-audit, on `friend-test` (October 20):** a system "permission denied" on Antigravity's
   stderr no longer discards its reply as a soft-denied tool; a spawn that runs out of file descriptors no longer
   raises an unhandled error; workspace packages take the root's package manager for their test commands, and a
@@ -176,12 +192,30 @@ changes checked against Anthropic's guidance first).
 a second varied discovery pass, a cheaper verifier, a verifier of another vendor on a sample, an execution rung, a
 static analyser. And score plans by executing them.
 
+**Order after the October 22 critique** (each measured as above):
+
+1. **Prove it (item 16).** For each confirmed high and critical issue, a test that fails on the unchanged code, run in
+   the Docker sandbox the Testing mode already uses. A test that cannot be written leaves the issue confirmed, never
+   rejected (agents write one for only 16–37% of real bugs). This is what sets arbitra apart from tools that count
+   agreeing models, so it leads.
+2. **Cut what does not earn its place:** no peer review (item 11; 4.2M tokens on rokavatar) and a cheaper verifier
+   (item 14), each against the same project's earlier run. Gemini's part goes with them: across the next real runs,
+   compare its confirmed finds no other model made with what its audit and peer review cost.
+3. **Plans carried out by Codex and Gemini as well as Claude:** count issues fixed, things broken and edits a person
+   had to make.
+4. **Evidence a skeptic can check:** a small public track of real fixed bugs (reverted fixes from public projects)
+   beside P20, and, if the owner reopens P20, its held-out protocol written and committed before any held-out run.
+
 **To re-check on the current build** (measured October 11 to 13, before later changes): prompts sized at one byte a
 token outside the stages that set `estimatedBytesPerToken`; discovery source as one JSON object a line; Gemini's
 output nearly all thinking and its CLI's own agent prompt; a pinned copy of each CLI per protocol, as for Claude Code.
 
-**Product:** the terms of each vendor's subscription CLI need a check before arbitra recommends subscriptions.
-Google's Antigravity FAQ says wrapping `agy` in third-party applications "is not supported under consumer plans".
+**Product, vendor terms (read October 22):** Google: Antigravity on a consumer plan is not supported inside arbitra
+(above). Anthropic: allowed as arbitra does it. Claude Code's
+[legal page](https://code.claude.com/docs/en/legal-and-compliance) does not prevent "an end user from signing in to
+the unmodified Claude Code binary with their own Claude subscription"; it forbids tools that collect or route
+subscription credentials, which arbitra never does, and limits assume "ordinary, individual usage". OpenAI: no
+statement found on driving `codex exec` from another tool; ChatGPT's terms govern the data.
 
 ## Deferred: the paid-API bundle
 

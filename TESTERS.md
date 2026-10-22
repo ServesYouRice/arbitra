@@ -13,9 +13,12 @@ already have. It never changes your code.
     extension works too.
   - **Codex CLI** (ChatGPT Plus or Pro): `npm install -g @openai/codex`, then `codex login` and choose Sign in with
     ChatGPT.
-  - **Antigravity CLI** (Google AI plan): run `agy` once and sign in.
+  - **Antigravity CLI** (Google AI plan): run `agy` once and sign in. Google's terms say using `agy` inside another
+    application is not supported on Google AI Pro or Ultra and may get the account suspended; leave it out if that
+    worries you.
 
-  Three vendors give the best results; one is enough to try it.
+  Three vendors give the best results; one is enough to try it. Your code is sent to the vendors you choose and to
+  no one else: [what leaves your machine](docs/privacy.md).
 
 ## Start it
 
