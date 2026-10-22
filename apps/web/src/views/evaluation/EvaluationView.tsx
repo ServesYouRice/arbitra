@@ -1,6 +1,6 @@
 import "./evaluation.css";
 import { useState, type ReactElement } from "react";
-import { EvaluationApi, measured, useEvaluationMetrics, type ComparisonRefusal, type ComparisonResult, type ConfirmedYield, type EvaluationRow } from "./api.js";
+import { EvaluationApi, measured, useEvaluationMetrics, type ComparisonRefusal, type ComparisonResult, type ConfirmedYield, type EvaluationRow, type PlanResults } from "./api.js";
 import { modelName } from "../../pages/run/models.js";
 export interface EvaluationViewProps { readonly runId: string | null; readonly api?: EvaluationApi }
 const AUDITOR_COLUMNS: readonly (readonly [string, (row: EvaluationRow) => string])[] = Object.freeze([
@@ -24,7 +24,7 @@ export function EvaluationView({ runId, api = SHARED_EVALUATION_API }: Evaluatio
   if (state !== "loaded" || metrics === null) return <section aria-label="evaluation"><h2 className="panel-title">evaluation</h2><p className="state" data-state={state === "error" ? "degraded" : "unexamined"}>{state === "error" ? `metrics unavailable · ${error ?? "error"}` : `metrics ${state}`}</p></section>;
   return <section aria-label="evaluation" className="evaluation">
     <h2 className="panel-title">evaluation</h2>
-    {metrics.confirmedYield === null || metrics.confirmedYield === undefined ? null : <Confirmed value={metrics.confirmedYield} />}
+    {metrics.confirmedYield === null || metrics.confirmedYield === undefined ? null : <Confirmed value={metrics.confirmedYield} carried={metrics.planResults ?? null} />}
     <p className="evaluation-denominator">segmented by {metrics.segmentation.join(", ") || "nothing"} · {metrics.denominator.activityCount} model activity attempts · {metrics.denominator.auditorCount} scored auditors · ground truth {metrics.denominator.groundTruthAvailable ? "available" : "unavailable"}</p>
     <p className="state" data-state={metrics.independence.applicable ? "verified" : "unexamined"}>independence · {metrics.independence.applicable ? `applicable · groups ${metrics.independence.groups.join(", ")}` : `not applicable · ${metrics.independence.reason ?? "reason unavailable"}`}</p>
     <table aria-label="per-auditor contribution"><thead><tr>{AUDITOR_COLUMNS.map(([label]) => <th key={label} scope="col">{label}</th>)}</tr></thead>
@@ -52,11 +52,12 @@ export function EvaluationView({ runId, api = SHARED_EVALUATION_API }: Evaluatio
   </section>;
 }
 /** "Confirmed" is the verifier's answer from the source, so the section says so rather than calling it precision. */
-function Confirmed({ value }: { readonly value: ConfirmedYield }): ReactElement {
+function Confirmed({ value, carried }: { readonly value: ConfirmedYield; readonly carried: PlanResults | null }): ReactElement {
   const severities = Object.entries(value.confirmedBySeverity).map(([severity, count]) => `${severity} ${count}`).join(", ");
   return <section aria-labelledby="confirmed-title" className="evaluation-confirmed">
     <h3 className="panel-title" id="confirmed-title">checked against the source</h3>
     <p>{value.confirmed} of {value.candidates} candidates confirmed{severities === "" ? "" : ` · ${severities}`} · {value.tokensPerConfirmed === null ? "tokens per confirmed issue unavailable" : `${tokenCount(value.tokensPerConfirmed)} tokens per confirmed issue`}</p>
+    {carried === null ? null : <p>plan carried out · {carried.reported} of {carried.issues} issues reported · {carried.provenByFailingTest} proven by a failing test · {Object.entries(carried.results).map(([result, count]) => `${result.replaceAll("_", " ")} ${count}`).join(" · ")}</p>}
     <p className="evaluation-denominator">{value.rejected} rejected · {value.unsettled} the source could not settle · {value.acceptedUnchecked} accepted without a check · {value.notChecked} not checked. Confirmed means the verifier found the defect in the source; no answer key checked it.</p>
     <table aria-label="confirmed by auditor"><thead><tr>{["auditor", "findings", "confirmed", "found by it alone", "discovery tokens"].map((label) => <th key={label} scope="col">{label}</th>)}</tr></thead>
       <tbody>{value.auditors.map((auditor) => <tr key={auditor.auditorId}><td>{auditor.modelId === null ? auditor.auditorId : modelName(auditor.modelId)}</td><td>{auditor.findings}</td><td>{auditor.confirmed}</td><td>{auditor.confirmedAlone}</td>

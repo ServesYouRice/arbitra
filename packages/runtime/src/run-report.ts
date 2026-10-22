@@ -28,7 +28,8 @@ export async function runReport(orchestrator: Orchestrator, runId: string, envir
     for (const [profile, model] of Object.entries(configuration.models)) add(`  ${profile}: ${model.modelId ?? "?"} via ${model.transport ?? "?"}`);
     add(`  roles ${JSON.stringify(configuration.workflow?.modelExecution?.roles ?? {})}`);
   }
-  const outcome = await orchestrator.metrics(runId).then(({ confirmedYield }) => confirmedYield, () => null);
+  const metrics = await orchestrator.metrics(runId).catch(() => null);
+  const outcome = metrics?.confirmedYield ?? null;
   if (outcome !== null) {
     const severities = Object.entries(outcome.confirmedBySeverity).map(([severity, count]) => `${severity} ${count}`).join(", ");
     add("", "checked against the source",
@@ -37,6 +38,9 @@ export async function runReport(orchestrator: Orchestrator, runId: string, envir
     for (const auditor of outcome.auditors)
       add(`  ${auditor.auditorId} (${auditor.modelId ?? "?"}): ${auditor.findings} findings · ${auditor.confirmed} confirmed · ${auditor.confirmedAlone} confirmed that no other auditor found · discovery ${auditor.discoveryTokens === null ? "tokens not recorded" : `${tokenCount(auditor.discoveryTokens)} tokens`}`);
   }
+  const carried = metrics?.planResults ?? null;
+  if (carried !== null) add("", "plan carried out (results.json)", `  ${carried.reported} of ${carried.issues} issues reported · ${carried.provenByFailingTest} proven by a failing test · ${carried.notProvenByTest} no test could show`,
+    `  ${Object.entries(carried.results).map(([result, count]) => `${result.replaceAll("_", " ")} ${count}`).join(" · ")}`);
   const stages = new Map<string, { calls: number; failed: number; ms: number; tokens: number }>();
   for (const trace of traces) {
     const stage = stages.get(trace.nodeId) ?? { calls: 0, failed: 0, ms: 0, tokens: 0 };

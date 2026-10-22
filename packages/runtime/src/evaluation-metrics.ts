@@ -6,6 +6,7 @@ import { modelIdentity, harnessIdentity, protocolIdentity } from "@arbitra/persi
 import { harnessMeasurementClass } from "@arbitra/harness/measurement.js";
 import type { CanonicalIssueSet } from "@arbitra/workflow/nodes/canonical-issues.js";
 import { confirmedYield } from "./confirmed-yield.js";
+import { planResults } from "./plan-results.js";
 
 /** Operational measurements do not establish ground-truth model quality. */
 export async function evaluationMetrics(store: RunStore, traces: readonly ModelActivityTraceRecord[]) {
@@ -51,5 +52,7 @@ export async function evaluationMetrics(store: RunStore, traces: readonly ModelA
     securityOverlapBudget: null, suppressionCandidateCount: issues?.coverage.suppressionCandidates.length ?? null,
     // What the verifier confirmed from the source and its price in tokens, measured without a ground-truth key.
     confirmedYield: issues === null ? null : confirmedYield(issues, (await store.loadContext()).modelConfiguration?.models ?? {}, traces),
+    // What the executor of the saved plan reported: defects proven by a failing test, and fixed.
+    planResults: await planResults((await store.loadContext()).repository, store.runId),
   };
 }

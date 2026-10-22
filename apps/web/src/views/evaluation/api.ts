@@ -25,6 +25,12 @@ export interface EvaluationMetrics {
   readonly securityOverlapBudget?: { readonly budget: number; readonly used: number; readonly usage: number | null } | null;
   readonly suppressionCandidateCount?: number | null;
   readonly confirmedYield?: ConfirmedYield | null;
+  readonly planResults?: PlanResults | null;
+}
+/** What the executor of the saved plan reported in its results.json. */
+export interface PlanResults {
+  readonly issues: number; readonly reported: number; readonly provenByFailingTest: number; readonly notProvenByTest: number;
+  readonly results: Readonly<Record<string, number>>;
 }
 /** What the verifier confirmed from the source, per run and per auditor; measured without a ground-truth key. */
 export interface ConfirmedYield {
