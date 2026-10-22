@@ -408,7 +408,7 @@ function ModelChoice({ profile, edit, catalog }: { readonly profile: ModelProfil
 
 const EFFORT_STAGES = [{ label: "auditors", stage: "discovery" }, { label: "verification", stage: "verification" }, { label: "plan", stage: "planner" }, { label: "critic", stage: "critic" }] as const;
 
-interface DetectedCli { readonly transport: string; readonly name: string; readonly state: string; readonly version: string | null; readonly note: string; readonly fix: string | null; readonly models?: readonly { readonly id: string; readonly name: string }[] }
+interface DetectedCli { readonly transport: string; readonly name: string; readonly state: string; readonly version: string | null; readonly note: string; readonly fix: string | null; readonly models?: readonly { readonly id: string; readonly name: string }[]; readonly caution?: string }
 interface DetectedEnvironment { readonly build: string; readonly clis: readonly DetectedCli[]; readonly apiKeys: Readonly<Record<string, boolean>> }
 
 /** The models this machine can run, found without a model call, with what to do about any that cannot run. */
@@ -423,7 +423,7 @@ function MachineModels({ environment, failure, onRefresh }: { readonly environme
   return <div className="machine-models" aria-label="models on this machine">
     <h3 className="panel-title">on this machine</h3>
     <ul className="plain-list">{environment.clis.map((cli) => <li className="state" data-state={cli.state === "ready" ? "verified" : "degraded"} key={cli.name}>
-      {cli.name}{cli.version === null ? "" : ` ${cli.version}`} · {cli.state === "ready" ? "ready" : cli.state.replaceAll("_", " ")} · {cli.note}{cli.fix === null ? null : <span className="field__hint"> {cli.fix}</span>}
+      {cli.name}{cli.version === null ? "" : ` ${cli.version}`} · {cli.state === "ready" ? "ready" : cli.state.replaceAll("_", " ")} · {cli.note}{cli.fix === null ? null : <span className="field__hint"> {cli.fix}</span>}{cli.caution === undefined ? null : <span className="field__hint"> {cli.caution}</span>}
     </li>)}
       <li className="state" data-state={keys.length === 0 ? "unexamined" : "verified"}>API keys · {keys.length === 0 ? "none set (subscription CLIs need none)" : keys.join(", ")}</li></ul>
     <button className="link-button" type="button" onClick={onRefresh}>check again</button>

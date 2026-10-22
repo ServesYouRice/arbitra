@@ -14,7 +14,16 @@ export interface DetectedCli {
   readonly fix: string | null;
   /** The models the CLI says this account can use, where it can list them (Antigravity's `agy models`). */
   readonly models?: readonly { readonly id: string; readonly name: string }[];
+  /** What the vendor's own terms say about driving this CLI from another application, when they restrict it. */
+  readonly caution?: string;
 }
+
+/**
+ * Google's Antigravity FAQ (read October 22, 2026): wrapping `agy` inside third-party applications "is not supported
+ * under consumer plans", and its terms call accessing the service through third-party software a breach that "may be
+ * grounds for suspension". Google points such tools to a Gemini API key instead.
+ */
+export const ANTIGRAVITY_CAUTION = "Google's terms: running agy inside another application is not supported on Google AI Pro or Ultra plans and may get the account suspended. Google's supported route for tools like arbitra is a Gemini API key (Google AI Studio).";
 export interface DetectedEnvironment {
   readonly checkedAt: string;
   readonly platform: string;
@@ -45,7 +54,7 @@ export async function detectEnvironment(lookup: (name: string) => string | undef
   // The Gemini CLI is left out: Google retired personal logins from it, so a tester could not use it anyway.
   const clis = await Promise.all(CLI_TRANSPORT_SUPPORT.filter(({ transport }) => transport !== "gemini-cli").map(async (support): Promise<DetectedCli> => {
     const readiness = await probe(support.transport, { lookup, auth: "subscription_login", oauthTokenEnv: null }).catch(() => null);
-    const base = { transport: support.transport, name: support.displayName };
+    const base = { transport: support.transport, name: support.displayName, ...(support.transport === "antigravity-cli" ? { caution: ANTIGRAVITY_CAUTION } : {}) };
     if (readiness === null || !readiness.executable.found) return { ...base, path: null, version: null, state: "not_installed", note: "not found", fix: support.installInstruction };
     const path = readiness.executable.executable.path;
     if (readiness.versionSupported !== true) return { ...base, path, version: readiness.version, state: "unsupported_version", note: `version ${readiness.version ?? "unreadable"}; arbitra needs ${support.versionRange.minimum} to below ${support.versionRange.below}`, fix: support.installInstruction };
