@@ -71,8 +71,8 @@ file says what is left and in what order. The measurements and decisions behind 
     [privacy](docs/privacy.md) answer: what is sent, to whom, how to send less.
   - Google's terms, settled as far as reading goes: wrapping `agy` in another application "is not supported under
     consumer plans", and third-party access "may be grounds for suspension" (FAQ and terms, read October 22). New
-    run, TESTERS.md and the privacy page say so; Google's route for tools is a Gemini API key (fcef7ee). Whether the
-    default lineup keeps Antigravity is the owner's decision.
+    run, TESTERS.md and the privacy page say so; Google's route for tools is a Gemini API key (fcef7ee). The owner
+    keeps Antigravity in the lineup: "we only use gemini for testing, if it dies, it dies".
   - The blog test run found that the snapshot read a fixed list of extensions and left out all 30 `.astro`
     files; Astro, shell, C-family and other common sources are now read (fcef7ee).
 - **Small fixes from the self-audit, on `friend-test` (October 20):** a system "permission denied" on Antigravity's
@@ -194,13 +194,19 @@ static analyser. And score plans by executing them.
 
 **Order after the October 22 critique** (each measured as above):
 
-1. **Prove it (item 16).** For each confirmed high and critical issue, a test that fails on the unchanged code, run in
-   the Docker sandbox the Testing mode already uses. A test that cannot be written leaves the issue confirmed, never
-   rejected (agents write one for only 16–37% of real bugs). This is what sets arbitra apart from tools that count
-   agreeing models, so it leads.
+1. **Prove it (item 16).** First part built (October 22): the saved plan asks the executing agent to prove each
+   defect with a test that fails on the unchanged code before fixing it, and to record each issue's result in the
+   plan's `results.json` (fixed, not reproducible, no change needed, blocked; whether a test failed before the fix).
+   The run report and the Evaluation tab read it back: issues proven by a failing test, and fixed. This proves defects
+   in the user's own environment, with any agent (Claude Code, Codex, Gemini), and scores the plan by executing it.
+   Still open: arbitra running such a test itself before the plan, in the Docker sandbox. The snapshot holds no
+   dependencies and the sandbox has no network, so it needs a dependency step per ecosystem first. A test that
+   cannot be written leaves the issue confirmed, never rejected (agents write one for only 16–37% of real bugs).
 2. **Cut what does not earn its place:** no peer review (item 11; 4.2M tokens on rokavatar) and a cheaper verifier
-   (item 14), each against the same project's earlier run. Gemini's part goes with them: across the next real runs,
-   compare its confirmed finds no other model made with what its audit and peer review cost.
+   (item 14), each against the same project's earlier run. Item 11 needs no new discovery: replay a finished run with
+   zero rounds (`replay <run> --max-rounds 0`, or `maximumRounds: 0` over HTTP) and compare its confirmed issues and
+   tokens with the source run's. Gemini's part goes with them: across the next real runs, compare its confirmed finds
+   no other model made with what its audit and peer review cost.
 3. **Plans carried out by Codex and Gemini as well as Claude:** count issues fixed, things broken and edits a person
    had to make.
 4. **Evidence a skeptic can check:** a small public track of real fixed bugs (reverted fixes from public projects)

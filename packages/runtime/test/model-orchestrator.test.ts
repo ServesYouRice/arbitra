@@ -908,6 +908,14 @@ describe("composed model audits", () => {
     expect(replay.state).toBe("COMPLETED"); expect(replay.runId).not.toBe(source.runId);
     expect(requests.filter(({ stage }) => stage === "discovery")).toHaveLength(3);
     expect(requests.filter(({ stage }) => stage === "planner")).toHaveLength(2);
+    // Zero rounds replays the same discovery without peer review (the design audit's experiment 11).
+    const reviews = requests.filter(({ stage }) => stage === "review").length;
+    expect(reviews).toBeGreaterThan(0);
+    const withoutReview = await core.replay(source.runId, { consensusPolicy: "risk_weighted", maximumRounds: 0, criticEnabled: true });
+    expect(withoutReview.state).toBe("COMPLETED");
+    expect(requests.filter(({ stage }) => stage === "review")).toHaveLength(reviews);
+    expect(requests.filter(({ stage }) => stage === "discovery")).toHaveLength(3);
+    expect(requests.filter(({ stage }) => stage === "planner")).toHaveLength(3);
   });
 
   it("suspends budget exhaustion without dispatch and survives a restart", async () => {

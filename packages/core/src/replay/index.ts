@@ -4,7 +4,7 @@ export type ReplayConsensusPolicy = "full" | "risk_weighted" | "minimal";
 
 export interface ReplayOverrides {
   readonly consensusPolicy: ReplayConsensusPolicy;
-  readonly maximumRounds: 1 | 2 | 3;
+  readonly maximumRounds: 0 | 1 | 2 | 3;
   readonly criticEnabled: boolean;
 }
 
@@ -214,7 +214,7 @@ function withoutId(issue: ComparableIssue): Omit<ComparableIssue, "id"> { return
 function validateRunId(runId: string): void { if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/u.test(runId)) throw new Error("INVALID_REPLAY_RUN_ID"); }
 function validateOverrides(value: ReplayOverrides): void {
   if (["full", "risk_weighted", "minimal"].includes(value.consensusPolicy) === false
-    || [1, 2, 3].includes(value.maximumRounds) === false
+    || [0, 1, 2, 3].includes(value.maximumRounds) === false
     || typeof value.criticEnabled !== "boolean") throw new Error("INVALID_REPLAY_OVERRIDES");
 }
 function frame(value: string): string { return `${Buffer.byteLength(value)}:${value}`; }

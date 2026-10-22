@@ -1,7 +1,7 @@
 import type { CoreCommandResult } from "../core.js";
 
 export interface ReplayCommandPort {
-  replay(runId: string, overrides: { readonly consensusPolicy: "full" | "risk_weighted" | "minimal"; readonly maximumRounds: 1 | 2 | 3; readonly criticEnabled: boolean }): Promise<CoreCommandResult>;
+  replay(runId: string, overrides: { readonly consensusPolicy: "full" | "risk_weighted" | "minimal"; readonly maximumRounds: 0 | 1 | 2 | 3; readonly criticEnabled: boolean }): Promise<CoreCommandResult>;
   /** A mode-specific replay request file; the same JSON body `POST /runs/:id/replay` accepts. */
   replayRequest?(runId: string, requestPath: string): Promise<CoreCommandResult>;
 }
@@ -22,7 +22,7 @@ export async function executeReplay(core: ReplayCommandPort, argv: readonly stri
     return core.replayRequest(runId, path);
   }
   let consensusPolicy: "full" | "risk_weighted" | "minimal" = "risk_weighted";
-  let maximumRounds: 1 | 2 | 3 = 3;
+  let maximumRounds: 0 | 1 | 2 | 3 = 3;
   let criticEnabled = true;
   const seen = new Set<string>();
   for (let index = 0; index < options.length; index += 1) {
@@ -39,7 +39,7 @@ export async function executeReplay(core: ReplayCommandPort, argv: readonly stri
       consensusPolicy = value;
     } else if (name === "--max-rounds") {
       const parsed = Number(value);
-      if (parsed !== 1 && parsed !== 2 && parsed !== 3) return invalid("invalid_max_rounds");
+      if (parsed !== 0 && parsed !== 1 && parsed !== 2 && parsed !== 3) return invalid("invalid_max_rounds");
       maximumRounds = parsed;
     } else return invalid("invalid_arguments:replay");
   }

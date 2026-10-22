@@ -32,7 +32,7 @@ export interface OrchestratorCore {
   audit(request: { readonly preset: string; readonly target: AuditCliTarget }): Promise<CoreCommandResult>;
   status(runId: string): Promise<CoreCommandResult>;
   resume(runId: string): Promise<CoreCommandResult>;
-  replay(runId: string, overrides: { readonly consensusPolicy: "full" | "risk_weighted" | "minimal"; readonly maximumRounds: 1 | 2 | 3; readonly criticEnabled: boolean }): Promise<CoreCommandResult>;
+  replay(runId: string, overrides: { readonly consensusPolicy: "full" | "risk_weighted" | "minimal"; readonly maximumRounds: 0 | 1 | 2 | 3; readonly criticEnabled: boolean }): Promise<CoreCommandResult>;
   replayRequest?(runId: string, requestPath: string): Promise<CoreCommandResult>;
   diff(runA: string, runB: string): Promise<CoreCommandResult>;
   trace(runId: string): Promise<CoreCommandResult>;

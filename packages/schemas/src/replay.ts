@@ -12,7 +12,8 @@ const text = z.string().refine((value) => value.trim().length > 0, "Expected non
 export const auditReplayRequestSchema = z.strictObject({
   mode: z.literal("audit"),
   consensusPolicy: z.enum(["full", "risk_weighted", "minimal"]),
-  maximumRounds: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  // 0 skips peer review: the design audit's experiment 11 (cluster, verify, deduplicate, rank), run on recorded discovery.
+  maximumRounds: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]),
   criticEnabled: z.boolean(),
 });
 
