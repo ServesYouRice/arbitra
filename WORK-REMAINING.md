@@ -1,6 +1,6 @@
 # Remaining work
 
-Updated October 22, 2026 (branch `friend-test`). Task status lives in the [completion plan](docs/completion-plan.md); this
+Updated October 22, 2026 (branch `main`, into which every branch was merged that day). Task status lives in the [completion plan](docs/completion-plan.md); this
 file says what is left and in what order. The measurements and decisions behind every item, from the P20 pilot
 (October 10 to 19), are in this file's history: `git show 9558aef:WORK-REMAINING.md`.
 
@@ -9,7 +9,11 @@ file says what is left and in what order. The measurements and decisions behind 
 - **P20 is closed on its pilot (owner, October 19).** No held-out runs. On the three pilot projects, wherever three
   Opus-only runs together missed a planted defect, the premium panel found it, using 0.57 to 0.67 times their time
   and 0.69 to 0.76 times their tokens. That is 21 planted defects: an estimate, not a test. Per-defect results stay
-  in the private benchmark repository.
+  in the private benchmark repository. The held-out set stays unrun on purpose (owner, October 22: "there was no
+  reason to run them"); the product's claims rest on what each run checks and proves, not on the premise.
+- **Checkpoint 2 (October 22):** `beta`, `friend-test` and `packaging` (the v0.2.0 installers) merged into `main` and
+  deleted; work goes on from `main`. Next is the improvement phase below: the changes held back until now because
+  they could destabilise the app.
 - **The order of work (owner, October 19):**
   1. **Checkpoint 1:** the app working properly. Every defect in the way fixed, all work merged, stale docs and
      files cleaned up, then the whole check, the browser tests, live runs on the three subscriptions and arbitra
@@ -209,8 +213,9 @@ static analyser. And score plans by executing them.
    no other model made with what its audit and peer review cost.
 3. **Plans carried out by Codex and Gemini as well as Claude:** count issues fixed, things broken and edits a person
    had to make.
-4. **Evidence a skeptic can check:** a small public track of real fixed bugs (reverted fixes from public projects)
-   beside P20, and, if the owner reopens P20, its held-out protocol written and committed before any held-out run.
+4. **Evidence a skeptic can check:** each real run's report (confirmed, proven by a failing test, fixed, cost), and
+   perhaps a small public track of real fixed bugs (reverted fixes from public projects). P20's held-out set stays
+   unrun (owner, October 22).
 
 **To re-check on the current build** (measured October 11 to 13, before later changes): prompts sized at one byte a
 token outside the stages that set `estimatedBytesPerToken`; discovery source as one JSON object a line; Gemini's
