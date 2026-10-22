@@ -4,6 +4,8 @@ import type { RunStore } from "./run-store.js";
 import { readStage } from "./pipeline.js";
 import { modelIdentity, harnessIdentity, protocolIdentity } from "@arbitra/persistence/index-db/rebuild.js";
 import { harnessMeasurementClass } from "@arbitra/harness/measurement.js";
+import type { CanonicalIssueSet } from "@arbitra/workflow/nodes/canonical-issues.js";
+import { confirmedYield } from "./confirmed-yield.js";
 
 /** Operational measurements do not establish ground-truth model quality. */
 export async function evaluationMetrics(store: RunStore, traces: readonly ModelActivityTraceRecord[]) {
@@ -12,7 +14,7 @@ export async function evaluationMetrics(store: RunStore, traces: readonly ModelA
   const clustering = await optional<{ metrics: { escalatedPairs: number } }>("clustering");
   const verification = await optional<{ itemCount: number; resolvedDisputes: number; deferredItemIds: string[] }>("verification-metrics");
   const verificationCount = verification === null ? 0 : verification.itemCount + verification.deferredItemIds.length;
-  const issues = await optional<{ coverage: { suppressionCandidates: unknown[] }; summary: { auditorCount: number } }>("canonical-issues");
+  const issues = await optional<CanonicalIssueSet>("canonical-issues");
   const cacheRate = (values: readonly ModelActivityTraceRecord[]): number | null => {
     if (values.length === 0 || values.some(({ tokenUsage }) => tokenUsage?.inputTokens == null || tokenUsage.cacheReadTokens === null)) return null;
     const input = values.reduce((total, { tokenUsage }) => total + (tokenUsage?.inputTokens ?? 0), 0);
@@ -47,5 +49,7 @@ export async function evaluationMetrics(store: RunStore, traces: readonly ModelA
     consensusPrecision: null, consensusRecall: null, verificationResolutionRate: verification === null || verificationCount === 0 ? null : verification.resolvedDisputes / verificationCount,
     cacheHitRate: cacheRate(traces), escalatedPairs: clustering?.metrics.escalatedPairs ?? null,
     securityOverlapBudget: null, suppressionCandidateCount: issues?.coverage.suppressionCandidates.length ?? null,
+    // What the verifier confirmed from the source and its price in tokens, measured without a ground-truth key.
+    confirmedYield: issues === null ? null : confirmedYield(issues, (await store.loadContext()).modelConfiguration?.models ?? {}, traces),
   };
 }

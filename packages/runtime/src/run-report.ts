@@ -28,6 +28,15 @@ export async function runReport(orchestrator: Orchestrator, runId: string, envir
     for (const [profile, model] of Object.entries(configuration.models)) add(`  ${profile}: ${model.modelId ?? "?"} via ${model.transport ?? "?"}`);
     add(`  roles ${JSON.stringify(configuration.workflow?.modelExecution?.roles ?? {})}`);
   }
+  const outcome = await orchestrator.metrics(runId).then(({ confirmedYield }) => confirmedYield, () => null);
+  if (outcome !== null) {
+    const severities = Object.entries(outcome.confirmedBySeverity).map(([severity, count]) => `${severity} ${count}`).join(", ");
+    add("", "checked against the source",
+      `  ${outcome.candidates} candidates · ${outcome.confirmed} confirmed${severities === "" ? "" : ` (${severities})`} · ${outcome.rejected} rejected · ${outcome.unsettled} the source could not settle · ${outcome.acceptedUnchecked} accepted without a check · ${outcome.notChecked} not checked`,
+      `  ${outcome.tokens === null ? "tokens not recorded" : `${tokenCount(outcome.tokens)} tokens`}${outcome.tokensPerConfirmed === null ? "" : ` · ${tokenCount(outcome.tokensPerConfirmed)} per confirmed issue`}`);
+    for (const auditor of outcome.auditors)
+      add(`  ${auditor.auditorId} (${auditor.modelId ?? "?"}): ${auditor.findings} findings · ${auditor.confirmed} confirmed · ${auditor.confirmedAlone} confirmed that no other auditor found · discovery ${auditor.discoveryTokens === null ? "tokens not recorded" : `${tokenCount(auditor.discoveryTokens)} tokens`}`);
+  }
   const stages = new Map<string, { calls: number; failed: number; ms: number; tokens: number }>();
   for (const trace of traces) {
     const stage = stages.get(trace.nodeId) ?? { calls: 0, failed: 0, ms: 0, tokens: 0 };
@@ -45,4 +54,8 @@ export async function runReport(orchestrator: Orchestrator, runId: string, envir
     if (failed.length > 40) add(`  (${failed.length - 40} earlier failures left out)`);
   }
   return lines.map((line) => redactSecrets(line).text).join("\n");
+}
+
+function tokenCount(value: number): string {
+  return value >= 1_000_000 ? `${(value / 1_000_000).toFixed(1)}M` : value >= 1_000 ? `${Math.round(value / 1_000)}K` : String(value);
 }

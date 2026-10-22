@@ -43,6 +43,19 @@ describe("web evaluation surface over the localhost routes", () => {
     expect(measured(0)).toBe("0");
   });
 
+  it("leads with what the run confirmed against the source, its price, and what each model found alone", async () => {
+    stubMetrics({ ...metrics, confirmedYield: { candidates: 212, confirmed: 23, confirmedBySeverity: { high: 3, medium: 20 }, rejected: 46, unsettled: 14, acceptedUnchecked: 48, notChecked: 81, tokens: 15_600_000, tokensPerConfirmed: 678_261,
+      auditors: [{ auditorId: "auditor-a", modelId: "claude-opus-5-5", findings: 190, confirmed: 19, confirmedAlone: 12, discoveryTokens: 1_157_544 }, { auditorId: "auditor-c", modelId: "gemini-3.8-flash-high", findings: 80, confirmed: 4, confirmedAlone: 0, discoveryTokens: null }] } });
+    render(<EvaluationView api={new EvaluationApi()} runId="run-1" />);
+    expect(await screen.findByText("23 of 212 candidates confirmed · high 3, medium 20 · 678.3K tokens per confirmed issue")).toBeTruthy();
+    expect(screen.getByText(/46 rejected · 14 the source could not settle · 48 accepted without a check · 81 not checked\. Confirmed means the verifier found the defect in the source; no answer key checked it\./)).toBeTruthy();
+    const table = screen.getByLabelText("confirmed by auditor");
+    const opus = within(table).getByText("Opus 5.5").closest("tr") as HTMLElement;
+    expect([...opus.querySelectorAll("td")].map(({ textContent }) => textContent)).toEqual(["Opus 5.5", "190", "19", "12", "1.2M"]);
+    const gemini = within(table).getByText("Gemini 3.8 Flash high").closest("tr") as HTMLElement;
+    expect(within(gemini).getByText("unavailable").dataset.state).toBe("unexamined");
+  });
+
   it("states explicitly that a run with no independence data is not applicable", async () => {
     stubMetrics({ ...metrics, denominator: { activityCount: 3, auditorCount: 1, groundTruthAvailable: true }, independence: { applicable: false, reason: "single_auditor_run_produces_no_independence_data", groups: ["provider-a"] } });
     render(<EvaluationView api={new EvaluationApi()} runId="run-1" />);

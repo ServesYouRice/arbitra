@@ -7,7 +7,8 @@
 .evaluation dl { display: grid; gap: var(--s1); }
 .evaluation dl > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: var(--row-h); border-block-end: var(--hairline) solid var(--line-soft); }
 .evaluation dt { color: var(--mute); } .evaluation dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.evaluation-confirmed { display: grid; gap: var(--s2); padding-block-end: var(--s3); border-block-end: var(--hairline) solid var(--line); }
 .evaluation-comparison { display: grid; gap: var(--s2); border-block-start: var(--hairline) solid var(--line); padding-block-start: var(--s3); }
 .evaluation-comparison label { display: grid; gap: var(--s1); font-size: var(--t-label); letter-spacing: .14em; text-transform: uppercase; color: var(--mute); }
 
-@media (forced-colors: active) { .evaluation th, .evaluation td, .evaluation dl > div, .evaluation-comparison { border-color: CanvasText; } }
+@media (forced-colors: active) { .evaluation th, .evaluation td, .evaluation dl > div, .evaluation-confirmed, .evaluation-comparison { border-color: CanvasText; } }

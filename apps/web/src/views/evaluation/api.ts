@@ -24,6 +24,14 @@ export interface EvaluationMetrics {
   readonly verificationResolutionRate?: number | null; readonly cacheHitRate?: number | null; readonly escalatedPairs?: number | null;
   readonly securityOverlapBudget?: { readonly budget: number; readonly used: number; readonly usage: number | null } | null;
   readonly suppressionCandidateCount?: number | null;
+  readonly confirmedYield?: ConfirmedYield | null;
+}
+/** What the verifier confirmed from the source, per run and per auditor; measured without a ground-truth key. */
+export interface ConfirmedYield {
+  readonly candidates: number; readonly confirmed: number; readonly confirmedBySeverity: Readonly<Record<string, number>>;
+  readonly rejected: number; readonly unsettled: number; readonly acceptedUnchecked: number; readonly notChecked: number;
+  readonly tokens: number | null; readonly tokensPerConfirmed: number | null;
+  readonly auditors: readonly { readonly auditorId: string; readonly modelId: string | null; readonly findings: number; readonly confirmed: number; readonly confirmedAlone: number; readonly discoveryTokens: number | null }[];
 }
 export interface ComparisonSide { readonly protocolIdentity: string; readonly runIds?: readonly string[] }
 export interface ComparisonResult { readonly comparable: true; readonly protocolIdentity: string; readonly sides: readonly { readonly protocolIdentity: string; readonly rows: readonly unknown[] }[] }
