@@ -15,6 +15,10 @@ describe("consensus semantics", () => {
     const shared = candidate({ sourceFindingIds: ["auditor-a/SEC-1", "auditor-b/SEC-2"], votes: [vote("auditor-b", "accept"), vote("auditor-c", "accept")] });
     expect(requiredAt(computeConsensus(board(shared), DEFAULT_CONSENSUS_POLICY, { auditors, round: 1 }).candidates, 0).coverage.missingReviewers).toEqual(["auditor-a"]);
   });
+  it("says no review ran, not that review rounds were exhausted, when no round was allowed", () => {
+    expect(computeConsensus(board(candidate()), DEFAULT_CONSENSUS_POLICY, { auditors, round: 0, maximumRounds: 0 }).candidates[0]).toMatchObject({ outcome: "non_consensus", reason: "No peer-review round was run; only verification checks this issue." });
+    expect(computeConsensus(board(candidate()), DEFAULT_CONSENSUS_POLICY, { auditors, round: 3 }).candidates[0]).toMatchObject({ outcome: "non_consensus", reason: "Review rounds exhausted without policy convergence." });
+  });
   it("skips consensus for one auditor and labels findings single-source", () => { const state = computeConsensus(board(candidate()), DEFAULT_CONSENSUS_POLICY, { auditors: auditors.slice(0, 1), round: 0 }); expect(requiredAt(state.candidates, 0).outcome).toBe("single_source"); });
   it("routes two-auditor material disagreement to verification without inventing a majority", () => { const state = computeConsensus(board(candidate({ votes: [vote("auditor-a", "accept"), vote("auditor-b", "reject")] })), DEFAULT_CONSENSUS_POLICY, { auditors: auditors.slice(0, 2), round: 1 }); expect(state.candidates[0]).toMatchObject({ outcome: "needs_verification", supportCount: 1, reviewDenominator: 2 }); });
   it("requires high-risk support across independence groups and preserves dissent", () => {

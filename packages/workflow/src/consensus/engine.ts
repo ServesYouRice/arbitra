@@ -21,13 +21,13 @@ export function computeConsensus(board: ConsensusBoard, policy: ConsensusPolicy 
   if (!Number.isSafeInteger(context.round) || context.round < 0 || context.round > maximumRounds) throw new Error("INVALID_PEER_REVIEW_ROUND");
   const auditors = context.auditors; const auditorIds = new Set(auditors.map(({ auditorId }) => auditorId)); if (auditorIds.size !== auditors.length || auditors.length === 0) throw new Error("INVALID_CONSENSUS_AUDITORS");
   const groupByAuditor = new Map(auditors.map(({ auditorId, independenceGroup }) => [auditorId, independenceGroup])); const exhausted = context.round >= maximumRounds;
-  const candidates = Object.values(board.candidates).sort((a, b) => a.candidateId.localeCompare(b.candidateId)).map((candidate) => decide(candidate, policy, auditors, groupByAuditor, exhausted));
+  const candidates = Object.values(board.candidates).sort((a, b) => a.candidateId.localeCompare(b.candidateId)).map((candidate) => decide(candidate, policy, auditors, groupByAuditor, exhausted, maximumRounds === 0));
   return Object.freeze({ policy: policy.name, auditorCount: auditors.length, round: context.round, exhausted, candidates: Object.freeze(candidates) });
 }
 
 export function isHighRisk(candidate: ConsensusCandidate): boolean { return candidate.severity === "critical" || candidate.severity === "high" || candidate.blocker || /(?:security|authorization|data_integrity|architecture|migration)/iu.test(candidate.category ?? "") || candidate.highBlastRadius === true; }
 
-function decide(candidate: ConsensusCandidate, policy: ConsensusPolicy, auditors: readonly ConsensusAuditor[], groups: ReadonlyMap<string, string>, exhausted: boolean): CandidateConsensus {
+function decide(candidate: ConsensusCandidate, policy: ConsensusPolicy, auditors: readonly ConsensusAuditor[], groups: ReadonlyMap<string, string>, exhausted: boolean, unreviewed: boolean): CandidateConsensus {
   const latest = latestVotes(candidate.votes, new Set(auditors.map(({ auditorId }) => auditorId))); const reviewedBy = [...latest.keys()].sort();
   // Peer review never shows an auditor its own findings, so the sole author of a candidate is not a missing reviewer.
   const missing = auditors.map(({ auditorId }) => auditorId).filter((id) => !latest.has(id) && candidate.sourceFindingIds.some((source) => source.split("/", 1)[0] !== id));
@@ -43,6 +43,8 @@ function decide(candidate: ConsensusCandidate, policy: ConsensusPolicy, auditors
   else if (verification.length > 0 || candidate.counterEvidence.length > 0 && accepts.length > 0) { outcome = "needs_verification"; reason = "Evidence is incomplete or conflicting."; }
   else if (evidenceBackedAccept.length >= policy.quorum && (!isHighRisk(candidate) || representedGroups.size >= policy.minimumIndependentGroupsForHighRisk)) { outcome = "accepted"; reason = "Evidence-backed acceptance met quorum and independence policy with no blocking objection."; }
   else if (evidenceBackedReject.length >= policy.quorum && evidenceBackedAccept.length === 0) { outcome = "rejected"; reason = "Evidence-backed rejection met quorum with no significant supported dissent."; }
+  // Observed live (commentanywhere, October 23): with no review round, all 150 candidates said review rounds were exhausted.
+  else if (exhausted && unreviewed) { outcome = "non_consensus"; reason = "No peer-review round was run; only verification checks this issue."; }
   else if (exhausted) { outcome = "non_consensus"; reason = "Review rounds exhausted without policy convergence."; }
   else { outcome = "needs_verification"; reason = "Consensus requirements are not yet satisfied."; }
   const dissent = [...latest.values()].filter(({ disposition }) => outcome === "accepted" ? disposition !== "accept" : outcome === "rejected" ? disposition !== "reject" : true);

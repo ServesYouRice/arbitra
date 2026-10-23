@@ -1,6 +1,6 @@
 # Remaining work
 
-Updated October 22, 2026 (branch `main`, into which every branch was merged that day). Task status lives in the [completion plan](docs/completion-plan.md); this
+Updated October 23, 2026 (branch `main`, into which every branch was merged on October 22). Task status lives in the [completion plan](docs/completion-plan.md); this
 file says what is left and in what order. The measurements and decisions behind every item, from the P20 pilot
 (October 10 to 19), are in this file's history: `git show 9558aef:WORK-REMAINING.md`.
 
@@ -86,6 +86,28 @@ file says what is left and in what order. The measurements and decisions behind 
   call-minutes (560 at high on rokavatar), and 9 of its 47 calls were refused by its content filter. The plan has 33
   tasks for 41 issues and 31 open questions, 1 blocking: questions are still not merged across sections. Its replay
   without peer review (experiment 11) is `run-d6fbbf98`.
+- **The commentanywhere run (October 23), the first real run without peer review:** `run-5a90c75d`, an embeddable
+  comments service (Fastify, Postgres, Preact widget, React dashboard), `main` at 648363c, 93 files and 11,719 lines
+  (beachflag's size), Gemini at medium. 40 minutes, 234 calls, 7.5M tokens (640 a line; blog 922, rokavatar
+  1,455, beachflag 1,560). 51 of 150 candidates confirmed (1 critical, 7 high, 43 medium), 14 rejected, 6 the source
+  could not settle, 79 below the plan's minimum and not checked; 146K tokens per confirmed issue (blog 320K,
+  rokavatar 677K). Found alone by Opus 20, Sol 8, Gemini 2. Verification 3.6M tokens in 176 calls; discovery 2.5M,
+  Gemini's 1.1M of it, with 6 of its 21 calls refused by its content filter. Claude's five-hour meter went 21% to 32%
+  (about 6M of the run's tokens were Claude's), the week 89% to 91%. The plan has 40 tasks for the 51 issues and 29
+  open questions, 3 blocking; one question names two issues as the same defect (the worker's row lock across the
+  provider call, found by Opus and by Gemini under two titles). Questions are still not merged across sections.
+  - **First attempt failed, fixed (57ee601):** `run-1dad8491` on the stale `codex-implementation` branch failed after
+    18 minutes when Gemini asked for a ninth tool turn on one discovery window: nothing told it the tools were spent,
+    and the loop limit failed the run. A tool call past the limit is now answered unrun with
+    `TOOL_TURN_LIMIT_REACHED` and the model gets one more turn; a model that still asks is a rejected reply, so the
+    stage records the gap. On that branch Gemini's filter refused 20 of its 55 calls. The checkout was switched to
+    `main` during the run, so it could not be resumed (`RUN_REPOSITORY_CHANGED`) and was started again on `main`.
+  - **Fixed after it:** with no review round, every candidate's consensus reason said review rounds were exhausted;
+    it now says no peer-review round ran. Still open: the issue board labels those candidates "no consensus" in a
+    run that had no review.
+  - **Dependabot (October 23):** fastify 5.12.5 (low, header validation) has no patched release yet (5.12.6 is not
+    published); the vitest advisory (moderate, its mocker, test tooling only) is fixed only in vitest 5, a major
+    upgrade. Both left for now.
 - **Small fixes from the self-audit, on `friend-test` (October 20):** a system "permission denied" on Antigravity's
   stderr no longer discards its reply as a soft-denied tool; a spawn that runs out of file descriptors no longer
   raises an unhandled error; workspace packages take the root's package manager for their test commands, and a
@@ -227,7 +249,7 @@ static analyser. And score plans by executing them.
      rejections on blog). Every severe rejection now gets it when no review ran.
    Still to measure: a cheaper verifier (item 14). Gemini's part: across the next real runs, compare its confirmed
    finds no other model made with what its audit costs (blog at medium: 2 alone for 1.9M tokens; rokavatar's
-   replay: 7 alone).
+   replay: 7 alone; commentanywhere at medium: 2 alone for 1.1M tokens, 6 of 21 calls refused by its filter).
 3. **Plans carried out by Codex and Gemini as well as Claude:** count issues fixed, things broken and edits a person
    had to make.
 4. **Evidence a skeptic can check:** each real run's report (confirmed, proven by a failing test, fixed, cost), and
