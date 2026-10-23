@@ -153,7 +153,9 @@ October 14 ([provider model](provider-model.md#one-pass-per-review-stage)); item
 
 **Compared side by side before any becomes a default**
 
-11. A pipeline without peer review: cluster, verify, deduplicate, rank.
+11. A pipeline without peer review: cluster, verify, deduplicate, rank. Measured October 22–23 by replaying two runs
+    on their own discovery: as many confirmed issues or more, at about 40% fewer tokens; the default of the
+    subscription Audit template since then ([remaining work](../WORK-REMAINING.md)).
 12. Effort: discovery at `high` against `xhigh`; Gemini at `medium` against `high`; checking stages lower.
 13. A second, varied discovery pass (another order, unit boundary or issue class), and smaller units.
 14. A cheaper verifier first, with uncertain answers sent to the frontier model.

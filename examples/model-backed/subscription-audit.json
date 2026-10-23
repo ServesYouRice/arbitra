@@ -6,7 +6,7 @@
   },
   "auditDepth": "deep",
   "consensusPolicy": "full",
-  "maxConsensusRounds": 1,
+  "maxConsensusRounds": 0,
   "verification": {
     "deterministicFirst": true,
     "belowPlanScope": "skip",

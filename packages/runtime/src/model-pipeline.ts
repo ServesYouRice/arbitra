@@ -555,11 +555,13 @@ export class ModelAuditPipeline {
     // rejects it too; when the two disagree it stays open for a person or an agent to settle (`verification.
     // secondOpinion`). Observed live (rokavatar, October 21, 2026): 12 such issues, several about access control, were
     // rejected by one Opus question at medium effort, 4 of the critical ones without opening a file it was not given.
+    // Without peer review no reviewer votes, and the finder's report is the only backing: every severe rejection gets
+    // the second question (blog without review, October 22: 7 severe rejections, none asked twice).
     const secondOpinion = this.config.verification["secondOpinion"] === "severe_rejections" ? this.#secondOpinionProfile() : undefined;
     const confirmRejection = async (request: ModelVerificationRequest, rejected: ModelVerificationResponse): Promise<ModelVerificationResponse> => {
       const candidate = convergence.board.candidates[request.candidateId];
       if (secondOpinion === undefined || rejected.outcome !== "REJECTED" || candidate === undefined || !["critical", "high"].includes(severityOf(candidate))
-        || !candidate.votes.some(({ disposition }) => disposition !== "reject")) return rejected;
+        || candidate.votes.length > 0 && !candidate.votes.some(({ disposition }) => disposition !== "reject")) return rejected;
       const stage = { ...question(request, undefined, `verification/${request.candidateId}/second-opinion`), modelProfileId: secondOpinion };
       let answer: ModelVerificationResponse;
       try { answer = { ...await this.call(stage), activityId: stage.activityId, artifactRefs: [] }; }

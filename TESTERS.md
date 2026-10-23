@@ -41,19 +41,24 @@ already have. It never changes your code.
 1. Click **New run**. Under **Models**, check that the tools you have show as **ready**; if one does not, the line
    says what to do.
 2. New run opens on three auditors on the subscription CLIs with the recommended models and settings: Opus 5.5 and
-   GPT-6.1 Sol audit at xhigh, Gemini 3.8 Flash at high thinking; Opus then checks each issue against the code and
-   writes the plan, and Sol reviews it. You can pick another model for each from its list.
+   GPT-6.1 Sol audit at xhigh, Gemini 3.8 Flash at high thinking; Opus then checks each issue the plan acts on
+   against the code (a severe issue it rejects is asked of a second model) and writes the plan, and Sol reviews it.
+   The auditors do not review each other's findings: in our tests that round cost about 40% of the tokens and added
+   one or two issues. You can pick another model for each from its list.
 3. Next to **repository path**, click **browse…** and choose the project folder you want audited (or paste its path).
 4. Click **check configuration**, then **save and start**. The check measures the project and sets the run's token
-   limit for its size. Two projects of about 11,000 lines each took 80 to 110 minutes and 15 to 18 million tokens,
-   so start with a small project and mind your plans' usage.
+   limit for its size. Three projects of 10,000 to 14,000 lines took 60 to 110 minutes and 13 to 18 million tokens
+   with the review round this version leaves out; without it, the 14,000-line one would have taken about 8 million
+   (measured in parts). Start with a small project and mind your plans' usage.
 5. When it finishes, the run page leads with **the plan**: **save the plan into the project as prompts** writes a
    `.arbitra/plans/` folder into your project. It has one ready-to-paste prompt per fix, sorted by the kind of model
    each suits, and an `AGENTS.md` a coding agent follows: open the project in Claude Code or Codex and ask it to
    work through `.arbitra/plans/<folder>`. Answer the questions its README lists first: they are decisions only you
    can make. Issues the models could not settle get a prompt of their own under `prompts/0-check-first`, which asks
-   a strong model to decide whether the defect is real and fix it if it is; `also-found.md` lists the smaller
-   defects the plan leaves out. The **Issues** tab lists what was found and how it was checked.
+   a strong model to decide whether the defect is real and fix it if it is. Each prompt asks for a test that fails
+   before the fix, and the agent records each issue's result in `results.json`; the run's report and **Evaluation**
+   tab then show how many defects a failing test proved and how many were fixed. The **Issues** tab lists everything
+   found, including the smaller issues the plan leaves out, and how each was checked.
 
 ## If something goes wrong
 

@@ -1042,6 +1042,15 @@ describe("composed model audits", () => {
     expect(await read(`verification-second-opinion-${issue?.candidateId ?? ""}`)).toMatchObject({ modelProfileId: "auditor-c", first: { outcome: "REJECTED" }, second: { outcome: second } });
   });
 
+  it("asks a second model before rejecting any severe issue when no peer review ran", async () => {
+    // Observed live (blog replay without review, October 22): 7 severe rejections, none asked a second time.
+    const { create, config } = await fixture({ severeRejection: "CONFIRMED" });
+    const core = create(); const result = await core.run({ ...config, maxConsensusRounds: 0, verification: { ...config.verification, secondOpinion: "severe_rejections" } });
+    expect(result.state).toBe("COMPLETED");
+    const artifacts = await core.artifacts(result.runId);
+    expect(artifacts.filter(({ kind }) => kind.startsWith("verification-second-opinion-")).length).toBeGreaterThan(0);
+  });
+
   it("asks about each place of a rejected merge on its own, and keeps the place that holds", async () => {
     // Observed live (P20 pilot): a merge gave a real defect another finding's title, and the question was rejected.
     const { create, config, verificationInputs } = await fixture({ ambiguousClustering: true, verificationByPlace: true });

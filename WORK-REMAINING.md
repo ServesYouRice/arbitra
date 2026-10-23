@@ -213,11 +213,21 @@ static analyser. And score plans by executing them.
    Still open: arbitra running such a test itself before the plan, in the Docker sandbox. The snapshot holds no
    dependencies and the sandbox has no network, so it needs a dependency step per ecosystem first. A test that
    cannot be written leaves the issue confirmed, never rejected (agents write one for only 16–37% of real bugs).
-2. **Cut what does not earn its place:** no peer review (item 11; 4.2M tokens on rokavatar) and a cheaper verifier
-   (item 14), each against the same project's earlier run. Item 11 needs no new discovery: replay a finished run with
-   zero rounds (`replay <run> --max-rounds 0`, or `maximumRounds: 0` over HTTP) and compare its confirmed issues and
-   tokens with the source run's. Gemini's part goes with them: across the next real runs, compare its confirmed finds
-   no other model made with what its audit and peer review cost.
+2. **Cut what does not earn its place.** Item 11, no peer review, is measured and now the default of the
+   subscription Audit template (October 23; the API-key templates keep one round, so the smoke checks still cover
+   the review path). Each finished run was replayed with zero rounds on its own discovery
+   (`replay <run> --max-rounds 0`):
+   - blog, same build: 44 confirmed against 41 with review, 39 the same; after discovery 3.9M tokens against
+     9.4M (the whole run about 7.6M against 13.1M). Review's one addition was a defect a reviewer raised, confirmed
+     twice under two titles. The five only the replay confirmed were most likely lowered below the plan's minimum by
+     review and never verified.
+   - rokavatar (its run predates later fixes, so only indicative): 39 confirmed against 23, 21 the same, 2 added by
+     review; after discovery 6.4M tokens against about 11.8M.
+   - Without review no reviewer votes, so the second opinion before rejecting a severe issue never fired (7 severe
+     rejections on blog). Every severe rejection now gets it when no review ran.
+   Still to measure: a cheaper verifier (item 14). Gemini's part: across the next real runs, compare its confirmed
+   finds no other model made with what its audit costs (blog at medium: 2 alone for 1.9M tokens; rokavatar's
+   replay: 7 alone).
 3. **Plans carried out by Codex and Gemini as well as Claude:** count issues fixed, things broken and edits a person
    had to make.
 4. **Evidence a skeptic can check:** each real run's report (confirmed, proven by a failing test, fixed, cost), and
