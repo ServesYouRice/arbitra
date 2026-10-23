@@ -7,7 +7,8 @@ already have. It never changes your code.
 ## What you need
 
 - Windows, macOS or Linux, and an internet connection.
-- **Node.js 22.13 or newer** (<https://nodejs.org>; any current or LTS version). arbitra sets up the rest itself.
+- On Windows, nothing else if you use the `.exe` below. Otherwise **Node.js 22.13 or newer** (<https://nodejs.org>;
+  any current or LTS version); arbitra sets up the rest itself.
 - At least one of these, installed and signed in with your subscription:
   - **Claude Code** (Claude Pro or Max): <https://docs.claude.com/en/docs/claude-code>. The copy inside the VS Code
     extension works too.
@@ -21,6 +22,14 @@ already have. It never changes your code.
   no one else: [what leaves your machine](docs/privacy.md).
 
 ## Start it
+
+**Windows, the easy way:** download **`arbitra-<version>-windows.exe`** from the latest release,
+<https://github.com/ServesYouRice/arbitra/releases/latest>, and double-click it. It is not signed, so Windows warns
+first: choose **More info**, then **Run anyway**. It needs no Node.js and builds nothing; it opens arbitra in your
+browser and keeps your runs in `%LOCALAPPDATA%\arbitra`. Keep its window open while you use arbitra; closing it stops
+arbitra. Then go on at [Run an audit](#run-an-audit).
+
+**Any system, from the zip:**
 
 1. Download the zip from the latest release, <https://github.com/ServesYouRice/arbitra/releases/latest>, and unzip it
    anywhere.
@@ -47,9 +56,9 @@ already have. It never changes your code.
    one or two issues. You can pick another model for each from its list.
 3. Next to **repository path**, click **browse…** and choose the project folder you want audited (or paste its path).
 4. Click **check configuration**, then **save and start**. The check measures the project and sets the run's token
-   limit for its size. Three projects of 10,000 to 14,000 lines took 60 to 110 minutes and 13 to 18 million tokens
-   with the review round this version leaves out; without it, the 14,000-line one would have taken about 8 million
-   (measured in parts). Start with a small project and mind your plans' usage.
+   limit for its size. With these settings a project of 11,700 lines took 40 minutes and 7.5 million tokens, and one
+   of 39,000 lines took 105 minutes and 27 million (about a third of a Claude Max 20x five-hour window, most of the
+   tokens being Claude's). Start with a small project and mind your plans' usage.
 5. When it finishes, the run page leads with **the plan**: **save the plan into the project as prompts** writes a
    `.arbitra/plans/` folder into your project. It has one ready-to-paste prompt per fix, sorted by the kind of model
    each suits, and an `AGENTS.md` a coding agent follows: open the project in Claude Code or Codex and ask it to
