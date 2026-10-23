@@ -23,7 +23,7 @@ export const EXAMPLE_NAMES = ["audit-balanced", "audit-deep", "diff-fast", "diff
  * runtime by packages/runtime/test/example-smoke.test.ts (`pnpm run smoke:examples`). */
 export const API_TEMPLATES = ["audit-compatible-chat", "audit-mixed-providers", "feature-automatic", "feature-interactive", "testing-execute", "testing-plan"] as const;
 /** The same modes served by subscription CLIs (Claude Code, Codex, Gemini CLI) instead of API keys. */
-export const SUBSCRIPTION_TEMPLATES = ["subscription-audit", "subscription-feature-automatic", "subscription-feature-interactive", "subscription-testing-execute", "subscription-testing-plan"] as const;
+export const SUBSCRIPTION_TEMPLATES = ["subscription-audit", "subscription-audit-gemini", "subscription-feature-automatic", "subscription-feature-interactive", "subscription-testing-execute", "subscription-testing-plan"] as const;
 export const MODEL_BACKED_TEMPLATES = [...API_TEMPLATES, ...SUBSCRIPTION_TEMPLATES] as const;
 const modelBacked = join(directory, "model-backed");
 const WIRE_PROTOCOLS = ["anthropic-messages", "gemini-native", "openai-chat", "openai-responses"];

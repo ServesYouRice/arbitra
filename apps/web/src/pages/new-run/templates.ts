@@ -3,6 +3,7 @@ import auditMixedProviders from "../../../../../examples/model-backed/audit-mixe
 import featureAutomatic from "../../../../../examples/model-backed/feature-automatic.json" with { type: "json" };
 import featureInteractive from "../../../../../examples/model-backed/feature-interactive.json" with { type: "json" };
 import subscriptionAudit from "../../../../../examples/model-backed/subscription-audit.json" with { type: "json" };
+import subscriptionAuditGemini from "../../../../../examples/model-backed/subscription-audit-gemini.json" with { type: "json" };
 import subscriptionFeatureAutomatic from "../../../../../examples/model-backed/subscription-feature-automatic.json" with { type: "json" };
 import subscriptionFeatureInteractive from "../../../../../examples/model-backed/subscription-feature-interactive.json" with { type: "json" };
 import subscriptionTestingExecute from "../../../../../examples/model-backed/subscription-testing-execute.json" with { type: "json" };
@@ -25,7 +26,11 @@ export interface Template { readonly id: string; readonly mode: Mode; readonly l
 export const SCRIPTED_AUDIT: Draft = Object.freeze({ schemaVersion: 1, mode: "audit", scope: { kind: "repository" }, auditDepth: "balanced", consensusPolicy: "risk_weighted", maxConsensusRounds: 1,
   verification: {}, models: {}, harness: { mode: "canonical" }, workflow: { preset: "audit-deep" }, budgets: {}, security: {}, protocols: {}, promptOverrides: {}, contextPolicies: {} });
 
-/** Where New run starts: three auditors on the subscription CLIs, with the settings of the owner's benchmark runs. */
+/**
+ * Where New run starts: Claude Code and Codex on the subscription CLIs, with the settings of the owner's benchmark runs.
+ * Gemini is a template of its own, because Google's terms do not support driving the Antigravity CLI from another
+ * application on a consumer plan; a tester adds it knowing that.
+ */
 export const DEFAULT_START = "template:subscription-audit";
 const recommended = (config: Draft): Draft => withRecommendedModels(config, (modelId) => modelId.startsWith(PLACEHOLDER_PREFIX));
 
@@ -33,7 +38,8 @@ const SUBSCRIPTION = "Signed in through the vendors' CLIs with your subscription
 const EXECUTE = "Writes and runs tests in a Docker sandbox, so it needs Docker and a pinned image; its write grants and checks name example paths to adapt.";
 
 export const TEMPLATES: readonly Template[] = Object.freeze([
-  { id: "subscription-audit", mode: "audit", label: "Audit · three auditors on subscription CLIs (recommended)", description: `Claude Code, Codex and Antigravity audit independently (audit-deep) with the recommended models; each issue the plan acts on is checked against the code, with no peer-review round between the auditors (in two test runs it took about 40% of the tokens and added one or two issues). ${SUBSCRIPTION}`, config: recommended(subscriptionAudit) },
+  { id: "subscription-audit", mode: "audit", label: "Audit · Claude and GPT on subscription CLIs (recommended)", description: `Claude Code and Codex audit independently (audit-balanced) with the recommended models; each issue the plan acts on is checked against the code, with no peer-review round between the auditors (in two test runs it took about 40% of the tokens and added one or two issues). ${SUBSCRIPTION}`, config: recommended(subscriptionAudit) },
+  { id: "subscription-audit-gemini", mode: "audit", label: "Audit · Claude, GPT and Gemini on subscription CLIs", description: `Adds Gemini through the Antigravity CLI as a third auditor (audit-deep). Google's terms say using the Antigravity CLI inside another application is not supported on its consumer plans and may get the account suspended: choose this only if you accept that for your Google account. ${SUBSCRIPTION}`, config: recommended(subscriptionAuditGemini) },
   { id: "scripted-audit", mode: "audit", label: "Audit · scripted detectors (smoke test)", description: "Deterministic detectors stand in for the auditors. No model is called and nothing is spent: the run shows the pipeline works, not what models find.", config: SCRIPTED_AUDIT },
   { id: "audit-mixed-providers", mode: "audit", label: "Audit · three auditors on API keys", description: "OpenAI Responses, Anthropic Messages and Gemini endpoints audit independently (audit-deep), each with its own API key variable.", config: auditMixedProviders },
   { id: "audit-compatible-chat", mode: "audit", label: "Audit · two auditors on OpenAI-compatible endpoints", description: "Two auditors on OpenAI-compatible chat endpoints, such as a local model server (audit-balanced).", config: auditCompatibleChat },

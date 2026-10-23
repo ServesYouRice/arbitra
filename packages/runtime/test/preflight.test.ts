@@ -28,7 +28,7 @@ const testing = (config: Mutable) => (config.workflow["testing"] as { execution:
 
 describe("configuration preflight", () => {
   it.each(["audit-mixed-providers", "audit-compatible-chat", "feature-interactive", "feature-automatic", "testing-plan", "testing-execute",
-    "subscription-audit", "subscription-feature-automatic", "subscription-feature-interactive", "subscription-testing-plan", "subscription-testing-execute"])("accepts the shipped %s template", async (name) => {
+    "subscription-audit", "subscription-audit-gemini", "subscription-feature-automatic", "subscription-feature-interactive", "subscription-testing-plan", "subscription-testing-execute"])("accepts the shipped %s template", async (name) => {
     expect(codes(configurationDiagnostics(await template(name)))).toEqual([]);
   });
 
@@ -131,7 +131,7 @@ describe("environment preflight", () => {
   });
 
   it("reports each subscription CLI state with the command that fixes it, without a model call", async () => {
-    const config = await template("subscription-audit");
+    const config = await template("subscription-audit-gemini");
     const state = (transport: string, changes: Partial<CliReadiness>): CliReadiness => ({ support: requireCliTransportSupport(transport), version: "1.0.0", versionSupported: true, auth: "logged_in", authDetail: null, usageLimit: null,
       executable: { found: true, executable: { command: "/bin/cli", prefixArguments: [], path: "/bin/cli", source: "path" } }, ...changes });
     const probe = (states: Record<string, Partial<CliReadiness>>): CliProbe => async (transport) => state(transport, states[transport] ?? {});

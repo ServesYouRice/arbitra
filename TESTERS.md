@@ -14,11 +14,11 @@ already have. It never changes your code.
     extension works too.
   - **Codex CLI** (ChatGPT Plus or Pro): `npm install -g @openai/codex`, then `codex login` and choose Sign in with
     ChatGPT.
-  - **Antigravity CLI** (Google AI plan): run `agy` once and sign in. Google's terms say using `agy` inside another
-    application is not supported on Google AI Pro or Ultra and may get the account suspended; leave it out if that
-    worries you.
+  - Optional, **Antigravity CLI** (Google AI plan): run `agy` once and sign in. Google's terms say using `agy` inside
+    another application is not supported on Google AI Pro or Ultra and may get the account suspended, so arbitra
+    leaves Gemini out unless you choose the template that adds it.
 
-  Three vendors give the best results; one is enough to try it. Your code is sent to the vendors you choose and to
+  Claude Code and Codex together give the best results; one is enough to try it. Your code is sent to the vendors you choose and to
   no one else: [what leaves your machine](docs/privacy.md).
 
 ## Start it
@@ -49,16 +49,18 @@ arbitra. Then go on at [Run an audit](#run-an-audit).
 
 1. Click **New run**. Under **Models**, check that the tools you have show as **ready**; if one does not, the line
    says what to do.
-2. New run opens on three auditors on the subscription CLIs with the recommended models and settings: Opus 5.5 and
-   GPT-6.1 Sol audit at xhigh, Gemini 3.8 Flash at high thinking; Opus then checks each issue the plan acts on
-   against the code (a severe issue it rejects is asked of a second model) and writes the plan, and Sol reviews it.
-   The auditors do not review each other's findings: in our tests that round cost about 40% of the tokens and added
-   one or two issues. You can pick another model for each from its list.
+2. New run opens on two auditors on the subscription CLIs with the recommended models and settings: Opus 5.5 and
+   GPT-6.1 Sol audit at xhigh; Opus then checks each issue the plan acts on against the code (a severe issue it
+   rejects is asked of a second model) and writes the plan, and Sol reviews it. The auditors do not review each
+   other's findings: in our tests that round cost about 40% of the tokens and added one or two issues. You can pick
+   another model for each from its list. To add Gemini as a third auditor, choose **Audit · Claude, GPT and Gemini**
+   under **starting point** (read Google's terms above first).
 3. Next to **repository path**, click **browse…** and choose the project folder you want audited (or paste its path).
 4. Click **check configuration**, then **save and start**. The check measures the project and sets the run's token
-   limit for its size. With these settings a project of 11,700 lines took 40 minutes and 7.5 million tokens, and one
+   limit for its size. With Gemini added, a project of 11,700 lines took 40 minutes and 7.5 million tokens, and one
    of 39,000 lines took 105 minutes and 27 million (about a third of a Claude Max 20x five-hour window, most of the
-   tokens being Claude's). Start with a small project and mind your plans' usage.
+   tokens being Claude's); without Gemini a run uses somewhat less. Start with a small project and mind your plans'
+   usage.
 5. When it finishes, the run page leads with **the plan**: **save the plan into the project as prompts** writes a
    `.arbitra/plans/` folder into your project. It has one ready-to-paste prompt per fix, sorted by the kind of model
    each suits, and an `AGENTS.md` a coding agent follows: open the project in Claude Code or Codex and ask it to

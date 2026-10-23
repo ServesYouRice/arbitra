@@ -112,63 +112,13 @@
         "prefillSupported": true
       },
       "structuredOutputDialect": "prompt_json"
-    },
-    "auditor-c": {
-      "schemaVersion": 1,
-      "provider": "google",
-      "modelId": "replace-with-your-model-id",
-      "transport": "antigravity-cli",
-      "servedBy": null,
-      "family": "replace-with-your-model-family",
-      "independenceGroup": "google",
-      "capabilityTier": "frontier",
-      "supports": {
-        "tools": true,
-        "parallelToolCalls": false,
-        "structuredOutput": true,
-        "reasoning": false,
-        "promptCaching": false,
-        "batch": false,
-        "vision": false
-      },
-      "limits": {
-        "contextTokens": null,
-        "maxOutputTokens": null
-      },
-      "effort": {
-        "supported": [
-          "low",
-          "medium",
-          "high"
-        ],
-        "collapse": {
-          "xhigh": "high"
-        },
-        "params": {}
-      },
-      "quirks": {
-        "systemPromptSupport": "full",
-        "fewShotPolicy": "neutral",
-        "promptStyle": "markdown",
-        "documentPlacement": "leading",
-        "historyPolicy": "verbatim",
-        "samplingDefaults": {
-          "temperature": null,
-          "topP": null,
-          "topK": null
-        },
-        "greedyDecodingSafe": true,
-        "toolLoopLimit": 8,
-        "prefillSupported": false
-      },
-      "structuredOutputDialect": "prompt_json"
     }
   },
   "harness": {
     "mode": "canonical"
   },
   "workflow": {
-    "preset": "audit-deep",
+    "preset": "audit-balanced",
     "modelExecution": {
       "endpoints": [
         {
@@ -184,19 +134,11 @@
           "transport": "codex-cli",
           "endpoint": "cli://codex",
           "auth": "subscription_login"
-        },
-        {
-          "id": "antigravity",
-          "providerId": "google",
-          "transport": "antigravity-cli",
-          "endpoint": "cli://antigravity",
-          "auth": "subscription_login"
         }
       ],
       "modelEndpoints": {
         "auditor-a": "claude-code",
-        "auditor-b": "codex",
-        "auditor-c": "antigravity"
+        "auditor-b": "codex"
       },
       "roles": {
         "planner": "auditor-a",
@@ -227,11 +169,6 @@
         },
         "openai": {
           "rpm": 30,
-          "tpm": 4000000,
-          "maxConcurrent": 4
-        },
-        "google": {
-          "rpm": 10,
           "tpm": 4000000,
           "maxConcurrent": 4
         }

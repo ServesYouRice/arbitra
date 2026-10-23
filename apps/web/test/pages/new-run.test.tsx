@@ -54,19 +54,19 @@ describe("configuration drafts", () => {
   it("adds the Gemini models this machine's CLI offers, Argon first, and moves an untouched template to it", () => {
     const offered = { "antigravity-cli": [{ id: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)" }, { id: "gemini-4-argon", name: "Gemini 4 Argon" }, { id: "claude-opus-4-6-thinking", name: "Claude Opus 4.6" }] };
     expect(offeredCatalog("antigravity-cli", offered)?.map(({ modelId }) => modelId)).toEqual(["gemini-4-argon", "gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-3.8-flash-low"]);
-    const audit = template("subscription-audit").config;
+    const audit = template("subscription-audit-gemini").config;
     expect(getIn(withStrongestOffered(audit, offered), ["models", "auditor-c", "modelId"])).toBe("gemini-4-argon");
     expect(withStrongestOffered(audit, { "antigravity-cli": [] })).toBe(audit);
   });
 
   it("offers every model-backed template, each in the mode it says", () => {
-    expect(TEMPLATES.map(({ id }) => id)).toEqual(["subscription-audit", "scripted-audit", "audit-mixed-providers", "audit-compatible-chat", "subscription-feature-interactive", "subscription-feature-automatic", "feature-interactive", "feature-automatic", "subscription-testing-plan", "subscription-testing-execute", "testing-plan", "testing-execute"]);
+    expect(TEMPLATES.map(({ id }) => id)).toEqual(["subscription-audit", "subscription-audit-gemini", "scripted-audit", "audit-mixed-providers", "audit-compatible-chat", "subscription-feature-interactive", "subscription-feature-automatic", "feature-interactive", "feature-automatic", "subscription-testing-plan", "subscription-testing-execute", "testing-plan", "testing-execute"]);
     for (const { mode, config } of TEMPLATES) expect(config["mode"]).toBe(mode);
   });
 });
 
 describe("the new-run page", () => {
-  it("starts from three auditors on the subscription CLIs with the recommended models at the benchmark's efforts", async () => {
+  it("starts from Claude and GPT on the subscription CLIs with the recommended models at the benchmark's efforts, Gemini left out", async () => {
     stubBrowser();
     stubControlPlane(BASE_ROUTES);
     visit("?page=new-run");
@@ -75,10 +75,10 @@ describe("the new-run page", () => {
     expect((screen.getByRole("combobox", { name: "starting point" }) as HTMLSelectElement).value).toBe("template:subscription-audit");
     expect((await screen.findByRole("combobox", { name: "model for auditor-a" }) as HTMLSelectElement).value).toBe("claude-opus-5-5");
     expect((screen.getByRole("combobox", { name: "model for auditor-b" }) as HTMLSelectElement).value).toBe("gpt-6.1-sol");
-    expect((screen.getByRole("combobox", { name: "model for auditor-c" }) as HTMLSelectElement).value).toBe("gemini-3.8-flash-high");
+    expect(screen.queryByRole("combobox", { name: "model for auditor-c" })).toBeNull();
     const rows = within(screen.getByRole("table", { name: "model profiles" })).getAllByRole("row");
     expect(rows[1]?.textContent).toContain("auditor a · xhigh");
-    expect(rows[3]?.textContent).toContain("auditor c · high");
+    expect(rows).toHaveLength(3);
     expect(screen.queryByRole("list", { name: "placeholders to fill in" })).toBeNull();
   });
 

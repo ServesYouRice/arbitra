@@ -1,13 +1,39 @@
 # arbitra
 
-arbitra audits a repository with models from different vendors side by side, checks every issue its plan acts on
-against the source before planning it, and hands over the plan as prompts another agent can carry out. Every run can
-be replayed, and every run reports what it confirmed, what it rejected, what the source could not settle, and how many
-tokens each confirmed issue cost.
+arbitra has AI models from different vendors audit your code project side by side, checks each issue against the
+source before it plans a fix, and hands you the plan as prompts a coding agent can carry out. It runs on your own
+computer, uses the Claude and ChatGPT subscriptions you already have, and never changes your code.
+
+**Try it:** download the [latest release](https://github.com/ServesYouRice/arbitra/releases/latest) (a single `.exe`
+on Windows, or the zip with Node.js 22.13 or newer anywhere) and follow [TESTERS.md](TESTERS.md). What leaves your
+machine during a run is on one page: [privacy](docs/privacy.md).
+
+## What it found on real projects
+
+The maintainer's own projects, October 2026, each a single run with Claude Opus 5.5, GPT-6.1 Sol and Gemini 3.8
+Flash. "Confirmed" means the verifier model found the defect in the source; lower-severity reports are listed but not
+checked.
+
+| Project | Lines | Confirmed issues | Time | Tokens | Tokens per confirmed issue |
+|---|---|---|---|---|---|
+| A web app (rokavatar) | 10,716 | 23 (3 high) | 110 min | 15.6M | 677K |
+| A blog with a CMS (blog) | 14,204 | 41 (3 high) | 63 min | 13.1M | 320K |
+| A comments service (commentanywhere) | 11,719 | 51 (1 critical, 7 high) | 40 min | 7.5M | 146K |
+| A screen-sharing app ([nextra](https://github.com/ServesYouRice/nextra)) | 38,967 | 126 (1 critical, 21 high) | 105 min | 26.8M | 213K |
+
+The first two ran with a peer-review round between the auditors, which later versions leave out.
+
+**Proven, not only confirmed:** on nextra, the plan's prompts for its critical issue (any viewer with the public link
+could get the host's operator rights) and for a high one (one malformed message from a viewer stopped the server) each
+led to a test that failed on the unchanged code and passed after the fix
+([nextra PR #76](https://github.com/ServesYouRice/nextra/pull/76)). The other issues have not been carried out yet.
+
+**What it costs and what it is not:** a run can use a third of a Claude Max five-hour window, so start with a small
+project. A confirmed issue is a model's reading of the code, not a test, until a plan is carried out. Gemini is
+optional: Google's terms do not support driving its CLI from another application on consumer plans.
 
 Whether models from several vendors find defects one model misses is a question arbitra measures and publishes,
-losses included, not a selling point: see [what is measured so far](#what-is-measured-so-far). What leaves your
-machine during a run is on one page: [privacy](docs/privacy.md).
+losses included, not a selling point: see [what is measured so far](#what-is-measured-so-far).
 
 ## Status
 
@@ -50,15 +76,14 @@ work is [deferred](#deferred-to-a-later-phase-the-paid-api-bundle). See the
   projects were made harder until one Opus run missed defects, which favours a panel with other vendors in it. The
   held-out part (9 projects, 63 defects) has not been run
   ([completion plan](docs/completion-plan.md#p20--stress-test-the-premise-on-a-hard-benchmark)).
-- **Real projects.** On a 10,700-line web app (October 21) the panel confirmed 23 issues against the source (3 high,
-  20 medium) and rejected 46, at 677,000 tokens per confirmed issue. Of the 23, Opus alone found 12, Sol alone 2 and
-  Gemini alone none; 7 were found by more than one model. One run is not a measurement of the vendors; every run's
-  report and Evaluation tab now show these numbers, so they add up across projects.
+- **Real projects:** the [table above](#what-it-found-on-real-projects). Across the four runs, issues only one model
+  found: Opus 88, Sol 47, Gemini 7, for Gemini's 1 to 2 million discovery tokens a run. Single runs are not a
+  measurement of the vendors; every run's report and Evaluation tab show these numbers, so they add up across projects.
 
-"Confirmed" means a verifier model found the defect in the source. It is not yet proof by execution: a step that
-writes a failing test for high and critical issues is planned ([design audit](docs/design-audit.md#what-changes),
-item 16). Runs without models use scripted detectors and are labelled `smoke_test_only_not_proof`
-([evaluation](docs/evaluation.md)).
+"Confirmed" means a verifier model found the defect in the source. Proof by execution comes from carrying out the
+plan: each prompt asks for a test that fails before the fix, and the run's report reads the results back
+([design audit](docs/design-audit.md#what-changes), item 16). Runs without models use scripted detectors and are
+labelled `smoke_test_only_not_proof` ([evaluation](docs/evaluation.md)).
 
 ### Deferred to a later phase: the paid-API bundle
 

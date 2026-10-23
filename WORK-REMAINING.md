@@ -75,8 +75,8 @@ file says what is left and in what order. The measurements and decisions behind 
     [privacy](docs/privacy.md) answer: what is sent, to whom, how to send less.
   - Google's terms, settled as far as reading goes: wrapping `agy` in another application "is not supported under
     consumer plans", and third-party access "may be grounds for suspension" (FAQ and terms, read October 22). New
-    run, TESTERS.md and the privacy page say so; Google's route for tools is a Gemini API key (fcef7ee). The owner
-    keeps Antigravity in the lineup: "we only use gemini for testing, if it dies, it dies".
+    run, TESTERS.md and the privacy page say so; Google's route for tools is a Gemini API key (fcef7ee). Since
+    v0.2.1 Gemini is not in the default lineup; a tester adds it knowing the terms.
   - The blog test run found that the snapshot read a fixed list of extensions and left out all 30 `.astro`
     files; Astro, shell, C-family and other common sources are now read (fcef7ee).
 - **The blog run (October 22):** `run-7fb6177a`, an Astro blog with a CMS, 164 files and 14,204 lines, from a
@@ -149,6 +149,18 @@ file says what is left and in what order. The measurements and decisions behind 
   result read "done · needs you". The Mac app builds stay in the private v0.2.0-dev draft until tried on a Mac; Mac
   testers use the zip. Dependabot's fastify (low, runtime) and vitest (moderate, test tooling) fixes, 5.12.6 and
   4.1.12, were not on npm yet.
+- **Before sharing more widely (owner, October 23–24: "i want to get others feedback but i dont want to get bullied by
+  haters"):**
+  - **A real proof:** nextra's critical and one high issue were fixed from the saved plan's prompts (TASK-053,
+    TASK-010), each first shown by a test that failed on the unchanged code; `results.json` in nextra's plan holds the
+    failing output, so the run's report reads 3 issues proven and fixed. nextra PR #76 (2.1.6). Its Windows `.exe`
+    could not be built on this PC: process creation fails with EPERM whenever a command line names caxa's Windows
+    stub, and copies of the stub vanish from the temp folder, which points at the antivirus; the owner decides how
+    to build it (a Defender exclusion, another machine, or replacing caxa, whose gate this now fails).
+  - **Gemini opt-in:** New run starts on Claude Code and Codex (`subscription-audit`, audit-balanced); Gemini is the
+    `subscription-audit-gemini` template, labelled with Google's terms. The Feature templates still use Antigravity
+    as their second reviewer (their review needs two independent vendors), behind the same warning in New run.
+  - The README opens with what arbitra does, how to try it, the four real runs and the nextra proof.
 - **Small fixes from the self-audit, on `friend-test` (October 20):** a system "permission denied" on Antigravity's
   stderr no longer discards its reply as a soft-denied tool; a spawn that runs out of file descriptors no longer
   raises an unhandled error; workspace packages take the root's package manager for their test commands, and a

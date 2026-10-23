@@ -35,8 +35,21 @@ async function setup(name: string, options: { highImpactAmbiguity?: boolean; edi
 const record = (calls: readonly { protocol: WireProtocol }[]) => { for (const call of calls) exercised.add(call.protocol); };
 
 describe("subscription template smoke checks", () => {
-  it("validates and runs Audit on three subscription CLIs (Claude Code, Codex, Antigravity) to a durable plan", async () => {
+  it("validates and runs the default Audit on two subscription CLIs (Claude Code, Codex), with no Antigravity call", async () => {
     const f = await setup("subscription-audit");
+    const validation = await f.core.validate(f.configPath);
+    expect(validation.value).toMatchObject({ valid: true, ready: true, mode: "audit", modelBacked: true });
+    expect((validation.value as { diagnostics: { severity: string }[] }).diagnostics.filter(({ severity }) => severity === "error")).toEqual([]);
+    const result = await f.core.run(f.configPath);
+    const value = result.value as { runId: string; state: string };
+    expect(value.state).toBe("COMPLETED");
+    expect((await f.orchestrator().artifacts(value.runId)).map(({ kind }) => kind)).toContain("plan-ir");
+    expect([...new Set(f.provider.calls.map(({ protocol }) => protocol))].sort()).toEqual(["claude-code-cli", "codex-cli"]);
+    record(f.provider.calls);
+  }, 120_000);
+
+  it("validates and runs Audit on three subscription CLIs (Claude Code, Codex, Antigravity) to a durable plan", async () => {
+    const f = await setup("subscription-audit-gemini");
     const validation = await f.core.validate(f.configPath);
     expect(validation.value).toMatchObject({ valid: true, ready: true, mode: "audit", modelBacked: true });
     const codes = (validation.value as { diagnostics: { code: string; severity: string }[] }).diagnostics;
@@ -53,7 +66,7 @@ describe("subscription template smoke checks", () => {
   }, 120_000);
 
   it("mixes an API-key auditor with subscription auditors in one run", async () => {
-    const f = await setup("subscription-audit", { edit: (config) => {
+    const f = await setup("subscription-audit-gemini", { edit: (config) => {
       const models = config["models"] as Record<string, Record<string, unknown>>;
       const execution = (config["workflow"] as { modelExecution: { endpoints: unknown[]; modelEndpoints: Record<string, string>; rateLimits: Record<string, unknown> } }).modelExecution;
       models["auditor-b"] = { ...models["auditor-b"], transport: "openai-responses" };
