@@ -186,6 +186,16 @@ describe("independent model discovery", () => {
     expect(result.map(({ sourceFindingId, evidence }) => [sourceFindingId, evidence[0]?.text])).toEqual([["auditor-a/1", lines[1]]]);
   });
 
+  it("drops a <quotes> block a model wrote at the head of a finding's prose, and records which findings had one", async () => {
+    const quoted = { ...finding("1"), problem: "<quotes>\nconst value = null;\n</quotes>\nThe value is never set.", recommendedFix: "  <quotes>const value = null;</quotes> Set it." };
+    const onlyQuotes = { ...finding("2"), problem: "<quotes>const value = null;</quotes>" };
+    const inside = { ...finding("3"), problem: "Before <quotes>const value = null;</quotes> after." };
+    const { run, store } = await setup([quoted, onlyQuotes, inside]);
+    expect((await run()).map(({ sourceFindingId, problem, recommendedFix }) => [sourceFindingId, problem, recommendedFix])).toEqual([
+      ["auditor-a/1", "The value is never set.", "Set it."], ["auditor-a/2", onlyQuotes.problem, "Check value"], ["auditor-a/3", inside.problem, "Check value"]]);
+    expect(await artifact(store, "discovery-validation-auditor-a")).toMatchObject({ acceptedCount: 3, quoteBlocksRemoved: ["auditor-a/1"] });
+  });
+
   it("does not expose stored peer findings to independent discovery", async () => {
     const { run, store, prompts } = await setup([]);
     await store.publish("findings-peer", { secretPeerClaim: "PEER_REASONING_SENTINEL" });

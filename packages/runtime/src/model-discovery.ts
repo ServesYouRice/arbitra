@@ -71,6 +71,7 @@ async function discoverScopeWithModel(options: ScopeOptions): Promise<readonly S
   const accepted: SourceFinding[] = [];
   const quoteRejections: string[] = [];
   const widenedLocations: { sourceFindingId: string; locationId: string; from: [number, number]; to: [number, number] }[] = [];
+  const quoteBlocksRemoved: string[] = [];
   const byPath = new Map(snapshot.files.map((file) => [file.path, file]));
   for (const finding of findings) {
     if (!acceptedIds.has(finding.sourceFindingId)) continue;
@@ -102,14 +103,29 @@ async function discoverScopeWithModel(options: ScopeOptions): Promise<readonly S
       }
       return false;
     });
-    if (grounded) accepted.push({ ...finding, evidence: evidenceAsInSource, locations });
-    else quoteRejections.push(finding.sourceFindingId);
+    if (!grounded) { quoteRejections.push(finding.sourceFindingId); continue; }
+    const prose = withoutLeadingQuotes(finding);
+    if (prose !== finding) quoteBlocksRemoved.push(finding.sourceFindingId);
+    accepted.push({ ...prose, evidence: evidenceAsInSource, locations });
   }
-  await store.publish(`discovery-validation-${artifactAuditorId}`, { summaries: validation.summaries, quoteRejections, ...(widenedLocations.length === 0 ? {} : { widenedLocations }), acceptedCount: accepted.length, rejectedCount: validation.rejected.length + quoteRejections.length,
+  await store.publish(`discovery-validation-${artifactAuditorId}`, { summaries: validation.summaries, quoteRejections, ...(widenedLocations.length === 0 ? {} : { widenedLocations }), ...(quoteBlocksRemoved.length === 0 ? {} : { quoteBlocksRemoved }), acceptedCount: accepted.length, rejectedCount: validation.rejected.length + quoteRejections.length,
     truncated: discovery.truncated, unexaminedDueToBudget: discovery.unexaminedDueToBudget, limitations: discovery.limitations }, auditorId);
   await store.publish(`findings-${artifactAuditorId}`, accepted, auditorId);
   await options.units?.complete(unit, accepted);
   return accepted;
+}
+
+/**
+ * The prompt compiler asks for a <quotes> block before reasoning, and some models write it at the head of a finding's
+ * prose instead of before the reply. The finding's evidence already carries its grounded quotations, so the block is
+ * dropped; a field that held nothing else keeps it. Observed live (nextra, October 23): all 92 of Sol's findings
+ * opened their problem with one, 44% of that text, and every claim, verification question and plan carried it.
+ */
+function withoutLeadingQuotes(finding: SourceFinding): SourceFinding {
+  const strip = (text: string): string => { const rest = text.replace(/^\s*<quotes>[\s\S]*?<\/quotes>\s*/u, ""); return rest.length === 0 ? text : rest; };
+  const fields = ["problem", "productionImpact", "trigger", "recommendedFix", "verification"] as const;
+  if (fields.every((field) => strip(finding[field]) === finding[field])) return finding;
+  return { ...finding, ...Object.fromEntries(fields.map((field) => [field, strip(finding[field])])) };
 }
 
 function discoveryActivityId(options: ScopeOptions): string {

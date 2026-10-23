@@ -108,6 +108,31 @@ file says what is left and in what order. The measurements and decisions behind 
   - **Dependabot (October 23):** fastify 5.12.5 (low, header validation) has no patched release yet (5.12.6 is not
     published); the vitest advisory (moderate, its mocker, test tooling only) is fixed only in vitest 5, a major
     upgrade. Both left for now.
+- **The nextra run (October 23), the largest real project so far:** `run-ccd3ccea`, low-latency screen sharing
+  (Express, Socket.IO, mediasoup, React), `main` at ef694bf, 172 files and 38,967 lines (3.3 times commentanywhere;
+  13,487 of them tests), from a fresh archive of 69d4291, Gemini at medium. 105 minutes, 683 calls, 26.8M tokens (688
+  a line; commentanywhere 640, blog 922). 126 of 415 candidates confirmed (1 critical, 21 high, 104 medium), 46
+  rejected, 20 the source could not settle, 223 below the plan's minimum and not checked; 213K tokens per confirmed
+  issue (commentanywhere 146K). Found alone by Opus 40, Sol 30, Gemini 3 (Gemini: 16 of 61 confirmed for 2.0M tokens,
+  2 of 39 calls refused by its filter). Verification 14.4M tokens in 497 calls for 192 questions, 75K each; discovery
+  7.6M. Wall time: discovery 53 minutes, with Opus the long pole (Gemini done after 25, Sol after 29), clustering 6,
+  verification 19, plan 17, critic and its check 4, revision 5. Claude's five-hour meter went 32% to 68%, the week 91%
+  to 97%. The plan has 105 tasks for the 126 issues and 68 open questions, 5 blocking; two of those, in different
+  sections, ask about the same OBS test stream.
+  - **Against the handbook's known defects:** both of its access-control concerns were found and confirmed, one as
+    the critical issue (details stay in the run's record until nextra is fixed). Not found: the client never sends the
+    operator token a remote host needs, a missing piece across client and server rather than a defect in one place.
+    A claim about OBS ingest over plain HTTP was rejected, rightly as a security claim; that is the handbook's point
+    from the other side, that a remote host cannot start an OBS room. The "peer-to-peer" copy is only in
+    `public/manifest.webmanifest`, which the snapshot does not read.
+  - **Fixed after it:** every one of Sol's 92 findings opened its `problem` with the `<quotes>` block the prompt asks
+    for before reasoning (33 of 33 on commentanywhere), 44% of that text, repeating its evidence in each claim,
+    verification question and plan issue. Discovery now drops a leading block from a finding's prose and records which
+    findings had one (`quoteBlocksRemoved`).
+  - **Data for open items:** 13 confirmed issues cite only test files, 6 of them claims about production code, and at
+    least 2 of those repeat a confirmed issue that cites the source (the forwarded client IP; the OBS test stream). The
+    verifier's rejections carry no reason, only outcome, evidence and confidence, so checking one means reading its
+    tool trace.
 - **Small fixes from the self-audit, on `friend-test` (October 20):** a system "permission denied" on Antigravity's
   stderr no longer discards its reply as a soft-denied tool; a spawn that runs out of file descriptors no longer
   raises an unhandled error; workspace packages take the root's package manager for their test commands, and a
@@ -249,7 +274,8 @@ static analyser. And score plans by executing them.
      rejections on blog). Every severe rejection now gets it when no review ran.
    Still to measure: a cheaper verifier (item 14). Gemini's part: across the next real runs, compare its confirmed
    finds no other model made with what its audit costs (blog at medium: 2 alone for 1.9M tokens; rokavatar's
-   replay: 7 alone; commentanywhere at medium: 2 alone for 1.1M tokens, 6 of 21 calls refused by its filter).
+   replay: 7 alone; commentanywhere at medium: 2 alone for 1.1M tokens, 6 of 21 calls refused by its filter; nextra at
+   medium: 3 alone for 2.0M tokens, 2 of 39 refused).
 3. **Plans carried out by Codex and Gemini as well as Claude:** count issues fixed, things broken and edits a person
    had to make.
 4. **Evidence a skeptic can check:** each real run's report (confirmed, proven by a failing test, fixed, cost), and
