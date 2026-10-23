@@ -153,10 +153,11 @@ file says what is left and in what order. The measurements and decisions behind 
   haters"):**
   - **A real proof:** nextra's critical and one high issue were fixed from the saved plan's prompts (TASK-053,
     TASK-010), each first shown by a test that failed on the unchanged code; `results.json` in nextra's plan holds the
-    failing output, so the run's report reads 3 issues proven and fixed. nextra PR #76 (2.1.6). Its Windows `.exe`
-    could not be built on this PC: process creation fails with EPERM whenever a command line names caxa's Windows
-    stub, and copies of the stub vanish from the temp folder, which points at the antivirus; the owner decides how
-    to build it (a Defender exclusion, another machine, or replacing caxa, whose gate this now fails).
+    failing output, so the run's report reads 3 issues proven and fixed. nextra PR #76; released as nextra 2.1.6
+    (Windows build only) on October 24 with body-parser 2.4.0 (a high advisory that appeared mid-release) and the
+    two Dependabot updates. The `.exe` was built and smoke-tested on this PC once the owner put `C:\Users\me\nextra`
+    on the antivirus allow list (it had blocked every process naming caxa's Windows stub); nextra's GitHub release
+    workflow is disabled, so a tag no longer starts hosted packaging. The Apple Silicon build waits for the Mac.
   - **Gemini opt-in:** New run starts on Claude Code and Codex (`subscription-audit`, audit-balanced); Gemini is the
     `subscription-audit-gemini` template, labelled with Google's terms. The Feature templates still use Antigravity
     as their second reviewer (their review needs two independent vendors), behind the same warning in New run.
