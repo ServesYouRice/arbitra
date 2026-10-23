@@ -358,6 +358,18 @@ describe("independent model discovery", () => {
     expect(spent).toHaveLength(4);
   });
 
+  it("leaves a window unexamined for that auditor when its model never stops asking for tools, and goes on", async () => {
+    // Observed live (commentanywhere, October 23): Gemini asked for tools past its limit on one window, and the run failed.
+    const root = await mkdtemp(join(tmpdir(), "arbitra-discovery-tool-loop-")); directories.push(root);
+    const store = new RunStore(root, "run-tool-loop");
+    const lines = Array.from({ length: 8 }, (_, index) => `const value${index + 1} = ${index === 1 ? "null" : index === 6 ? "looping" : index};`);
+    const files = [fileOf("big.ts", lines), fileOf("small.ts", ["const value = null;"])];
+    const { activities } = ceilinged(({ files: supplied }) => supplied.some(({ lines: sent }) => sent.some(({ text }) => text.includes("looping"))), () => Object.assign(new Error("HARNESS_TOOL_LOOP_LIMIT:8"), { modelOutputRejected: true }));
+    const result = await discoverWithModel({ auditorId: "auditor-a", modelProfileId: "model", snapshot: { root: "fixture", files }, activities: { ...activities, estimateInitialTokens: () => 1 }, store, signal: new AbortController().signal, maximumInputTokens: files[0]?.byteLength ?? 0 });
+    expect(result.map(({ locations }) => [locations[0]?.path, locations[0]?.startLine])).toEqual([["big.ts", 2], ["small.ts", 1]]);
+    expect(await artifact(store, "discovery-validation-auditor-a")).toMatchObject({ acceptedCount: 2, unexaminedDueToBudget: ["discovery_reply_rejected:big.ts:3-8"], limitations: expect.arrayContaining(["discovery_reply_rejected"]) });
+  });
+
   it("audits scopes side by side when asked to and puts their findings together in scope order", async () => {
     // Observed live (P20 pilot): five scopes one after another were 33 minutes of a 40-minute audit.
     const root = await mkdtemp(join(tmpdir(), "arbitra-discovery-parallel-")); directories.push(root);

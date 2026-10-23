@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { compile } from "@arbitra/core/prompt/compiler.js";
-import { CanonicalHarnessAdapter } from "@arbitra/harness/canonical/adapter.js";
+import { CanonicalHarnessAdapter, TOOL_TURN_LIMIT_REACHED } from "@arbitra/harness/canonical/adapter.js";
 import type { HarnessEvent } from "@arbitra/harness/adapter.js";
 import { CANONICAL_HARNESS_PROFILE, CANONICAL_TESTING_HARNESS_PROFILE } from "@arbitra/harness/profile.js";
 import { modelTurnResultSchema } from "@arbitra/schemas/model-results.js";
@@ -24,6 +24,8 @@ const OUTPUT_REPAIR_INSTRUCTION = "Output repair: arbitra's output validation re
 /** Replays durable model turns through the canonical read-only tool loop. */
 export class ModelHarness {
   #outputLimited: Promise<Set<string>> | undefined;
+  // Activities answered only after their tool turns were spent. Rebuilt on resume: durable turns replay through the loop.
+  readonly #toolTurnsSpent = new Set<string>();
   constructor(private readonly activities: ModelActivities, private readonly config: RunConfig, private readonly snapshot: RepositorySnapshot, private readonly store: RunStore, private readonly testing?: TestingToolExtension) {}
 
   /** Closes the transports of the activities this harness drives, once the run that owns them settles. */
@@ -33,6 +35,11 @@ export class ModelHarness {
   async outputLimited(activityId: string): Promise<boolean> {
     this.#outputLimited ??= this.store.listArtifacts().then((artifacts) => new Set(artifacts.map(({ kind }) => kind).filter((kind) => kind.startsWith("model-output-limit-") || kind.startsWith("model-refusal-"))));
     return (await this.#outputLimited).has(outputLimitKind(activityId));
+  }
+
+  /** Whether this activity, or a repair of it, answered only after it was told its tool turns were spent. */
+  toolTurnsSpent(activityId: string): boolean {
+    return [...this.#toolTurnsSpent].some((id) => id === activityId || id.startsWith(`${activityId}/repair-`));
   }
 
   /** Whether the provider or model declined this durable activity before; it is not asked again. */
@@ -142,9 +149,10 @@ export class ModelHarness {
         tools: request.tools, responseMode: "harness_turn", schema: modelTurnResultSchema,
         // Traced only. A repair is counted once, on its first turn; the previous turn's tool calls ran (and failed)
         // after that turn's trace was written, so this turn, which reads their results, carries their failures.
-        // A search that matched nothing is an answer, not a failure (observed live: 17 of 22 "errors" in one run).
+        // A search that matched nothing is an answer, not a failure (observed live: 17 of 22 "errors" in one run); nor is
+        // a call left unrun because the tool turns were spent.
         repairCount: context.turn === 0 ? input.repairCount ?? 0 : 0,
-        toolCallErrors: events.filter((event) => event.type === "tool_result" && event.turn === context.turn - 1 && !event.result.ok && event.result.error?.code !== "ZERO_RESULTS").length,
+        toolCallErrors: events.filter((event) => event.type === "tool_result" && event.turn === context.turn - 1 && !event.result.ok && event.result.error?.code !== "ZERO_RESULTS" && event.result.error?.code !== TOOL_TURN_LIMIT_REACHED).length,
         harnessIdentity: { id: harnessProfile.id, version: harnessProfile.version, policyHash: createHash("sha256").update(JSON.stringify({ policy: harnessProfile.policy, sourcePaths: input.sourcePaths === undefined ? null : [...input.sourcePaths].sort(), historyPolicy: "archive-complete-exchanges-v1", maximumContext, ...(this.testing === undefined ? {} : { testingWritePolicy: this.testing.policyIdentity }) })).digest("hex") },
       });
     } }, harnessProfile);
@@ -159,11 +167,17 @@ export class ModelHarness {
       for await (const event of run.events) {
         events.push(event);
         if (event.type !== "completed") continue;
+        if (events.some((entry) => entry.type === "tool_result" && entry.result.error?.code === TOOL_TURN_LIMIT_REACHED)) this.#toolTurnsSpent.add(input.activityId);
         if (event.refusal !== null) throw new ModelRefusalError(input.activityId, event.refusal);
         try { return input.schema.parse(parsePromptJson(event.text ?? "")); }
         catch (error) { throw new ModelOutputRejectedError(error, event.text ?? ""); }
       }
       throw new Error("HARNESS_COMPLETION_ABSENT");
+    } catch (error) {
+      // Still asking for tools after it was told none remain, the model gave no answer: a reply rejected, not repaired
+      // (a repair would start the tool loop over), which a stage that can go on without this one answer records as a gap.
+      if (error instanceof Error && error.message.startsWith("HARNESS_TOOL_LOOP_LIMIT:")) Object.assign(error, { modelOutputRejected: true });
+      throw error;
     } finally {
       await this.store.publish(`harness-${key}`, { activityId: input.activityId, profile: harnessProfile, events,
         inspection: toolSet.footprints.inspection(input.activityId), exposure: toolSet.footprints.exposure(input.activityId) }, input.activityId);

@@ -6,7 +6,7 @@ import { runConfigSchema } from "@arbitra/schemas/config.js";
 import type { HttpClient, HttpRequest, TransportMessage } from "@arbitra/providers/transport-contract.js";
 import { ModelActivities } from "../src/model-activities.js";
 import { discoverWithModel } from "../src/model-discovery.js";
-import { ModelHarness } from "../src/model-harness.js";
+import { isModelOutputRejection, ModelHarness } from "../src/model-harness.js";
 import { RunStore } from "../src/run-store.js";
 import { snapshotTools } from "../src/snapshot-tools.js";
 
@@ -227,10 +227,28 @@ describe("durable canonical model harness", () => {
     expect(log.inspection.reads).toHaveLength(1); expect(log.events.at(-1)?.type).toBe("completed");
   });
 
-  it("preserves the turn bound and refuses to execute tools after its last model turn", async () => {
-    const { create, send } = await setup(0);
-    await expect(create().invoke(request())).rejects.toThrow("HARNESS_TOOL_LOOP_LIMIT:0");
-    expect(send).toHaveBeenCalledTimes(1);
+  it("preserves the turn bound: a tool call after the last tool turn is not run, and the model is asked to answer", async () => {
+    const { create, send, requests, store } = await setup(0);
+    const harness = create();
+    expect(await harness.invoke(request())).toEqual({ answer: "ok" });
+    expect(send).toHaveBeenCalledTimes(2);
+    const input = (requests[1]?.body as { input: { type?: string; output?: string }[] }).input;
+    expect(JSON.parse(input.find(({ type }) => type === "function_call_output")?.output ?? "null")).toMatchObject({ ok: false, error: { code: "TOOL_TURN_LIMIT_REACHED" } });
+    expect(harness.toolTurnsSpent("auditor-a/discovery")).toBe(true);
+    const artifact = (await store.listArtifacts()).find(({ kind }) => kind.startsWith("harness-"));
+    if (artifact === undefined) throw new Error("HARNESS_ARTIFACT_ABSENT");
+    expect((JSON.parse((await store.readArtifact(artifact.artifactId)).content) as { inspection: { reads: unknown[] } }).inspection.reads).toHaveLength(0);
+  });
+
+  it("fails a model that asks for tools again after it was told none remain as a rejected reply, without a repair", async () => {
+    // A stage that can go on without this one answer records a gap; observed live (commentanywhere, October 23), the run failed.
+    const { create, send, requests } = await setup(0, 0, 1);
+    send.mockImplementation(async (value) => { requests.push(value); return { status: 200, headers: {}, body: { output: [{ type: "function_call", call_id: `call-${requests.length}`, name: "repo_read_file", arguments: '{"path":"a.ts"}' }], usage: { input_tokens: 10, output_tokens: 10 } } }; });
+    const error = await create().invoke(request()).then(() => null, (failure: unknown) => failure);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe("HARNESS_TOOL_LOOP_LIMIT:0");
+    expect(isModelOutputRejection(error)).toBe(true);
+    expect(send).toHaveBeenCalledTimes(2);
   });
 
   it("restricts reads to the snapshot and artifact context and blocks undeclared tools", async () => {

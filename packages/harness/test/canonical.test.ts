@@ -2,7 +2,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { HarnessEvent, HarnessModelRequest, HarnessProviderRuntime } from "../src/adapter.js";
-import { CanonicalHarnessAdapter } from "../src/canonical/adapter.js";
+import { CanonicalHarnessAdapter, TOOL_TURN_LIMIT_REACHED } from "../src/canonical/adapter.js";
 import { assertHarnessCompatible, CANONICAL_HARNESS_PROFILE, canonicalCompatibility, ROUND_ZERO_POLICY, type HarnessProfile } from "../src/profile.js";
 
 const usage = Object.freeze({ inputTokens: 10, outputTokens: 2, cacheReadTokens: 8, cacheWriteTokens: 0 });
@@ -30,9 +30,31 @@ describe("canonical harness", () => {
   });
 
   it("enforces the model-profile tool-loop bound", async () => {
-    const runtime: HarnessProviderRuntime = { async invoke() { return { text: null, toolCalls: [{ id: "again", name: "repo.readFile", arguments: {} }], refusal: null, usage }; } };
+    const requests: HarnessModelRequest[] = [];
+    const runtime: HarnessProviderRuntime = { async invoke(request) { requests.push(request); return { text: null, toolCalls: [{ id: "again", name: "repo.readFile", arguments: {} }], refusal: null, usage }; } };
     const run = new CanonicalHarnessAdapter(runtime).run({ id: "n", modelId: "m", maximumOutputTokens: 10, maxToolTurns: 0 }, { text: "p", hash: "h" }, [], { async invoke() { throw new Error("not reached"); } }, { mode: "feature", round: 1, requirements: {}, signal: new AbortController().signal, toolContext: { protect: (content) => content } });
     await expect(collect(run.events)).rejects.toThrow("HARNESS_TOOL_LOOP_LIMIT:0");
+    // Told once that no tool turns remain, never run.
+    expect(requests).toHaveLength(2);
+    expect(JSON.parse(requiredAt(requests, 1).messages.at(-1)?.content ?? "null")).toMatchObject({ ok: false, error: { code: TOOL_TURN_LIMIT_REACHED } });
+  });
+
+  it("answers a tool request after the last tool turn unrun and takes the model's final answer", async () => {
+    // Observed live (commentanywhere, October 23): Gemini asked for a ninth tool turn and the run failed.
+    const requests: HarnessModelRequest[] = []; const ran: unknown[] = [];
+    const runtime: HarnessProviderRuntime = { async invoke(request) {
+      requests.push(request);
+      return requests.length <= 2 ? { text: null, toolCalls: [{ id: `call-${requests.length}`, name: "repo.readFile", arguments: { path: "a.ts" } }], refusal: null, usage } : { text: "{\"findings\":[]}", toolCalls: [], refusal: null, usage };
+    } };
+    const tools = { async invoke(_name: string, args: unknown) { ran.push(args); return { ok: true, summary: "source", content: "source", artifact: null, truncated: false, trust: "untrusted" as const }; } };
+    const events = await collect(new CanonicalHarnessAdapter(runtime).run({ id: "n", modelId: "m", maximumOutputTokens: 10, maxToolTurns: 1 }, { text: "p", hash: "h" },
+      [{ name: "repo.readFile", description: "read", inputSchema: {} }], tools, { mode: "audit", round: 0, requirements: {}, signal: new AbortController().signal, toolContext: { protect: (content) => content } }).events);
+    expect(ran).toHaveLength(1);
+    expect(requests).toHaveLength(3);
+    expect(requiredAt(requests, 2).tools).toHaveLength(1);
+    expect(requiredAt(requests, 2).messages.at(-1)).toMatchObject({ role: "tool", toolCallId: "call-2" });
+    expect(JSON.parse(requiredAt(requests, 2).messages.at(-1)?.content ?? "null")).toMatchObject({ ok: false, error: { code: TOOL_TURN_LIMIT_REACHED } });
+    expect(events.at(-1)).toMatchObject({ type: "completed", turns: 3, text: "{\"findings\":[]}" });
   });
 
   it("refuses missing hard capabilities and internal context management in audit mode", () => {

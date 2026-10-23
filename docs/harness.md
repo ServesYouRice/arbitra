@@ -90,7 +90,12 @@ remembered about later.
 
 `packages/harness/src/canonical/adapter.ts` (`CanonicalHarnessAdapter`) is the canonical
 implementation. It owns the bounded tool loop: `maxToolTurns` and `toolLoopLimit` are
-enforced, and `AbortSignal` makes cancellation real rather than advisory.
+enforced, and `AbortSignal` makes cancellation real rather than advisory. Tools run in at most
+`maxToolTurns` turns; a tool call asked for after those is not run but answered with
+`TOOL_TURN_LIMIT_REACHED`, and the model gets one more turn to answer from what it has read.
+A model that asks for tools even then fails with `HARNESS_TOOL_LOOP_LIMIT`, which the runtime
+treats as a rejected reply: a stage that can go on without that one answer (discovery,
+verification, the critique check) records the gap rather than failing the run.
 
 The CLI/server model Audit composes this adapter in `packages/runtime/src/model-harness.ts`.
 Each model turn is a durable activity. Snapshot tools expose list, read, literal search

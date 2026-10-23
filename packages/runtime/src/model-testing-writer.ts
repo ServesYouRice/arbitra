@@ -84,8 +84,13 @@ export async function modelTestingWriter(store: RunStore, config: RunConfig, act
   await store.publish(`testing-writer-context-${hash(attempt.id)}`, { ...allocated.coverage, maximumEstimatedTokens: maximum, ...(advisorStatus === undefined ? {} : { advisor: advisorStatus }) }, "testing-execution");
   // A writer that keeps calling tools until the turn limit has still made only leased,
   // recorded writes. End the attempt there and let verification judge them; the limitation
-  // fails the attempt, so the next one (if any) starts from verification feedback.
-  const result = await harness.invoke(request(allocated.input)).then((value) => grounded.parse(value), (error: unknown) => {
+  // fails the attempt, so the next one (if any) starts from verification feedback. A writer
+  // that summarised only once told its turns were spent is limited the same way.
+  const limit = profile.quirks.toolLoopLimit;
+  const result = await harness.invoke(request(allocated.input)).then((value) => {
+    const parsed = grounded.parse(value);
+    return harness.toolTurnsSpent(activityId) ? { ...parsed, limitations: [...parsed.limitations, `writer_tool_loop_limit:${limit}`] } : parsed;
+  }, (error: unknown) => {
     if (!(error instanceof Error) || !error.message.startsWith("HARNESS_TOOL_LOOP_LIMIT:")) throw error;
     return { summary: "The writer reached its tool-turn limit before returning a summary.", limitations: [`writer_tool_loop_limit:${error.message.slice("HARNESS_TOOL_LOOP_LIMIT:".length)}`], documentedBehaviourConflicts: [] };
   });

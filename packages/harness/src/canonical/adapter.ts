@@ -1,4 +1,4 @@
-import type { HarnessAdapter, HarnessEvent, HarnessMessage, HarnessModelResponse, HarnessNode, HarnessPrompt, HarnessProviderRuntime, HarnessRun, HarnessRunPolicy, HarnessToolDefinition, HarnessToolRuntime } from "../adapter.js";
+import type { HarnessAdapter, HarnessEvent, HarnessMessage, HarnessModelResponse, HarnessNode, HarnessPrompt, HarnessProviderRuntime, HarnessRun, HarnessRunPolicy, HarnessToolDefinition, HarnessToolResult, HarnessToolRuntime } from "../adapter.js";
 import { assertHarnessCompatible, assertRoundZeroPolicy, CANONICAL_HARNESS_PROFILE, type HarnessProfile } from "../profile.js";
 
 export class CanonicalHarnessAdapter implements HarnessAdapter {
@@ -15,7 +15,10 @@ export class CanonicalHarnessAdapter implements HarnessAdapter {
   private async *execute(node: HarnessNode, prompt: HarnessPrompt, tools: readonly HarnessToolDefinition[], toolRuntime: HarnessToolRuntime, policy: HarnessRunPolicy): AsyncGenerator<HarnessEvent> {
     const messages: HarnessMessage[] = [{ role: "user", content: prompt.text }];
     let response: HarnessModelResponse | null = null;
-    for (let turn = 0; turn <= node.maxToolTurns; turn += 1) {
+    // Tools run in `maxToolTurns` turns. Tool calls asked for after those are answered, unrun, with TOOL_TURN_LIMIT_REACHED,
+    // and the model gets one more turn to answer from what it has. Observed live (commentanywhere, October 23): Gemini
+    // asked for a ninth tool turn on one discovery window, nothing told it the tools were spent, and the run failed.
+    for (let turn = 0; turn <= node.maxToolTurns + 1; turn += 1) {
       if (policy.signal.aborted) throw policy.signal.reason;
       yield Object.freeze({ type: "model_turn_started", nodeId: node.id, turn });
       response = await this.providerRuntime.invoke(Object.freeze({ modelId: node.modelId, messages: Object.freeze([...messages]), tools, maximumOutputTokens: node.maximumOutputTokens }), { nodeId: node.id, turn, promptHash: prompt.hash, signal: policy.signal });
@@ -23,15 +26,24 @@ export class CanonicalHarnessAdapter implements HarnessAdapter {
       if (response.toolCalls.length === 0) {
         yield Object.freeze({ type: "completed", nodeId: node.id, turns: turn + 1, text: response.text, refusal: response.refusal }); return;
       }
-      if (turn === node.maxToolTurns) throw new Error(`HARNESS_TOOL_LOOP_LIMIT:${node.maxToolTurns}`);
+      if (turn > node.maxToolTurns) throw new Error(`HARNESS_TOOL_LOOP_LIMIT:${node.maxToolTurns}`);
       messages.push({ role: "assistant", content: response.text ?? "", toolCalls: response.toolCalls });
       for (const [callIndex, call] of response.toolCalls.entries()) {
         yield Object.freeze({ type: "tool_call", nodeId: node.id, turn, call });
-        const result = await toolRuntime.invoke(call.name, call.arguments, { ...policy.toolContext, nodeId: node.id, callId: call.id, turn, callIndex });
+        const result = turn === node.maxToolTurns ? toolTurnLimitResult(node.maxToolTurns)
+          : await toolRuntime.invoke(call.name, call.arguments, { ...policy.toolContext, nodeId: node.id, callId: call.id, turn, callIndex });
         yield Object.freeze({ type: "tool_result", nodeId: node.id, turn, callId: call.id, result });
         messages.push({ role: "tool", content: JSON.stringify(result), toolCallId: call.id, toolName: call.name });
       }
     }
     throw new Error("HARNESS_LOOP_UNREACHABLE");
   }
+}
+
+/** The answer to a tool call asked for after the last tool turn: not run, and the model is told to answer now. */
+export const TOOL_TURN_LIMIT_REACHED = "TOOL_TURN_LIMIT_REACHED";
+
+function toolTurnLimitResult(maxToolTurns: number): HarnessToolResult {
+  return Object.freeze({ ok: false, summary: "not run: no tool turns remain", content: "", artifact: null, truncated: false, trust: "untrusted" as const,
+    error: Object.freeze({ code: TOOL_TURN_LIMIT_REACHED, message: `${TOOL_TURN_LIMIT_REACHED}: this call was not run. All ${maxToolTurns} tool turns are used and no tool call will run again. Reply now with your final answer, exactly as the conversation instructs, from what you have already read; where the answer's format allows, say what you could not examine.` }) });
 }
