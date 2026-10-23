@@ -16,7 +16,7 @@ describe("consensus semantics", () => {
     expect(requiredAt(computeConsensus(board(shared), DEFAULT_CONSENSUS_POLICY, { auditors, round: 1 }).candidates, 0).coverage.missingReviewers).toEqual(["auditor-a"]);
   });
   it("says no review ran, not that review rounds were exhausted, when no round was allowed", () => {
-    expect(computeConsensus(board(candidate()), DEFAULT_CONSENSUS_POLICY, { auditors, round: 0, maximumRounds: 0 }).candidates[0]).toMatchObject({ outcome: "non_consensus", reason: "No peer-review round was run; only verification checks this issue." });
+    expect(computeConsensus(board(candidate()), DEFAULT_CONSENSUS_POLICY, { auditors, round: 0, maximumRounds: 0 }).candidates[0]).toMatchObject({ outcome: "non_consensus", reason: "No peer-review round was run; only verification checks this issue.", coverage: { reviewedBy: [], missingReviewers: [] } });
     expect(computeConsensus(board(candidate()), DEFAULT_CONSENSUS_POLICY, { auditors, round: 3 }).candidates[0]).toMatchObject({ outcome: "non_consensus", reason: "Review rounds exhausted without policy convergence." });
   });
   it("skips consensus for one auditor and labels findings single-source", () => { const state = computeConsensus(board(candidate()), DEFAULT_CONSENSUS_POLICY, { auditors: auditors.slice(0, 1), round: 0 }); expect(requiredAt(state.candidates, 0).outcome).toBe("single_source"); });

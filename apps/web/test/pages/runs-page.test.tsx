@@ -29,7 +29,7 @@ describe("the run list", () => {
     expect(rows[1]?.textContent).toContain("failed · PROVIDER_TIMEOUT");
     expect(rows[2]?.textContent).toContain("gate passed");
     expect(rows[2]?.textContent).toContain("replay of dddddddd");
-    expect(rows[3]?.textContent).toContain("gate failed · some issues are still unresolved · coverage is incomplete");
+    expect(rows[3]?.textContent).toContain("done · needs you · issues to check by hand");
     expect(rows[3]?.textContent).toContain("scripted detectors, no model calls");
     expect(rows[4]?.textContent).toContain("records unreadable · RUN_CONTEXT_ABSENT:run-ffffffff-6");
     expect(screen.getByRole("status").textContent).toBe("1 run is waiting for your decision.");

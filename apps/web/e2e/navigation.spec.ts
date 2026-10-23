@@ -15,7 +15,7 @@ test.describe("finding, starting and reading runs", () => {
     const row = table.getByRole("row").filter({ has: page.getByRole("link", { name: `open run ${runId}` }) });
     await expect(row).toContainText("finished COMPLETED");
     await expect(row).toContainText("scripted detectors, no model calls");
-    await expect(row).toContainText("gate failed");
+    await expect(row).toContainText(/done · (?:needs you|coverage has limits)/u);
     expect(await accessibilityAudit(page)).toEqual([]);
     await shot(page, testInfo, "navigation-01-run-list");
     await row.getByRole("link", { name: `open run ${runId}` }).click();

@@ -8,7 +8,10 @@ import { GateVerdict } from "../../app/marks.js";
 import { Link, type RunTab } from "../../app/router.js";
 import { FeatureOutcome, HandoffDownload } from "../../views/feature/FeatureView.js";
 import { CONSENSUS_LABELS, CoverageSummary, unresolvedText, useIssueBoard } from "../../views/issue-board/IssueBoardView.js";
+import type { PersistedIssueSet } from "../../views/issue-board/model.js";
+import { RUN_ARTIFACT_KINDS, useRunArtifact } from "../../views/issue-board/run-artifacts.js";
 import { usePlan } from "../../views/plan/PlanView.js";
+import type { PersistedPlan } from "../../views/plan/traceability.js";
 import { Handoff, Outcome, Planning, useTestingView } from "../../views/testing/TestingView.js";
 import { executorText } from "./RunHeader.js";
 import { ModelTable } from "./NodeDetails.js";
@@ -32,7 +35,7 @@ export function OverviewTab({ runId, mode, run, overview, artifacts, reason, ref
   const planned = artifacts.some(({ kind }) => kind === "plan-ir");
   return <div className="overview">
     {planned && overview?.state === "COMPLETED" ? <section aria-label="take the plan" className="section plan-take"><h2 className="panel-title">the plan</h2><p className="prose">Save it into the project: a folder with one prompt per fix, sorted by the model each suits, and instructions a coding agent can follow.</p><SavePlan runId={runId} /></section> : null}
-    <Result run={run} overview={overview} reason={reason} />
+    <Result runId={mode === "audit" ? runId : null} run={run} overview={overview} reason={reason} refreshKey={refreshKey} />
     {mode === "audit" ? <AuditSummary runId={runId} refreshKey={refreshKey} />
       : mode === "feature" ? <FeatureSummary runId={runId} run={run} artifacts={artifacts} refreshKey={refreshKey} />
       : <TestingSummary runId={runId} run={run} artifacts={artifacts} refreshKey={refreshKey} />}
@@ -41,12 +44,14 @@ export function OverviewTab({ runId, mode, run, overview, artifacts, reason, ref
   </div>;
 }
 
-function Result({ run, overview, reason }: { readonly run: RunResource | null; readonly overview: RunOverview | null; readonly reason: string | null }): ReactElement {
+/** `runId` is set for an Audit run, whose gate reasons get counts from its issue set and plan. */
+function Result({ runId, run, overview, reason, refreshKey }: { readonly runId: string | null; readonly run: RunResource | null; readonly overview: RunOverview | null; readonly reason: string | null; readonly refreshKey: unknown }): ReactElement {
   const state = run?.state ?? overview?.state ?? null;
+  const detail = useGateDetail(runId, refreshKey);
   return <section aria-labelledby="result-title" className="section">
     <h2 className="panel-title" id="result-title">result</h2>
     {state === "COMPLETED" ? overview?.gate == null ? <p role="status">reading the gate</p> : <>
-      <GateVerdict gate={overview.gate} />
+      <GateVerdict gate={overview.gate} detail={detail} />
       {overview.executor === "scripted" && overview.gate.reasons.includes("degraded_coverage") ? <p className="note">Scripted detectors do not cover the security protocol, so a scripted run always fails the gate on coverage. That is expected and is not a crash.</p> : null}
     </>
       : state === "BLOCKED" ? <p className="state" data-state="attention">The run is waiting for your decision. The banner above lists what it needs.</p>
@@ -57,6 +62,30 @@ function Result({ run, overview, reason }: { readonly run: RunResource | null; r
       : isActive(state) ? <p className="note">The run is still working. Results appear below as its stages record them.</p>
       : <p role="status">reading the run</p>}
   </section>;
+}
+
+const SOURCE_ONLY = "source_snapshot_only_no_runtime_or_deployment_security_evidence";
+const counted = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
+
+/** What stands behind an Audit gate's reasons, counted: issues the verifier could not settle, blocking questions, what was not read. */
+function useGateDetail(runId: string | null, refreshKey: unknown): Readonly<Record<string, string>> {
+  const { artifacts } = useApis();
+  const issueSet = useRunArtifact<PersistedIssueSet>(artifacts, runId, RUN_ARTIFACT_KINDS.canonicalIssues, refreshKey).value;
+  const plan = useRunArtifact<PersistedPlan>(artifacts, runId, RUN_ARTIFACT_KINDS.plan, refreshKey).value;
+  const detail: Record<string, string> = {};
+  if (issueSet !== null) {
+    const unsettled = issueSet.issues.filter(({ disposition, verificationOutcome }) => disposition === "needs_verification" && verificationOutcome === "STILL_NEEDS_VERIFICATION").length;
+    if (unsettled > 0) detail.unresolved_issues = counted(unsettled, "issue", "issues");
+    const { securityCoverage, unexaminedSurfaces } = issueSet.coverage;
+    const limits = [
+      ...(securityCoverage.degraded ? [securityCoverage.reason === SOURCE_ONLY ? "source only, no runtime or deployment evidence" : securityCoverage.reason ?? "security coverage degraded"] : []),
+      ...(unexaminedSurfaces.length === 0 ? [] : [`${counted(unexaminedSurfaces.length, "place", "places")} an auditor did not examine`]),
+    ];
+    if (limits.length > 0) detail.degraded_coverage = limits.join(" · ");
+  }
+  const questions = plan?.unresolvedQuestions.filter(({ blocking }) => blocking).length ?? 0;
+  if (questions > 0) detail.blocking_plan_questions = counted(questions, "question", "questions");
+  return detail;
 }
 
 /** Which allowance ran out and, when the provider said, when arbitra goes on by itself. */
@@ -98,7 +127,7 @@ function PlanSummary({ runId, refreshKey }: { readonly runId: string; readonly r
     <h2 className="panel-title" id="plan-summary-title">plan</h2>
     {value === null ? <p className="state" data-state={plan.state === "error" ? "degraded" : "unexamined"}>{plan.state === "error" ? `plan unavailable · ${plan.error ?? "error"}` : plan.state === "loading" ? "reading the plan" : "no plan recorded yet"}</p> : <>
       <p className="data">{value.title} · {value.tasks.length} tasks · {value.validationContract.validation.length} validation assertions</p>
-      {value.unresolvedQuestions.some(({ blocking }) => blocking) ? <p className="state" data-state="refuted">{value.unresolvedQuestions.filter(({ blocking }) => blocking).length} blocking open questions</p> : null}
+      {value.unresolvedQuestions.some(({ blocking }) => blocking) ? <p className="state" data-state="attention">{counted(value.unresolvedQuestions.filter(({ blocking }) => blocking).length, "question", "questions")} only you can answer</p> : null}
       {critique.value !== null && critique.value.items.some(({ blocking }) => blocking) ? <p className="state" data-state="refuted">{critique.value.items.filter(({ blocking }) => blocking).length} blocking critic objections</p> : null}
       <p className="state" data-state={value.premiseReport.status === "positive" ? "verified" : value.premiseReport.status === "negative" ? "refuted" : "unexamined"}>premise · {value.premiseReport.interpretation}</p>
       <p><TabLink runId={runId} tab="plan">open the plan</TabLink></p>

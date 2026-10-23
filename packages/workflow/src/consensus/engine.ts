@@ -30,7 +30,9 @@ export function isHighRisk(candidate: ConsensusCandidate): boolean { return cand
 function decide(candidate: ConsensusCandidate, policy: ConsensusPolicy, auditors: readonly ConsensusAuditor[], groups: ReadonlyMap<string, string>, exhausted: boolean, unreviewed: boolean): CandidateConsensus {
   const latest = latestVotes(candidate.votes, new Set(auditors.map(({ auditorId }) => auditorId))); const reviewedBy = [...latest.keys()].sort();
   // Peer review never shows an auditor its own findings, so the sole author of a candidate is not a missing reviewer.
-  const missing = auditors.map(({ auditorId }) => auditorId).filter((id) => !latest.has(id) && candidate.sourceFindingIds.some((source) => source.split("/", 1)[0] !== id));
+  // With no round allowed nobody was asked, so nobody is missing. Observed live (nextra, October 23): every one of 415
+  // candidates listed its other auditors as missing, and the run's coverage read incomplete for that alone.
+  const missing = unreviewed ? [] : auditors.map(({ auditorId }) => auditorId).filter((id) => !latest.has(id) && candidate.sourceFindingIds.some((source) => source.split("/", 1)[0] !== id));
   const accepts = [...latest.values()].filter(({ disposition }) => disposition === "accept"); const rejects = [...latest.values()].filter(({ disposition }) => disposition === "reject"); const verification = [...latest.values()].filter(({ disposition }) => disposition === "needs_verification");
   const evidenceBackedAccept = accepts.filter(({ citedEvidenceIds }) => citedEvidenceIds.length > 0); const evidenceBackedReject = rejects.filter(({ citedEvidenceIds }) => citedEvidenceIds.length > 0);
   const representedGroups = new Set(evidenceBackedAccept.map(({ authorId }) => groups.get(authorId)).filter((value): value is string => value !== undefined));

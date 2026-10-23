@@ -38,10 +38,10 @@ export function isActive(state: string | null): boolean {
 const GATE_REASONS: Readonly<Record<string, string>> = Object.freeze({
   run_not_completed: "the run did not complete",
   no_canonical_issue_set: "no issue set was produced",
-  unresolved_issues: "some issues are still unresolved",
+  unresolved_issues: "issues the source could not settle: check them by hand",
   degraded_coverage: "coverage is incomplete",
-  blocking_plan_questions: "the plan leaves a blocking question open",
-  blocking_critic_feedback: "the critic raised a blocking objection",
+  blocking_plan_questions: "questions in the plan only you can answer",
+  blocking_critic_feedback: "a critic objection the plan does not answer",
   degraded_critic_coverage: "the critic could not review the whole plan",
   no_feature_plan_result: "no Feature plan was recorded",
   feature_plan_review_failed: "the Feature plan failed its review",

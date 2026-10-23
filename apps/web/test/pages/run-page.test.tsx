@@ -19,8 +19,10 @@ describe("the run page", () => {
     expect(within(tabs).getAllByRole("link").map((link) => link.textContent)).toEqual(["Overview", "Issues", "Plan", "Activity", "Evaluation"]);
     expect(within(tabs).getByRole("link", { name: "Overview" }).getAttribute("aria-current")).toBe("page");
     const result = await screen.findByRole("region", { name: "result" });
-    expect(within(result).getByText("coverage is incomplete")).toBeTruthy();
+    expect(within(result).getByText("done · needs you")).toBeTruthy();
+    expect(within(result).getByText(/^coverage is incomplete/u)).toBeTruthy();
     expect(within(result).getByText("degraded_coverage")).toBeTruthy();
+    expect(within(result).getByText(/the CLI exits 1 for this run/u)).toBeTruthy();
     expect(within(result).getByText(/a scripted run always fails the gate on coverage/u)).toBeTruthy();
     expect(screen.getAllByText(/scripted detectors · no model calls/u).length).toBeGreaterThan(0);
     expect(await screen.findByText(/2 canonical issues from 31 source findings by 3 auditors/u)).toBeTruthy();

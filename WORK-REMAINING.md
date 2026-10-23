@@ -129,6 +129,14 @@ file says what is left and in what order. The measurements and decisions behind 
     for before reasoning (33 of 33 on commentanywhere), 44% of that text, repeating its evidence in each claim,
     verification question and plan issue. Discovery now drops a leading block from a finding's prose and records which
     findings had one (`quoteBlocksRemoved`).
+  - **Also fixed after it (owner: "i still get these"):** every completed model run on a real project failed the
+    gate, and the web app showed "gate failed" in red. Here: 20 issues the verifier could not settle, 5 blocking plan
+    questions, and coverage marked incomplete for three causes: a source-only audit always is, 11 places an auditor
+    did not examine, and, without peer review, all 415 candidates listing their other auditors as missing reviewers.
+    With no review round nobody is now counted missing. The web app reads such a run as "done · needs you", lists the
+    work with counts (issues to check by hand, questions only the owner can answer) and what the run could not see,
+    keeps every code, and says the CLI still exits 1; any other reason still reads "gate failed". The CLI gate is
+    unchanged.
   - **Data for open items:** 13 confirmed issues cite only test files, 6 of them claims about production code, and at
     least 2 of those repeat a confirmed issue that cites the source (the forwarded client IP; the OBS test stream). The
     verifier's rejections carry no reason, only outcome, evidence and confidence, so checking one means reading its
