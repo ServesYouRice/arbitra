@@ -141,6 +141,14 @@ file says what is left and in what order. The measurements and decisions behind 
     least 2 of those repeat a confirmed issue that cites the source (the forwarded client IP; the OBS test stream). The
     verifier's rejections carry no reason, only outcome, evidence and confidence, so checking one means reading its
     tool trace.
+- **v0.2.0 released (October 23, owner: "publish a new stable release so others can test the app"):**
+  https://github.com/ServesYouRice/arbitra/releases/tag/v0.2.0, tag on afdec34, with the Windows single-file
+  `arbitra-0.2.0-windows.exe` and the source zip. Before publishing: Linux check and 69 of 69 browser tests on
+  afdec34; the exe, built from a clean clone, started from a scratch data folder and completed a cheap-model run
+  (Haiku, Luna, Gemini low) on a 24-line sample: 2 minutes, 9 calls, 106K tokens, its 3 planted defects confirmed, the
+  result read "done · needs you". The Mac app builds stay in the private v0.2.0-dev draft until tried on a Mac; Mac
+  testers use the zip. Dependabot's fastify (low, runtime) and vitest (moderate, test tooling) fixes, 5.12.6 and
+  4.1.12, were not on npm yet.
 - **Small fixes from the self-audit, on `friend-test` (October 20):** a system "permission denied" on Antigravity's
   stderr no longer discards its reply as a soft-denied tool; a spawn that runs out of file descriptors no longer
   raises an unhandled error; workspace packages take the root's package manager for their test commands, and a
