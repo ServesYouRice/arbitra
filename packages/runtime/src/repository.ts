@@ -157,12 +157,16 @@ async function snapshotDiff(guard: RepositoryPathGuard, scope: RunScope, maximum
     revision = (await git.run(guard.root, ["rev-parse", "--verify", `${scope.head}^{commit}`])).trim();
     target = [scope.base, revision];
   }
-  const names = await git.run(guard.root, ["diff", "--name-only", "--diff-filter=ACMR", "-z", ...target, "--"]);
-  const paths = [...new Set(names.split("\0").filter((path) => path !== "" && eligible(path)))].sort();
+  // Paths are relative to the audited directory, which can be one package of a larger work tree: `--relative` keeps
+  // the diff to it and prints its paths from it, as `ls-files` does, and "./" reads a revision's path from it too.
+  const names = await git.run(guard.root, ["diff", "--name-only", "--relative", "--diff-filter=ACMR", "-z", ...target, "--"]);
+  // The working tree's changes include files never added, which `git diff` does not list; ignored ones stay out.
+  const untracked = mode === "working_tree" ? await git.run(guard.root, ["ls-files", "--others", "--exclude-standard", "-z"]) : "";
+  const paths = [...new Set(`${names}\0${untracked}`.split("\0").filter((path) => path !== "" && eligible(path)))].sort();
   if (paths.length > maximumFiles) throw new Error(`REPOSITORY_FILE_LIMIT_EXCEEDED:${maximumFiles}`);
   const files = await Promise.all(paths.map(async (path) => {
     guard.resolve(path);
-    const text = revision === null ? await guard.readFile(path) : await git.run(guard.root, ["show", `${revision}:${path}`]);
+    const text = revision === null ? await guard.readFile(path) : await git.run(guard.root, ["show", `${revision}:./${path}`]);
     return sourceFile(path, text);
   }));
   return Object.freeze({ root: guard.root, files: Object.freeze(files) });

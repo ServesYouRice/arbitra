@@ -35,6 +35,51 @@ describe("runtime repository snapshots", () => {
       expect(await git("diff", "--name-only")).toBe("source.ts");
     } finally { await rm(root, { recursive: true, force: true }); }
   });
+  it("reads a diff of one directory of a work tree relative to it, and leaves out changes elsewhere", async () => {
+    // One package of a monorepo: Git prints a diff's paths from the top of the work tree unless told otherwise.
+    const top = await mkdtemp(join(tmpdir(), "arbitra-git-subdirectory-"));
+    const root = join(top, "package");
+    const execute = promisify(execFile);
+    const git = async (...args: string[]) => (await execute("git", ["-C", top, ...args], { encoding: "utf8", windowsHide: true })).stdout.trim();
+    const commit = async (message: string) => git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "-c", "commit.gpgsign=false", "commit", "-m", message);
+    const write = async (text: string) => { for (const path of ["other.ts", "package/source.ts", "package/generated/out.ts"]) await writeFile(join(top, path), text); };
+    try {
+      await git("init");
+      await mkdir(join(root, "generated"), { recursive: true });
+      await write("original\n");
+      await git("add", ".");
+      await commit("original");
+      const base = await git("rev-parse", "HEAD");
+      await write("committed\n");
+      await git("add", ".");
+      await commit("updated");
+      await write("staged\n");
+      await git("add", ".");
+      await write("working\n");
+      await writeFile(join(top, "stray.ts"), "untracked outside the audited directory\n");
+      const scopes = [
+        { kind: "diff" as const, diffMode: "staged" as const, exclude: ["generated"] },
+        { kind: "diff" as const, diffMode: "working_tree" as const, exclude: ["generated"] },
+        { kind: "diff" as const, base, head: "HEAD", exclude: ["generated"] },
+      ];
+      const snapshots = await Promise.all(scopes.map((scope) => snapshotRepository(root, 5, { scope })));
+      expect(snapshots.map(({ files }) => files.map(({ path, lines }) => `${path}: ${lines[0] ?? ""}`))).toEqual([["source.ts: staged"], ["source.ts: working"], ["source.ts: committed"]]);
+    } finally { await rm(top, { recursive: true, force: true }); }
+  });
+  it("reads new files a working-tree diff has never added, and leaves out ones Git ignores", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbitra-git-untracked-"));
+    const execute = promisify(execFile);
+    const git = async (...args: string[]) => (await execute("git", ["-C", root, ...args], { encoding: "utf8", windowsHide: true })).stdout.trim();
+    try {
+      await git("init");
+      await Promise.all([writeFile(join(root, "tracked.ts"), "original\n"), writeFile(join(root, ".gitignore"), "ignored.ts\n")]);
+      await git("add", ".");
+      await git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "-c", "commit.gpgsign=false", "commit", "-m", "original");
+      await Promise.all([writeFile(join(root, "tracked.ts"), "working\n"), writeFile(join(root, "added.ts"), "never added\n"), writeFile(join(root, "ignored.ts"), "generated\n")]);
+      const snapshot = await snapshotRepository(root, 5, { scope: { kind: "diff", diffMode: "working_tree" } });
+      expect(snapshot.files.map(({ path, lines }) => `${path}: ${lines[0] ?? ""}`)).toEqual(["added.ts: never added", "tracked.ts: working"]);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
   it("reads single-file components, shell scripts and C sources, and leaves content and data out", async () => {
     const root = await mkdtemp(join(tmpdir(), "arbitra-snapshot-kinds-"));
     try {
@@ -52,7 +97,7 @@ describe("runtime repository snapshots", () => {
       const moduleSnapshot = await snapshotRepository(root, 1, { scope: { kind: "module", modules: ["selected"] } });
       expect(moduleSnapshot.files.map(({ path }) => path)).toEqual(["selected/a.ts"]);
       const calls: string[][] = [];
-      const git: RepositoryGit = { async run(_root, args) { calls.push([...args]); if (args[0] === "diff") return "selected/a.ts\0"; if (args[0] === "show" && args[1] === ":selected/a.ts") return "staged bytes\n"; throw new Error("unexpected git command"); } };
+      const git: RepositoryGit = { async run(_root, args) { calls.push([...args]); if (args[0] === "diff") return "selected/a.ts\0"; if (args[0] === "show" && args[1] === ":./selected/a.ts") return "staged bytes\n"; throw new Error("unexpected git command"); } };
       const staged = await snapshotRepository(root, 1, { scope: { kind: "diff", diffMode: "staged" }, git });
       expect(staged.files[0]?.lines[0]).toBe("staged bytes");
       expect(calls[0]).toContain("--cached");

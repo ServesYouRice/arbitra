@@ -335,9 +335,10 @@ nothing; a scripted Audit only gets a warning. Every shipped example leaves `bud
 
 `scope.kind` is `repository`, `module` (`modules` are repository-relative directories,
 such as `["src"]`) or `diff` (`diffMode` `staged`, `working_tree` or `range` with
-`base`/`head` or `revisionRange`). Snapshots read source files with known source
-extensions and web app manifests (`.webmanifest`); Markdown, MDX, JSON and YAML are not
-read. Snapshots read up to 400 files and 512 KiB per file
+`base`/`head` or `revisionRange`; `working_tree` includes new files not yet added, and a
+diff of a folder inside a larger Git work tree covers only that folder). Snapshots read source
+files with known source extensions and web app manifests (`.webmanifest`); Markdown, MDX,
+JSON and YAML are not read. Snapshots read up to 400 files and 512 KiB per file
 (`packages/runtime/src/repository.ts`). Snapshots skip hidden directories (except `.github`),
 `.git`, `node_modules`, `dist`, `build`, `coverage`, `.pnpm-store`, `.runs` and `.vite`, and
 in a Git work tree every file Git ignores: only files Git tracks or would track
