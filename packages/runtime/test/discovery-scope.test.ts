@@ -19,4 +19,23 @@ describe("discovery scope allocation", () => {
     expect(result.scopes.flatMap(({ splitModules }) => splitModules)).toHaveLength(2);
     expect(result.unallocatedPaths).toEqual(["huge.ts"]);
   });
+
+  it("packs each test file with the source it tests, in JavaScript and in Python", () => {
+    // Observed live: path order put every test after all the source, in units of their own.
+    const files = [
+      file("lib/a.js", "module.exports = 1;"), file("lib/b.js", "module.exports = 2;"), file("lib/c.js", "module.exports = 3;"),
+      file("tests/a.test.js", "const a = require('../lib/a.js');\nconst c = require('../lib/c.js');"), file("tests/c.test.js", "require('../lib/c.js');"),
+      file("backend/app/backup.py", "def restore(): pass"), file("backend/app/db.py", "def connect(): pass"), file("backend/app/__init__.py", ""),
+      file("backend/tests/test_backup.py", "from app.backup import restore\nfrom app import db\n"), file("backend/tests/test_db.py", "import app.db as db\n"),
+      file("backend/app/jobs/run.py", "from ..db import connect\nfrom . import queue\n"), file("backend/app/jobs/queue.py", ""),
+    ];
+    const result = allocateDiscoveryScopes({ root: "fixture", files }, (selected) => selected.length <= 2);
+    const units = result.scopes.map(({ files: selected }) => selected.map(({ path }) => path).sort().join());
+    // a.test.js imports a.js and c.js, and goes with the one its name carries.
+    expect(units).toContain("lib/a.js,tests/a.test.js");
+    expect(units).toContain("lib/c.js,tests/c.test.js");
+    expect(units).toContain("backend/app/backup.py,backend/tests/test_backup.py");
+    expect(units).toContain("backend/app/db.py,backend/tests/test_db.py");
+    expect(result.scopes.flatMap(({ files: selected }) => selected.map(({ path }) => path)).sort()).toEqual(files.map(({ path }) => path).sort());
+  });
 });

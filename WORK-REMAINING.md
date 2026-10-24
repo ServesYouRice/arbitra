@@ -146,10 +146,14 @@ are checked against Anthropic's guidance first.
 
 **Quality**
 
-- **Test files are audited apart from the code they test.** Units are packed by top folder, so `test/` gets units
-  of its own (3 of 8 Opus units a run, about 250K tokens): 6 to 14 accepted issues a run are claims about production
-  code that cite only test lines, which clustering cannot join to a report citing the source. Pack a test file with
-  the source it imports.
+- **Test files were audited apart from the code they test.** Units were packed in path order, so `tests/` filled
+  units of its own: 6 to 14 accepted issues a run were claims about production code that cited only test lines,
+  which clustering cannot join to a report citing the source. Built October 24: each test file goes into the unit of
+  the file it imports whose name it carries (else the last file it imports), Python imports are resolved for this,
+  and an oversized module splits between a file and its tests rather than inside. Measured on the six real-run
+  projects at a 60 KB unit: test files packed with the source their name points at went from 37 of 119 to 82
+  (nextra 0 to 31 of 48), test-only units from 23 to 10, and units from 99 to 108 (9% more discovery calls). Still to
+  measure on the next real run: claims about production code that cite only tests, and discovery tokens.
 - **Stages are not told the rest of the repository exists.** A partial prompt should say it is part of a larger
   repository and list its file index; plan sections and the critic have the source tools and used none in six runs.
   (The project's commands now reach the planners; see below.)
@@ -286,8 +290,8 @@ Measurements are for our own judgement of whether the product is good, not to pr
    finding: 79 of nextra's 105 prompts cited validation ids (`VAL-003 tests exist and pass`) that the folder never
    defined; each prompt now carries the assertions it cites.
 
-Next, in this order: test files packed with the source they import (the cheaper-verifier replay is done, above). nextra's `dev` branch runs alongside, since it touches only nextra. Then the
-smaller items of this phase, then the UI phase, then P21.
+Next: the smaller items of this phase (the cheaper-verifier replay and test files packed with their source are
+done, above), with nextra's `dev` branch alongside, since it touches only nextra. Then the UI phase, then P21.
 
 **To re-check on the current build** (measured October 11 to 13, before later changes): prompts sized at one byte a
 token outside the stages that set `estimatedBytesPerToken`; discovery source as one JSON object a line; Gemini's
