@@ -50,3 +50,21 @@ it("widens a cited range to its one nearby quotation and never elsewhere", () =>
   expect(widenToQuote({ startLine: 8, endLine: 8 }, "}", file)).toBeNull();
   expect(widenToQuote({ startLine: 20, endLine: 20 }, "x", { ...file, lines: [...Array.from({ length: 20 }, () => "y"), "z", "x"].reverse() })).toBeNull();
 });
+
+it("looks for the quotation only near the cited lines, so one repeated through a large file costs no more than elsewhere", () => {
+  // Each occurrence anywhere in the file split the whole text before it into lines: 7.4 seconds for these 10,000 lines.
+  const repeated = { ...file, lines: Array.from({ length: 10_000 }, (_, index) => Math.abs(index + 1 - 5_000) <= 8 && index + 1 !== 5_000 ? `const v${index + 1} = ${index};` : "x();") };
+  const started = performance.now();
+  expect(widenToQuote({ startLine: 5_001, endLine: 5_002 }, "x();", repeated)).toEqual({ startLine: 5_000, endLine: 5_002 });
+  expect(widenToQuote({ startLine: 7_500, endLine: 7_500 }, "x();", repeated)).toBeNull();
+  expect(widenToQuote({ startLine: 9_999, endLine: 10_004 }, "x();\nx();", repeated)).toBeNull();
+  expect(performance.now() - started).toBeLessThan(1_000);
+});
+
+it("counts a quotation ending in a line break at the last line it may reach, and none past the file", () => {
+  const short = { ...file, lines: ["a", "b", "c", "d", "e", "f", "g", "h", "target", "i"] };
+  expect(widenToQuote({ startLine: 1, endLine: 4 }, "target\n", short)).toEqual({ startLine: 1, endLine: 9 });
+  expect(widenToQuote({ startLine: 1, endLine: 3 }, "target\n", short)).toBeNull();
+  expect(widenToQuote({ startLine: 8, endLine: 12 }, "i\n", short)).toBeNull();
+  expect(widenToQuote({ startLine: 8, endLine: 12 }, "target\ni", short)).toEqual({ startLine: 8, endLine: 10 });
+});

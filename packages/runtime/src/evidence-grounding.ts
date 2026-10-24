@@ -53,15 +53,20 @@ export function anchorLineEvidence<T extends LineEvidence>(evidence: T, file: Sn
  */
 export function widenToQuote(range: { readonly startLine: number; readonly endLine: number }, text: string, file: SnapshotFile): { startLine: number; endLine: number } | null {
   if (text.trim() === "" || range.startLine < 1 || range.endLine < range.startLine) return null;
-  const content = file.lines.join("\n").normalize("NFC");
+  // Only an occurrence within these lines counts, so only they are searched, with the break after the last of them.
+  // Each occurrence anywhere in the file once split all the text before it into lines: quadratic in a repetitive file.
+  const first = Math.max(1, range.startLine - MAXIMUM_ANCHOR_DISTANCE); const last = Math.min(file.lines.length, range.endLine + MAXIMUM_ANCHOR_DISTANCE);
+  const content = file.lines.slice(first - 1, last).join("\n").normalize("NFC") + (last < file.lines.length ? "\n" : "");
   const quote = text.normalize("NFC");
-  const lineAt = (offset: number): number => content.slice(0, offset).split("\n").length;
-  const near: { start: number; end: number }[] = [];
+  // An occurrence ends on the line of its last character, a closing break included.
+  const breaks = quote.slice(0, -1).split("\n").length - 1;
+  const starts: number[] = [];
+  let line = first; let counted = 0;
   for (let index = content.indexOf(quote); index !== -1; index = content.indexOf(quote, index + 1)) {
-    const start = lineAt(index); const end = lineAt(index + quote.length - 1);
-    if (start >= range.startLine - MAXIMUM_ANCHOR_DISTANCE && end <= range.endLine + MAXIMUM_ANCHOR_DISTANCE) near.push({ start, end });
+    for (let next = content.indexOf("\n", counted); next !== -1 && next < index; next = content.indexOf("\n", counted)) { line += 1; counted = next + 1; }
+    starts.push(line);
   }
-  const [only] = near;
-  if (near.length !== 1 || only === undefined) return null;
-  return { startLine: Math.min(range.startLine, only.start), endLine: Math.min(file.lines.length, Math.max(range.endLine, only.end)) };
+  const [only] = starts;
+  if (starts.length !== 1 || only === undefined) return null;
+  return { startLine: Math.min(range.startLine, only), endLine: Math.min(file.lines.length, Math.max(range.endLine, only + breaks)) };
 }
