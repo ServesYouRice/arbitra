@@ -17,9 +17,11 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
   const repository = await mkdtemp(join(tmpdir(), "arbitra-plan-export-"));
   try {
     const content = {
-      "plan-ir": { title: "Section one; Section two", tasks: [task("TASK-2", "fast", ["TASK-1"]), { ...task("TASK-1", "frontier"), addresses: { issues: ["C-1"], validation: ["VAL-1"] }, context: ["Per Q-2, keep the default."] }],
+      "plan-ir": { title: "Section one; Section two", tasks: [task("TASK-2", "fast", ["TASK-1"]), { ...task("TASK-1", "frontier"), addresses: { issues: ["C-1"], validation: ["VAL-1"] }, context: ["Per Q-2, keep the default.", "VAL-3 no longer holds; VAL-4 covers retries."] }],
         unresolvedQuestions: [{ id: "Q-1", question: "Which way?", blocking: true }, { id: "Q-2", question: "Which colour? Default if unanswered: blue.", blocking: false }],
-        validationContract: { validation: [{ id: "VAL-1", assertion: "A broken input is refused.", evidence: ["A test that sends one"] }, { id: "VAL-2", assertion: "Not cited.", evidence: [] }] } },
+        validationContract: { validation: [{ id: "VAL-1", assertion: "A broken input is refused.", evidence: ["A test that sends one"] }, { id: "VAL-2", assertion: "Not cited.", evidence: [] },
+          { id: "VAL-3", assertion: "Superseded wording.", evidence: [] }, { id: "VAL-4", assertion: "Retries are bounded.", evidence: [] }] },
+        traceability: { issueToValidation: [{ issueId: "C-1", validationIds: ["VAL-1", "VAL-4"] }] } },
       "canonical-issues": { issues: [{ candidateId: "C-1", severity: "high", disposition: "accepted", claim: { title: "A defect", description: "It breaks." } },
         { candidateId: "C-2", severity: "medium", disposition: "needs_verification", verificationOutcome: "STILL_NEEDS_VERIFICATION", claim: { title: "A disputed defect", description: "It may break." },
           dissent: [{ authorId: "auditor-a", disposition: "reject", reason: "The caller guards it." }] },
@@ -61,8 +63,10 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
     expect(await readFile(join(first.directory, "prompts", "3-fast-model", "02-TASK-2.md"), "utf8")).toContain("<done_before_this>\n- TASK-1 Fix TASK-1\n</done_before_this>");
     // Each defect is proven by a failing test before it is fixed, and its result goes into results.json.
     expect(await readFile(join(first.directory, "prompts", "1-strong-model", "01-TASK-1.md"), "utf8")).toMatch(/<reproduce_first>\nFor the issue this task fixes \(`C-1`\): Before changing code, write a test that fails on the current code/u);
-    // The validation ids a task cites come with their assertion, and only those.
-    expect(await readFile(join(first.directory, "prompts", "1-strong-model", "01-TASK-1.md"), "utf8")).toContain("<validation>\n- VAL-1: A broken input is refused.\n  Evidence: A test that sends one\n</validation>");
+    // The validation ids a task cites come with their assertion, and only those; one the task neither addresses nor
+    // reaches through its issues is marked as a reference.
+    expect(await readFile(join(first.directory, "prompts", "1-strong-model", "01-TASK-1.md"), "utf8")).toContain("<validation>\n- VAL-1: A broken input is refused.\n  Evidence: A test that sends one\n"
+      + "- VAL-3 (cited for reference, not one of this task's checks): Superseded wording.\n- VAL-4: Retries are bounded.\n</validation>");
     expect(await readFile(join(first.directory, "prompts", "3-fast-model", "02-TASK-2.md"), "utf8")).not.toContain("<validation>");
     // So do the open questions it cites; the ones that do not block are listed in questions.md, with their defaults.
     expect(await readFile(join(first.directory, "prompts", "1-strong-model", "01-TASK-1.md"), "utf8")).toContain("- Q-2: Which colour? Default if unanswered: blue.\n</open_questions>");

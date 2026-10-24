@@ -290,7 +290,11 @@ Measurements are for our own judgement of whether the product is good, not to pr
    findings: 79 of nextra's 105 prompts cited validation ids (`VAL-003 tests exist and pass`) and 47 cited open
    questions (`section-…/Q-004`) that the folder never defined, since only the 5 blocking questions of 68 reached
    the README; each prompt now carries the checks and questions it cites, and `questions.md` lists the others with
-   their defaults.
+   their defaults. Ten of its tasks (026, 033, 063, 071, 075, 079, 087, 091, 092, 093) cited VAL-145, VAL-146 or
+   VAL-147, other tasks' assertions, in place of their own (renumbered into VAL-147 to VAL-163): a revision call's
+   new assertions and tasks were renumbered but its prose kept the ids the model chose. Everything a patch writes
+   now follows the renumbering, and a prompt marks a cited assertion that is not one of its task's checks; the plan
+   already exported for nextra keeps the wrong ids in those ten prompts.
 
 Next: the smaller items of this phase (the cheaper-verifier replay and test files packed with their source are
 done, above), with nextra's `dev` branch alongside, since it touches only nextra. Then the UI phase, then P21.

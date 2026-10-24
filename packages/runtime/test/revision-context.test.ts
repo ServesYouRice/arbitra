@@ -137,6 +137,74 @@ describe("planner revision in parts", () => {
     expect(result.plan.unresolvedQuestions.slice(-2).map(({ id }) => id)).toEqual(["revision-1.1/Q-new", "revision-1.2/Q-new"]);
   });
 
+  it("renames a call's new assertions in everything the call writes, and leaves its references to existing ones alone", async () => {
+    // Observed live (nextra, October 23, 2026): ten tasks' success criteria and expected evidence named VAL-145
+    // and VAL-146, the ids their calls chose, after the assertions were renumbered to VAL-147 to VAL-163; VAL-145 and
+    // VAL-146 were another task's, and the exported prompts quoted those.
+    const { input, port } = await fixture();
+    input.blockingCritique = [{ id: "on-1", category: "weak_verification", blocking: true, summary: "Strengthen task 1", taskIds: ["TASK-001"], issueIds: [] }, { id: "on-2", category: "weak_verification", blocking: true, summary: "Strengthen task 2", taskIds: ["TASK-002"], issueIds: [] }];
+    const cites = (ids: readonly string[]) => `${ids.join(" and ")} pass, VAL-001 still holds, VAL-0020 is not one of them`;
+    const result = await reviseWithContext(input, { ...port, call: async (stage) => {
+      const supplied = stage.input as Supplied; const task = requiredAt(supplied.selectedTasks, 0);
+      // Both calls of the round start their new assertions at VAL-002, the next free id of the plan they read; the
+      // second adds two, so renaming it one id at a time would turn VAL-002 into VAL-003 and then into VAL-004.
+      const ids = task.id === "TASK-001" ? ["VAL-002"] : ["VAL-002", "VAL-003"]; const text = cites(ids);
+      return unchanged(supplied, {
+        resolutions: supplied.critique.map(({ id }) => ({ critiqueItemId: id, resolution: `Added ${ids.join(" and ")} beside VAL-001` })),
+        tasks: [{ ...task, goal: { ...task.goal, doneWhen: [text] }, addresses: { ...task.addresses, validation: [...task.addresses.validation, ...ids] }, context: [text], implementationGuidance: [text], acceptanceCriteria: [text],
+          verification: { ...task.verification, checks: [text], commands: [{ command: `pnpm test -t ${ids.join(" -t ")}`, expectedExitCode: 0, executionPolicy: "derived_repository_script" }] }, escalateIf: [text], expectedEvidence: [text] }],
+        addedValidation: ids.map((id, index) => ({ id, assertion: index === 0 ? `${id} narrows VAL-001 for ${task.id}` : `${id} follows ${requiredAt(ids, 0)}`, evidence: [`a test named ${id}`] })),
+        addedQuestions: [{ id: "Q-new", question: `Does ${requiredAt(ids, 0)} cover retries?`, blocking: false, blastRadius: "low" }],
+        issueToValidation: [{ issueId: "C-001", validationIds: ["VAL-001", ...ids] }],
+        planAdditions: { ...none, implementationStrategy: [`Check ${requiredAt(ids, 0)} before VAL-001 in ${task.id}`] },
+      });
+    } });
+    const [first, second] = [requiredAt(result.plan.tasks, 0), requiredAt(result.plan.tasks, 1)];
+    expect(first.addresses.validation).toEqual(["VAL-001", "VAL-002"]); expect(second.addresses.validation).toEqual(["VAL-001", "VAL-003", "VAL-004"]);
+    const prose = (task: PlanIR["tasks"][number]) => [task.goal.doneWhen, task.context, task.implementationGuidance, task.acceptanceCriteria, task.verification.checks, task.escalateIf, task.expectedEvidence];
+    expect(prose(first)).toEqual(Array.from({ length: 7 }, () => [cites(["VAL-002"])]));
+    expect(prose(second)).toEqual(Array.from({ length: 7 }, () => [cites(["VAL-003", "VAL-004"])]));
+    expect(second.verification.commands.map(({ command }) => command)).toEqual(["pnpm test -t VAL-003 -t VAL-004"]);
+    expect(result.plan.validationContract.validation.map(({ id, assertion, evidence }) => [id, assertion, evidence])).toEqual([["VAL-001", "Support headers cannot bypass role enforcement.", ["authorization regression test"]],
+      ["VAL-002", "VAL-002 narrows VAL-001 for TASK-001", ["a test named VAL-002"]], ["VAL-003", "VAL-003 narrows VAL-001 for TASK-002", ["a test named VAL-003"]], ["VAL-004", "VAL-004 follows VAL-003", ["a test named VAL-004"]]]);
+    expect(result.plan.unresolvedQuestions.slice(-2).map(({ question }) => question)).toEqual(["Does VAL-002 cover retries?", "Does VAL-003 cover retries?"]);
+    expect(result.plan.implementationStrategy.slice(-2)).toEqual(["Check VAL-002 before VAL-001 in TASK-001", "Check VAL-003 before VAL-001 in TASK-002"]);
+    expect(result.plan.traceability.issueToValidation).toEqual([{ issueId: "C-001", validationIds: ["VAL-001", "VAL-003", "VAL-004"] }]);
+    // The resolutions the critic reads name the assertions as the plan does.
+    expect(result.resolutions.map(({ resolution }) => resolution.split("\n")[0])).toEqual(["Added VAL-002 beside VAL-001", "Added VAL-003 and VAL-004 beside VAL-001"]);
+  });
+
+  it("renames a call's new tasks in everything the call writes, and leaves its references to existing ones alone", async () => {
+    const { input, port, artifacts } = await fixture();
+    input.blockingCritique = [{ id: "on-1", category: "task_sizing", blocking: true, summary: "Split task 1", taskIds: ["TASK-001"], issueIds: [] }, { id: "on-2", category: "task_sizing", blocking: true, summary: "Split task 2", taskIds: ["TASK-002"], issueIds: [] }];
+    const result = await reviseWithContext(input, { ...port, call: async (stage) => {
+      const supplied = stage.input as Supplied; const task = requiredAt(supplied.selectedTasks, 0);
+      // Both calls of the round split their task and name the new one TASK-003, the next free id of the plan they read.
+      const text = `TASK-003 takes the retry path from ${task.id}; TASK-001 keeps the guard; TASK-0030 is not it`;
+      return unchanged(supplied, {
+        resolutions: supplied.critique.map(({ id }) => ({ critiqueItemId: id, resolution: `Split ${task.id} into ${task.id} and TASK-003` })),
+        tasks: [{ ...task, implementationGuidance: [text], outOfScope: ["The retry path, which TASK-003 changes"] },
+          { ...task, id: "TASK-003", title: `Retry path split from ${task.id}`, goal: { ...task.goal, objective: `TASK-003 changes the retry path after ${task.id}` }, dependencies: { dependsOn: [task.id], blocks: [], conflictsWith: [] },
+            scope: { ...task.scope, likelyFiles: [`retry/${task.id}.ts`] }, readFirst: [], acceptanceCriteria: [text] }],
+        lineage: [{ previousTaskId: task.id, nextTaskIds: [task.id, "TASK-003"], rationale: "TASK-003 takes the retry path" }],
+        addedQuestions: [{ id: "Q-new", question: "Should TASK-003 retry twice?", blocking: false, blastRadius: "low" }],
+        planAdditions: { ...none, dependencies: [`TASK-003 lands after ${task.id}`] },
+      });
+    } });
+    expect(result.plan.tasks.map(({ id, title, dependencies }) => [id, title, dependencies.dependsOn])).toEqual([["TASK-001", "Close authorization bypass", []], ["TASK-002", "Close authorization bypass", []],
+      ["TASK-003", "Retry path split from TASK-001", ["TASK-001"]], ["TASK-004", "Retry path split from TASK-002", ["TASK-002"]]]);
+    const [, second, , fourth] = result.plan.tasks;
+    expect(second?.implementationGuidance).toEqual(["TASK-004 takes the retry path from TASK-002; TASK-001 keeps the guard; TASK-0030 is not it"]);
+    expect(second?.outOfScope).toEqual(["The retry path, which TASK-004 changes"]);
+    expect(fourth?.goal.objective).toBe("TASK-004 changes the retry path after TASK-002");
+    expect(fourth?.acceptanceCriteria).toEqual(["TASK-004 takes the retry path from TASK-002; TASK-001 keeps the guard; TASK-0030 is not it"]);
+    expect(result.plan.tasks[0]?.implementationGuidance).toEqual(["TASK-003 takes the retry path from TASK-001; TASK-001 keeps the guard; TASK-0030 is not it"]);
+    expect(result.plan.unresolvedQuestions.slice(-2).map(({ question }) => question)).toEqual(["Should TASK-003 retry twice?", "Should TASK-004 retry twice?"]);
+    expect(result.plan.dependencies.slice(-2)).toEqual(["TASK-003 lands after TASK-001", "TASK-004 lands after TASK-002"]);
+    expect(result.resolutions[1]?.resolution).toMatch(/^Split TASK-002 into TASK-002 and TASK-004\nTask lineage: .*"nextTaskIds":\["TASK-002","TASK-004"\],"rationale":"TASK-004 takes the retry path"/u);
+    expect(artifacts.get("planner-revision-patches")).toMatchObject([{ lineage: [{ nextTaskIds: ["TASK-001", "TASK-003"], rationale: "TASK-003 takes the retry path" }] }, { lineage: [{ nextTaskIds: ["TASK-002", "TASK-004"], rationale: "TASK-004 takes the retry path" }] }]);
+  });
+
   it("uses the original complete-plan revision when it fits", async () => {
     const { input, port, calls } = await fixture();
     const result = await reviseWithContext(input, { ...port, fits: async () => true });

@@ -181,14 +181,15 @@ export async function reviseWithContext(input: ModelRevisionInput, port: Planner
         for (const critique of batch.items) leaveOpen(critique, `its revision could not be joined with the others of its round (${error instanceof Error ? error.message.split("\n")[0] : "invalid"}).`, scope.key);
         continue;
       }
-      const renamed = renamedTaskIds(current, patch, scope);
-      const replacements = new Map(patch.lineage.map(({ previousTaskId, nextTaskIds }) => [previousTaskId, nextTaskIds.map((id) => renamed.get(id) ?? id)]));
+      // The patch's resolutions and lineage name what it added as the plan now does.
+      const own = ownIds(current, patch, scope); const patchLineage = own.text(patch.lineage);
+      const replacements = new Map(patchLineage.map(({ previousTaskId, nextTaskIds }) => [previousTaskId, nextTaskIds]));
       lineage = new Map([...lineage].map(([originalId, descendants]) => [originalId, [...new Set(descendants.length === 0 ? replacements.get(originalId) ?? [] : descendants.flatMap((id) => replacements.get(id) ?? [id]))]]));
       for (const id of patch.retiredTaskIds) retiredTo.set(id, replacements.get(id) ?? []);
       current = next;
       // The resolution the critic receives names the task lineage and the retired tasks.
-      for (const { critiqueItemId, resolution } of patch.resolutions) resolutions.set(critiqueItemId, `${resolution}\nTask lineage: ${JSON.stringify(patch.lineage.map((entry) => ({ ...entry, nextTaskIds: entry.nextTaskIds.map((id) => renamed.get(id) ?? id) })))}\nRetired tasks: ${JSON.stringify(patch.retiredTaskIds)}`);
-      applied.push({ activityId: stage.activityId, round: round + 1, critiqueItemIds: scope.critiqueIds, selectedTaskIds: [...scope.selectedIds], lineage: patch.lineage });
+      for (const { critiqueItemId, resolution } of patch.resolutions) resolutions.set(critiqueItemId, `${own.text(resolution)}\nTask lineage: ${JSON.stringify(patchLineage)}\nRetired tasks: ${JSON.stringify(patch.retiredTaskIds)}`);
+      applied.push({ activityId: stage.activityId, round: round + 1, critiqueItemIds: scope.critiqueIds, selectedTaskIds: [...scope.selectedIds], lineage: patchLineage });
     }
     await port.publish("planner-revision-patches", applied);
     pending = waiting;
@@ -201,9 +202,9 @@ export async function reviseWithContext(input: ModelRevisionInput, port: Planner
 
 /**
  * Applies one revision call's patch. The call may change only its selected tasks; its new tasks, questions and
- * validation assertions get identifiers of the call's own (`scope.key`), so calls of one round never collide. A
- * retired task's references elsewhere move to the tasks its lineage names, and the task graph and routing
- * recommendations are rebuilt from the tasks.
+ * validation assertions get identifiers of the call's own (`scope.key`), so calls of one round never collide, and
+ * everything the patch writes names them by those (`ownIds`). A retired task's references elsewhere move to the
+ * tasks its lineage names, and the task graph and routing recommendations are rebuilt from the tasks.
  */
 export function applyRevisionPatch(plan: PlanIR, patch: PlanRevisionPatch, scope: BatchScope, earlier: ReadonlyMap<string, readonly string[]> = new Map()): PlanIR {
   if (!sameIds(scope.critiqueIds, patch.resolutions.map(({ critiqueItemId }) => critiqueItemId))) throw new Error(`REVISION_PATCH_CRITIQUE_MISMATCH: give exactly one resolution for each of ${scope.critiqueIds.join(", ")}`);
@@ -213,35 +214,30 @@ export function applyRevisionPatch(plan: PlanIR, patch: PlanRevisionPatch, scope
   if (changedIds.some((id) => scope.taskIds.has(id) && !scope.selectedIds.has(id)) || patch.retiredTaskIds.some((id) => !currentIds.has(id) || !scope.selectedIds.has(id) || changedIds.includes(id))) throw new Error("REVISION_PATCH_TASK_SCOPE_INVALID: change and retire only tasks in selectedTaskIds");
   if (changedIds.some((id) => !scope.taskIds.has(id) && scope.originalTaskIds.has(id) && !scope.selectedIds.has(id))) throw new Error("REVISION_RETIRED_TASK_ID_REUSED: a new task takes an id the plan never used");
   if (!sameIds([...scope.selectedIds], patch.lineage.map(({ previousTaskId }) => previousTaskId))) throw new Error(`REVISION_PATCH_LINEAGE_INCOMPLETE: give one lineage entry for each of ${[...scope.selectedIds].join(", ")}`);
-  // New tasks are renumbered into this call's own range; every reference the patch makes to them follows.
-  const renamed = renamedTaskIds(plan, patch, scope);
-  const rename = (id: string) => renamed.get(id) ?? id;
-  const newQuestions = new Map(patch.addedQuestions.map(({ id }) => [id, `revision-${scope.key}/${id}`]));
-  if (newQuestions.size !== patch.addedQuestions.length) throw new Error("DUPLICATE_PLANNER_QUESTION");
   const taken = patch.addedValidation.filter(({ id }) => scope.validationIds.has(id)).map(({ id }) => id);
   if (taken.length > 0) throw new Error(`REVISION_PATCH_VALIDATION_ID_TAKEN: ${taken.join(", ")} already name assertions of the plan; give added assertions new ids from nextValidationId on`);
-  let highest = highestValidation(plan);
-  const newValidation = new Map(patch.addedValidation.map(({ id }) => { highest += 1; return [id, `VAL-${String(highest).padStart(3, "0")}`]; }));
-  if (newValidation.size !== patch.addedValidation.length) throw new Error("DUPLICATE_PLAN_ID: addedValidation");
-  const validation = (id: string) => newValidation.get(id) ?? id;
+  // New tasks and assertions are renumbered into this call's own range; every reference the patch makes to them, in
+  // its ids and in its text, follows. The rest of the patch is read as renamed.
+  const own = ownIds(plan, patch, scope);
+  if (own.validation.size !== patch.addedValidation.length) throw new Error("DUPLICATE_PLAN_ID: addedValidation");
   const outside = [...patch.issueToValidation.filter(({ issueId }) => !scope.issueIds.has(issueId)).map(({ issueId }) => issueId), ...patch.requirementLinks.filter(({ requirementId }) => !scope.requirementIds.has(requirementId)).map(({ requirementId }) => requirementId)];
   if (outside.length > 0) throw new Error(`REVISION_PATCH_LINK_SCOPE_INVALID: ${outside.join(", ")} belong to tasks this call does not revise; give links only for the issues and requirements of the selected tasks and critique items`);
-  const tasks = patch.tasks.map((task) => ({ ...task, id: rename(task.id),
-    addresses: { ...task.addresses, validation: task.addresses.validation.map(validation) },
-    dependencies: { dependsOn: task.dependencies.dependsOn.map(rename), blocks: task.dependencies.blocks.map(rename), conflictsWith: task.dependencies.conflictsWith.map(rename) },
+  const revised = own.text(patch);
+  const newQuestions = new Map(revised.addedQuestions.map(({ id }) => [id, `revision-${scope.key}/${id}`]));
+  if (newQuestions.size !== revised.addedQuestions.length) throw new Error("DUPLICATE_PLANNER_QUESTION");
+  const tasks = revised.tasks.map((task) => ({ ...task,
     context: task.context.map((entry) => entry.startsWith("resolves:") && newQuestions.has(entry.slice(9)) ? `resolves:${newQuestions.get(entry.slice(9))}` : entry) }));
   const replacements = new Map(tasks.map((task) => [task.id, task]));
   const kept = plan.tasks.filter(({ id }) => !patch.retiredTaskIds.includes(id)).map((task) => replacements.get(task.id) ?? task);
   const added = tasks.filter(({ id }) => !currentIds.has(id));
   const finalIds = new Set([...kept, ...added].map(({ id }) => id));
   const successors = new Map<string, readonly string[]>();
-  for (const { previousTaskId, nextTaskIds } of patch.lineage) {
-    const next = nextTaskIds.map(rename);
+  for (const { previousTaskId, nextTaskIds: next } of revised.lineage) {
     if (new Set(next).size !== next.length || next.some((id) => !finalIds.has(id)) || finalIds.has(previousTaskId) && !next.includes(previousTaskId)) throw new Error(`REVISION_PATCH_LINEAGE_INVALID: ${previousTaskId} names a task the plan will not have, or stays without naming itself`);
     successors.set(previousTaskId, next);
   }
   const unnamed = added.map(({ id }) => id).filter((id) => ![...successors.values()].some((next) => next.includes(id)));
-  if (unnamed.length > 0 && scope.selectedIds.size > 0) throw new Error(`REVISION_NEW_TASK_LINEAGE_ABSENT: list each new task in the nextTaskIds of the lineage entry for the selected task it splits or replaces; unnamed: ${unnamed.map((id) => [...renamed].find(([, to]) => to === id)?.[0] ?? id).join(", ")}`);
+  if (unnamed.length > 0 && scope.selectedIds.size > 0) throw new Error(`REVISION_NEW_TASK_LINEAGE_ABSENT: list each new task in the nextTaskIds of the lineage entry for the selected task it splits or replaces; unnamed: ${unnamed.map((id) => [...own.tasks].find(([, to]) => to === id)?.[0] ?? id).join(", ")}`);
   // A reference to a retired task moves to the tasks that carry its work on: this patch's, and those of tasks an
   // earlier patch retired (`earlier`), which a call of the same round still saw in the plan it read.
   const retired = new Set(patch.retiredTaskIds);
@@ -255,20 +251,43 @@ export function applyRevisionPatch(plan: PlanIR, patch: PlanRevisionPatch, scope
   const changed = new Set(tasks.map(({ id }) => id));
   const routing = [...plan.routingRecommendations.filter(({ taskId }) => finalIds.has(taskId) && !changed.has(taskId)),
     ...finalTasks.filter(({ id }) => changed.has(id)).map(({ id, routing: taskRouting }) => ({ taskId: id, capability: taskRouting.capability, effort: taskRouting.effort, reason: taskRouting.reason }))];
-  const issueLinks = new Map(patch.issueToValidation.map((entry) => [entry.issueId, { ...entry, validationIds: entry.validationIds.map(validation) }]));
-  const requirementLinks = new Map(patch.requirementLinks.map((link) => [link.requirementId, { ...link, taskIds: link.taskIds.map(rename), validationIds: link.validationIds.map(validation) }]));
+  const issueLinks = new Map(revised.issueToValidation.map((entry) => [entry.issueId, entry]));
+  const requirementLinks = new Map(revised.requirementLinks.map((link) => [link.requirementId, link]));
   const unique = (values: readonly string[]) => [...new Set(values)];
+  const { planAdditions } = revised;
   return withSharedWritesOrdered(planIRSchema.parse({ ...plan,
-    implementationStrategy: unique([...plan.implementationStrategy, ...patch.planAdditions.implementationStrategy]), dependencies: unique([...plan.dependencies, ...patch.planAdditions.dependencies]),
-    rolloutConcerns: unique([...plan.rolloutConcerns, ...patch.planAdditions.rolloutConcerns]), migrationConcerns: unique([...plan.migrationConcerns, ...patch.planAdditions.migrationConcerns]),
-    unresolvedQuestions: [...plan.unresolvedQuestions, ...patch.addedQuestions.map((question) => ({ ...question, id: newQuestions.get(question.id) ?? question.id }))],
-    validationContract: { ...plan.validationContract, validation: [...plan.validationContract.validation, ...patch.addedValidation.map((entry) => ({ ...entry, id: validation(entry.id) }))] },
+    implementationStrategy: unique([...plan.implementationStrategy, ...planAdditions.implementationStrategy]), dependencies: unique([...plan.dependencies, ...planAdditions.dependencies]),
+    rolloutConcerns: unique([...plan.rolloutConcerns, ...planAdditions.rolloutConcerns]), migrationConcerns: unique([...plan.migrationConcerns, ...planAdditions.migrationConcerns]),
+    unresolvedQuestions: [...plan.unresolvedQuestions, ...revised.addedQuestions.map((question) => ({ ...question, id: newQuestions.get(question.id) ?? question.id }))],
+    validationContract: { ...plan.validationContract, validation: [...plan.validationContract.validation, ...revised.addedValidation] },
     tasks: finalTasks, taskGraph: declaredEdges(finalTasks, plan.taskGraph),
     traceability: { issueToValidation: [...plan.traceability.issueToValidation.filter(({ issueId }) => !issueLinks.has(issueId)), ...issueLinks.values()],
       requirementLinks: { ...plan.traceability.requirementLinks, links: [...plan.traceability.requirementLinks.links.filter(({ requirementId }) => !requirementLinks.has(requirementId)), ...requirementLinks.values()]
         .map((link) => ({ ...link, taskIds: moved(link.taskIds, "") })) } },
     routingRecommendations: routing,
   }));
+}
+
+/**
+ * The ids a patch's new tasks and assertions get in the plan it is applied to, by the ids the call chose, and the
+ * patch with every string it writes renamed through them: whole ids only, in one pass, so a reference to an existing
+ * task or assertion (never among the chosen ids) stays as written. Calls of one round choose alike, from the same
+ * nextTaskId and nextValidationId, and name what they add by those ids in their prose too. Observed live (nextra,
+ * October 23, 2026): ten tasks' success criteria and expected evidence named VAL-145 and VAL-146, another task's
+ * assertions, where their own had been renumbered to VAL-147 to VAL-163, and the exported prompts quoted those.
+ */
+function ownIds(plan: PlanIR, patch: PlanRevisionPatch, scope: BatchScope): { readonly tasks: ReadonlyMap<string, string>; readonly validation: ReadonlyMap<string, string>; text<T>(value: T): T } {
+  const tasks = renamedTaskIds(plan, patch, scope);
+  let highest = highestValidation(plan);
+  const validation = new Map(patch.addedValidation.map(({ id }) => { highest += 1; return [id, `VAL-${String(highest).padStart(3, "0")}`]; }));
+  const rename = (text: string) => text.replace(/\b(?:TASK|VAL)-\d+\b/gu, (id) => tasks.get(id) ?? validation.get(id) ?? id);
+  return { tasks, validation, text: <T>(value: T): T => everyString(value, rename) };
+}
+function everyString<T>(value: T, change: (text: string) => string): T {
+  if (typeof value === "string") return change(value) as T;
+  if (Array.isArray(value)) return value.map((entry: unknown) => everyString(entry, change)) as T;
+  if (typeof value === "object" && value !== null) return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, everyString(entry, change)])) as T;
+  return value;
 }
 
 /** The ids a patch's new tasks get: the next free task numbers of the plan it is applied to, in the order the patch

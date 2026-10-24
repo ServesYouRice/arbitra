@@ -8,7 +8,7 @@ import { ENVIRONMENT_VERSIONS_KIND } from "./preflight.js";
 interface ExportTask {
   readonly id: string; readonly title: string;
   readonly goal: { readonly objective: string; readonly doneWhen: readonly string[] };
-  readonly addresses: { readonly issues: readonly string[] };
+  readonly addresses: { readonly issues: readonly string[]; readonly validation?: readonly string[] };
   readonly routing: { readonly capability: "frontier" | "balanced" | "fast"; readonly effort: string; readonly reason: readonly string[] };
   readonly dependencies: { readonly dependsOn: readonly string[] };
   readonly scope: { readonly likelyFiles: readonly string[] };
@@ -22,6 +22,7 @@ interface ExportQuestion { readonly id: string; readonly question: string; reado
 interface ExportPlan {
   readonly title: string; readonly tasks: readonly ExportTask[]; readonly unresolvedQuestions: readonly ExportQuestion[];
   readonly validationContract?: { readonly validation?: readonly ExportValidation[] };
+  readonly traceability?: { readonly issueToValidation?: readonly { readonly issueId: string; readonly validationIds: readonly string[] }[] };
 }
 interface ExportIssue {
   readonly candidateId: string; readonly severity: string; readonly disposition: string; readonly claim: { readonly title: string; readonly description: string };
@@ -99,7 +100,8 @@ export async function exportPlan(orchestrator: Orchestrator, runId: string): Pro
   for (let copy = 2; existsSync(directory); copy += 1) directory = `${base}-${copy}`;
   const files = new Map<string, string>();
   unsettled.forEach((issue, index) => files.set(join("prompts", UNSURE, `${String(index + 1).padStart(2, "0")}-${issue.candidateId}.md`), checkPrompt(issue)));
-  const cited = { validation: new Map((plan.validationContract?.validation ?? []).map((entry) => [entry.id, entry])), questions: new Map(plan.unresolvedQuestions.map((entry) => [entry.id, entry])) };
+  const cited = { validation: new Map((plan.validationContract?.validation ?? []).map((entry) => [entry.id, entry])), questions: new Map(plan.unresolvedQuestions.map((entry) => [entry.id, entry])),
+    links: new Map((plan.traceability?.issueToValidation ?? []).map(({ issueId, validationIds }) => [issueId, validationIds])) };
   ordered.forEach((task, index) => files.set(join("prompts", TIERS[task.routing.capability].folder, `${String(index + 1).padStart(2, "0")}-${task.id}.md`), prompt(task, issues, plan.tasks, cited)));
   files.set("README.md", readme(plan, ordered, runId, overview.workflowId ?? "unknown", { unsettled, unverified, alsoFound: alsoFound.length, kept, notes }));
   const openQuestions = plan.unresolvedQuestions.filter(({ blocking }) => !blocking);
@@ -177,14 +179,18 @@ function readme(plan: ExportPlan, ordered: readonly ExportTask[], runId: string,
     "## Model tiers", "", ...Object.values(TIERS).map(({ folder, model, why }) => `- \`${folder}\`: ${model}, for ${why}.`), ""].join("\n");
 }
 
-function prompt(task: ExportTask, issues: ReadonlyMap<string, ExportIssue>, all: readonly ExportTask[], cited: { readonly validation: ReadonlyMap<string, ExportValidation>; readonly questions: ReadonlyMap<string, ExportQuestion> }): string {
+function prompt(task: ExportTask, issues: ReadonlyMap<string, ExportIssue>, all: readonly ExportTask[], cited: { readonly validation: ReadonlyMap<string, ExportValidation>; readonly questions: ReadonlyMap<string, ExportQuestion>; readonly links: ReadonlyMap<string, readonly string[]> }): string {
   const tier = TIERS[task.routing.capability];
   // The plan's validation contract and open questions, for the ids this task cites. Observed live (nextra, October
   // 24, 2026): 79 of 105 prompts named checks such as "VAL-003 tests exist and pass", and 47 named questions such as
   // "section-…/Q-004", that the folder never defined; only the 5 blocking questions of 68 reached the README.
   const text = JSON.stringify(task);
+  // An assertion the task cites but neither addresses nor reaches through its issues is marked, not dropped: a task
+  // may cite a superseded one to say it no longer holds, and a mistaken citation then shows as one. Observed live
+  // (nextra, October 23, 2026): ten tasks' success criteria named other tasks' assertions in place of their own.
+  const own = new Set([...task.addresses.validation ?? [], ...task.addresses.issues.flatMap((id) => cited.links.get(id) ?? [])]);
   const checks = [...new Set(text.match(/\bVAL-\d+\b/gu) ?? [])].map((id) => cited.validation.get(id)).filter((entry): entry is ExportValidation => entry !== undefined)
-    .map(({ id, assertion, evidence }) => `- ${id}: ${assertion}${evidence.length === 0 ? "" : `\n  Evidence: ${evidence.join("; ")}`}`);
+    .map(({ id, assertion, evidence }) => `- ${id}${own.has(id) ? "" : " (cited for reference, not one of this task's checks)"}: ${assertion}${evidence.length === 0 ? "" : `\n  Evidence: ${evidence.join("; ")}`}`);
   const questions = [...cited.questions.values()].filter(({ id }) => new RegExp(`${id.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}(?![\\w-])`, "u").test(text))
     .map(({ id, question, blocking }) => `- ${id}${blocking ? " (blocking: the README asks it first)" : ""}: ${question}`);
   const list = (items: readonly string[]) => items.length === 0 ? "- none" : items.map((item) => `- ${item}`).join("\n");
