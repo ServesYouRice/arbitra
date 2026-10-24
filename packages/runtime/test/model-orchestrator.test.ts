@@ -16,7 +16,7 @@ import type { TestSandbox } from "../src/test-sandbox.js";
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
-async function fixture(options: { secondFile?: boolean; revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; conflictFault?: "invalid" | "output_limit"; ambiguousClustering?: boolean; oversizedRepository?: boolean; packedReviewSource?: boolean; planQuestion?: boolean; verifierContextTokens?: number; invalidVerification?: boolean; invalidGroupVerification?: boolean; unanimousReview?: boolean; verificationByPlace?: boolean; holdingPlaces?: readonly string[]; placeBesideMerge?: boolean; severities?: readonly string[]; critiqueVerdict?: "HOLDS" | "DOES_NOT_HOLD"; lowerSeverity?: "one" | "two"; severeRejection?: "REJECTED" | "CONFIRMED" } = {}) {
+async function fixture(options: { secondFile?: boolean; revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; conflictFault?: "invalid" | "output_limit"; ambiguousClustering?: boolean; oversizedRepository?: boolean; packedReviewSource?: boolean; planQuestion?: boolean; verifierContextTokens?: number; invalidVerification?: boolean; invalidGroupVerification?: boolean; unanimousReview?: boolean; verificationByPlace?: boolean; holdingPlaces?: readonly string[]; placeBesideMerge?: boolean; severities?: readonly string[]; critiqueVerdict?: "HOLDS" | "DOES_NOT_HOLD"; lowerSeverity?: "one" | "two"; severeRejection?: "REJECTED" | "CONFIRMED"; revisionQuestion?: boolean } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "arbitra-model-run-")); directories.push(directory);
   const manyIssues = options.largePeerContext === true || options.largePlannerContext === true;
   await writeFile(join(directory, "a.ts"), "const value = null;\n".repeat(manyIssues || options.placeBesideMerge === true ? 4 : options.ambiguousClustering === true ? 3 : 1), "utf8");
@@ -229,7 +229,8 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
     } else if (system.startsWith("Revise the supplied Plan IR to apply the operator's answers")) {
       requests.push({ stage: "plan-answers", url: request.url });
       const input = JSON.parse(user) as { plan: ReturnType<typeof planIRSchema.parse>; operatorAnswers: { questionId: string; answer: string }[] };
-      expect(input.operatorAnswers).toEqual([{ questionId: "Q-null", question: "Throw or default when the value is null?", answer: "Throw a typed error." }]);
+      expect(input.operatorAnswers).toEqual(options.revisionQuestion === true ? [{ questionId: "Q-revision", question: "Keep the old default for callers that pass no value?", answer: "Keep it." }]
+        : [{ questionId: "Q-null", question: "Throw or default when the value is null?", answer: "Throw a typed error." }]);
       // The reply keeps the answered question; the runtime removes it.
       output = { ...input.plan, title: "Answered plan" };
     } else if (system.startsWith("Revise the selected tasks")) {
@@ -246,7 +247,10 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
     } else if (system.startsWith("Revise the supplied")) {
       requests.push({ stage: "revision", url: request.url });
       const input = JSON.parse(user) as { originalPlan: ReturnType<typeof planIRSchema.parse>; blockingCritique: { id: string }[] };
-      output = { plan: { ...input.originalPlan, title: "Revised plan", ...(options.revision === "invalid_traceability" ? { acceptedIssueIds: [] } : {}) }, resolutions: options.revision === "missing_resolution" ? [] : input.blockingCritique.map(({ id }) => ({ critiqueItemId: id, resolution: "Added the requested validation" })) };
+      // A revision may ask a blocking question of its own; its rollout note keeps the answered plan marked revised.
+      const asked = options.revisionQuestion === true ? { unresolvedQuestions: [...input.originalPlan.unresolvedQuestions, { id: "Q-revision", question: "Keep the old default for callers that pass no value?", blocking: true, blastRadius: "high" }],
+        rolloutConcerns: [...input.originalPlan.rolloutConcerns, "Revised plan"] } : {};
+      output = { plan: { ...input.originalPlan, title: "Revised plan", ...asked, ...(options.revision === "invalid_traceability" ? { acceptedIssueIds: [] } : {}) }, resolutions: options.revision === "missing_resolution" ? [] : input.blockingCritique.map(({ id }) => ({ critiqueItemId: id, resolution: "Added the requested validation" })) };
     } else if (system.startsWith("Decide whether the supplied blocking critique")) {
       requests.push({ stage: "critique-check", url: request.url });
       const input = JSON.parse(user) as { critique: { summary: string }; tasks: { id: string }[] };
@@ -520,6 +524,51 @@ describe("composed model audits", () => {
     const gate = await resumed.gate(result.runId);
     expect(gate.reasons).not.toContain("blocking_plan_questions");
     expect(gate.reasons).not.toContain("checkpoint_pending:plan-questions");
+  });
+
+  it.each([false, true])("waits for answers to the blocking questions a critic's revision asks, before any recheck reads the plan (recheck: %s)", async (recheck) => {
+    // A revision asks blocking questions of its own: about an item it could not revise, or a decision a fix needs.
+    const { create, config, requests } = await fixture({ revision: "resolved", revisionQuestion: true });
+    if (recheck) (config.workflow["modelExecution"] as { review?: object }).review = { recheckRevisedPlan: true };
+    const interactive = { ...config, workflow: { ...config.workflow, checkpoints: { mode: "interactive" } } };
+    const core = create(); const result = await core.run(interactive);
+    expect(result.state).toBe("BLOCKED");
+    const pending = (await core.status(result.runId)).checkpoints.find((checkpoint) => checkpoint.kind === "plan-questions");
+    if (pending?.kind !== "plan-questions") throw new Error("PLAN_QUESTIONS_CHECKPOINT_ABSENT");
+    expect(pending).toMatchObject({ status: "pending", questions: [{ id: "Q-revision", blastRadius: "high" }] });
+    await core.respondCheckpoint(result.runId, "plan-questions", { version: pending.version, answers: [{ questionId: "Q-revision", answer: "Keep it." }] });
+    const resumed = create(); await resumed.resume(result.runId);
+    expect((await resumed.wait(result.runId)).state).toBe("COMPLETED");
+    // The critic, its check and the revision replayed; one new call applied the answer, and a recheck read the answered plan.
+    expect(requests.filter(({ stage }) => stage === "revision")).toHaveLength(1);
+    expect(requests.filter(({ stage }) => stage === "plan-answers")).toHaveLength(1);
+    expect(requests.filter(({ stage }) => stage === "critic")).toHaveLength(recheck ? 2 : 1);
+    const read = async (kind: string) => {
+      const descriptor = (await resumed.artifacts(result.runId)).find((entry) => entry.kind === kind);
+      if (descriptor === undefined) throw new Error(`ARTIFACT_ABSENT:${kind}`);
+      return JSON.parse((await resumed.artifact(result.runId, descriptor.artifactId) as { content: string }).content) as Record<string, unknown>;
+    };
+    const plan = await read("plan-ir") as { title: string; unresolvedQuestions: { id: string; blocking: boolean }[] };
+    expect(plan.title).toBe("Answered plan");
+    expect(plan.unresolvedQuestions.filter(({ id, blocking }) => blocking || id === "Q-revision")).toEqual([]);
+    expect(await read("plan-revision-question-resolutions")).toMatchObject({ rounds: [{ version: pending.version, answeredBy: "operator", answers: [{ questionId: "Q-revision", answer: "Keep it." }] }] });
+    const gate = await resumed.gate(result.runId);
+    expect(gate.reasons).not.toContain("blocking_plan_questions");
+    expect(gate.reasons).not.toContain("blocking_critic_feedback");
+  });
+
+  it("holds the gate when no critic qualifies, rather than reporting the plan as reviewed", async () => {
+    // A critic below the planner's capability is skipped (spec §20.6); the empty feedback it leaves is not a pass.
+    const { create, config, requests } = await fixture({ revision: "still_blocking" });
+    const critic = config.models["auditor-c"]; if (critic === undefined) throw new Error("FIXTURE_PROFILE_ABSENT");
+    config.models["auditor-c"] = { ...critic, capabilityTier: "fast" };
+    const core = create(); const result = await core.run(config);
+    expect(result.state).toBe("COMPLETED");
+    expect(requests.filter(({ stage }) => stage === "critic" || stage === "revision")).toEqual([]);
+    const read = async <T>(kind: string) => { const descriptor = (await core.artifacts(result.runId)).find((artifact) => artifact.kind === kind); return JSON.parse((await core.artifact(result.runId, descriptor?.artifactId ?? "") as { content: string }).content) as T; };
+    expect(await read("critic-result")).toMatchObject({ status: "skipped", degradedReviewCoverage: true, selection: { reason: "no_available_critic_at_or_above_planner_capability" } });
+    expect(await read("critic-feedback")).toEqual({ summary: "critic skipped", items: [] });
+    expect((await core.gate(result.runId)).reasons).toContain("degraded_critic_coverage");
   });
 
   it.each(["invalid_traceability", "missing_resolution"] as const)("rejects invalid planner revisions: %s", async (revision) => {

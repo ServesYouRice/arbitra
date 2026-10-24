@@ -800,8 +800,10 @@ export class ModelAuditPipeline {
    * plan-questions checkpoint. Once an operator answers every question of that exact plan, the
    * stored planner activities replay and one new activity applies the answers; the runtime then
    * removes the answered questions. A revised plan that asks new blocking questions waits again.
+   * The planner's rounds and the critic revision's are recorded apart, so answering one never
+   * overwrites the other's record.
    */
-  async #answerPlanQuestions(plan: PlanIR, accepted: CanonicalIssueSet["issues"], signal: AbortSignal): Promise<PlanIR> {
+  async #answerPlanQuestions(plan: PlanIR, accepted: CanonicalIssueSet["issues"], signal: AbortSignal, resolutionsKind = "plan-question-resolutions"): Promise<PlanIR> {
     const policy = this.config.workflow["checkpoints"];
     if (policy === undefined || checkpointPolicySchema.parse(policy).mode !== "interactive") return plan;
     const checkpoint = new PlanQuestionsCheckpoint(this.context.store);
@@ -836,7 +838,7 @@ export class ModelAuditPipeline {
       const answeredIds = new Set(answers.map(({ questionId }) => questionId));
       current = { ...revised, unresolvedQuestions: revised.unresolvedQuestions.filter(({ id }) => !answeredIds.has(id)) };
       rounds.push({ version: record.version, activityId, answeredBy: "operator", answers });
-      await this.context.store.publish("plan-question-resolutions", { rounds });
+      await this.context.store.publish(resolutionsKind, { rounds });
     }
     return current;
   }
@@ -928,20 +930,23 @@ export class ModelAuditPipeline {
         },
       });
       await this.context.store.publish("plan-revision", revised);
+      // A revision asks blocking questions too: one for each item it could not revise, and any a fix needs. An
+      // interactive run waits for their answers as it does for the planner's, before a recheck reads the plan.
+      const revisedPlan = await this.#answerPlanQuestions(revised.plan, planned, signal, "plan-revision-question-resolutions");
       // One critic, one revision. The critic reads the revised plan again only when the run asks for it
       // (review.recheckRevisedPlan). Otherwise its critique stands as the feedback, with what the revision did
       // about each blocking item: nothing else acts on a second critique. Observed live (P20 pilot): the second
       // pass was 82 calls and 92 minutes for 92 remarks no stage read.
       if (review.recheckRevisedPlan === true) {
-        const finalFeedback = await this.critique(revised.plan, issues, signal, "revision");
-        await this.context.store.publish("plan-ir", revised.plan);
+        const finalFeedback = await this.critique(revisedPlan, issues, signal, "revision");
+        await this.context.store.publish("plan-ir", revisedPlan);
         return finalFeedback;
       }
       const notRevised = new Set((await this.context.store.listArtifacts()).some(({ kind }) => kind === "planner-revision-composition")
         ? (await readStage<{ notRevisedCritiqueItemIds?: readonly string[] }>(this.context.store, "planner-revision-composition")).notRevisedCritiqueItemIds ?? [] : []);
       const answered = { ...feedback, revision: { rechecked: false, resolvedCritiqueItemIds: revised.resolutions.map(({ critiqueItemId }) => critiqueItemId).filter((id) => !notRevised.has(id)), notRevisedCritiqueItemIds: [...notRevised] } };
       await this.context.store.publish("critic-feedback", answered);
-      await this.context.store.publish("plan-ir", revised.plan);
+      await this.context.store.publish("plan-ir", revisedPlan);
       return answered;
     }
     return feedback;

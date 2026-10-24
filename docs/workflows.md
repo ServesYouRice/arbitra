@@ -130,6 +130,10 @@ left "throw or clamp?" open and failed, and nothing could answer it and resume.
   model, then removes the answered questions. `plan-question-resolutions` records each
   round: the version, the activity and the operator's answers. If the revised plan asks new
   blocking questions, the run waits again under a new version.
+- The critic's revision waits at the same checkpoint, in the critic node, when it leaves
+  blocking questions: one for each critique item it could not revise, and any a fix needs.
+  The answers are applied before a recheck (`review.recheckRevisedPlan`) reads the plan, and
+  `plan-revision-question-resolutions` records their rounds.
 - A revision that cannot fit the planner's context fails with
   `PLAN_QUESTION_REVISION_CONTEXT_EXCEEDED:<version>`. No graph may use `plan-questions`
   as a gate or human node ID (`RESERVED_CHECKPOINT_ID`). Automatic mode and runs without a
