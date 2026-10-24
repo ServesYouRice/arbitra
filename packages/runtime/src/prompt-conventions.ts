@@ -13,6 +13,14 @@ export const LIMITATIONS_DEFINITION = "A limitation is something you could not i
 export const NEW_FILES_ARE_NOT_SURFACES = "Surfaces name existing snapshot files only. A file the feature will have to create, such as a new test file, is neither a surface nor a limitation: mention it in the summary for the planner.";
 
 /**
+ * A plan is carried out task by task, so its text must survive earlier tasks moving the code, and an executing agent
+ * takes a question's recommendation. Observed live (nextra, October 24, 2026): line numbers and quoted code were stale
+ * in most prompts, five prompts stated a wrong premise as fact, and a blocking question's recommended option was taken
+ * and cannot work (RFC 3264: a recvonly offer names the payload types its offerer expects to receive).
+ */
+export const PLAN_TEXT_RULE = "Write task text an agent can follow after earlier tasks have changed the code: name code by its symbol (function, component, route, test or setting) and its file, and give a line number only beside the symbol, since line numbers move. State what an issue says about how the code behaves as a claim to check against the code, not as a settled fact. Recommend an answer to an unresolved question only when the source, a standard you cite or a test shows that it works; otherwise say that no option is known to work.";
+
+/**
  * A prompt-injection report must not stand in for auditing the code beside it. Observed live
  * (P06 version 1): five discovery passes reported a planted "this file is safe" comment as
  * prompt injection, and none reported the hard-coded admin bypass directly below it.

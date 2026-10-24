@@ -39,8 +39,9 @@ export async function runReport(orchestrator: Orchestrator, runId: string, envir
       add(`  ${auditor.auditorId} (${auditor.modelId ?? "?"}): ${auditor.findings} findings · ${auditor.confirmed} confirmed · ${auditor.confirmedAlone} confirmed that no other auditor found · discovery ${auditor.discoveryTokens === null ? "tokens not recorded" : `${tokenCount(auditor.discoveryTokens)} tokens`}`);
   }
   const carried = metrics?.planResults ?? null;
-  if (carried !== null) add("", "plan carried out (results.json)", `  ${carried.reported} of ${carried.issues} issues reported · ${carried.provenByFailingTest} proven by a failing test · ${carried.notProvenByTest} no test could show`,
-    `  ${Object.entries(carried.results).map(([result, count]) => `${result.replaceAll("_", " ")} ${count}`).join(" · ")}`);
+  if (carried !== null) add("", "plan carried out (results.json)", `  ${carried.reported} of ${carried.issues} issues reported · ${carried.provenByFailingTest} proven by a failing test · ${carried.notProvenByTest} no test could show · ${carried.checkedEndToEnd} checked end to end`,
+    `  ${Object.entries(carried.results).map(([result, count]) => `${result.replaceAll("_", " ")} ${count}`).join(" · ")}`,
+    ...(carried.foundWhileFixing.reported === 0 ? [] : [`  found while fixing, no issue named them: ${carried.foundWhileFixing.reported} · ${carried.foundWhileFixing.provenByFailingTest} proven by a failing test`]));
   const stages = new Map<string, { calls: number; failed: number; ms: number; tokens: number }>();
   for (const trace of traces) {
     const stage = stages.get(trace.nodeId) ?? { calls: 0, failed: 0, ms: 0, tokens: 0 };

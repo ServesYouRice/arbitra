@@ -167,8 +167,8 @@ are checked against Anthropic's guidance first.
   look would cost. Of the 126 confirmed issues, 118 were proven by a failing test, 7 were test gaps shown by
   mutants and 1 had been fixed by a check first. The plan lists unsure reports after the tasks, as optional, in
   `prompts/4-unsure`. Decided: the second look at unsure reports before the plan stays an option, off by default in
-  both modes, since carrying out the check costs the same and proves the answer. To build: the plan's README gives
-  this rate, and the optional section lists high and critical first.
+  both modes, since carrying out the check costs the same and proves the answer. Built October 24: the plan's README
+  gives this rate; the section already listed the most severe first.
 - **An abstention says nothing about why.** "Cannot tell" and "rejected" should carry one sentence of what the
   source cannot show, shown in the handoff.
 - **Plan questions are not merged across sections** (one question asked in three sections); merge them and drop the
@@ -341,7 +341,7 @@ Measurements are for our own judgement of whether the product is good, not to pr
        layout.
    - **The order serialised more than it had to:** 36 of 125 prompts wait for another task only because both edit
      a file ("Ordered by arbitra, not a functional dependency"). Run in parallel, each merged cleanly or with one
-     append conflict. To build: export same-file order as a merge hint, not a prerequisite.
+     append conflict.
    - **Defects the plan did not cover, found while carrying it out, each fixed with a failing test first:**
      - **WHEP:** a browser-hosted room could not be watched over WHEP in Chromium or Firefox, in 2.1.6 too.
      - **Host reclaim:** reclaim requests went out after the host left, on two paths.
@@ -360,23 +360,29 @@ Measurements are for our own judgement of whether the product is good, not to pr
      - **Not real:** 4 of the 18 suspected defects the agents reported while working did not hold: three browser
        tests failing on an old build, a chunk-count overflow and two of five viewer-page gaps.
 
-   - **To build from it**, beyond the export findings above:
-     - **Prompts:** point at code by symbol, not by line, since earlier tasks move it. State the audit's premises
-       as claims to check.
-     - **`AGENTS.md`:** carry the rules the brief had to add. Run the checks. An existing test that pins the defect
-       is changed as little as keeps its intent, and cited. A fix that crosses a protocol or the UI also gets an
-       end-to-end check.
-     - **`results.json`:**
-       - Tell a fix proven by a unit test from one also checked end to end. TASK-025 passed its unit tests and
-         played nothing.
-       - Take defects found while fixing, which the run report reads back (14 here).
-     - **Question options:** the recommended option must be one the planner can show works.
-     - **Overlaps:** mark issues one task or check also covers (four here: check 16, TASK-027, TASK-101,
-       TASK-103).
-     - **Confidence:** do not use a model's stated confidence as a signal.
+   - **Built from it (October 24),** checked by re-exporting nextra's run with the new exporter:
+     - **Order:** a wait only for a shared file shows as "same files as" in the README and under
+       `shares_files_with` in the prompt, not as work to finish first (35 of nextra's 36; the 36th note had gained a
+       revision's instruction, so it stays an order). Tasks with no "after" can run side by side.
+     - **Prompts:** say that what they state about the code (lines, quoted code, behaviour) is a claim to check, to
+       find code by name and follow the code where it differs. The planner is told to name code by symbol and file,
+       to state an issue's premise as a claim, and to recommend a question's answer only when the source, a cited
+       standard or a test shows it works (`PLAN_TEXT_RULE`).
+     - **Commands:** "run them yourself"; ask first only for one that installs software, deletes data outside the
+       build output or reaches the network. No prompt says "ask before running" now (75 of 125 did).
+     - **Read first:** a listed file the repository lacks moves to `new_files` (27 of nextra's prompts).
+     - **`AGENTS.md`** and each prompt: run the checks; an existing test that pins the defect is changed as little
+       as keeps its intent and named; a fix that crosses a boundary (browser and server, processes, what a person
+       sees) gets an end-to-end check.
+     - **`results.json`:** `checkedEndToEnd` per issue and `foundWhileFixing` for defects no issue named; the run
+       report and the Evaluation tab read both back.
+     - **Overlaps:** each prompt lists up to three reports elsewhere in the plan that read like its issue
+       (`related_reports`, TF-IDF cosine of title and description at 0.35). On nextra: 24 prompts, 16 pairs; it
+       finds 4 of the 5 overlaps the agents met (all but TASK-048's half covered by TASK-043, at 0.30), and the
+       other pairs are related work in the same code. Location overlap did worse (2 of 5, with 48 pairs).
+     - **Still open:** do not use a model's stated confidence as a signal (it ranks issues today).
 
-Next: the export findings and the build items above, then the rest of this phase's smaller items. Then the UI phase,
-then P21.
+Next: the rest of this phase's smaller items. Then the UI phase, then P21.
 
 **To re-check on the current build** (measured October 11 to 13, before later changes): prompts sized at one byte a
 token outside the stages that set `estimatedBytesPerToken`; discovery source as one JSON object a line; Gemini's

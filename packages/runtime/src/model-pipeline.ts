@@ -17,7 +17,7 @@ import { ModelActivities } from "./model-activities.js";
 import { AUDIT_PROTOCOL_DEFAULTS, ModelProtocols } from "./model-protocols.js";
 import { isModelOutputRejection, ModelHarness } from "./model-harness.js";
 import { discoverWithModel } from "./model-discovery.js";
-import { INSTRUCTION_SHAPED_TEXT_RULE } from "./prompt-conventions.js";
+import { INSTRUCTION_SHAPED_TEXT_RULE, PLAN_TEXT_RULE } from "./prompt-conventions.js";
 import { converge, readStage, type AuditContext, type ConvergenceResult } from "./pipeline.js";
 import { plannerCommandContext, PROJECT_COMMANDS_KIND, type ProjectCommand } from "./project-commands.js";
 import { instructionRisk, INSTRUCTION_RISK_KIND } from "./instruction-risk.js";
@@ -723,7 +723,8 @@ export class ModelAuditPipeline {
     const planner = plannerNode({ protocolVersion: protocol.protocolVersion, protocolHash: protocol.protocolHash, schema: planIRSchema,
       runtime: { get logicalModelCalls() { return plannerCalls; }, plan: async (request) => {
         // A stage that names its files reads those; the others read every file as far as it fits, the issues' first.
-        const stageInput = ({ sourcePaths, ...composed }: PlannerStage): ModelStageInput<unknown> => ({ ...composed, modelProfileId: this.#roles.planner, protocol: "planner", signal, stage: "planner",
+        // Every stage that writes tasks or questions writes text an agent will carry out (`PLAN_TEXT_RULE`).
+        const stageInput = ({ sourcePaths, ...composed }: PlannerStage): ModelStageInput<unknown> => ({ ...composed, instruction: `${composed.instruction} ${PLAN_TEXT_RULE}`, modelProfileId: this.#roles.planner, protocol: "planner", signal, stage: "planner",
           ...(sourcePaths === undefined ? { preferredPaths } : { sourceScope: "cited" as const, citedPaths: sourcePaths }) });
         const outputCapacity = stageBudget(this.config, this.#roles.planner).outputCapacity;
         const maximumBriefRecords = outputRecordLimit(outputCapacity, OUTPUT_TOKENS_PER_RECORD.plannerBriefIssue, "planner-brief");

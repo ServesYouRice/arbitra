@@ -45,10 +45,10 @@ describe("web evaluation surface over the localhost routes", () => {
   it("leads with what the run confirmed against the source, its price, and what each model found alone", async () => {
     stubMetrics({ ...metrics, confirmedYield: { candidates: 212, confirmed: 23, confirmedBySeverity: { high: 3, medium: 20 }, rejected: 46, unsettled: 14, acceptedUnchecked: 48, notChecked: 81, tokens: 15_600_000, tokensPerConfirmed: 678_261,
       auditors: [{ auditorId: "auditor-a", modelId: "claude-opus-5-5", findings: 190, confirmed: 19, confirmedAlone: 12, discoveryTokens: 1_157_544 }, { auditorId: "auditor-c", modelId: "gemini-3.8-flash-high", findings: 80, confirmed: 4, confirmedAlone: 0, discoveryTokens: null }] },
-      planResults: { issues: 23, reported: 20, provenByFailingTest: 15, notProvenByTest: 5, results: { fixed: 17, not_reproducible: 2, no_change_needed: 1, blocked: 0 } } });
+      planResults: { issues: 23, reported: 20, provenByFailingTest: 15, notProvenByTest: 5, results: { fixed: 17, not_reproducible: 2, no_change_needed: 1, blocked: 0 }, checkedEndToEnd: 4, foundWhileFixing: { reported: 2, provenByFailingTest: 2 } } });
     render(<EvaluationView api={new EvaluationApi()} runId="run-1" />);
     expect(await screen.findByText("23 of 212 candidates confirmed · high 3, medium 20 · 678.3K tokens per confirmed issue")).toBeTruthy();
-    expect(screen.getByText("plan carried out · 20 of 23 issues reported · 15 proven by a failing test · fixed 17 · not reproducible 2 · no change needed 1 · blocked 0")).toBeTruthy();
+    expect(screen.getByText("plan carried out · 20 of 23 issues reported · 15 proven by a failing test · 4 checked end to end · fixed 17 · not reproducible 2 · no change needed 1 · blocked 0 · 2 more found while fixing")).toBeTruthy();
     expect(screen.getByText(/46 rejected · 14 the source could not settle · 48 accepted without a check · 81 not checked\. Confirmed means the verifier found the defect in the source; no answer key checked it\./)).toBeTruthy();
     const table = screen.getByLabelText("confirmed by auditor");
     const opus = within(table).getByText("Opus 5.5").closest("tr") as HTMLElement;

@@ -12,6 +12,10 @@ export interface PlanResults {
   readonly provenByFailingTest: number;
   /** Issues no test could be made to fail for. */
   readonly notProvenByTest: number;
+  /** Issues whose fix was also checked by a browser or integration test or a run of the app, not only by unit tests. */
+  readonly checkedEndToEnd: number;
+  /** Defects no issue named that the executor found while fixing, and how many of them a failing test proved. */
+  readonly foundWhileFixing: { readonly reported: number; readonly provenByFailingTest: number };
 }
 
 /**
@@ -32,11 +36,15 @@ export async function planResults(repository: string, runId: string): Promise<Pl
     const parsed = await readFile(candidate.path, "utf8").then((text) => JSON.parse(text) as unknown, () => null);
     const entries = typeof parsed === "object" && parsed !== null && Array.isArray((parsed as { issues?: unknown }).issues) ? (parsed as { issues: unknown[] }).issues : null;
     if (entries === null) continue;
-    const valid = entries.filter((entry): entry is Record<string, unknown> => typeof entry === "object" && entry !== null);
+    const objects = (list: unknown) => Array.isArray(list) ? list.filter((entry): entry is Record<string, unknown> => typeof entry === "object" && entry !== null) : [];
+    const valid = objects(entries);
+    const found = objects((parsed as { foundWhileFixing?: unknown }).foundWhileFixing).filter((entry) => typeof entry["title"] === "string" && entry["title"].trim() !== "");
     const result = (entry: Record<string, unknown>) => RESULT_VALUES.find((value) => value === entry["result"]);
     const results = Object.fromEntries(RESULT_VALUES.map((value) => [value, valid.filter((entry) => result(entry) === value).length])) as PlanResults["results"];
     return Object.freeze({ directory: candidate.directory, issues: valid.length, reported: valid.filter((entry) => result(entry) !== undefined).length, results: Object.freeze(results),
-      provenByFailingTest: valid.filter((entry) => entry["failedBefore"] === true).length, notProvenByTest: valid.filter((entry) => entry["failedBefore"] === false).length });
+      provenByFailingTest: valid.filter((entry) => entry["failedBefore"] === true).length, notProvenByTest: valid.filter((entry) => entry["failedBefore"] === false).length,
+      checkedEndToEnd: valid.filter((entry) => entry["checkedEndToEnd"] === true).length,
+      foundWhileFixing: Object.freeze({ reported: found.length, provenByFailingTest: found.filter((entry) => entry["failedBefore"] === true).length }) });
   }
   return null;
 }

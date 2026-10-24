@@ -30,6 +30,7 @@ export interface EvaluationMetrics {
 export interface PlanResults {
   readonly issues: number; readonly reported: number; readonly provenByFailingTest: number; readonly notProvenByTest: number;
   readonly results: Readonly<Record<string, number>>;
+  readonly checkedEndToEnd?: number; readonly foundWhileFixing?: { readonly reported: number; readonly provenByFailingTest: number };
 }
 /** What the verifier confirmed from the source, per run and per auditor; measured without a ground-truth key. */
 export interface ConfirmedYield {
