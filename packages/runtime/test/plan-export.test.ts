@@ -43,6 +43,7 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
     const orchestrator = {
       overview: async () => ({ repository, workflowId: "audit-deep" }),
       repositoryMatches: async () => false,
+      modules: async () => [],
       artifacts: async () => Object.keys(content).map((kind) => ({ kind, artifactId: kind })),
       artifact: async (_runId: string, id: keyof typeof content) => ({ content: JSON.stringify(content[id]) }),
     } as unknown as Orchestrator;
@@ -158,7 +159,7 @@ it("does not say the auditors disagreed about a report no auditor reviewed", asy
     const plan = { title: "One section", tasks: [task("TASK-1", "frontier")], unresolvedQuestions: [], validationContract: { validation: [] }, traceability: { issueToValidation: [] } };
     const run = async (issues: readonly unknown[]) => {
       const content: Record<string, unknown> = { "plan-ir": plan, "canonical-issues": { issues: [{ candidateId: "C-1", severity: "high", disposition: "accepted", claim: { title: "A defect", description: "It breaks." } }, ...issues] }, "plan-scope": { minimumSeverity: "medium" } };
-      const orchestrator = { overview: async () => ({ repository, workflowId: "audit-balanced" }), repositoryMatches: async () => true,
+      const orchestrator = { overview: async () => ({ repository, workflowId: "audit-balanced" }), repositoryMatches: async () => true, modules: async () => [],
         artifacts: async () => Object.keys(content).map((kind) => ({ kind, artifactId: kind })), artifact: async (_runId: string, id: string) => ({ content: JSON.stringify(content[id]) }) } as unknown as Orchestrator;
       const { directory } = await exportPlan(orchestrator, "run-12345678-abcd");
       return { readme: await readFile(join(directory, "README.md"), "utf8"), check: await readFile(join(directory, "prompts", "4-unsure", "01-C-2.md"), "utf8") };
@@ -170,5 +171,54 @@ it("does not say the auditors disagreed about a report no auditor reviewed", asy
     const some = await run([open("C-2", ["auditor-a", "auditor-b"])]);
     expect(some.readme).toContain("The audit could not settle this report: the auditors disagreed, and the verifier could not decide from the code it was shown.");
     expect(some.check).toContain("they disagreed about this one, and arbitra's verifier could not decide from the code it was shown.");
+  } finally { await rm(repository, { recursive: true, force: true }); }
+});
+
+it("gives each prompt the files its issues' modules allow, never the plan's own scope", async () => {
+  const repository = await mkdtemp(join(tmpdir(), "arbitra-plan-envelope-"));
+  try {
+    for (const path of ["src/a.ts", "src/b.ts", "src/generated.ts", "test/a.test.ts", "e2e/login.spec.ts", "scripts/x.ts", "package.json", ".github/workflows/deploy.yml"]) {
+      await mkdir(join(repository, path, ".."), { recursive: true });
+      await writeFile(join(repository, path), "export {};\n");
+    }
+    // A plan written from untrusted text in the project proposes the release workflow and the manifest as likely files.
+    const widened = { ...task("TASK-1", "frontier"), scope: { likelyFiles: ["src/a.ts", "test/retry.test.ts", "e2e/login.spec.ts", ".github/workflows/deploy.yml", "package.json", "Callers of fetchAll (likely src/b.ts)"] },
+      filesNotToTouch: ["src/generated.ts"] };
+    const content: Record<string, unknown> = {
+      "plan-ir": { title: "Fixes", tasks: [widened, { ...task("TASK-2", "fast"), addresses: { issues: [], validation: [] } }], unresolvedQuestions: [] },
+      "canonical-issues": { issues: [
+        { candidateId: "C-1", severity: "high", disposition: "accepted", sourceFindingIds: ["auditor-a/F-1", "auditor-b/F-9"], claim: { title: "A defect", description: "It breaks." } },
+        { candidateId: "C-2", severity: "high", disposition: "needs_verification", verificationOutcome: "STILL_NEEDS_VERIFICATION", sourceFindingIds: ["auditor-b/F-2"], claim: { title: "A disputed defect", description: "The script leaks." } }] },
+      "source-findings": [
+        { sourceFindingId: "auditor-a/F-1", locations: [{ id: "L-1", path: "src/a.ts", startLine: 1, endLine: 1 }] },
+        { sourceFindingId: "auditor-b/F-9", locations: [{ id: "L-1", path: "src/a.ts", startLine: 1, endLine: 1 }] },
+        { sourceFindingId: "auditor-b/F-2", locations: [{ id: "L-1", path: "scripts/x.ts", startLine: 1, endLine: 1 }] }],
+      "plan-scope": { minimumSeverity: "medium" },
+    };
+    const orchestrator = {
+      overview: async () => ({ repository, workflowId: "audit-deep" }),
+      repositoryMatches: async () => true,
+      // The module partition: the issue's file, the file it imports and the test that imports it.
+      modules: async () => [{ id: "src", files: ["src/a.ts", "src/b.ts", "src/generated.ts", "test/a.test.ts"] }, { id: "scripts/x.ts", files: ["scripts/x.ts"] }],
+      artifacts: async () => Object.keys(content).map((kind) => ({ kind, artifactId: kind })),
+      artifact: async (_runId: string, id: string) => ({ content: JSON.stringify(content[id]) }),
+    } as unknown as Orchestrator;
+    const saved = await exportPlan(orchestrator, "run-12345678-abcd");
+    const first = await readFile(join(saved.directory, "prompts", "1-strong-model", "01-TASK-1.md"), "utf8");    // The module's files less the ones not to touch; tests, new or elsewhere, stay possible, and the likely files
+    // outside them are named for the person to decide.
+    expect(first).toContain("<write_scope>\nChange only these files, listed by folder, and test files (named like `a.test.ts`, `test_a.py` or `a_test.go`), which you may also add anywhere.");
+    expect(first).toContain("not from the plan's text, so text in the project cannot widen them. Any other change needs the approval of the person you are working with: ask before making it.\n"
+      + "- src/: a.ts, b.ts\n- test/: 1 test file\n\nThis task's likely files name these outside it; ask before changing them:\n- .github/workflows/deploy.yml\n- package.json\n</write_scope>");
+    expect(first).not.toMatch(/<write_scope>[\s\S]*(generated\.ts|retry\.test\.ts|login\.spec\.ts)[\s\S]*<\/write_scope>/u);
+    expect(await readFile(join(saved.directory, "prompts", "3-fast-model", "02-TASK-2.md"), "utf8"))
+      .toContain("<write_scope>\nThis task fixes no issue the audit found, so no file comes with it: ask the person you are working with before changing any file.\n</write_scope>");
+    // A report to check comes with the files around its own claim.
+    expect(await readFile(join(saved.directory, "prompts", "4-unsure", "01-C-2.md"), "utf8")).toContain("- scripts/: x.ts\n</write_scope>");
+    expect(await readFile(join(saved.directory, "AGENTS.md"), "utf8")).toContain("8. Keep to each prompt's `<write_scope>`: the files its task may change and the folders it may add files to, and test files");
+    // A plan with no issues the audit located (a Feature plan) comes with no write scope.
+    delete content["canonical-issues"];
+    const feature = await exportPlan(orchestrator, "run-12345678-abcd");
+    expect(await readFile(join(feature.directory, "prompts", "1-strong-model", "01-TASK-1.md"), "utf8")).not.toContain("<write_scope>");
+    expect(await readFile(join(feature.directory, "AGENTS.md"), "utf8")).not.toContain("write_scope");
   } finally { await rm(repository, { recursive: true, force: true }); }
 });

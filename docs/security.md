@@ -100,10 +100,33 @@ reason changes. Measured on five real projects before it was wired (October
 was narrowed after npm's `--no-audit`, interface copy and a byte-order mark matched it. Hits are
 not yet sent to the injection follow-ups, which would cost model calls.
 
-**Built, not yet wired.** A derived write envelope (`packages/security/src/envelope.ts`) takes a
-plan task's write scope from the modules that hold its accepted issues, never from the plan's
-proposed scope. It is unit-tested and planned for when plans are carried out by other agents
-([remaining work](../WORK-REMAINING.md#improvement-phase)).
+**The write envelope of a saved plan.** A plan is written by models from the project's text,
+so its proposed scope cannot be trusted: a planner that read an injected instruction can list
+`.github/workflows/deploy.yml` as a likely file, or simply leave a file out of `filesNotToTouch`.
+`packages/security/src/envelope.ts` derives what a task may change from the places its accepted
+issues cite (the `source-findings` behind each canonical issue's `sourceFindingIds`) and the
+modules that hold them, never from the plan. The modules are the ones discovery packs
+(`modulePartition` in `packages/runtime/src/discovery-scope.ts`): import-connected files, each
+other file alone, and each test in the module of the source it tests, read from the run's
+repository and scope when the plan is saved (when it can no longer be read, the cited files
+alone). The plan's `filesNotToTouch` only subtracts. Two kinds of file are open by rule: a test
+file anywhere (by name, such as `a.test.ts`, `test_a.py` or `a_test.go`; not a setup file such as
+`conftest.py`), since each defect is proven with a test first and a project often reaches a module
+from tests no import ties to it, and a new file in a folder of the envelope other than the repository
+root, where tools look for their configuration. Nothing in a folder or with a name that starts with
+a dot is open.
+
+Each task prompt of a saved plan (`packages/runtime/src/plan-export.ts`) lists its envelope by
+folder in `<write_scope>`, counting the tests, and names the likely files the plan gives that fall
+outside it, so the person can decide before the agent asks. `AGENTS.md` tells the agent that any
+other change needs the person's approval. A task with no located issue gets no files and asks before
+every change. An unsure report's prompt gets the envelope of the places it cites, since it allows a
+fix only once a test shows the defect. Feature and Testing plans fix no located issue and carry no
+write scope. Measured on four saved plans (October 25, 2026), the tasks that name a likely file
+outside their envelope were 17 of 84 on rokbot, 2 of 105 on nextra, 7 of 40 on commendanywhere and
+3 of 35 on raquelsblog, each for a file beyond its modules (other source, a test setup file or
+fixture, a script, a migration); before tests were open, 41 of rokbot's 84 named a test. The envelope is advice to the executing agent: arbitra
+does not run the plan, so nothing enforces it.
 
 ## Command policy
 

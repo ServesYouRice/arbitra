@@ -14,6 +14,7 @@ import { assertNoPreflightErrors, configurationDiagnostics, ENVIRONMENT_VERSIONS
 import { DockerTestSandbox } from "./test-sandbox.js";
 import { canonicalise, converge, critique, discover, plan, preflight, readStage, verify, type AuditContext, type ConvergenceResult, type Plan } from "./pipeline.js";
 import { defaultGit, snapshotRepository, type RepositorySnapshot } from "./repository.js";
+import { modulePartition } from "./discovery-scope.js";
 import { listRunIds, RunStore, type ArtifactDescriptor, type StoredRunContext } from "./run-store.js";
 import { ModelAuditPipeline, validateModelAudit, type AuditUnitOptions } from "./model-pipeline.js";
 import { captureSnapshotIdentity, INCREMENTAL_CONTRACT_KIND, incrementalReport, incrementalRequestOf, IncrementalSeed, planIncrementalAudit, readIncrementalArtifact, SNAPSHOT_IDENTITY_KIND, type IncrementalContract, type SnapshotIdentity } from "./incremental-audit.js";
@@ -578,6 +579,14 @@ export class Orchestrator {
     const context = await new RunStore(this.#runsDirectory, runId).loadContext();
     try { return snapshotDigest(await snapshotRepository(context.repository, 400, { scope: context.scope, ...testingSnapshotOptions(context.modelConfiguration) })) === context.repositoryDigest; }
     catch { return false; }
+  }
+
+  /** The run's repository as it is now, in the modules discovery packs; empty when it can no longer be read. */
+  async modules(runId: string): Promise<readonly { readonly id: string; readonly files: readonly string[] }[]> {
+    await this.#requireRun(runId);
+    const context = await new RunStore(this.#runsDirectory, runId).loadContext();
+    try { return modulePartition(await snapshotRepository(context.repository, 400, { scope: context.scope, ...testingSnapshotOptions(context.modelConfiguration) })); }
+    catch { return []; }
   }
 
   /** A resumed Audit keeps its recorded snapshot identity and incremental contract; it never re-decides reuse. */

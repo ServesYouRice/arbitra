@@ -16,8 +16,15 @@ export interface EnvelopeModule {
 
 export interface Envelope {
   readonly paths: readonly string[];
+  /** The folders holding `paths` (`.` for the repository root); a new file may be added in any but the root. */
+  readonly directories: readonly string[];
   readonly sourceIssueIds: readonly string[];
   readonly sourceModuleIds: readonly string[];
+}
+
+export interface ScopeOptions {
+  /** Whether a path exists in the repository; without it, no new file is granted beside the envelope's files. */
+  readonly exists?: (path: string) => boolean;
 }
 
 export interface ProposedScope {
@@ -64,25 +71,38 @@ export function deriveEnvelope(
 
   return Object.freeze({
     paths: Object.freeze([...paths].sort()),
+    directories: Object.freeze(unique([...paths].map(directoryOf))),
     sourceIssueIds: Object.freeze(accepted.map(({ id }) => id).sort()),
     sourceModuleIds: Object.freeze([...moduleIds].sort()),
   });
 }
 
-/** Planner output may request less authority, but can never create more authority. */
+/**
+ * Planner output may request less authority, but can never create more authority. Beyond the envelope's files, two
+ * kinds of file are granted by rule, never by the plan's say: a test file anywhere, and a new file directly in a folder
+ * of the envelope other than the repository root, where tools look for their configuration. Neither may sit in a
+ * folder or have a name that starts with a dot. Observed on rokbot's plan (October 25, 2026): its API tests reach the
+ * code through the app, so no import ties them to the module they test, and 41 of 84 tasks named such a test outside
+ * their modules; proving each defect with a test is the plan's first step.
+ */
 export function intersectScope(
   proposed: ProposedScope | readonly string[],
   envelope: Envelope,
+  options: ScopeOptions = {},
 ): EffectiveScope {
   const normalized: ProposedScope = Array.isArray(proposed)
     ? { writeScope: proposed, filesNotToTouch: [], readFirst: [] }
     : proposed as ProposedScope;
   const excluded = normalized.filesNotToTouch ?? [];
   const available = envelope.paths.filter((path) => !excluded.some((pattern) => matches(pattern, path)));
-  const write = expand(normalized.writeScope, available);
+  const ruled = normalized.writeScope.flatMap((pattern) => {
+    const path = safePath(pattern);
+    return path === null || available.includes(path) || excluded.some((exclusion) => matches(exclusion, path)) || !grantedByRule(path, envelope, options) ? [] : [{ pattern, path }];
+  });
+  const write = unique([...expand(normalized.writeScope, available), ...ruled.map(({ path }) => path)]);
   const reads = expand(normalized.readFirst ?? [], available);
   const displayedOnly = unique([
-    ...unmatched(normalized.writeScope, available),
+    ...unmatched(normalized.writeScope, available).filter((pattern) => !ruled.some((entry) => entry.pattern === pattern)),
     ...unmatched(normalized.readFirst ?? [], available),
   ]);
   return Object.freeze({
@@ -90,6 +110,23 @@ export function intersectScope(
     displayedOnly: Object.freeze(displayedOnly),
     readFirst: Object.freeze(reads),
   });
+}
+
+/** A test by its name; a setup file such as `conftest.py` or `test/setup.ts` is not one. */
+export function isTestFile(path: string): boolean {
+  return /\.(?:test|spec)\.[cm]?[jt]sx?$|^test_[^/]+\.py$|_test\.(?:py|go|rb)$|_spec\.rb$/u.test(path.slice(path.lastIndexOf("/") + 1));
+}
+
+function grantedByRule(path: string, envelope: Envelope, { exists }: ScopeOptions): boolean {
+  if (!/^[^\s*?[\]]+$/u.test(path) || path.split("/").some((part) => part.startsWith("."))) return false;
+  if (isTestFile(path)) return true;
+  const directory = directoryOf(path);
+  return exists !== undefined && !exists(path) && directory !== "." && envelope.directories.includes(directory);
+}
+
+function directoryOf(path: string): string {
+  const slash = path.lastIndexOf("/");
+  return slash < 0 ? "." : path.slice(0, slash);
 }
 
 function expand(patterns: readonly string[], available: readonly string[]): string[] {

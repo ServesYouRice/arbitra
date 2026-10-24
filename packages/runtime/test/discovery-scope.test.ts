@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allocateDiscoveryScopes } from "../src/discovery-scope.js";
+import { allocateDiscoveryScopes, modulePartition } from "../src/discovery-scope.js";
 
 const file = (path: string, content = "export const value = 1;") => ({ path, lines: content.split("\n"), byteLength: Buffer.byteLength(content), lineStartBytes: [0] });
 
@@ -37,5 +37,15 @@ describe("discovery scope allocation", () => {
     expect(units).toContain("backend/app/backup.py,backend/tests/test_backup.py");
     expect(units).toContain("backend/app/db.py,backend/tests/test_db.py");
     expect(result.scopes.flatMap(({ files: selected }) => selected.map(({ path }) => path)).sort()).toEqual(files.map(({ path }) => path).sort());
+  });
+
+  it("partitions the files into the modules discovery packs, each test in the module of the source it tests", () => {
+    const files = [file("lib/a.js", "module.exports = 1;"), file("tests/a.test.js", "require('../lib/a.js');"), file("theme.css"),
+      file("backend/app/backup.py", "def restore(): pass"), file("backend/tests/test_backup.py", "from app.backup import restore\n")];
+    expect(modulePartition({ root: "fixture", files })).toEqual([
+      { id: "backend/app/backup", files: ["backend/app/backup.py", "backend/tests/test_backup.py"] },
+      { id: "lib", files: ["lib/a.js", "tests/a.test.js"] },
+      { id: "theme.css", files: ["theme.css"] },
+    ]);
   });
 });

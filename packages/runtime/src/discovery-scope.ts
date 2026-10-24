@@ -10,11 +10,7 @@ export interface DiscoveryScope {
 /** Module-first packing. An oversized module is split into whole files and the
  * lost joint context is recorded explicitly. No file is silently truncated. */
 export function allocateDiscoveryScopes(snapshot: RepositorySnapshot, fits: (files: readonly SourceFile[]) => boolean): { scopes: readonly DiscoveryScope[]; unallocatedPaths: readonly string[] } {
-  const files = new Map(snapshot.files.map((file) => [file.path, file]));
-  const modules = approximateModules(snapshot.files.map(({ path, lines }) => ({ path, content: lines.join("\n") })));
-  const grouped = new Set(modules.flatMap(({ files }) => files));
-  const groups = besideTheirSource(snapshot, [...modules.map((module) => ({ id: module.id, files: module.files.flatMap((path) => { const file = files.get(path); return file === undefined ? [] : [file]; }) })),
-    ...snapshot.files.filter(({ path }) => !grouped.has(path)).map((file) => ({ id: file.path, files: [file] }))].sort((a, b) => a.id.localeCompare(b.id)));
+  const groups = moduleGroups(snapshot);
   const scopes: DiscoveryScope[] = []; const unallocatedPaths: string[] = [];
   let pending: SourceFile[] = []; let splitModules: string[] = [];
   const flush = () => { if (pending.length > 0) scopes.push({ files: pending, splitModules: [...new Set(splitModules)] }); pending = []; splitModules = []; };
@@ -37,6 +33,22 @@ export function allocateDiscoveryScopes(snapshot: RepositorySnapshot, fits: (fil
   }
   flush();
   return { scopes, unallocatedPaths: unallocatedPaths.sort() };
+}
+
+/**
+ * The modules discovery packs, as paths: import-connected files, each other file alone, and each test in the module of
+ * the source it tests. A saved plan's write envelope is derived from it (`packages/security/src/envelope.ts`).
+ */
+export function modulePartition(snapshot: RepositorySnapshot): readonly { readonly id: string; readonly files: readonly string[] }[] {
+  return moduleGroups(snapshot).map(({ id, bundles }) => ({ id, files: bundles.flat().map(({ path }) => path) }));
+}
+
+function moduleGroups(snapshot: RepositorySnapshot): readonly BundledGroup[] {
+  const files = new Map(snapshot.files.map((file) => [file.path, file]));
+  const modules = approximateModules(snapshot.files.map(({ path, lines }) => ({ path, content: lines.join("\n") })));
+  const grouped = new Set(modules.flatMap(({ files: paths }) => paths));
+  return besideTheirSource(snapshot, [...modules.map((module) => ({ id: module.id, files: module.files.flatMap((path) => { const file = files.get(path); return file === undefined ? [] : [file]; }) })),
+    ...snapshot.files.filter(({ path }) => !grouped.has(path)).map((file) => ({ id: file.path, files: [file] }))].sort((a, b) => a.id.localeCompare(b.id)));
 }
 
 interface Group { readonly id: string; readonly files: readonly SourceFile[] }

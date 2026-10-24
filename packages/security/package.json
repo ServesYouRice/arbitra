@@ -4,6 +4,11 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./envelope": {
+      "types": "./src/envelope.ts",
+      "development": "./src/envelope.ts",
+      "default": "./dist/src/envelope.js"
+    },
     "./write-partitions": {
       "types": "./src/write-partitions.ts",
       "development": "./src/write-partitions.ts",

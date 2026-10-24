@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { deriveEnvelope, intersectScope, isTestFile, type Envelope } from "@arbitra/security/envelope";
+import { isPlannable } from "@arbitra/workflow/nodes/canonical-issues.js";
 import { SHARED_WRITE_ORDER_NOTE } from "@arbitra/workflow/nodes/planner/traceability.js";
 import type { Orchestrator } from "./orchestrator.js";
 import { PROJECT_COMMANDS_KIND, type ProjectCommand } from "./project-commands.js";
@@ -29,6 +31,7 @@ interface ExportIssue {
   readonly candidateId: string; readonly severity: string; readonly disposition: string; readonly claim: { readonly title: string; readonly description: string };
   readonly verificationOutcome?: string | null; readonly dissent?: readonly { readonly authorId: string; readonly disposition: string; readonly reason: string }[];
   readonly coverage?: { readonly reviewedBy?: readonly string[] }; readonly singleSource?: boolean;
+  readonly sourceFindingIds?: readonly string[];
 }
 /** No reviewer voted on it: a run without a peer-review round. Such a report is unchecked, not disputed. */
 const unreviewed = (issue: ExportIssue): boolean => issue.singleSource !== true && issue.coverage?.reviewedBy?.length === 0;
@@ -55,6 +58,10 @@ const END_TO_END = "If the fix changes what crosses a boundary (between browser 
 // Observed live (nextra, October 24, 2026): the plan's verify lines said "ask before running" on 75 of 125 prompts, and
 // a Haiku agent skipped the browser check its prompt asked for. Plan commands build, test or lint the project.
 const ASK_FIRST = "read each before running it, and ask first only for one that would install software, delete data outside the project's build output, or reach the network";
+const SCOPE_ORIGIN = "arbitra derived them from where the issues are in the code and the modules that hold them, not from the plan's text, so text in the project cannot widen them.";
+const TEST_FILES = "test files (named like `a.test.ts`, `test_a.py` or `a_test.go`), which you may also add anywhere";
+/** A file path, not a pattern or a description such as "callers of fetchAll (likely src/b.ts)". */
+const CONCRETE_PATH = /^[^\s*?[\]]+$/u;
 // Of nextra's unsure reports, decided by the executing agents with the code and a test (October 24, 2026).
 const UNSURE_RATE = "In the first plan carried out this way (nextra, October 2026), 7 of 20 such reports held: 5 of 10 medium, and 2 of 10 high or critical, both security defects.";
 
@@ -126,11 +133,23 @@ export async function exportPlan(orchestrator: Orchestrator, runId: string): Pro
   const related = relatedReports(items, issues);
   const repository = overview.repository;
   const exists = (path: string) => existsSync(join(repository, path));
-  unsettled.forEach((issue, index) => files.set(join("prompts", UNSURE, `${String(index + 1).padStart(2, "0")}-${issue.candidateId}.md`), checkPrompt(issue, related.get(issue.candidateId) ?? [])));
+  // What a prompt may change comes from where its issues are in the code and the modules that hold them, never from the
+  // plan's text, so a plan written from untrusted text in the project cannot widen it (to `.github/workflows/`, say).
+  // A plan with no issues the audit located (Feature, Testing) comes with none.
+  const located = new Map(((await read<readonly { readonly sourceFindingId: string; readonly locations: readonly { readonly path: string }[] }[]>("source-findings")) ?? [])
+    .map(({ sourceFindingId, locations }) => [sourceFindingId, locations]));
+  const modules = canonical === null ? [] : await orchestrator.modules(runId);
+  const scoped = (ids: readonly string[], accepted: (issue: ExportIssue) => boolean, task?: ExportTask) => canonical === null ? null : writeScope(deriveEnvelope(ids.flatMap((id) => {
+    const issue = issues.get(id);
+    return issue === undefined ? [] : [{ id, accepted: accepted(issue), locations: (issue.sourceFindingIds ?? []).flatMap((finding) => located.get(finding) ?? []).map(({ path }) => ({ path })) }];
+  }), modules), { issues: ids.length, likely: task?.scope.likelyFiles ?? [], excluded: task?.filesNotToTouch ?? [] }, exists);
+  // A report to check is not accepted, but the places it cites were checked against the code like an accepted one's,
+  // and its prompt allows a fix only once a test or a run shows the defect.
+  unsettled.forEach((issue, index) => files.set(join("prompts", UNSURE, `${String(index + 1).padStart(2, "0")}-${issue.candidateId}.md`), checkPrompt(issue, related.get(issue.candidateId) ?? [], scoped([issue.candidateId], () => true))));
   const cited = { validation: new Map((plan.validationContract?.validation ?? []).map((entry) => [entry.id, entry])), questions: new Map(plan.unresolvedQuestions.map((entry) => [entry.id, entry])),
     links: new Map((plan.traceability?.issueToValidation ?? []).map(({ issueId, validationIds }) => [issueId, validationIds])) };
   ordered.forEach((task, index) => files.set(join("prompts", TIERS[task.routing.capability].folder, `${String(index + 1).padStart(2, "0")}-${task.id}.md`),
-    prompt(task, issues, plan.tasks, cited, { related: [...new Set(task.addresses.issues.flatMap((id) => related.get(id) ?? []))], exists })));
+    prompt(task, issues, plan.tasks, cited, { related: [...new Set(task.addresses.issues.flatMap((id) => related.get(id) ?? []))], exists, scope: scoped(task.addresses.issues, isPlannable, task) })));
   files.set("README.md", readme(plan, ordered, runId, overview.workflowId ?? "unknown", { unsettled, unverified, alsoFound: alsoFound.length, kept, notes }));
   const openQuestions = plan.unresolvedQuestions.filter(({ blocking }) => !blocking);
   if (openQuestions.length > 0) files.set("questions.md", ["# Open questions", "",
@@ -141,7 +160,7 @@ export async function exportPlan(orchestrator: Orchestrator, runId: string): Pro
     ...alsoFound.map((issue) => `## ${issue.claim.title}\n\n${issue.severity} · ${issue.candidateId}\n\n${issue.claim.description}\n`)].join("\n"));
   // A coding agent opened on the project, or on this folder alone, finds its instructions here; CLAUDE.md points
   // Claude Code at the same file.
-  files.set("AGENTS.md", agents(ordered, unsettled.length, (await read<{ readonly commands: readonly ProjectCommand[] }>(PROJECT_COMMANDS_KIND))?.commands ?? []));
+  files.set("AGENTS.md", agents(ordered, unsettled.length, (await read<{ readonly commands: readonly ProjectCommand[] }>(PROJECT_COMMANDS_KIND))?.commands ?? [], canonical !== null));
   files.set("CLAUDE.md", "Read AGENTS.md in this folder and follow it.\n");
   files.set("PROGRESS.md", ["# Progress", "", "Tick a task when it is done and verified; note anything left open under it.", "",
     ...ordered.map((task, index) => `- [ ] ${String(index + 1).padStart(2, "0")} \`${task.id}\` ${task.title}`), "",
@@ -164,7 +183,7 @@ export async function exportPlan(orchestrator: Orchestrator, runId: string): Pro
 }
 
 /** Instructions for a coding agent working through the folder, after Anthropic's guidance for agentic work: one task at a time, verify before moving on, keep state in a file. */
-function agents(ordered: readonly ExportTask[], checks: number, commands: readonly ProjectCommand[]): string {
+function agents(ordered: readonly ExportTask[], checks: number, commands: readonly ProjectCommand[], scoped: boolean): string {
   return ["# Working through this plan", "",
     "This folder is a plan to fix defects found in the project it sits in. It was written by arbitra, which audited the project with several models and checked each finding against the code.", "",
     "How to work:", "",
@@ -175,7 +194,8 @@ function agents(ordered: readonly ExportTask[], checks: number, commands: readon
     `4. A prompt is a starting point, not a script. ${CLAIMS_TO_CHECK}`,
     `5. Run the checks yourself: each prompt's commands and the project's own commands below build, test or lint the project; ${ASK_FIRST}. ${END_TO_END} Unit tests alone can pass a fix that does not work. Verify the task as its prompt says before you tick it in PROGRESS.md; if a check fails, stop and report instead of guessing.`,
     `6. Record each issue's result in ${RESULTS_FILE} as you finish it: ${RESULT_VALUES.map((value) => `\`${value}\``).join(", ")}, whether its test failed before the fix, the test, the proof (the failing output, or why no test could show it), and whether the fix was checked end to end. A defect you find while fixing that no issue names goes under \`foundWhileFixing\`, proven the same way.`,
-    `7. Do not change anything in this folder except PROGRESS.md and ${RESULTS_FILE}.`, "",
+    `7. Do not change anything in this folder except PROGRESS.md and ${RESULTS_FILE}.`,
+    ...(scoped ? [`8. Keep to each prompt's \`<write_scope>\`: the files its task may change and the folders it may add files to, and ${TEST_FILES}. ${SCOPE_ORIGIN} Changing or adding any other file needs the approval of the person you are working with: ask first, naming the file and why.`] : []), "",
     "The prompt folders say which kind of model each task suits:", "",
     ...Object.values(TIERS).map(({ folder, model, why }) => `- \`${folder}\`: ${model}, for ${why}.`),
     ...(checks === 0 ? [] : [`- \`${UNSURE}\`: your strongest model, after the tasks, to decide whether a report the audit could not settle holds, and to fix it only if it does.`]), "",
@@ -216,7 +236,7 @@ function readme(plan: ExportPlan, ordered: readonly ExportTask[], runId: string,
 }
 
 function prompt(task: ExportTask, issues: ReadonlyMap<string, ExportIssue>, all: readonly ExportTask[], cited: { readonly validation: ReadonlyMap<string, ExportValidation>; readonly questions: ReadonlyMap<string, ExportQuestion>; readonly links: ReadonlyMap<string, readonly string[]> },
-  { related, exists }: { readonly related: readonly string[]; readonly exists: (path: string) => boolean }): string {
+  { related, exists, scope }: { readonly related: readonly string[]; readonly exists: (path: string) => boolean; readonly scope: string | null }): string {
   const tier = TIERS[task.routing.capability];
   // The plan's validation contract and open questions, for the ids this task cites. Observed live (nextra, October
   // 24, 2026): 79 of 105 prompts named checks such as "VAL-003 tests exist and pass", and 47 named questions such as
@@ -244,7 +264,7 @@ function prompt(task: ExportTask, issues: ReadonlyMap<string, ExportIssue>, all:
   // A file the task is to create is not one to read first. Observed live (nextra, October 24, 2026): five read-first
   // lists named files their own task creates.
   const paths = [...new Set([...task.readFirst, ...task.scope.likelyFiles])];
-  const created = paths.filter((path) => /^[^\s*?[\]]+$/u.test(path) && !exists(path));
+  const created = paths.filter((path) => CONCRETE_PATH.test(path) && !exists(path));
   return [`# ${task.id} · ${task.title}`, "", `Suggested model: ${tier.model}, effort ${task.routing.effort}.${task.routing.reason.length === 0 ? "" : ` Why: ${task.routing.reason.join("; ")}`}`, "",
     `You are a careful senior engineer making one change in this repository. Read the material below before you edit anything, and keep to the constraints. This prompt is a starting point, not a script. ${CLAIMS_TO_CHECK}`, "",
     section("goal", `${task.goal.objective}\n\nThis matters because it fixes:\n${fixes.length === 0 ? "- (see issues.md)" : fixes.join("\n")}`), "",
@@ -252,6 +272,7 @@ function prompt(task: ExportTask, issues: ReadonlyMap<string, ExportIssue>, all:
     ...(waits.size === 0 ? [] : [section("shares_files_with", `Nothing here waits for these tasks; they edit the same files. If one runs side by side with this one, merge one after the other and expect conflicts in those files.\n${list([...waits].map(([id, files]) => `${titled(id)} (both edit ${files})`))}`), ""]),
     section("read_first", list(paths.filter((path) => !created.includes(path)))), "",
     ...(created.length === 0 ? [] : [section("new_files", `Not in the repository when the plan was saved; this task or an earlier one creates them:\n${list(created)}`), ""]),
+    ...(scope === null ? [] : [section("write_scope", scope), ""]),
     ...(related.length === 0 ? [] : [section("related_reports", `${RELATED_NOTE}\n${list(related)}`), ""]),
     section("context", list(task.context.filter((line) => !line.startsWith("resolves:") && !waits.has(orderNote(line)?.from ?? "")))), "",
     section("constraints", `Do not change:\n${list([...task.filesNotToTouch, ...task.outOfScope])}\n\nKeep true:\n${list(task.invariants)}`), "",
@@ -263,6 +284,30 @@ function prompt(task: ExportTask, issues: ReadonlyMap<string, ExportIssue>, all:
     section("verify", `${list([...task.verification.preconditions, ...task.verification.checks])}${commands.length === 0 ? "" : `\n\nCommands (run them yourself; ${ASK_FIRST}):\n${commands.join("\n")}`}\n\n${END_TO_END}`), "",
     ...(task.rollbackPlan.length === 0 ? [] : [section("if_it_goes_wrong", list(task.rollbackPlan)), ""]),
     `When you finish, record each issue's result in ${RESULTS_FILE}, with whether the fix was checked end to end, and any defect you found while fixing that no issue names under \`foundWhileFixing\`. Report what you changed, how you checked it, and anything you could not do.`, ""].join("\n");
+}
+
+/**
+ * A prompt's write scope: the files its envelope allows less the ones not to touch, by folder, and the likely files the
+ * plan names outside it, for the person to decide. A test, or a new file beside the listed ones, is allowed by rule
+ * (`intersectScope`), so it is not named.
+ */
+function writeScope(envelope: Envelope, { issues, likely, excluded }: { readonly issues: number; readonly likely: readonly string[]; readonly excluded: readonly string[] }, exists: (path: string) => boolean): string {
+  const ask = "ask the person you are working with before changing any file.";
+  if (envelope.paths.length === 0) return issues === 0 ? `This task fixes no issue the audit found, so no file comes with it: ${ask}` : `The audit recorded no place in the code for the issues here, so no file comes with this work: ${ask}`;
+  // Tests are open anywhere, so a folder's are counted, not named. Measured on nextra's plan (October 25, 2026): the
+  // modules of 53 of its 105 tasks held 120 files, 76 of them tests.
+  const folders = new Map<string, { readonly names: string[]; tests: number }>();
+  for (const path of intersectScope({ writeScope: envelope.paths, filesNotToTouch: excluded }, envelope).granted) {
+    const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ".";
+    const entry = folders.get(folder) ?? { names: [], tests: 0 };
+    if (isTestFile(path)) entry.tests += 1; else entry.names.push(path.slice(path.lastIndexOf("/") + 1));
+    folders.set(folder, entry);
+  }
+  const outside = intersectScope({ writeScope: likely.filter((path) => CONCRETE_PATH.test(path)), filesNotToTouch: excluded }, envelope, { exists }).displayedOnly;
+  return [`Change only these files, listed by folder, and ${TEST_FILES}. Add other new files only to these folders, not at the repository root, and nothing in a folder or with a name that starts with a dot. ${SCOPE_ORIGIN} Any other change needs the approval of the person you are working with: ask before making it.`,
+    ...(folders.size === 0 ? ["- none"] : [...folders].sort(([a], [b]) => a.localeCompare(b)).map(([folder, { names, tests }]) => `- ${folder === "." ? "the repository root" : `${folder}/`}: ${
+      [...names, ...(tests === 0 ? [] : [`${names.length === 0 ? "" : "and "}${tests} test ${tests === 1 ? "file" : "files"}`])].join(", ")}`)),
+    ...(outside.length === 0 ? [] : ["", "This task's likely files name these outside it; ask before changing them:", ...outside.map((path) => `- ${path}`)])].join("\n");
 }
 
 /**
@@ -330,7 +375,7 @@ function unsettledIssues(issues: readonly ExportIssue[], tasks: readonly ExportT
 }
 
 /** A prompt to settle one issue the audit left open: decide whether it holds, from the code and by running it, then fix it if it does. */
-function checkPrompt(issue: ExportIssue, related: readonly string[]): string {
+function checkPrompt(issue: ExportIssue, related: readonly string[], scope: string | null): string {
   const section = (tag: string, body: string) => `<${tag}>\n${body}\n</${tag}>`;
   const views = (issue.dissent ?? []).map(({ authorId, disposition, reason }) => `- ${authorId} (${disposition.replace(/_/gu, " ")}): ${reason.replace(/\s+/gu, " ").slice(0, 1_200)}`);
   return [`# Check ${issue.candidateId} · ${issue.claim.title}`, "", `Suggested model: ${TIERS.frontier.model}, effort high. Why: the audit could not settle this by reading alone.`, "",
@@ -338,6 +383,7 @@ function checkPrompt(issue: ExportIssue, related: readonly string[]): string {
     section("claim", `${issue.claim.title} (${issue.severity})\n\n${issue.claim.description.replace(/\s+/gu, " ").slice(0, 2_000)}`), "",
     ...(views.length === 0 ? [] : [section("what_the_reviewers_said", views.join("\n")), ""]),
     ...(related.length === 0 ? [] : [section("related_reports", `${RELATED_NOTE}\n${related.map((item) => `- ${item}`).join("\n")}`), ""]),
+    ...(scope === null ? [] : [section("write_scope", scope), ""]),
     section("steps", ["1. Read the code the claim names, and what it calls, until you can say whether the claim holds.",
       "2. Where reading cannot decide it, run the smallest check that can: an existing test, a short script, or the command the claim depends on. Ask before running anything that changes data or reaches the network.",
       "3. If the claim does not hold, change nothing and say why, citing the lines or the output that decide it.",
