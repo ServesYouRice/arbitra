@@ -158,7 +158,8 @@ October 14 ([provider model](provider-model.md#one-pass-per-review-stage)); item
     subscription Audit template since then ([remaining work](../WORK-REMAINING.md)).
 12. Effort: discovery at `high` against `xhigh`; Gemini at `medium` against `high`; checking stages lower.
 13. A second, varied discovery pass (another order, unit boundary or issue class), and smaller units.
-14. A cheaper verifier first, with uncertain answers sent to the frontier model.
+14. A cheaper verifier first, with uncertain answers sent to the frontier model. Balanced audits only: deep audits
+    keep frontier models in every role (October 24).
 15. A verifier from another vendor on a sample, to measure same-family preference.
 16. An execution rung for high and critical claims, in the existing Docker sandbox.
 17. A local static analyser whose alerts become candidates and a risk map.

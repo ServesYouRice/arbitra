@@ -153,8 +153,9 @@ are checked against Anthropic's guidance first.
 
 - **Verification is still about half a run's tokens** (nextra 14.4M of 26.8M, 192 questions). Issues below the plan's
   severity bar are no longer verified by default (`belowPlanScope: "skip"`; before that, low and informational
-  questions were 29 to 35% of a run). Next: a cheaper verifier for medium issues, with high, critical and uncertain
-  answers sent to the frontier model (design audit item 14).
+  questions were 29 to 35% of a run). Next: in balanced audits, a cheaper verifier for medium issues, with high,
+  critical and uncertain answers sent to the frontier model (design audit item 14). Deep audits keep frontier
+  verifiers.
 - **Re-asking each finding of a rejected merged candidate rarely changes the answer:** 10 to 16% of each panel's
   tokens, 7 of 50 re-asked confirmed, none a planted defect. Re-ask only across files, or only at medium and above.
 - **No first call reads Claude Code's cache** (72 first calls in one run wrote 1.18M tokens and read none). Measure
@@ -216,17 +217,20 @@ a second varied discovery pass, a cheaper verifier, a verifier of another vendor
 static analyser. And score plans by executing them.
 
 **Order of work**, set after an outside critique on October 22 (of its 17 points, 9 held and 4 partly; the README,
-the run report and a [privacy](docs/privacy.md) page were changed for it the same day). Each is measured as above:
+the run report and a [privacy](docs/privacy.md) page were changed for it the same day) and narrowed on October 24.
+Measurements are for our own judgement of whether the product is good, not to prove anything to others: the
+"evidence a skeptic can check" item and a public track of fixed bugs are dropped. Each item is measured as above:
 
-1. **Prove it (item 16).** First part built (October 22): the saved plan asks the executing agent to prove each
-   defect with a test that fails on the unchanged code before fixing it, and to record each issue's result in the
-   plan's `results.json` (fixed, not reproducible, no change needed, blocked; whether a test failed before the fix).
-   The run report and the Evaluation tab read it back: issues proven by a failing test, and fixed. This proves defects
-   in the user's own environment, with any agent (Claude Code, Codex, Gemini), and scores the plan by executing it.
-   Still open: arbitra running such a test itself before the plan, in the Docker sandbox. The snapshot holds no
-   dependencies and the sandbox has no network, so it needs a dependency step per ecosystem first. A test that
-   cannot be written leaves the issue confirmed, never rejected (agents write one for only 16–37% of real bugs).
-2. **Cut what does not earn its place.** Item 11, no peer review, is measured and is now the default of the
+1. **Prove it (item 16).** Built (October 22): the saved plan asks the executing agent to prove each defect with a
+   test that fails on the unchanged code before fixing it, and to record each issue's result in the plan's
+   `results.json` (fixed, not reproducible, no change needed, blocked; whether a test failed before the fix). The run
+   report and the Evaluation tab read it back. arbitra running such a test itself in the Docker sandbox stays an idea
+   for the execution rung (item 16), not a goal of its own: it needs a dependency step per ecosystem, since the
+   snapshot holds no dependencies and the sandbox has no network.
+2. **Cut only what really does not earn its place.** Reliability and finding what other orchestrators miss come
+   first; value matters, but not at that cost. **Balanced** weighs value against perfection, so cheaper models may
+   take a role where a measurement shows quality holds. **Deep** may gain value too, but every role stays on frontier
+   models. Item 11, no peer review, is measured and is now the default of the
    subscription Audit template (October 23; the API-key templates keep one round, so the smoke checks still cover
    the review path). Each finished run was replayed with zero rounds on its own discovery
    (`replay <run> --max-rounds 0`):
@@ -239,12 +243,17 @@ the run report and a [privacy](docs/privacy.md) page were changed for it the sam
    - Without review no reviewer votes, so the second opinion before rejecting a severe issue never fired (7 severe
      rejections on blog). Every severe rejection now gets it when no review ran.
 
-   Still to measure: a cheaper verifier (item 14), and Gemini's share across the next real runs (above).
-3. **Plans carried out by Codex and Gemini as well as Claude:** count issues fixed, things broken and edits a person
-   had to make.
-4. **Evidence a skeptic can check:** each real run's report (confirmed, proven by a failing test, fixed, cost), and
-   perhaps a small public track of real fixed bugs (reverted fixes from public projects). P20's held-out set stays
-   unrun.
+   Still to measure: a cheaper verifier for balanced audits (item 14), and Gemini's share across the next real runs
+   (above).
+3. **Plans carried out on the real-run projects.** The five runs were on the owner's own projects, so their plans
+   are carried out there, on a `dev` branch of each project (never `main`), starting with nextra's remaining issues
+   (3 of 126 were fixed for 2.1.6). Count the issues fixed, not reproducible and blocked, what the fixes broke, and
+   the work the plan's prompts did not cover (edits made by hand, questions only the owner could answer).
+
+Next, in this order: the default rokbot run (`run-869f90f0`, started October 24 15:54) and the fixes it calls for,
+then the checkpoint-2 tag and v0.2.2; the cheaper-verifier replay on nextra's discovery; test files packed with the
+source they import. nextra's `dev` branch runs alongside, since it touches only nextra. Then the smaller items of
+this phase, then the UI phase, then P21.
 
 **To re-check on the current build** (measured October 11 to 13, before later changes): prompts sized at one byte a
 token outside the stages that set `estimatedBytesPerToken`; discovery source as one JSON object a line; Gemini's
