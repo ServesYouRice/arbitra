@@ -7,10 +7,10 @@
 //   node tooling/privacy/check.mjs --staged     the staged files and the commit identity (pre-commit hook)
 //   node tooling/privacy/check.mjs --message F  a commit message (commit-msg hook)
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-const git = (...args) => execFileSync("git", args, { encoding: "buffer", maxBuffer: 256 * 1024 * 1024 });
+const git = (...args) => execFileSync("git", args, { encoding: "buffer", maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
 
 // Placeholder homes used by tests and docs: /Users/me, C:\Users\me, /home/user, and <name>-style templates.
 const HOME_PATTERNS = [
@@ -43,6 +43,20 @@ function scan(entries) {
   return problems;
 }
 
+/** The tracked files; outside a Git checkout (a downloaded zip, a container copy), every file but build output. */
+function publishedPaths() {
+  try { return git("ls-files", "-z").toString("utf8").split("\0").filter(Boolean); }
+  catch {
+    const skipped = new Set([".git", "node_modules", "dist", ".runs", ".arbitra", ".arbitra-runtime", "coverage", ".vite", "test-results", "playwright-report"]);
+    const walk = (directory) => readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+      const path = directory === "." ? entry.name : `${directory}/${entry.name}`;
+      if (entry.isDirectory()) return skipped.has(entry.name) ? [] : walk(path);
+      return entry.isFile() ? [path] : [];
+    });
+    return walk(".");
+  }
+}
+
 function identityProblems() {
   return ["GIT_AUTHOR_IDENT", "GIT_COMMITTER_IDENT"].flatMap((name) => {
     const email = /<([^>]*)>/u.exec(git("var", name).toString("utf8"))?.[1] ?? "";
@@ -58,8 +72,7 @@ function main(argv) {
     const paths = git("diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z").toString("utf8").split("\0").filter(Boolean);
     problems = [...identityProblems(), ...scan(paths.map((path) => ({ path, content: git("show", `:${path}`) })))];
   } else {
-    const paths = git("ls-files", "-z").toString("utf8").split("\0").filter(Boolean);
-    problems = scan(paths.map((path) => ({ path, content: readFileSync(path) })));
+    problems = scan(publishedPaths().map((path) => ({ path, content: readFileSync(path) })));
   }
   if (problems.length === 0) return 0;
   console.error(`Personal data the public repository must not carry (tooling/privacy/check.mjs):\n${problems.map((problem) => `  ${problem}`).join("\n")}`);
