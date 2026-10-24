@@ -58,10 +58,19 @@ const DETECTORS: readonly Detector[] = [
  * or `env.ADMIN_TOKEN`. It names where a secret comes from, not the secret. Observed live (P20 pilot): masking such
  * lines hid how a project generated its lease tokens, and the auditors wrote that they could not audit them. A
  * quoted value, a bare word and anything with a digit are still masked, so the rule errs toward masking.
+ *
+ * A call or an index on such a name reads as code whatever its arguments hold: `secrets.token_urlsafe(32)`,
+ * `client.get("/safety/capability")` (the value is cut at its first quote, so it ends in the open parenthesis) and
+ * `request.headers[TOKEN_HEADER]`. Only the name before the call is held to the no-digit rule. Observed live
+ * (rokbot, October 24, 2026): masking such lines hid how a project generated and compared its capability token.
  */
 const CODE_REFERENCE = /^[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*(?:\([^()]*\))?[,;)\]}]*$/u;
+const CODE_CALL = /^[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*[([]/u;
 function readsAsCode(secret: string, before: string): boolean {
-  return !/["']$/u.test(before) && !/[0-9]/u.test(secret) && CODE_REFERENCE.test(secret) && /[.(]/u.test(secret);
+  if (/["']$/u.test(before)) return false;
+  const call = CODE_CALL.exec(secret);
+  if (call !== null && !/[0-9]/u.test(call[0])) return true;
+  return !/[0-9]/u.test(secret) && CODE_REFERENCE.test(secret) && /[.(]/u.test(secret);
 }
 
 export function redactSecrets(text: string): RedactionResult {

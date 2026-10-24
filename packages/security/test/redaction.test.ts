@@ -55,6 +55,12 @@ describe("secret redaction", () => {
       "await runCli([\"dead\"], { token: TOKENS.emails, transport });",
       "    apiKey: config.gateway.apiKey,",
       "password = readPassword(prompt);",
+      // Observed live (rokbot, October 24, 2026): these hid how the capability token was made and compared.
+      "        self.capability_token = secrets.token_urlsafe(32)",
+      "            header_token = Headers(scope=scope).get(\"x-rokbot-capability\")",
+      "    token = production_client.get(\"/safety/capability\").json()[\"token\"]",
+      "const sessionToken = crypto.randomBytes(32).toString(\"hex\");",
+      "token = request.headers[TOKEN_HEADER]",
     ]) expect(redactSecrets(code)).toMatchObject({ text: code, redactions: [] });
     for (const secret of [
       "token: 'plainLongSecretValue'",
@@ -62,6 +68,8 @@ describe("secret redaction", () => {
       "token=abcdefghijklmnop",
       "apiKey: process.env.KEY_V2_LONGNAME",
       "secret: eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0.SflKxwRJSMeKKF2QT4",
+      "password=Xy7k(q.Lm)zz",
+      "token: \"getToken(abc)defg\"",
     ]) expect(redactSecrets(secret).redactions.map(({ kind }) => kind)).toEqual(["assigned_secret"]);
   });
 
