@@ -24,14 +24,17 @@ docs/ROUND-TABLE.md
 /.runs/
 /.arbitra-runtime/
 /implementation/
+# Plans saved from a self-audit list open defects.
+/.arbitra/
 
 # ---------------------------------------------------------------------------
 # Per-user tool state
 #
-# settings.local.json is personal by convention. A shared .claude/settings.json
-# may be committed if the project ever needs one.
+# Claude Code keeps sessions, worktrees and memory under .claude/; none of it is
+# shared. A .claude/settings.json may be committed if the project ever needs one.
 # ---------------------------------------------------------------------------
-.claude/settings.local.json
+.claude/*
+!.claude/settings.json
 
 # ---------------------------------------------------------------------------
 # Secrets

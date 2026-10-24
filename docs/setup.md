@@ -475,7 +475,10 @@ A run's **Plan** tab in the web app saves the plan into the audited project as p
 It writes `.arbitra/plans/<date>-<run>/` in the run's repository, where `<date>` is the day of
 the save and `<run>` the first eight characters of the run ID after `run-`. Saving again
 writes a new folder beside it (`-2`, `-3`, …); no file is ever overwritten. Snapshots skip
-hidden directories, so a later run does not read the folder.
+hidden directories, so a later run does not read the folder. The first save also writes
+`.arbitra/.gitignore` with `*`, so Git leaves the plans out: they list the project's open
+defects, security issues among them. Remove that line to commit plans on purpose; an existing
+`.arbitra/.gitignore` is never changed.
 
 | File | Contents |
 |---|---|

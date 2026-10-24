@@ -59,8 +59,12 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
     ]);
     // Nothing is reported until the executor fills an entry in.
     expect(await planResults(repository, "run-12345678-abcd")).toMatchObject({ issues: 2, reported: 0, provenByFailingTest: 0 });
+    // Git leaves saved plans out, since they list open defects; a person's own .gitignore there is kept.
+    expect(await readFile(join(repository, ".arbitra", ".gitignore"), "utf8")).toMatch(/\n\*\n$/u);
+    await writeFile(join(repository, ".arbitra", ".gitignore"), "# tracked on purpose\n");
     const second = await exportPlan(orchestrator, "run-12345678-abcd");
     expect(second.directory).toBe(`${first.directory}-2`);
+    expect(await readFile(join(repository, ".arbitra", ".gitignore"), "utf8")).toBe("# tracked on purpose\n");
     // The executor worked in the first copy; arbitra reads the newest results.json, checking every field it reads.
     await writeFile(join(first.directory, "results.json"), JSON.stringify({ issues: [
       { issue: "C-2", result: "no_change_needed", failedBefore: false, test: null, proof: "The caller guards it." },

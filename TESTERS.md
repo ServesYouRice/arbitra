@@ -62,7 +62,8 @@ arbitra. Then go on at [Run an audit](#run-an-audit).
    tokens being Claude's); without Gemini a run uses somewhat less. Start with a small project and mind your plans'
    usage.
 5. When it finishes, the run page leads with **the plan**: **save the plan into the project as prompts** writes a
-   `.arbitra/plans/` folder into your project. It has one ready-to-paste prompt per fix, sorted by the kind of model
+   `.arbitra/plans/` folder into your project, which Git ignores: it lists every open issue, so keep it out of a public
+   repository until they are fixed. It has one ready-to-paste prompt per fix, sorted by the kind of model
    each suits, and an `AGENTS.md` a coding agent follows: open the project in Claude Code or Codex and ask it to
    work through `.arbitra/plans/<folder>`. Answer the questions its README lists first: they are decisions only you
    can make. Issues the models could not settle get a prompt of their own under `prompts/0-check-first`, which asks

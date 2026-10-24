@@ -33,6 +33,12 @@ const TIERS = {
   fast: { folder: "3-fast-model", model: "a fast, inexpensive model (such as Claude Haiku)", why: "a small, mechanical change" },
 } as const;
 
+const PLANS_GITIGNORE = [
+  "# Written by arbitra. Saved plans list this project's unfixed defects, security issues among them,",
+  "# so Git leaves this folder out. Remove the line below to commit plans on purpose; a public",
+  "# repository would then publish every open issue.",
+  "*", ""].join("\n");
+
 /**
  * Writes a run's plan into its repository as prompts a person or a coding agent can use directly, in
  * `.arbitra/plans/<date>-<run>/`: a README with the order of work, AGENTS.md (and CLAUDE.md) telling a coding agent how
@@ -87,6 +93,10 @@ export async function exportPlan(orchestrator: Orchestrator, runId: string): Pro
     .map((issue) => `## ${issue.claim.title}\n\n${issue.severity} · ${issue.disposition} · ${issue.candidateId}\n\n${issue.claim.description}\n`)].join("\n"));
   files.set(RESULTS_FILE, `${JSON.stringify(resultsTemplate(runId, unsettled, ordered, issues), null, 2)}\n`);
   await mkdir(directory, { recursive: true });
+  // A plan lists the project's unfixed defects, security issues among them, so Git leaves the folder out unless the
+  // person chooses otherwise; an existing file is their choice and is kept.
+  const ignore = join(overview.repository, ".arbitra", ".gitignore");
+  if (!existsSync(ignore)) await writeFile(ignore, PLANS_GITIGNORE, { encoding: "utf8", flag: "wx" });
   for (const [path, content] of files) {
     await mkdir(join(directory, path, ".."), { recursive: true });
     await writeFile(join(directory, path), content, { encoding: "utf8", flag: "wx" });

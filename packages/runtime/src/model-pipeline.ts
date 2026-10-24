@@ -553,8 +553,8 @@ export class ModelAuditPipeline {
     };
     // A critical or high issue a reviewer backed is rejected only when a second model, asked the same blind question,
     // rejects it too; when the two disagree it stays open for a person or an agent to settle (`verification.
-    // secondOpinion`). Observed live (rokavatar, October 21, 2026): 12 such issues, several about access control, were
-    // rejected by one Opus question at medium effort, 4 of the critical ones without opening a file it was not given.
+    // secondOpinion`). Observed live (rokavatar, October 21, 2026): 12 such issues were rejected by one Opus question
+    // at medium effort, 4 of them without opening a file it was not given.
     // Without peer review no reviewer votes, and the finder's report is the only backing: every severe rejection gets
     // the second question (blog without review, October 22: 7 severe rejections, none asked twice).
     const secondOpinion = this.config.verification["secondOpinion"] === "severe_rejections" ? this.#secondOpinionProfile() : undefined;

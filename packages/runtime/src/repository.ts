@@ -72,7 +72,7 @@ export async function snapshotRepository(root: string, maximumFiles = 400, optio
   const modulePaths = modules?.map((path) => relative(guard.root, guard.resolve(path)).split(sep).join("/").replace(/\/$/u, ""));
   const included = (path: string): boolean => modulePaths === undefined || modulePaths.some((prefix) => prefix === "" || path === prefix || path.startsWith(`${prefix}/`));
   // In a Git work tree, files Git ignores are left out: they are generated (test reports, coverage, builds), and one
-  // oversized report refused a tester's whole project (beachflag's playwright-report/index.html, October 20, 2026).
+  // oversized report refused a whole project (beachflag's playwright-report/index.html, October 20, 2026).
   const listed = await gitListedFiles(guard.root, options.git ?? defaultGit);
   const paths: string[] = [];
   await walk(root, root, paths, maximumFiles + 1, guard, (path) => (listed === null || listed.has(path)) && included(path) && eligible(path));
