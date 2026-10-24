@@ -349,8 +349,16 @@ Measurements are for our own judgement of whether the product is good, not to pr
        DELETE; the encoder settings file was never really restored.
      - **Layout:** a 320 px overflow, and a clipped Resolution toggle.
      - **Port search:** it ran past 65535.
-     - **Still running:** late relay viewers overflowing, a stop sent while the host is offline, and viewer-session
-       gaps.
+     - **Host stop:** a stop sent while the host was offline was ignored, so viewers waited the 30 s window.
+     - **Late relay viewers:**
+       - the catch-up buffer counted with live chunks against the queue's 24 MB, and an MP4 catch-up left its init
+         segment out of the ceiling;
+       - the 16 MB slow-viewer cap counted a catch-up still on its way, so on a slow link a late viewer was dropped;
+       - live chunks that arrived before `get-media-init` answered were thrown away.
+     - **Viewer page:** a transport recovery dropped the relay without asking for it again, and attempts in flight
+       could restart playback during Leave Room's 5 s wait.
+     - **Not real:** 4 of the 16 suspected defects the agents reported while working did not hold, among them a
+       chunk-count overflow and three failing browser tests that served an old build.
 
 Next: the export findings above (same-file order as a hint, "run" instead of "ask before running", read-first lists
 without the task's own new files) and the rest of this phase's smaller items. Then the UI phase, then P21.
