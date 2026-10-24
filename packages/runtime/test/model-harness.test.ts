@@ -8,7 +8,7 @@ import { ModelActivities } from "../src/model-activities.js";
 import { discoverWithModel } from "../src/model-discovery.js";
 import { isModelOutputRejection, ModelHarness } from "../src/model-harness.js";
 import { RunStore } from "../src/run-store.js";
-import { snapshotTools } from "../src/snapshot-tools.js";
+import { snapshotTools, SNAPSHOT_TOOLS } from "../src/snapshot-tools.js";
 
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
@@ -266,5 +266,16 @@ describe("durable canonical model harness", () => {
     const ref = await scoped.archive("Earlier tool result");
     expect(await scoped.runtime.invoke("artifact_read", { ref }, { ...context, nodeId: "scoped-history" })).toMatchObject({ ok: true, content: expect.stringContaining("Earlier tool result") });
     expect(await runtime.invoke("artifact_read", { ref }, context)).toMatchObject({ ok: false, error: { code: "ARTIFACT_OUTSIDE_ACTIVITY_CONTEXT" } });
+  });
+
+  it("offers a model no tool that cannot work on a snapshot: the Git tools are neither offered nor reachable", async () => {
+    // A snapshot has no Git history, so gitStatus, gitDiff and gitLog throw there; a model spends a tool turn on every tool it is offered.
+    const { store } = await setup();
+    const { runtime } = snapshotTools(snapshot, store, "auditor-a/discovery");
+    const context = { nodeId: "auditor-a/discovery", protect: (content: string) => content };
+    expect(SNAPSHOT_TOOLS.map(({ name }) => name)).toEqual(["repo_list_tree", "repo_read_file", "repo_search", "repo_stat", "artifact_read"]);
+    const arguments_: Readonly<Record<string, Record<string, unknown>>> = { repo_list_tree: {}, repo_read_file: { path: "a.ts" }, repo_search: { query: "value" }, repo_stat: { path: "a.ts" }, artifact_read: { ref: "none" } };
+    for (const { name } of SNAPSHOT_TOOLS) expect(await runtime.invoke(name, arguments_[name] ?? {}, context), name).not.toMatchObject({ error: { code: "TOOL_NOT_ALLOWED" } });
+    for (const name of ["repo_git_status", "repo_git_diff", "repo_git_log", "repo.gitStatus", "repo.gitDiff", "repo.gitLog"]) expect(await runtime.invoke(name, {}, context), name).toMatchObject({ ok: false, error: { code: "TOOL_NOT_ALLOWED" } });
   });
 });
