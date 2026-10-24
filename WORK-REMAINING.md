@@ -158,8 +158,10 @@ are checked against Anthropic's guidance first.
 - **Unsure reports are mostly false alarms.** Of nextra's first 6 reports the auditors disagreed on and the verifier
   could not settle, 5 did not hold; the executing agent changed nothing for them, since each prompt asks for proof
   first. The plan now lists them after the tasks, as optional, in `prompts/4-unsure` (they came first, in
-  `0-check-first`). Still open: a second look before the plan (in deep audits another frontier model, or a run), and
-  the false-alarm rate among confirmed issues, measured as nextra's plan is carried out.
+  `0-check-first`). Still open: the false-alarm rate among confirmed issues, measured as nextra's plan is carried out;
+  and a second look at unsure reports before the plan (another frontier model, or a run), as an option, off by default
+  unless nextra's 20 show severe real defects among them; when off they stay on the issue board and in the plan's
+  optional section. On nextra's scale it would add roughly 1.5 to 3M tokens.
 - **An abstention says nothing about why.** "Cannot tell" and "rejected" should carry one sentence of what the
   source cannot show, shown in the handoff.
 - **Plan questions are not merged across sections** (one question asked in three sections); merge them and drop the
