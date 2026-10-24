@@ -156,7 +156,9 @@ CLI's own tool events (`tool_use`, `command_execution`, `file_change`, MCP, sear
 process immediately and fail the call.
 
 A transport translates; it does not decide policy. Budget, retry and scheduling live above
-it.
+it. A call its stage timeout aborts keeps its scheduler slot, and its retry waits, until the
+transport has stopped, for at most 30 seconds; a process tree it left running, or a call still
+running after that wait, fails it without a retry.
 
 The adapters use native wire formats, including tool-call history and tool-result IDs.
 The Responses adapter reads every text/refusal content block and uses

@@ -1,4 +1,4 @@
-import { TransportError, type ProviderTransport, type TransportRequest, type TransportResponse } from "./transport-contract.js";
+import { leftProcessesRunning, TransportError, type ProviderTransport, type TransportRequest, type TransportResponse } from "./transport-contract.js";
 import { setTimeout as delay } from "node:timers/promises";
 import { RateLimitScheduler, type SchedulerLease } from "./scheduler.js";
 import { ContinuationStateStore } from "./continuation/store.js";
@@ -155,12 +155,34 @@ async function sendWithTimeout(transport: ProviderTransport, request: TransportR
     controller.abort("timeout");
     rejectTimeout(new TransportError("TIMEOUT", `Provider stage timed out after ${milliseconds}ms`, true));
   });
+  let sent: Promise<TransportResponse> | undefined;
   try {
-    return await Promise.race([transport.send(request, controller.signal), timeout, cancelled]);
+    sent = transport.send(request, controller.signal);
+    return await Promise.race([sent, timeout, cancelled]);
   } catch (error) {
-    if (timedOut) throw new TransportError("TIMEOUT", `Provider stage timed out after ${milliseconds}ms`, true);
+    if (timedOut) throw sent === undefined ? error : await timedOutSend(sent, milliseconds, timer, cancelled);
     throw error;
   } finally { cancelTimeout(); outer.removeEventListener("abort", abort); }
+}
+
+/** How long an aborted CLI may take to end its process tree (taskkill is bounded at 10 s) and remove its directories. */
+const STOP_AFTER_TIMEOUT_MS = 30_000;
+const STILL_RUNNING = Symbol("still running");
+/**
+ * The failure of a send its stage timeout aborted, once the send has stopped. Until then its attempt holds its scheduler
+ * slot and no retry starts: stage timeouts (600 s) end before a CLI's own (30 minutes), and a retry started at once
+ * ran a second CLI beside the first while that one was still being killed, and never saw it report a process tree it
+ * could not end. That report fails the call. A send still running after the bound fails it too, without a retry.
+ */
+async function timedOutSend(sent: Promise<TransportResponse>, milliseconds: number, timer: RuntimeTimer, cancelled: Promise<never>): Promise<TransportError> {
+  let cancelWait: () => void = () => {};
+  const waited = new Promise<typeof STILL_RUNNING>((resolve) => { cancelWait = timer.timeout(STOP_AFTER_TIMEOUT_MS, () => resolve(STILL_RUNNING)); });
+  try {
+    const outcome = await Promise.race([sent.then(() => null, (error: unknown) => error), waited, cancelled]);
+    if (leftProcessesRunning(outcome)) return outcome;
+    if (outcome === STILL_RUNNING) return new TransportError("TIMEOUT", `Provider stage timed out after ${milliseconds}ms, and the call had not stopped ${STOP_AFTER_TIMEOUT_MS}ms after it was cancelled`, false);
+    return new TransportError("TIMEOUT", `Provider stage timed out after ${milliseconds}ms`, true);
+  } finally { cancelWait(); }
 }
 function validateContext(value: ProviderInvocationContext): void {
   for (const [name, identifier] of [["ACTIVITY", value.activityId], ["PROVIDER", value.providerId], ["TRANSPORT", value.transportId], ["MODEL", value.modelId]] as const) {

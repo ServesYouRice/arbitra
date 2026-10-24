@@ -72,6 +72,11 @@ export class TransportError extends Error {
     readonly evidence: UsageEvidence = USAGE_UNKNOWN,
   ) { super(message); this.name = "TransportError"; }
 }
+/** A CLI's process tree outlived its call. The failure is final, so no retry starts another CLI beside it. */
+export const PROCESS_TREE_NOT_TERMINATED = "CLI_PROCESS_TREE_NOT_TERMINATED";
+export function leftProcessesRunning(error: unknown): error is TransportError {
+  return error instanceof TransportError && error.message.startsWith(PROCESS_TREE_NOT_TERMINATED);
+}
 /** The same failure, with its usage evidence stated. */
 export function withUsageEvidence(error: TransportError, evidence: UsageEvidence): TransportError {
   return new TransportError(error.code, error.message, error.retryable, error.retryAfterMs, evidence);

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runNativeProcess, type NativeProcessPort, type NativeProcessResult } from "../../process.js";
 import { versionInRange } from "../../semver.js";
-import { noUsage, TransportError, type ProviderTransport, type TransportConfiguration, type TransportId, type TransportRequest, type TransportResponse, type TransportToolCall } from "../../transport-contract.js";
+import { leftProcessesRunning, noUsage, PROCESS_TREE_NOT_TERMINATED, TransportError, type ProviderTransport, type TransportConfiguration, type TransportId, type TransportRequest, type TransportResponse, type TransportToolCall } from "../../transport-contract.js";
 import { resetTime } from "./classify.js";
 import { CLI_DIALECTS, type CliDialect, type CliInvocationContext } from "./dialects.js";
 import { childPath, cliExecutableCandidates, hostNodeExecutable, type CliExecutable, type CliExecutableResolution, type DiscoveryHost, type HostLookup } from "./discovery.js";
@@ -31,8 +31,6 @@ const DEFAULT_TIMEOUT_MS = 30 * 60 * 1_000;
 const DEFAULT_MAXIMUM_OUTPUT_BYTES = 16 * 1024 * 1024;
 const PROBE_TIMEOUT_MS = 30_000;
 const CONVERSATION_TTL_MS = 2 * 60 * 60 * 1_000;
-/** A CLI's process tree outlived its call. The failure is final, so no retry starts another CLI beside it. */
-const TREE_NOT_TERMINATED = "CLI_PROCESS_TREE_NOT_TERMINATED";
 
 interface CliDirectories { readonly root: string; readonly work: string; readonly control: string; readonly isolatedHome: string; readonly scratch: string }
 type CliUsage = TransportResponse["usage"];
@@ -124,7 +122,7 @@ export class CliTransport implements ProviderTransport {
         // marks it retryable, so it is sent whole here rather than spending one of the caller's attempts. A CLI that left
         // processes running is never followed by another.
         if (!(error instanceof TransportError) || error.retryable && error.code !== "MALFORMED_RESPONSE" || ["QUOTA", "CANCELLED", "TIMEOUT", "OUTPUT_LIMIT", "AUTH", "RATE_LIMIT", "INVALID_REQUEST"].includes(error.code)
-          || error.message.startsWith(TREE_NOT_TERMINATED)) throw error;
+          || leftProcessesRunning(error)) throw error;
       }
     }
     return this.#call(run, prompt, await this.#directories(), { id: randomUUID(), resume: false }, prompt.boundary);
@@ -159,7 +157,7 @@ export class CliTransport implements ProviderTransport {
       const result = await this.#process.run({ executable: executable.command, arguments: [...executable.prefixArguments, ...invocation.arguments], cwd: directories.work,
         environment: invocation.environment, stdin: invocation.stdin, timeoutMs: this.#timeoutMs, maximumOutputBytes: this.#maximumOutputBytes, signal, onLine: (line) => reader.line(line) });
       // Before the reason it stopped: a timeout is retried, and another CLI must not start beside processes still running.
-      if (!result.treeTerminated) throw new TransportError("HTTP", `${TREE_NOT_TERMINATED}: ${this.#support.displayName} left processes running${result.pid === null ? "" : ` (process ${result.pid} and its descendants)`}`, false);
+      if (!result.treeTerminated) throw new TransportError("HTTP", `${PROCESS_TREE_NOT_TERMINATED}: ${this.#support.displayName} left processes running${result.pid === null ? "" : ` (process ${result.pid} and its descendants)`}`, false);
       this.#assertStopped(result, signal);
       const outcome = reader.finish(result.exitCode, result.stderr);
       if (outcome.sessionId !== null) sessionId = () => outcome.sessionId;

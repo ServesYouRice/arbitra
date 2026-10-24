@@ -91,6 +91,46 @@ describe("provider invocation runtime", () => {
     await expect(pending).rejects.toMatchObject({ name: "ProviderInvocationFailure", attempts: 1, causeCode: "CANCELLED" });
   });
 
+  it("waits for a timed-out send to stop before its retry starts or its slot is freed", async () => {
+    // A CLI takes time to end its process tree once aborted; the stage timeout retried at once, beside it.
+    const limits = scheduler(); const events: string[] = []; let calls = 0;
+    const transport: ProviderTransport = { id: "fixture", send: (_request, signal) => new Promise<TransportResponse>((resolve, reject) => {
+      calls += 1; const call = calls; events.push(`start ${call}`);
+      if (call === 2) { resolve(successfulResponse()); return; }
+      signal.addEventListener("abort", () => setTimeout(() => { events.push(`stopped ${call} with ${limits.snapshot("provider").active} active`); reject(new TransportError("CANCELLED", "Provider request cancelled", false)); }, 50));
+    }) };
+    const traces = vi.fn();
+    const runtime = new ProviderInvocationRuntime({ transports: { fixture: transport }, scheduler: limits, budget: { reserve: () => ({ allowed: true }), recordActual() {} },
+      continuation: new ContinuationStateStore({ async save() {}, async load() { return null; } }, { enabled: false, now: () => 0 }), traces: { record: traces }, timer: stageTimer() });
+    await expect(runtime.invoke(request(), context({ maximumRetries: 1, timeoutMs: 20 }))).resolves.toMatchObject({ text: "ok" });
+    expect(events).toEqual(["start 1", "stopped 1 with 1 active", "start 2"]);
+    expect(traces).toHaveBeenCalledWith(expect.objectContaining({ attempt: 1, outcome: "retry", errorCode: "TIMEOUT" }));
+  });
+
+  it("fails a timed-out call without a retry when its CLI left processes running", async () => {
+    const send = vi.fn((_request: unknown, signal: AbortSignal) => new Promise<TransportResponse>((_resolve, reject) => {
+      signal.addEventListener("abort", () => setTimeout(() => reject(new TransportError("HTTP", "CLI_PROCESS_TREE_NOT_TERMINATED: Claude Code left processes running (process 4242 and its descendants)", false)), 10));
+    }));
+    await expect(createRuntime({ id: "fixture", send }, scheduler(), stageTimer()).invoke(request(), context({ maximumRetries: 1, timeoutMs: 20 }))).rejects.toMatchObject({
+      causeCode: "HTTP", attempts: 1, message: expect.stringContaining("CLI_PROCESS_TREE_NOT_TERMINATED: Claude Code left processes running") as unknown,
+    });
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops waiting for a timed-out send that never stops, and starts no retry beside it", async () => {
+    const send = vi.fn(() => new Promise<TransportResponse>(() => {}));
+    let graceRequested = 0;
+    const timer: RuntimeTimer = { sleep: async () => {}, timeout: (milliseconds, callback) => {
+      if (milliseconds !== 20) graceRequested = milliseconds;
+      const handle = setTimeout(callback, milliseconds === 20 ? 0 : 10); return () => clearTimeout(handle);
+    } };
+    await expect(createRuntime({ id: "fixture", send }, scheduler(), timer).invoke(request(), context({ maximumRetries: 1, timeoutMs: 20 }))).rejects.toMatchObject({
+      causeCode: "TIMEOUT", attempts: 1, message: expect.stringContaining("had not stopped") as unknown,
+    });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(graceRequested).toBe(30_000);
+  });
+
   it("pauses the run as rate limited, not failed, when a usage allowance is used up", async () => {
     // Observed live: the Codex five-hour window ran out at the critic and failed a run whose earlier stages were done.
     const transport: ProviderTransport = { id: "fixture", async send() { throw new TransportError("QUOTA", "CLI_USAGE_LIMIT_REACHED: the Codex CLI subscription's usage allowance is exhausted until 2026-10-21T19:33:00.000Z", false, 1_000); } };
@@ -118,6 +158,13 @@ function createRuntime(transport: ProviderTransport, rateLimits: RateLimitSchedu
   });
 }
 function scheduler() { return new RateLimitScheduler({ provider: { rpm: 10, tpm: 10_000, maxConcurrent: 1 } }); }
+/** The stage timeout (20 ms) fires at once; the wait for a timed-out send to stop never runs out. */
+function stageTimer(): RuntimeTimer {
+  return { sleep: async () => {}, timeout: (milliseconds, callback) => {
+    if (milliseconds !== 20) return () => {};
+    const handle = setTimeout(callback, 0); return () => clearTimeout(handle);
+  } };
+}
 function request() { return { modelId: "model", messages: [{ role: "user" as const, content: "hello" }], maximumOutputTokens: 10 }; }
 function context(overrides: Partial<Parameters<ProviderInvocationRuntime["invoke"]>[1]> = {}) { return { activityId: "activity", providerId: "provider", transportId: "fixture", modelId: "model", estimatedTokens: 10, maximumRetries: 0, timeoutMs: 1_000, signal: new AbortController().signal, ...overrides }; }
 function successfulResponse(): TransportResponse { return { text: "ok", structured: null, toolCalls: [], refusal: null, usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }, continuation: null, structuredOutputTier: "prompt_json", providerRequestId: null }; }
