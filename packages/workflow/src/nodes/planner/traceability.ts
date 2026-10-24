@@ -121,7 +121,57 @@ function writeScopes<TTask extends WriteScopedTask>(tasks: readonly TTask[]): { 
     return { task, index, paths };
   }).filter(({ paths }) => paths.size > 0);
 }
-function covers(a: string, b: string): boolean { return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`); }
+/**
+ * Whether two normalised write-scope entries can name a common file. A plain path covers what is under it. An entry with
+ * a glob (`*`, `?`, `[…]`, `{a,b}`, `**`) is matched as a pattern: it was compared as text before, so 'src/*.ts' never
+ * met 'src/auth.ts' and the tasks writing both went unordered. Two patterns are checked against each other, not only
+ * against files, and a doubtful case counts as an overlap: an extra order costs little, a missing one loses an edit.
+ */
+function covers(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (!GLOB.test(a) && !GLOB.test(b)) return a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
+  const rights = expandBraces(b).map(scopeSegments);
+  return expandBraces(a).map(scopeSegments).some((left) => rights.some((right) => segmentsMeet(left, right)));
+}
+const GLOB = /[*?[{]/u;
+/** A directory covers its files, so an entry whose name has no extension ends in `**` (one with an extension is a file:
+ * 'src/*.ts' must not meet 'src/app.css'); a pattern without a slash ('*.md') may sit at any depth. */
+function scopeSegments(pattern: string): string[] { return [...(pattern.includes("/") ? [] : ["**"]), ...pattern.split("/"), ...(/[^/]\.[^./]+$/u.test(pattern) ? [] : ["**"])]; }
+/** `{a,b}` as its alternatives; past 64 alternatives a group is widened to `*`. */
+function expandBraces(pattern: string, limit = 64): string[] {
+  const group = /\{([^{}]*)\}/u.exec(pattern); if (group === null) return [pattern];
+  const alternatives = (group[1] ?? "").split(",");
+  if (alternatives.length > limit) return expandBraces(pattern.replace(group[0], () => "*"), limit);
+  return alternatives.flatMap((alternative) => expandBraces(pattern.replace(group[0], () => alternative), Math.floor(limit / alternatives.length)));
+}
+/** Whether path segments with `**` (any number of segments) can match the same path. */
+function segmentsMeet(left: readonly string[], right: readonly string[]): boolean {
+  const memo = new Map<number, boolean>();
+  const meet = (i: number, j: number): boolean => {
+    const key = i * (right.length + 1) + j; const known = memo.get(key); if (known !== undefined) return known;
+    const a = left[i]; const b = right[j];
+    const result = a === undefined && b === undefined ? true
+      : a === "**" ? meet(i + 1, j) || (b !== undefined && meet(i, j + 1))
+      : b === "**" ? meet(i, j + 1) || (a !== undefined && meet(i + 1, j))
+      : a !== undefined && b !== undefined && segmentMeet(a, b) && meet(i + 1, j + 1);
+    memo.set(key, result); return result;
+  };
+  return meet(0, 0);
+}
+/** Whether two path segments with `*` (any run) and `?` or `[…]` (one character) can match the same name. */
+function segmentMeet(left: string, right: string): boolean {
+  const tokens = (segment: string) => [...segment.replace(/\[[^\]]*\]/gu, "?")];
+  const a = tokens(left); const b = tokens(right); const memo = new Map<number, boolean>();
+  const meet = (i: number, j: number): boolean => {
+    const key = i * (b.length + 1) + j; const known = memo.get(key); if (known !== undefined) return known;
+    const result = i === a.length && j === b.length ? true
+      : a[i] === "*" ? meet(i + 1, j) || (j < b.length && meet(i, j + 1))
+      : b[j] === "*" ? meet(i, j + 1) || (i < a.length && meet(i + 1, j))
+      : i < a.length && j < b.length && (a[i] === "?" || b[j] === "?" || a[i] === b[j]) && meet(i + 1, j + 1);
+    memo.set(key, result); return result;
+  };
+  return meet(0, 0);
+}
 
 /**
  * Orders the tasks whose write scopes overlap and that the plan leaves unordered: the later task (by id) waits

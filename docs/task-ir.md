@@ -25,7 +25,9 @@ The planner writes these links, and `packages/workflow/src/nodes/planner/traceab
 (`validateTraceability`) checks them. The Planner fails hard (`PlannerTraceabilityError`)
 rather than emitting a plan where a task maps to no assertion or an accepted issue is
 covered by no task. In Audit and Feature plans, two tasks whose write scopes overlap must
-also be ordered by a dependency path (`SHARED_WRITE_SCOPE_UNORDERED`): a handoff renders only
+also be ordered by a dependency path (`SHARED_WRITE_SCOPE_UNORDERED`; a directory covers its
+files, and a glob in `likelyFiles` such as `src/**/*.ts` or `packages/*/package.json` counts as
+the files it can match, doubtful cases as an overlap): a handoff renders only
 `dependsOn` and `blocks`, and `conflictsWith` orders nothing. Testing execution serialises
 shared writes itself, so its plans are exempt. The run adds the orders a plan leaves out
 (`withSharedWritesOrdered`, applied to every plan, outline and revision a model returns): the

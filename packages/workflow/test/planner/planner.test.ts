@@ -92,6 +92,32 @@ describe("shared write scope ordering", () => {
     expect(validateTraceability({ ...unordered, mode: "testing" })).toEqual([]);
   });
 
+  it("treats a glob in likelyFiles as the files it covers, so globs and files they match are ordered", async () => {
+    // The check compared paths as text, so 'src/**/*.ts' never met 'src/auth.ts' and shared writes went unordered.
+    const base = (await planSchema()).parse(plan()); const first = requiredAt(base.tasks, 0);
+    const free = { dependsOn: [], blocks: [], conflictsWith: [] };
+    const task = (id: string, likelyFiles: readonly string[]) => ({ ...first, id, dependencies: free, scope: { ...first.scope, likelyFiles: [...likelyFiles] } });
+    const pair = (left: readonly string[], right: readonly string[]): TraceablePlan => { const tasks = [task("TASK-001", left), task("TASK-002", right)]; return { ...base, tasks, taskGraph: [], routingRecommendations: tasks.map(({ id }) => ({ taskId: id })) }; };
+    const unordered = (left: readonly string[], right: readonly string[]) => validateTraceability(pair(left, right)).some(({ code }) => code === "SHARED_WRITE_SCOPE_UNORDERED");
+    const overlapping: readonly (readonly [string, string])[] = [
+      ["src/**/*.ts", "src/auth.ts"], ["src/*", "src/auth.ts"], ["src/*.ts", "src/**/*.ts"], ["*.md", "README.md"], ["*.md", "docs/guide.md"],
+      ["packages/*/package.json", "packages/core/package.json"], ["packages/*/package.json", "packages/core/*.json"], ["src/**", "src/a/b.ts"],
+      ["src/{auth,session}.ts", "src/session.ts"], ["src/auth.?s", "src/auth.ts"], ["src/[ab]uth.ts", "src/auth.ts"], ["src/*", "src/auth/login.ts"], ["**/*.test.ts", "test/auth.test.ts"],
+    ];
+    for (const [left, right] of overlapping) { expect(unordered([left], [right]), `${left} / ${right}`).toBe(true); expect(unordered([right], [left]), `${right} / ${left}`).toBe(true); }
+    const disjoint: readonly (readonly [string, string])[] = [
+      ["src/**/*.ts", "src/styles/app.css"], ["test/*.ts", "src/auth.ts"], ["src/a*.ts", "src/b*.ts"], ["*.md", "README.txt"], ["packages/*/package.json", "apps/cli/package.json"],
+      ["src/{auth,session}.ts", "src/other.ts"], ["src/*.ts", "docs/**/*.ts"], ["src/auth.?s", "src/auth.tsx"],
+    ];
+    for (const [left, right] of disjoint) { expect(unordered([left], [right]), `${left} / ${right}`).toBe(false); expect(unordered([right], [left]), `${right} / ${left}`).toBe(false); }
+    // The run orders them, and a glob dropped by filesNotToTouch (the same text) is not a write.
+    const ordered = withSharedWritesOrdered(pair(["src/**/*.ts"], ["src/auth.ts"]));
+    expect(ordered.taskGraph).toEqual([{ from: "TASK-001", to: "TASK-002" }]);
+    expect(validateTraceability(ordered)).toEqual([]);
+    const excluded = pair(["src/**/*.ts"], ["src/auth.ts"]);
+    expect(validateTraceability({ ...excluded, tasks: [{ ...requiredAt(excluded.tasks, 0), filesNotToTouch: ["./src/**/*.ts"] }, requiredAt(excluded.tasks, 1)] })).toEqual([]);
+  });
+
   it("orders the tasks a plan leaves unordered on the same files, so no repair has to write the plan again", async () => {
     // Observed live (P20 pilot): a plan for 45 issues was refused for such pairs and written a second time.
     const base = (await planSchema()).parse(plan()); const first = requiredAt(base.tasks, 0);
