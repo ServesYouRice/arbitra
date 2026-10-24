@@ -214,7 +214,7 @@ up to Opus 5.5 and Fable 5.1.
   for quality".
 - Antigravity CLI ([FAQ](https://antigravity.google/docs/faq), October 11): headless `agy -p` "is intended for direct
   scripting and CI workflows"; wrapping `agy` in other applications "is not supported under consumer plans" (see
-  `WORK-REMAINING.md`, Vendor terms).
+  [developing arbitra](development.md#vendor-terms)).
 
 ## 6. Meta, Mistral and xAI
 

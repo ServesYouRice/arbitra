@@ -1,7 +1,8 @@
 # Verification evidence
 
 Each folder here holds the evidence of one completion-plan item. It records the commit, platform, configuration,
-commands, results and redacted run references. What is still open is in [remaining work](../../WORK-REMAINING.md).
+commands, results and redacted run references. The audits of real projects since October 20, and what came of carrying
+out their plans, are in [real-project runs](real-runs.md). What is still open is in [remaining work](../../WORK-REMAINING.md).
 Item definitions and the deferred paid-API bundle are in the [completion plan](../completion-plan.md).
 The history was rewritten on October 24, 2026; commit hashes in files written before then (the frozen protocols
 and the recorded evidence) are the old ones, and [`commit-map-2026-10-24.txt`](commit-map-2026-10-24.txt) gives

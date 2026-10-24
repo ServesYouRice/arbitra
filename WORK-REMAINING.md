@@ -1,463 +1,127 @@
 # Remaining work
 
-Updated October 24, 2026, on `main`. Phase status lives in the [completion plan](docs/completion-plan.md) and the
-design review's open items in the [design audit](docs/design-audit.md); this file says what is left and in what order.
-Earlier measurements are in this file's history: the P20 pilot in `git show e917ec7:WORK-REMAINING.md`, the full
-narratives of the real-project runs in `git show 7a68462:WORK-REMAINING.md`.
+Updated October 25, 2026, on `main`. This file lists open work only, each item with its next step and its place in
+the order below; an item is deleted once it is done, and Git keeps its history. Run records and measurements are in
+[real-project runs](docs/qa/real-runs.md), phase status in the [completion plan](docs/completion-plan.md), the design
+review in the [design audit](docs/design-audit.md), and how the project's own testing runs, the vendors' terms and how
+to pick the work up in [developing arbitra](docs/development.md).
 
 ## State
 
-- **P20 is closed on its pilot (October 19).** On the three pilot projects, wherever three Opus-only runs together
-  missed a planted defect, the premium panel found it, using 0.57 to 0.67 times their time and 0.69 to 0.76 times
-  their tokens. That is 21 planted defects: an estimate, not a test. Per-defect results stay in the private benchmark
-  repository. The held-out set is left unrun by design; the product's claims rest on what each run checks and
-  proves, not on the premise.
-- **Releases:** `checkpoint-1` (October 20, 281c27c), v0.1.0 (October 21), v0.2.0 (October 23, adds the Windows
-  single-file `.exe`), v0.2.1 (October 24, Gemini opt-in), `checkpoint-2` and v0.2.2 (October 24, 847878b: the
-  critic on two auditors, the project's commands in plans, secret masking that leaves code readable). Every branch was merged into `main` on October 22; work
-  continues from `main`. [`TESTERS.md`](TESTERS.md) is the testers' guide.
-- **Next: the improvement phase** below, the changes held back until now because they could destabilise the app.
-  Still planned after it:
-  - **UI phase**, on its own branch: research how people want run results and settings shown, audit the current UI,
-    and agree a direction from mockups before code changes. The UI is wordy, uses similar terms and choices it does
-    not explain, and says little about how models are gathered and which are chosen; the original drag-and-drop
-    "slots" idea is to be audited, not assumed.
-  - **P21**, the completion report, last.
+- **Releases:** v0.2.2 and `checkpoint-2` (October 24, 847878b) are the latest. Work continues on `main`;
+  [`TESTERS.md`](TESTERS.md) is the testers' guide.
 - **Default lineup:** New run starts on Claude Code and Codex (`subscription-audit`, audit-balanced, no peer-review
   round, Sol as plan critic and Opus checking its critique); Gemini is the opt-in `subscription-audit-gemini`
-  template, labelled with Google's terms. The Feature
-  templates still use Antigravity as their second reviewer (their review needs two independent vendors), behind the
-  same warning in New run.
-- **A fix proven from a plan:** nextra's critical and one high issue were fixed from the saved plan's prompts
-  (TASK-053, TASK-010), each first shown by a test that failed on the unchanged code. nextra's `results.json` holds
-  the failing output, so the run's report reads 3 issues proven and fixed (nextra 40a7e0a, released in nextra 2.1.6
-  on October 24).
+  template, labelled with Google's terms. The Feature templates still use Antigravity as their second reviewer behind
+  the same warning.
+- **Evidence:** six real projects audited; nextra's plan carried out on its `dev` branch: all 126 confirmed issues
+  were real, 118 shown by a failing test, and 14 more defects were found while fixing. P20 is closed on its pilot
+  (October 19); its held-out set stays unrun by design.
+- **Research review** of every step against other labs and products, asked for on October 25: in progress. Its ideas
+  join "Need design" or "Parked" below.
 
-## Real-project runs
+## Order of work
 
-| Project, date | Run | Size | Time | Calls | Tokens (per line) | Outcome | Tokens per confirmed issue | Found alone: Opus / Sol / Gemini |
-|---|---|---|---|---|---|---|---|---|
-| beachflag, Oct 20 | — | 84 files, 11,291 lines | 80 min | 613 | 17.6M (1,560) | 81 accepted (3 high, 25 medium, 52 low), 40 rejected, 11 open | — | — |
-| rokavatar, Oct 21 | `run-757824f4` | 117 files, 10,716 lines | about 110 min | 480 | 15.6M (1,455) | 23 of 212 confirmed (3 high, 20 medium) | 677K | 12 / 2 / 0 |
-| blog, Oct 22 | `run-7fb6177a` | 164 files, 14,204 lines | 63 min | 359 | 13.1M (922) | 41 of 180 confirmed (3 high, 38 medium) | 320K | 16 / 7 / 2 |
-| commentanywhere, Oct 23 | `run-5a90c75d` | 93 files, 11,719 lines | 40 min | 234 | 7.5M (640) | 51 of 150 confirmed (1 critical, 7 high, 43 medium) | 146K | 20 / 8 / 2 |
-| nextra, Oct 23 | `run-ccd3ccea` | 172 files, 38,967 lines | 105 min | 683 | 26.8M (688) | 126 of 415 confirmed (1 critical, 21 high, 104 medium) | 213K | 40 / 30 / 3 |
-| rokbot, Oct 24 | `run-869f90f0` | 125 files, about 26,100 lines | 71 min | 418 | 15.8M (605) | 102 of 300 confirmed (10 high, 92 medium) | 155K | 45 / 15 / — |
+1. **Clear now** (October 25, in progress).
+2. **The next real runs:** veritra and nananananana, once their current development settles. Audit both on the current
+   build, carry out one plan with the new export, and take the measurements under "Measure".
+3. **UI phase**, on its own branch, alongside the veritra audit; the owner reviews it.
+4. **Improvements the measurements support** ("Need design").
+5. **P21**, the completion report and the docs reconciled with the final build, then a release.
 
-beachflag ran before confirmed issues were reported, so its counts are accepted issues. beachflag, rokavatar and
-blog ran with one peer-review round; commentanywhere, nextra and rokbot without one, the default since October 23.
-Gemini ran at high thinking on beachflag and rokavatar, at medium after that; rokbot ran on the two-auditor default
-(Claude Code and Codex) with the plan critic.
+## Clear now
 
-What each run changed:
+Each defect is proven by a failing test before its fix.
 
-- **beachflag** (Gemini critic, every issue verified; verification 10.6M of its tokens): Sol as critic and Opus as
-  critique checker; verification only of the issues the plan covers (58% of the candidates were below it); the token
-  limit sized from the project (3,500 tokens a line, about twice the measured 1,560); raising the limit of a paused
-  run; files Git ignores left out of the snapshot (a 600 KB Playwright report refused the project); model-activity
-  artifacts open again (their IDs were too long a route).
-- **rokavatar** stopped at the critic on the Codex five-hour window and was resumed. Because of it: a usage limit
-  pauses the run and resumes it after the reset (475ca4e); "last activity" and the report's state during a stage
-  (557d265); and safeguards against losing issues (db282ef, 11bd2cb): check-first prompts for issues the verifier
-  could not settle, a severity lowered by one reviewer alone no longer takes an issue out of the plan's scope (25
-  such issues here), a second model before a critical or high issue a reviewer backed is rejected (12 here), and the
-  accepted issues no task fixes listed in the saved plan (48 here). Together these add about 37 questions to a run
-  of this size, about 3M tokens.
-- **blog** showed that the snapshot read a fixed list of extensions and left out all 30 `.astro` files;
-  Astro, shell, C-family and other common sources are now read (ede4b14). Its replay without peer review is
-  `run-d6fbbf98` (experiment 11 below).
-- **commentanywhere**, the first run without peer review. A first attempt failed when Gemini asked for a ninth tool
-  turn on one discovery window: a tool call past the limit is now answered unrun with `TOOL_TURN_LIMIT_REACHED` and
-  the model gets one more turn, and a model that still asks gives a rejected reply that the stage records as a gap
-  (26e13e4). With no review round, the consensus reason now says that no review ran (b386e0e).
-- **nextra**, the largest so far (13,487 of its lines are tests). Wall time: discovery 53 minutes (Opus the long
-  pole; Gemini done after 25, Sol after 29), clustering 6, verification 19 (14.4M tokens in 497 calls for 192
-  questions), plan 17, critic and its check 4, revision 5. Of the project's known defects, both access-control
-  concerns were found and confirmed, one as the critical issue; a gap that spans client and server (the client never
-  sends the operator token a remote host needs) was not. Because of it (80d7065, c419640): Sol opened every finding
-  with the `<quotes>` block the prompt asks for before reasoning, 44% of the text, repeated into every later stage,
-  and discovery now drops a leading block and records which findings had one (`quoteBlocksRemoved`); and a completed
-  run whose gate fails only on work left for a person reads "done · needs you" in the web app, with the issues to
-  check by hand, the questions only the project owner can answer and what the run could not see. Without peer
-  review no auditor is counted as a missing reviewer. The CLI gate is unchanged and still exits 1.
-- **rokbot**, the first default run on two auditors with the plan critic (fixed that morning, see below), audited
-  from a clone of its `origin/main`. No call failed. Verification took 8.9M of the 15.8M tokens (319 calls), the
-  critic and its check 1.4M (9%), planning and revision 2.2M. 83 of the plan's 84 tasks verify with the project's
-  own commands, read from its manifests. The snapshot masked three lines of code as secrets
-  (`secrets.token_urlsafe(32)` and two reads of the token header), so the auditors wrote that they could not check
-  how the capability token was made and compared: a call or an index on a secret's name now reads as code
-  (6daff11). Once, near the end of planning, the server took more than 20 seconds to answer a status request; it
-  did not happen again.
+- Dependency advisories: zod 4.6.6 (high), fastify 5.12.6, fast-uri, vitest 4.1.12. Done in afb494f; `pnpm audit`
+  finds none.
+- Cap the verifier's output: one Sonnet question ran to the 128K-token limit.
+- Merge plan questions across plan sections (nextra asked one question in three sections).
+- Give "cannot tell" and "rejected" verdicts a one-sentence reason, shown where they reach a person.
+- Stop labelling candidates "no consensus" in a run with no review.
+- Read `.webmanifest` files in the snapshot.
+- `arbitra audit --preset` builds a configuration with no models.
+- The critic's risk triggers receive a hard-coded `deepMode: true`.
+- Stop offering models the Git tools that always fail on a snapshot.
+- Re-ask a rejected merged issue place by place only across files, by default (10 to 16% of a panel's tokens bought 7
+  of 50 confirmations, none a planted defect).
+- Stop ranking issues by the model's stated confidence (0.70 to 0.86 for right and wrong verdicts alike).
+- Make the full check pass on Windows: 35 native-harness tests fail here because their stand-ins need a Unix system,
+  and `treeTerminated` is assumed after the leader exits. Check whether a real Claude Code installed as `claude.cmd`
+  starts at all.
+- Wire the derived write envelope (`packages/security/src/envelope.ts`) into saved plans, so a plan written from
+  untrusted text cannot widen an executing agent's scope.
+- The self-audit's open defects of October 19 (run `run-fddb5d17`): redaction (bracket index access, swallowed
+  delimiters, escaped newlines in JSON-encoded source, quotes that redaction makes ungroundable), process termination
+  (POSIX process groups, Windows descendants, `treeTerminated`), CLI transports (identical prompt prefixes resuming
+  the wrong conversation, three dialects ignoring the output ceiling, leftover trees checked only on success),
+  pipeline (peer conflict resolution failing the run on one bad reply, grouped verification never re-asking place by
+  place or exceeding its question limit or showing finder-named ids, merge recovery stopping after one defect, a
+  critic that does not complete replacing earlier blocking items, critic revisions bypassing the question checkpoint,
+  malformed or refused evidence operations dropping citations, moved locations invalidating evidence), discovery
+  (oversized injection follow-ups skipped, unbounded recursive splitting, quadratic quote widening), repository
+  (diff paths, untracked files in `working_tree`, excluded directories walked), a failed event append poisoning later
+  records, and write-scope overlap that understands only a trailing `/**`.
 
-Open from the runs:
+## Measure on the next runs
 
-- **The default Audit ran no plan critic in v0.2.1:** dropping Gemini left two auditors, so `subscription-audit`
-  moved to `audit-balanced`, whose graph had no critic node. Fixed October 24: a balanced audit runs the critic when
-  `roles.critic` is set. On rokbot the critic and its check cost 1.4M tokens, 9% of the run.
-- **Two settings share the words "balanced" and "deep":** the workflow (`audit-balanced` is two auditors,
-  `audit-deep` three) and the audit depth (the effort level). The default is `audit-balanced` at depth `deep`. For
-  the UI phase.
-- **Gemini's share:** its confirmed finds no other model made, against what its audit costs: rokavatar 0 for 2.1M
-  tokens at high thinking (560 call-minutes; 17 of 51 calls lost, 12 to its content filter and 5 to its output
-  ceiling), 7 in that run's replay; blog 2 for 1.9M at medium (135 call-minutes; 9 of 47 calls refused);
-  commentanywhere 2 for 1.1M (6 of 21 refused); nextra 3 for 2.0M (2 of 39 refused).
-- Verification costs 75K to 86K tokens a question.
-- Plan questions are not merged across sections: nextra has two blocking questions in different sections about the
-  same OBS test stream (see Quality below).
-- The issue board labels candidates "no consensus" in a run that had no review.
-- 13 confirmed nextra issues cite only test files, 6 of them claims about production code, and at least 2 of those
-  repeat a confirmed issue that cites the source (see the test-file item below).
-- The verifier's rejections carry no reason, only outcome, evidence and confidence, so checking one means reading
-  its tool trace (see the abstention item below).
-- The snapshot does not read `.webmanifest` files, so claims made only there are invisible to a run.
-- **Dependabot:** fastify 5.12.5 (low, header validation) has no patched release yet; the vitest advisory (moderate,
-  its mocker, test tooling only) is fixed only in vitest 5, a major upgrade. Both are left until a fix is published.
+- **Test files packed with their source:** whether claims about production code that cite only tests go away, and
+  what the 9% more discovery units cost.
+- **The new export:** how many workarounds the executing agents still need, against nextra's stale lines, wrong
+  premises and false waits.
+- **A Sonnet second look at medium reports Opus leaves unsettled:** build it as an option, off by default; it decided
+  6 of 7 rightly on nextra, at about 28K tokens a question.
+- **Eight discovery units at a time** instead of four: the audit runs in two waves (14 minutes of a 28-minute run).
+- **Claude Code's cache on first calls:** 72 first calls in one run wrote 1.18M tokens and read none.
+- **Whether the critic still lacks its source** (`critic-result.citedSourceLeftOut`): seen at the Antigravity CLI's
+  prompt limit; the default critic is now Sol.
+- **What the injection scanner's hits hold**, before sending them to model follow-ups.
+- **Four measurements from October 11 to 13:** prompts sized at one byte a token outside the stages that set
+  `estimatedBytesPerToken`, discovery source as one JSON object a line, Gemini's output nearly all thinking, a pinned
+  copy of each CLI per protocol. Re-read them from the new runs' traces, or drop them.
 
-## Open from the self-audit of October 19
+## UI phase
 
-The premium panel on the 25 files changed since 8fcc3df (5,254 lines) confirmed 78 issues; the ones fixed are in the
-history. Still open, for the improvement phase (most predate the changes audited; the audit read whole files):
+Audit every screen, control and term; research how people want this kind of setup and result shown; design around a
+person's work (pick a project, choose how thorough with measured cost, start, watch, read the issues, take the plan,
+see its results); one word per idea and models named by model and effort (`Opus 5.5 · xhigh`); mockups the owner
+chooses from before code; then build on a `ui` branch with the browser tests. Done when the owner signs off and the
+browser suite passes in Linux. It owns:
 
-- Redaction: bracket index access after a secret's name is masked as a secret; JSON-encoded source loses escaped
-  newlines after redaction; redacting model input and output can make an exact quote impossible to ground.
-- Processes: POSIX descendants that start their own group escape termination; on Windows a descendant that holds no
-  pipe outlives a normal exit, and `treeTerminated` is assumed; leftover trees are checked only on success.
-- CLI transports: identical request prefixes can resume the wrong conversation; three dialects do not enforce the
-  output ceiling.
-- Pipeline: peer conflict resolution fails the run on one invalid or output-limited reply; grouped verification
-  never re-asks a rejected merged candidate place by place, can exceed its question limit, and shows finder-named
-  IDs to the verifier; merge recovery stops after one rescued defect; with `recheckRevisedPlan`, a second critic
-  that does not complete replaces the first one's blocking items; critic revisions bypass the blocking-question
-  checkpoint; one malformed evidence operation can leave dangling or remove valid citations; moving a shared location
-  can invalidate evidence grounded at its old range.
-- Discovery: dense instruction-shaped text merges into one oversized follow-up that is skipped; recursive scope
-  splitting multiplies concurrency and has no depth or spend bound; quote widening is quadratic on repetitive files.
-- Repository and Testing: diff paths are taken relative to the audited root, not the repository top level; the
-  `working_tree` diff leaves out untracked files; excluded directories are still walked.
-- Smaller: a failed partial event append poisons later records; plan write-scope overlap understands only a trailing
-  `/**`. (The search tool's one hit per line is deliberate, as grep reports it.) 36 low-severity issues and 39
-  undecided ones are in the run's record.
+- "Balanced" and "deep" name two settings: the workflow (two or three auditors) and the audit depth (effort).
+- The owner's drag-and-drop "slots" idea for settings, audited against a preset with a lineup card and a plain role
+  list, not assumed.
+- How models are found and chosen, which the setup barely says.
 
-## Improvement phase
+## Need design
 
-Each item changes what the pipeline does or costs, so each is measured before it becomes a default. The targets: a
-panel within about 1.5 times the time and 1.7 times the tokens of three Opus-only runs, quality kept; design changes
-are checked against Anthropic's guidance first.
+Built only where the measurements support them.
 
-**Quality**
+- **Duplicates across discovery units** are never compared. The export's TF-IDF similarity found 4 of nextra's 5
+  overlaps; it could send likely duplicates to the merge check.
+- **Partial stages are not told the rest of the repository exists:** give them its file index. Plan sections and the
+  critic have the source tools and used none in six runs.
+- **Batch the critic by task with the files each cites**, if the measurement above shows it is still short of source.
+- **Cheap verification steps answer "inconclusive":** symbol, call-path, route, configuration and import checks
+  (`inconclusiveTools` in `packages/runtime/src/model-pipeline.ts`), while verification is about half a run's tokens.
+- **Profile settings that change nothing:** `promptStyle`, `fewShotPolicy`, `documentPlacement`, `historyPolicy` and
+  the sampling defaults are set by the templates and ignored. Build them or remove them.
 
-- **Test files were audited apart from the code they test.** Units were packed in path order, so `tests/` filled
-  units of its own: 6 to 14 accepted issues a run were claims about production code that cited only test lines,
-  which clustering cannot join to a report citing the source. Built October 24: each test file goes into the unit of
-  the file it imports whose name it carries (else the last file it imports), Python imports are resolved for this,
-  and an oversized module splits between a file and its tests rather than inside. Measured on the six real-run
-  projects at a 60 KB unit: test files packed with the source their name points at went from 37 of 119 to 82
-  (nextra 0 to 31 of 48), test-only units from 23 to 10, and units from 99 to 108 (9% more discovery calls). Still to
-  measure on the next real run: claims about production code that cite only tests, and discovery tokens.
-- **Stages are not told the rest of the repository exists.** A partial prompt should say it is part of a larger
-  repository and list its file index; plan sections and the critic have the source tools and used none in six runs.
-  (The project's commands now reach the planners; see below.)
-- **Duplicates survive:** pairs from different discovery units with the same failure mechanism are never compared,
-  nor are candidates added during peer review with existing ones (2 of 5 and 2 of 7 additions in two panels).
-- **Unsure reports: 7 of nextra's 20 held, and no confirmed issue was a false alarm.** The executing agents decided
-  all 20 from the code and a test. 13 did not hold. 7 did: 5 fixed with a failing test first, 1 already removed by a
-  task, and check 07, real when audited and fixed for 2.1.6. The severe ones were mostly the false alarms: 2 of 10
-  high or critical held (both security: a viewer could connect the host's transport, and the OBS gate let tunnelled
-  sockets through), and 5 of 10 medium. Deciding them took about 2.4M tokens (Opus, 122K each), about what a second
-  look would cost. Of the 126 confirmed issues, 118 were proven by a failing test, 7 were test gaps shown by
-  mutants and 1 had been fixed by a check first. The plan lists unsure reports after the tasks, as optional, in
-  `prompts/4-unsure`. Decided: the second look at unsure reports before the plan stays an option, off by default in
-  both modes, since carrying out the check costs the same and proves the answer. Built October 24: the plan's README
-  gives this rate; the section already listed the most severe first.
-- **An abstention says nothing about why.** "Cannot tell" and "rejected" should carry one sentence of what the
-  source cannot show, shown in the handoff.
-- **Plan questions are not merged across sections** (one question asked in three sections); merge them and drop the
-  ones the repository answers.
-- **The critic works almost without source:** at the Antigravity CLI's prompt limit it left out 153 to 278 cited
-  files, and most of its remarks did not hold against the source. Batch it by task with the files it cites (now
-  recorded in `critic-result.citedSourceLeftOut`).
+## Parked
 
-**Cost and speed**
+Out of the plan until the named event happens.
 
-- **Verification is still about half a run's tokens** (nextra 14.4M of 26.8M, 192 questions). Issues below the plan's
-  severity bar are no longer verified by default (`belowPlanScope: "skip"`; before that, low and informational
-  questions were 29 to 35% of a run). A cheaper verifier (design audit item 14) was measured on October 24 by
-  replaying nextra's run with Sonnet 5.5 verifying every question (`run-98e2ee7a`, in the experiments folder):
-  - **Cost:** hardly lower. Verification took 11.7M tokens in 412 calls against Opus's 13.3M in 454, and 62
-    call-minutes against 70; the saving is only what a Sonnet token costs against an Opus one.
-  - **Verdicts:** of 188 verified issues, 22 differ (12%). Sonnet confirmed 10 that Opus left unsettled or
-    rejected, rejected 2 that Opus left unsettled, and left unsettled 6 that Opus confirmed (2 of them high) and 4
-    that Opus rejected.
-  - **Where the truth is known** (nextra's plan carried out): Sonnet was wrong all three times. It confirmed the fMP4
-    restart claim (check 05, which does not hold), left the forwarded-IP defect unsettled (TASK-005, proven by a
-    failing test), and rejected the OBS gate on tunnelled sockets (check 07, real when audited). Opus confirmed the
-    second and left the other two unsettled. One more Sonnet confirmation, "`TRUST_PROXY=1` enables IP spoofing",
-    looks wrong too: Express's `req.ip` is only logged.
-  - **Scored against the carried-out plan** (nextra's `.arbitra/dev-notes/verifier-comparison.md`): 15 of the 22
-    differing verdicts have a known truth; the other 7 were Opus rejections that never reached the plan.
-    - **Opus:** right on all 6 of its definite calls, all real defects proven by a failing test, which Sonnet left
-      unsettled. It left the other 9 unsettled.
-    - **Sonnet:** right on 6 of its 9 definite calls, all medium. It was wrong on both highs it decided (it
-      confirmed check 05 and rejected check 07) and confirmed check 18, a medium that did not hold.
-    - **Confidence:** it does not separate Sonnet's right calls from its wrong ones (0.70 to 0.86 for either).
-    - **Where Opus left a medium unsettled:** Sonnet decided 6 of 7 rightly.
-    - **One Sonnet question ran to the 128K-token output limit** (C-5a27b05f4697) and was recorded as unanswered.
-      A verifier answer that long means something looped; cap or stop it far earlier.
-  - **So far:** a cheaper primary verifier is not worth it, since it misses real defects Opus confirms; the default
-    keeps Opus. Worth one measured try in balanced audits: a Sonnet second look at medium reports Opus leaves
-    unsettled (about 28K tokens a question, against about 122K for an agent to decide a check), off until the next
-    real run shows it holds beyond these 7 cases. High and critical stay with frontier verifiers, as in deep audits.
-- **Re-asking each finding of a rejected merged candidate rarely changes the answer:** 10 to 16% of each panel's
-  tokens, 7 of 50 re-asked confirmed, none a planted defect. Re-ask only across files, or only at medium and above.
-- **No first call reads Claude Code's cache** (72 first calls in one run wrote 1.18M tokens and read none). Measure
-  the stage's stable part in the CLI's system-prompt file.
-- **The audit runs in two waves** (eight units four at a time: 14 of a 28-minute run). Measure eight at a time.
-
-**Engineering** (sizes in the [design audit](docs/design-audit.md#engineering-review-of-october-14))
-
-- Admission shared across runs; per-stage envelopes; clustering by representatives; one staged-call port for every
-  mode (Feature and Testing send the whole repository and hard-code `high` effort); README and spec files as
-  untrusted evidence.
-- Edge contracts of saved graphs are stored but not applied. Refusing non-default ones needs a definition of the
-  default first: fixtures and examples set other values.
-- Output repairs of the feature review and critic and the testing writer are not resized (the audit pipeline and the
-  staged port are).
-- Windows: `treeTerminated` is still assumed after the leader exits; the native harness stand-ins need POSIX.
-- Smaller: after a resume one Claude turn returned its tool-call markup as text and the repair restarted its tool
-  loop.
-- From the spec review of October 24 (built differently from the build specification, or not applied):
-  - Model-run verification is one model question per candidate: the deterministic rungs after reading the cited
-    lines (symbol and call-path search, route and config checks, import paths) answer "inconclusive"
-    (`inconclusiveTools` in `packages/runtime/src/model-pipeline.ts`).
-  - Profile quirks are parsed but only `systemPromptSupport` and `toolLoopLimit` act; `promptStyle`,
-    `fewShotPolicy`, `documentPlacement`, `historyPolicy` and the sampling defaults change nothing, though the
-    templates set them.
-  - `arbitra audit --preset …` builds a configuration with no models, so it runs the scripted detectors; model
-    audits need `run <config>`.
-  - Whether a plan gets a critic is decided by the graph alone: the critic's risk triggers receive a hard-coded
-    `deepMode: true`.
-  - Models are offered no Git tools (`gitStatus`, `gitDiff` and `gitLog` throw on a snapshot), and computed cache
-    breakpoints are never sent.
-
-**Built but not wired.** The cleanup of October 24 removed the modules no entrypoint used. Of the ones it kept, three
-were wired on October 24 and the overlap allocator was removed (it bought extra auditors on risky paths, while the
-runs moved to fewer review calls):
-
-- **Wired, warnings only:** the deterministic injection scanner and suppression candidates
-  (`packages/runtime/src/instruction-risk.ts`; [security](docs/security.md)). Still open: send the scanner's hits to
-  the injection follow-ups (model calls), once the next runs show what the candidates hold.
-- **Wired:** the project's own test, typecheck, lint and build commands, read from its manifests at the start of a
-  model Audit or Feature (`packages/runtime/src/project-commands.ts`), given to the planners and listed in the saved
-  plan's `AGENTS.md`. On rokbot, 83 of the plan's 84 tasks verify with them.
-- **Wired:** the saved plan's README says when the project's files changed after the audit, or a CLI updated itself
-  while the run was paused (`environment-versions`).
-- **Derived write envelope** (`packages/security/src/envelope.ts`, with its tests). It derives the write scope from the
-  modules that hold the accepted issues' locations, never from the plan's proposed scope, so a plan written from
-  untrusted text cannot widen an executing agent's scope (for example to `.github/workflows/`). Wire it into the
-  saved plan with item 3 of the order below, plans carried out by other agents.
-- **Native output schemas** for the paid-API bundle: per-dialect schema projections (OpenAI strict, Gemini, Anthropic
-  tool) were built and deleted unused; they are at `7a68462:packages/schemas/src/projections/`.
-
-**Replay with another configuration** (October 24): an Audit replay may now run the stages after discovery with
-another configuration (verifier, critic, planner, efforts) and read an identical checkout elsewhere
-([workflows](docs/workflows.md)). The verifier experiments below use it on the five real runs' discovery, so they
-pay only for verification and planning.
-
-**Experiments** ([design audit](docs/design-audit.md#what-changes), items 11 to 17): no peer review, lower efforts,
-a second varied discovery pass, a cheaper verifier, a verifier of another vendor on a sample, an execution rung, a
-static analyser. And score plans by executing them.
-
-**Order of work**, set after an outside critique on October 22 (of its 17 points, 9 held and 4 partly; the README,
-the run report and a [privacy](docs/privacy.md) page were changed for it the same day) and narrowed on October 24.
-Measurements are for our own judgement of whether the product is good, not to prove anything to others: the
-"evidence a skeptic can check" item and a public track of fixed bugs are dropped. Each item is measured as above:
-
-1. **Prove it (item 16).** Built (October 22): the saved plan asks the executing agent to prove each defect with a
-   test that fails on the unchanged code before fixing it, and to record each issue's result in the plan's
-   `results.json` (fixed, not reproducible, no change needed, blocked; whether a test failed before the fix). The run
-   report and the Evaluation tab read it back. arbitra running such a test itself in the Docker sandbox stays an idea
-   for the execution rung (item 16), not a goal of its own: it needs a dependency step per ecosystem, since the
-   snapshot holds no dependencies and the sandbox has no network.
-2. **Cut only what really does not earn its place.** Reliability and finding what other orchestrators miss come
-   first; value matters, but not at that cost. **Balanced** weighs value against perfection, so cheaper models may
-   take a role where a measurement shows quality holds. **Deep** may gain value too, but every role stays on frontier
-   models. Item 11, no peer review, is measured and is now the default of the
-   subscription Audit template (October 23; the API-key templates keep one round, so the smoke checks still cover
-   the review path). Each finished run was replayed with zero rounds on its own discovery
-   (`replay <run> --max-rounds 0`):
-   - blog, same build: 44 confirmed against 41 with review, 39 the same; after discovery 3.9M tokens against
-     9.4M (the whole run about 7.6M against 13.1M). Review's one addition was a defect a reviewer raised, confirmed
-     twice under two titles. The five only the replay confirmed were most likely lowered below the plan's minimum by
-     review and never verified.
-   - rokavatar (its run predates later fixes, so only indicative): 39 confirmed against 23, 21 the same, 2 added by
-     review; after discovery 6.4M tokens against about 11.8M.
-   - Without review no reviewer votes, so the second opinion before rejecting a severe issue never fired (7 severe
-     rejections on blog). Every severe rejection now gets it when no review ran.
-
-   A cheaper verifier (item 14) is measured and not adopted (see Cost and speed above). Still to measure: Gemini's
-   share across the next real runs
-   (above).
-3. **Plans carried out on the real-run projects.** The five runs were on the owner's own projects, so their plans
-   are carried out there, on a `dev` branch of each project (never `main`), starting with nextra's remaining issues
-   (3 of 126 were fixed for 2.1.6). Count the issues fixed, not reproducible and blocked, what the fixes broke, and
-   the work the plan's prompts did not cover (edits made by hand, questions only the owner could answer). First
-   findings: 79 of nextra's 105 prompts cited validation ids (`VAL-003 tests exist and pass`) and 47 cited open
-   questions (`section-…/Q-004`) that the folder never defined, since only the 5 blocking questions of 68 reached
-   the README; each prompt now carries the checks and questions it cites, and `questions.md` lists the others with
-   their defaults. Ten of its tasks (026, 033, 063, 071, 075, 079, 087, 091, 092, 093) cited VAL-145, VAL-146 or
-   VAL-147, other tasks' assertions, in place of their own (renumbered into VAL-147 to VAL-163): a revision call's
-   new assertions and tasks were renumbered but its prose kept the ids the model chose. Everything a patch writes
-   now follows the renumbering, and a prompt marks a cited assertion that is not one of its task's checks; the plan
-   already exported for nextra keeps the wrong ids in those ten prompts.
-
-   **nextra, carried out October 24** on its `dev` branch (not pushed; it holds fixes for holes in the released
-   2.1.6). One agent per item on the model its tier names (Haiku 19 tasks, Sonnet 70, Opus 15 tasks and the 20
-   checks), up to 17 at once in git worktrees, each reviewed and merged by the driving session. Records are in
-   nextra's `.arbitra/dev-notes/` (`log.md`, `followups.md`, `results/`).
-   - **All 146 issues have a result:** 130 fixed, 1 fixed by another task, 15 no change needed (13 unsure claims
-     that did not hold, check 07, and TASK-027, which check 17 had fixed). 124 were proven by a test that failed on
-     the unchanged code. Unit tests went from 421 to 1,510, all passing, and the browser suite passes 126 (13
-     desktop-only tests skip on the phone project).
-   - **Cost:** about 16.4M tokens and 1,495 agent-minutes for the 124 items. A Haiku item took 3 minutes and 71K
-     tokens on average, a Sonnet one 10 and 128K, an Opus task 29 and 254K, a check 15 and 122K. The follow-ups
-     below took about 2M more.
-   - **Reviewer corrections: 3 of 124.** A Haiku agent skipped the browser check its prompt asked for, because the
-     prompt said "ask before running". An agent stopped as blocked because an existing test pinned the defect: the
-     brief now says to change such a test as little as keeps its intent and cite it, which 12 later items did. One
-     agent's throwaway worktree deleted the shared `node_modules`; the brief now forbids extra worktrees. Running
-     items in parallel cost the driver about a dozen merge fixes (tests written before a shared helper existed, hand
-     merges of a shared spec), none an agent's error.
-   - **What the prompts got wrong** (the agents worked around each and said so):
-     - **Line numbers and quoted code:** stale in most prompts, since earlier items had changed the code.
-     - **Read-first lists:** five named files the task itself creates.
-     - **"Ask before running":** 75 of 125 prompts' verify lines say it, against the plan's own "prove first".
-     - **A wrong file:** check 19 pointed at `fmp4RelayPlayer.js`; the defect was in WatchView's relay player.
-     - **Five wrong premises:** a restore endpoint that did not exist, a ref cleared after `stop()` and not before, a
-       reconnect that would retry, a tunnel origin that cannot reach WebRTC, a refused `SetVideoSettings` that only
-       warns.
-     - **Blocking question 1:** its recommended option, answering with the consumer's payload types, was taken, and
-       it cannot work. Under RFC 3264 a recvonly offer names the payload types its offerer expects to receive. The
-       browser check the owner asked for showed playback failed either way. The fix needed a router per payload-type
-       layout.
-   - **The order serialised more than it had to:** 36 of 125 prompts wait for another task only because both edit
-     a file ("Ordered by arbitra, not a functional dependency"). Run in parallel, each merged cleanly or with one
-     append conflict.
-   - **Defects the plan did not cover, found while carrying it out, each fixed with a failing test first:**
-     - **WHEP:** a browser-hosted room could not be watched over WHEP in Chromium or Firefox, in 2.1.6 too.
-     - **Host reclaim:** reclaim requests went out after the host left, on two paths.
-     - **OBS:** a failed setup's rollback restarted a stream OBS was only retrying; the host page missed a WHIP
-       DELETE; the encoder settings file was never really restored.
-     - **Layout:** a 320 px overflow, and a clipped Resolution toggle.
-     - **Port search:** it ran past 65535.
-     - **Host stop:** a stop sent while the host was offline was ignored, so viewers waited the 30 s window.
-     - **Late relay viewers:**
-       - the catch-up buffer counted with live chunks against the queue's 24 MB, and an MP4 catch-up left its init
-         segment out of the ceiling;
-       - the 16 MB slow-viewer cap counted a catch-up still on its way, so on a slow link a late viewer was dropped;
-       - live chunks that arrived before `get-media-init` answered were thrown away.
-     - **Viewer page:** a transport recovery dropped the relay without asking for it again, and attempts in flight
-       could restart playback during Leave Room's 5 s wait.
-     - **Not real:** 4 of the 18 suspected defects the agents reported while working did not hold: three browser
-       tests failing on an old build, a chunk-count overflow and two of five viewer-page gaps.
-
-   - **Built from it (October 24),** checked by re-exporting nextra's run with the new exporter:
-     - **Order:** a wait only for a shared file shows as "same files as" in the README and under
-       `shares_files_with` in the prompt, not as work to finish first (35 of nextra's 36; the 36th note had gained a
-       revision's instruction, so it stays an order). Tasks with no "after" can run side by side.
-     - **Prompts:** say that what they state about the code (lines, quoted code, behaviour) is a claim to check, to
-       find code by name and follow the code where it differs. The planner is told to name code by symbol and file,
-       to state an issue's premise as a claim, and to recommend a question's answer only when the source, a cited
-       standard or a test shows it works (`PLAN_TEXT_RULE`).
-     - **Commands:** "run them yourself"; ask first only for one that installs software, deletes data outside the
-       build output or reaches the network. No prompt says "ask before running" now (75 of 125 did).
-     - **Read first:** a listed file the repository lacks moves to `new_files` (27 of nextra's prompts).
-     - **`AGENTS.md`** and each prompt: run the checks; an existing test that pins the defect is changed as little
-       as keeps its intent and named; a fix that crosses a boundary (browser and server, processes, what a person
-       sees) gets an end-to-end check.
-     - **`results.json`:** `checkedEndToEnd` per issue and `foundWhileFixing` for defects no issue named; the run
-       report and the Evaluation tab read both back.
-     - **Overlaps:** each prompt lists up to three reports elsewhere in the plan that read like its issue
-       (`related_reports`, TF-IDF cosine of title and description at 0.35). On nextra: 24 prompts, 16 pairs; it
-       finds 4 of the 5 overlaps the agents met (all but TASK-048's half covered by TASK-043, at 0.30), and the
-       other pairs are related work in the same code. Location overlap did worse (2 of 5, with 48 pairs).
-     - **Still open:** do not use a model's stated confidence as a signal (it ranks issues today).
-
-Next: the rest of this phase's smaller items. Then the UI phase, then P21.
-
-**To re-check on the current build** (measured October 11 to 13, before later changes): prompts sized at one byte a
-token outside the stages that set `estimatedBytesPerToken`; discovery source as one JSON object a line; Gemini's
-output nearly all thinking and its CLI's own agent prompt; a pinned copy of each CLI per protocol, as for Claude Code.
-
-## Vendor terms
-
-Read October 22. **Google:** wrapping `agy` in another application "is not supported under consumer plans", and
-third-party access "may be grounds for suspension" (FAQ and terms); New run, TESTERS.md and the privacy page say so,
-and Google's route for tools is a Gemini API key. **Anthropic:** allowed as arbitra does it. Claude Code's
-[legal page](https://code.claude.com/docs/en/legal-and-compliance) does not prevent "an end user from signing in to
-the unmodified Claude Code binary with their own Claude subscription"; it forbids tools that collect or route
-subscription credentials, which arbitra never does, and limits assume "ordinary, individual usage". **OpenAI:** no
-statement found on driving `codex exec` from another tool; ChatGPT's terms govern the data.
-
-## Deferred: the paid-API bundle
-
-It needs funded API accounts, which the project's own testing does not use
-([completion plan](docs/completion-plan.md#deferred-the-paid-api-bundle)): the OpenAI Responses, OpenAI Chat and
-Anthropic Messages protocols live (P03); P08's live context limits; each P15 batch driver; and from the engineering
-review, opaque reasoning state per message, native output schemas and explicit cache control.
-
-## Live-testing policy
-
-Subscription mode is a product feature for every user, on an equal footing with API keys and selectable per role.
-The project's own live testing runs **only on subscription models**, through the vendors' CLIs, and never on API
-credits:
-
-| Vendor | CLI | Sign-in |
-|---|---|---|
-| Anthropic | Claude Code | Claude login |
-| OpenAI | Codex CLI | ChatGPT login |
-| Google | Antigravity CLI (`agy`) | Google AI subscription login |
-
-Claude carries most roles. Codex and Antigravity take at most one secondary role each, because their limits are lower.
-
-Google retired personal logins from the Gemini CLI on June 18, 2026, so the `gemini-cli` transport serves only Code
-Assist Standard or Enterprise accounts. Never use third-party plugins that reuse Antigravity OAuth tokens; they get
-accounts banned.
-
-Live configurations come from `tooling/live/bindings.subscription.json`. The API-key transports remain for other
-users: [bindings.claude-primary.json](tooling/live/bindings.claude-primary.json) is the API-key equivalent, and
-[bindings.gemini.json](tooling/live/bindings.gemini.json) records the free-tier Gemini setup behind the earlier
-evidence.
-
-## How to pick this up again
-
-1. **Logins.** Sign in once in a terminal: `claude` (/login), `codex login` (Sign in with ChatGPT) and `agy`. The API
-   keys in the gitignored `.env` are not used for live testing.
-2. **Build.** Run `pnpm build`.
-3. **Web UI.** `arbitra.cmd` (Windows) or `arbitra.command` builds when needed and opens http://127.0.0.1:4178,
-   served by the control plane. For UI work, `pnpm --filter @arbitra/web dev` on http://127.0.0.1:4173 proxies to it.
-4. **Workflows (P03).**
-   1. Generate the configurations: `node tooling/live/configure.mjs tooling/live/bindings.subscription.json .runs/live/configs-sub`.
-   2. Run one: `tooling/live/run.sh .runs/live/configs-sub <audit-mixed-providers|feature-automatic|feature-interactive|testing-plan|testing-execute>`.
-      A sleeping host stretches every stage timeout, so keep the machine awake during a run.
-   3. An interactive Feature stops `BLOCKED`. Inspect it with `requirements <run-id>`, then `revise-requirements`
-      and/or `approve-requirements`, then run `tooling/live/resume.sh feature-interactive <run-id>`.
-   4. Hand a Feature plan to fresh Claude Code executors: `node tooling/live/handoff.mjs <work-name> <run-id>`.
-
-   `testing-execute` needs Docker and the pinned image; see [qa/p04](docs/qa/p04/README.md).
-5. **Native writer (P12).** Run in `packages/runtime`:
-
-   ```bash
-   ARBITRA_NATIVE_HARNESS_CONFORMANCE=1 ARBITRA_CLAUDE_CODE_EXECUTABLE=<absolute claude path> \
-   ARBITRA_NATIVE_CONFORMANCE_MODEL=claude-sonnet-5 ARBITRA_NATIVE_CONFORMANCE_CREDENTIAL_KIND=subscription_login \
-   npx vitest run test/native-harness.conformance.test.ts --silent=false
-   ```
-
-   See [qa/p12](docs/qa/p12/README.md).
-6. **Premise evaluation (P06): complete.** Version 2.1.0's results are in
-   [qa/p06-subscription](docs/qa/p06-subscription/README.md). Its run state is local only, in
-   `.runs/p06-subscription-2.1.0` (2.0.0's in `.runs/p06-subscription`); keep both. For live runs, pace on the Claude
-   five-hour window (`rate_limit_event` in any `claude -p --output-format stream-json --verbose` call).
-7. **Usage windows.** Codex's are read without a model call through `codex app-server` (`account/rateLimits/read`).
-
-Evidence per item is in [docs/qa](docs/qa/README.md); the subscription runs are in
-[qa/p03-subscription](docs/qa/p03-subscription/README.md).
+- **Engineering restructuring** (shared admission across runs, per-stage envelopes, clustering by representatives, one
+  staged-call port for every mode, README and spec files as untrusted evidence; sizes in the
+  [design audit](docs/design-audit.md#engineering-review-of-october-14)): when a defect traces to one of them.
+- **Edge contracts of saved graphs**, stored but not applied: when the graph editor is used for real.
+- **Feature and Testing output repairs not resized:** when those modes get real use.
+- **Experiments 12, 13, 15, 16 and 17** ([design audit](docs/design-audit.md#what-changes): lower efforts, a second
+  varied discovery pass, another vendor verifying a sample, an execution rung, a static analyser): when a run shows
+  defects being missed.
+- **The paid-API bundle** ([completion plan](docs/completion-plan.md#deferred-the-paid-api-bundle)): with funded API
+  accounts. P21 lists it as deferred.
+- **A resumed Claude turn returned its tool-call markup as text once:** if it happens again.
+- **Injection follow-ups from the scanner's hits:** once the measurement above shows what they hold.
+- **The other five run plans** (beachflag, rokavatar, raquelsblog, commentanywhere, rokbot): when the owner wants
+  those projects fixed. Re-export each first so it gets the current export.
