@@ -20,8 +20,11 @@ export const plannerOutlineSchema = planIRSchema.extend({ tasks: z.array(planner
 export const plannerOutlineHeaderSchema = planIRSchema.pick({ id: true, title: true, reasoningOutcome: true, implementationStrategy: true, dependencies: true, rolloutConcerns: true, migrationConcerns: true }).strict();
 export const plannerOutlineLinksSchema = z.strictObject({ dependencies: z.array(z.strictObject({ from: z.string().min(1), to: z.string().min(1), reason: z.string().min(1).max(1000) })) });
 export const plannerTaskExpansionSchema = z.strictObject({ unresolvedQuestions: z.array(unresolvedQuestionSchema), task: planTaskIRSchema });
+/** Questions that sections planned side by side asked more than once: each group asks for one decision. */
+export const plannerQuestionGroupsSchema = z.strictObject({ groups: z.array(z.strictObject({ questionIds: z.array(z.string().min(1)).min(2), reason: z.string().min(1).max(1000) })) });
 export type PlannerBrief = z.infer<typeof plannerBriefSchema>;
 export type PlannerOutline = z.infer<typeof plannerOutlineSchema>;
 export type PlannerOutlineHeader = z.infer<typeof plannerOutlineHeaderSchema>;
 export type PlannerOutlineLinks = z.infer<typeof plannerOutlineLinksSchema>;
+export type PlannerQuestionGroups = z.infer<typeof plannerQuestionGroupsSchema>;
 export type PlannerTaskOutline = z.infer<typeof plannerTaskOutlineSchema>;

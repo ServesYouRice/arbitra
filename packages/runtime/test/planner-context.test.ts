@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { planIRSchema, type PlanIR } from "@arbitra/schemas/plan.js";
-import type { PlannerBrief, PlannerOutline, PlannerOutlineLinks, PlannerTaskOutline } from "@arbitra/schemas/planner-composition.js";
+import { planIRSchema, type PlanIR, type UnresolvedQuestion } from "@arbitra/schemas/plan.js";
+import type { PlannerBrief, PlannerOutline, PlannerOutlineLinks, PlannerQuestionGroups, PlannerTaskOutline } from "@arbitra/schemas/planner-composition.js";
 import type { PlannerInput } from "@arbitra/workflow/nodes/planner/node.js";
 import { auditPlannerRecords, planWithContext, taskOutline, type PlannerStage } from "../src/planner-context.js";
 
@@ -353,8 +353,10 @@ describe("hierarchical global outline when all briefs cannot share one outline",
 
 describe("an audit plan written in sections side by side", () => {
   /** Five issues: C-1, C-3 and C-5 cite billing.ts, C-2 and C-4 cite users.ts. Each section call plans its issues
-   * with local identifiers, and the section of C-5 shares billing.ts with a task of another section. */
-  async function sections() {
+   * with local identifiers, and the section of C-5 shares billing.ts with a task of another section. `ask` gives a
+   * section's questions and its tasks' context; `group` answers the call that finds questions asked twice. */
+  async function sections(ask = (ids: readonly string[]): { questions: UnresolvedQuestion[]; context: string[] } => ({ questions: [{ id: "Q-1", question: `Decide for ${ids.join(", ")}`, blocking: false, blastRadius: "low" }], context: ["resolves:Q-1"] }),
+    group: (questions: readonly { id: string; section: string; question: string }[]) => PlannerQuestionGroups = () => ({ groups: [] })) {
     const { input: base, plan: template } = await fixture();
     const task = template.tasks[0]; if (task === undefined) throw new Error("FIXTURE_TASK_ABSENT");
     const issues = [1, 2, 3, 4, 5].map((index) => ({ ...base.canonicalIssues[0] as PlannerInput["canonicalIssues"][number], candidateId: `C-${index}`, claim: { trust: "untrusted_data" as const, title: `Issue ${index}`, description: `Issue ${index}` } }));
@@ -367,11 +369,13 @@ describe("an audit plan written in sections side by side", () => {
       together: async <T, R>(items: readonly T[], run: (item: T) => Promise<R>) => { together.push(items.length); return Promise.all(items.map(run)); },
       async call(stage: PlannerStage): Promise<unknown> {
         calls.push(stage);
+        if (stage.activityId.startsWith("planner/questions/")) return stage.schema.parse(group((stage.input as { questions: { id: string; section: string; question: string }[] }).questions));
         const ids = (stage.input as { planningScope: { recordIds: string[] } }).planningScope.recordIds;
+        const asked = ask(ids);
         const tasks = ids.map((issueId, index) => ({ ...task, id: `TASK-00${index + 1}`, title: `Fix ${issueId}`, addresses: { issues: [issueId], validation: ["VAL-001"], requirements: [] }, scope: { ...task.scope, likelyFiles: [file(issueId)] },
-          dependencies: { dependsOn: index > 0 ? [`TASK-00${index}`] : [], blocks: [], conflictsWith: [] }, context: ["resolves:Q-1"],
+          dependencies: { dependsOn: index > 0 ? [`TASK-00${index}`] : [], blocks: [], conflictsWith: [] }, context: asked.context,
           acceptanceCriteria: ["VAL-001 holds once Q-1 is answered."], implementationGuidance: [index > 0 ? `Build on TASK-00${index}, not TASK-0010.` : "Start here."] }));
-        return stage.schema.parse({ ...template, title: `Plan for ${ids.join(", ")}`, acceptedIssueIds: ids, tasks, unresolvedQuestions: [{ id: "Q-1", question: `Decide for ${ids.join(", ")}`, blocking: false, blastRadius: "low" }],
+        return stage.schema.parse({ ...template, title: `Plan for ${ids.join(", ")}`, acceptedIssueIds: ids, tasks, unresolvedQuestions: asked.questions,
           taskGraph: tasks.slice(1).map(({ id }, index) => ({ from: `TASK-00${index + 1}`, to: id })), traceability: { ...template.traceability, issueToValidation: ids.map((issueId) => ({ issueId, validationIds: ["VAL-001"] })) },
           routingRecommendations: tasks.map(({ id, routing }) => ({ taskId: id, capability: routing.capability, effort: routing.effort, reason: routing.reason })) });
       },
@@ -408,5 +412,30 @@ describe("an audit plan written in sections side by side", () => {
     calls.length = 0;
     await expect(planWithContext(input, { ...port, fits: async () => false }, { records, recordsPerSection: 5 })).rejects.toThrow();
     expect(calls.some(({ activityId }) => activityId.startsWith("planner/section/"))).toBe(false);
+  });
+
+  it("asks a question two sections asked once, as strictly as either asked it, and points every reference at it", async () => {
+    const { input, records, port, calls, artifacts } = await sections((ids) => ids.includes("C-1")
+      ? { questions: [{ id: "Q-1", question: "Which forwarded headers are trusted? Default: the rightmost X-Forwarded-For entry.", blocking: false, blastRadius: "medium" }], context: ["resolves:Q-1"] }
+      : { questions: [{ id: "Q-1", question: "Which deployment model defines trusted forwarded headers?", blocking: true, blastRadius: "high" }, { id: "Q-2", question: `Decide for ${ids.join(", ")}`, blocking: false, blastRadius: "low" }], context: ["Waits for Q-1."] },
+    (questions) => ({ groups: [{ questionIds: questions.filter(({ question }) => question.includes("forwarded headers")).map(({ id }) => id), reason: "Both ask which forwarded headers to trust." }] }));
+    const plan = await planWithContext(input, { ...port, fits: async (stage) => /^planner\/(?:section|questions)\//u.test(stage.activityId) }, { records, recordsPerSection: 3 });
+    expect(plan.unresolvedQuestions.map(({ question, blocking, blastRadius }) => ({ question, blocking, blastRadius }))).toEqual([
+      { question: "Which forwarded headers are trusted? Default: the rightmost X-Forwarded-For entry. Also asked by another section: Which deployment model defines trusted forwarded headers?", blocking: true, blastRadius: "high" },
+      { question: "Decide for C-2, C-4", blocking: false, blastRadius: "low" }]);
+    const stage = calls.find(({ activityId }) => activityId.startsWith("planner/questions/"));
+    // The call reads the sections' questions, not the repository.
+    expect(stage?.sourcePaths).toEqual([]);
+    const [kept, merged, other] = (stage?.input as { questions: { id: string }[] }).questions.map(({ id }) => id);
+    expect(plan.unresolvedQuestions.map(({ id }) => id)).toEqual([kept, other]);
+    // The question is now blocking with a high blast radius, so no task settles it by itself.
+    expect(plan.tasks.map(({ context }) => context[0])).toEqual([...Array(3).fill(`Waits for the answer to ${kept}.`), ...Array(2).fill(`Waits for ${kept}.`)]);
+    expect(plan.tasks.map(({ acceptanceCriteria }) => acceptanceCriteria[0])).toEqual([...Array(3).fill(`VAL-001 holds once ${kept} is answered.`), ...Array(2).fill(`VAL-002 holds once ${kept} is answered.`)]);
+    expect(JSON.stringify(plan)).not.toContain(merged);
+    expect(artifacts.get("planner-question-groups")).toEqual([{ questionId: kept, merged: [merged], reason: "Both ask which forwarded headers to trust." }]);
+    expect(artifacts.get("planner-composition")).toMatchObject({ logicalModelCalls: 3 });
+    // A group names questions of different sections, each once.
+    expect(() => stage?.schema.parse({ groups: [{ questionIds: [merged, other], reason: "Same section." }] })).toThrow("PLANNER_QUESTION_GROUPS_INVALID");
+    expect(() => stage?.schema.parse({ groups: [{ questionIds: [kept, "Q-9"], reason: "Unknown." }] })).toThrow("PLANNER_QUESTION_GROUPS_INVALID");
   });
 });

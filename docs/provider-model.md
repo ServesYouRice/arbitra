@@ -462,7 +462,15 @@ that the review had not rejected.
   (`modelExecution.planSections.issuesPerSection`, audit plans, off unless set). The issues are
   put in order of the files they cite and cut into sections of even size; each section is
   planned whole in one call, checked inside it, and the sections are joined by numbering
-  (tasks of different sections that write the same files are ordered by the run). Compared on
+  (tasks of different sections that write the same files are ordered by the run). Questions
+  that different sections ask for one decision are asked once: a call reads the sections'
+  questions alone and names the groups, and each group keeps its first question's id with
+  every section's wording and the strictest blocking flag and blast radius, every reference
+  pointing at it. On nextra's 59 questions (October 24) it joined the three on which forwarded
+  headers to trust, the two blocking ones on how OBS setup may release a held encoder, and two
+  on the read-only constraint, in 19 seconds; rules on shared words or shared issues also
+  joined different questions in other sectioned plans, such as a repeated consume request
+  with a repeated produce request. Compared on
   the 52 accepted issues of a stored run with Opus 5.5 as planner (October 14,
   `tooling/planner-compare`): one call took 10.3 minutes and 0.18M tokens for a plan of 25
   tasks; four sections side by side took 7.4 minutes and 0.39M tokens for 49 tasks. A blind
