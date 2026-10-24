@@ -43,7 +43,7 @@ with your own Claude, ChatGPT or Google subscription instead of API keys (see
 
 | Template | Mode / preset | Subscription CLIs |
 |---|---|---|
-| `subscription-audit.json` | Audit / `audit-balanced` (2 auditors, no plan critic: its `roles.critic` serves only as the second opinion) | Claude Code, Codex |
+| `subscription-audit.json` | Audit / `audit-balanced` (2 auditors, critic) | Claude Code, Codex |
 | `subscription-audit-gemini.json` | Audit / `audit-deep` (3 auditors, critic) | Claude Code, Codex, Antigravity CLI (Google's terms: see the [privacy](privacy.md) page) |
 | `subscription-feature-interactive.json` | Feature, interactive | Claude Code (planner), Codex and Antigravity CLI (reviewers) |
 | `subscription-feature-automatic.json` | Feature, automatic | Claude Code (planner), Codex and Antigravity CLI (reviewers) |

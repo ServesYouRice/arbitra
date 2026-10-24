@@ -816,7 +816,7 @@ modes, `testing-plan` and `testing-execute` live in
 
 | Preset | Mode | Runtime shape |
 |---|---|---|
-| `audit-balanced` | audit | Two auditors, bounded consensus, verification and planner |
+| `audit-balanced` | audit | Two auditors, bounded consensus, verification, planner, and critic when `roles.critic` is set |
 | `audit-deep` | audit | Three auditors, bounded consensus, verification, planner and critic |
 | `diff-fast` | audit | One auditor, deterministic verification and planner; no peer review |
 | `diff-review` | audit | Two auditors, bounded review, verification and planner |
@@ -824,10 +824,10 @@ modes, `testing-plan` and `testing-execute` live in
 | `testing-plan` | testing | Inventory, grounded risk/gap selection, planner and handoff; no execution |
 | `testing-execute` | testing | Planning, guarded writer/check/finalization stages and verified change handoff |
 
-An Audit plan is criticised only when the executed graph has a `critic` node. Of the presets
-only `audit-deep` has one, so `audit-balanced`, `diff-review` and `diff-fast` run no plan
-critique even when `workflow.modelExecution.roles.critic` is set; that role is then used only
-as the default model for a second opinion (`verification.secondOpinion`). An Audit replay
+An Audit plan is criticised only when the executed graph has a `critic` node. `audit-deep`
+always has one, and `audit-balanced` has one when `workflow.modelExecution.roles.critic` is
+set. `diff-review` and `diff-fast` run no plan critique even when that role is set; it is then
+used only as the default model for a second opinion (`verification.secondOpinion`). An Audit replay
 can add the critic (`criticEnabled`; the CLI's `replay <run-id>` sets it unless `--no-critic`
 is given).
 

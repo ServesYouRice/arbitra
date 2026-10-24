@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { runConfigSchema, type RunConfig } from "@arbitra/schemas/config.js";
 import { Orchestrator } from "../src/orchestrator.js";
 import { orchestratorCore } from "../src/cli-core.js";
-import { configurationDiagnostics, environmentDiagnostics, PreflightError, type PreflightDiagnostic } from "../src/preflight.js";
+import { configurationDiagnostics, environmentDiagnostics, graphForConfiguration, PreflightError, type PreflightDiagnostic } from "../src/preflight.js";
 import { DockerTestSandbox, type BoundedProcessResult, type ProcessRequest, type SandboxAvailability } from "../src/test-sandbox.js";
 import { smokeProvider, smokeRepository } from "./smoke-provider.js";
 import type { CliProbe, CliReadiness } from "@arbitra/providers/transports/cli/probe.js";
@@ -45,6 +45,15 @@ describe("configuration preflight", () => {
     expect(configurationDiagnostics(balanced as unknown as RunConfig)).toEqual([expect.objectContaining({ code: "MODEL_PROFILE_REQUIRED:auditor-c", path: "models.auditor-c" })]);
     delete balanced.workflow["modelExecution"];
     expect(codes(configurationDiagnostics(balanced as unknown as RunConfig))).toEqual(["RUNTIME_MODEL_EXECUTION_CONFIGURATION_REQUIRED"]);
+  });
+
+  it("runs a balanced audit's plan critic only when a critic role is set", async () => {
+    const nodes = (config: Mutable | RunConfig) => graphForConfiguration(config as unknown as RunConfig).nodes.map(({ id }) => id);
+    expect(nodes(await template("subscription-audit"))).toEqual(["preflight", "auditor-a", "auditor-b", "consensus", "verification", "planner", "critic"]);
+    expect(nodes(await template("audit-compatible-chat"))).not.toContain("critic");
+    const diff = mutable(await template("subscription-audit"));
+    diff.workflow["preset"] = "diff-review";
+    expect(nodes(diff)).not.toContain("critic");
   });
 
   it("refuses a spend limit the runtime would ignore and flags other unenforced sections", async () => {

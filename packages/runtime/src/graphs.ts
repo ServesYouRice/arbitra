@@ -3,10 +3,8 @@ import type { RunnerGraph, RunnerNode } from "@arbitra/core/runner/workflow-runn
 const node = (id: string, kind: RunnerNode["kind"], label: string): RunnerNode => Object.freeze({ id, kind, label, goal: label });
 
 /**
- * The executable graphs behind the shipped presets.
- *
- * These mirror `PRESET_WORKFLOWS` in the web app node for node: the graph the user watches
- * in column two is the graph the runner walks, not a picture of a different pipeline.
+ * The executable graphs behind the shipped presets. A run stores the graph it walks, and the
+ * web app draws that stored graph, not a picture of a different pipeline.
  */
 export const AUDIT_DEEP_GRAPH: RunnerGraph = Object.freeze({
   schemaVersion: 1,
@@ -103,7 +101,7 @@ export function auditorIdsFor(graph: RunnerGraph): readonly string[] {
   return Object.freeze(graph.nodes.filter(({ id, kind }) => kind === "model" && id.startsWith("auditor-")).map(({ id }) => id));
 }
 
-/** Replay overrides change the executable graph, including presets without a critic. */
+/** Replay overrides and a balanced audit's critic role change the executable graph, including presets without a critic. */
 export function withCritic(graph: RunnerGraph, enabled: boolean): RunnerGraph {
   const present = graph.nodes.some(({ id }) => id === "critic");
   if (present === enabled) return graph;

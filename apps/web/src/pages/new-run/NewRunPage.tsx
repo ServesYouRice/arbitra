@@ -16,7 +16,7 @@ import { DEFAULT_START, SCRIPTED_AUDIT, TEMPLATES } from "./templates.js";
 
 const PRESET_SHAPES: Readonly<Record<string, string>> = Object.freeze({
   "audit-deep": "Three independent auditors, bounded peer review, verification, a planner and a critic.",
-  "audit-balanced": "Two independent auditors, bounded peer review, verification and a planner.",
+  "audit-balanced": "Two independent auditors, bounded peer review, verification, a planner, and a critic when one is set.",
   "diff-review": "Two independent auditors over a diff, bounded review, verification and a planner.",
   "diff-fast": "One auditor over a diff, deterministic verification and a planner; no peer review, so every issue stays single-source.",
 });

@@ -23,7 +23,8 @@ narratives of the real-project runs in `git show 49f3469:WORK-REMAINING.md`.
     "slots" idea is to be audited, not assumed.
   - **P21**, the completion report, last.
 - **Default lineup:** New run starts on Claude Code and Codex (`subscription-audit`, audit-balanced, no peer-review
-  round); Gemini is the opt-in `subscription-audit-gemini` template, labelled with Google's terms. The Feature
+  round, Sol as plan critic and Opus checking its critique); Gemini is the opt-in `subscription-audit-gemini`
+  template, labelled with Google's terms. The Feature
   templates still use Antigravity as their second reviewer (their review needs two independent vendors), behind the
   same warning in New run.
 - **A fix proven from a plan:** nextra's critical and one high issue were fixed from the saved plan's prompts
@@ -79,10 +80,9 @@ What each run changed:
 
 Open from the runs:
 
-- **The default Audit runs no plan critic** (found October 24, from the code): since v0.2.1 `subscription-audit` uses
-  the `audit-balanced` preset, whose graph has no critic node (`packages/runtime/src/graphs.ts`), so its `critic` and
-  `critiqueChecker` roles are never used, while TESTERS.md says Sol reviews the plan. Either give the balanced graph
-  a critic when a critic role is set, or drop the roles and the claim.
+- **The default Audit ran no plan critic in v0.2.1:** dropping Gemini left two auditors, so `subscription-audit`
+  moved to `audit-balanced`, whose graph had no critic node. Fixed October 24: a balanced audit runs the critic when
+  `roles.critic` is set. The next default run measures what the critic and its revision cost on two auditors.
 - **Gemini's share:** its confirmed finds no other model made, against what its audit costs: rokavatar 0 for 2.1M
   tokens at high thinking (560 call-minutes; 17 of 51 calls lost, 12 to its content filter and 5 to its output
   ceiling), 7 in that run's replay; blog 2 for 1.9M at medium (135 call-minutes; 9 of 47 calls refused);
