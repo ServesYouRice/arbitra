@@ -132,6 +132,22 @@ describe("the new-run page", () => {
     expect(await screen.findByText("the configuration changed after this check · check it again")).toBeTruthy();
   });
 
+  it("re-asks a rejected merged issue place by place only across files unless told to ask at every place", async () => {
+    // Observed (P20 pilot): re-asking every place took 10 to 16% of a panel's tokens and confirmed 7 of 50, none a planted defect.
+    stubBrowser();
+    const bodies: { config: { verification: Record<string, unknown> } }[] = [];
+    stubControlPlane({ ...BASE_ROUTES, "POST /preflight": ({ body }: { body: { config: { verification: Record<string, unknown> } } }) => { bodies.push(body); return READY; } });
+    visit("?page=new-run&from=template:subscription-audit");
+    render(<App />);
+    const always = await screen.findByRole("checkbox", { name: "re-ask merged issues at every place, also within one file" }) as HTMLInputElement;
+    expect(always.checked).toBe(false);
+    expect(template("subscription-audit").config["verification"]).not.toHaveProperty("reaskMergedPlaces");
+    fireEvent.click(always);
+    fireEvent.click(screen.getByRole("button", { name: "check configuration" }));
+    await screen.findByRole("region", { name: "check result" });
+    expect(bodies.at(-1)?.config.verification["reaskMergedPlaces"]).toBe("always");
+  });
+
   it("saves the configuration, starts the run from it, and opens the run", async () => {
     stubBrowser();
     const calls = stubControlPlane({ ...BASE_ROUTES, "POST /preflight": READY,

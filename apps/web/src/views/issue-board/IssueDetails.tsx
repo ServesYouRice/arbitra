@@ -20,6 +20,7 @@ export function IssueDetails({ api, runId, candidateId, refreshKey = null }: { r
       <div><dt>severity</dt><dd>{row.severity}{row.blocker ? " · production blocker" : ""}</dd></div>
       <div><dt>consensus</dt><dd className="state" data-state={consensusToken(row.consensusState, !notPeerReviewed(row))}>{consensusLabel(row)}{notPeerReviewed(row) ? "" : ` · ${row.supportCount} of ${row.reviewDenominator} reviewers support it`}</dd></div>
       <div><dt>verification</dt><dd className="state" data-state={verificationToken(row.verificationOutcome)}>{verificationLabel(row)}</dd></div>
+      {row.verificationReason === null ? null : <div><dt>verifier&apos;s reason</dt><dd className="state prose" data-state="tainted">{row.verificationReason}</dd></div>}
       {row.status === "unavailable" ? null : <div><dt>board status</dt><dd>{row.status}</dd></div>}
       <div><dt>reviewed by</dt><dd>{row.auditors.join(", ") || "no reviewer recorded"}{row.missingReviewers.length === 0 ? "" : ` · missing ${row.missingReviewers.join(", ")}`}</dd></div>
       <div><dt>categories</dt><dd>{row.categories.join(", ") || "none recorded"}</dd></div>

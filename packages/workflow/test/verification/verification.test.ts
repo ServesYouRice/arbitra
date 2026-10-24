@@ -31,6 +31,18 @@ describe("verification subgraph", () => {
     expect(calls).toEqual(["cited_lines", "symbol_or_call_path", "route_config_middleware", "dependency_or_import_path", "bounded_deterministic_check"]); expect(requests).toHaveLength(1); const request = requiredAt(requests, 0); expect(Object.keys(request)).toEqual(["candidateId", "question", "context"]); expect(request.question).not.toContain("\n"); expect(JSON.stringify(request)).not.toContain("Issue Board"); expect(result.modelCalls).toBe(1);
   });
 
+  it("keeps the verifier's reason with its outcome, and records none for an answer that gave none", async () => {
+    // Observed on the real-project runs (October 2026): a "cannot tell" or "rejected" outcome carried no reason, so checking one meant reading its tool trace.
+    const operations: VerificationIssueOperation[] = [];
+    const answer = (reason?: string) => ({ model: { async verify() { return { outcome: "REJECTED" as const, evidenceIds: ["ev-1"], artifactRefs: [], activityId: "model-activity", confidence: 0.7, ...(reason === undefined ? {} : { reason }) }; } }, sink: { async append(operation: VerificationIssueOperation) { operations.push(operation); } }, round: 1 });
+    const result = await verifyItem(item(), tools(), { allowModelCall: true }, answer("The caller checks for null before this line."));
+    expect(result).toMatchObject({ outcome: "REJECTED", reason: "The caller checks for null before this line." });
+    expect(operations[0]?.verification).toMatchObject({ result: "REJECTED", reason: "The caller checks for null before this line." });
+    const without = await verifyItem(item(), tools(), { allowModelCall: true }, answer());
+    expect(Object.hasOwn(without, "reason")).toBe(false);
+    expect(Object.hasOwn(operations[1]?.verification ?? {}, "reason")).toBe(false);
+  });
+
   it("runs an existing test only with the derived repository script policy", async () => {
     const policies: unknown[] = [];
     await verifyItem(item({ allowlistedTest: "pnpm test -- auth" }), tools({ allowlisted_safe_test: "rejected" }, [], policies), { allowModelCall: false }, { sink: { async append() {} }, round: 1 });

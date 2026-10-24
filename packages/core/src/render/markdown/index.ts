@@ -64,7 +64,8 @@ export function renderIssue(issue: NonNullable<ImplementationManifest["issues"]>
     "## Result",
     `Report this issue's result in ${inlineCode("progress.jsonl")} with the task that addresses it: ${inlineCode("fixed")}, ${inlineCode("not_reproducible")}, ${inlineCode("no_change_needed")} or ${inlineCode("blocked")}, with the test or the reason as proof.`,
   ];
-  return markdownFile([`# ${inlineCode(issue.id)}`, `Status: ${inlineCode(issue.status ?? "unknown")}. Provenance is retained.`, ...(facts.length === 0 ? [] : [facts.join(" ")]), frameUntrusted(issue.title ?? "Untitled issue"), frameUntrusted(issue.description ?? "No description supplied."), ...audit, ...reproduce, "## Dissent", issue.dissent?.length ? issue.dissent.map(frameUntrusted).join("\n\n") : "No dissent recorded.", "## Provenance", listCode(issue.provenance ?? [])]);
+  const reason = issue.verification?.reason === undefined ? [] : ["## Verifier's reason", frameUntrusted(issue.verification.reason)];
+  return markdownFile([`# ${inlineCode(issue.id)}`, `Status: ${inlineCode(issue.status ?? "unknown")}. Provenance is retained.`, ...(facts.length === 0 ? [] : [facts.join(" ")]), frameUntrusted(issue.title ?? "Untitled issue"), frameUntrusted(issue.description ?? "No description supplied."), ...audit, ...reproduce, ...reason, "## Dissent", issue.dissent?.length ? issue.dissent.map(frameUntrusted).join("\n\n") : "No dissent recorded.", "## Provenance", listCode(issue.provenance ?? [])]);
 }
 
 export function renderTask(task: ManifestTask, writeScope: readonly string[], readFirst: readonly string[]): string {

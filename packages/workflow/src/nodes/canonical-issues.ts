@@ -13,8 +13,9 @@ interface BoardCandidate { readonly candidateId: string; readonly claim: { reado
 interface CandidateConsensus { readonly candidateId: string; readonly outcome: ConsensusOutcome; readonly supportCount: number; readonly reviewDenominator: number; readonly dissent: readonly Vote[]; readonly coverage: { readonly reviewedBy: readonly string[]; readonly missingReviewers: readonly string[] }; readonly reason: string }
 export interface CanonicalisationBoard { readonly candidates: Readonly<Record<string, BoardCandidate>>; readonly consensus: { readonly auditorCount: number; readonly candidates: readonly CandidateConsensus[] } }
 /** `claim` and `sourceFindingIds`, when given, replace the candidate's: a rejected merge whose findings were then
- * checked one place at a time stands for the findings that were confirmed, under their own title. */
-export interface CanonicalVerification { readonly candidateId: string; readonly outcome: VerificationOutcome; readonly claim?: { readonly title: string; readonly description: string }; readonly sourceFindingIds?: readonly string[] }
+ * checked one place at a time stands for the findings that were confirmed, under their own title. `reason` is the
+ * verifier's sentence on its outcome; it becomes the issue's `verificationReason`. */
+export interface CanonicalVerification { readonly candidateId: string; readonly outcome: VerificationOutcome; readonly reason?: string; readonly claim?: { readonly title: string; readonly description: string }; readonly sourceFindingIds?: readonly string[] }
 export interface CanonicalCoverage {
   readonly securityCoverage: { readonly degraded: boolean; readonly reason: string | null; readonly requiredAction?: string };
   readonly suppressionCandidates: readonly unknown[];
@@ -27,6 +28,8 @@ export interface CanonicalIssue {
   readonly supportCount: number; readonly reviewDenominator: number; readonly dissent: readonly Vote[]; readonly counterEvidence: readonly Evidence[];
   readonly remediationSupplements?: readonly string[]; readonly verificationSupplements?: readonly string[];
   readonly sourceFindingIds: readonly string[]; readonly verificationOutcome: VerificationOutcome | null;
+  /** Why the verifier answered as it did. Absent when it gave no reason, and in issue sets written before it was asked for one. */
+  readonly verificationReason?: string;
   readonly coverage: { readonly reviewedBy: readonly string[]; readonly missingReviewers: readonly string[] }; readonly singleSource: boolean;
 }
 export interface CanonicalIssueSet {
@@ -67,6 +70,7 @@ export function canonicaliseIssues(board: CanonicalisationBoard, verification: r
       ...(candidate.verificationSupplements === undefined ? {} : { verificationSupplements: Object.freeze([...candidate.verificationSupplements]) }),
       sourceFindingIds: Object.freeze([...new Set(verification?.sourceFindingIds ?? candidate.sourceFindingIds)].sort()),
       verificationOutcome: verified,
+      ...(verification?.reason === undefined ? {} : { verificationReason: verification.reason }),
       coverage: Object.freeze({ reviewedBy: Object.freeze([...consensus.coverage.reviewedBy].sort()), missingReviewers: Object.freeze([...consensus.coverage.missingReviewers].sort()) }),
       singleSource,
     });

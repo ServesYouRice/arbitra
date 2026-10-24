@@ -35,10 +35,13 @@ export const modelTurnResultSchema = z.object({
   usage: z.object({ inputTokens: z.number().int().nonnegative().nullable(), outputTokens: z.number().int().nonnegative().nullable(), cacheReadTokens: z.number().int().nonnegative().nullable(), cacheWriteTokens: z.number().int().nonnegative().nullable() }).strict(),
 }).strict();
 
+/** `reason`: one sentence on why, such as what the source cannot show or why the claim does not hold. Observed on the
+ * real-project runs (October 2026): without it, checking a "cannot tell" or "rejected" outcome meant reading its tool trace. */
 export const modelVerificationResultSchema = z.object({
   outcome: z.enum(["CONFIRMED", "REJECTED", "STILL_NEEDS_VERIFICATION"]),
   evidenceIds: z.array(z.string().min(1)),
   confidence: z.number().min(0).max(1),
+  reason: z.string().trim().min(1),
 }).strict();
 
 /** The answers to verification questions put in one call, one per candidate. */
@@ -48,6 +51,7 @@ export const modelVerificationGroupResultSchema = z.object({
     outcome: z.enum(["CONFIRMED", "REJECTED", "STILL_NEEDS_VERIFICATION"]),
     evidenceIds: z.array(z.string().min(1)),
     confidence: z.number().min(0).max(1),
+    reason: z.string().trim().min(1),
   }).strict()),
 }).strict();
 

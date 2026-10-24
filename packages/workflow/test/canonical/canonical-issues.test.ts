@@ -16,6 +16,14 @@ describe("canonical issue projection", () => {
     expect(artifact.coverage.complete).toBe(true);
   });
 
+  it("carries the verifier's reason onto its issue, and an issue verified without one reads as before", () => {
+    const artifact = canonicaliseIssues({ candidates: { "C-1": candidate(), "C-2": candidate("C-2") }, consensus: { auditorCount: 3, candidates: [consensus(), consensus({ candidateId: "C-2" })] } },
+      [{ candidateId: "C-1", outcome: "STILL_NEEDS_VERIFICATION", reason: "Whether the route is public is set in deployment configuration." }, { candidateId: "C-2", outcome: "REJECTED" }], coverage);
+    expect(artifact.issues[0]).toMatchObject({ verificationOutcome: "STILL_NEEDS_VERIFICATION", verificationReason: "Whether the route is public is set in deployment configuration." });
+    expect(artifact.issues[1]?.verificationOutcome).toBe("REJECTED");
+    expect(Object.hasOwn(artifact.issues[1] ?? {}, "verificationReason")).toBe(false);
+  });
+
   it("keeps a high-risk supported minority visible when it is not accepted", () => {
     const artifact = canonicaliseIssues({ candidates: { "C-1": candidate() }, consensus: { auditorCount: 3, candidates: [consensus({ outcome: "rejected", supportCount: 1 })] } }, [], coverage);
     expect(artifact.issues).toHaveLength(1);

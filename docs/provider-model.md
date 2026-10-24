@@ -300,12 +300,21 @@ each finding's location, trigger, problem and quoted evidence under neutral refe
 which model found it, nor its severity, status or confidence, and with evidence and location IDs
 renamed (a judge leans towards claims stated with authority, and towards its own family's).
 Answering that the source cannot decide is named as an expected answer; such an issue is
-reported as unverified and not planned. A rejected candidate whose findings cite places that do
-not overlap, asked alone or in a group, is asked about one place at a time, in order; the issue
+reported as unverified and not planned. Every answer gives its reason in one sentence: what the
+source cannot show, why the claim does not hold, or what shows the defect. It is kept in
+`verification-results` and on the issue (`verificationReason`), and shown in the issue details,
+the handoff's issue files and a saved plan's unsure checks; issue sets saved before it have none.
+Observed on the real-project runs (October 2026): without it, checking a "cannot tell" or
+"rejected" outcome meant reading its tool trace. A rejected candidate whose findings cite places that do not overlap
+in different files, asked alone or in a group, is asked about one place at a time, in order; the issue
 then stands for every confirmed place's findings under the first one's title (`verification-places-<id>`,
 `verification-held-findings`). Observed: a merge gave a real defect another finding's title,
-and the question about that title was rejected. The accepted list is ranked by severity, then by
-how many auditors found the issue, then by the verifier's confidence (`issue-ranking`).
+and the question about that title was rejected. `verification.reaskMergedPlaces: "always"` asks
+place by place within one file too; the default, `"across_files"`, does not: in the P20 pilot
+those re-asks took 10 to 16% of a panel's tokens and confirmed 7 of 50, none a planted defect.
+The accepted list is ranked by severity, then by how many auditors found the issue
+(`issue-ranking`). The verifier's stated confidence is recorded there but does not order the
+list: on nextra's carried-out plan it was 0.70 to 0.86 for right and wrong verdicts alike.
 `verification.maxModelQuestionsPerRound` bounds the questions when it is set (zero disables
 model verification): the re-asks of a merge's places, second opinions and a failed group's
 questions asked one at a time come out of what the first questions leave, a question it leaves

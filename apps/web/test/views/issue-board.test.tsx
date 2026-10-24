@@ -154,6 +154,20 @@ describe("issue board over persisted artifacts", () => {
     expect(screen.getByLabelText("evidence for reviewer-a/f-1").textContent).toContain("updateRole runs before the authorization guard");
   });
 
+  it("shows what the verifier said about an issue it could not settle, and nothing for an issue saved before it said anything", async () => {
+    // Observed on the real-project runs (October 2026): a "cannot tell" outcome carried no reason, so checking one meant reading its tool trace.
+    const [first, second] = issueSet.issues;
+    stubArtifacts({ ...ARTIFACT_CONTENT, "canonical-issues": { ...issueSet, issues: [first, { ...second, disposition: "needs_verification", verificationOutcome: "STILL_NEEDS_VERIFICATION", verificationReason: "Whether a retry cap applies is set by the deployment's environment." }] } });
+    render(<IssueDetails api={new ArtifactApi()} runId="run-1" candidateId="issue-2" />);
+    expect((await screen.findByText("Whether a retry cap applies is set by the deployment's environment.")).dataset.state).toBe("tainted");
+    expect(screen.getByText("verifier's reason")).toBeTruthy();
+    cleanup();
+    stubArtifacts();
+    render(<IssueDetails api={new ArtifactApi()} runId="run-1" candidateId="issue-1" />);
+    expect(await screen.findByText("verified · cited_lines")).toBeTruthy();
+    expect(screen.queryByText("verifier's reason")).toBeNull();
+  });
+
   it("says so when a selected issue is not in the run's issue set", async () => {
     stubArtifacts();
     render(<IssueDetails api={new ArtifactApi()} runId="run-1" candidateId="issue-9" />);

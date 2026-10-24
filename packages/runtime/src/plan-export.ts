@@ -32,6 +32,8 @@ interface ExportIssue {
   readonly verificationOutcome?: string | null; readonly dissent?: readonly { readonly authorId: string; readonly disposition: string; readonly reason: string }[];
   readonly coverage?: { readonly reviewedBy?: readonly string[] }; readonly singleSource?: boolean;
   readonly sourceFindingIds?: readonly string[];
+  /** The verifier's sentence on its outcome; issue sets saved before it was asked for one have none. */
+  readonly verificationReason?: string;
 }
 /** No reviewer voted on it: a run without a peer-review round. Such a report is unchecked, not disputed. */
 const unreviewed = (issue: ExportIssue): boolean => issue.singleSource !== true && issue.coverage?.reviewedBy?.length === 0;
@@ -378,10 +380,13 @@ function unsettledIssues(issues: readonly ExportIssue[], tasks: readonly ExportT
 function checkPrompt(issue: ExportIssue, related: readonly string[], scope: string | null): string {
   const section = (tag: string, body: string) => `<${tag}>\n${body}\n</${tag}>`;
   const views = (issue.dissent ?? []).map(({ authorId, disposition, reason }) => `- ${authorId} (${disposition.replace(/_/gu, " ")}): ${reason.replace(/\s+/gu, " ").slice(0, 1_200)}`);
+  // What the source could not show, in the verifier's words, so the check starts there instead of in its tool trace.
+  const verifier = issue.verificationReason === undefined ? null : `${(issue.verificationOutcome ?? "no outcome").toLowerCase().replace(/_/gu, " ")}: ${issue.verificationReason.replace(/\s+/gu, " ").slice(0, 1_200)}`;
   return [`# Check ${issue.candidateId} · ${issue.claim.title}`, "", `Suggested model: ${TIERS.frontier.model}, effort high. Why: the audit could not settle this by reading alone.`, "",
     `You are a careful senior engineer checking one reported defect in this repository before anyone fixes it. Several models audited the project; ${unreviewed(issue) ? "no peer review checked this one" : "they disagreed about this one"}, and arbitra's verifier could not decide from the code it was shown. The report may be wrong, so treat it as a claim to test, not a fact.`, "",
     section("claim", `${issue.claim.title} (${issue.severity})\n\n${issue.claim.description.replace(/\s+/gu, " ").slice(0, 2_000)}`), "",
     ...(views.length === 0 ? [] : [section("what_the_reviewers_said", views.join("\n")), ""]),
+    ...(verifier === null ? [] : [section("what_the_verifier_said", verifier), ""]),
     ...(related.length === 0 ? [] : [section("related_reports", `${RELATED_NOTE}\n${related.map((item) => `- ${item}`).join("\n")}`), ""]),
     ...(scope === null ? [] : [section("write_scope", scope), ""]),
     section("steps", ["1. Read the code the claim names, and what it calls, until you can say whether the claim holds.",

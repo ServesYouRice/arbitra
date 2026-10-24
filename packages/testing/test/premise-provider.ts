@@ -40,7 +40,7 @@ export function premiseProvider(): { readonly providerOptions: TransportFactoryO
       }
       case "verification": {
         const request = input["request"] as { context: { citedContext: { evidenceId: string }[] } };
-        return { outcome: "CONFIRMED", evidenceIds: request.context.citedContext.map(({ evidenceId }) => evidenceId), confidence: 0.8 };
+        return { outcome: "CONFIRMED", evidenceIds: request.context.citedContext.map(({ evidenceId }) => evidenceId), confidence: 0.8, reason: "Fixture: the cited line holds the defect." };
       }
       case "audit-planner": {
         const acceptedIssueIds = (input["canonicalIssues"] as { candidateId: string }[]).map(({ candidateId }) => candidateId);

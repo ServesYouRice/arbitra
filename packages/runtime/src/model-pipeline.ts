@@ -67,9 +67,13 @@ const VERIFICATION_OUTPUT_TOKENS = 16_000;
 /** Non-blocking critique items kept from one critic call: longer critiques carry more nitpicks (CriticGPT). */
 const CRITIC_NON_BLOCKING_ITEMS = 10;
 const SEVERITY_ORDER: Readonly<Record<string, number>> = Object.freeze({ critical: 0, high: 1, medium: 2, low: 3, informational: 4 });
+/** The verifier's reason is shown to whoever checks an outcome: a person on the issue board, the handoff, and the agent
+ * that takes a saved plan's unsure check. Observed on the real-project runs (October 2026): without it, checking a
+ * "cannot tell" or "rejected" outcome meant reading its tool trace. */
+const VERIFICATION_REASON_RULE = "Give the reason in one sentence: for REJECTED, what in the source shows the claim does not hold; for STILL_NEEDS_VERIFICATION, what the answer depends on that the source cannot show; for CONFIRMED, what in the source shows the defect.";
 /** One question per candidate. Abstaining is named as an expected answer: in every measured run it was never given
  * (0 of 96 questions), though many claims depend on behaviour the source alone cannot show. */
-const VERIFICATION_INSTRUCTION = "Answer the single verification question using the source, including control flow and counterexamples. The findings say where a defect is, what triggers it and what goes wrong; judge that against the code, and treat the candidate's title as a label only. An exact quotation alone does not prove a defect. The source supplied is only the files the findings cite: read whatever else the answer depends on (a helper the cited code calls, a caller, a test) with the source tools before you answer. Answer CONFIRMED when the source shows the defect a finding describes, REJECTED when the source shows it cannot happen, and STILL_NEEDS_VERIFICATION when the answer depends on what the source cannot show, such as runtime behaviour, configuration or code outside the repository: that answer is expected, not a failure, and the issue is then reported as unverified. Cite only supplied evidence IDs.";
+const VERIFICATION_INSTRUCTION = `Answer the single verification question using the source, including control flow and counterexamples. The findings say where a defect is, what triggers it and what goes wrong; judge that against the code, and treat the candidate's title as a label only. An exact quotation alone does not prove a defect. The source supplied is only the files the findings cite: read whatever else the answer depends on (a helper the cited code calls, a caller, a test) with the source tools before you answer. Answer CONFIRMED when the source shows the defect a finding describes, REJECTED when the source shows it cannot happen, and STILL_NEEDS_VERIFICATION when the answer depends on what the source cannot show, such as runtime behaviour, configuration or code outside the repository: that answer is expected, not a failure, and the issue is then reported as unverified. Cite only supplied evidence IDs. ${VERIFICATION_REASON_RULE}`;
 
 /** The places a candidate's findings cite, as one line: the question names where to look, not a title. */
 function verificationQuestion(findings: readonly AuditFinding[]): string {
@@ -531,7 +535,7 @@ export class ModelAuditPipeline {
       const known = new Map(presented.map(({ request }) => [request.candidateId, new Set(request.context.citedContext.map(({ evidenceId }) => evidenceId))]));
       const ids = requests.map(({ candidateId }) => candidateId);
       return { activityId: `verification/group/${createHash("sha256").update(JSON.stringify(ids)).digest("hex").slice(0, 24)}/questions`, modelProfileId: this.#roles.verifier, signal, protocol: "targeted-verification", stage: "verification" as const, sourceScope: "cited" as const, maximumOutputTokens: answerCeiling(this.#roles.verifier, requests.length),
-        instruction: "Answer each of the verification questions supplied, one answer per candidateId, using the source, including control flow and counterexamples. The questions are asked together because their claims cite the same files; judge every claim on its own, from its own question, findings and evidence: one claim's answer settles nothing about another's. A finding says where a defect is, what triggers it and what goes wrong; judge that against the code, and treat a candidate's title as a label only. An exact quotation alone does not prove a defect. The source supplied is only the files the claims cite: read whatever else an answer depends on (a helper the cited code calls, a caller, a test) with the source tools before you answer. Answer STILL_NEEDS_VERIFICATION when an answer depends on what the source cannot show, such as runtime behaviour, configuration or code outside the repository: that answer is expected, not a failure. Cite only the evidence IDs supplied with that claim's own question.",
+        instruction: `Answer each of the verification questions supplied, one answer per candidateId, using the source, including control flow and counterexamples. The questions are asked together because their claims cite the same files; judge every claim on its own, from its own question, findings and evidence: one claim's answer settles nothing about another's. A finding says where a defect is, what triggers it and what goes wrong; judge that against the code, and treat a candidate's title as a label only. An exact quotation alone does not prove a defect. The source supplied is only the files the claims cite: read whatever else an answer depends on (a helper the cited code calls, a caller, a test) with the source tools before you answer. Answer STILL_NEEDS_VERIFICATION when an answer depends on what the source cannot show, such as runtime behaviour, configuration or code outside the repository: that answer is expected, not a failure. Cite only the evidence IDs supplied with that claim's own question. For each answer: ${VERIFICATION_REASON_RULE}`,
         input: { questions: presented.map(({ request, findings }) => ({ request, findings, executedChecks: executedChecks.get(request.candidateId), unresolvedPeerOperations: conflictsInvolving(operationConflicts, [request.candidateId]).map(conflictOutline) })),
           executionInterpretation, repository: this.repository() },
         schema: { parse(value: unknown) {
@@ -539,9 +543,9 @@ export class ModelAuditPipeline {
           const received = answers.map(({ candidateId }) => candidateId);
           if (received.length !== ids.length || new Set(received).size !== received.length || ids.some((id) => !received.includes(id))) throw new Error(`VERIFICATION_GROUP_ANSWERS_INVALID: give exactly one answer for each of ${ids.join(", ")}`);
           return ids.map((id) => {
-            const { outcome, evidenceIds, confidence } = answers.find(({ candidateId }) => candidateId === id) ?? answers[0] as (typeof answers)[number];
+            const { outcome, evidenceIds, confidence, reason } = answers.find(({ candidateId }) => candidateId === id) ?? answers[0] as (typeof answers)[number];
             if (evidenceIds.some((evidenceId) => !known.get(id)?.has(evidenceId)) || outcome !== "STILL_NEEDS_VERIFICATION" && evidenceIds.length === 0) throw new Error(`INVALID_VERIFICATION_EVIDENCE: the answer for ${id} cites evidence its own question does not supply`);
-            return { outcome, evidenceIds: evidenceIds.map(names.real), confidence };
+            return { outcome, evidenceIds: evidenceIds.map(names.real), confidence, reason };
           });
         } }, jsonSchema: modelVerificationGroupResultSchema.toJSONSchema() };
     };
@@ -566,9 +570,9 @@ export class ModelAuditPipeline {
     const separately = async (request: ModelVerificationRequest, rejected: ModelVerificationResponse): Promise<ModelVerificationResponse> => {
       const places = findingsByPlace(convergence.candidateFindings[request.candidateId] ?? []);
       if (places.length < 2) return rejected;
-      // Optionally only across files (`verification.reaskMergedPlaces: "across_files"`). Observed (P20 pilot): the
+      // Only across files unless the run says `verification.reaskMergedPlaces: "always"`. Observed (P20 pilot): the
       // re-asks were 10 to 16% of a panel's tokens and 7 of 50 confirmed, none of them a planted defect.
-      if (this.config.verification["reaskMergedPlaces"] === "across_files" && new Set(places.flatMap((findings) => findings.flatMap(({ locations }) => locations.map(({ path }) => path)))).size < 2) return rejected;
+      if (this.config.verification["reaskMergedPlaces"] !== "always" && new Set(places.flatMap((findings) => findings.flatMap(({ locations }) => locations.map(({ path }) => path)))).size < 2) return rejected;
       const asked: { sourceFindingIds: readonly string[]; activityId: string; outcome: string | null }[] = [];
       const confirmed: { answer: ModelVerificationResponse; findings: readonly AuditFinding[] }[] = [];
       for (const findings of places) {
@@ -589,7 +593,9 @@ export class ModelAuditPipeline {
       const [first] = confirmed;
       if (first === undefined) return rejected;
       held.set(request.candidateId, confirmed.flatMap(({ findings }) => findings));
-      return { ...first.answer, evidenceIds: [...new Set(confirmed.flatMap(({ answer }) => answer.evidenceIds))], confidence: Math.min(...confirmed.map(({ answer }) => answer.confidence)) };
+      // Each confirmed place's reason is kept, since the issue stands for all of them.
+      const reasons = [...new Set(confirmed.flatMap(({ answer }) => answer.reason === undefined ? [] : [answer.reason]))];
+      return { ...first.answer, evidenceIds: [...new Set(confirmed.flatMap(({ answer }) => answer.evidenceIds))], confidence: Math.min(...confirmed.map(({ answer }) => answer.confidence)), ...(reasons.length === 0 ? {} : { reason: reasons.join(" ") }) };
     };
     // A critical or high issue a reviewer backed is rejected only when a second model, asked the same blind question,
     // rejects it too; when the two disagree it stays open for a person or an agent to settle (`verification.
@@ -604,13 +610,14 @@ export class ModelAuditPipeline {
         || candidate.votes.length > 0 && !candidate.votes.some(({ disposition }) => disposition !== "reject")) return rejected;
       const stage = { ...question(request, undefined, `verification/${request.candidateId}/second-opinion`), modelProfileId: secondOpinion, maximumOutputTokens: answerCeiling(secondOpinion) };
       // Without the second question the rejection is not confirmed, so the issue stays open.
-      if (!allowed(request.candidateId, stage.activityId)) return { ...rejected, outcome: "STILL_NEEDS_VERIFICATION" };
+      if (!allowed(request.candidateId, stage.activityId)) return { ...rejected, outcome: "STILL_NEEDS_VERIFICATION", reason: `The verifier rejected it: ${rejected.reason ?? "no reason given."} No second model was asked: the run's limit on verification questions was reached.` };
       let answer: ModelVerificationResponse;
       try { answer = { ...await this.call(stage), activityId: stage.activityId, artifactRefs: [] }; }
       catch (error) { answer = await unanswered(request, stage.activityId, error); }
       await context.store.publish(`verification-second-opinion-${request.candidateId}`, { candidateId: request.candidateId, modelProfileId: secondOpinion,
         first: { activityId: rejected.activityId, outcome: rejected.outcome, confidence: rejected.confidence }, second: { activityId: answer.activityId, outcome: answer.outcome, confidence: answer.confidence } });
-      return answer.outcome === "REJECTED" ? rejected : { outcome: "STILL_NEEDS_VERIFICATION", evidenceIds: [...new Set([...rejected.evidenceIds, ...answer.evidenceIds])], artifactRefs: [], activityId: answer.activityId, confidence: Math.min(rejected.confidence, answer.confidence) };
+      return answer.outcome === "REJECTED" ? rejected : { outcome: "STILL_NEEDS_VERIFICATION", evidenceIds: [...new Set([...rejected.evidenceIds, ...answer.evidenceIds])], artifactRefs: [], activityId: answer.activityId, confidence: Math.min(rejected.confidence, answer.confidence),
+        reason: `The verifier rejected it: ${rejected.reason ?? "no reason given."} A second model answered ${answer.outcome}: ${answer.reason ?? "no reason given."}` };
     };
     const askTogether = async (requests: readonly ModelVerificationRequest[]): Promise<readonly ModelVerificationResponse[]> => {
       const stage = groupQuestion(requests);
@@ -683,7 +690,7 @@ export class ModelAuditPipeline {
       },
     });
     if (notAsked.length > 0) await context.store.publish("verification-questions-not-asked", notAsked);
-    await context.store.publish("verification-results", verification.results.map(({ candidateId, outcome: result, method }) => ({ candidateId, result, method })));
+    await context.store.publish("verification-results", verification.results.map(({ candidateId, outcome: result, method, reason }) => ({ candidateId, result, method, ...(reason === undefined ? {} : { reason }) })));
     await context.store.publish("verification-operations", operations);
     await context.store.publish("verification-metrics", verification.metrics);
     const executionGaps = [...executedChecks].flatMap(([candidateId, output]) => [
@@ -720,11 +727,12 @@ export class ModelAuditPipeline {
         ...(skipped.length === 0 ? [] : [`verification_skipped_below_plan_scope:${skipped.length}`]),
         ...discoveryCoverage.flatMap(({ auditorId, truncated, limitations }) => [...(truncated ? [`discovery_truncated:${auditorId}`] : []), ...limitations.map((limitation) => `${auditorId}:${limitation}`)])],
     });
-    // The list is ranked: most severe first, then by how many auditors found the issue, then by the verifier's
-    // confidence. Agreement orders the list; it does not decide what is on it (design audit).
+    // The list is ranked: most severe first, then by how many auditors found the issue. Agreement orders the list; it
+    // does not decide what is on it (design audit). The verifier's stated confidence is recorded, not ranked on.
+    // Observed (nextra's carried-out plan, October 24, 2026): it was 0.70 to 0.86 for right and wrong verdicts alike.
     const confidence = new Map(verification.results.map(({ candidateId, operation }) => [candidateId, operation.verification.confidence ?? 0]));
     const foundBy = (issue: CanonicalIssueSet["issues"][number]) => new Set(issue.sourceFindingIds.map((id) => id.split("/")[0])).size;
-    const rankedIssues = Object.freeze({ ...issues, issues: Object.freeze([...issues.issues].sort((a, b) => (SEVERITY_ORDER[a.severity] ?? 5) - (SEVERITY_ORDER[b.severity] ?? 5) || foundBy(b) - foundBy(a) || (confidence.get(b.candidateId) ?? 0) - (confidence.get(a.candidateId) ?? 0) || a.candidateId.localeCompare(b.candidateId))) });
+    const rankedIssues = Object.freeze({ ...issues, issues: Object.freeze([...issues.issues].sort((a, b) => (SEVERITY_ORDER[a.severity] ?? 5) - (SEVERITY_ORDER[b.severity] ?? 5) || foundBy(b) - foundBy(a) || a.candidateId.localeCompare(b.candidateId))) });
     await context.store.publish("issue-ranking", rankedIssues.issues.map((issue, index) => ({ rank: index + 1, candidateId: issue.candidateId, severity: issue.severity, foundBy: foundBy(issue), confidence: confidence.get(issue.candidateId) ?? null, disposition: issue.disposition })));
     await context.store.publish("canonical-issues", rankedIssues);
     return rankedIssues;
@@ -1030,7 +1038,7 @@ export class ModelAuditPipeline {
         ...(trigger === undefined ? {} : { trigger }),
         locations: [...new Set(findings.flatMap(({ locations }) => locations.map(place)))],
         evidence: findings.flatMap(({ evidence, locations }) => evidence.map(({ text, locationIds }) => ({ text, locations: locations.filter(({ id }) => locationIds.includes(id)).map(place) }))),
-        verification: { outcome: issue.verificationOutcome, confidence: confidence.get(issue.candidateId) ?? null },
+        verification: { outcome: issue.verificationOutcome, confidence: confidence.get(issue.candidateId) ?? null, ...(issue.verificationReason === undefined ? {} : { reason: issue.verificationReason }) },
         dissent: issue.dissent.map(({ disposition, reason }) => `${disposition}: ${reason}`), provenance: [...issue.sourceFindingIds],
         reproduceFirst: planned.has(issue.candidateId) };
     });

@@ -95,7 +95,7 @@ export async function incrementalFixture(files: Readonly<Record<string, string>>
       } else if (system.startsWith("Answer the single")) {
         stage = "verification";
         const input = JSON.parse(user) as { request: { context: { citedContext: { evidenceId: string }[] } } };
-        output = { outcome: "CONFIRMED", evidenceIds: input.request.context.citedContext.map(({ evidenceId }) => evidenceId), confidence: 0.8 };
+        output = { outcome: "CONFIRMED", evidenceIds: input.request.context.citedContext.map(({ evidenceId }) => evidenceId), confidence: 0.8, reason: "Fixture: the cited line holds the defect." };
       } else if (system.startsWith("Produce a complete")) {
         stage = "planner";
         const input = JSON.parse(user) as { canonicalIssues: { candidateId: string }[]; premiseReport: unknown };

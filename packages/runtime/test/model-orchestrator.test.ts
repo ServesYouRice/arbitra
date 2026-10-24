@@ -16,7 +16,7 @@ import type { TestSandbox } from "../src/test-sandbox.js";
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
-async function fixture(options: { secondFile?: boolean; revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: true | "every"; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; conflictFault?: "invalid" | "output_limit"; ambiguousClustering?: boolean; oversizedRepository?: boolean; packedReviewSource?: boolean; planQuestion?: boolean; verifierContextTokens?: number; invalidVerification?: boolean; invalidGroupVerification?: boolean; unanimousReview?: boolean; verificationByPlace?: boolean; holdingPlaces?: readonly string[]; placeBesideMerge?: boolean; severities?: readonly string[]; critiqueVerdict?: "HOLDS" | "DOES_NOT_HOLD"; lowerSeverity?: "one" | "two"; severeRejection?: "REJECTED" | "CONFIRMED"; revisionQuestion?: boolean; depth?: "fast" | "balanced" | "deep"; finding?: { readonly severity?: string; readonly category?: string } } = {}) {
+async function fixture(options: { secondFile?: boolean; revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: true | "every"; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; conflictFault?: "invalid" | "output_limit"; ambiguousClustering?: boolean; oversizedRepository?: boolean; packedReviewSource?: boolean; planQuestion?: boolean; verifierContextTokens?: number; invalidVerification?: boolean; invalidGroupVerification?: boolean; unanimousReview?: boolean; verificationByPlace?: boolean; holdingPlaces?: readonly string[]; placeBesideMerge?: boolean; severities?: readonly string[]; critiqueVerdict?: "HOLDS" | "DOES_NOT_HOLD"; lowerSeverity?: "one" | "two"; severeRejection?: "REJECTED" | "CONFIRMED"; revisionQuestion?: boolean; depth?: "fast" | "balanced" | "deep"; finding?: { readonly severity?: string; readonly category?: string }; abstainAt?: string; confidenceByLine?: boolean } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "arbitra-model-run-")); directories.push(directory);
   const manyIssues = options.largePeerContext === true || options.largePlannerContext === true;
   await writeFile(join(directory, "a.ts"), "const value = null;\n".repeat(manyIssues || options.placeBesideMerge === true ? 4 : options.ambiguousClustering === true ? 3 : 1), "utf8");
@@ -185,16 +185,23 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
       await new Promise((resolve) => setTimeout(resolve, 60));
       verificationFlight.now -= 1;
       // An answer that cites evidence the question did not supply is refused.
+      const places: readonly string[] = input.request.question.match(/a\.ts:\d+/gu) ?? [];
       // The verifier (auditor-b) rejects; a second opinion comes from the critic's model (auditor-c).
-      const outcome = options.severeRejection !== undefined ? request.url.includes("auditor-c") ? options.severeRejection : "REJECTED"
+      const outcome = options.abstainAt !== undefined && places.includes(options.abstainAt) ? "STILL_NEEDS_VERIFICATION"
+        : options.severeRejection !== undefined ? request.url.includes("auditor-c") ? options.severeRejection : "REJECTED"
         : options.verificationByPlace === true ? byPlace(input.request.question) : "CONFIRMED";
-      output = { outcome, evidenceIds: options.invalidVerification === true ? ["evidence-never-supplied"] : input.request.context.citedContext.map(({ evidenceId }) => evidenceId), confidence: 0.8 };
+      // With confidenceByLine the verifier is surer the later the line it was asked about.
+      const confidence = options.confidenceByLine === true ? (5 + Number(/a\.ts:(\d+)/u.exec(input.request.question)?.[1] ?? 0)) / 10 : 0.8;
+      output = { outcome, evidenceIds: options.invalidVerification === true ? ["evidence-never-supplied"] : input.request.context.citedContext.map(({ evidenceId }) => evidenceId), confidence, reason: `Fixture ${outcome} at ${places.join(", ")}.` };
     } else if (system.startsWith("Answer each of the verification questions")) {
       requests.push({ stage: "verification-group", url: request.url, ...(ceiling === undefined ? {} : { ceiling }) });
       const input = JSON.parse(user) as { questions: { request: { candidateId: string; question: string; context: { citedContext: { evidenceId: string }[] } }; findings: Record<string, unknown>[] }[]; repository: { path: string }[] };
       for (const { request: question, findings } of input.questions) verificationInputs.push({ candidateId: question.candidateId, unresolvedPeerOperations: [], sourcePaths: input.repository.map(({ path }) => path), question: question.question, findings, request: question });
       // A group answer that misses its questions is refused until its repairs run out.
-      output = options.invalidGroupVerification === true ? { answers: [] } : { answers: input.questions.map(({ request: question }) => ({ candidateId: question.candidateId, outcome: options.verificationByPlace === true ? byPlace(question.question) : "CONFIRMED", evidenceIds: question.context.citedContext.map(({ evidenceId }) => evidenceId), confidence: 0.8 })) };
+      output = options.invalidGroupVerification === true ? { answers: [] } : { answers: input.questions.map(({ request: question }) => {
+        const outcome = options.verificationByPlace === true ? byPlace(question.question) : "CONFIRMED";
+        return { candidateId: question.candidateId, outcome, evidenceIds: question.context.citedContext.map(({ evidenceId }) => evidenceId), confidence: 0.8, reason: `Fixture group ${outcome} at ${(question.question.match(/a\.ts:\d+/gu) ?? []).join(", ")}.` };
+      }) };
     } else if (system.startsWith("Read the complete accepted issues")) {
       requests.push({ stage: "planner-brief", url: request.url });
       const input = JSON.parse(user) as { canonicalIssues: { candidateId: string; remediationSupplements: string[] }[] };
@@ -1194,10 +1201,12 @@ describe("composed model audits", () => {
     expect(result.state).toBe("COMPLETED");
     const artifacts = await core.artifacts(result.runId);
     const read = async <T>(kind: string) => JSON.parse((await core.artifact(result.runId, artifacts.find((artifact) => artifact.kind === kind)?.artifactId ?? "") as { content: string }).content) as T;
-    const issues = (await read<{ issues: { candidateId: string; disposition: string }[] }>("canonical-issues")).issues;
+    const issues = (await read<{ issues: { candidateId: string; disposition: string; verificationReason?: string }[] }>("canonical-issues")).issues;
     expect(issues.map((issue) => issue.disposition)).toEqual(issues.map(() => disposition));
     expect(requests.filter(({ stage, url }) => stage === "verification" && url.includes("auditor-c"))).toHaveLength(issues.length);
     const [issue] = issues;
+    // An issue the two models disagree on says what each answered.
+    expect(issue?.verificationReason).toBe(second === "REJECTED" ? "Fixture REJECTED at a.ts:1." : "The verifier rejected it: Fixture REJECTED at a.ts:1. A second model answered CONFIRMED: Fixture CONFIRMED at a.ts:1.");
     expect(await read(`verification-second-opinion-${issue?.candidateId ?? ""}`)).toMatchObject({ modelProfileId: "auditor-c", first: { outcome: "REJECTED" }, second: { outcome: second } });
   });
 
@@ -1210,10 +1219,10 @@ describe("composed model audits", () => {
     expect(artifacts.filter(({ kind }) => kind.startsWith("verification-second-opinion-")).length).toBeGreaterThan(0);
   });
 
-  it("asks about each place of a rejected merge on its own, and keeps the place that holds", async () => {
+  it("asks about each place of a rejected merge on its own when told to, and keeps the place that holds", async () => {
     // Observed live (P20 pilot): a merge gave a real defect another finding's title, and the question was rejected.
     const { create, config, verificationInputs } = await fixture({ ambiguousClustering: true, verificationByPlace: true });
-    const core = create(); const result = await core.run(config);
+    const core = create(); const result = await core.run({ ...config, verification: { ...config.verification, reaskMergedPlaces: "always" } });
     const events = []; for await (const event of core.events(result.runId)) events.push(event);
     expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
     const artifacts = await core.artifacts(result.runId);
@@ -1235,21 +1244,23 @@ describe("composed model audits", () => {
   it("asks about every place of a rejected merge, and keeps each place that holds", async () => {
     // Self-audit (October 19, 2026): recovery stopped at the first place confirmed, so a merge of two real defects kept one.
     const { create, config, verificationInputs } = await fixture({ ambiguousClustering: true, verificationByPlace: true, holdingPlaces: ["a.ts:1", "a.ts:3"] });
-    const core = create(); const result = await core.run(config);
+    const core = create(); const result = await core.run({ ...config, verification: { ...config.verification, reaskMergedPlaces: "always" } });
     const events = []; for await (const event of core.events(result.runId)) events.push(event);
     expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
     const artifacts = await core.artifacts(result.runId);
     const read = async <T>(kind: string) => JSON.parse((await core.artifact(result.runId, artifacts.find((artifact) => artifact.kind === kind)?.artifactId ?? "") as { content: string }).content) as T;
     expect(verificationInputs.map(({ question }) => question?.replace(/^.* at /u, ""))).toEqual(["a.ts:1, a.ts:2, a.ts:3?", "a.ts:1?", "a.ts:2?", "a.ts:3?"]);
-    const issues = await read<{ issues: { disposition: string; verificationOutcome: string; sourceFindingIds: string[] }[] }>("canonical-issues");
+    const issues = await read<{ issues: { disposition: string; verificationOutcome: string; sourceFindingIds: string[]; verificationReason?: string }[] }>("canonical-issues");
     expect(issues.issues.map(({ disposition, verificationOutcome, sourceFindingIds }) => [disposition, verificationOutcome, sourceFindingIds])).toEqual([["accepted", "CONFIRMED", ["auditor-a/1", "auditor-c/1"]]]);
+    // The issue stands for both places, so it keeps the reason given for each.
+    expect(issues.issues[0]?.verificationReason).toBe("Fixture CONFIRMED at a.ts:1. Fixture CONFIRMED at a.ts:3.");
   });
 
   it("asks about each place of a rejected merge on its own when the merge was asked about in a group", async () => {
     // Self-audit (October 19, 2026): a grouped answer was never re-asked place by place, so a rejected merge lost the
     // defect at its other places whenever questions shared calls.
     const { create, config, verificationInputs } = await fixture({ ambiguousClustering: true, verificationByPlace: true, placeBesideMerge: true });
-    config.verification = { ...config.verification, maxQuestionsPerCall: 3 };
+    config.verification = { ...config.verification, maxQuestionsPerCall: 3, reaskMergedPlaces: "always" };
     const core = create(); const result = await core.run(config);
     const events = []; for await (const event of core.events(result.runId)) events.push(event);
     expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
@@ -1262,8 +1273,57 @@ describe("composed model audits", () => {
     expect(issues.map(({ disposition, sourceFindingIds }) => [disposition, sourceFindingIds]).sort()).toEqual([["accepted", ["auditor-b/1"]], ["rejected", ["auditor-a/2"]]]);
   });
 
+  it("by default asks about the places of a rejected merge one at a time only when they are in different files", async () => {
+    // Observed (P20 pilot): re-asking every place of a rejected merged issue took 10 to 16% of a panel's tokens and
+    // confirmed 7 of 50, none of them a planted defect.
+    const { create, config, verificationInputs } = await fixture({ ambiguousClustering: true, verificationByPlace: true });
+    const core = create(); const result = await core.run(config);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
+    const artifacts = await core.artifacts(result.runId);
+    expect(verificationInputs.map(({ question }) => question)).toEqual(["Does the source show the defect the supplied findings describe at a.ts:1, a.ts:2, a.ts:3?"]);
+    expect(artifacts.some(({ kind }) => kind.startsWith("verification-places-"))).toBe(false);
+    const issues = JSON.parse((await core.artifact(result.runId, artifacts.find(({ kind }) => kind === "canonical-issues")?.artifactId ?? "") as { content: string }).content) as { issues: { disposition: string; verificationOutcome: string }[] };
+    expect(issues.issues.map(({ disposition, verificationOutcome }) => [disposition, verificationOutcome])).toEqual([["rejected", "REJECTED"]]);
+  });
+
+  it("keeps the verifier's sentence on why with its outcome, and hands it off with an issue it could not settle", async () => {
+    // Observed on the real-project runs (October 2026): "cannot tell" and "rejected" outcomes carried no reason, so
+    // checking one meant reading its tool trace.
+    const { create, config } = await fixture({ largePeerContext: true, abstainAt: "a.ts:2" });
+    const core = create(); const result = await core.run(config);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
+    const artifacts = await core.artifacts(result.runId);
+    const read = async <T>(kind: string) => JSON.parse((await core.artifact(result.runId, artifacts.find((artifact) => artifact.kind === kind)?.artifactId ?? "") as { content: string }).content) as T;
+    const results = await read<{ candidateId: string; result: string; reason?: string }[]>("verification-results");
+    const open = results.find(({ result: outcome }) => outcome === "STILL_NEEDS_VERIFICATION");
+    expect(open?.reason).toBe("Fixture STILL_NEEDS_VERIFICATION at a.ts:2.");
+    expect(results.filter(({ result: outcome }) => outcome === "CONFIRMED").map(({ reason }) => reason).sort()).toEqual(["a.ts:1", "a.ts:3", "a.ts:4"].map((place) => `Fixture CONFIRMED at ${place}.`).sort());
+    const issues = await read<{ issues: { candidateId: string; disposition: string; verificationReason?: string }[] }>("canonical-issues");
+    expect(issues.issues.find(({ candidateId }) => candidateId === open?.candidateId)).toMatchObject({ disposition: "needs_verification", verificationReason: "Fixture STILL_NEEDS_VERIFICATION at a.ts:2." });
+    const tree = await read<Record<string, string>>("implementation");
+    expect(tree[`issues/${open?.candidateId ?? ""}.md`]).toContain("Fixture STILL_NEEDS_VERIFICATION at a.ts:2.");
+  });
+
+  it("ranks issues by severity and how many auditors found them, not by the verifier's stated confidence, which it records", async () => {
+    // Observed (nextra's carried-out plan, October 24, 2026): the verifier's confidence was 0.70 to 0.86 for right
+    // and wrong verdicts alike.
+    const { create, config } = await fixture({ largePeerContext: true, confidenceByLine: true });
+    const core = create(); const result = await core.run(config);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
+    const artifacts = await core.artifacts(result.runId);
+    const read = async <T>(kind: string) => JSON.parse((await core.artifact(result.runId, artifacts.find((artifact) => artifact.kind === kind)?.artifactId ?? "") as { content: string }).content) as T;
+    const ranking = await read<{ candidateId: string; severity: string; foundBy: number; confidence: number | null }[]>("issue-ranking");
+    expect(ranking).toHaveLength(4);
+    expect(new Set(ranking.map(({ severity, foundBy }) => `${severity}/${foundBy}`)).size).toBe(1);
+    expect(ranking.map(({ confidence }) => confidence).sort()).toEqual([0.6, 0.7, 0.8, 0.9]);
+    expect(ranking.map(({ candidateId }) => candidateId)).toEqual(ranking.map(({ candidateId }) => candidateId).sort((a, b) => a.localeCompare(b)));
+  });
+
   it.each([
-    ["the re-asks of a rejected merge's places", { ambiguousClustering: true, verificationByPlace: true }, {}, 2, 2],
+    ["the re-asks of a rejected merge's places", { ambiguousClustering: true, verificationByPlace: true }, { reaskMergedPlaces: "always" }, 2, 2],
     ["a second opinion", { severeRejection: "CONFIRMED" }, { secondOpinion: "severe_rejections" }, 1, 1],
     ["a failed group's questions asked one at a time", { largePeerContext: true, invalidGroupVerification: true }, { maxQuestionsPerCall: 3 }, 4, 1],
   ] as const)("keeps %s within the run's question limit", async (_, options, settings, limit, notAsked) => {
@@ -1288,7 +1348,10 @@ describe("composed model audits", () => {
     const artifacts = await core.artifacts(result.runId);
     const read = async <T>(kind: string) => JSON.parse((await core.artifact(result.runId, artifacts.find((artifact) => artifact.kind === kind)?.artifactId ?? "") as { content: string }).content) as T;
     expect(requests.filter(({ stage, url }) => stage === "verification" && url.includes("auditor-c"))).toHaveLength(0);
-    expect((await read<{ issues: { disposition: string }[] }>("canonical-issues")).issues.map(({ disposition }) => disposition)).toEqual(["needs_verification"]);
+    const issues = (await read<{ issues: { disposition: string; verificationReason?: string }[] }>("canonical-issues")).issues;
+    expect(issues.map(({ disposition }) => disposition)).toEqual(["needs_verification"]);
+    // The reason says the rejection stands unconfirmed, not that the source showed it.
+    expect(issues[0]?.verificationReason).toBe("The verifier rejected it: Fixture REJECTED at a.ts:1. No second model was asked: the run's limit on verification questions was reached.");
   });
 
   it("puts questions whose claims cite the same files in one call when the run allows it, and answers each on its own", async () => {
@@ -1326,6 +1389,12 @@ describe("composed model audits", () => {
     const operations = await read<{ citedEvidenceIds: string[] }[]>("verification-operations");
     expect(operations.flatMap(({ citedEvidenceIds }) => citedEvidenceIds).every((id) => /^auditor-[abc]\/\d+\/evidence\/auditor-[abc]-E\d+$/u.test(id))).toBe(true);
     expect(operations.every(({ citedEvidenceIds }) => citedEvidenceIds.length === 3)).toBe(true);
+    // Each grouped answer keeps its own reason.
+    const together = new Set(grouped.map(({ candidateId }) => candidateId));
+    const reasons = (await read<{ candidateId: string; reason?: string }[]>("verification-results")).filter(({ candidateId }) => together.has(candidateId)).map(({ reason }) => reason);
+    expect(reasons).toHaveLength(grouped.length);
+    expect(new Set(reasons).size).toBe(reasons.length);
+    expect(reasons.every((reason) => /^Fixture group CONFIRMED at a\.ts:\d+\.$/u.test(reason ?? ""))).toBe(true);
   });
 
   it("asks a verification question for no more than an answer takes, and a group for that much a question", async () => {

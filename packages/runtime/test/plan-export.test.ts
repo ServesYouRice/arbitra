@@ -14,6 +14,28 @@ const task = (id: string, capability: "frontier" | "balanced" | "fast", dependsO
   verification: { preconditions: [], commands: [{ command: "npm test", expectedExitCode: 0, executionPolicy: "requires_approval" }], checks: [] }, rollbackPlan: [],
 });
 
+it("shows what the verifier said in an unsure check's prompt, and reads an issue set saved before it said anything", async () => {
+  // Observed on the real-project runs (October 2026): a "cannot tell" outcome carried no reason, so checking one meant reading its tool trace.
+  const repository = await mkdtemp(join(tmpdir(), "arbitra-plan-export-"));
+  try {
+    const content = {
+      "plan-ir": { title: "Plan", tasks: [task("TASK-1", "frontier")], unresolvedQuestions: [] },
+      "canonical-issues": { issues: [{ candidateId: "C-1", severity: "high", disposition: "accepted", claim: { title: "A defect", description: "It breaks." } },
+        { candidateId: "C-2", severity: "high", disposition: "needs_verification", verificationOutcome: "STILL_NEEDS_VERIFICATION", verificationReason: "Whether the upload route is public is set in the deployment's proxy configuration.", claim: { title: "An open defect", description: "The upload route has no auth." } },
+        { candidateId: "C-3", severity: "medium", disposition: "needs_verification", verificationOutcome: "STILL_NEEDS_VERIFICATION", claim: { title: "An older open defect", description: "It may leak." } }] },
+      "plan-scope": { minimumSeverity: "medium" },
+    };
+    const orchestrator = {
+      overview: async () => ({ repository, workflowId: "audit-deep" }), repositoryMatches: async () => true, modules: async () => [],
+      artifacts: async () => Object.keys(content).map((kind) => ({ kind, artifactId: kind })),
+      artifact: async (_runId: string, id: keyof typeof content) => ({ content: JSON.stringify(content[id]) }),
+    } as unknown as Orchestrator;
+    const { directory } = await exportPlan(orchestrator, "run-12345678-abcd");
+    expect(await readFile(join(directory, "prompts", "4-unsure", "01-C-2.md"), "utf8")).toContain("<what_the_verifier_said>\nstill needs verification: Whether the upload route is public is set in the deployment's proxy configuration.\n</what_the_verifier_said>");
+    expect(await readFile(join(directory, "prompts", "4-unsure", "02-C-3.md"), "utf8")).not.toContain("<what_the_verifier_said>");
+  } finally { await rm(repository, { recursive: true, force: true }); }
+});
+
 it("writes the plan into the repository as prompts by model tier, in dependency order, beside any earlier copy", async () => {
   const repository = await mkdtemp(join(tmpdir(), "arbitra-plan-export-"));
   try {

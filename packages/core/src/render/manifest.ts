@@ -42,7 +42,8 @@ export interface ManifestIssue {
   readonly trigger?: string;
   readonly locations?: readonly string[];
   readonly evidence?: readonly { readonly text: string; readonly locations: readonly string[] }[];
-  readonly verification?: { readonly outcome: string | null; readonly confidence: number | null };
+  /** `reason`: the verifier's own sentence on its outcome, model-authored; absent for answers that gave none. */
+  readonly verification?: { readonly outcome: string | null; readonly confidence: number | null; readonly reason?: string };
   /** The executor writes a failing test before the fix and reports a result for the issue. */
   readonly reproduceFirst?: boolean;
 }
