@@ -201,6 +201,8 @@ are checked against Anthropic's guidance first.
       confirmed check 05 and rejected check 07) and confirmed check 18, a medium that did not hold.
     - **Confidence:** it does not separate Sonnet's right calls from its wrong ones (0.70 to 0.86 for either).
     - **Where Opus left a medium unsettled:** Sonnet decided 6 of 7 rightly.
+    - **One Sonnet question ran to the 128K-token output limit** (C-5a27b05f4697) and was recorded as unanswered.
+      A verifier answer that long means something looped; cap or stop it far earlier.
   - **So far:** a cheaper primary verifier is not worth it, since it misses real defects Opus confirms; the default
     keeps Opus. Worth one measured try in balanced audits: a Sonnet second look at medium reports Opus leaves
     unsettled (about 28K tokens a question, against about 122K for an agent to decide a check), off until the next
