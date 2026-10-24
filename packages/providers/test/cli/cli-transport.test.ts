@@ -99,6 +99,24 @@ describe.each(VENDORS)("%s subscription CLI transport", { timeout: 30_000 }, (ve
     expect((await send(f.transport)).usage).toEqual({ inputTokens: null, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null });
   });
 
+  it("keeps the requested output ceiling: in the CLI where it takes one, else by refusing a reply reported past it", async () => {
+    // Arbitra's self-audit (October 19, 2026): Codex, the Gemini CLI and the Antigravity CLI take no output ceiling, and
+    // a reply of any length was accepted.
+    const f = await fixture({ vendor, replies: [{ kind: "text", text: "pong" }] });
+    const reported = { "claude-code": 5, codex: 6, gemini: 7, antigravity: 10 }[vendor];
+    expect(await send(f.transport, request({ maximumOutputTokens: reported }))).toMatchObject({ text: "pong", usage: { outputTokens: reported } });
+    const below = send(f.transport, request({ maximumOutputTokens: reported - 1 }));
+    if (vendor === "claude-code") {
+      // Claude Code stops every model request at the ceiling it is given; the usage it reports adds up all of a call's requests.
+      expect(await below).toMatchObject({ text: "pong" });
+      expect((await f.report(1)).env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"]).toBe(String(reported - 1));
+    } else {
+      const error = await failure(below);
+      expect(error).toMatchObject({ code: "OUTPUT_LIMIT", retryable: false });
+      expect(error.message).toBe(`MODEL_OUTPUT_LIMIT_REACHED: ${f.support.displayName} reported ${reported} output tokens, above maximumOutputTokens ${reported - 1}`);
+    }
+  });
+
   it("returns structured output, natively where the CLI enforces a schema", async () => {
     const f = await fixture({ vendor, replies: [{ kind: "text", text: "{\"answer\":\"pong\"}" }] });
     const schema = { type: "object", properties: { answer: { type: "string" } }, required: ["answer"], additionalProperties: false };
@@ -267,9 +285,10 @@ describe("Claude Code specifics", { timeout: 30_000 }, () => {
 
 /**
  * A Claude Code transport over an injected process port, so these run alike on every host: `answer` gives each model
- * call's stream from its index and arguments; `state` names the version the CLI reports and keeps every call's arguments.
+ * call's stream from its index and arguments, and optionally how its process ended (`process`); `state` names the
+ * version the CLI reports and keeps every call's arguments.
  */
-async function injected(answer: (call: number, argv: readonly string[]) => { readonly lines: readonly unknown[]; readonly exitCode: number }) {
+async function injected(answer: (call: number, argv: readonly string[]) => { readonly lines: readonly unknown[]; readonly exitCode: number; readonly process?: Partial<NativeProcessResult> }) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "arbitra-cli-port-"))); roots.push(root);
   const home = join(root, "home"); const temporary = join(root, "tmp"); const executable = join(root, "claude");
   await Promise.all([home, temporary].map((directory) => mkdir(directory)));
@@ -281,7 +300,7 @@ async function injected(answer: (call: number, argv: readonly string[]) => { rea
     state.calls.push([...input.arguments]);
     const reply = answer(state.calls.length - 1, input.arguments);
     for (const line of reply.lines) input.onLine?.(JSON.stringify(line));
-    return { ...result, exitCode: reply.exitCode };
+    return { ...result, exitCode: reply.exitCode, ...reply.process };
   } };
   const support = requireCliTransportSupport("claude-code-cli");
   const env: Record<string, string> = { HOME: home, USERPROFILE: home, [support.executableEnvVar]: executable };
@@ -334,6 +353,54 @@ describe("Claude Code over an injected process", { timeout: 30_000 }, () => {
     expect(await send(f.transport)).toMatchObject({ text: "pong" });
   });
 
+  const resumed = (argv: readonly string[] | undefined) => argv?.[argv.indexOf("--resume") + 1];
+
+  it("continues the session that asked for the tool calls being answered, when one input was completed twice", async () => {
+    // Arbitra's self-audit (October 19, 2026): kept by the input alone, the second completion replaced the first, whose
+    // tool results then went to the second's session, and whose directory and session nothing removed any more.
+    const other = "{\"toolCalls\":[{\"name\":\"repo.readFile\",\"arguments\":{\"path\":\"b.ts\"}}]}";
+    const f = await injected((call) => stream(`session-${call}`, call === 0 ? envelope : call === 1 ? other : "{\"summary\":\"done\"}"));
+    const first = await send(f.transport, request({ tools }));
+    const second = await send(f.transport, request({ tools }));
+    expect(second.toolCalls[0]?.id).not.toBe(first.toolCalls[0]?.id);
+    expect(await send(f.transport, request({ tools, messages: followUpOf(first) }))).toMatchObject({ text: "{\"summary\":\"done\"}" });
+    expect(await send(f.transport, request({ tools, messages: followUpOf(second) }))).toMatchObject({ text: "{\"summary\":\"done\"}" });
+    expect(f.state.calls.map(kind)).toEqual(["whole", "whole", "resume", "resume"]);
+    expect(f.state.calls.slice(2).map(resumed)).toEqual(["session-0", "session-1"]);
+    expect(await readdir(f.temporary)).toEqual([]);
+  });
+
+  it("keeps every session of one input whose model asked for the same tool calls, and removes each", async () => {
+    const f = await injected((call) => stream(`session-${call}`, call < 2 ? envelope : "{\"summary\":\"done\"}"));
+    const first = await send(f.transport, request({ tools }));
+    expect((await send(f.transport, request({ tools }))).toolCalls).toEqual(first.toolCalls);
+    for (let turn = 0; turn < 2; turn += 1) await send(f.transport, request({ tools, messages: followUpOf(first) }));
+    expect(f.state.calls.map(kind)).toEqual(["whole", "whole", "resume", "resume"]);
+    expect(f.state.calls.slice(2).map(resumed)).toEqual(["session-0", "session-1"]);
+    expect(await readdir(f.temporary)).toEqual([]);
+    // A run that settles before continuing them removes both.
+    const g = await injected((call) => stream(`session-${call}`, envelope));
+    for (let call = 0; call < 2; call += 1) await send(g.transport, request({ tools }));
+    expect(await readdir(g.temporary)).toHaveLength(2);
+    await g.registry.close();
+    expect(await readdir(g.temporary)).toEqual([]);
+  });
+
+  it("fails a call whose CLI left processes running, whatever stopped it, so no other CLI starts beside them", async () => {
+    // Arbitra's self-audit (October 19, 2026): checked only after a clean stop, a timeout with the tree still running
+    // was retried by the caller, and a continued session was sent whole at once beside it.
+    for (const stopped of ["timeout", "output_limit", "violation", "cancelled", null] as const) {
+      const f = await injected(() => ({ ...stream("session-0", "pong"), process: { pid: 4242, stopped, treeTerminated: false } }));
+      const error = await failure(send(f.transport));
+      expect(error).toMatchObject({ code: "HTTP", retryable: false });
+      expect(error.message).toBe("CLI_PROCESS_TREE_NOT_TERMINATED: Claude Code left processes running (process 4242 and its descendants)");
+    }
+    const f = await injected((call, argv) => argv.includes("--resume") ? { ...stream(`session-${call}`, "{\"summary\":\"done\"}"), process: { treeTerminated: false } } : stream(`session-${call}`, envelope));
+    const first = await send(f.transport, request({ tools }));
+    expect((await failure(send(f.transport, request({ tools, messages: followUpOf(first) })))).message).toContain("CLI_PROCESS_TREE_NOT_TERMINATED");
+    expect(f.state.calls.map(kind)).toEqual(["whole", "resume"]);
+  });
+
   it("probes the version again, and checks its range, when the executable changes in place", async () => {
     // npm's Codex and winget's agy are updated at the same path; the version probed first went on describing the old file.
     const f = await injected((call) => stream(`session-${call}`, "pong"));
@@ -378,6 +445,16 @@ describe("sessions of Codex and the Antigravity CLI", { timeout: 30_000 }, () =>
     expect(existsSync(opened.cwd)).toBe(false); expect(await readdir(sessions)).toEqual([]);
     await send(f.transport);
     expect((await f.report(2)).argv).toContain("--ephemeral");
+  });
+
+  it("holds a continued turn's own output to the ceiling, not the conversation's", async () => {
+    for (const [vendor, ceiling] of [["codex", 6], ["antigravity", 10]] as const) {
+      const f = await fixture({ vendor, replies: [{ kind: "text", text: envelope }, { kind: "text", text: "{\"summary\":\"done\"}" }] });
+      const first = await send(f.transport, request({ tools, maximumOutputTokens: ceiling }));
+      // Codex reports 9 output tokens for the thread so far and the Antigravity CLI 18; the turn wrote 3 and 8.
+      expect(await send(f.transport, request({ tools, maximumOutputTokens: ceiling, messages: followUpOf(first) })))
+        .toMatchObject({ text: "{\"summary\":\"done\"}", usage: { outputTokens: { codex: 3, antigravity: 8 }[vendor] } });
+    }
   });
 
   it("fails a Codex call whose configuration Codex says it ignores, instead of answering without it", async () => {

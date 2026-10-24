@@ -307,8 +307,11 @@ within the limit: for example, `contextTokens` 200,000 with a `maximumOutputToke
 (the subscription Feature and Testing templates), and discovery then splits a larger repository
 into prompts that fit. The Gemini CLI records
 session history under `~/.gemini/tmp`. Output ceilings are enforced for Claude Code
-(`CLAUDE_CODE_MAX_OUTPUT_TOKENS`); Codex, the Antigravity CLI and the Gemini CLI offer no
-per-call output ceiling. The Antigravity CLI reports a reply cut at the model's own output limit
+(`CLAUDE_CODE_MAX_OUTPUT_TOKENS`, which stops each model request there); Codex, the Antigravity
+CLI and the Gemini CLI offer no per-call output ceiling, so arbitra refuses a reply whose reported
+output passes `maximumOutputTokens` (`OUTPUT_LIMIT`). The model has still written that reply: on
+these CLIs only the model's own limit and `timeoutMs` bound what a call spends. The Antigravity
+CLI reports a reply cut at the model's own output limit
 (65,536 tokens for Gemini 3.8 Flash, thinking included) as an `error_message` step and asks the
 model to continue; arbitra stops the call there as `OUTPUT_LIMIT`, and discovery then audits
 that scope in smaller parts. Any other `error_message` step is a failed model call, classified

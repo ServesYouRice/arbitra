@@ -115,8 +115,10 @@ Claude Code 2.1.296, its system prompt replaced): a call in another directory re
 355 tokens of cache, not the prompt. On Claude Code a conversation that offers tools runs in the CLI's own
 session: the first call starts it (`--session-id`), and a tool turn continues it (`--resume`)
 in the same working directory with only the tool results, so the CLI reads the conversation
-so far from its prompt cache. The directory and the stored session are removed when the
-conversation ends, when the run that owns the transport settles (each run builds its own
+so far from its prompt cache. A kept session is found by the conversation and the tool calls its
+model asked for, so two completions of one input each continue their own. The directory and the
+stored session are removed when the conversation ends, when the run that owns the transport
+settles (each run builds its own
 transports, so nothing else would remove a session its run left open), or after two hours. A
 session that cannot be continued is sent whole once; a continuation that is throttled or meets
 an upstream failure goes back to the runtime's retry, which waits its backoff and retry hint
@@ -146,10 +148,12 @@ the CLI session or thread ID, and the response's `transportVersion` (`<vendor>/<
 recorded on the trace. Failures are classified: not signed in or ineligible account → `AUTH`;
 plan allowance exhausted → `QUOTA` (with the reset, also recorded for preflight); throttling
 or overload → `RATE_LIMIT` with the CLI's retry hint; refused model → `INVALID_REQUEST`;
-output ceiling (including Claude Code's automatic continuation, which is stopped) →
-`OUTPUT_LIMIT`; unreadable stream or bad tool envelope → `MALFORMED_RESPONSE`; timeout and
-cancellation as usual. The CLI's own tool events (`tool_use`, `command_execution`,
-`file_change`, MCP, search) stop the process immediately and fail the call.
+output ceiling (including Claude Code's automatic continuation, which is stopped, and, on the
+CLIs that take no ceiling, a reply reported past it) → `OUTPUT_LIMIT`; unreadable stream or bad
+tool envelope → `MALFORMED_RESPONSE`; timeout and cancellation as usual; a process tree that
+outlives the call, whatever stopped it → `CLI_PROCESS_TREE_NOT_TERMINATED`, never retried. The
+CLI's own tool events (`tool_use`, `command_execution`, `file_change`, MCP, search) stop the
+process immediately and fail the call.
 
 A transport translates; it does not decide policy. Budget, retry and scheduling live above
 it.

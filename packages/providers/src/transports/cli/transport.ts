@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runNativeProcess, type NativeProcessPort, type NativeProcessResult } from "../../process.js";
 import { versionInRange } from "../../semver.js";
-import { noUsage, TransportError, type ProviderTransport, type TransportConfiguration, type TransportId, type TransportRequest, type TransportResponse } from "../../transport-contract.js";
+import { noUsage, TransportError, type ProviderTransport, type TransportConfiguration, type TransportId, type TransportRequest, type TransportResponse, type TransportToolCall } from "../../transport-contract.js";
 import { resetTime } from "./classify.js";
 import { CLI_DIALECTS, type CliDialect, type CliInvocationContext } from "./dialects.js";
 import { childPath, cliExecutableCandidates, hostNodeExecutable, type CliExecutable, type CliExecutableResolution, type DiscoveryHost, type HostLookup } from "./discovery.js";
@@ -31,6 +31,8 @@ const DEFAULT_TIMEOUT_MS = 30 * 60 * 1_000;
 const DEFAULT_MAXIMUM_OUTPUT_BYTES = 16 * 1024 * 1024;
 const PROBE_TIMEOUT_MS = 30_000;
 const CONVERSATION_TTL_MS = 2 * 60 * 60 * 1_000;
+/** A CLI's process tree outlived its call. The failure is final, so no retry starts another CLI beside it. */
+const TREE_NOT_TERMINATED = "CLI_PROCESS_TREE_NOT_TERMINATED";
 
 interface CliDirectories { readonly root: string; readonly work: string; readonly control: string; readonly isolatedHome: string; readonly scratch: string }
 type CliUsage = TransportResponse["usage"];
@@ -68,7 +70,8 @@ export class CliTransport implements ProviderTransport {
   readonly #limits: CliLimitLedger | null;
   readonly #now: () => number;
   #executable: Promise<CliResolution> | undefined;
-  readonly #conversations = new Map<string, CliConversation>();
+  /** Kept sessions by `conversationKey`; one input completed twice with the same tool calls keeps two. */
+  readonly #conversations = new Map<string, CliConversation[]>();
   /** Secret to this transport: the calls of one stage frame their transcripts alike, and no repository text can. */
   readonly #markerSeed = randomBytes(16).toString("hex");
 
@@ -107,7 +110,7 @@ export class CliTransport implements ProviderTransport {
     // turn sent whole 19%, and the whole one wrote the rest to the cache again.
     if (this.dialect.session === undefined || (request.tools?.length ?? 0) === 0) return this.#call(run, prompt, await this.#directories(), undefined);
     const last = lastToolRequest(request.messages);
-    const previous = last < 0 ? undefined : this.#take(conversationKey(request, last));
+    const previous = last < 0 ? undefined : this.#take(conversationKey(request, last, request.messages[last]?.toolCalls ?? []));
     if (previous !== undefined) {
       try {
         const followUp: CliPrompt = { system: prompt.system, body: serializeCliFollowUp(request, last + 1, previous.boundary), boundary: prompt.boundary, callIds: prompt.callIds };
@@ -118,8 +121,10 @@ export class CliTransport implements ProviderTransport {
         // retry hint before sending the conversation whole: resent here at once, it would skip that wait. A usage limit,
         // an auth failure, a refused model or failed start, a cancellation, a timeout or an output ceiling would fail
         // the same way whole and is not repeated. An unreadable continued answer is the session's fault even when the CLI
-        // marks it retryable, so it is sent whole here rather than spending one of the caller's attempts.
-        if (!(error instanceof TransportError) || error.retryable && error.code !== "MALFORMED_RESPONSE" || ["QUOTA", "CANCELLED", "TIMEOUT", "OUTPUT_LIMIT", "AUTH", "RATE_LIMIT", "INVALID_REQUEST"].includes(error.code)) throw error;
+        // marks it retryable, so it is sent whole here rather than spending one of the caller's attempts. A CLI that left
+        // processes running is never followed by another.
+        if (!(error instanceof TransportError) || error.retryable && error.code !== "MALFORMED_RESPONSE" || ["QUOTA", "CANCELLED", "TIMEOUT", "OUTPUT_LIMIT", "AUTH", "RATE_LIMIT", "INVALID_REQUEST"].includes(error.code)
+          || error.message.startsWith(TREE_NOT_TERMINATED)) throw error;
       }
     }
     return this.#call(run, prompt, await this.#directories(), { id: randomUUID(), resume: false }, prompt.boundary);
@@ -131,7 +136,7 @@ export class CliTransport implements ProviderTransport {
    * The transport stays usable.
    */
   async close(): Promise<void> {
-    const conversations = [...this.#conversations.values()];
+    const conversations = [...this.#conversations.values()].flat();
     this.#conversations.clear();
     await Promise.all(conversations.map((conversation) => this.#remove(conversation.directories, conversation.sessionId)));
   }
@@ -153,23 +158,30 @@ export class CliTransport implements ProviderTransport {
       const fallback = sessionId; sessionId = () => reader.sessionId?.() ?? fallback();
       const result = await this.#process.run({ executable: executable.command, arguments: [...executable.prefixArguments, ...invocation.arguments], cwd: directories.work,
         environment: invocation.environment, stdin: invocation.stdin, timeoutMs: this.#timeoutMs, maximumOutputBytes: this.#maximumOutputBytes, signal, onLine: (line) => reader.line(line) });
+      // Before the reason it stopped: a timeout is retried, and another CLI must not start beside processes still running.
+      if (!result.treeTerminated) throw new TransportError("HTTP", `${TREE_NOT_TERMINATED}: ${this.#support.displayName} left processes running${result.pid === null ? "" : ` (process ${result.pid} and its descendants)`}`, false);
       this.#assertStopped(result, signal);
       const outcome = reader.finish(result.exitCode, result.stderr);
       if (outcome.sessionId !== null) sessionId = () => outcome.sessionId;
-      if (!result.treeTerminated) throw new TransportError("HTTP", `CLI_PROCESS_TREE_NOT_TERMINATED: ${this.#support.displayName} left processes running`, false);
+      const usage: CliUsage = Object.freeze({ inputTokens: outcome.usage.inputTokens ?? null, outputTokens: outcome.usage.outputTokens ?? null, cacheReadTokens: outcome.usage.cacheReadTokens ?? null, cacheWriteTokens: outcome.usage.cacheWriteTokens ?? null });
+      const turn = session?.resume === true && reported !== undefined && this.dialect.session?.cumulativeUsage === true ? turnUsage(usage, reported) : usage;
+      // A CLI that takes no output ceiling writes a reply of any length; one past the ceiling is refused, as an HTTP
+      // provider's stop at it is. The model has still written it: only the model's own limit and the timeout bound that.
+      if (this.dialect.enforcesOutputCeiling !== true && turn.outputTokens !== null && turn.outputTokens > request.maximumOutputTokens) {
+        throw new TransportError("OUTPUT_LIMIT", `MODEL_OUTPUT_LIMIT_REACHED: ${this.#support.displayName} reported ${turn.outputTokens} output tokens, above maximumOutputTokens ${request.maximumOutputTokens}`, false);
+      }
       // A provider's notice in place of an answer is a refusal, not a reply to parse.
       const refusal = this.dialect.refusal?.(outcome.text) ?? null;
       const text = sessionBoundary === undefined || sessionBoundary === prompt.boundary ? outcome.text : unframedAssistant(outcome.text, sessionBoundary);
       const reply = refusal === null ? interpretCliReply(text, request, prompt.boundary, outcome.structured, prompt.callIds) : { text: null, structured: null, toolCalls: Object.freeze([]) };
       await this.#limits?.clear(this.id).catch(() => undefined);
-      const usage: CliUsage = Object.freeze({ inputTokens: outcome.usage.inputTokens ?? null, outputTokens: outcome.usage.outputTokens ?? null, cacheReadTokens: outcome.usage.cacheReadTokens ?? null, cacheWriteTokens: outcome.usage.cacheWriteTokens ?? null });
       if (session !== undefined && sessionBoundary !== undefined && reply.toolCalls.length > 0) {
-        this.#conversations.set(conversationKey(request, request.messages.length), { sessionId: outcome.sessionId ?? session.id, boundary: sessionBoundary, directories, at: this.#now(), usage });
+        const key = conversationKey(request, request.messages.length, reply.toolCalls);
+        this.#conversations.set(key, [...this.#conversations.get(key) ?? [], { sessionId: outcome.sessionId ?? session.id, boundary: sessionBoundary, directories, at: this.#now(), usage }]);
         kept = true;
       }
       return Object.freeze({
-        text: reply.text, structured: reply.structured, toolCalls: reply.toolCalls, refusal,
-        usage: session?.resume === true && reported !== undefined && this.dialect.session?.cumulativeUsage === true ? turnUsage(usage, reported) : usage,
+        text: reply.text, structured: reply.structured, toolCalls: reply.toolCalls, refusal, usage: turn,
         continuation: null, structuredOutputTier: request.responseSchema === undefined ? "prompt_json" : nativeSchema ? "native_structured" : "prompt_json",
         providerRequestId: outcome.sessionId, transportVersion: `${this.#support.vendor}/${version}`,
       });
@@ -199,19 +211,21 @@ export class CliTransport implements ProviderTransport {
   }
 
   #take(key: string): CliConversation | undefined {
-    const conversation = this.#conversations.get(key);
-    if (conversation !== undefined) this.#conversations.delete(key);
+    const [conversation, ...rest] = this.#conversations.get(key) ?? [];
+    if (rest.length === 0) this.#conversations.delete(key); else this.#conversations.set(key, rest);
     return conversation;
   }
 
   /** A conversation that was never continued (its run stopped) is removed after two hours. */
   async #sweep(): Promise<void> {
-    const now = this.#now();
-    for (const [key, conversation] of [...this.#conversations]) {
-      if (now - conversation.at < CONVERSATION_TTL_MS) continue;
-      this.#conversations.delete(key);
-      await this.#remove(conversation.directories, conversation.sessionId);
+    const now = this.#now(); const expired: CliConversation[] = [];
+    for (const [key, conversations] of [...this.#conversations]) {
+      const kept = conversations.filter((conversation) => now - conversation.at < CONVERSATION_TTL_MS);
+      if (kept.length === conversations.length) continue;
+      expired.push(...conversations.filter((conversation) => !kept.includes(conversation)));
+      if (kept.length === 0) this.#conversations.delete(key); else this.#conversations.set(key, kept);
     }
+    for (const conversation of expired) await this.#remove(conversation.directories, conversation.sessionId);
   }
 
   #assertStopped(result: NativeProcessResult, signal: AbortSignal): void {
@@ -325,9 +339,14 @@ export function cliTransportFactory(dialectId: string) {
 }
 
 
-/** The conversation a request's first `length` messages make, for the CLI and model it goes to. */
-function conversationKey(request: TransportRequest, length: number): string {
-  return createHash("sha256").update(JSON.stringify({ model: request.modelId, tools: request.tools ?? [], schema: request.responseSchema ?? null, messages: request.messages.slice(0, length) })).digest("hex");
+/**
+ * The conversation a request's first `length` messages make, for the CLI and model it goes to, with the tool calls its
+ * model answered: one input completed twice may ask for different tools, and each answer belongs to its own session.
+ * A call's ID is derived from the conversation, its name and its arguments, so the IDs stand for the calls.
+ */
+function conversationKey(request: TransportRequest, length: number, toolCalls: readonly TransportToolCall[]): string {
+  return createHash("sha256").update(JSON.stringify({ model: request.modelId, tools: request.tools ?? [], schema: request.responseSchema ?? null, messages: request.messages.slice(0, length),
+    calls: toolCalls.map(({ id }) => id) })).digest("hex");
 }
 
 /** A continued turn's own usage, where the CLI reports the whole conversation's: what it reports less what it had. */

@@ -50,6 +50,11 @@ export interface CliDialect {
   /** The provider's own notice when it answered in place of the model (a content filter), else null. */
   refusal?(reply: string): string | null;
   /**
+   * The CLI stops each model request at `maximumOutputTokens` and the reader fails a reply stopped there. Without it the
+   * CLI takes no output ceiling, and the transport refuses a reply whose reported output passes the ceiling.
+   */
+  readonly enforcesOutputCeiling?: boolean;
+  /**
    * A CLI that can continue its own session: a tool turn then sends only the tool results, and the CLI reads the
    * conversation so far from its prompt cache instead of being sent all of it again.
    */
@@ -124,6 +129,9 @@ function sessionArguments(session: CliInvocationContext["session"]): readonly st
  */
 export const claudeCodeDialect: CliDialect = {
   support: CLAUDE,
+  // CLAUDE_CODE_MAX_OUTPUT_TOKENS becomes each model request's max_tokens (lowered further only to the model's own
+  // cap). The usage Claude Code reports adds up every request of a call, two for a native schema, so it is not checked.
+  enforcesOutputCeiling: true,
   // Claude Code keeps a session per working directory under its configuration directory, in projects/<the
   // directory with every other character a dash>.
   session: { async forget(work, _id, context) {
@@ -228,7 +236,9 @@ function codexDay(at: number): readonly string[] {
  * be switched off, so any command, file, MCP, search or collaboration item in the event stream
  * stops the process and fails the call. A call saves no session (`--ephemeral`) unless it starts
  * one, and a tool turn continues it with `codex exec resume`. Codex's own databases (thread index,
- * logs) go to the call's control directory, so arbitra's calls never enter the operator's.
+ * logs) go to the call's control directory, so arbitra's calls never enter the operator's. Codex
+ * takes no output ceiling (0.162.1 has no flag or setting for one), so the transport refuses a
+ * reply reported past `maximumOutputTokens`.
  */
 export const codexDialect: CliDialect = {
   support: CODEX,
@@ -317,7 +327,9 @@ export const GEMINI_PROMPT_SUFFIX = "(End of input. Write your reply now.)";
  * Gemini CLI headless with stream-json events. Workspace settings in the empty working
  * directory register no tools, allow no MCP server, disable hooks, skills, agents and memory,
  * and point context loading at a file that never exists; the system prompt is replaced
- * through GEMINI_SYSTEM_MD and extensions are disabled on the command line.
+ * through GEMINI_SYSTEM_MD and extensions are disabled on the command line. No output ceiling
+ * is set: a `modelConfigs` override could carry `maxOutputTokens`, but the CLI accepts a reply
+ * cut there as complete, so the transport refuses a reply reported past the ceiling instead.
  */
 export const geminiDialect: CliDialect = {
   support: GEMINI,
@@ -453,7 +465,10 @@ function antigravityConversationFiles(home: string, id: string): readonly string
  * skipped, and tool steps in the stream or soft-denied tool notices on stderr fail the call.
  * The prompt travels as the `-p` argument or on stdin (`antigravityPromptChannel`); on stdin
  * a response schema goes in a file, so no model-sized text is on the command line. A tool turn
- * continues the conversation (`--conversation`) with the tool results alone.
+ * continues the conversation (`--conversation`) with the tool results alone. The CLI takes no
+ * output ceiling (agy 1.4.7 has no flag for one), so the transport refuses a reply reported past
+ * `maximumOutputTokens`; only the model's own limit, where the CLI's error step stops the call, and
+ * the timeout bound what it writes.
  */
 export const antigravityDialect: CliDialect = {
   support: ANTIGRAVITY,
