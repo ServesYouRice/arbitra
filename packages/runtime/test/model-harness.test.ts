@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -51,6 +51,19 @@ describe("durable canonical model harness", () => {
     expect(await harness.invoke({ ...request(), activityId: "auditor-a/review" })).toEqual({ answer: "ok" });
     expect((requests[0]?.body as { max_output_tokens: number }).max_output_tokens).toBe(300);
     expect(harness.estimateInitialTokens({ ...request(), activityId: "auditor-a/other" }) - new ModelHarness(new ModelActivities(store, config, { client: { send }, credential: () => "fixture-credential" }), config, snapshot, store).estimateInitialTokens({ ...request(), activityId: "auditor-a/other" })).toBe(300 - 500);
+  });
+
+  it("masks a quoted secret in source that a request carries as JSON, in what it sends and what it stores", async () => {
+    // A request carries whole files as JSON strings, in which a source file's quotes are escaped (found October 25, 2026).
+    const { create, send, requests } = await setup(0);
+    const root = directories.at(-1) ?? "";
+    send.mockImplementation(async (value) => { requests.push(value); return { status: 200, headers: {}, body: { output_text: '{"answer":"ok"}', usage: { input_tokens: 10, output_tokens: 10 } } }; });
+    const repository = [{ path: "settings.py", content: "API_URL = \"https://example.test\"\npassword = \"hunter2isNotSecret\"\n" }, { path: "config.json", content: "{\n  \"apiKey\": \"gw7KeyForTheGateway\"\n}\n" }];
+    expect(await create().invoke({ ...request(), activityId: "auditor-a/review", messages: [{ role: "system", content: "Inspect the snapshot." }, { role: "user", content: JSON.stringify({ repository }) }] })).toEqual({ answer: "ok" });
+    const sent = JSON.stringify(requests.map(({ body }) => body));
+    expect(sent).toContain("[REDACTED:assigned_secret]");
+    const stored = await Promise.all((await readdir(root, { recursive: true, withFileTypes: true })).filter((entry) => entry.isFile()).map((entry) => readFile(join(entry.parentPath, entry.name), "utf8")));
+    for (const text of [sent, ...stored]) { expect(text).not.toContain("hunter2isNotSecret"); expect(text).not.toContain("gw7KeyForTheGateway"); }
   });
 
   it("re-asks once after a reply fails validation, durably, and fails with the original error when repairs are exhausted", async () => {

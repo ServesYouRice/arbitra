@@ -73,6 +73,19 @@ describe("secret redaction", () => {
     ]) expect(redactSecrets(secret).redactions.map(({ kind }) => kind)).toEqual(["assigned_secret"]);
   });
 
+  it("masks a quoted secret in JSON-encoded source, and a secret inside code that is left in place", () => {
+    // A prompt carries whole files as JSON strings, in which a source file's quotes are escaped.
+    for (const source of [
+      "const password = \"hunter2isNotSecret\";",
+      "{\n  \"password\": \"hunter2isNotSecret\"\n}",
+      "session_token = connect(password=hunter2isNotSecret)",
+      "token = this.ids.leaseToken();\napi_key=hunter2isNotSecret",
+    ]) {
+      const encoded = JSON.stringify({ path: "app.py", content: source });
+      for (const text of [source, encoded, JSON.stringify({ text: encoded })]) expect(redactSecrets(text).text).not.toContain("hunter2isNotSecret");
+    }
+  });
+
   it("finds secrets under prefixed names, masks named values whole and private keys line by line", () => {
     // Found by arbitra's audit of itself (October 19, 2026).
     for (const line of ["DB_PASSWORD=hunter2isNotSecret", "AWS_SECRET_ACCESS_KEY: 'wJalrXUtnFEMIK7MDENG'", "client_secret = \"abcdefghijk1\"", "clientSecret: 'abcdefghijk1'"])

@@ -1,4 +1,4 @@
-export const REDACTION_PATTERN_VERSION = "4" as const;
+export const REDACTION_PATTERN_VERSION = "5" as const;
 
 export type SecretKind =
   | "aws_access_key"
@@ -32,10 +32,10 @@ const SECRET_NAME = "[A-Za-z0-9_-]*?(?:api[_-]?key|secret(?:[_-]?access)?[_-]?ke
 const SECRET_FIELD = new RegExp(`^${SECRET_NAME}$`, "iu");
 
 const DETECTORS: readonly Detector[] = [
-  { kind: "aws_access_key", expression: /\b(AKIA[0-9A-Z]{16})\b/gu, secretGroup: 1 },
-  { kind: "api_token", expression: /\b(sk-[A-Za-z0-9_-]{12,255})\b/gu, secretGroup: 1 },
-  { kind: "github_token", expression: /\b((?:gh[opusr]_[A-Za-z0-9]{20,255}|github_pat_[A-Za-z0-9_]{20,255}))\b/gu, secretGroup: 1 },
-  { kind: "bearer_token", expression: /\bBearer\s+([A-Za-z0-9._~+/=-]{16,})/giu, secretGroup: 1 },
+  { kind: "aws_access_key", expression: /\b(AKIA[0-9A-Z]{16})\b/gud, secretGroup: 1 },
+  { kind: "api_token", expression: /\b(sk-[A-Za-z0-9_-]{12,255})\b/gud, secretGroup: 1 },
+  { kind: "github_token", expression: /\b((?:gh[opusr]_[A-Za-z0-9]{20,255}|github_pat_[A-Za-z0-9_]{20,255}))\b/gud, secretGroup: 1 },
+  { kind: "bearer_token", expression: /\bBearer\s+([A-Za-z0-9._~+/=-]{16,})/giud, secretGroup: 1 },
   {
     kind: "assigned_secret",
     // The value never ends in a backslash: inside JSON text that backslash escapes the quote after it. Observed
@@ -43,12 +43,14 @@ const DETECTORS: readonly Detector[] = [
     // was lost with it, and the stored artifact no longer parsed.
     // A name may carry a prefix (DB_PASSWORD, AWS_SECRET_ACCESS_KEY, clientSecret): `\b` alone fails inside a name
     // joined by "_", which is a word character (found by arbitra's audit of itself, October 19, 2026).
-    expression: new RegExp(`\\b${SECRET_NAME}["']?\\s*[:=]\\s*["']?([^\\s"']{11,}[^\\s"'\\\\])["']?`, "giu"),
+    // A quote may be escaped: a prompt carries whole files as JSON strings, in which `password = "..."` reads
+    // `password = \"...\"`, and such a secret reached the model unmasked (found October 25, 2026).
+    expression: new RegExp(`\\b${SECRET_NAME}(?:\\\\*["'])?\\s*[:=]\\s*(?:\\\\*["'])?([^\\s"']{11,}[^\\s"'\\\\])["']?`, "giud"),
     secretGroup: 1,
   },
   {
     kind: "private_key",
-    expression: /(-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----)/gu,
+    expression: /(-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----)/gud,
     secretGroup: 1,
   },
 ];
@@ -76,13 +78,19 @@ function readsAsCode(secret: string, before: string): boolean {
 export function redactSecrets(text: string): RedactionResult {
   const matches: Array<{ kind: SecretKind; start: number; end: number }> = [];
   for (const detector of DETECTORS) {
-    for (const match of text.matchAll(detector.expression)) {
+    const expression = new RegExp(detector.expression);
+    for (let match = expression.exec(text); match !== null; match = expression.exec(text)) {
       const secret = match[detector.secretGroup];
-      if (secret === undefined || match.index === undefined) continue;
-      if (/^\[REDACTED:(?:aws_access_key|api_token|github_token|bearer_token|assigned_secret|private_key)\]$/u.test(secret)) continue;
-      if (detector.kind === "assigned_secret" && readsAsCode(secret, match[0].slice(0, match[0].indexOf(secret)))) continue;
-      const offset = match[0].indexOf(secret);
-      matches.push({ kind: detector.kind, start: match.index + offset, end: match.index + offset + secret.length });
+      const start = match.indices?.[detector.secretGroup]?.[0];
+      if (secret === undefined || start === undefined) continue;
+      if (/^\[REDACTED:(?:aws_access_key|api_token|github_token|bearer_token|assigned_secret|private_key)\]$/u.test(secret)
+        || detector.kind === "assigned_secret" && readsAsCode(secret, text.slice(match.index, start))) {
+        // A value left in place is scanned again from its start: `connect(password=...)` reads as code and holds a
+        // secret, and in JSON text a value runs on over an escaped line break into the next line.
+        if (detector.kind === "assigned_secret") expression.lastIndex = Math.max(start, match.index + 1);
+        continue;
+      }
+      matches.push({ kind: detector.kind, start, end: start + secret.length });
     }
   }
   matches.sort((left, right) => left.start - right.start || right.end - left.end);
