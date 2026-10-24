@@ -16,7 +16,7 @@ import type { TestSandbox } from "../src/test-sandbox.js";
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
-async function fixture(options: { secondFile?: boolean; revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; conflictFault?: "invalid" | "output_limit"; ambiguousClustering?: boolean; oversizedRepository?: boolean; packedReviewSource?: boolean; planQuestion?: boolean; verifierContextTokens?: number; invalidVerification?: boolean; invalidGroupVerification?: boolean; unanimousReview?: boolean; verificationByPlace?: boolean; holdingPlaces?: readonly string[]; placeBesideMerge?: boolean; severities?: readonly string[]; critiqueVerdict?: "HOLDS" | "DOES_NOT_HOLD"; lowerSeverity?: "one" | "two"; severeRejection?: "REJECTED" | "CONFIRMED"; revisionQuestion?: boolean } = {}) {
+async function fixture(options: { secondFile?: boolean; revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; conflictFault?: "invalid" | "output_limit"; ambiguousClustering?: boolean; oversizedRepository?: boolean; packedReviewSource?: boolean; planQuestion?: boolean; verifierContextTokens?: number; invalidVerification?: boolean; invalidGroupVerification?: boolean; unanimousReview?: boolean; verificationByPlace?: boolean; holdingPlaces?: readonly string[]; placeBesideMerge?: boolean; severities?: readonly string[]; critiqueVerdict?: "HOLDS" | "DOES_NOT_HOLD"; lowerSeverity?: "one" | "two"; severeRejection?: "REJECTED" | "CONFIRMED"; revisionQuestion?: boolean; depth?: "fast" | "balanced" | "deep"; finding?: { readonly severity?: string; readonly category?: string } } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "arbitra-model-run-")); directories.push(directory);
   const manyIssues = options.largePeerContext === true || options.largePlannerContext === true;
   await writeFile(join(directory, "a.ts"), "const value = null;\n".repeat(manyIssues || options.placeBesideMerge === true ? 4 : options.ambiguousClustering === true ? 3 : 1), "utf8");
@@ -37,8 +37,9 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
   const providers = ["openai", "anthropic", "google"];
   const transports = ["openai-responses", "anthropic-messages", "gemini-native"];
   const ids = ["auditor-a", "auditor-b", "auditor-c"];
-  // The example reviews once. These audits allow a second round, which the tests of later rounds need.
-  const config = runConfigSchema.parse({ ...example, maxConsensusRounds: 2, models: Object.fromEntries(ids.map((id, index) => [id, { ...template, provider: providers[index], transport: transports[index], independenceGroup: id, modelId: id }])),
+  // The example reviews once. These audits allow a second round, which the tests of later rounds need. They run at
+  // depth deep, where the plan critic always reads the plan.
+  const config = runConfigSchema.parse({ ...example, auditDepth: options.depth ?? "deep", maxConsensusRounds: 2, models: Object.fromEntries(ids.map((id, index) => [id, { ...template, provider: providers[index], transport: transports[index], independenceGroup: id, modelId: id }])),
     workflow: { preset: "audit-deep", modelExecution: {
       endpoints: ids.map((id, index) => ({ id, providerId: providers[index], transport: transports[index], endpoint: `https://${id}.example/v1`, apiKeyEnvVar: "FIXTURE_KEY" })),
       modelEndpoints: Object.fromEntries(ids.map((id) => [id, id])), roles: { planner: "auditor-a", verifier: "auditor-b", critic: "auditor-c" },
@@ -98,7 +99,7 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
       if (blockDiscovery !== undefined) { blockDiscovery(); return new Promise(() => {}); }
       const auditorId = /Every sourceFindingId must start with (.+)\/ and be unique/u.exec(system)?.[1];
       const line = options.ambiguousClustering === true ? ids.indexOf(auditorId ?? "") + 1 : 1;
-      output = { findings: [{ schemaVersion: 1, sourceFindingId: `${auditorId}/1`, category: "CORRECTNESS", title: "Null value", severity: options.lowRisk === true ? "low" : "high", status: "needs_verification", confidence: 0.5, productionBlocker: false,
+      output = { findings: [{ schemaVersion: 1, sourceFindingId: `${auditorId}/1`, category: options.finding?.category ?? "CORRECTNESS", title: "Null value", severity: options.lowRisk === true ? "low" : options.finding?.severity ?? "high", status: "needs_verification", confidence: 0.5, productionBlocker: false,
         locations: [{ id: `${auditorId}-L1`, path: "a.ts", startLine: line, endLine: line }], evidence: [{ id: `${auditorId}-E1`, text: "const value = null;", locationIds: [`${auditorId}-L1`] }],
         problem: "Fixture null claim", recommendedFix: "Check null", productionImpact: "", trigger: "", verification: "", dependencies: [], relatedRisks: [] }], truncated: false, unexaminedDueToBudget: [], limitations: [] };
       // Beside the merge, a finding of another kind in the same file that clustering leaves on its own.
@@ -555,6 +556,27 @@ describe("composed model audits", () => {
     const gate = await resumed.gate(result.runId);
     expect(gate.reasons).not.toContain("blocking_plan_questions");
     expect(gate.reasons).not.toContain("blocking_critic_feedback");
+  });
+
+  it("runs the plan critic at depth deep or for a critical or high security issue, and otherwise records it as not required", async () => {
+    // A critic node makes a critic available; the run's depth and the planned issues decide whether it reads the plan
+    // (spec §20.6), and critic-result records why.
+    const cases = [
+      { depth: "balanced", finding: {}, status: "not_required", reasons: [] },
+      { depth: "deep", finding: {}, status: "completed", reasons: ["deep_mode"] },
+      { depth: "balanced", finding: { severity: "critical" }, status: "completed", reasons: ["critical_issue"] },
+      { depth: "balanced", finding: { category: "SECURITY" }, status: "completed", reasons: ["high_security_issue"] },
+    ] as const;
+    for (const { depth, finding, status, reasons } of cases) {
+      const { create, config, requests } = await fixture({ depth, finding });
+      const core = create(); const result = await core.run(config);
+      expect(result.state).toBe("COMPLETED");
+      const descriptor = (await core.artifacts(result.runId)).find(({ kind }) => kind === "critic-result");
+      const recorded = JSON.parse((await core.artifact(result.runId, descriptor?.artifactId ?? "") as { content: string }).content) as { status: string; requirement: { reasons: string[] }; degradedReviewCoverage: boolean };
+      expect({ depth, finding, status: recorded.status, reasons: recorded.requirement.reasons, degraded: recorded.degradedReviewCoverage }).toEqual({ depth, finding, status, reasons, degraded: false });
+      expect(requests.filter(({ stage }) => stage === "critic")).toHaveLength(status === "completed" ? 1 : 0);
+      expect((await core.gate(result.runId)).reasons).not.toContain("degraded_critic_coverage");
+    }
   });
 
   it("holds the gate when no critic qualifies, rather than reporting the plan as reviewed", async () => {
@@ -1415,12 +1437,12 @@ describe("composed model audits", () => {
     const depthEffort = (await traces(first, measured.runId)).find(({ activityId }) => activityId.startsWith("peer-review/"))?.effortRequested;
     expect((await traces(first, measured.runId)).filter(({ activityId }) => !activityId.includes("/discovery")).every(({ effortRequested }) => effortRequested === depthEffort)).toBe(true);
     const { create, config } = await fixture();
-    Object.assign(config.workflow["modelExecution"] as object, { stageEffort: { verification: "low", critic: "high" }, estimatedBytesPerToken: 2 });
+    Object.assign(config.workflow["modelExecution"] as object, { stageEffort: { verification: "low", critic: "medium" }, estimatedBytesPerToken: 2 });
     const core = create(); const result = await core.run(config);
     expect(result.state).toBe("COMPLETED");
     const efforts = await traces(core, result.runId);
     expect(efforts.filter(({ activityId }) => activityId.startsWith("verification/")).map(({ effortRequested }) => effortRequested)).toEqual(["low"]);
-    expect(efforts.filter(({ activityId }) => activityId.startsWith("critic/")).map(({ effortRequested }) => effortRequested)).toEqual(["high"]);
+    expect(efforts.filter(({ activityId }) => activityId.startsWith("critic/")).map(({ effortRequested }) => effortRequested)).toEqual(["medium"]);
     // A stage the run does not name, and discovery always, keep the effort of the audit depth.
     expect(efforts.filter(({ activityId }) => activityId.startsWith("peer-review/") || activityId.includes("/discovery")).every(({ effortRequested }) => effortRequested === depthEffort)).toBe(true);
     // At two bytes a token the same question is counted at about half, beside the unchanged output allowance.

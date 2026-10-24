@@ -45,6 +45,9 @@ describe("subscription template smoke checks", () => {
     expect(value.state).toBe("COMPLETED");
     const artifacts = await f.orchestrator().artifacts(value.runId);
     expect(artifacts.map(({ kind }) => kind)).toEqual(expect.arrayContaining(["plan-ir", "critic-result"]));
+    // The default Audit runs at depth deep, so its plan critic reads the plan whatever the issues found.
+    const review = artifacts.find(({ kind }) => kind === "critic-result");
+    expect(JSON.parse((await f.orchestrator().artifact(value.runId, review?.artifactId ?? "") as { content: string }).content)).toMatchObject({ status: "completed", requirement: { reasons: expect.arrayContaining(["deep_mode"]) as unknown } });
     // The planner was given the project's own test command, read from its package.json.
     const commands = artifacts.find(({ kind }) => kind === "repository-commands");
     expect(JSON.parse((await f.orchestrator().artifact(value.runId, commands?.artifactId ?? "") as { content: string }).content)).toEqual({ commands: [{ purpose: "test", command: "npm run test", directory: "", sourcePath: "package.json", source: "vitest run" }] });

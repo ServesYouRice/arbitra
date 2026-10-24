@@ -246,6 +246,8 @@ preset decides how many auditors run, and the planner writes each task's routing
 `medium`, `high`), and of the stages after it unless `stageEffort` sets theirs
 (`packages/runtime/src/model-pipeline.ts`); preflight checks that every auditor and role
 profile supports that effort or collapses it explicitly (`packages/runtime/src/preflight.ts`).
+At depth `deep` a model audit's plan critic always reads the plan; below it, only when the
+plan resolves a critical issue or a high security issue (see "Planner and critic" below).
 Depth does not change how the source is divided: `allocateDiscoveryScopes`
 (`packages/runtime/src/discovery-scope.ts`, called from `model-discovery.ts`) packs whole
 modules, then whole files, into scopes that fit the discovery budget.
@@ -315,7 +317,10 @@ Contract, Task DAG and capability routing (see [`task-ir.md`](task-ir.md)).
 records `kind: "skipped"` with `reason: "no_available_critic_at_or_above_planner_capability"`
 when none qualifies — a skipped critic is a recorded degradation, not a silent absence.
 `nodes/revision.ts` revises only on blocking critique. The critic runs only when the
-executed graph has a `critic` node (see [Presets](#presets)).
+executed graph has a `critic` node (see [Presets](#presets)), and in a model audit only when
+`nodes/critic/required.ts` finds it required: at `auditDepth: deep`, or when a planned issue
+is critical, or high with a `SECURITY` or `PROMPT_INJECTION` source finding. Otherwise
+`critic-result` records `status: "not_required"` and no critic call is made.
 
 ## Feature mode
 
@@ -849,7 +854,10 @@ always has one, and `audit-balanced` has one when `workflow.modelExecution.roles
 set. `diff-review` and `diff-fast` run no plan critique even when that role is set; it is then
 used only as the default model for a second opinion (`verification.secondOpinion`). An Audit replay
 can add the critic (`criticEnabled`; the CLI's `replay <run-id>` sets it unless `--no-critic`
-is given).
+is given). A model audit's critic node reads the plan at depth `deep`, and below it only for a
+critical or high security issue (see "Planner and critic" under [Audit mode](#audit-mode)); the
+shipped model-backed templates with a critic (`subscription-audit`, `subscription-audit-gemini`,
+`audit-mixed-providers`) all run at depth `deep`.
 
 `pnpm run validate:examples` parses the schema-only examples and model-backed templates
 with `runConfigSchema`, checks the templates against runtime preflight, and runs negative
