@@ -2,7 +2,7 @@
 
 `batch-evidence.json` is the redacted evidence from one run of the opt-in live batch runner
 (`packages/providers/test/conformance/live-batch.conformance.test.ts`) on 2026-09-25. The code was
-beta at 41a1e65 plus the commit that adds this directory. **No batch driver could be verified
+beta at ca4ca57 plus the commit that adds this directory. **No batch driver could be verified
 live, because no configured account can create a batch.** All three drivers stay
 `declared_unverified`, and the gate test (`real-provider.conformance.test.ts`) still fails
 `batch:<driverId>` for every driver, as it should.
@@ -80,7 +80,7 @@ refused too.
   HTTP failure also carries the provider's bounded, redacted error detail
   (`providerErrorDetail`). Before this change, Gemini's refusal read only "Provider HTTP 400".
 - **Gemini batch request encoding.** The batch driver has no encoder of its own. It calls
-  `geminiNativeCodec.encode`, so the P03 fix in 41a1e65 (`responseJsonSchema` and
+  `geminiNativeCodec.encode`, so the P03 fix in ca4ca57 (`responseJsonSchema` and
   `parametersJsonSchema` instead of the OpenAPI-subset fields that reject
   `additionalProperties`) already applies to batch items. A regression test in
   `test/batch/drivers.test.ts` now pins this. Thought signatures do not apply to batch, since

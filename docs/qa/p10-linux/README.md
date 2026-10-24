@@ -2,7 +2,7 @@
 
 > This run tested the interface before the 2026-09-29 restructure. The rerun of every scenario
 > against the restructured pages, on macOS, is recorded in [`qa/p10`](../p10/README.md). This run's
-> screenshots were removed on 2026-10-24; they are in the repository history at 49f3469.
+> screenshots were removed on 2026-10-24; they are in the repository history at 7a68462.
 
 These results come from one recorded run of `pnpm --filter @arbitra/web e2e` on 2026-09-25, in a
 Linux container on an arm64 Mac. The run built the server fixture and the web app inside the
@@ -19,7 +19,7 @@ container, then ran every spec in all three browser engines. That covers the 14 
 | Browsers | The image's own builds: Chromium 149.0.7827.0 (chromium-1228), Firefox 151.0 (firefox-1532), WebKit 26.5 (webkit-2311). All headless. |
 | Viewport | 1600×1000 at device scale 1 |
 | Server | Real control plane from `apps/server/fixtures/e2e-server.ts`, over a temporary state directory in the container |
-| Source | beta at 527ff4e plus the two fixes below (e569b44, 8f07980) |
+| Source | beta at d69c357 plus the two fixes below (56f7a2f, e24edf0) |
 | Result | **51 passed, 0 failed, 0 flaky, 0 skipped** (17 scenarios × 3 browsers, 3.9 min, `retries: 0`) |
 
 ## Per-browser results
@@ -72,13 +72,13 @@ cd apps/web && pnpm e2e    # builds @arbitra/server..., runs vite build, then pl
   the journal append resolved. But `RunStore.appendEvent` makes the line readable before it
   syncs, and `Orchestrator.status()` prefers the live handle's state over the log. The browser's
   refresh-on-stop then overwrote the correct state with the older one. The container
-  filesystem's slower fsync widened the window. Fixed in e569b44
+  filesystem's slower fsync widened the window. Fixed in 56f7a2f
   (`packages/core/src/runner/workflow-runner.ts`): the live state is published before the
   durable write, so it never trails the log. A regression test in
   `packages/core/test/runner/workflow-runner.test.ts` fails without the fix.
 - **The editor keyboard test used Option+Tab for WebKit on every platform.** That setting only
   exists on macOS, and the keyboard pass in `views.spec.ts` already limited it to macOS. Fixed in
-  8f07980, so Linux WebKit is now tested with plain Tab. The spec passed on Linux both before
+  e24edf0, so Linux WebKit is now tested with plain Tab. The spec passed on Linux both before
   and after this change.
 
 ## Not covered here

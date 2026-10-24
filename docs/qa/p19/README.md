@@ -2,13 +2,13 @@
 
 On September 29, 2026 the decision was to fix every feasible open finding in this phase, then
 rerun the affected live acceptance on subscriptions. This file tracks each fix: the design
-(mapped read-only against commit `0fc9978`), its status, and its commit. **P19 is complete**
+(mapped read-only against commit `146307c`), its status, and its commit. **P19 is complete**
 (September 30): every fix is in, and the live acceptance below passed. The completion report
 moved to P21, which waits for P20.
 
 | # | Finding | Fix | Status |
 |---|---|---|---|
-| 1 | Structural clustering merged a prompt-injection report with the defect beside it | `structural-v2`: `PROMPT_INJECTION` clusters only with its own category | **Fixed** in `d9e8dcd` |
+| 1 | Structural clustering merged a prompt-injection report with the defect beside it | `structural-v2`: `PROMPT_INJECTION` clusters only with its own category | **Fixed** in `7562e10` |
 | 2 | The critic's review of a large plan fans out into one call per cross-batch pair | Pack pair checks into as few calls as fit | **Fixed** (see git log) |
 | 3 | Tasks that write the same file are ordered only by `conflictsWith` | Deterministic, repairable ordering check | **Fixed** (see git log) |
 | 4 | Single-auditor plans address nothing | Plan issues that targeted verification confirmed (`verified_single_source`) | **Fixed** (see git log) |
@@ -193,17 +193,17 @@ Antigravity). Run state is local, in `.runs/live/work/` and `.runs/live/archive/
 
 **Defects the reruns found, all fixed and covered by tests:**
 
-1. **Codex CLI not found** (`314b81d`). Run A's first attempt stopped at preflight with
+1. **Codex CLI not found** (`e8ae7ac`). Run A's first attempt stopped at preflight with
    `SUBSCRIPTION_CLI_NOT_INSTALLED:codex`. The ChatGPT app (Codex 0.158) now keeps the CLI at
    `Contents/Resources/codex-cli/bin/codex`.
-2. **A correct contract was blocked** (`7693626`). In run D1 (`run-af9a1a1f`), exploration and
+2. **A correct contract was blocked** (`c5224fb`). In run D1 (`run-af9a1a1f`), exploration and
    a reviewer reported the expiry contradiction against requirements that already required
    the fix, because the code still contradicted its doc comment. Feature conflicts now carry
    `contractPosition`, and only `adopts_code` and `undecided` block.
-3. **A reviewer revised a correct requirement with a code change** (`afb0bba`). In run D2
+3. **A reviewer revised a correct requirement with a code change** (`1e5c73b`). In run D2
    (`run-6c7e7646`), Haiku voted `revise` on the boundary requirement and proposed the code fix
    as the change. Reviewers are now told to judge the requirement, not the current code.
-4. **Review replies that no repair could fix** (`4d56140`). In run D3 (`run-dafa0600`), both
+4. **Review replies that no repair could fix** (`3d06f7a`). In run D3 (`run-dafa0600`), both
    reviewers were refused through two repairs each. One quoted the request in decision
    evidence with a null path, as conflicts may; decision evidence now accepts that, grounded
    against the request. The other repeated one decision, and the refusal did not say which;

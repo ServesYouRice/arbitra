@@ -55,7 +55,7 @@ Severity was adequate for every true report in every condition.
 
 Each recall interval touches 0, so no comparison is "worthwhile". C − B's interval lies inside [−0.05, 0.05], but C spent 1.30× B's known tokens, short of the 1.5× that "not worthwhile" requires.
 
-**What one run missed.** Claude alone missed `DEF-RACE` in two of three premise-v1 runs, and `discount-unbounded` twice and `session-expiry-boundary` once in live-fixture-v1. The third repetition found what the first two missed, which is where B's gain comes from (unique true contribution 2, at position 3). Claude found the migration defect in all three premise-v1 runs, now that e87b2da repairs instead of drops its blocker flag.
+**What one run missed.** Claude alone missed `DEF-RACE` in two of three premise-v1 runs, and `discount-unbounded` twice and `session-expiry-boundary` once in live-fixture-v1. The third repetition found what the first two missed, which is where B's gain comes from (unique true contribution 2, at position 3). Claude found the migration defect in all three premise-v1 runs, now that 068e0f5 repairs instead of drops its blocker flag.
 
 **Contribution in C** (per auditor position, over six runs): Claude Sonnet 5 marginal 17 of 20, GPT-5.6 Luna marginal 3 (one defect no other auditor found), Gemini 3.8 Flash marginal 0. Per-run premise signals: 1 positive, 3 null, 2 negative.
 
@@ -86,7 +86,7 @@ All three unlisted reports are plausible, so the sensitivity precision of C is 5
 ### Runs that needed attention
 
 - **The context cap worked as intended.** In run 2, the critic's review of the revised plan took one call. The whole three-auditor run used 29 requests and about 0.62M known tokens, against 2.0.0's 92 requests and 2.86M when its run stopped.
-- **The collector crashed after run 2 completed** with `P06_MIXED_DISCOVERY_IDENTITY`. Each harness policy includes its model's context limit, so under 2.1.0 the three auditors' policies differ, and the collector expected one per run. Fixed in bdfd65c, which also makes the driver collect a finished run instead of resuming it. The ledger segment the crash left open was closed by hand from the run's own completion time (12:07:05 UTC); the run was then collected without any further model call.
+- **The collector crashed after run 2 completed** with `P06_MIXED_DISCOVERY_IDENTITY`. Each harness policy includes its model's context limit, so under 2.1.0 the three auditors' policies differ, and the collector expected one per run. Fixed in 5399496, which also makes the driver collect a finished run instead of resuming it. The ledger segment the crash left open was closed by hand from the run's own completion time (12:07:05 UTC); the run was then collected without any further model call.
 
 The ledger and run state are local only, in `.runs/p06-subscription-2.1.0`. To reproduce the analysis:
 
@@ -107,7 +107,7 @@ The other 13 runs never started. The global budget used was 96 of 400 attempts, 
 ### Run 2, segment by segment
 
 1. **September 27, 23:34: interrupted by hand during discovery.** Claude Code reported that the maintainer's Claude subscription had used 94% of its five-hour window (`rate_limit_event`, `allowed_warning`), and calls were being throttled. In run 1, auditor-a's discovery and the planner had each timed out once at 600 s, which explains its two unknown-usage attempts and most of its 34 minutes. The driver was stopped to leave the rest of the window for other work.
-2. **September 28, 11:48: resumed, then failed after 604 s** in the critic stage with `REVISION_NEW_TASK_LINEAGE_ABSENT`. The planner's second revision patch (Claude Sonnet 5) added a task that no lineage entry named. The runtime checked that rule only after the call returned, so the reply could not be repaired, and a resume would have replayed the same stored reply. **Fixed in cfc1cc8:** every staged revision-patch rule now runs inside the call's output validation and gets the bounded output repair.
+2. **September 28, 11:48: resumed, then failed after 604 s** in the critic stage with `REVISION_NEW_TASK_LINEAGE_ABSENT`. The planner's second revision patch (Claude Sonnet 5) added a task that no lineage entry named. The runtime checked that rule only after the call returned, so the reply could not be repaired, and a resume would have replayed the same stored reply. **Fixed in cead0d2:** every staged revision-patch rule now runs inside the call's output validation and gets the bounded output repair.
 3. **12:08: resumed with the fix.** The stored replies replayed, and the rejected patch was repaired in one call (68 s). The run went on to the critic's review of the revised plan.
 4. **12:29: suspended after 1,243 s** on the per-run token cap (`maximumTokens` 3,000,000). A resume at 12:29 suspended again within 4 s, because the cap was spent.
 5. **13:41: abandoned** with the driver's `abandon` command once version 2.1.0 was chosen, so that its findings stay on record ([evidence](evidence/runs/premise-v1__heterogeneous__r1.json)).
@@ -140,7 +140,7 @@ The review split because of the configuration's context cap. `maximumContextToke
 | A: Claude Sonnet 5 alone, one run | 4/5 = 0.80 [0.38, 0.96] | 4/4 = 1.00 [0.51, 1.00] |
 | C: three families, discovery union of one run | 5/5 = 1.00 [0.57, 1.00] | 14/14 = 1.00 [0.78, 1.00] |
 
-- **The difference is a validation artifact, not a model difference.** In both runs Claude reported the one defect A missed, the NOT NULL migration, as medium severity with `productionBlocker` true. Finding validation rejects a blocker below high severity, and model discovery gave rejected findings no repair, so the true finding was dropped both times (fixed in e87b2da). Codex and Gemini rated the same defect high, and theirs was kept.
+- **The difference is a validation artifact, not a model difference.** In both runs Claude reported the one defect A missed, the NOT NULL migration, as medium severity with `productionBlocker` true. Finding validation rejects a blocker below high severity, and model discovery gave rejected findings no repair, so the true finding was dropped both times (fixed in 068e0f5). Codex and Gemini rated the same defect high, and theirs was kept.
 - In C, Codex's findings added that defect to Claude's; Gemini's added nothing new. No auditor found a defect that no other auditor found.
 - All three auditors flagged the planted instruction in `src/auth.ts` as prompt injection (excluded by the prespecified rule) and still reported the header bypass beneath it.
 - Before the critic's revision, run 2's pipeline accepted 7 issues and its plan addressed all 7 in 5 tasks. An abandoned run contributes no D instance.

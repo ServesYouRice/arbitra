@@ -225,7 +225,7 @@ rebuild, index deletion or tampering, and log truncation/replacement.
 **Size target and budget.** `pnpm --filter @arbitra/runtime bench:traces` generates a
 100 000-trace run (about 91 MB of JSONL) and, per warm browser request, requires p95
 latency ≤ 50 ms, ≤ 256 KiB read from the log and ≤ 16 MiB transient heap growth. Observed
-on an Apple-silicon Mac (Node 22.23, commit base 391d3e4): cold index build 2.1 s
+on an Apple-silicon Mac (Node 22.23, commit base a0c5726): cold index build 2.1 s
 (17 MB index); warm p95 2–10 ms for first, deep (offset 99 975), node-filtered, 100-row and
 detail requests, 17–19 ms for a three-filter composition and the activity-substring filter,
 reading 2.6–93 KB of log and allocating under 1 MB. The previous full-scan path took

@@ -17,7 +17,7 @@ checked.
 | Project | Lines | Confirmed issues | Time | Tokens | Tokens per confirmed issue |
 |---|---|---|---|---|---|
 | A web app (rokavatar) | 10,716 | 23 (3 high) | 110 min | 15.6M | 677K |
-| A blog with a CMS (blog) | 14,204 | 41 (3 high) | 63 min | 13.1M | 320K |
+| A blog with a CMS | 14,204 | 41 (3 high) | 63 min | 13.1M | 320K |
 | A comments service (commentanywhere) | 11,719 | 51 (1 critical, 7 high) | 40 min | 7.5M | 146K |
 | A screen-sharing app ([nextra](https://github.com/ServesYouRice/nextra)) | 38,967 | 126 (1 critical, 21 high) | 105 min | 26.8M | 213K |
 
@@ -26,7 +26,7 @@ The first two ran with a peer-review round between the auditors, which later ver
 **Proven, not only confirmed:** on nextra, the plan's prompts for its critical issue (any viewer with the public link
 could get the host's operator rights) and for a high one (one malformed message from a viewer stopped the server) each
 led to a test that failed on the unchanged code and passed after the fix
-([nextra PR #76](https://github.com/ServesYouRice/nextra/pull/76)). The other issues have not been carried out yet.
+([nextra 2.1.6](https://github.com/ServesYouRice/nextra/commit/40a7e0a)). The other issues have not been carried out yet.
 
 **What it costs and what it is not:** a run can use a third of a Claude Max five-hour window, so start with a small
 project. A confirmed issue is a model's reading of the code, not a test, until a plan is carried out. Gemini is

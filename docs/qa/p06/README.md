@@ -17,7 +17,7 @@ needs at least 10 paired ground-truth defects, and only 7 are available. The mul
 premise is **untested**, because every auditor was a Gemini model.
 
 - Protocol: [PROTOCOL.md](PROTOCOL.md) and [protocol.json](protocol.json)
-  (`arbitra-p06-premise@1.0.0`), committed before any evaluation run in 21cc61f. It is unchanged.
+  (`arbitra-p06-premise@1.0.0`), committed before any evaluation run in 3b33ab4. It is unchanged.
 - Driver: `packages/testing/src/premise-evaluation/`. It is covered by credential-free tests in
   `packages/testing/test/premise-evaluation.test.ts`, which use a scripted provider.
 - Evidence:
@@ -36,9 +36,9 @@ before every start and resume.
 
 The runtime commit differed between runs:
 
-- The first two runs used 21cc61f.
-- `expanded-evaluation-v1` used 42dfb34 plus 505cc02.
-- The paused run started on 5311d15 and was resumed on 406fc76 (beta 0c6fb12 merged).
+- The first two runs used 3b33ab4.
+- `expanded-evaluation-v1` used b1f1df4 plus 915d984.
+- The paused run started on 738087a and was resumed on c6874d3 (beta e9c9b77 merged).
 
 | Run (fixture/condition/rep) | Run id | Outcome | Attempts | Known tokens (in/out) | Unknown-usage attempts | Wall clock |
 |---|---|---|---|---|---|---|
@@ -152,14 +152,14 @@ was nothing to review and the sensitivity precision equals the primary precision
 
 ## Runtime defects fixed on the way (with regression tests)
 
-- **42dfb34.** Peer translation now refuses a created-candidate ID mismatch with
+- **b1f1df4.** Peer translation now refuses a created-candidate ID mismatch with
   `PEER_CANDIDATE_ID_MISMATCH`, naming both IDs. It also appends the rule to bare core
   issue-operation codes such as `INVALID_CANDIDATE_SEED`, so a repair can act on them.
-- **5311d15.** `UNATTACHED_PEER_FINDING` now names the unattached entries and says that
+- **738087a.** `UNATTACHED_PEER_FINDING` now names the unattached entries and says that
   agreeing with a presented candidate is a vote.
 
 Neither change accepts anything that was refused before, and evidence grounding and authority
-checks are unchanged. Beta's ef112eb, merged here, additionally sets aside a peer review that
+checks are unchanged. Beta's d60e6b0, merged here, additionally sets aside a peer review that
 stays invalid after repair instead of failing the Audit, so a run that hits the D failures above
 should now finish with degraded coverage. Version 1 ended before
 that path was measured.
@@ -178,7 +178,7 @@ Current operational guidance for when extra auditors are worthwhile:
 - On premise-v1, one extra same-family variant found one extra defect, at 3.8× the discovery
   tokens.
 - With flash-lite models on the free tier, the multi-auditor pipeline did not complete at all
-  before ef112eb.
+  before d60e6b0.
 
 Treat multi-auditor Audit as unproven. The multi-family premise remains untested because no
 second model family was available.

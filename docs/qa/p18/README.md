@@ -18,7 +18,7 @@ rerun also found a structural weakness in `D` that no escalation candidate can r
 
 | Item | Value |
 | --- | --- |
-| Recorded run | commit `598c939` (clean tree), 2026-09-28T21:17:56Z; raw output [results/clustering-p06-real-v1.json](results/clustering-p06-real-v1.json) |
+| Recorded run | commit `122cb9b` (clean tree), 2026-09-28T21:17:56Z; raw output [results/clustering-p06-real-v1.json](results/clustering-p06-real-v1.json) |
 | Corpus | `clustering-p06-real-v1` v1, sha256 `46e6bd0f…f2e1`, mode `real_models`: 21 runs, 149 findings, 84 ground-truth clusters (36 with ≥ 2 members), 94 same-label and 658 different-label pairs. Built by [`p06-corpus.mjs`](../../../tooling/embedding-eval/p06-corpus.mjs) from every P06 run record with recorded discovery, and committed before the comparison ran |
 | Labels | the P06 rubric for defects and decoys (118 findings); `NOISE:injection-<file>` for prompt-injection reports (28); three findings labelled by hand (`NOISE:test-coverage-gap` twice, `NOISE:negative-quantity`) |
 | Fixtures | `premise-v1`, `expanded-evaluation-v1`, `live-fixture-v1` |
@@ -75,7 +75,7 @@ could share a candidate with the real defect it sits beside.
 
 **Fixed after P18 (September 29, 2026).** Clustering is now `structural-v2`: a `PROMPT_INJECTION`
 report clusters only with other such reports. P18's numbers above measured `structural-v1` at
-commit `598c939`. Replayed on the same corpus (descriptive and in-sample, not a P18 result), the
+commit `122cb9b`. Replayed on the same corpus (descriptive and in-sample, not a P18 result), the
 fix takes `D` from FM 40 and W 88 to FM 3 and W 14, with one contaminated candidate left (the
 same-category negative-quantity report merged with `DEF-RACE`); the authored corpus is
 unchanged. The P18 harness calls the current default strategy, so a rerun now measures
@@ -108,9 +108,9 @@ The sections below record the first evaluation, on the hand-authored corpus.
 
 | Item | Value |
 | --- | --- |
-| Protocol | `p18-protocol-v1`, committed in `a19c08b` before any comparison ran |
+| Protocol | `p18-protocol-v1`, committed in `ba80ede` before any comparison ran |
 | Harness | `packages/workflow/src/clustering/evaluation.ts`; runner `tooling/embedding-eval/run.ts` |
-| Recorded run | commit `2b6db75` (clean tree), 2026-09-25T16:42:40Z; raw output [results/clustering-authored-v1.json](results/clustering-authored-v1.json) |
+| Recorded run | commit `d16092f` (clean tree), 2026-09-25T16:42:40Z; raw output [results/clustering-authored-v1.json](results/clustering-authored-v1.json) |
 | Corpus | `clustering-authored-v1` v1, sha256 `f4dfaddc…a9c6`, mode `authored`: 4 runs, 58 findings, 29 ground-truth clusters (15 with ≥ 2 members), 47 same-label and 393 different-label pairs |
 | Fixtures | `premise-v1` (ground truth sha256 `fbc179b1…576c`), `expanded-evaluation-v1` (`a12c1fe9…1226`) |
 | Model | `Xenova/all-MiniLM-L6-v2` @ `751bff37182d3f1213fa05d7196b954e230abad9`, `onnx/model.onnx` fp32, sha256 `759c3cd2…c46e` (verified before use) |
@@ -190,7 +190,7 @@ REJECT, and criterion 1 alone would have given INSUFFICIENT EVIDENCE.
 
 ### Measurement notes
 
-- **An earlier run had a different memory window.** The run at `b79eb5a` (tree
+- **An earlier run had a different memory window.** The run at `d607520` (tree
   modified) had the same clustering numbers, but its RSS peak also covered a
   descriptive 200-finding scaling probe, which the protocol does not include. That
   inflated RSS growth to 775 MB. The runner now takes the criterion-6 peak over model

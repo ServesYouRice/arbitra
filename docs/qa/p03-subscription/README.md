@@ -1,6 +1,6 @@
 # P03 on subscriptions: public workflows through vendor CLIs
 
-Recorded September 27, 2026 on branch `beta`, from commit 3bc3263 to b560162. Host: macOS (arm64), Node 22.23.2, Docker Desktop 29.8.0.
+Recorded September 27, 2026 on branch `beta`, from commit 6c8e108 to 9280b4a. Host: macOS (arm64), Node 22.23.2, Docker Desktop 29.8.0.
 
 Every model call went through the maintainer's own subscription logins, via the subscription CLI transports ([evidence for the transports themselves](../subscription-cli/README.md)). No API key or API credit was used.
 
@@ -37,9 +37,9 @@ Three auditors took part: Claude Sonnet 5, Codex and Antigravity. The table show
 
 | Run | Code | Result |
 |---|---|---|
-| `run-2dfd2f87` | before 6bb27e2 | **Failed** at peer-review round 2 with `CONFORMITY_VOTE_FLIP_WITHOUT_NEW_EVIDENCE` (defect 6), after 60 minutes of wall-clock. The Mac slept through most of it (see the environment note). All three Codex findings were refused (defect 7). |
-| `run-5ea73fe7` | 6bb27e2 | Completed in 7 min: 24 activities, 385k input and 35.5k output tokens. All three seeded defects accepted. Defects 8–10 showed up here. |
-| `run-859b8a6a` | 67d4b47 | Completed in 4 min: 13 activities, 257k input and 23.7k output tokens, no output repairs. |
+| `run-2dfd2f87` | before bec8fc5 | **Failed** at peer-review round 2 with `CONFORMITY_VOTE_FLIP_WITHOUT_NEW_EVIDENCE` (defect 6), after 60 minutes of wall-clock. The Mac slept through most of it (see the environment note). All three Codex findings were refused (defect 7). |
+| `run-5ea73fe7` | bec8fc5 | Completed in 7 min: 24 activities, 385k input and 35.5k output tokens. All three seeded defects accepted. Defects 8–10 showed up here. |
+| `run-859b8a6a` | ecfee5b | Completed in 4 min: 13 activities, 257k input and 23.7k output tokens, no output repairs. |
 
 **Findings in the final run:**
 
@@ -105,13 +105,13 @@ The handoff harness's first layout put the handoff beside the checkout, and a fr
 6. **A changed peer vote failed the whole run.** The Antigravity reviewer rejected a candidate in round 1 and accepted it in round 2 on the same evidence. It was never shown its earlier vote, and the anti-conformity check threw. The fix has three parts:
    - later rounds now show each reviewer its own earlier votes and the rule;
    - a changed vote with no new evidence is refused at the model boundary and repaired;
-   - if repair fails, the reply is set aside as degraded review coverage (6bb27e2).
-7. **All Codex findings were refused.** Codex quoted each function's doc comment one line above its cited range. A cited location now widens to the single exact occurrence of its quotation near the cited lines, and the widening is recorded (6bb27e2).
-8. **An output repair was reported as a prompt injection.** The validator's refusal was framed as untrusted repository content, and Sonnet 5 filed a `PROMPT_INJECTION` finding about it. A fixed, trusted instruction now says what the repair artifact is, and the model-derived text stays framed as data (67d4b47).
-9. **The sole author of a candidate counted as a missing reviewer.** Peer review never shows an auditor its own findings, so every multi-auditor run with a unique finding reported degraded coverage (67d4b47).
-10. **Complete context was not marked complete.** Models are told context "may be excerpted; consult contextCoverage", but nothing was sent when everything fitted. The planner then asked a blocking question about callers outside a snapshot that held the whole repository (67d4b47).
-11. **A file to be created became an exploration limitation.** The feature needed a new test file. The model gave it a surface with no paths, was refused, and on repair recorded "no test file exists" as a limitation, which withheld the handoff. The instruction and both refusals now route such files to the summary for the planner (364762d).
-12. **The handoff harness used the wrong layout.** The rendered handoff's paths assume `./implementation` inside the checkout; `handoff.mjs` now uses that layout (364762d).
+   - if repair fails, the reply is set aside as degraded review coverage (bec8fc5).
+7. **All Codex findings were refused.** Codex quoted each function's doc comment one line above its cited range. A cited location now widens to the single exact occurrence of its quotation near the cited lines, and the widening is recorded (bec8fc5).
+8. **An output repair was reported as a prompt injection.** The validator's refusal was framed as untrusted repository content, and Sonnet 5 filed a `PROMPT_INJECTION` finding about it. A fixed, trusted instruction now says what the repair artifact is, and the model-derived text stays framed as data (ecfee5b).
+9. **The sole author of a candidate counted as a missing reviewer.** Peer review never shows an auditor its own findings, so every multi-auditor run with a unique finding reported degraded coverage (ecfee5b).
+10. **Complete context was not marked complete.** Models are told context "may be excerpted; consult contextCoverage", but nothing was sent when everything fitted. The planner then asked a blocking question about callers outside a snapshot that held the whole repository (ecfee5b).
+11. **A file to be created became an exploration limitation.** The feature needed a new test file. The model gave it a surface with no paths, was refused, and on repair recorded "no test file exists" as a limitation, which withheld the handoff. The instruction and both refusals now route such files to the summary for the planner (89cde25).
+12. **The handoff harness used the wrong layout.** The rendered handoff's paths assume `./implementation` inside the checkout; `handoff.mjs` now uses that layout (89cde25).
 
 **Environment note:** the host slept during the first Audit run. Stage timeouts count only awake time, so a 10-minute timeout took 27 minutes of wall-clock. This is not an arbitra defect, and `run.sh` and `resume.sh` now keep the Mac awake with `caffeinate`.
 

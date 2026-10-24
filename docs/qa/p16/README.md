@@ -25,7 +25,7 @@ rerun with the P10 specs in all three engines: **9 passed, 0 failed, 0 flaky** w
 ## Original acceptance (2026-09-25)
 
 These results come from one recorded run of `pnpm --filter @arbitra/web e2e` on 2026-09-25,
-after merging beta at 5d054d9. The run built the server fixture and the web app, then ran
+after merging beta at 02a11be. The run built the server fixture and the web app, then ran
 every spec in all three browser engines. That covers the P10 specs and the new
 `apps/web/e2e/workflow-editor.spec.ts`. Screenshots are in `chromium/`, `firefox/` and
 `webkit/`. They are full-page captures of the editor and the saved-graph run.

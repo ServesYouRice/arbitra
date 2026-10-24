@@ -2,8 +2,8 @@
 
 Updated October 24, 2026, on `main`. Phase status lives in the [completion plan](docs/completion-plan.md) and the
 design review's open items in the [design audit](docs/design-audit.md); this file says what is left and in what order.
-Earlier measurements are in this file's history: the P20 pilot in `git show 9558aef:WORK-REMAINING.md`, the full
-narratives of the real-project runs in `git show 49f3469:WORK-REMAINING.md`.
+Earlier measurements are in this file's history: the P20 pilot in `git show e917ec7:WORK-REMAINING.md`, the full
+narratives of the real-project runs in `git show 7a68462:WORK-REMAINING.md`.
 
 ## State
 
@@ -12,7 +12,7 @@ narratives of the real-project runs in `git show 49f3469:WORK-REMAINING.md`.
   their tokens. That is 21 planted defects: an estimate, not a test. Per-defect results stay in the private benchmark
   repository. The held-out set is left unrun by design; the product's claims rest on what each run checks and
   proves, not on the premise.
-- **Releases:** `checkpoint-1` (October 20, e8ef14b), v0.1.0 (October 21), v0.2.0 (October 23, adds the Windows
+- **Releases:** `checkpoint-1` (October 20, 281c27c), v0.1.0 (October 21), v0.2.0 (October 23, adds the Windows
   single-file `.exe`), v0.2.1 (October 24, Gemini opt-in). Every branch was merged into `main` on October 22; work
   continues from `main`. [`TESTERS.md`](TESTERS.md) is the testers' guide.
 - **Next: the improvement phase** below, the changes held back until now because they could destabilise the app.
@@ -29,7 +29,7 @@ narratives of the real-project runs in `git show 49f3469:WORK-REMAINING.md`.
   same warning in New run.
 - **A fix proven from a plan:** nextra's critical and one high issue were fixed from the saved plan's prompts
   (TASK-053, TASK-010), each first shown by a test that failed on the unchanged code. nextra's `results.json` holds
-  the failing output, so the run's report reads 3 issues proven and fixed (nextra PR #76, released in nextra 2.1.6
+  the failing output, so the run's report reads 3 issues proven and fixed (nextra 40a7e0a, released in nextra 2.1.6
   on October 24).
 
 ## Real-project runs
@@ -54,24 +54,24 @@ What each run changed:
   run; files Git ignores left out of the snapshot (a 600 KB Playwright report refused the project); model-activity
   artifacts open again (their IDs were too long a route).
 - **rokavatar** stopped at the critic on the Codex five-hour window and was resumed. Because of it: a usage limit
-  pauses the run and resumes it after the reset (b3626a8); "last activity" and the report's state during a stage
-  (c3ca222); and safeguards against losing issues (6274c9e, 4368435): check-first prompts for issues the verifier
+  pauses the run and resumes it after the reset (475ca4e); "last activity" and the report's state during a stage
+  (557d265); and safeguards against losing issues (db282ef, 11bd2cb): check-first prompts for issues the verifier
   could not settle, a severity lowered by one reviewer alone no longer takes an issue out of the plan's scope (25
   such issues here), a second model before a critical or high issue a reviewer backed is rejected (12 here), and the
   accepted issues no task fixes listed in the saved plan (48 here). Together these add about 37 questions to a run
   of this size, about 3M tokens.
 - **blog** showed that the snapshot read a fixed list of extensions and left out all 30 `.astro` files;
-  Astro, shell, C-family and other common sources are now read (fcef7ee). Its replay without peer review is
+  Astro, shell, C-family and other common sources are now read (ede4b14). Its replay without peer review is
   `run-d6fbbf98` (experiment 11 below).
 - **commentanywhere**, the first run without peer review. A first attempt failed when Gemini asked for a ninth tool
   turn on one discovery window: a tool call past the limit is now answered unrun with `TOOL_TURN_LIMIT_REACHED` and
   the model gets one more turn, and a model that still asks gives a rejected reply that the stage records as a gap
-  (57ee601). With no review round, the consensus reason now says that no review ran (69d4291).
+  (26e13e4). With no review round, the consensus reason now says that no review ran (b386e0e).
 - **nextra**, the largest so far (13,487 of its lines are tests). Wall time: discovery 53 minutes (Opus the long
   pole; Gemini done after 25, Sol after 29), clustering 6, verification 19 (14.4M tokens in 497 calls for 192
   questions), plan 17, critic and its check 4, revision 5. Of the project's known defects, both access-control
   concerns were found and confirmed, one as the critical issue; a gap that spans client and server (the client never
-  sends the operator token a remote host needs) was not. Because of it (e57b868, 89f55d8): Sol opened every finding
+  sends the operator token a remote host needs) was not. Because of it (80d7065, c419640): Sol opened every finding
   with the `<quotes>` block the prompt asks for before reasoning, 44% of the text, repeated into every later stage,
   and discovery now drops a leading block and records which findings had one (`quoteBlocksRemoved`); and a completed
   run whose gate fails only on work left for a person reads "done · needs you" in the web app, with the issues to
@@ -101,7 +101,7 @@ Open from the runs:
 
 ## Open from the self-audit of October 19
 
-The premium panel on the 25 files changed since 9ef97b8 (5,254 lines) confirmed 78 issues; the ones fixed are in the
+The premium panel on the 25 files changed since 8fcc3df (5,254 lines) confirmed 78 issues; the ones fixed are in the
 history. Still open, for the improvement phase (most predate the changes audited; the audit read whole files):
 
 - Redaction: bracket index access after a secret's name is masked as a secret; JSON-encoded source loses escaped
@@ -205,7 +205,7 @@ noted, because they are worth wiring; each is measured like the rest before it b
   `packages/core/src/preflight/project-context.ts` also extracts build, lint and typecheck commands, frameworks and
   CI files, but only the handoff acceptance harness (`packages/testing/src/fresh-executor.ts`) calls it.
 - **Native output schemas** for the paid-API bundle: per-dialect schema projections (OpenAI strict, Gemini, Anthropic
-  tool) were built and deleted unused; they are at `49f3469:packages/schemas/src/projections/`.
+  tool) were built and deleted unused; they are at `7a68462:packages/schemas/src/projections/`.
 
 **Experiments** ([design audit](docs/design-audit.md#what-changes), items 11 to 17): no peer review, lower efforts,
 a second varied discovery pass, a cheaper verifier, a verifier of another vendor on a sample, an execution rung, a

@@ -1,6 +1,6 @@
 # P04 and P07: the Docker boundary against a real engine
 
-Recorded September 25, 2026 on beta commit `98e285f`. Host: macOS 26 (arm64), Node 22.23.2.
+Recorded September 25, 2026 on beta commit `1f13f7c`. Host: macOS 26 (arm64), Node 22.23.2.
 Engine: Docker Desktop 29.8.0, `linux/arm64`, containerd image store, reached through the
 current context's socket (`unix://$HOME/.docker/run/docker.sock`).
 

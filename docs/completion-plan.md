@@ -1,6 +1,6 @@
 # Completion plan
 
-Updated October 24, 2026, on `main`. Original baseline: 77149ef. See [status](#status) for each item.
+Updated October 24, 2026, on `main`. Original baseline: d33c36e. See [status](#status) for each item.
 
 This plan covers every unfinished implementation, validation and usability step identified
 in the project review. The [verification evidence](qa/README.md) records measured evidence, and
@@ -81,7 +81,7 @@ To pick it up:
 ## Status
 
 The full check (`pnpm run ci` and `pnpm build`) runs locally, on the development machine and in a clean
-`node:22` Linux container; no hosted CI is used. It last passed in Linux on October 23, 2026 at afdec34, with
+`node:22` Linux container; no hosted CI is used. It last passed in Linux on October 23, 2026 at b69abda, with
 69 of 69 browser tests in Chromium, Firefox and WebKit.
 
 Live environments used so far:
@@ -106,7 +106,7 @@ Evidence is in `docs/qa/`.
 | P03 | Accepted on subscriptions; API part deferred | Live transport conformance on Gemini native and the compatible endpoint (40 observations) and on all three subscription CLIs; on subscriptions, every public workflow through the CLI: Testing plan and execute (handoff applied), Feature automatic and interactive (operator revision, resume from a fresh process), a three-vendor Audit (all seeded defects accepted, nothing else); two exported Feature plans accepted by fresh Claude Code executors; 25 live defects fixed ([`qa/p03`](qa/p03/README.md), [`qa/p03-subscription`](qa/p03-subscription/README.md)) | Deferred to the [paid-API bundle](#deferred-the-paid-api-bundle): OpenAI Responses/Chat and Anthropic Messages API protocols live; refusal/context-limit elicitation |
 | P04 | **Complete** | Real engine: isolation, limits, timeout/cancel/output, drift, unavailable image, orphan recovery, parallel checks, source preservation, change-set application and stale rejection; public Testing executor with scripted and live model writers; two engine-exposed defects fixed ([`qa/p04`](qa/p04/README.md)) | — |
 | P05 | **Complete** | — | — |
-| P06 | **Complete** | Version 2.1.0 on subscription models (Claude Sonnet 5, GPT-5.6 Luna, Gemini 3.8 Flash: three families), prespecified in dfd5b23, ran all 15 runs. Decision **insufficient evidence** for C − B, B − A and D − A_pipeline over 10 defect units: recall A 25/30, B 10/10, C 20/20, D 19/20; precision C 54/58, D 20/23. Adverse and earlier results kept, unpooled: version 1 (Gemini API, 4 runs, [`qa/p06`](qa/p06/README.md)) and 2.0.0 (closed at run 2 on the per-run token cap) ([`qa/p06-subscription`](qa/p06-subscription/README.md)) | — |
+| P06 | **Complete** | Version 2.1.0 on subscription models (Claude Sonnet 5, GPT-5.6 Luna, Gemini 3.8 Flash: three families), prespecified in e2885d9, ran all 15 runs. Decision **insufficient evidence** for C − B, B − A and D − A_pipeline over 10 defect units: recall A 25/30, B 10/10, C 20/20, D 19/20; precision C 54/58, D 20/23. Adverse and earlier results kept, unpooled: version 1 (Gemini API, 4 runs, [`qa/p06`](qa/p06/README.md)) and 2.0.0 (closed at run 2 on the per-run token cap) ([`qa/p06-subscription`](qa/p06-subscription/README.md)) | — |
 | P07 | **Complete** | Every repair case, including the critical success/failure ones, rerun with real containers ([`qa/p04`](qa/p04/README.md)) | — |
 | P08 | Implemented; live limits deferred | All inventory stages now compose (global outline hierarchically, Feature drafting/exploration, Testing risk partitions) with resume tests; limits in `docs/harness.md` | Deferred to the [paid-API bundle](#deferred-the-paid-api-bundle): live context limits |
 | P09 | **Complete** | — | — |
@@ -119,7 +119,7 @@ Evidence is in `docs/qa/`.
 | P16 | **Complete** | Editor scenarios rerun on the restructured interface (its own Workflows page): 9 passed, 0 failed ([`qa/p16`](qa/p16/README.md)) | — |
 | P17 | **Complete** | — | — |
 | P18 | **Complete** | Prespecified criteria; local MiniLM candidate evaluated offline on two corpora. Authored findings: **reject** (W 36 → 49). P06 real-model findings (149 in 21 runs): **insufficient evidence** (94 of 100 same-label pairs; `E1` cut W only 7%, 25% required). Decision: **do not adopt; keep existing clustering** ([`qa/p18`](qa/p18/README.md)). The rerun also found `structural-v1` merging prompt-injection reports with the defect beside them (fixed in P19: `structural-v2`) | — |
-| P19 | **Complete** | Earlier cross-cutting fixes (quota classification, output repair, evidence re-anchoring, peer-review degradation, writer tool-loop handling, complete-context marking, sole-author coverage), then, as decided on September 29, all eight open findings fixed with regressions. The affected live acceptance passed on subscriptions on September 30 (Audit with an answered plan-questions checkpoint, planted-instruction follow-up, single-auditor planning, Feature and Testing on documented behaviour); the reruns found four more defects, all fixed. Full check green on Linux and macOS at f77024d ([`qa/p19`](qa/p19/README.md)) | — |
+| P19 | **Complete** | Earlier cross-cutting fixes (quota classification, output repair, evidence re-anchoring, peer-review degradation, writer tool-loop handling, complete-context marking, sole-author coverage), then, as decided on September 29, all eight open findings fixed with regressions. The affected live acceptance passed on subscriptions on September 30 (Audit with an answered plan-questions checkpoint, planted-instruction follow-up, single-auditor planning, Feature and Testing on documented behaviour); the reruns found four more defects, all fixed. Full check green on Linux and macOS at 1763c19 ([`qa/p19`](qa/p19/README.md)) | — |
 | P20 | **Closed on its pilot** (October 19) | Benchmark `p20-hard-v2` in a private repository; pilot recalibrated (October 10), then hardened further for two pilot projects (v3, v4). On the three pilot projects, wherever three Opus-only runs together missed a planted defect, the premium panel found it, at 0.57 to 0.67 times their time and 0.69 to 0.76 times their tokens (21 planted defects: an estimate, not a test). Lineup comparison tooling (`compare --lineups`); every lineup runs on Windows | Not done, by decision: the held-out protocol and held-out runs, and the cheap and light lineups |
 | P21 | Pending | — | The completion report and final doc reconciliation, after P20 |
 
@@ -451,7 +451,7 @@ detail.
 
 **Pilot, October 1, 2026.** The shakedown on one pilot project found a transport defect: the
 Antigravity CLI keeps only the first 191,580 bytes of a prompt and silently drops the rest, so
-Gemini audited part of the project. arbitra now refuses such prompts (3621837), and the
+Gemini audited part of the project. arbitra now refuses such prompts (6c7a1fd), and the
 benchmark's Gemini profiles use a 200,000-token context so discovery splits the project. Codex
 on ChatGPT Plus is the tightest usage limit (three large GPT-6 Astra calls used up a five-hour
 window), so the runner paces on both Claude's and Codex's usage windows.

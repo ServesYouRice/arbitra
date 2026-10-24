@@ -1,6 +1,6 @@
 # P12: native Claude Code writer against the real CLI
 
-Recorded September 27, 2026 on branch `beta` (commits 2690ebe and, for the failure paths, the test added after 9fbd2de). Host: macOS (arm64), Node 22.23.2.
+Recorded September 27, 2026 on branch `beta` (commits 5d4b43f and, for the failure paths, the test added after e22fa7d). Host: macOS (arm64), Node 22.23.2.
 
 - **CLI:** the real Claude Code 2.1.283 binary.
 - **Credential:** `credentialKind: "subscription_login"`, the maintainer's Claude subscription login on this host. No API key or token variable was set.

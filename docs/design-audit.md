@@ -170,9 +170,9 @@ executing them.
 ## Engineering review of October 14
 
 A second review read the code rather than the design. Codex (OpenAI's coding agent) traced 218 operations and the
-handoffs between stages at 8a26cdb, reproduced each finding offline and reported 31. Each was then checked against
-d05ecfa by reading the code. Thirty held. The thirty-first, distinct defects on one line merged, had already been
-fixed by aa601c7. Several were rated by their worst case on the paid APIs, which the project's own runs do not use. The
+handoffs between stages at 989f3a5, reproduced each finding offline and reported 31. Each was then checked against
+b4ecf64 by reading the code. Thirty held. The thirty-first, distinct defects on one line merged, had already been
+fixed by 130159f. Several were rated by their worst case on the paid APIs, which the project's own runs do not use. The
 review missed that each run builds its own transports in its own process, which makes two findings real today: kept
 sessions and unshared limits.
 
@@ -206,7 +206,7 @@ Open:
 
 | For | Change | Why | Size |
 |---|---|---|---|
-| Subscription runs | Windows process trees: report cleanup as unknown rather than done; a Job Object for descendants. Since 2d19b2f a descendant still holding the pipes two seconds after the leader exits is found by parent ID and ended | The tree is always reported terminated on Windows, so the leftover-process checks never fire | small to medium |
+| Subscription runs | Windows process trees: report cleanup as unknown rather than done; a Job Object for descendants. Since 5bc92bf a descendant still holding the pipes two seconds after the leader exits is found by parent ID and ended | The tree is always reported terminated on Windows, so the leftover-process checks never fire | small to medium |
 | Subscription runs | Admission shared across runs: a lease per account beside the CLI limit ledger, for `maxConcurrent` and retry hints | Panels side by side are separate processes with separate schedulers; only an exhausted usage window is shared | medium |
 | Subscription runs | A stage prompt's stable part (protocol, schema, tools, instruction) in the CLI's system-prompt file, measured on a timed run | It travels as one user message. Claude Code caches at the end of its system prompt, which holds only the preamble, so a stage's separate calls may share more from cache. Every prompt fingerprint changes | medium, experiment |
 | Subscription runs | Envelopes per stage: attempts, repairs, tool turns and replans recorded per stage, and a stage stopped when it makes no progress | Local limits multiply (64 replans, each with repairs, tool turns and retries); only the run's token budget bounds the product | medium |

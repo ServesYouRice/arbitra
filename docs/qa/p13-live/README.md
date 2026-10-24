@@ -2,7 +2,7 @@
 
 `advisor-evidence.json` is the redacted evidence from one run of the opt-in live advisor test
 (`packages/runtime/test/model-advisors.live.test.ts`) on 2026-09-25. The code was beta at
-41a1e65 plus the commit that adds this directory. **Both Gemini paths passed every check.**
+ca4ca57 plus the commit that adds this directory. **Both Gemini paths passed every check.**
 
 | Item | Value |
 |---|---|

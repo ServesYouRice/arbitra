@@ -155,7 +155,7 @@ up to Opus 5.5 and Fable 5.1.
   then `instructions`. `model_instructions_file` "will override the built-in instructions for the selected model. Users
   are STRONGLY DISCOURAGED from using this field"; `developer_instructions` is "inserted as a `developer` role message";
   `experimental_instructions_file` was renamed to `model_instructions_file` in 0.88.0 (January 21, 2026). Unknown keys
-  are ignored unless `--strict-config`. → arbitra 1e000da; a Codex notice of an ignored setting fails the call.
+  are ignored unless `--strict-config`. → arbitra c111a66; a Codex notice of an ignored setting fails the call.
 - [Prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching): "Put stable developer instructions and
   shared reference material first"; "Cache reuse requires the entire rendered prefix to match"; the prefix changes
   with model, tools, schema, `reasoning.effort` and verbosity; minimum 1,024 tokens from GPT-5.6. Measured in arbitra:
@@ -284,7 +284,7 @@ up to Opus 5.5 and Fable 5.1.
   check for plan sections.
 - **Qodo** ([single- vs multi-agent code review](https://www.qodo.ai/blog/single-agent-vs-multi-agent-code-review/);
   [PR-Agent](https://github.com/qodo-ai/pr-agent)): repository context beyond the diff, high-signal structured findings;
-  PR-Agent keeps the valid items of a reply and drops the rest. → Partial acceptance of a reply (7986f77).
+  PR-Agent keeps the valid items of a reply and drops the rest. → Partial acceptance of a reply (7d52dc0).
 - **Cursor** ([Bugbot](https://cursor.com/docs/bugbot), [security agents](https://cursor.com/blog/security-agents)): a
   light classifier for semantically duplicate findings across agents. → Deterministic clustering first, a model only for
   ambiguous pairs.
