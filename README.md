@@ -11,8 +11,8 @@ machine during a run is on one page: [privacy](docs/privacy.md).
 ## What it found on real projects
 
 The maintainer's own projects, October 2026, each a single run with Claude Opus 5.5, GPT-6.1 Sol and Gemini 3.8
-Flash. "Confirmed" means the verifier model found the defect in the source; lower-severity reports are listed but not
-checked.
+Flash, the last on the two-auditor default without Gemini. "Confirmed" means the verifier model found the defect in
+the source; lower-severity reports are listed but not checked.
 
 | Project | Lines | Confirmed issues | Time | Tokens | Tokens per confirmed issue |
 |---|---|---|---|---|---|
@@ -20,6 +20,7 @@ checked.
 | A blog with a CMS | 14,204 | 41 (3 high) | 63 min | 13.1M | 320K |
 | A comments service (commentanywhere) | 11,719 | 51 (1 critical, 7 high) | 40 min | 7.5M | 146K |
 | A screen-sharing app ([nextra](https://github.com/ServesYouRice/nextra)) | 38,967 | 126 (1 critical, 21 high) | 105 min | 26.8M | 213K |
+| A desktop automation app (Python and React) | 26,100 | 102 (10 high) | 71 min | 15.8M | 155K |
 
 The first two ran with a peer-review round between the auditors, which later versions leave out.
 

@@ -41,10 +41,12 @@ narratives of the real-project runs in `git show 7a68462:WORK-REMAINING.md`.
 | blog, Oct 22 | `run-7fb6177a` | 164 files, 14,204 lines | 63 min | 359 | 13.1M (922) | 41 of 180 confirmed (3 high, 38 medium) | 320K | 16 / 7 / 2 |
 | commentanywhere, Oct 23 | `run-5a90c75d` | 93 files, 11,719 lines | 40 min | 234 | 7.5M (640) | 51 of 150 confirmed (1 critical, 7 high, 43 medium) | 146K | 20 / 8 / 2 |
 | nextra, Oct 23 | `run-ccd3ccea` | 172 files, 38,967 lines | 105 min | 683 | 26.8M (688) | 126 of 415 confirmed (1 critical, 21 high, 104 medium) | 213K | 40 / 30 / 3 |
+| rokbot, Oct 24 | `run-869f90f0` | 125 files, about 26,100 lines | 71 min | 418 | 15.8M (605) | 102 of 300 confirmed (10 high, 92 medium) | 155K | 45 / 15 / — |
 
 beachflag ran before confirmed issues were reported, so its counts are accepted issues. beachflag, rokavatar and
-blog ran with one peer-review round; commentanywhere and nextra without one, the default since October 23.
-Gemini ran at high thinking on beachflag and rokavatar, at medium after that.
+blog ran with one peer-review round; commentanywhere, nextra and rokbot without one, the default since October 23.
+Gemini ran at high thinking on beachflag and rokavatar, at medium after that; rokbot ran on the two-auditor default
+(Claude Code and Codex) with the plan critic.
 
 What each run changed:
 
@@ -77,12 +79,23 @@ What each run changed:
   run whose gate fails only on work left for a person reads "done · needs you" in the web app, with the issues to
   check by hand, the questions only the project owner can answer and what the run could not see. Without peer
   review no auditor is counted as a missing reviewer. The CLI gate is unchanged and still exits 1.
+- **rokbot**, the first default run on two auditors with the plan critic (fixed that morning, see below), audited
+  from a clone of its `origin/main`. No call failed. Verification took 8.9M of the 15.8M tokens (319 calls), the
+  critic and its check 1.4M (9%), planning and revision 2.2M. 83 of the plan's 84 tasks verify with the project's
+  own commands, read from its manifests. The snapshot masked three lines of code as secrets
+  (`secrets.token_urlsafe(32)` and two reads of the token header), so the auditors wrote that they could not check
+  how the capability token was made and compared: a call or an index on a secret's name now reads as code
+  (6daff11). Once, near the end of planning, the server took more than 20 seconds to answer a status request; it
+  did not happen again.
 
 Open from the runs:
 
 - **The default Audit ran no plan critic in v0.2.1:** dropping Gemini left two auditors, so `subscription-audit`
   moved to `audit-balanced`, whose graph had no critic node. Fixed October 24: a balanced audit runs the critic when
-  `roles.critic` is set. The next default run measures what the critic and its revision cost on two auditors.
+  `roles.critic` is set. On rokbot the critic and its check cost 1.4M tokens, 9% of the run.
+- **Two settings share the words "balanced" and "deep":** the workflow (`audit-balanced` is two auditors,
+  `audit-deep` three) and the audit depth (the effort level). The default is `audit-balanced` at depth `deep`. For
+  the UI phase.
 - **Gemini's share:** its confirmed finds no other model made, against what its audit costs: rokavatar 0 for 2.1M
   tokens at high thinking (560 call-minutes; 17 of 51 calls lost, 12 to its content filter and 5 to its output
   ceiling), 7 in that run's replay; blog 2 for 1.9M at medium (135 call-minutes; 9 of 47 calls refused);
@@ -197,7 +210,7 @@ runs moved to fewer review calls):
   the injection follow-ups (model calls), once the next runs show what the candidates hold.
 - **Wired:** the project's own test, typecheck, lint and build commands, read from its manifests at the start of a
   model Audit or Feature (`packages/runtime/src/project-commands.ts`), given to the planners and listed in the saved
-  plan's `AGENTS.md`. Measure on the next runs how often the plans' verification commands use them.
+  plan's `AGENTS.md`. On rokbot, 83 of the plan's 84 tasks verify with them.
 - **Wired:** the saved plan's README says when the project's files changed after the audit, or a CLI updated itself
   while the run was paused (`environment-versions`).
 - **Derived write envelope** (`packages/security/src/envelope.ts`, with its tests). It derives the write scope from the
