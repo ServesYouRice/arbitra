@@ -173,6 +173,19 @@ are checked against Anthropic's guidance first.
 - Windows: `treeTerminated` is still assumed after the leader exits; the native harness stand-ins need POSIX.
 - Smaller: after a resume one Claude turn returned its tool-call markup as text and the repair restarted its tool
   loop.
+- From the spec review of October 24 (built differently from the build specification, or not applied):
+  - Model-run verification is one model question per candidate: the deterministic rungs after reading the cited
+    lines (symbol and call-path search, route and config checks, import paths) answer "inconclusive"
+    (`inconclusiveTools` in `packages/runtime/src/model-pipeline.ts`).
+  - Profile quirks are parsed but only `systemPromptSupport` and `toolLoopLimit` act; `promptStyle`,
+    `fewShotPolicy`, `documentPlacement`, `historyPolicy` and the sampling defaults change nothing, though the
+    templates set them.
+  - `arbitra audit --preset …` builds a configuration with no models, so it runs the scripted detectors; model
+    audits need `run <config>`.
+  - Whether a plan gets a critic is decided by the graph alone: the critic's risk triggers receive a hard-coded
+    `deepMode: true`.
+  - Models are offered no Git tools (`gitStatus`, `gitDiff` and `gitLog` throw on a snapshot), and computed cache
+    breakpoints are never sent.
 
 **Built but not wired.** The cleanup of October 24 removed the modules no entrypoint used. These were kept, or are
 noted, because they are worth wiring; each is measured like the rest before it becomes a default:
