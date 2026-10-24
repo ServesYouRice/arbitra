@@ -39,12 +39,14 @@ function requirementDiagnostics(requirements: RequirementsContract, mode: "featu
   return (plan) => [...validateTraceability(plan, []), ...validateRequirementsPlanTraceability(requirements, plan, mode)];
 }
 
-export function featurePlannerRecords(requirements: RequirementsContract, exploration: FeatureExploration): PlannerRecordSet {
+export function featurePlannerRecords(requirements: RequirementsContract, exploration: FeatureExploration, repositoryCommands?: unknown): PlannerRecordSet {
+  const commands = repositoryCommands === undefined ? {} : { repositoryCommands };
   return { mode: "feature", ids: requirementRecordIds(requirements),
     // featurePlannerNode also forwards the whole contract as a top-level planner field;
     // staged requests carry the scoped records once, inside projectContext.
-    scoped: (ids) => ({ canonicalIssues: [], projectContext: { context: { exploration: scopedExploration(exploration, ids) }, requirements: scopedRequirements(requirements, ids) }, requirements: undefined }),
+    scoped: (ids) => ({ canonicalIssues: [], projectContext: { context: { exploration: scopedExploration(exploration, ids) }, requirements: scopedRequirements(requirements, ids), ...commands }, requirements: undefined }),
     outlineContext: {
+      ...commands,
       requirements: { featureRequest: requirements.featureRequest, ambiguities: requirements.ambiguities, outOfScope: requirements.outOfScope, decision: requirements.decision, requirementIndex: requirementIndex(requirements) },
       exploration: { summary: exploration.summary, preflight: { ...exploration.preflight, affectedSurfaces: explorationIndex(exploration) }, limitations: exploration.limitations,
         evidence: "Exact exploration evidence is supplied with each requirement brief and task expansion." },

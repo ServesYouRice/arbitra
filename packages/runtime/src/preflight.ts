@@ -347,7 +347,12 @@ export interface EnvironmentPreflightOptions {
   /** Subscription CLI host options (environment reader, process runner, limits record) shared with the transports. */
   readonly cli?: CliTransportOptions;
   readonly cliProbe?: CliProbe;
+  /** Filled with the version each subscription CLI endpoint reports, by endpoint ID (null when unreadable). */
+  readonly cliVersions?: Map<string, string | null>;
 }
+
+/** The artifact recording the version each subscription CLI reported at a run's start, and any change on a resume. */
+export const ENVIRONMENT_VERSIONS_KIND = "environment-versions";
 
 /** Shipped templates name no real model; a live request must never be sent for one. */
 export const MODEL_IDENTITY_PLACEHOLDER_PREFIX = "replace-with-";
@@ -423,6 +428,7 @@ async function cliDiagnostics(endpoint: { readonly id: string; readonly transpor
     ...(options.cli?.process === undefined ? {} : { process: options.cli.process }), ...(options.cli?.platform === undefined ? {} : { platform: options.cli.platform }),
     ...(options.cli?.nodeExecutable === undefined ? {} : { nodeExecutable: options.cli.nodeExecutable }), ...(options.cli?.limits === undefined ? {} : { limits: options.cli.limits }),
   });
+  options.cliVersions?.set(endpoint.id, readiness.version);
   if (!readiness.executable.found) {
     diagnostics.push(error(`SUBSCRIPTION_CLI_NOT_INSTALLED:${endpoint.id}`, "$environment", `${who} is not available: ${readiness.executable.detail}. ${support.installInstruction}`));
     return;

@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { allocateOverlap, type OverlapSignal } from "../../src/overlap-allocator.js";
 import { redactSecrets } from "../../src/redaction.js";
 import { scan } from "../../src/scanner/index.js";
 import { suppressionCandidates } from "../../src/suppression.js";
@@ -27,15 +26,6 @@ describe("offline security fixture suite", () => {
     expect(detect()).toMatchObject([{ path: value.path, readBy: ["auditor-a"], findingsCiting: [] }]);
     expect(() => assertSuppressionFixture(() => [])).toThrow("MUTATION_SURVIVED_SUPPRESSION_FIXTURE");
     expect(() => assertSuppressionFixture(detect)).not.toThrow();
-  });
-
-  it("protects bounded-overlap invariant against scanner cost amplification", () => {
-    const value = fixture<{ signalCount: number; tokensPerSignal: number; maximumAdditionalTokens: number; expectedAllocated: number; expectedSkipped: number }>("cost-amplification.json");
-    const signals: OverlapSignal[] = Array.from({ length: value.signalCount }, (_, index) => ({ path: `file-${index}.ts`, level: index < value.signalCount / 2 ? "medium" : "low", instructionShaped: false, securitySensitiveChanged: false, suspiciousDirective: false, controlPolicyChanged: false, estimatedAdditionalTokens: value.tokensPerSignal }));
-    const plan = allocateOverlap(signals, { maximumAdditionalTokens: value.maximumAdditionalTokens, mode: "ci" });
-    expect(plan.decisions.filter(({ disposition }) => disposition === "budgeted")).toHaveLength(value.expectedAllocated);
-    expect(plan.decisions.filter(({ disposition }) => disposition === "not_allocated")).toHaveLength(value.expectedSkipped);
-    expect(plan.securityCoverage).toMatchObject({ degraded: true, reason: "overlap_budget_exceeded" });
   });
 
   it("protects outbound redaction invariant for stdout and export serialization", () => {

@@ -22,7 +22,6 @@ export interface EvaluationMetrics {
   readonly totalCostUsd?: number | null; readonly currency?: string | null; readonly costPerTrueAcceptedIssue?: number | null;
   readonly consensusPrecision?: number | null; readonly consensusRecall?: number | null;
   readonly verificationResolutionRate?: number | null; readonly cacheHitRate?: number | null; readonly escalatedPairs?: number | null;
-  readonly securityOverlapBudget?: { readonly budget: number; readonly used: number; readonly usage: number | null } | null;
   readonly suppressionCandidateCount?: number | null;
   readonly confirmedYield?: ConfirmedYield | null;
   readonly planResults?: PlanResults | null;

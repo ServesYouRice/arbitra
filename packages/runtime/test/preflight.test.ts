@@ -160,6 +160,10 @@ describe("environment preflight", () => {
     expect(message("SUBSCRIPTION_CLI_NOT_LOGGED_IN:antigravity")).toContain("Run `agy` once");
     const warnings = (await run({ "antigravity-cli": { auth: "unverified" } })).filter(({ severity }) => severity === "warning").map(({ code }) => code);
     expect(warnings).toEqual(["SUBSCRIPTION_CLI_AUTH_UNVERIFIED:antigravity"]);
+    // The versions are kept, so a resume can tell that a CLI updated itself while the run was paused.
+    const versions = new Map<string, string | null>();
+    await environmentDiagnostics(config, { credential: absent, cliProbe: probe({ "codex-cli": { version: "0.130.0" }, "antigravity-cli": { version: null, versionSupported: null } }), cliVersions: versions });
+    expect(Object.fromEntries(versions)).toEqual({ "claude-code": "1.0.0", codex: "0.130.0", antigravity: null });
   });
 
   it("refuses live dispatch of template placeholder model identities", async () => {

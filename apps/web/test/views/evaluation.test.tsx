@@ -10,7 +10,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 const measuredRow = { modelIdentity: "model-a", activityCount: 3, successCount: 3, refusalCount: 0, errorCount: 0, cacheHitRate: 0.25, repairCount: 1, recall: 0.5, precision: 0.75, falsePositiveRate: 0.25, uniqueTrueContribution: 2, marginalTrueContribution: 2, repairFrequency: 0.25, invalidEvidenceRate: 0, refusalRate: 0, costUsd: 0.01, latencyMs: 1200, independenceGroup: "provider-a" };
 const unmeasuredRow = { ...measuredRow, modelIdentity: "model-b", recall: null, precision: null, falsePositiveRate: null, uniqueTrueContribution: null, marginalTrueContribution: null, repairFrequency: null, invalidEvidenceRate: null, refusalRate: null, costUsd: null, latencyMs: null, independenceGroup: null };
-const metrics = { rows: [measuredRow, unmeasuredRow], denominator: { activityCount: 6, auditorCount: 2, groundTruthAvailable: true }, segmentation: ["model"], independence: { applicable: true, reason: null, groups: ["provider-a", "provider-b"] }, totalCostUsd: 0.02, currency: "USD", costPerTrueAcceptedIssue: 2.05, consensusPrecision: 0.5, consensusRecall: 0.5, verificationResolutionRate: 0.75, cacheHitRate: 0.25, escalatedPairs: 2, securityOverlapBudget: { budget: 8, used: 6, usage: 0.75 }, suppressionCandidateCount: 1 };
+const metrics = { rows: [measuredRow, unmeasuredRow], denominator: { activityCount: 6, auditorCount: 2, groundTruthAvailable: true }, segmentation: ["model"], independence: { applicable: true, reason: null, groups: ["provider-a", "provider-b"] }, totalCostUsd: 0.02, currency: "USD", costPerTrueAcceptedIssue: 2.05, consensusPrecision: 0.5, consensusRecall: 0.5, verificationResolutionRate: 0.75, cacheHitRate: 0.25, escalatedPairs: 2, suppressionCandidateCount: 1 };
 
 describe("web evaluation surface over the localhost routes", () => {
   it("shows every per-auditor and per-run metric with its denominator and identity segmentation", async () => {
@@ -24,7 +24,6 @@ describe("web evaluation surface over the localhost routes", () => {
     expect(within(summary).getByText("verification resolution rate").nextElementSibling?.textContent).toBe("0.75");
     expect(within(summary).getByText("cache hit rate").nextElementSibling?.textContent).toBe("0.25");
     expect(within(summary).getByText("escalated pairs").nextElementSibling?.textContent).toBe("2");
-    expect(within(summary).getByText("security overlap budget").nextElementSibling?.textContent).toBe("6 of 8 · usage 0.75");
     expect(within(summary).getByText("suppression candidates").nextElementSibling?.textContent).toBe("1");
     expect(within(summary).getByText("cost per true accepted issue").nextElementSibling?.textContent).toBe("2.05");
   });

@@ -81,13 +81,24 @@ Unexamined surfaces and degraded coverage appear in the consensus artifact
 (`apps/cli/src/output/human.ts`) and in machine JSON — not only in the UI, because CI is where
 nobody opens a UI.
 
-**Built, not yet wired.** `packages/security` also holds a deterministic injection scanner
-(`scanner/`: instruction-shaped text, imperative suppression wording, hidden Unicode and tag
-characters, encoded payloads, wrapper-breaking sequences), a suppression-candidate join
-(`suppression.ts`: risky content an auditor read but no finding cites), a security overlap
-budget (`overlap-allocator.ts`) and a derived write envelope (`envelope.ts`). Each is unit-tested,
-but no run calls them yet, so the `suppressionCandidates` field of every run is empty. Wiring them
-is planned in [remaining work](../WORK-REMAINING.md#improvement-phase).
+**The deterministic scanner.** Beside the models' own reports, every model Audit scans each
+snapshot file with `packages/security/src/scanner/` (instruction-shaped text, wording that tells
+an auditor to leave out findings, hidden Unicode and tag characters, encoded payloads, text that
+closes a prompt's wrapper), without a model call. The verification stage records the hits as
+`instruction-risk-scan` and joins them with what each auditor read and what each finding cites
+(`suppression.ts`, through `packages/runtime/src/instruction-risk.ts`): a flagged place that an
+auditor read and no finding cites becomes a suppression candidate in the consensus artifact's
+`coverage.suppressionCandidates`, with its lines. A candidate is a warning, not an issue: the
+issue board and the saved plan's README ("Read this first") list it, and no verdict or gate
+reason changes. Measured on five real projects before it was wired (October
+24, 2026), it flagged one file in all five, a test of zero-width characters; the suppression rule
+was narrowed after npm's `--no-audit`, interface copy and a byte-order mark matched it. Hits are
+not yet sent to the injection follow-ups, which would cost model calls.
+
+**Built, not yet wired.** A derived write envelope (`packages/security/src/envelope.ts`) takes a
+plan task's write scope from the modules that hold its accepted issues, never from the plan's
+proposed scope. It is unit-tested and planned for when plans are carried out by other agents
+([remaining work](../WORK-REMAINING.md#improvement-phase)).
 
 ## Command policy
 

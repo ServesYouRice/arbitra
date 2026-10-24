@@ -137,8 +137,8 @@ are checked against Anthropic's guidance first.
   code that cite only test lines, which clustering cannot join to a report citing the source. Pack a test file with
   the source it imports.
 - **Stages are not told the rest of the repository exists.** A partial prompt should say it is part of a larger
-  repository and list its file index; plan sections and the critic have the source tools and used none in six runs;
-  package manifests are recorded by name and never given, so plans guess the test command.
+  repository and list its file index; plan sections and the critic have the source tools and used none in six runs.
+  (The project's commands now reach the planners; see below.)
 - **Duplicates survive:** pairs from different discovery units with the same failure mechanism are never compared,
   nor are candidates added during peer review with existing ones (2 of 5 and 2 of 7 additions in two panels).
 - **An abstention says nothing about why.** "Cannot tell" and "rejected" should carry one sentence of what the
@@ -187,25 +187,29 @@ are checked against Anthropic's guidance first.
   - Models are offered no Git tools (`gitStatus`, `gitDiff` and `gitLog` throw on a snapshot), and computed cache
     breakpoints are never sent.
 
-**Built but not wired.** The cleanup of October 24 removed the modules no entrypoint used. These were kept, or are
-noted, because they are worth wiring; each is measured like the rest before it becomes a default:
+**Built but not wired.** The cleanup of October 24 removed the modules no entrypoint used. Of the ones it kept, three
+were wired on October 24 and the overlap allocator was removed (it bought extra auditors on risky paths, while the
+runs moved to fewer review calls):
 
-- **Deterministic injection scanner and suppression candidates** (`packages/security/src/scanner/`,
-  `suppression.ts`, `overlap-allocator.ts`, with their tests). Repository text is framed as untrusted and the models
-  report instruction-shaped text themselves, but nothing deterministic looks for hidden Unicode or tag characters,
-  encoded payloads or "do not report" wording, and every run records `suppressionCandidates: []`. Wiring: scan the
-  snapshot at preflight, add the scanner's hits to the injection follow-ups, and list in the run report the risky
-  files that an auditor read but no finding cites. It needs no model calls.
+- **Wired, warnings only:** the deterministic injection scanner and suppression candidates
+  (`packages/runtime/src/instruction-risk.ts`; [security](docs/security.md)). Still open: send the scanner's hits to
+  the injection follow-ups (model calls), once the next runs show what the candidates hold.
+- **Wired:** the project's own test, typecheck, lint and build commands, read from its manifests at the start of a
+  model Audit or Feature (`packages/runtime/src/project-commands.ts`), given to the planners and listed in the saved
+  plan's `AGENTS.md`. Measure on the next runs how often the plans' verification commands use them.
+- **Wired:** the saved plan's README says when the project's files changed after the audit, or a CLI updated itself
+  while the run was paused (`environment-versions`).
 - **Derived write envelope** (`packages/security/src/envelope.ts`, with its tests). It derives the write scope from the
   modules that hold the accepted issues' locations, never from the plan's proposed scope, so a plan written from
-  untrusted text cannot widen an executing agent's scope (for example to `.github/workflows/`). Wire it into the saved plan before plans are carried out by
-  other agents (item 3 of the order below).
-- **Test commands for plans** (the package-manifest item under Quality): `packages/runtime/src/testing-context.ts`
-  already derives a repository's test commands for Testing mode; give them to the Audit and Feature planners.
-  `packages/core/src/preflight/project-context.ts` also extracts build, lint and typecheck commands, frameworks and
-  CI files, but only the handoff acceptance harness (`packages/testing/src/fresh-executor.ts`) calls it.
+  untrusted text cannot widen an executing agent's scope (for example to `.github/workflows/`). Wire it into the
+  saved plan with item 3 of the order below, plans carried out by other agents.
 - **Native output schemas** for the paid-API bundle: per-dialect schema projections (OpenAI strict, Gemini, Anthropic
   tool) were built and deleted unused; they are at `7a68462:packages/schemas/src/projections/`.
+
+**Replay with another configuration** (October 24): an Audit replay may now run the stages after discovery with
+another configuration (verifier, critic, planner, efforts) and read an identical checkout elsewhere
+([workflows](docs/workflows.md)). The verifier experiments below use it on the five real runs' discovery, so they
+pay only for verification and planning.
 
 **Experiments** ([design audit](docs/design-audit.md#what-changes), items 11 to 17): no peer review, lower efforts,
 a second varied discovery pass, a cheaper verifier, a verifier of another vendor on a sample, an execution rung, a

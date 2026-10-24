@@ -49,7 +49,7 @@ export async function evaluationMetrics(store: RunStore, traces: readonly ModelA
     cacheWriteTokens: knownSum(traces.map(({ tokenUsage }) => tokenUsage?.cacheWriteTokens ?? null)),
     consensusPrecision: null, consensusRecall: null, verificationResolutionRate: verification === null || verificationCount === 0 ? null : verification.resolvedDisputes / verificationCount,
     cacheHitRate: cacheRate(traces), escalatedPairs: clustering?.metrics.escalatedPairs ?? null,
-    securityOverlapBudget: null, suppressionCandidateCount: issues?.coverage.suppressionCandidates.length ?? null,
+    suppressionCandidateCount: issues?.coverage.suppressionCandidates.length ?? null,
     // What the verifier confirmed from the source and its price in tokens, measured without a ground-truth key.
     confirmedYield: issues === null ? null : confirmedYield(issues, (await store.loadContext()).modelConfiguration?.models ?? {}, traces),
     // What the executor of the saved plan reported: defects proven by a failing test, and fixed.

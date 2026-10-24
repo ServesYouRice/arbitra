@@ -10,7 +10,7 @@ import { runConfigSchema, type RunConfig } from "@arbitra/schemas/config.js";
 import { DEFAULT_AUDITORS, type AuditFinding } from "./auditors.js";
 import type { CanonicalIssueSet } from "@arbitra/workflow/nodes/canonical-issues.js";
 import { AUDIT_DEEP_GRAPH, auditorIdsFor, PRESET_GRAPHS, withCritic } from "./graphs.js";
-import { assertNoPreflightErrors, configurationDiagnostics, environmentDiagnostics, graphForConfiguration, PreflightError, type ConfigurationPreflightOptions, type PreflightDiagnostic } from "./preflight.js";
+import { assertNoPreflightErrors, configurationDiagnostics, ENVIRONMENT_VERSIONS_KIND, environmentDiagnostics, graphForConfiguration, PreflightError, type ConfigurationPreflightOptions, type PreflightDiagnostic } from "./preflight.js";
 import { DockerTestSandbox } from "./test-sandbox.js";
 import { canonicalise, converge, critique, discover, plan, preflight, readStage, verify, type AuditContext, type ConvergenceResult, type Plan } from "./pipeline.js";
 import { defaultGit, snapshotRepository, type RepositorySnapshot } from "./repository.js";
@@ -60,6 +60,7 @@ import { WorkflowGraphStore, type WorkflowGraphVersionRecord } from "@arbitra/pe
 import { workflowGraphReferenceSchema, workflowGraphSaveRequestSchema, workflowGraphValidateRequestSchema, type WorkflowGraphAuthorization, type WorkflowGraphReference } from "@arbitra/schemas/workflow-graphs.js";
 import { authoredTemplates, boundedRounds, runnerGraphOf, validateAuthoredGraph, type AuthoredGraphValidation } from "./authored-graphs.js";
 import type { WorkflowGraph } from "@arbitra/workflow/graph-schema.js";
+import { PROJECT_COMMANDS_KIND, projectCommands } from "./project-commands.js";
 
 /** A run's executed graph identity: the saved version it references and the version of what actually ran. */
 export interface RunWorkflowGraphIdentity extends WorkflowGraphReference { readonly executedVersion: string }
@@ -262,7 +263,8 @@ export class Orchestrator {
     const validated = this.configurations.validate(config);
     const { graph, authored } = await this.#assertRunnable(validated);
     // Fail before a run, snapshot or provider call exists rather than at first dispatch.
-    const environment = await environmentDiagnostics(validated, { ...this.#environmentOptions(), includeWarnings: false });
+    const cliVersions = new Map<string, string | null>();
+    const environment = await environmentDiagnostics(validated, { ...this.#environmentOptions(), includeWarnings: false, cliVersions });
     if (environment.some(({ severity }) => severity === "error")) throw new PreflightError(environment);
     const incremental = incrementalRequestOf(validated);
     const base = incremental === undefined ? undefined : await this.#incrementalBase(incremental.baseRunId);
@@ -291,6 +293,9 @@ export class Orchestrator {
     await store.saveContext(storedContext);
     if (identity !== undefined) await store.publish(SNAPSHOT_IDENTITY_KIND, identity);
     if (contract !== undefined) await store.publish(INCREMENTAL_CONTRACT_KIND, contract);
+    if (cliVersions.size > 0) await store.publish(ENVIRONMENT_VERSIONS_KIND, { cli: Object.fromEntries(cliVersions) });
+    // Plans name the project's own test and check commands; they are read once, with the snapshot.
+    if (modelConfiguration !== undefined && (validated.mode === "audit" || validated.mode === "feature")) await store.publish(PROJECT_COMMANDS_KIND, { commands: await projectCommands(snapshot) });
     const units: AuditUnitOptions | undefined = identity === undefined ? undefined : { identity, ...(contract === undefined || base === undefined ? {} : { seed: new IncrementalSeed(base.store, store, contract) }) };
     const context: AuditContext = Object.freeze({
       snapshot,
@@ -376,8 +381,9 @@ export class Orchestrator {
       if (request.mode === "audit") {
         if (sourceMode === "feature") throw Object.assign(new Error("FEATURE_AUDIT_REPLAY_NOT_SUPPORTED"), { statusCode: 409 });
         if (sourceMode === "testing") throw Object.assign(new Error("TESTING_AUDIT_REPLAY_NOT_SUPPORTED"), { statusCode: 409 });
-        const { consensusPolicy, maximumRounds, criticEnabled } = request;
-        return await this.#startAuditReplay(sourceRunId, source, original, { consensusPolicy, maximumRounds, criticEnabled });
+        const { consensusPolicy, maximumRounds, criticEnabled, configuration, repository } = request;
+        return await this.#startAuditReplay(sourceRunId, source, original, { consensusPolicy, maximumRounds, criticEnabled },
+          { ...(configuration === undefined ? {} : { configuration }), ...(repository === undefined ? {} : { repository }) });
       }
       if (request.mode !== sourceMode) throw Object.assign(new Error(`REPLAY_MODE_MISMATCH:${sourceMode}:${request.mode}`), { statusCode: 409 });
       return await this.#startModelReplay(sourceRunId, source, original, request);
@@ -435,10 +441,12 @@ export class Orchestrator {
     return Object.freeze({ runId, sourceRunId, mode, state: handle.state, stages, execution });
   }
 
-  async #startAuditReplay(sourceRunId: string, source: RunStore, original: StoredRunContext, overrides: ReplayOverrides): Promise<ReplayResource> {
-    const snapshot = await snapshotRepository(original.repository, 400, { scope: original.scope });
-    if (snapshotDigest(snapshot) !== original.repositoryDigest) throw new Error(`RUN_REPOSITORY_CHANGED:${sourceRunId}`);
+  async #startAuditReplay(sourceRunId: string, source: RunStore, sourceContext: StoredRunContext, overrides: ReplayOverrides, changes: { readonly configuration?: RunConfig; readonly repository?: string } = {}): Promise<ReplayResource> {
+    const repository = changes.repository === undefined ? sourceContext.repository : resolve(changes.repository);
+    const snapshot = await snapshotRepository(repository, 400, { scope: sourceContext.scope });
+    if (snapshotDigest(snapshot) !== sourceContext.repositoryDigest) throw new Error(`RUN_REPOSITORY_CHANGED:${sourceRunId}`);
     const definition = await source.definitions().load(sourceRunId);
+    const original: StoredRunContext = { ...sourceContext, repository, ...(changes.configuration === undefined ? {} : { modelConfiguration: await this.#replayConfiguration(sourceContext, definition.graph, changes.configuration) }) };
     const replayGraph = withCritic(definition.graph, overrides.criticEnabled);
     if (original.workflowGraph !== undefined) {
       // A replay of a saved graph executes that exact version; it cannot edit it.
@@ -453,18 +461,42 @@ export class Orchestrator {
     if (runId === sourceRunId) throw new Error("REPLAY_MUST_CREATE_NEW_RUN");
     const store = new RunStore(this.#runsDirectory, runId);
     await store.saveContext({ ...original, replaySourceRunId: sourceRunId, consensusPolicy: overrides.consensusPolicy, maximumRounds: overrides.maximumRounds, criticEnabled: overrides.criticEnabled });
-    await store.publish("replay-source", { sourceRunId, overrides, reusedArtifacts: (await source.listArtifacts()).filter(({ kind }) => auditors.some(({ auditorId }) => kind === `findings-${auditorId}`)).map(({ artifactId, ref }) => ({ artifactId, hash: ref.hash })) });
+    await store.publish("replay-source", { sourceRunId, overrides, ...(changes.configuration === undefined ? {} : { configurationReplaced: true }), ...(changes.repository === undefined ? {} : { repository }), reusedArtifacts: (await source.listArtifacts()).filter(({ kind }) => auditors.some(({ auditorId }) => kind === `findings-${auditorId}`)).map(({ artifactId, ref }) => ({ artifactId, hash: ref.hash })) });
     if (original.modelConfiguration !== undefined) {
       for (const artifact of (await source.listArtifacts()).filter(({ kind }) => kind.startsWith("model-protocol-"))) {
         await store.publish(artifact.kind, JSON.parse((await source.readArtifact(artifact.artifactId)).content));
       }
       for (const { auditorId } of auditors) await store.publish(`discovery-validation-${auditorId}`, await readStage(source, `discovery-validation-${auditorId}`), auditorId);
+      // A replay plans with the commands its source read, so the two plans differ only by what the replay changed.
+      const commands = (await source.listArtifacts()).findLast(({ kind }) => kind === PROJECT_COMMANDS_KIND);
+      if (commands !== undefined) await store.publish(PROJECT_COMMANDS_KIND, JSON.parse((await source.readArtifact(commands.artifactId)).content));
     }
     const context: AuditContext = Object.freeze({ snapshot, store, auditors, auditorKind: original.modelConfiguration === undefined ? "scripted_auditors" : "model_auditors", policy: Object.freeze({ name: overrides.consensusPolicy, quorum: 2, minimumIndependentGroupsForHighRisk: 2 }), maximumRounds: overrides.maximumRounds, criticEnabled: overrides.criticEnabled });
     const { runner, close } = this.#runner(store, context, findings, original.modelConfiguration, original.checkpointPolicy);
     const handle = runner.start(replayGraph, { ...definition.config, runId });
     this.#track(runId, handle, close);
     return Object.freeze({ runId, sourceRunId, mode: "audit" as const, state: handle.state });
+  }
+
+  /**
+   * The configuration an Audit replay runs its later stages with. Discovery is reused, so whatever produced it stays
+   * as the source had it: mode, scope, preset and each auditor's profile. The new configuration must also pass the
+   * checks a new run's does, with its CLIs and endpoints ready, since the replay dispatches it.
+   */
+  async #replayConfiguration(source: StoredRunContext, graph: RunnerGraph, value: RunConfig): Promise<RunConfig> {
+    const previous = source.modelConfiguration;
+    if (previous === undefined) throw Object.assign(new Error("REPLAY_CONFIGURATION_REQUIRES_MODEL_AUDIT"), { statusCode: 409 });
+    const config = this.configurations.validate(value);
+    const changed = (name: string, before: unknown, after: unknown) => {
+      if (canonicalJson(before ?? null) !== canonicalJson(after ?? null)) throw Object.assign(new Error(`REPLAY_CONFIGURATION_CHANGES_DISCOVERY:${name}`), { statusCode: 409 });
+    };
+    changed("mode", previous.mode, config.mode);
+    changed("scope", previous.scope, config.scope);
+    changed("workflow.preset", presetOf(previous), presetOf(config));
+    for (const auditorId of auditorIdsFor(graph)) changed(`models.${auditorId}`, previous.models[auditorId], config.models[auditorId]);
+    const environment = await environmentDiagnostics(config, { ...this.#environmentOptions(), includeWarnings: false });
+    if (environment.some(({ severity }) => severity === "error")) throw new PreflightError(environment);
+    return config;
   }
 
   /** The inspectable reuse/regeneration provenance of a Feature or Testing replay run. */
@@ -499,6 +531,7 @@ export class Orchestrator {
     const storedContext = maximumTokens === undefined ? await store.loadContext() : await raisedTokenLimit(store, await store.loadContext(), maximumTokens);
     const snapshot = await snapshotRepository(storedContext.repository, 400, { scope: storedContext.scope, ...testingSnapshotOptions(storedContext.modelConfiguration) });
     if (snapshotDigest(snapshot) !== storedContext.repositoryDigest) throw new Error(`RUN_REPOSITORY_CHANGED:${runId}`);
+    if (storedContext.modelConfiguration !== undefined) await this.#recordEnvironmentChange(store, storedContext.modelConfiguration);
     const definition = await store.definitions().load(runId);
     // A saved graph resumes as the exact version the run started with, never a later one.
     if (storedContext.workflowGraph !== undefined) await this.#verifyExecutedGraph(storedContext.workflowGraph, definition.graph);
@@ -522,6 +555,29 @@ export class Orchestrator {
     const handle = runner.resume(runId);
     this.#track(runId, handle, close);
     return Object.freeze({ runId, state: handle.state, resumable: true, checkpoints: Object.freeze([]), preservedArtifacts: (await store.listArtifacts()).length });
+  }
+
+  /**
+   * A subscription CLI can update itself while a run is paused (a usage-limit pause lasts hours), and the stages after
+   * the resume then run on the new version. The resume goes on; the change is recorded beside the start's versions so
+   * the plan can say so.
+   */
+  async #recordEnvironmentChange(store: RunStore, config: RunConfig): Promise<void> {
+    const recorded = (await store.listArtifacts()).findLast(({ kind }) => kind === ENVIRONMENT_VERSIONS_KIND);
+    if (recorded === undefined) return;
+    const before = (JSON.parse((await store.readArtifact(recorded.artifactId)).content) as { readonly cli: Readonly<Record<string, string | null>> }).cli;
+    const now = new Map<string, string | null>();
+    try { await environmentDiagnostics(config, { ...this.#environmentOptions(), includeWarnings: false, cliVersions: now }); } catch { return; }
+    const changed = Object.fromEntries([...now].filter(([id, version]) => Object.hasOwn(before, id) && before[id] !== version).map(([id, version]) => [id, { from: before[id] ?? null, to: version }]));
+    if (Object.keys(changed).length > 0) await store.publish(ENVIRONMENT_VERSIONS_KIND, { cli: Object.fromEntries(now), changedOnResume: changed });
+  }
+
+  /** Whether the run's repository still holds exactly the files the run read. */
+  async repositoryMatches(runId: string): Promise<boolean> {
+    await this.#requireRun(runId);
+    const context = await new RunStore(this.#runsDirectory, runId).loadContext();
+    try { return snapshotDigest(await snapshotRepository(context.repository, 400, { scope: context.scope, ...testingSnapshotOptions(context.modelConfiguration) })) === context.repositoryDigest; }
+    catch { return false; }
   }
 
   /** A resumed Audit keeps its recorded snapshot identity and incremental contract; it never re-decides reuse. */

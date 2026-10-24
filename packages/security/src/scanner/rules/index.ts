@@ -67,16 +67,20 @@ export const INJECTION_RULES: readonly InjectionRule[] = Object.freeze([
   {
     id: "imperative_suppression",
     level: "high",
+    // The object must be audit output or the code itself. Measured on five real projects (October 24, 2026), a
+    // bare "audit", "report", "issue" or "security" matched npm's `--omit=dev --no-audit`, interface copy ("Do not
+    // post account details … issue") and an application's own model prompt; none was aimed at an auditor.
     detect: regexDetector(
-      /\b(?:ignore|hide|omit|suppress|skip|do\s+not|never)\b[^\r\n]{0,64}\b(?:finding|issue|vulnerabilit(?:y|ies)|security|audit|report)\b/giu,
+      /\b(?:(?:ignore|hide|omit|suppress|skip)\b[^\r\n]{0,48}|(?:do\s+not|don['’]t|never)\s+(?:report|flag|mention|list|include|disclose)\b[^\r\n]{0,48})\b(?:findings?|vulnerabilit(?:y|ies)|security\s+(?:issues?|findings?|problems?|flaws?)|this\s+(?:file|code|function|module|line))\b/giu,
       "Imperative language attempts to suppress audit output",
     ),
   },
   {
     id: "hidden_unicode",
     level: "high",
+    // A byte-order mark at the start of a file is an encoding marker, not hidden text.
     detect: regexDetector(
-      /[\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF\u{E0000}-\u{E007F}]+/gu,
+      /(?:[\u200B-\u200F\u202A-\u202E\u2060-\u206F\u{E0000}-\u{E007F}]|(?<!^)\uFEFF)+/gu,
       "Hidden, directional, or Unicode tag characters are present",
     ),
   },

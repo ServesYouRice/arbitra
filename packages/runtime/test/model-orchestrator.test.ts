@@ -1,8 +1,8 @@
-import { mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { runConfigSchema } from "@arbitra/schemas/config.js";
+import { runConfigSchema, type RunConfig } from "@arbitra/schemas/config.js";
 import { planIRSchema } from "@arbitra/schemas/plan.js";
 import type { HttpRequest, HttpResponse } from "@arbitra/providers/transport-contract.js";
 import { BUILTIN_TRANSPORT_FACTORIES, type TransportFactory, type TransportFactoryOptions } from "@arbitra/providers/registry.js";
@@ -916,6 +916,33 @@ describe("composed model audits", () => {
     expect(requests.filter(({ stage }) => stage === "review")).toHaveLength(reviews);
     expect(requests.filter(({ stage }) => stage === "discovery")).toHaveLength(3);
     expect(requests.filter(({ stage }) => stage === "planner")).toHaveLength(3);
+  });
+
+  it("replays the stages after discovery with another verifier, from an identical checkout, and keeps what made discovery", async () => {
+    const { create, config, requests, directory } = await fixture();
+    const core = create(); const source = await core.run(config);
+    expect(source.state).toBe("COMPLETED");
+    const hosts = (from: number, stage: string) => [...new Set(requests.slice(from).filter((request) => request.stage === stage).map(({ url }) => new URL(url).hostname))];
+    expect(hosts(0, "verification")).toEqual(["auditor-b.example"]);
+    const execution = config.workflow["modelExecution"] as Record<string, unknown>;
+    const swapped = runConfigSchema.parse({ ...config, workflow: { ...config.workflow, modelExecution: { ...execution, roles: { ...(execution["roles"] as Record<string, string>), verifier: "auditor-c" } } } });
+    // The project moved on; a copy of what the source audited stands in for it.
+    const checkout = await mkdtemp(join(tmpdir(), "arbitra-model-run-checkout-")); directories.push(checkout);
+    await cp(join(directory, "a.ts"), join(checkout, "a.ts"));
+    const before = requests.length;
+    const replay = await core.replay(source.runId, { mode: "audit", consensusPolicy: "risk_weighted", maximumRounds: 0, criticEnabled: true, configuration: swapped, repository: checkout });
+    expect(replay.state).toBe("COMPLETED");
+    expect(requests.slice(before).filter(({ stage }) => stage === "discovery")).toHaveLength(0);
+    expect(hosts(before, "verification")).toEqual(["auditor-c.example"]);
+    expect(await create().overview(replay.runId)).toMatchObject({ repository: checkout });
+    // Discovery is reused, so what produced it cannot change, and another checkout must hold the same files.
+    const replayOf = (configuration: RunConfig, repository?: string) => core.replay(source.runId, { mode: "audit", consensusPolicy: "risk_weighted", maximumRounds: 0, criticEnabled: true, configuration, ...(repository === undefined ? {} : { repository }) });
+    const auditor = swapped.models["auditor-a"]; if (auditor === undefined) throw new Error("FIXTURE_PROFILE_ABSENT");
+    await expect(replayOf(runConfigSchema.parse({ ...swapped, models: { ...swapped.models, "auditor-a": { ...auditor, modelId: "another-model" } } }))).rejects.toThrow("REPLAY_CONFIGURATION_CHANGES_DISCOVERY:models.auditor-a");
+    await expect(replayOf(runConfigSchema.parse({ ...swapped, scope: { kind: "module", modules: ["src"] } }))).rejects.toThrow("REPLAY_CONFIGURATION_CHANGES_DISCOVERY:scope");
+    await expect(replayOf(runConfigSchema.parse({ ...swapped, workflow: { ...swapped.workflow, preset: "audit-balanced" } }))).rejects.toThrow("REPLAY_CONFIGURATION_CHANGES_DISCOVERY:workflow.preset");
+    await writeFile(join(checkout, "a.ts"), "const value = 1;\n", "utf8");
+    await expect(replayOf(swapped, checkout)).rejects.toThrow(`RUN_REPOSITORY_CHANGED:${source.runId}`);
   });
 
   it("suspends budget exhaustion without dispatch and survives a restart", async () => {

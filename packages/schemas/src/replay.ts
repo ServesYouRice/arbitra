@@ -15,6 +15,17 @@ export const auditReplayRequestSchema = z.strictObject({
   // 0 skips peer review: the design audit's experiment 11 (cluster, verify, deduplicate, rank), run on recorded discovery.
   maximumRounds: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]),
   criticEnabled: z.boolean(),
+  /**
+   * Replaces the source configuration for every stage after discovery: other roles (a cheaper verifier, say),
+   * efforts, verification settings or limits. It keeps the source's mode, scope, preset and auditor profiles, since
+   * their discovery is what the replay reuses. Omitted, the source configuration is reused unchanged.
+   */
+  configuration: runConfigSchema.optional(),
+  /**
+   * Reads the repository from another checkout, such as a worktree at the commit the source audited, after the
+   * project moved on. Its files must be byte for byte the ones the source read.
+   */
+  repository: text.optional(),
 });
 
 /**

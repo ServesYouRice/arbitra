@@ -3,6 +3,7 @@ import { testingRiskSchema, testingEvidenceSchema, testingSelectionSchema } from
 import { anchorLineEvidence } from "./evidence-grounding.js";
 import { groundBehaviourConflicts } from "./documented-behaviour.js";
 import type { RepositorySnapshot } from "./repository.js";
+import { declaredPackageManager, packageManagerFor, packageScriptCommand } from "./project-commands.js";
 import { testInventory, type TestSystemReport, type TestGap } from "@arbitra/workflow/nodes/test-inventory.js";
 
 export function validateTestingSelection(value: unknown, candidates: readonly TestGap[]) {
@@ -58,21 +59,17 @@ export function repositoryTestCommands(snapshot: RepositorySnapshot, settings: T
     try { parsed = JSON.parse(file.lines.join("\n").replace(/^\u{FEFF}/u, "")); } catch { return []; }
     return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? [{ path: file.path, manifest: parsed as { scripts?: unknown; packageManager?: unknown } }] : [];
   });
-  // Workspace packages name no package manager of their own: the repository root's field or lockfile decides.
-  const declared = (manifest: { packageManager?: unknown } | undefined) => typeof manifest?.packageManager === "string" ? /^(pnpm|yarn)@/u.exec(manifest.packageManager)?.[1] : undefined;
   const paths = new Set(snapshot.files.map(({ path }) => path));
-  const rootManager = declared(manifests.find(({ path }) => path === "package.json")?.manifest)
-    ?? (paths.has("pnpm-lock.yaml") || paths.has("pnpm-workspace.yaml") ? "pnpm" : paths.has("yarn.lock") ? "yarn" : "npm");
+  const rootManager = packageManagerFor(manifests.find(({ path }) => path === "package.json")?.manifest, (name) => paths.has(name));
   for (const { path, manifest } of manifests) {
     if (typeof manifest.scripts !== "object" || manifest.scripts === null || Array.isArray(manifest.scripts)) continue;
-    const manager = declared(manifest) ?? rootManager;
+    const manager = declaredPackageManager(manifest) ?? rootManager;
     const directory = path.slice(0, -"package.json".length).replace(/\/$/u, "");
     // Unusual names need an explicit, evidence-backed command rather than synthesized shell quoting.
     if (directory !== "" && !/^[A-Za-z0-9_./-]+$/u.test(directory)) continue;
     for (const [script, source] of Object.entries(manifest.scripts)) {
       if (!/^test(?::[A-Za-z0-9_.-]+)*$/u.test(script) || typeof source !== "string" || source.trim() === "") continue;
-      const prefix = directory === "" ? "" : ` ${manager === "pnpm" ? "--dir" : manager === "yarn" ? "--cwd" : "--prefix"} ${directory}`;
-      commands.push({ command: `${manager}${prefix} run ${script}`, executionPolicy: "derived_repository_script", sourcePath: path, source });
+      commands.push({ command: packageScriptCommand(manager, directory, script), executionPolicy: "derived_repository_script", sourcePath: path, source });
     }
   }
   for (const configured of settings.commands) {

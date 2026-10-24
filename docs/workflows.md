@@ -564,6 +564,22 @@ its existing meaning: reuse round-zero discovery under new consensus policy
 (`replay <run-id> --consensus-policy …`). Audit policy overrides are rejected for Feature
 and Testing runs.
 
+An Audit replay request may also carry a `configuration` for every stage after discovery
+(another verifier, critic or planner, other efforts or verification settings) and a
+`repository`, another checkout of the files the source read, such as a worktree at its
+commit after the project moved on:
+
+```json
+{ "mode": "audit", "consensusPolicy": "risk_weighted", "maximumRounds": 0, "criticEnabled": true,
+  "configuration": { "...": "the source's, with roles.verifier changed" }, "repository": "../project-at-run-commit" }
+```
+
+The configuration must keep the source's mode, scope, preset and each auditor's profile,
+since their discovery is reused (`REPLAY_CONFIGURATION_CHANGES_DISCOVERY:<field>`, HTTP 409),
+and pass the same environment check as a new run. The repository must hold byte for byte the
+files the source read (`RUN_REPOSITORY_CHANGED`). This is how a change to the stages after
+discovery is measured on a finished run without paying for discovery again.
+
 A Feature or Testing replay request names its mode and may replace the saved
 configuration with one of the same mode:
 

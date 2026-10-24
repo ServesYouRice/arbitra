@@ -23,6 +23,16 @@
       "types": "./src/redaction.ts",
       "development": "./src/redaction.ts",
       "default": "./dist/src/redaction.js"
+    },
+    "./scanner/index": {
+      "types": "./src/scanner/index.ts",
+      "development": "./src/scanner/index.ts",
+      "default": "./dist/src/scanner/index.js"
+    },
+    "./suppression": {
+      "types": "./src/suppression.ts",
+      "development": "./src/suppression.ts",
+      "default": "./dist/src/suppression.js"
     }
   },
   "scripts": {

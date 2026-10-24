@@ -94,7 +94,7 @@ The run totals:
 ```text
 totalCostUsd · currency · inputTokens · outputTokens · cacheReadTokens · cacheWriteTokens
 cacheHitRate · verificationResolutionRate · escalatedPairs · suppressionCandidateCount
-consensusPrecision · consensusRecall · costPerTrueAcceptedIssue · securityOverlapBudget
+consensusPrecision · consensusRecall · costPerTrueAcceptedIssue
 ```
 
 A cost or token total is `null` if *any* contributing value is unknown, rather than a partial

@@ -35,7 +35,6 @@ export function EvaluationView({ runId, api = SHARED_EVALUATION_API }: Evaluatio
       <div><dt>verification resolution rate</dt><dd>{measured(metrics.verificationResolutionRate)}</dd></div>
       <div><dt>cache hit rate</dt><dd>{measured(metrics.cacheHitRate)}</dd></div>
       <div><dt>escalated pairs</dt><dd>{measured(metrics.escalatedPairs)}</dd></div>
-      <div><dt>security overlap budget</dt><dd>{metrics.securityOverlapBudget === null || metrics.securityOverlapBudget === undefined ? "unavailable" : `${metrics.securityOverlapBudget.used} of ${metrics.securityOverlapBudget.budget} · usage ${measured(metrics.securityOverlapBudget.usage)}`}</dd></div>
       <div><dt>suppression candidates</dt><dd>{measured(metrics.suppressionCandidateCount)}</dd></div>
       <div><dt>total cost</dt><dd>{measured(metrics.totalCostUsd)} {metrics.currency ?? ""}</dd></div>
       <div><dt>cost per true accepted issue</dt><dd>{measured(metrics.costPerTrueAcceptedIssue)}</dd></div>

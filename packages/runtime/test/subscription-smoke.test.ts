@@ -43,7 +43,11 @@ describe("subscription template smoke checks", () => {
     const result = await f.core.run(f.configPath);
     const value = result.value as { runId: string; state: string };
     expect(value.state).toBe("COMPLETED");
-    expect((await f.orchestrator().artifacts(value.runId)).map(({ kind }) => kind)).toEqual(expect.arrayContaining(["plan-ir", "critic-result"]));
+    const artifacts = await f.orchestrator().artifacts(value.runId);
+    expect(artifacts.map(({ kind }) => kind)).toEqual(expect.arrayContaining(["plan-ir", "critic-result"]));
+    // The planner was given the project's own test command, read from its package.json.
+    const commands = artifacts.find(({ kind }) => kind === "repository-commands");
+    expect(JSON.parse((await f.orchestrator().artifact(value.runId, commands?.artifactId ?? "") as { content: string }).content)).toEqual({ commands: [{ purpose: "test", command: "npm run test", directory: "", sourcePath: "package.json", source: "vitest run" }] });
     expect([...new Set(f.provider.calls.map(({ protocol }) => protocol))].sort()).toEqual(["claude-code-cli", "codex-cli"]);
     record(f.provider.calls);
   }, 120_000);

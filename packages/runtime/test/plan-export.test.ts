@@ -22,12 +22,16 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
         { candidateId: "C-2", severity: "medium", disposition: "needs_verification", verificationOutcome: "STILL_NEEDS_VERIFICATION", claim: { title: "A disputed defect", description: "It may break." },
           dissent: [{ authorId: "auditor-a", disposition: "reject", reason: "The caller guards it." }] },
         { candidateId: "C-3", severity: "low", disposition: "needs_verification", verificationOutcome: null, claim: { title: "A minor defect", description: "It is untidy." } },
-        { candidateId: "C-4", severity: "low", disposition: "accepted", verificationOutcome: null, claim: { title: "An agreed small defect", description: "It leaks a handle." } }] },
+        { candidateId: "C-4", severity: "low", disposition: "accepted", verificationOutcome: null, claim: { title: "An agreed small defect", description: "It leaks a handle." } }],
+        coverage: { suppressionCandidates: [{ path: "src/auth.ts", lines: [{ startLine: 2, endLine: 2 }], scannerHits: ["model_directed_phrase"] }] } },
+      "environment-versions": { cli: { "claude-code": "2.1.301" }, changedOnResume: { "claude-code": { from: "2.1.296", to: "2.1.301" } } },
       "plan-scope": { minimumSeverity: "medium" },
       "severity-restored": { minimumSeverity: "medium", issues: [{ candidateId: "C-1", foundAs: "high", loweredTo: "low", by: "auditor-a", reason: "Only a dev script." }] },
+      "repository-commands": { commands: [{ purpose: "test", command: "pnpm run test", directory: "", sourcePath: "package.json", source: "vitest run" }, { purpose: "test", command: "go test ./...", directory: "api", sourcePath: "api/go.mod", source: "go.mod" }] },
     };
     const orchestrator = {
       overview: async () => ({ repository, workflowId: "audit-deep" }),
+      repositoryMatches: async () => false,
       artifacts: async () => Object.keys(content).map((kind) => ({ kind, artifactId: kind })),
       artifact: async (_runId: string, id: keyof typeof content) => ({ content: JSON.stringify(content[id]) }),
     } as unknown as Orchestrator;
@@ -36,6 +40,10 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
     const readme = await readFile(join(first.directory, "README.md"), "utf8");
     expect(readme).toMatch(/^# Plan · 2 tasks for 1 issue\n\n- Section one\n- Section two\n/u);
     expect(readme).toContain("**Q-1**: Which way?");
+    // What changed since the audit, and text that reads like instructions, come before the work.
+    expect(readme).toContain("## Read this first\n\n- The project's files changed after the audit read them");
+    expect(readme).toContain("- The `claude-code` CLI moved from version 2.1.296 to 2.1.301 when the run resumed");
+    expect(readme).toContain("- `src/auth.ts` lines 2 reads like instructions to a model (model_directed_phrase), and no finding cites it.");
     // An issue of the plan's scope the audit left open gets a prompt to settle it; one below the scope is only counted.
     expect(readme).toContain("## Check these");
     expect(readme).toContain("1. `C-2` A disputed defect · medium");
@@ -50,7 +58,10 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
     expect(await readFile(join(first.directory, "prompts", "3-fast-model", "02-TASK-2.md"), "utf8")).toContain("<done_before_this>\n- TASK-1 Fix TASK-1\n</done_before_this>");
     // Each defect is proven by a failing test before it is fixed, and its result goes into results.json.
     expect(await readFile(join(first.directory, "prompts", "1-strong-model", "01-TASK-1.md"), "utf8")).toMatch(/<reproduce_first>\nFor the issue this task fixes \(`C-1`\): Before changing code, write a test that fails on the current code/u);
-    expect(await readFile(join(first.directory, "AGENTS.md"), "utf8")).toContain("5. Do not change anything in this folder except PROGRESS.md and results.json.");
+    const agents = await readFile(join(first.directory, "AGENTS.md"), "utf8");
+    expect(agents).toContain("5. Do not change anything in this folder except PROGRESS.md and results.json.");
+    // The project's own commands, as the run read them, so a proving test runs the way the project runs its tests.
+    expect(agents).toContain("- test: `pnpm run test` (from `package.json`)\n- test: `go test ./...` in `api` (from `api/go.mod`)");
     const results = JSON.parse(await readFile(join(first.directory, "results.json"), "utf8")) as { run: string; issues: unknown[] };
     expect(results.run).toBe("run-12345678-abcd");
     expect(results.issues).toEqual([

@@ -19,6 +19,8 @@ import { isModelOutputRejection, ModelHarness } from "./model-harness.js";
 import { discoverWithModel } from "./model-discovery.js";
 import { INSTRUCTION_SHAPED_TEXT_RULE } from "./prompt-conventions.js";
 import { converge, readStage, type AuditContext, type ConvergenceResult } from "./pipeline.js";
+import { plannerCommandContext, PROJECT_COMMANDS_KIND, type ProjectCommand } from "./project-commands.js";
+import { instructionRisk, INSTRUCTION_RISK_KIND } from "./instruction-risk.js";
 import type { AuditFinding } from "./auditors.js";
 import { SeededRng } from "@arbitra/core/services/rng.js";
 import { peerReviewRound } from "@arbitra/workflow/nodes/peer-review/round.js";
@@ -655,9 +657,14 @@ export class ModelAuditPipeline {
       const [first] = findings ?? [];
       return findings === undefined || first === undefined ? result : { ...result, claim: { title: first.title, description: first.problem }, sourceFindingIds: findings.map(({ sourceFindingId }) => sourceFindingId) };
     });
+    // Instruction-shaped text an auditor read but no finding cites, found without a model call: listed for a person
+    // beside the issues, never counted as one.
+    const instruction = instructionRisk(context.snapshot, discoveryCoverage.map(({ auditorId, unexaminedDueToBudget }) => ({ auditorId, unexamined: unexaminedDueToBudget })),
+      await readStage<readonly AuditFinding[]>(context.store, "source-findings"));
+    await context.store.publish(INSTRUCTION_RISK_KIND, instruction.report);
     const issues = canonicaliseIssues({ candidates: Object.fromEntries(Object.entries(convergence.board.candidates).map(([id, candidate]) => [id, { ...candidate, severity: severityOf(candidate), counterEvidence: boardEvidenceSchema.array().parse(candidate.counterEvidence) }])), consensus: convergence.consensus }, verified, {
       securityCoverage: { degraded: true, reason: "source_snapshot_only_no_runtime_or_deployment_security_evidence" },
-      suppressionCandidates: [], unexaminedSurfaces: [...executionGaps, ...operationConflicts.map((conflict) => ({ kind: "peer_operation_conflict", conflict })), ...rejectedReviews.map(({ round, auditorId, scopeId, reason }) => ({ kind: "peer_review_output_rejected", round, auditorId, scopeId, reason })), ...verification.metrics.deferredItemIds, ...discoveryCoverage.flatMap(({ auditorId, unexaminedDueToBudget }) => unexaminedDueToBudget.map((surface) => ({ auditorId, surface })))],
+      suppressionCandidates: instruction.candidates, unexaminedSurfaces: [...executionGaps, ...operationConflicts.map((conflict) => ({ kind: "peer_operation_conflict", conflict })), ...rejectedReviews.map(({ round, auditorId, scopeId, reason }) => ({ kind: "peer_review_output_rejected", round, auditorId, scopeId, reason })), ...verification.metrics.deferredItemIds, ...discoveryCoverage.flatMap(({ auditorId, unexaminedDueToBudget }) => unexaminedDueToBudget.map((surface) => ({ auditorId, surface })))],
       limitations: ["auditor_kind:model_auditors", "model_verification_is_not_executed_test_evidence", "real_model_premise_unmeasured", `findings_rejected_on_validation:${convergence.rejectedCount}`,
         ...(operationConflicts.length === 0 ? [] : [`unresolved_peer_operation_conflicts:${operationConflicts.length}`]),
         ...(rejectedReviews.length === 0 ? [] : [`peer_review_output_rejected:${rejectedReviews.length}`]),
@@ -677,6 +684,13 @@ export class ModelAuditPipeline {
     return rankedIssues;
   }
 
+  /** The project's commands recorded at the run's start. A run started before they were recorded plans without them,
+   * so a resumed plan stage reads what it read before. */
+  async #projectCommands(): Promise<ReturnType<typeof plannerCommandContext>> {
+    if (!(await this.context.store.listArtifacts()).some(({ kind }) => kind === PROJECT_COMMANDS_KIND)) return undefined;
+    return plannerCommandContext((await readStage<{ readonly commands: readonly ProjectCommand[] }>(this.context.store, PROJECT_COMMANDS_KIND)).commands);
+  }
+
   async plan(issues: CanonicalIssueSet, signal: AbortSignal): Promise<PlanIR> {
     const accepted = this.#planned(issues);
     const unplanned = issues.issues.filter((issue) => isPlannable(issue) && !accepted.includes(issue));
@@ -689,7 +703,9 @@ export class ModelAuditPipeline {
     // The plan resolves accepted issues, so it reads the unresolved peer operations that involve them: a stage
     // those of its own issues in full, the outline which issues each one ties together.
     const conflicts = conflictsInvolving(await readStage<readonly PeerOperationConflict[]>(this.context.store, "peer-operation-conflicts"), accepted.map(({ candidateId }) => candidateId));
-    const projectContext = { fileCount: this.context.snapshot.files.length, sourceLocations: sources.filter(({ sourceFindingId }) => acceptedSourceIds.has(sourceFindingId)).flatMap(({ locations }) => locations) };
+    const repositoryCommands = await this.#projectCommands();
+    const projectContext = { fileCount: this.context.snapshot.files.length, sourceLocations: sources.filter(({ sourceFindingId }) => acceptedSourceIds.has(sourceFindingId)).flatMap(({ locations }) => locations),
+      ...(repositoryCommands === undefined ? {} : { repositoryCommands }) };
     // A stage that reads some of the issues reads where those issues point, not where every issue points.
     // Observed live (P20 pilot): each of 31 task expansions carried the 151 locations of all 52 issues.
     const locationsOf = (ids: readonly string[]) => {
