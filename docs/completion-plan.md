@@ -1,13 +1,10 @@
 # Completion plan
 
-Updated September 30, 2026 against commit f77024d (branch `beta`). Original baseline: 77149ef.
-See [status](#status-september-27-2026) for each item.
+Updated October 24, 2026, on `main`. Original baseline: 77149ef. See [status](#status) for each item.
 
 This plan covers every unfinished implementation, validation and usability step identified
-in the project review and the previous execution queue. The
-[verification evidence](qa/README.md) records measured evidence, and
-[remaining work](../WORK-REMAINING.md) holds the current state. The original 49-task
-completion count is not reused for this plan.
+in the project review. The [verification evidence](qa/README.md) records measured evidence, and
+[remaining work](../WORK-REMAINING.md) holds the current state.
 
 ## Completion rules
 
@@ -63,7 +60,7 @@ P03, P08 and P15 that need funded API accounts are
 
 ## Deferred: the paid-API bundle
 
-Decided September 28, 2026. The owner tests only on subscriptions and does not fund API
+Decided September 28, 2026. The project's own testing runs only on subscriptions and funds no API
 accounts, so the work below is deferred out of this phase. It is not done here, and P21
 closes the phase without it. Whoever takes it on later needs funded OpenAI, Anthropic and
 Gemini API accounts. Each item's acceptance criteria stay as written; the three checkboxes
@@ -81,11 +78,11 @@ To pick it up:
 - **Batch drivers:** run `live-batch.conformance.test.ts` with the commands in [`qa/p15-live`](qa/p15-live/README.md).
 - **Gate:** `real-provider.conformance.test.ts` passes only with a passed live observation per capability and per batch driver.
 
-## Status, September 27, 2026
+## Status
 
-GitHub Actions ran `pnpm run ci` and `pnpm build` on commit f1616f1 and both passed, on
-`ubuntu-latest` and on `macos-latest`. The same suite also passed locally: on macOS 26
-(arm64), and in a clean `node:22-bookworm` Linux container.
+The full check (`pnpm run ci` and `pnpm build`) runs locally, on the development machine and in a clean
+`node:22` Linux container; no hosted CI is used. It last passed in Linux on October 23, 2026 at afdec34, with
+69 of 69 browser tests in Chromium, Firefox and WebKit.
 
 Live environments used so far:
 
@@ -95,16 +92,16 @@ Live environments used so far:
   - Codex 0.154.0, on a ChatGPT login;
   - the Antigravity CLI 1.2.11, on a Google AI login.
 
-  The owner tests only on subscriptions, never on API credit.
+  Live testing runs only on subscriptions, never on API credit.
 - **Gemini, earlier:** a free-tier API key, native and through its OpenAI-compatible endpoint.
 
 The OpenAI and Anthropic API keys have no credit, so the OpenAI and Anthropic API protocols
-have no live evidence, and under the owner's policy will not get any from this account.
+have no live evidence, and under that testing policy will not get any from this account.
 Evidence is in `docs/qa/`.
 
 | ID | Status | Evidence here | Outstanding before the checkbox |
 |---|---|---|---|
-| P01 | **Complete** | Same commit green on Linux and macOS CI; zero-discovery fails; measured per-suite limits (harness, web added after live CI failures) | — |
+| P01 | **Complete** | Full check green on Linux and macOS; zero-discovery fails; measured per-suite limits (harness and web added after timeouts) | — |
 | P02 | **Complete** | Templates now also set `maximumOutputRepairs: 1` | — |
 | P03 | Accepted on subscriptions; API part deferred | Live transport conformance on Gemini native and the compatible endpoint (40 observations) and on all three subscription CLIs; on subscriptions, every public workflow through the CLI: Testing plan and execute (handoff applied), Feature automatic and interactive (operator revision, resume from a fresh process), a three-vendor Audit (all seeded defects accepted, nothing else); two exported Feature plans accepted by fresh Claude Code executors; 25 live defects fixed ([`qa/p03`](qa/p03/README.md), [`qa/p03-subscription`](qa/p03-subscription/README.md)) | Deferred to the [paid-API bundle](#deferred-the-paid-api-bundle): OpenAI Responses/Chat and Anthropic Messages API protocols live; refusal/context-limit elicitation |
 | P04 | **Complete** | Real engine: isolation, limits, timeout/cancel/output, drift, unavailable image, orphan recovery, parallel checks, source preservation, change-set application and stale rejection; public Testing executor with scripted and live model writers; two engine-exposed defects fixed ([`qa/p04`](qa/p04/README.md)) | — |
@@ -122,8 +119,8 @@ Evidence is in `docs/qa/`.
 | P16 | **Complete** | Editor scenarios rerun on the restructured interface (its own Workflows page): 9 passed, 0 failed ([`qa/p16`](qa/p16/README.md)) | — |
 | P17 | **Complete** | — | — |
 | P18 | **Complete** | Prespecified criteria; local MiniLM candidate evaluated offline on two corpora. Authored findings: **reject** (W 36 → 49). P06 real-model findings (149 in 21 runs): **insufficient evidence** (94 of 100 same-label pairs; `E1` cut W only 7%, 25% required). Decision: **do not adopt; keep existing clustering** ([`qa/p18`](qa/p18/README.md)). The rerun also found `structural-v1` merging prompt-injection reports with the defect beside them (fixed in P19: `structural-v2`) | — |
-| P19 | **Complete** | Earlier cross-cutting fixes (quota classification, output repair, evidence re-anchoring, peer-review degradation, writer tool-loop handling, complete-context marking, sole-author coverage), then the owner's September 29 choice: all eight open findings fixed with regressions. The affected live acceptance passed on subscriptions on September 30 (Audit with an answered plan-questions checkpoint, planted-instruction follow-up, single-auditor planning, Feature and Testing on documented behaviour); the reruns found four more defects, all fixed. CI green on Linux and macOS at f77024d ([`qa/p19`](qa/p19/README.md)) | — |
-| P20 | **Closed on its pilot** (owner, October 19) | Benchmark `p20-hard-v2` in the owner's private repository; pilot recalibrated (October 10), then hardened further for two pilot projects (v3, v4). On the three pilot projects, wherever three Opus-only runs together missed a planted defect, the premium panel found it, at 0.57 to 0.67 times their time and 0.69 to 0.76 times their tokens (21 planted defects: an estimate, not a test). Lineup comparison tooling (`compare --lineups`); every lineup runs on Windows | Not done, by the owner's decision: the held-out protocol and held-out runs, and the cheap and light lineups |
+| P19 | **Complete** | Earlier cross-cutting fixes (quota classification, output repair, evidence re-anchoring, peer-review degradation, writer tool-loop handling, complete-context marking, sole-author coverage), then, as decided on September 29, all eight open findings fixed with regressions. The affected live acceptance passed on subscriptions on September 30 (Audit with an answered plan-questions checkpoint, planted-instruction follow-up, single-auditor planning, Feature and Testing on documented behaviour); the reruns found four more defects, all fixed. Full check green on Linux and macOS at f77024d ([`qa/p19`](qa/p19/README.md)) | — |
+| P20 | **Closed on its pilot** (October 19) | Benchmark `p20-hard-v2` in a private repository; pilot recalibrated (October 10), then hardened further for two pilot projects (v3, v4). On the three pilot projects, wherever three Opus-only runs together missed a planted defect, the premium panel found it, at 0.57 to 0.67 times their time and 0.69 to 0.76 times their tokens (21 planted defects: an estimate, not a test). Lineup comparison tooling (`compare --lineups`); every lineup runs on Windows | Not done, by decision: the held-out protocol and held-out runs, and the cheap and light lineups |
 | P21 | Pending | — | The completion report and final doc reconciliation, after P20 |
 
 ## P01 — Repair test discovery and platform reliability
@@ -136,9 +133,9 @@ macOS canonical-path expectation in [orchestrator.test.ts](../packages/runtime/t
 Investigate runtime timeout sensitivity, filesystem contention and cleanup after timeout;
 use measured per-suite limits and deterministic teardown rather than blanket retries.
 
-**Acceptance.** The normal CI command discovers the five currently skipped testing
+**Acceptance.** The full check (`pnpm run ci`) discovers the five currently skipped testing
 files and their 22 tests, and passes on Linux and macOS without ad hoc command overrides.
-The HTTP integration runs in an environment permitting localhost listeners. Full CI
+The HTTP integration runs in an environment permitting localhost listeners. The full check
 and build pass; a missing-suite negative control fails. Record the resulting test counts.
 
 ## P02 — Make model and workflow setup reproducible
@@ -168,8 +165,8 @@ outside this phase. The rest of this item was accepted live on subscriptions.
 **Implementation.** Add an opt-in runner using the production provider registry and
 orchestrator. The existing [conformance test](../packages/providers/test/conformance/real-provider.conformance.test.ts)
 only checks supplied report booleans; replace that as the evidence source with
-provenance-bearing results from actual invocations. Add a credentialed manual/scheduled
-CI workflow with explicit token/time limits and redacted evidence retention.
+provenance-bearing results from actual invocations. Run it locally and on demand, with
+explicit token and time limits and redacted evidence retention.
 
 **Acceptance.** Exercise OpenAI Responses, OpenAI Chat, Anthropic Messages, Gemini
 Native and a compatible endpoint, including a mixed-provider run. Cover declared
@@ -203,9 +200,9 @@ Actual container runs and injected process-port tests are reported separately.
 
 - [x] Complete P05.
 
-**Implementation.** Implement durable stores behind [the corpus interfaces](../packages/core/src/eval/corpora.ts)
-for real-world outcomes and independence observations. Persist versioned ground truth,
-run/snapshot/protocol/model/harness identity, adjudication and nullable measurements.
+**Implementation.** Implement durable stores for real-world outcomes and independence observations.
+Persist versioned ground truth, run/snapshot/protocol/model/harness identity, adjudication and
+nullable measurements.
 Reuse the journal/artifact/index conventions in packages/persistence.
 
 **Acceptance.** Observations survive restart, imports are idempotent, partial writes recover,
@@ -416,13 +413,28 @@ If adopted, implement the bounded adapter, identity/versioning, fallback and reg
 coverage before closing the item. If it provides no defensible benefit, retain the
 existing clustering and document the measured reason; adoption is conditional.
 
+## P19 — Final defect review, fixes and live acceptance
+
+- [x] Complete P19.
+
+**Implementation.** Review the completed paths for defects in source/authority boundaries,
+failure handling, budgets, independence, traceability, persistence and concurrency.
+Resolve findings with focused regressions, and keep the docs of each changed path current.
+
+**Acceptance.** The full check and build pass on the supported platforms; required suites
+cannot silently disappear. Repeat affected live-provider, Docker, native/batch and
+browser acceptance after their final changes.
+
+**Split, September 30, 2026.** The completion report, which waits for P20's results, moved
+into P21, so that P19's own work shows as done. Evidence: [`qa/p19`](qa/p19/README.md).
+
 ## P20 — Stress-test the premise on a hard benchmark
 
 - [ ] Complete P20.
 
 **Why.** P06 (protocol 2.1.0) found every planted defect with three pooled runs of one strong
-model, so its fixtures could not separate repetition from model diversity. The owner added
-this item on September 29, 2026.
+model, so its fixtures could not separate repetition from model diversity. This item was added
+on September 29, 2026.
 
 **Implementation.** Build a benchmark of 10–15 realistic projects, each thousands of lines.
 It holds 60–100 planted defects across varied classes and difficulty tiers, and 40–80
@@ -430,9 +442,9 @@ decoys. Each defect and decoy has a witness test, and each defect has a fix that
 No model result may select, drop or tune a defect. Calibrate difficulty on a pilot split,
 treating all model families alike, and score only the held-out split.
 
-**Where it lives.** On September 30, 2026 the owner decided to keep the benchmark private, so
-future models cannot train on its answer keys. The projects, answer keys, protocols, run
-evidence and per-defect results are in the owner's private repository `arbitra-p20`. This
+**Where it lives.** Since September 30, 2026 the benchmark is private, so future models cannot
+train on its answer keys. The projects, answer keys, protocols, run evidence and per-defect
+results are in the private repository `arbitra-p20`. This
 repository keeps the tooling that runs and scores it (`packages/testing/src/premise-evaluation`,
 including `compare --lineups`), and will get a summary of the results without answer-revealing
 detail.
@@ -446,23 +458,23 @@ window), so the runner paces on both Claude's and Codex's usage windows.
 
 **Calibration, October 9, 2026.** One run of Claude Opus 5.5 found every planted defect in each of
 the three pilot projects (21 of 21). As built, the benchmark is too easy to separate a panel from
-repeated runs, the ceiling P06 hit. The owner decides whether to harden the held-out projects
-before any held-out run.
+repeated runs, the ceiling P06 hit. Whether to harden the held-out projects before any held-out
+run was left open.
 
-**Hardening and re-calibration, October 10, 2026.** The owner chose to harden the benchmark. All
+**Hardening and re-calibration, October 10, 2026.** The benchmark was hardened. All
 twelve projects were rebuilt under stricter rules written down first (`p20-hard-v2`). One run of
 Claude Opus 5.5 per rebuilt pilot project then found 16 of 21 defects (recall 0.76, 95% interval
 0.55 to 0.89), so the pilot is no longer at the ceiling. No model has audited a held-out project.
 The pilot panels are next.
 
 **Lineups changed, October 10, 2026.** The first three-vendor pilot run with GPT-6 Astra used a
-whole ChatGPT Plus five-hour window before it finished. Before any panel run had finished, the
-owner replaced GPT-6 Astra with GPT-6.1 Sol and Claude Sonnet 5 with Claude Sonnet 5.5, raised
+whole ChatGPT Plus five-hour window before it finished. Before any panel run had finished,
+GPT-6 Astra was replaced with GPT-6.1 Sol and Claude Sonnet 5 with Claude Sonnet 5.5, raised
 the efforts and the output ceiling (64,000 tokens, because thinking counts as output), and the
 pilot started again under a new protocol version. Gemini 4 Argon is not offered by the
 Antigravity CLI yet.
 
-**Closed on the pilot, October 19, 2026.** The owner closed P20 without held-out runs. Two pilot
+**Closed on the pilot, October 19, 2026.** P20 was closed without held-out runs. Two pilot
 projects were hardened again (v3, v4) until one Opus run missed defects, and the premium panel ran
 once on each pilot project. Wherever three Opus-only runs together missed a planted defect, the
 panel found it, using 0.57 to 0.67 times their time and 0.69 to 0.76 times their tokens. With 21
@@ -484,21 +496,6 @@ matched cost:
 Report as P06 does: denominators, intervals, a breakdown by class and tier, cost and
 latency. Keep every result, including a null or negative one.
 
-## P19 — Final defect review, fixes and live acceptance
-
-- [x] Complete P19.
-
-**Implementation.** Review the completed paths for defects in source/authority boundaries,
-failure handling, budgets, independence, traceability, persistence and concurrency.
-Resolve findings with focused regressions, and keep the docs of each changed path current.
-
-**Acceptance.** Full CI/build pass on the supported platform matrix; required suites
-cannot silently disappear. Repeat affected live-provider, Docker, native/batch and
-browser acceptance after their final changes.
-
-**Split, September 30, 2026.** The owner moved the completion report, which waits for P20's
-results, into P21, so that P19's own work shows as done. Evidence: [`qa/p19`](qa/p19/README.md).
-
 ## P21 — Write the completion report and reconcile the docs
 
 - [ ] Complete P21.
@@ -512,25 +509,6 @@ detail stays in its private repository; the report carries its summary. The
 [paid-API bundle](#deferred-the-paid-api-bundle) is outside this phase: the report lists it as
 deferred, with its open acceptance.
 No item is marked complete solely because its interface exists or a prerequisite ran.
-
-## Mapping from the previous execution queue
-
-| Previous item | Current disposition / completion item |
-|---|---|
-| Model invocation and full Audit composition | Implemented; P03 validates live operation, P08/P09 finish scale and generic controls |
-| Feature workflow and requirements consensus | Implemented with bounded revisions; P03/P08/P09/P10/P11 cover remaining validation, scale and operator/replay work |
-| Testing planning | Implemented; P02/P03/P08/P10/P11 |
-| Guarded autonomous Testing | Implemented; P04/P07/P10/P11/P12 |
-| Native harnesses | P12 |
-| Advisor runtime | P13 |
-| Incremental/repeat audits | P14 |
-| Provider batches | P15 |
-| Workflow editor | P16 |
-| Trace browser | Implemented; P10 browser acceptance and P17 indexing |
-| Embedding evaluation | P18; adoption is conditional on results |
-| Real-model premise | P05/P06 |
-| Defect review, regressions, CI/build | P01, each feature's acceptance, and P19 |
-| Documentation reconciliation | Current status/plan established; maintained with each item and closed at P19 |
 
 ## Environment requirements and scope
 

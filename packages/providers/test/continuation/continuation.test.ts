@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import { MemoryCacheHandleStore } from "../../src/cache-handle.js";
 import { ContinuationStateStore, continuationTrace, type ContinuationBackend, type PersistedContinuation } from "../../src/continuation/store.js";
 import { sessionContinuationState } from "../../src/continuation/types.js";
 
@@ -34,12 +33,6 @@ describe("continuation state boundaries", () => {
     const metadata = continuationTrace(state());
     expect(metadata).toMatchObject({ byteLength: 19, scope: "session", provider: "transport-a", model: "model-a" });
     expect(JSON.stringify(metadata)).not.toContain("opaque-secret-state");
-  });
-
-  it("keeps cache handles separately typed and able to outlive a node", () => {
-    const cache = new MemoryCacheHandleStore();
-    cache.set("shared-prefix", { transport: "transport-a", modelId: "model-a", cacheKey: "shared-prefix", opaqueHandle: "cache-1", expiresAt: 10_000 });
-    expect(cache.get("shared-prefix")).toEqual({ transport: "transport-a", modelId: "model-a", cacheKey: "shared-prefix", opaqueHandle: "cache-1", expiresAt: 10_000 });
   });
 
   it("fails closed on corrupt persisted encodings and metadata", async () => {

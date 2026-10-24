@@ -57,7 +57,7 @@ reportsUsage             true
 Read-only, no shell, no extensions, and — critically — it does **not** manage context
 internally. `assertHarnessCompatible` throws `AUDIT_INTERNAL_CONTEXT_FORBIDDEN` for any
 audit-mode profile that does, because a harness that decides for itself what the model sees
-makes the context policy in `packages/workflow/src/context-policy.ts` a suggestion.
+would undo the context each stage's executor gives it.
 
 `assertHarnessCompatible` also enforces declared requirements: a mode that requires
 `structuredEvents`, `enforcesExternalPolicy` or `reportsUsage` fails with
@@ -157,9 +157,10 @@ truncated. When they do not fit, the stage is recomposed:
   coverage carries `discovery_output_limit_split`.
 
 Output capacity is handled twice. Before spend, stages that emit one decision per record cap
-batch sizes with `OUTPUT_TOKENS_PER_RECORD` (peer review 160, critic 60, planner brief 400,
-Testing selection 120, Feature review 150, Testing risk 250 per path, requirements record 200,
-Feature exploration 300, clustering pair 300 tokens per record). After spend, every transport
+batch sizes with `OUTPUT_TOKENS_PER_RECORD` (peer review 160, critic 60, planner brief 900,
+planner plan 1,400 and planner outline 1,200 per issue, Testing selection 120, Feature review
+150, Testing risk 250 per path, requirements record 200, Feature exploration 300, clustering
+pair 300 tokens per record). After spend, every transport
 maps a provider stop at the output ceiling (`max_tokens`, `incomplete/max_output_tokens`,
 `length`, `MAX_TOKENS`) to a non-retryable `OUTPUT_LIMIT` error rather than accepting or
 repairing a truncated prefix. `ModelHarness` records a durable `model-output-limit-*` marker
@@ -232,12 +233,16 @@ How the four newer paths compose:
 
 These fail explicitly and name the record or stage. None is resolved by silent omission.
 
-**Required input.** The byte estimate counts one token a byte, about twice what providers count
-(prompts measured 1.9 to 2.4 bytes a token). That keeps calls small, but a unit that cannot be made smaller and is a few percent over
-would fail a run the provider could have read. So in the audit pipeline, before one of the limits
-below is raised, the stage is tried as required input: first with its unresolved peer operations
-in outline (which candidates each one ties together), then with no optional source at two bytes a
-token (`REQUIRED_INPUT_BYTES_PER_TOKEN`), with the same 80% margin and output reserve. The call's
+**Required input.** The byte estimate counts one token a byte. For calls after discovery a run
+can set another rate, `estimatedBytesPerToken` (1 to 4; the shipped model-backed audits set 2,
+see [one pass per review stage](provider-model.md#one-pass-per-review-stage)). One byte a
+token is about twice what providers count (prompts measured 1.9 to 2.4 bytes a token). That
+keeps calls small, but a unit that cannot be made smaller and is a few percent over would fail
+a run the provider could have read. So in the audit pipeline, before one of the limits below
+is raised, the stage is tried as required input: first with its unresolved peer operations in
+outline (which candidates each one ties together), then with no optional source at two bytes a
+token, or the run's own rate if higher (`REQUIRED_INPUT_BYTES_PER_TOKEN`), with the same 80%
+margin and output reserve. The call's
 context record says so (`peerOperationsInOutline`, `admittedAsRequiredInput`), and its tool
 history and the provider pool count it at the same rate. Grouping still uses the byte estimate, so
 every call that fits is sized as before. This covers a peer candidate or critic record reviewed
@@ -346,8 +351,8 @@ host setup and diagnostics are in [setup.md](setup.md#native-mode).
 `declared_unverified` would mean the adapter is tested only against a scripted stand-in
 process that emits the documented event stream (`native/stand-in.ts`).
 `conformance_verified` means the opt-in conformance test
-(`packages/runtime/test/native-harness.conformance.test.ts`, gated by
-`ARBITRA_NATIVE_HARNESS_CONFORMANCE=1`, skipped otherwise, never passed) has passed against
+(`packages/runtime/test/native-harness.conformance.test.ts`, which runs only with
+`ARBITRA_NATIVE_HARNESS_CONFORMANCE=1`; a skipped run does not count) has passed against
 the actual CLI: Claude Code 2.1.283 with `subscription_login` ([evidence](qa/p12/README.md)).
 The `api_key` and `oauth_token` kinds share the event translation but run with an isolated home and a credential variable; they have not been run live.
 Anything not in the matrix is refused before a run exists: Audit

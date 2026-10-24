@@ -235,16 +235,6 @@ export function earlierPeerVotes(view: View, board: VotingBoard, reviewerId: str
   }));
 }
 
-/**
- * The consensus round refuses a changed vote that cites no new evidence (anti-conformity).
- * Observed live: a reviewer that is not shown its earlier vote flips it on the same evidence,
- * which failed the whole run. Refusing it at the model boundary lets the reviewer repair it.
- */
-export function assertChangedVotesCiteNewEvidence(operations: readonly IssueOperation[], board: VotingBoard, reviewerId: string): void {
-  const changed = changedVotesWithoutNewEvidence(operations, board, reviewerId);
-  if (changed.length > 0) throw new Error(`PEER_VOTE_CHANGED_WITHOUT_NEW_EVIDENCE: ${changed.map(({ change }) => change).join("; ")}. ${EARLIER_VOTES_RULE}`);
-}
-
 /** The changed votes that cite nothing their reviewer's earlier vote did not cite, by position in `operations`. */
 export function changedVotesWithoutNewEvidence(operations: readonly IssueOperation[], board: VotingBoard, reviewerId: string): readonly { readonly index: number; readonly change: string; readonly reason: string }[] {
   return operations.flatMap((operation, index) => {

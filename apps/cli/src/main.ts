@@ -39,14 +39,6 @@ export async function runCli(
   return { exit: policy.exit, output };
 }
 
-export async function main(argv: readonly string[], core: OrchestratorCore): Promise<void> {
-  const execution = await runCli(argv, core, {
-    writeStdout: (text) => process.stdout.write(text),
-    writeStderr: (text) => process.stderr.write(text),
-  });
-  process.exitCode = execution.exit;
-}
-
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }

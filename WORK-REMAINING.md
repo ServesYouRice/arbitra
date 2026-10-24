@@ -1,202 +1,108 @@
 # Remaining work
 
-Updated October 23, 2026 (branch `main`, into which every branch was merged on October 22). Task status lives in the [completion plan](docs/completion-plan.md); this
-file says what is left and in what order. The measurements and decisions behind every item, from the P20 pilot
-(October 10 to 19), are in this file's history: `git show 9558aef:WORK-REMAINING.md`.
+Updated October 24, 2026, on `main`. Phase status lives in the [completion plan](docs/completion-plan.md) and the
+design review's open items in the [design audit](docs/design-audit.md); this file says what is left and in what order.
+Earlier measurements are in this file's history: the P20 pilot in `git show 9558aef:WORK-REMAINING.md`, the full
+narratives of the real-project runs in `git show 49f3469:WORK-REMAINING.md`.
 
 ## State
 
-- **P20 is closed on its pilot (owner, October 19).** No held-out runs. On the three pilot projects, wherever three
-  Opus-only runs together missed a planted defect, the premium panel found it, using 0.57 to 0.67 times their time
-  and 0.69 to 0.76 times their tokens. That is 21 planted defects: an estimate, not a test. Per-defect results stay
-  in the private benchmark repository. The held-out set stays unrun on purpose (owner, October 22: "there was no
-  reason to run them"); the product's claims rest on what each run checks and proves, not on the premise.
-- **Checkpoint 2 (October 22):** `beta`, `friend-test` and `packaging` (the v0.2.0 installers) merged into `main` and
-  deleted; work goes on from `main`. Next is the improvement phase below: the changes held back until now because
-  they could destabilise the app.
-- **The order of work (owner, October 19):**
-  1. **Checkpoint 1:** the app working properly. Every defect in the way fixed, all work merged, stale docs and
-     files cleaned up, then the whole check, the browser tests, live runs on the three subscriptions and arbitra
-     auditing its own recent changes from the web UI; merged to `main` and tagged `checkpoint-1`.
-  2. **UI phase**, on its own branch: research how people want run results and settings shown, audit the current
-     UI, and agree a direction from mockups before code changes. The owner finds the UI wordy, full of similar
-     terms and choices it does not explain, and silent about how models are gathered and which are chosen; the
-     original drag-and-drop "slots" idea is to be audited, not assumed.
-  3. **Improvement phase**, on its own branch: the items below that change what the pipeline does, each measured.
-  4. **P21**, the completion report, last.
-- **Checkpoint 1 is out** (October 20): `main` and the tag `checkpoint-1` at e8ef14b.
-- **First, a hand-off to testers (owner, October 20), on branch `friend-test`,** ahead of the UI phase because the
-  owner's weekly usage is low and friends will test it on their projects: one file starts arbitra
-  (`arbitra.cmd`, `arbitra.command`; Node.js 22.13 or newer required, pnpm installed into the folder, install and build when out of date, the web app
-  served by the control plane itself); the CLIs a machine has are found, the first supported installation of each is
-  used, and the New run page shows them with fixes and recommended models; graph nodes and "executed by" name the
-  model and effort; each run has a plain-text report to copy and send (`/diagnostics/runs/:id`); the Plan tab saves
-  the plan into the project as prompts grouped by model tier (`.arbitra/plans/`); each model is chosen from a list
-  rather than typed; New run opens on three auditors on the subscription CLIs with the settings of the benchmark's
-  premium panel (Gemini at high thinking, or Argon when the CLI offers it), and a browse button opens the system's
-  folder dialog. [`TESTERS.md`](TESTERS.md) is the testers' guide.
-- **The first real-project run (October 20): beachflag**, 84 files and 11,291 lines, from the downloaded zip at
-  145ed4c with the benchmark's settings (Gemini critic, every issue verified): 80 minutes, 613 calls, 17.6M tokens
-  (verification 10.6M of them: 132 questions in 341 calls plus 54 place re-asks in 180), one Gemini audit call at
-  its output ceiling. 210 findings became 81 accepted issues (3 high, 25 medium, 52 low), 40 rejected and 11 open;
-  the plan has 24 tasks for the 28 issues of medium and up, and 5 blocking questions only the owner can answer.
-  It led to: Sol as critic and Opus as critique checker, verification only of the issues the plan covers (58% of
-  the candidates were below it), the token limit sized from the project (3,500 tokens a line, about twice the
-  measured 1,560), raising the limit of a paused run, leaving files Git ignores out of the snapshot (a 600 KB
-  Playwright report refused the project), and opening model-activity artifacts (their IDs were too long a route).
-- **The rokavatar run (October 21, owner: "start it now and fix issues as we go"):** `run-757824f4`, 117 files and
-  10,716 lines, from a fresh zip of 2a819bf with the new defaults (Sol critic, Opus critique checker, verification
-  of planned issues only). Claude's week went from 86% to 91% by the critic. At 18:32, after 474 calls and about
-  15M tokens (verification 6.7M in 356 calls for 78 questions; peer review 4.2M; Gemini 2.1M in 51 calls, 12 of
-  them refused by its content filter and 5 stopped at its output ceiling, 560 call-minutes), Sol hit the Codex
-  five-hour window at the critic and the run failed; resumed at 21:35, it completed at 21:43: 480 calls, 15.6M tokens (1,455 a line; beachflag 1,560) and about 110 minutes of work (beachflag 80, 613 calls, 17.6M), a plan of 21 tasks for 23 issues with 2 blocking questions. Saved with the new export, it carries 14 check-first prompts and 48 also-found issues. 212 candidates: 71 accepted,
-  46 rejected, 95 unresolved (81 low or informational, skipped by design; 14 medium or high the verifier could not
-  settle). Fixed on `friend-test` because of it: a usage limit pauses the run and resumes it after the reset
-  (b3626a8); "last activity" and the report's state during a stage (c3ca222); and, the owner's choice after the
-  findings were laid out, the safeguards against losing issues (6274c9e, 4368435): check-first prompts for issues
-  the verifier could not settle, a severity lowered by one reviewer alone no longer takes an issue out of the plan's
-  scope (25 such issues here, 22 lowered by Opus), a second model before a critical or high issue a reviewer backed
-  is rejected (12 here), and the accepted issues no task fixes listed in the saved plan (48 here). Together these
-  add about 37 questions to a run like this one, about 3M tokens.
-- **Then a public release (owner, October 21):** v0.1.0 on GitHub with a zip attached, after the rokavatar run is
-  done and its fixes are checked on Linux.
-- **Open from the rokavatar run:** Gemini's audit took 560 call-minutes and 2.1M tokens with 17 of 51 calls lost to
-  its filter or output ceiling; verification still costs about 86K tokens a question (beachflag 80K). Later runs are
-  on the owner's other projects, for real-world data.
-- **An outside critique, checked against the code (October 22).** Of 17 points, 9 held, 4 partly, 2 were already
-  fixed and 2 described an older arbitra. Acted on the same day, on `friend-test`:
-  - Each run's report and Evaluation tab lead with what it confirmed against the source, tokens per confirmed issue,
-    and what each model found that no other did (ef98804). On rokavatar: 23 of 212 confirmed (3 high, 20 medium),
-    677K tokens each; found alone by Opus 12, Sol 2, Gemini 0, though Gemini's audit took 2.1M tokens and its peer
-    review 1.9M. The 48 "accepted" low issues were accepted by the vote and never checked; the README now claims
-    checking only for the issues the plan acts on.
-  - The README leads with checking and replay, not "Just another…", and gives the measurements with their caveats,
-    including that the P20 pilot projects were hardened until Opus missed defects. A one-page
-    [privacy](docs/privacy.md) answer: what is sent, to whom, how to send less.
-  - Google's terms, settled as far as reading goes: wrapping `agy` in another application "is not supported under
-    consumer plans", and third-party access "may be grounds for suspension" (FAQ and terms, read October 22). New
-    run, TESTERS.md and the privacy page say so; Google's route for tools is a Gemini API key (fcef7ee). Since
-    v0.2.1 Gemini is not in the default lineup; a tester adds it knowing the terms.
-  - The blog test run found that the snapshot read a fixed list of extensions and left out all 30 `.astro`
-    files; Astro, shell, C-family and other common sources are now read (fcef7ee).
-- **The blog run (October 22):** `run-7fb6177a`, an Astro blog with a CMS, 164 files and 14,204 lines, from a
-  fresh zip of fcef7ee, Gemini at medium (owner). 63 minutes, 359 calls, 13.1M tokens (922 a line; rokavatar 1,455,
-  beachflag 1,560). 41 of 180 candidates confirmed (3 high, 38 medium), 320K tokens per confirmed issue; found alone by
-  Opus 16, Sol 7, Gemini 2. Peer review 4.0M tokens and verification 3.9M (219 calls). Gemini at medium took 135
-  call-minutes (560 at high on rokavatar), and 9 of its 47 calls were refused by its content filter. The plan has 33
-  tasks for 41 issues and 31 open questions, 1 blocking: questions are still not merged across sections. Its replay
-  without peer review (experiment 11) is `run-d6fbbf98`.
-- **The commentanywhere run (October 23), the first real run without peer review:** `run-5a90c75d`, an embeddable
-  comments service (Fastify, Postgres, Preact widget, React dashboard), `main` at 648363c, 93 files and 11,719 lines
-  (beachflag's size), Gemini at medium. 40 minutes, 234 calls, 7.5M tokens (640 a line; blog 922, rokavatar
-  1,455, beachflag 1,560). 51 of 150 candidates confirmed (1 critical, 7 high, 43 medium), 14 rejected, 6 the source
-  could not settle, 79 below the plan's minimum and not checked; 146K tokens per confirmed issue (blog 320K,
-  rokavatar 677K). Found alone by Opus 20, Sol 8, Gemini 2. Verification 3.6M tokens in 176 calls; discovery 2.5M,
-  Gemini's 1.1M of it, with 6 of its 21 calls refused by its content filter. Claude's five-hour meter went 21% to 32%
-  (about 6M of the run's tokens were Claude's), the week 89% to 91%. The plan has 40 tasks for the 51 issues and 29
-  open questions, 3 blocking; one question names two issues as the same defect (the worker's row lock across the
-  provider call, found by Opus and by Gemini under two titles). Questions are still not merged across sections.
-  - **First attempt failed, fixed (57ee601):** `run-1dad8491` on the stale `codex-implementation` branch failed after
-    18 minutes when Gemini asked for a ninth tool turn on one discovery window: nothing told it the tools were spent,
-    and the loop limit failed the run. A tool call past the limit is now answered unrun with
-    `TOOL_TURN_LIMIT_REACHED` and the model gets one more turn; a model that still asks is a rejected reply, so the
-    stage records the gap. On that branch Gemini's filter refused 20 of its 55 calls. The checkout was switched to
-    `main` during the run, so it could not be resumed (`RUN_REPOSITORY_CHANGED`) and was started again on `main`.
-  - **Fixed after it:** with no review round, every candidate's consensus reason said review rounds were exhausted;
-    it now says no peer-review round ran. Still open: the issue board labels those candidates "no consensus" in a
-    run that had no review.
-  - **Dependabot (October 23):** fastify 5.12.5 (low, header validation) has no patched release yet (5.12.6 is not
-    published); the vitest advisory (moderate, its mocker, test tooling only) is fixed only in vitest 5, a major
-    upgrade. Both left for now.
-- **The nextra run (October 23), the largest real project so far:** `run-ccd3ccea`, low-latency screen sharing
-  (Express, Socket.IO, mediasoup, React), `main` at ef694bf, 172 files and 38,967 lines (3.3 times commentanywhere;
-  13,487 of them tests), from a fresh archive of 69d4291, Gemini at medium. 105 minutes, 683 calls, 26.8M tokens (688
-  a line; commentanywhere 640, blog 922). 126 of 415 candidates confirmed (1 critical, 21 high, 104 medium), 46
-  rejected, 20 the source could not settle, 223 below the plan's minimum and not checked; 213K tokens per confirmed
-  issue (commentanywhere 146K). Found alone by Opus 40, Sol 30, Gemini 3 (Gemini: 16 of 61 confirmed for 2.0M tokens,
-  2 of 39 calls refused by its filter). Verification 14.4M tokens in 497 calls for 192 questions, 75K each; discovery
-  7.6M. Wall time: discovery 53 minutes, with Opus the long pole (Gemini done after 25, Sol after 29), clustering 6,
-  verification 19, plan 17, critic and its check 4, revision 5. Claude's five-hour meter went 32% to 68%, the week 91%
-  to 97%. The plan has 105 tasks for the 126 issues and 68 open questions, 5 blocking; two of those, in different
-  sections, ask about the same OBS test stream.
-  - **Against the handbook's known defects:** both of its access-control concerns were found and confirmed, one as
-    the critical issue (details stay in the run's record until nextra is fixed). Not found: the client never sends the
-    operator token a remote host needs, a missing piece across client and server rather than a defect in one place.
-    A claim about OBS ingest over plain HTTP was rejected, rightly as a security claim; that is the handbook's point
-    from the other side, that a remote host cannot start an OBS room. The "peer-to-peer" copy is only in
-    `public/manifest.webmanifest`, which the snapshot does not read.
-  - **Fixed after it:** every one of Sol's 92 findings opened its `problem` with the `<quotes>` block the prompt asks
-    for before reasoning (33 of 33 on commentanywhere), 44% of that text, repeating its evidence in each claim,
-    verification question and plan issue. Discovery now drops a leading block from a finding's prose and records which
-    findings had one (`quoteBlocksRemoved`).
-  - **Also fixed after it (owner: "i still get these"):** every completed model run on a real project failed the
-    gate, and the web app showed "gate failed" in red. Here: 20 issues the verifier could not settle, 5 blocking plan
-    questions, and coverage marked incomplete for three causes: a source-only audit always is, 11 places an auditor
-    did not examine, and, without peer review, all 415 candidates listing their other auditors as missing reviewers.
-    With no review round nobody is now counted missing. The web app reads such a run as "done · needs you", lists the
-    work with counts (issues to check by hand, questions only the owner can answer) and what the run could not see,
-    keeps every code, and says the CLI still exits 1; any other reason still reads "gate failed". The CLI gate is
-    unchanged.
-  - **Data for open items:** 13 confirmed issues cite only test files, 6 of them claims about production code, and at
-    least 2 of those repeat a confirmed issue that cites the source (the forwarded client IP; the OBS test stream). The
-    verifier's rejections carry no reason, only outcome, evidence and confidence, so checking one means reading its
-    tool trace.
-- **v0.2.0 released (October 23, owner: "publish a new stable release so others can test the app"):**
-  https://github.com/ServesYouRice/arbitra/releases/tag/v0.2.0, tag on afdec34, with the Windows single-file
-  `arbitra-0.2.0-windows.exe` and the source zip. Before publishing: Linux check and 69 of 69 browser tests on
-  afdec34; the exe, built from a clean clone, started from a scratch data folder and completed a cheap-model run
-  (Haiku, Luna, Gemini low) on a 24-line sample: 2 minutes, 9 calls, 106K tokens, its 3 planted defects confirmed, the
-  result read "done · needs you". The Mac app builds stay in the private v0.2.0-dev draft until tried on a Mac; Mac
-  testers use the zip. Dependabot's fastify (low, runtime) and vitest (moderate, test tooling) fixes, 5.12.6 and
-  4.1.12, were not on npm yet.
-- **Before sharing more widely (owner, October 23–24: "i want to get others feedback but i dont want to get bullied by
-  haters"):**
-  - **A real proof:** nextra's critical and one high issue were fixed from the saved plan's prompts (TASK-053,
-    TASK-010), each first shown by a test that failed on the unchanged code; `results.json` in nextra's plan holds the
-    failing output, so the run's report reads 3 issues proven and fixed. nextra PR #76; released as nextra 2.1.6
-    (Windows build only) on October 24 with body-parser 2.4.0 (a high advisory that appeared mid-release) and the
-    two Dependabot updates. The `.exe` was built and smoke-tested on this PC once the owner put `C:\Users\me\nextra`
-    on the antivirus allow list (it had blocked every process naming caxa's Windows stub); nextra's GitHub release
-    workflow is disabled, so a tag no longer starts hosted packaging. The Apple Silicon build waits for the Mac.
-  - **Gemini opt-in:** New run starts on Claude Code and Codex (`subscription-audit`, audit-balanced); Gemini is the
-    `subscription-audit-gemini` template, labelled with Google's terms. The Feature templates still use Antigravity
-    as their second reviewer (their review needs two independent vendors), behind the same warning in New run.
-  - The README opens with what arbitra does, how to try it, the four real runs and the nextra proof.
-- **Small fixes from the self-audit, on `friend-test` (October 20):** a system "permission denied" on Antigravity's
-  stderr no longer discards its reply as a soft-denied tool; a spawn that runs out of file descriptors no longer
-  raises an unhandled error; workspace packages take the root's package manager for their test commands, and a
-  package.json that does not parse no longer stops the catalog; the issue board says when its other records are
-  still loading or failed, and when the run's coverage is incomplete; the critic's requirement counts only the
-  planned issues, and its call count every call made; the verification counts say what they count.
+- **P20 is closed on its pilot (October 19).** On the three pilot projects, wherever three Opus-only runs together
+  missed a planted defect, the premium panel found it, using 0.57 to 0.67 times their time and 0.69 to 0.76 times
+  their tokens. That is 21 planted defects: an estimate, not a test. Per-defect results stay in the private benchmark
+  repository. The held-out set is left unrun by design; the product's claims rest on what each run checks and
+  proves, not on the premise.
+- **Releases:** `checkpoint-1` (October 20, e8ef14b), v0.1.0 (October 21), v0.2.0 (October 23, adds the Windows
+  single-file `.exe`), v0.2.1 (October 24, Gemini opt-in). Every branch was merged into `main` on October 22; work
+  continues from `main`. [`TESTERS.md`](TESTERS.md) is the testers' guide.
+- **Next: the improvement phase** below, the changes held back until now because they could destabilise the app.
+  Still planned after it:
+  - **UI phase**, on its own branch: research how people want run results and settings shown, audit the current UI,
+    and agree a direction from mockups before code changes. The UI is wordy, uses similar terms and choices it does
+    not explain, and says little about how models are gathered and which are chosen; the original drag-and-drop
+    "slots" idea is to be audited, not assumed.
+  - **P21**, the completion report, last.
+- **Default lineup:** New run starts on Claude Code and Codex (`subscription-audit`, audit-balanced, no peer-review
+  round); Gemini is the opt-in `subscription-audit-gemini` template, labelled with Google's terms. The Feature
+  templates still use Antigravity as their second reviewer (their review needs two independent vendors), behind the
+  same warning in New run.
+- **A fix proven from a plan:** nextra's critical and one high issue were fixed from the saved plan's prompts
+  (TASK-053, TASK-010), each first shown by a test that failed on the unchanged code. nextra's `results.json` holds
+  the failing output, so the run's report reads 3 issues proven and fixed (nextra PR #76, released in nextra 2.1.6
+  on October 24).
 
-## Checkpoint 1
+## Real-project runs
 
-Fixed on October 19, each with a test:
+| Project, date | Run | Size | Time | Calls | Tokens (per line) | Outcome | Tokens per confirmed issue | Found alone: Opus / Sol / Gemini |
+|---|---|---|---|---|---|---|---|---|
+| beachflag, Oct 20 | — | 84 files, 11,291 lines | 80 min | 613 | 17.6M (1,560) | 81 accepted (3 high, 25 medium, 52 low), 40 rejected, 11 open | — | — |
+| rokavatar, Oct 21 | `run-757824f4` | 117 files, 10,716 lines | about 110 min | 480 | 15.6M (1,455) | 23 of 212 confirmed (3 high, 20 medium) | 677K | 12 / 2 / 0 |
+| blog, Oct 22 | `run-7fb6177a` | 164 files, 14,204 lines | 63 min | 359 | 13.1M (922) | 41 of 180 confirmed (3 high, 38 medium) | 320K | 16 / 7 / 2 |
+| commentanywhere, Oct 23 | `run-5a90c75d` | 93 files, 11,719 lines | 40 min | 234 | 7.5M (640) | 51 of 150 confirmed (1 critical, 7 high, 43 medium) | 146K | 20 / 8 / 2 |
+| nextra, Oct 23 | `run-ccd3ccea` | 172 files, 38,967 lines | 105 min | 683 | 26.8M (688) | 126 of 415 confirmed (1 critical, 21 high, 104 medium) | 213K | 40 / 30 / 3 |
 
-- The run page was blank for every model run with a coverage gap (e3519fc); recorded limitations are folded under
-  one line (c171b01).
-- A plan written in sections cited other sections' tasks and checks in its text (d3f2d4f).
-- One operation of the wrong shape refused a whole peer-review reply (c6f2c3c).
-- Discovery told models that files outside their unit do not exist; empty searches counted as tool errors (41275b8).
-- Discovery refused quotations copied with the frame's entities for `<`, `>` and `&` (39c2d03).
-- Secret masking hid ordinary code such as `token: this.ids.leaseToken()` (812fed6, redaction patterns version 4).
-- Every continued Antigravity tool turn failed: the CLI's resume notice was read as tool use (3bbdbe9).
-- The plan critic's coverage: the cited files no critic call carried are recorded (377546c).
-- On Windows, a CLI's descendant holding its pipes kept a call open until its timeout (2d19b2f).
-- A Feature or Testing stage's output repair was not resized like its first attempt (eb8238e).
-- A copied or restored run showed the copy's date as its start (9558aef).
-- Windows line endings stayed inside each snapshot line, so every Feature and Testing run on a Git for Windows
-  checkout failed to ground its evidence (3541978; found by the live runs).
-- The details panel lost its trail across selections inside the new error boundary (b815f15); a running graph run
-  read "starting" for its whole run (565cea2).
-- From the self-audit: secrets under prefixed names (`DB_PASSWORD`, `AWS_SECRET_ACCESS_KEY`), passphrases filed under
-  a secret's name and private keys split across lines were not masked (e16a103); the Windows descendant scan could
-  match an unrelated process by a reused ID and blocked the event loop (c9c99ae); Git read the audited repository
-  with that repository's own configuration, which can name programs to run (570e436).
+beachflag ran before confirmed issues were reported, so its counts are accepted issues. beachflag, rokavatar and
+blog ran with one peer-review round; commentanywhere and nextra without one, the default since October 23.
+Gemini ran at high thinking on beachflag and rokavatar, at medium after that.
 
-**The self-audit (October 19, from the web UI).** The premium panel on the 25 files changed since 9ef97b8 (5,254
-lines): 63 minutes, 212 reports, 78 issues confirmed, 28 rejected, 39 undecided. Fixed above: 7. Still open,
-confirmed, for the improvement phase (most predate this week's changes; the audit read whole changed files):
+What each run changed:
+
+- **beachflag** (Gemini critic, every issue verified; verification 10.6M of its tokens): Sol as critic and Opus as
+  critique checker; verification only of the issues the plan covers (58% of the candidates were below it); the token
+  limit sized from the project (3,500 tokens a line, about twice the measured 1,560); raising the limit of a paused
+  run; files Git ignores left out of the snapshot (a 600 KB Playwright report refused the project); model-activity
+  artifacts open again (their IDs were too long a route).
+- **rokavatar** stopped at the critic on the Codex five-hour window and was resumed. Because of it: a usage limit
+  pauses the run and resumes it after the reset (b3626a8); "last activity" and the report's state during a stage
+  (c3ca222); and safeguards against losing issues (6274c9e, 4368435): check-first prompts for issues the verifier
+  could not settle, a severity lowered by one reviewer alone no longer takes an issue out of the plan's scope (25
+  such issues here), a second model before a critical or high issue a reviewer backed is rejected (12 here), and the
+  accepted issues no task fixes listed in the saved plan (48 here). Together these add about 37 questions to a run
+  of this size, about 3M tokens.
+- **blog** showed that the snapshot read a fixed list of extensions and left out all 30 `.astro` files;
+  Astro, shell, C-family and other common sources are now read (fcef7ee). Its replay without peer review is
+  `run-d6fbbf98` (experiment 11 below).
+- **commentanywhere**, the first run without peer review. A first attempt failed when Gemini asked for a ninth tool
+  turn on one discovery window: a tool call past the limit is now answered unrun with `TOOL_TURN_LIMIT_REACHED` and
+  the model gets one more turn, and a model that still asks gives a rejected reply that the stage records as a gap
+  (57ee601). With no review round, the consensus reason now says that no review ran (69d4291).
+- **nextra**, the largest so far (13,487 of its lines are tests). Wall time: discovery 53 minutes (Opus the long
+  pole; Gemini done after 25, Sol after 29), clustering 6, verification 19 (14.4M tokens in 497 calls for 192
+  questions), plan 17, critic and its check 4, revision 5. Of the project's known defects, both access-control
+  concerns were found and confirmed, one as the critical issue; a gap that spans client and server (the client never
+  sends the operator token a remote host needs) was not. Because of it (e57b868, 89f55d8): Sol opened every finding
+  with the `<quotes>` block the prompt asks for before reasoning, 44% of the text, repeated into every later stage,
+  and discovery now drops a leading block and records which findings had one (`quoteBlocksRemoved`); and a completed
+  run whose gate fails only on work left for a person reads "done · needs you" in the web app, with the issues to
+  check by hand, the questions only the project owner can answer and what the run could not see. Without peer
+  review no auditor is counted as a missing reviewer. The CLI gate is unchanged and still exits 1.
+
+Open from the runs:
+
+- **The default Audit runs no plan critic** (found October 24, from the code): since v0.2.1 `subscription-audit` uses
+  the `audit-balanced` preset, whose graph has no critic node (`packages/runtime/src/graphs.ts`), so its `critic` and
+  `critiqueChecker` roles are never used, while TESTERS.md says Sol reviews the plan. Either give the balanced graph
+  a critic when a critic role is set, or drop the roles and the claim.
+- **Gemini's share:** its confirmed finds no other model made, against what its audit costs: rokavatar 0 for 2.1M
+  tokens at high thinking (560 call-minutes; 17 of 51 calls lost, 12 to its content filter and 5 to its output
+  ceiling), 7 in that run's replay; blog 2 for 1.9M at medium (135 call-minutes; 9 of 47 calls refused);
+  commentanywhere 2 for 1.1M (6 of 21 refused); nextra 3 for 2.0M (2 of 39 refused).
+- Verification costs 75K to 86K tokens a question.
+- Plan questions are not merged across sections: nextra has two blocking questions in different sections about the
+  same OBS test stream (see Quality below).
+- The issue board labels candidates "no consensus" in a run that had no review.
+- 13 confirmed nextra issues cite only test files, 6 of them claims about production code, and at least 2 of those
+  repeat a confirmed issue that cites the source (see the test-file item below).
+- The verifier's rejections carry no reason, only outcome, evidence and confidence, so checking one means reading
+  its tool trace (see the abstention item below).
+- The snapshot does not read `.webmanifest` files, so claims made only there are invisible to a run.
+- **Dependabot:** fastify 5.12.5 (low, header validation) has no patched release yet; the vitest advisory (moderate,
+  its mocker, test tooling only) is fixed only in vitest 5, a major upgrade. Both are left until a fix is published.
+
+## Open from the self-audit of October 19
+
+The premium panel on the 25 files changed since 9ef97b8 (5,254 lines) confirmed 78 issues; the ones fixed are in the
+history. Still open, for the improvement phase (most predate the changes audited; the audit read whole files):
 
 - Redaction: bracket index access after a secret's name is masked as a secret; JSON-encoded source loses escaped
   newlines after redaction; redacting model input and output can make an exact quote impossible to ground.
@@ -207,31 +113,22 @@ confirmed, for the improvement phase (most predate this week's changes; the audi
 - Pipeline: peer conflict resolution fails the run on one invalid or output-limited reply; grouped verification
   never re-asks a rejected merged candidate place by place, can exceed its question limit, and shows finder-named
   IDs to the verifier; merge recovery stops after one rescued defect; with `recheckRevisedPlan`, a second critic
-  that does not complete replaces the first one's blocking items; critic revisions bypass the blocking-question checkpoint;
-  one malformed evidence operation can leave dangling or remove valid citations; moving a shared location can
-  invalidate evidence grounded at its old range.
+  that does not complete replaces the first one's blocking items; critic revisions bypass the blocking-question
+  checkpoint; one malformed evidence operation can leave dangling or remove valid citations; moving a shared location
+  can invalidate evidence grounded at its old range.
 - Discovery: dense instruction-shaped text merges into one oversized follow-up that is skipped; recursive scope
   splitting multiplies concurrency and has no depth or spend bound; quote widening is quadratic on repetitive files.
 - Repository and Testing: diff paths are taken relative to the audited root, not the repository top level; the
   `working_tree` diff leaves out untracked files; excluded directories are still walked.
 - Smaller: a failed partial event append poisons later records; plan write-scope overlap understands only a trailing
-  `/**`. (The search tool's one hit per line is deliberate, as grep reports it.) 36 low-severity issues and the 39
-  undecided are in the run's record.
-
-Still to do for the checkpoint:
-
-- **Branches (the owner's):** the tag `p20-build-13be324` is pushed (the private benchmark cites that commit); the
-  dependabot branch is gone; `p20-2.7.0-fix` and `agent/elegant-sagan-3tby00` (already in `beta`) are to be deleted.
-- Done on October 19: the whole check in Linux; the browser tests in Linux, 69 of 69 in Chromium, Firefox and WebKit
-  (on Windows WebKit does not move Tab between links, so one keyboard test cannot pass there); live runs on the three
-  subscriptions (Audit, Feature, Testing plan) after the line-ending fix; the self-audit. Then: merge to `main`, tag
-  `checkpoint-1`, push.
+  `/**`. (The search tool's one hit per line is deliberate, as grep reports it.) 36 low-severity issues and 39
+  undecided ones are in the run's record.
 
 ## Improvement phase
 
-Each changes what the pipeline does or costs, so each is measured before it becomes a default (the owner's targets:
-a panel within about 1.5 times the time and 1.7 times the tokens of three Opus-only runs, quality kept; design
-changes checked against Anthropic's guidance first).
+Each item changes what the pipeline does or costs, so each is measured before it becomes a default. The targets: a
+panel within about 1.5 times the time and 1.7 times the tokens of three Opus-only runs, quality kept; design changes
+are checked against Anthropic's guidance first.
 
 **Quality**
 
@@ -275,11 +172,32 @@ changes checked against Anthropic's guidance first).
 - Smaller: after a resume one Claude turn returned its tool-call markup as text and the repair restarted its tool
   loop.
 
+**Built but not wired.** The cleanup of October 24 removed the modules no entrypoint used. These were kept, or are
+noted, because they are worth wiring; each is measured like the rest before it becomes a default:
+
+- **Deterministic injection scanner and suppression candidates** (`packages/security/src/scanner/`,
+  `suppression.ts`, `overlap-allocator.ts`, with their tests). Repository text is framed as untrusted and the models
+  report instruction-shaped text themselves, but nothing deterministic looks for hidden Unicode or tag characters,
+  encoded payloads or "do not report" wording, and every run records `suppressionCandidates: []`. Wiring: scan the
+  snapshot at preflight, add the scanner's hits to the injection follow-ups, and list in the run report the risky
+  files that an auditor read but no finding cites. It needs no model calls.
+- **Derived write envelope** (`packages/security/src/envelope.ts`, with its tests). It derives the write scope from the
+  modules that hold the accepted issues' locations, never from the plan's proposed scope, so a plan written from
+  untrusted text cannot widen an executing agent's scope (for example to `.github/workflows/`). Wire it into the saved plan before plans are carried out by
+  other agents (item 3 of the order below).
+- **Test commands for plans** (the package-manifest item under Quality): `packages/runtime/src/testing-context.ts`
+  already derives a repository's test commands for Testing mode; give them to the Audit and Feature planners.
+  `packages/core/src/preflight/project-context.ts` also extracts build, lint and typecheck commands, frameworks and
+  CI files, but only the handoff acceptance harness (`packages/testing/src/fresh-executor.ts`) calls it.
+- **Native output schemas** for the paid-API bundle: per-dialect schema projections (OpenAI strict, Gemini, Anthropic
+  tool) were built and deleted unused; they are at `49f3469:packages/schemas/src/projections/`.
+
 **Experiments** ([design audit](docs/design-audit.md#what-changes), items 11 to 17): no peer review, lower efforts,
 a second varied discovery pass, a cheaper verifier, a verifier of another vendor on a sample, an execution rung, a
 static analyser. And score plans by executing them.
 
-**Order after the October 22 critique** (each measured as above):
+**Order of work**, set after an outside critique on October 22 (of its 17 points, 9 held and 4 partly; the README,
+the run report and a [privacy](docs/privacy.md) page were changed for it the same day). Each is measured as above:
 
 1. **Prove it (item 16).** First part built (October 22): the saved plan asks the executing agent to prove each
    defect with a test that fails on the unchanged code before fixing it, and to record each issue's result in the
@@ -289,7 +207,7 @@ static analyser. And score plans by executing them.
    Still open: arbitra running such a test itself before the plan, in the Docker sandbox. The snapshot holds no
    dependencies and the sandbox has no network, so it needs a dependency step per ecosystem first. A test that
    cannot be written leaves the issue confirmed, never rejected (agents write one for only 16–37% of real bugs).
-2. **Cut what does not earn its place.** Item 11, no peer review, is measured and now the default of the
+2. **Cut what does not earn its place.** Item 11, no peer review, is measured and is now the default of the
    subscription Audit template (October 23; the API-key templates keep one round, so the smoke checks still cover
    the review path). Each finished run was replayed with zero rounds on its own discovery
    (`replay <run> --max-rounds 0`):
@@ -301,37 +219,40 @@ static analyser. And score plans by executing them.
      review; after discovery 6.4M tokens against about 11.8M.
    - Without review no reviewer votes, so the second opinion before rejecting a severe issue never fired (7 severe
      rejections on blog). Every severe rejection now gets it when no review ran.
-   Still to measure: a cheaper verifier (item 14). Gemini's part: across the next real runs, compare its confirmed
-   finds no other model made with what its audit costs (blog at medium: 2 alone for 1.9M tokens; rokavatar's
-   replay: 7 alone; commentanywhere at medium: 2 alone for 1.1M tokens, 6 of 21 calls refused by its filter; nextra at
-   medium: 3 alone for 2.0M tokens, 2 of 39 refused).
+
+   Still to measure: a cheaper verifier (item 14), and Gemini's share across the next real runs (above).
 3. **Plans carried out by Codex and Gemini as well as Claude:** count issues fixed, things broken and edits a person
    had to make.
 4. **Evidence a skeptic can check:** each real run's report (confirmed, proven by a failing test, fixed, cost), and
    perhaps a small public track of real fixed bugs (reverted fixes from public projects). P20's held-out set stays
-   unrun (owner, October 22).
+   unrun.
 
 **To re-check on the current build** (measured October 11 to 13, before later changes): prompts sized at one byte a
 token outside the stages that set `estimatedBytesPerToken`; discovery source as one JSON object a line; Gemini's
 output nearly all thinking and its CLI's own agent prompt; a pinned copy of each CLI per protocol, as for Claude Code.
 
-**Product, vendor terms (read October 22):** Google: Antigravity on a consumer plan is not supported inside arbitra
-(above). Anthropic: allowed as arbitra does it. Claude Code's
+## Vendor terms
+
+Read October 22. **Google:** wrapping `agy` in another application "is not supported under consumer plans", and
+third-party access "may be grounds for suspension" (FAQ and terms); New run, TESTERS.md and the privacy page say so,
+and Google's route for tools is a Gemini API key. **Anthropic:** allowed as arbitra does it. Claude Code's
 [legal page](https://code.claude.com/docs/en/legal-and-compliance) does not prevent "an end user from signing in to
 the unmodified Claude Code binary with their own Claude subscription"; it forbids tools that collect or route
-subscription credentials, which arbitra never does, and limits assume "ordinary, individual usage". OpenAI: no
+subscription credentials, which arbitra never does, and limits assume "ordinary, individual usage". **OpenAI:** no
 statement found on driving `codex exec` from another tool; ChatGPT's terms govern the data.
 
 ## Deferred: the paid-API bundle
 
-It needs funded API accounts, which the owner does not use ([completion plan](docs/completion-plan.md#deferred-the-paid-api-bundle)):
-the OpenAI Responses, OpenAI Chat and Anthropic Messages protocols live (P03); P08's live context limits; each P15
-batch driver; and from the engineering review, opaque reasoning state per message, native output schemas and
-explicit cache control.
+It needs funded API accounts, which the project's own testing does not use
+([completion plan](docs/completion-plan.md#deferred-the-paid-api-bundle)): the OpenAI Responses, OpenAI Chat and
+Anthropic Messages protocols live (P03); P08's live context limits; each P15 batch driver; and from the engineering
+review, opaque reasoning state per message, native output schemas and explicit cache control.
 
 ## Live-testing policy
 
-Subscription mode is a product feature for every user, on an equal footing with API keys and selectable per role. The owner's own live testing runs **only on subscription models**, through the vendors' CLIs, and never on API credits:
+Subscription mode is a product feature for every user, on an equal footing with API keys and selectable per role.
+The project's own live testing runs **only on subscription models**, through the vendors' CLIs, and never on API
+credits:
 
 | Vendor | CLI | Sign-in |
 |---|---|---|
@@ -341,19 +262,28 @@ Subscription mode is a product feature for every user, on an equal footing with 
 
 Claude carries most roles. Codex and Antigravity take at most one secondary role each, because their limits are lower.
 
-Google retired personal logins from the Gemini CLI on June 18, 2026, so the `gemini-cli` transport serves only Code Assist Standard or Enterprise accounts. Never use third-party plugins that reuse Antigravity OAuth tokens; they get accounts banned.
+Google retired personal logins from the Gemini CLI on June 18, 2026, so the `gemini-cli` transport serves only Code
+Assist Standard or Enterprise accounts. Never use third-party plugins that reuse Antigravity OAuth tokens; they get
+accounts banned.
 
-Live configurations come from `tooling/live/bindings.subscription.json`. The API-key transports remain for other users: [bindings.claude-primary.json](tooling/live/bindings.claude-primary.json) is the API-key equivalent, and [bindings.gemini.json](tooling/live/bindings.gemini.json) records the free-tier Gemini setup behind the earlier evidence.
+Live configurations come from `tooling/live/bindings.subscription.json`. The API-key transports remain for other
+users: [bindings.claude-primary.json](tooling/live/bindings.claude-primary.json) is the API-key equivalent, and
+[bindings.gemini.json](tooling/live/bindings.gemini.json) records the free-tier Gemini setup behind the earlier
+evidence.
 
 ## How to pick this up again
 
-1. **Logins.** Sign in once in a terminal: `claude` (/login), `codex login` (Sign in with ChatGPT) and `agy`. The API keys in the gitignored `.env` are not used for owner testing.
+1. **Logins.** Sign in once in a terminal: `claude` (/login), `codex login` (Sign in with ChatGPT) and `agy`. The API
+   keys in the gitignored `.env` are not used for live testing.
 2. **Build.** Run `pnpm build`.
-3. **Web UI.** `arbitra.cmd` (Windows) or `arbitra.command` builds when needed and opens http://127.0.0.1:4178, served by the control plane. For UI work, `pnpm --filter @arbitra/web dev` on http://127.0.0.1:4173 proxies to it.
+3. **Web UI.** `arbitra.cmd` (Windows) or `arbitra.command` builds when needed and opens http://127.0.0.1:4178,
+   served by the control plane. For UI work, `pnpm --filter @arbitra/web dev` on http://127.0.0.1:4173 proxies to it.
 4. **Workflows (P03).**
    1. Generate the configurations: `node tooling/live/configure.mjs tooling/live/bindings.subscription.json .runs/live/configs-sub`.
-   2. Run one: `tooling/live/run.sh .runs/live/configs-sub <audit-mixed-providers|feature-automatic|feature-interactive|testing-plan|testing-execute>`. A sleeping host stretches every stage timeout, so keep the machine awake during a run.
-   3. An interactive Feature stops `BLOCKED`. Inspect it with `requirements <run-id>`, then `revise-requirements` and/or `approve-requirements`, then run `tooling/live/resume.sh feature-interactive <run-id>`.
+   2. Run one: `tooling/live/run.sh .runs/live/configs-sub <audit-mixed-providers|feature-automatic|feature-interactive|testing-plan|testing-execute>`.
+      A sleeping host stretches every stage timeout, so keep the machine awake during a run.
+   3. An interactive Feature stops `BLOCKED`. Inspect it with `requirements <run-id>`, then `revise-requirements`
+      and/or `approve-requirements`, then run `tooling/live/resume.sh feature-interactive <run-id>`.
    4. Hand a Feature plan to fresh Claude Code executors: `node tooling/live/handoff.mjs <work-name> <run-id>`.
 
    `testing-execute` needs Docker and the pinned image; see [qa/p04](docs/qa/p04/README.md).
@@ -366,7 +296,11 @@ Live configurations come from `tooling/live/bindings.subscription.json`. The API
    ```
 
    See [qa/p12](docs/qa/p12/README.md).
-6. **Premise evaluation (P06): complete.** Version 2.1.0's results are in [qa/p06-subscription](docs/qa/p06-subscription/README.md). Its run state is local only, in `.runs/p06-subscription-2.1.0` (2.0.0's in `.runs/p06-subscription`); keep both. For live runs, pace on the Claude five-hour window (`rate_limit_event` in any `claude -p --output-format stream-json --verbose` call); the owner can reset the weekly limit when needed.
+6. **Premise evaluation (P06): complete.** Version 2.1.0's results are in
+   [qa/p06-subscription](docs/qa/p06-subscription/README.md). Its run state is local only, in
+   `.runs/p06-subscription-2.1.0` (2.0.0's in `.runs/p06-subscription`); keep both. For live runs, pace on the Claude
+   five-hour window (`rate_limit_event` in any `claude -p --output-format stream-json --verbose` call).
 7. **Usage windows.** Codex's are read without a model call through `codex app-server` (`account/rateLimits/read`).
 
-Evidence per item is in [docs/qa](docs/qa/README.md); the subscription runs are in [qa/p03-subscription](docs/qa/p03-subscription/README.md).
+Evidence per item is in [docs/qa](docs/qa/README.md); the subscription runs are in
+[qa/p03-subscription](docs/qa/p03-subscription/README.md).

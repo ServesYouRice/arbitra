@@ -21,12 +21,19 @@ quirks   { systemPromptSupport, fewShotPolicy, promptStyle, documentPlacement,
 structuredOutputDialect
 ```
 
-**arbitra ships no table of real model names, capabilities or prices.** The example
-configurations use `replace-with-your-model-id` and null limits deliberately: provider
-catalogues change, and a stale table asserting what a model supports is exactly the
-fabricated capability data §32.1 forbids. Fill a profile in from your provider's own
-documentation. `limits` stays `null` until you know the number — a null renders as
-*unavailable* everywhere, and never as zero.
+**The runtime infers nothing from a model's name.** The example configurations use
+`replace-with-your-model-id` and null limits deliberately: provider catalogues change, and a
+stale table asserting what a model supports would be fabricated capability data. Fill a
+profile in from your provider's own documentation. `limits` stays `null` until you know the
+number — a null renders as *unavailable* everywhere, and never as zero.
+
+The web app's New run page carries a small model catalogue
+(`apps/web/src/pages/new-run/model-catalog.ts`): model IDs per transport with their family
+and capability tier, and for some the context and output limits and the vendor's effort
+words. It lists no prices. Choosing a model there writes those values into the profile, and
+the subscription templates start with each CLI's recommended model filled in
+(`apps/web/src/pages/new-run/templates.ts`). The values are still declarations, checked by
+preflight like any other.
 
 Every capability field is therefore an operator declaration with the operator's
 documentation as its provenance. Runtime preflight
@@ -44,11 +51,13 @@ explains endpoint/role binding and the enforced budget limits.
 multi-auditor run mean anything: two aliases in the same group are not independent
 auditors, whatever their names.
 
-`packages/providers/src/served-identity.ts` computes `servedIdentity` and
-`independenceGroupOf`, and `collapseDuplicateServedIdentities` detects the case where two
-configured aliases resolve to the same served model — a reseller endpoint, or the same
-model behind two names. That collapse is reported rather than silently accepted, because a
-"three-auditor" run that is really one model is a false claim about the result.
+The group is read where independence is required: peer review accepts a high-risk candidate,
+and settles a structural conflict, only with evidence-backed votes from at least two groups
+(`packages/workflow/src/consensus/engine.ts`); Feature reviewers must declare distinct groups,
+and a Feature critic a group other than the planner's. Nothing compares the models behind
+two profiles: two aliases of one served model (a reseller endpoint, or the same model behind
+two names) in different groups count as independent. A "three-auditor" run that is really
+one model is a false claim about the result, and only the configuration prevents it.
 
 ## Transports
 
@@ -130,7 +139,8 @@ a continued Antigravity turn read 21,246 tokens from the cache in one check and 
 (Gemini's cache is implicit). The Antigravity CLI's `input_tokens` leaves out cache reads, so its
 prompt is counted as the two together. Codex (`--output-schema`), Claude Code and the Antigravity CLI (`--json-schema`; the answer is
 read from `structured_output`, and a SUCCESS without it is `MALFORMED_RESPONSE`) enforce a
-response schema natively when one is requested without tools; otherwise output is prompt JSON.
+response schema natively when one is requested without tools; otherwise output is prompt JSON
+(no runtime stage requests one; see [Structured output](#structured-output)).
 Usage is mapped as reported (unknown stays `null`), cost is unknown, the provider request ID is
 the CLI session or thread ID, and the response's `transportVersion` (`<vendor>/<version>`) is
 recorded on the trace. Failures are classified: not signed in or ineligible account → `AUTH`;
@@ -162,7 +172,7 @@ live model capabilities. Configured CLI/server workflows invoke these transports
 the canonical harness; Audit with no configured models uses scripted auditors.
 Gemini native, its compatible chat endpoint and three subscription CLIs have live evidence.
 Live conformance of the OpenAI Responses, OpenAI Chat and Anthropic Messages API protocols
-remains a [completion task](completion-plan.md#p03--build-and-run-live-provider-acceptance).
+is deferred to the [paid-API bundle](completion-plan.md#deferred-the-paid-api-bundle) (P03).
 
 ## Effort
 
@@ -178,16 +188,24 @@ run unless the downgrade is recorded.
 
 ## Structured output
 
-`packages/schemas/src/projections/` projects one canonical schema into each provider's
-dialect (`project-schema.ts`, `dialects/openai-strict.ts`, `dialects/gemini.ts`,
-`dialects/anthropic-tool.ts`). A projection that cannot preserve the canonical schema
-fails at build time with `SchemaProjectionError` rather than quietly mid fan-out — that is
-the whole reason the projection harness exists.
+Every stage asks for JSON in its prompt. The compiled prompt
+(`packages/core/src/prompt/compiler.ts`) locks the stage's output schema beside the protocol
+and the tool definitions, and says to return only JSON matching it. No stage sends the schema
+to the provider: the transports can carry one (`responseSchema`: a JSON-schema output format
+on the API codecs, `--json-schema` or `--output-schema` on the CLIs when no tools are
+offered), but the runtime never sets it, so every call records
+`structuredOutputTier: "prompt_json"` in its activity trace.
 
-`packages/schemas/src/repair.ts` defines the tiers (`structuredOutputTiers`) and the
-bounded repair path (`RepairRequest`, `RepairDiagnostic`, `StructuredOutputResult`).
-Tier degradation — strict schema unavailable, falling back to JSON mode or prompted JSON —
-is recorded per call alongside effort collapse, and is likewise never silent.
+`parsePromptJson` (`packages/runtime/src/model-activities.ts`) reads the JSON document out of
+the reply, and the stage's own schema validates it; many stages also check their rules inside
+the call (evidence grounding, plan traceability, outline and patch rules). A reply that fails
+is asked for again within `maximumOutputRepairs` (0–3, default 0;
+`packages/runtime/src/model-harness.ts`). Each repair is its own durable activity
+(`<activity>/repair-<n>`) that carries the rejection reason and the rejected reply as
+untrusted data, and its trace counts it in `repairCount`. A reply still invalid after the last
+repair fails the activity, and a stage that can go on without that one answer records the gap
+([harness](harness.md#the-adapter-port)). Provider failures, refusals and output-limit stops
+are never repaired.
 
 ## Quirks
 
@@ -380,10 +398,11 @@ second review round, the votes on conflicting proposals, the pair checks and the
 reading were 194 of 283 calls, and after them the accepted list held 2 of the 7 known defects
 that the review had not rejected.
 
-- **Peer review** runs the rounds `maxConsensusRounds` allows; the shipped examples set one.
-  What a round leaves undecided, including candidates tied up in conflicting structural
-  proposals, goes to verification. Conflicting proposals are put to the auditors only from a
-  second round on; with one round they stay recorded as coverage gaps.
+- **Peer review** runs the rounds `maxConsensusRounds` allows. The API-key Audit templates set
+  one; the subscription Audit templates set 0, so their auditors never review each other's
+  findings. What a round leaves undecided, including candidates tied up in conflicting
+  structural proposals, goes to verification. Conflicting proposals are put to the auditors
+  only from a second round on; with one round they stay recorded as coverage gaps.
 - **A review batch carries the source its candidates cite**, whole or as excerpts: a batch is
   closed when the next candidate's cited source would not fit beside it. A reviewer cannot check
   a claim against a file it was not given (observed: batches packed with candidates until 3 of
@@ -409,7 +428,9 @@ that the review had not rejected.
   file per accepted or unverified issue with where it is, the quoted evidence, the verifier's
   answer and how many auditors reported it; a planned issue asks for a test that fails before the
   fix and for a result the executor reports in `progress.jsonl` (`fixed`,
-  `not_reproducible`, `no_change_needed` or `blocked`, with proof).
+  `not_reproducible`, `no_change_needed` or `blocked`, with proof). Saving the plan into the
+  project writes it as prompts under `.arbitra/plans/`, with a `results.json` for the same
+  results that the run reads back ([Getting started](setup.md#export-the-plan-into-the-project)).
 - **One critic, one revision.** The critic reads the revised plan again only when
   `review.recheckRevisedPlan` is true. Otherwise `critic-feedback` keeps the critique and adds
   a `revision` record: which blocking items the revision resolved and which it could not revise.
@@ -524,9 +545,8 @@ engine support and unsuccessful checks remain visible as coverage gaps.
   scheduler: runs side by side (one process each, as the P20 runners are) do not share
   `maxConcurrent`, the per-minute rates or a retry hint. Only an exhausted usage window is
   shared, through the CLI limit ledger.
-- `packages/providers/src/cache-handle.ts` defines prompt-cache handles, but no production
-  path uses them yet and the API codecs send no explicit cache control (`cache_control`,
-  `cachedContent`). Cache reads come from the providers' automatic caching and the CLIs'
+- No production path sets prompt-cache control: the API codecs send no `cache_control` or
+  `cachedContent`. Cache reads come from the providers' automatic caching and the CLIs'
   own; usage reports them per call as cache reads and writes.
 - `packages/providers/src/continuation/store.ts` provides optional persistence for
   provider continuation handles. Composed model activities currently disable that store

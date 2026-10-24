@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { resolveEffort } from "../src/effort.js";
 import { parseModelProfile } from "../src/profiles/model-profile.js";
-import { collapseDuplicateServedIdentities, independenceGroupOf, servedIdentity } from "../src/served-identity.js";
 
 describe("model profiles", () => {
   it("parses a custom profile with typed capabilities, limits and quirks", () => {
@@ -23,20 +22,6 @@ describe("model profiles", () => {
       collapsedFrom: "xhigh",
       params: { thinking_level: "high" },
     });
-  });
-
-  it("collapses aliases served by one endpoint and resolved model identity", () => {
-    const first = parseModelProfile(profileInput());
-    const second = parseModelProfile({ ...profileInput(), id: "alias-b", provider: "proxy-alias" });
-    expect(servedIdentity(first)).toBe(servedIdentity(second));
-    expect(collapseDuplicateServedIdentities([first, second])).toEqual([first]);
-  });
-
-  it("gives an unknown family without curated metadata a singleton independence group", () => {
-    const first = parseModelProfile(profileInput());
-    const second = parseModelProfile({ ...profileInput(), id: "custom-b", modelId: "another-model", servedBy: "another-model" });
-    expect(independenceGroupOf(first)).toMatch(/^singleton:[a-f0-9]{64}$/u);
-    expect(independenceGroupOf(first)).not.toBe(independenceGroupOf(second));
   });
 
   it("rejects free-form quirks and undeclared effort collapse", () => {

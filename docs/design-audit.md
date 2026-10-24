@@ -107,7 +107,7 @@ yields a 27.2% success rate" against 17.9% for the best single model. Against it
 | Cache reads counted as full input | Behind | Vendors price a cached token at about a tenth of input, or less, and output at about five times input |
 | Planner, critic and revision | Behind on cost | Plan and critic took about two thirds of a three-vendor run's tokens; Anthropic's harness cost "over 20x" its solo run and was worth it only beyond "what the current model does reliably solo" |
 | Every stage at the audit's effort, Gemini at high | Contradicted until measured | All three vendors default to medium; SWE-Serve's +1 point for +76% cost |
-| Subscription CLIs | Holds for the owner's own runs | Claude: "Advertised usage limits for Pro and Max plans assume ordinary, individual usage"; Google's [Antigravity FAQ](https://antigravity.google/docs/faq): wrapping `agy` in applications "is not supported under consumer plans". A product recommends API keys. |
+| Subscription CLIs | Holds for the project's own runs | Claude: "Advertised usage limits for Pro and Max plans assume ordinary, individual usage"; Google's [Antigravity FAQ](https://antigravity.google/docs/faq): wrapping `agy` in applications "is not supported under consumer plans". A product recommends API keys. |
 
 ### Evaluation
 
@@ -121,8 +121,8 @@ yields a 27.2% success rate" against 17.9% for the best single model. Against it
 
 ## What changes
 
-Built in this order. The first two groups fix faults against arbitra's own rules or carry out changes the owner
-approved; the third are options compared side by side before any becomes a default. Items 1 to 10 were built on
+Built in this order. The first two groups fix faults against arbitra's own rules or carry out approved changes;
+the third are options compared side by side before any becomes a default. Items 1 to 10 were built on
 October 14 ([provider model](provider-model.md#one-pass-per-review-stage)); item 11 needs no code
 (`maxConsensusRounds: 0`).
 
@@ -172,7 +172,7 @@ executing them.
 A second review read the code rather than the design. Codex (OpenAI's coding agent) traced 218 operations and the
 handoffs between stages at 8a26cdb, reproduced each finding offline and reported 31. Each was then checked against
 d05ecfa by reading the code. Thirty held. The thirty-first, distinct defects on one line merged, had already been
-fixed by aa601c7. Several were rated by their worst case on the paid APIs, which the owner's runs do not use. The
+fixed by aa601c7. Several were rated by their worst case on the paid APIs, which the project's own runs do not use. The
 review missed that each run builds its own transports in its own process, which makes two findings real today: kept
 sessions and unshared limits.
 
@@ -224,7 +224,7 @@ Added to the comparisons above:
 
 - Item 9's length budget for tasks also covers repetition. Every task carries a full contract and routing, which the
   critic and the revision read again.
-- Plan sections (approved item 4 in [remaining work](../WORK-REMAINING.md)): a pass for semantic dependencies across
+- Plan sections (built October 14, behind a run setting): a pass for semantic dependencies across
   files, which the join cannot see because it only orders shared files. Examples: a migration before its use, or a
   shared contract. A blind judge preferred the sections' plan for 41 issues against 10, so measure before adding a
   call.

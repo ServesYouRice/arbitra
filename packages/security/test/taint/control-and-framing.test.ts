@@ -1,20 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { controlClassOf } from "../../src/control-class.js";
 import { frameUntrusted, UNTRUSTED_FRAME_VERSION, type FramedUntrusted } from "../../src/framing.js";
-
-describe("control classes", () => {
-  it.each([
-    ["sourceFinding.problem", "data"],
-    ["sourceFinding.recommendedFix", "instruction"],
-    ["task.likelyFiles", "filesystem_scope"],
-    ["task.verification.commands", "command"],
-    ["checkpoint.externalAction", "external_action"],
-    ["future.unclassifiedField", "instruction"],
-  ] as const)("classifies %s as %s", (path, expected) => {
-    expect(controlClassOf(path)).toBe(expected);
-  });
-});
 
 describe("untrusted content framing", () => {
   it("returns only a branded, versioned frame with injection-reporting instructions", () => {

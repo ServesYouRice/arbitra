@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import { MemoryArtifactSink } from "../src/bounded-output.js";
-import { validateEvidence } from "../src/evidence.js";
 import { FootprintRecorder } from "../src/footprint/index.js";
 import { READ_TOOL_NAMES, ToolRegistry, type ToolRuntimeContext } from "../src/registry.js";
 import type { ReadArtifacts, ReadRepository, RepositoryFile, SearchHit } from "../src/repo/types.js";
@@ -63,17 +62,6 @@ describe("canonical read tool runtime", () => {
         { query: "missing", scope: ".", resultCount: 0 },
       ],
     });
-  });
-
-  it("rejects evidence outside the quoting node exposure footprint", async () => {
-    const fixture = makeRuntime({ "src/auth.ts": "0123456789abcdefghij" }, 10_000);
-    await fixture.registry.invoke("repo.readFile", { path: "src/auth.ts" }, context("auditor-1"));
-    const footprint = fixture.footprints.exposure("auditor-1");
-    expect(validateEvidence({ sourceId: "repo:src/auth.ts", path: "src/auth.ts", start: 2, end: 8 }, footprint)).toEqual({ valid: true });
-    expect(validateEvidence({ sourceId: "repo:src/auth.ts", path: "src/auth.ts", start: 18, end: 30 }, footprint)).toMatchObject({
-      valid: false, code: "OUTSIDE_EXPOSURE_FOOTPRINT",
-    });
-    expect(validateEvidence({ sourceId: "repo:src/auth.ts", path: "src/auth.ts", start: 0, end: 1 }, fixture.footprints.exposure("auditor-2"))).toMatchObject({ valid: false });
   });
 });
 

@@ -35,13 +35,6 @@ export const modelTurnResultSchema = z.object({
   usage: z.object({ inputTokens: z.number().int().nonnegative().nullable(), outputTokens: z.number().int().nonnegative().nullable(), cacheReadTokens: z.number().int().nonnegative().nullable(), cacheWriteTokens: z.number().int().nonnegative().nullable() }).strict(),
 }).strict();
 
-export const peerReviewResultSchema = z.array(z.object({
-  candidateId: z.string().min(1),
-  disposition: z.enum(["accept", "reject", "needs_verification"]),
-  citedEvidenceIds: z.array(z.string().min(1)),
-  reason: z.string().min(1),
-}).strict());
-
 export const modelVerificationResultSchema = z.object({
   outcome: z.enum(["CONFIRMED", "REJECTED", "STILL_NEEDS_VERIFICATION"]),
   evidenceIds: z.array(z.string().min(1)),

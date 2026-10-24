@@ -1,7 +1,7 @@
 import { assertNoSecretEgress, type HttpSchemas, type RouteServer } from "./control-plane.js";
 
 /**
- * Evaluation routes over the same guarded query layer the CLI report command uses.
+ * Evaluation routes over the guarded query layer.
  *
  * The identity aggregation guard and the cross-protocol refusal are raised by the query
  * layer, not by these handlers; the routes translate them into a 409 with the query

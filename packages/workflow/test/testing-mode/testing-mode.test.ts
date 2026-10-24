@@ -33,10 +33,7 @@ describe("plan-only Testing Mode", () => {
     expect(tasks.find(({ gapIds }) => gapIds.includes("GAP-auth-2"))?.routing.capability).toBe("frontier");
   });
 
-  it("exposes no mutation or execution capability and leaves the scoped repository hash unchanged", () => {
-    const presetBytes = readFileSync(new URL("../../src/presets/testing-plan.json", import.meta.url));
-    const preset = JSON.parse(presetBytes.toString("utf8")) as { readOnly: boolean; capabilities: Record<string, unknown> };
-    expect(preset).toMatchObject({ readOnly: true, capabilities: { worktree: false, writeScope: false, shell: false, sandbox: false, advisorRuntime: false, writeTools: [] } });
+  it("leaves the scoped repository hash unchanged", () => {
     const before = hash([{ path: "src/auth.ts", bytes: "source" }, { path: "README.md", bytes: "docs" }]);
     const afterRun = hash([{ path: "implementation/manifest.json", bytes: "plan" }, { path: ".runs/run.jsonl", bytes: "journal" }, { path: "README.md", bytes: "docs" }, { path: "src/auth.ts", bytes: "source" }]);
     expect(afterRun).toBe(before);

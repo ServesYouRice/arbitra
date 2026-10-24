@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 
-import { criticNode, CRITIQUE_CATEGORIES, criticRequired, selectCritic, type CritiqueItem, type StructuredCritique } from "../../src/nodes/critic/index.js";
+import { criticNode, CRITIQUE_CATEGORIES, type CritiqueItem, type StructuredCritique } from "../../src/nodes/critic/node.js";
+import { criticRequired } from "../../src/nodes/critic/required.js";
+import { selectCritic } from "../../src/nodes/critic/selection.js";
 import { revisePlanOnce } from "../../src/nodes/revision.js";
 
 const protocolHash = "b".repeat(64);

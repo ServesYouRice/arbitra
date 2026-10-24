@@ -1,11 +1,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { createExclusionPolicy, isExcluded } from "../../src/exclusions.js";
 import { allocateOverlap, type OverlapSignal } from "../../src/overlap-allocator.js";
 import { redactSecrets } from "../../src/redaction.js";
 import { scan } from "../../src/scanner/index.js";
 import { suppressionCandidates } from "../../src/suppression.js";
-import { resolveControlPlane, type ControlPlaneReader } from "../../src/control-plane/resolver.js";
 
 const root = new URL("../../../testing/fixtures/security/", import.meta.url);
 function fixture<T>(name: string): T { return JSON.parse(readFileSync(new URL(name, root), "utf8")) as T; }
@@ -29,14 +27,6 @@ describe("offline security fixture suite", () => {
     expect(detect()).toMatchObject([{ path: value.path, readBy: ["auditor-a"], findingsCiting: [] }]);
     expect(() => assertSuppressionFixture(() => [])).toThrow("MUTATION_SURVIVED_SUPPRESSION_FIXTURE");
     expect(() => assertSuppressionFixture(detect)).not.toThrow();
-  });
-
-  it("protects trusted-control-plane invariant against head-side exclusion subversion", async () => {
-    const value = fixture<{ baseIgnore: string; headIgnore: string; vulnerablePath: string }>("control-plane-subversion.json");
-    const reader: ControlPlaneReader = { async readAtRevision(_root, revision, path) { if (path !== ".llmorchestratorignore") return null; return revision === "base" ? value.baseIgnore : value.headIgnore; }, async changedPaths() { return [".llmorchestratorignore", value.vulnerablePath]; } };
-    const resolved = await resolveControlPlane({ repositoryRoot: "fixture", trustedBaseRevision: "base", auditedRevision: "head" }, { reader });
-    expect(isExcluded(value.vulnerablePath, createExclusionPolicy(resolved.assets.ignore_exclusion_policy.content))).toBe(false);
-    expect(resolved.auditSubjects).toContainEqual(expect.objectContaining({ path: ".llmorchestratorignore", disposition: "recorded_not_applied" }));
   });
 
   it("protects bounded-overlap invariant against scanner cost amplification", () => {

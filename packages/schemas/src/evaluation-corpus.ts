@@ -1,10 +1,8 @@
 /**
  * Canonical types for the longitudinal evaluation corpora.
  *
- * The observation shapes are the contract of the corpus store interfaces in
- * `packages/core/src/eval/corpora.ts`; the provenance, ground-truth and adjudication
- * shapes are what the durable store in `packages/persistence/src/evaluation-corpus/`
- * records alongside them. Unknown measurements are `null`, never zero.
+ * The observation, provenance, ground-truth and adjudication shapes are what the durable
+ * store in `packages/persistence/src/evaluation-corpus/` records. Unknown measurements are `null`, never zero.
  */
 
 export type OutcomeState = "verified" | "rejected" | "fixed" | "ignored" | "recurred";

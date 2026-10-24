@@ -6,8 +6,6 @@ import type { ZodType } from "zod";
 
 import { runConfigSchema, RUN_CONFIG_FIELD_INVENTORY, type RunConfig } from "../../src/config.js";
 import { sourceFindingSchema, type SourceFinding } from "../../src/finding.js";
-import { harnessProfileSchema, type HarnessProfile } from "../../src/harness-profile.js";
-import { issueOpSchema, type IssueOp } from "../../src/issue-ops.js";
 import { modelProfileSchema, type ModelProfile } from "../../src/model-profile.js";
 import { planIRSchema, type PlanIR } from "../../src/plan.js";
 import { taskIRSchema, type TaskIR } from "../../src/task-ir.js";
@@ -25,12 +23,10 @@ const cases: ReadonlyArray<{
   invalidPath: string;
 }> = [
   { name: "source-finding", schema: sourceFindingSchema, invalidPath: "sourceFindingId" },
-  { name: "issue-op", schema: issueOpSchema, invalidPath: "round" },
   { name: "validation-contract", schema: validationContractSchema, invalidPath: "validation.0.evidence" },
   { name: "task-ir", schema: taskIRSchema, invalidPath: "addresses.requirements" },
   { name: "plan-ir", schema: planIRSchema, invalidPath: "unresolvedQuestions" },
   { name: "model-profile", schema: modelProfileSchema, invalidPath: "capabilityTier" },
-  { name: "harness-profile", schema: harnessProfileSchema, invalidPath: "capabilities.structuredEvents" },
   { name: "run-config", schema: runConfigSchema, invalidPath: "maxConsensusRounds" },
 ];
 
@@ -74,16 +70,14 @@ describe("canonical schema golden fixtures", () => {
   });
 
   it("provides concrete inferred consumer types", () => {
-    const values: [SourceFinding, IssueOp, ValidationContract, TaskIR, PlanIR, ModelProfile, HarnessProfile, RunConfig] = [
+    const values: [SourceFinding, ValidationContract, TaskIR, PlanIR, ModelProfile, RunConfig] = [
       sourceFindingSchema.parse(fixture("source-finding.valid.json")),
-      issueOpSchema.parse(fixture("issue-op.valid.json")),
       validationContractSchema.parse(fixture("validation-contract.valid.json")),
       taskIRSchema.parse(fixture("task-ir.valid.json")),
       planIRSchema.parse(fixture("plan-ir.valid.json")),
       modelProfileSchema.parse(fixture("model-profile.valid.json")),
-      harnessProfileSchema.parse(fixture("harness-profile.valid.json")),
       runConfigSchema.parse(fixture("run-config.valid.json")),
     ];
-    expect(values).toHaveLength(8);
+    expect(values).toHaveLength(6);
   });
 });

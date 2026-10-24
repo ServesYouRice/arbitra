@@ -1,6 +1,6 @@
 # P06 on subscription models
 
-The premise evaluation runs on the owner's subscriptions through the vendor CLIs. Each protocol version is prespecified and committed before its first run, and results are never pooled across versions, nor with [version 1](../p06/README.md).
+The premise evaluation runs on the maintainer's subscriptions through the vendor CLIs. Each protocol version is prespecified and committed before its first run, and results are never pooled across versions, nor with [version 1](../p06/README.md).
 
 | Version | Protocol | Status |
 |---|---|---|
@@ -106,11 +106,11 @@ The other 13 runs never started. The global budget used was 96 of 400 attempts, 
 
 ### Run 2, segment by segment
 
-1. **September 27, 23:34: interrupted by hand during discovery.** Claude Code reported that the owner's Claude subscription had used 94% of its five-hour window (`rate_limit_event`, `allowed_warning`), and calls were being throttled. In run 1, auditor-a's discovery and the planner had each timed out once at 600 s, which explains its two unknown-usage attempts and most of its 34 minutes. The driver was stopped to leave the window for the owner's own work.
+1. **September 27, 23:34: interrupted by hand during discovery.** Claude Code reported that the maintainer's Claude subscription had used 94% of its five-hour window (`rate_limit_event`, `allowed_warning`), and calls were being throttled. In run 1, auditor-a's discovery and the planner had each timed out once at 600 s, which explains its two unknown-usage attempts and most of its 34 minutes. The driver was stopped to leave the rest of the window for other work.
 2. **September 28, 11:48: resumed, then failed after 604 s** in the critic stage with `REVISION_NEW_TASK_LINEAGE_ABSENT`. The planner's second revision patch (Claude Sonnet 5) added a task that no lineage entry named. The runtime checked that rule only after the call returned, so the reply could not be repaired, and a resume would have replayed the same stored reply. **Fixed in cfc1cc8:** every staged revision-patch rule now runs inside the call's output validation and gets the bounded output repair.
 3. **12:08: resumed with the fix.** The stored replies replayed, and the rejected patch was repaired in one call (68 s). The run went on to the critic's review of the revised plan.
 4. **12:29: suspended after 1,243 s** on the per-run token cap (`maximumTokens` 3,000,000). A resume at 12:29 suspended again within 4 s, because the cap was spent.
-5. **13:41: abandoned** with the driver's `abandon` command once the owner chose version 2.1.0, so that its findings stay on record ([evidence](evidence/runs/premise-v1__heterogeneous__r1.json)).
+5. **13:41: abandoned** with the driver's `abandon` command once version 2.1.0 was chosen, so that its findings stay on record ([evidence](evidence/runs/premise-v1__heterogeneous__r1.json)).
 
 ### Why the cap was reached
 
@@ -147,4 +147,4 @@ The review split because of the configuration's context cap. `maximumContextToke
 
 ### Decision
 
-On September 28 the owner chose to prespecify a new version instead of abandoning run 2 and continuing 2.0.0. Version 2.0.0 gets no further runs. Its ledger and run state stay in `.runs/p06-subscription`, local only.
+On September 28 a new version was prespecified instead of abandoning run 2 and continuing 2.0.0. Version 2.0.0 gets no further runs. Its ledger and run state stay in `.runs/p06-subscription`, local only.

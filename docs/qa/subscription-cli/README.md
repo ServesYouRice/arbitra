@@ -1,6 +1,6 @@
 # Subscription CLI transports: live evidence
 
-Recorded September 26, 2026 on macOS 26 (arm64), Node 22.23.2, with the owner's own
+Recorded September 26, 2026 on macOS 26 (arm64), Node 22.23.2, with the maintainer's own
 subscription logins. No API key was used, and none appears in these files. Email addresses
 and key-shaped strings are redacted at the source.
 
@@ -89,7 +89,7 @@ Probes made while building the adapters (not repeated in the evidence files):
 
 ## Windows (October 10, 2026)
 
-Recorded on Windows 11 (x64), Node 22.14.0, with the owner's subscription logins, by the same
+Recorded on Windows 11 (x64), Node 22.14.0, with the maintainer's subscription logins, by the same
 runner and cases as above. Evidence is in [windows/](windows/).
 
 | CLI | Version | Found through | Model | text | tool call | tool result | Evidence |

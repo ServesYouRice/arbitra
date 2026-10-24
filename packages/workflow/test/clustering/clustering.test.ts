@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { cluster, deterministicClusteringStrategy, MAXIMUM_SHARED_LINE_PAIRS, recordSplit, type ClusteringStrategy, type ClusterRelationship, type ValidatedClusterInput } from "../../src/clustering/index.js";
+import { deterministicClusteringStrategy } from "../../src/clustering/deterministic.js";
+import { cluster, MAXIMUM_SHARED_LINE_PAIRS, recordSplit } from "../../src/clustering/escalate.js";
+import type { ClusteringStrategy, ClusterRelationship, ValidatedClusterInput } from "../../src/clustering/types.js";
 
 function input(id: string, changes: Partial<ValidatedClusterInput["finding"]> = {}): ValidatedClusterInput { const auditorId = id.split("/")[0]; if (auditorId === undefined) throw new Error("Missing fixture auditor id"); return { validation: "accepted", auditorId, finding: { sourceFindingId: id, category: "SECURITY", title: "Authorization bypass", problem: "Authorization validation is missing", recommendedFix: "Validate authorization before access", locations: [{ path: "src/auth.ts", startLine: 10, endLine: 15, symbol: "authorize" }], failureMechanisms: ["authorization"], ...changes } }; }
 

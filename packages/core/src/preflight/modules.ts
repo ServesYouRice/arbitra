@@ -11,14 +11,6 @@ export interface ApproximatedModule {
   readonly evidence: readonly string[];
 }
 
-export interface ModuleApproximationStrategy {
-  partition(files: readonly ModuleSourceFile[]): readonly ApproximatedModule[];
-}
-
-export const importTopologyStrategy: ModuleApproximationStrategy = {
-  partition: approximateModules,
-};
-
 export function approximateModules(files: readonly ModuleSourceFile[]): readonly ApproximatedModule[] {
   const sourceFiles = files
     .filter(({ path }) => isSourceFile(path))

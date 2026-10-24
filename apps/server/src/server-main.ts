@@ -15,9 +15,9 @@ import { serveWebApp } from "./web-app.js";
  * The control plane's process entrypoint, as a function: `serve.js` calls it, and so does the single-file app, which
  * bundles it and names its own web build, protocol assets and build in the environment.
  *
- * It binds to loopback only. The routes are read-only over the repository and the run
- * store, and the outbound secret guard in `registerControlPlaneRoutes` applies to every
- * response, so nothing here re-implements that policy.
+ * It binds to loopback only. The control-plane routes go through `registerControlPlaneRoutes`, whose outbound secret
+ * guard applies to their responses. The routes registered below belong to the local app: the run report redacts its
+ * own text, and the plan export writes into the repository only when the operator asks for it.
  */
 export async function serve(): Promise<{ readonly url: string }> {
   const host = assertLoopbackHost(process.env["ARBITRA_HOST"] ?? DEFAULT_SERVER_HOST);

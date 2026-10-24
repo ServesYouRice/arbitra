@@ -1,9 +1,9 @@
 # What leaves your machine
 
 arbitra has no server, account or telemetry of its own. It runs on your computer, serves its app on
-`127.0.0.1` only, and keeps every run in the `.runs` folder next to it. What leaves the machine is what the model
+`127.0.0.1` only, and keeps every run in a `.runs` folder on your computer. What leaves the machine is what the model
 vendors you choose are sent, through their own CLI or API. This page says what that is and how to narrow it.
-Checked against the code on October 22, 2026.
+Checked against the code on October 24, 2026.
 
 ## What the models are sent
 
@@ -23,8 +23,8 @@ Checked against the code on October 22, 2026.
 
 ## Who receives it
 
-Only the vendors of the models in your run. A run on the default lineup sends source to Anthropic (Claude Code),
-OpenAI (Codex) and Google (Antigravity). Three ways to send less:
+Only the vendors of the models in your run. A run on the default lineup sends source to Anthropic (Claude Code) and
+OpenAI (Codex); the template that adds Gemini also sends it to Google (Antigravity). Three ways to send less:
 
 - **One vendor.** Choose models from one vendor for every role in New run. The run then sends your code to one
   company. Two or three vendors find more; one is still a full audit with every planned issue checked.
@@ -54,8 +54,8 @@ arbitra is a Gemini API key from Google AI Studio. New run shows this beside the
 
 ## What stays on your machine
 
-- Runs, saved configurations and plans: `.runs` in the arbitra folder, and the plan you choose to save in your
-  project's `.arbitra/plans/`.
+- Runs, saved configurations and plans: `.runs` in the arbitra folder (for the Windows `.exe`,
+  `%LOCALAPPDATA%\arbitra\.runs`), and the plan you choose to save in your project's `.arbitra/plans/`.
 - The vendor CLIs' own conversation logs: arbitra asks Claude Code for no saved session and Codex for an ephemeral
   one unless a call needs a follow-up turn, and deletes each Antigravity conversation after the call.
 - The run report you can copy for support holds no source code and no model output, and is masked like the rest.

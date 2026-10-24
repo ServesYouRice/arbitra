@@ -2,7 +2,7 @@
 
 Recorded September 27, 2026 on branch `beta`, from commit 3bc3263 to b560162. Host: macOS (arm64), Node 22.23.2, Docker Desktop 29.8.0.
 
-Every model call went through the owner's own subscription logins, via the subscription CLI transports ([evidence for the transports themselves](../subscription-cli/README.md)). No API key or API credit was used.
+Every model call went through the maintainer's own subscription logins, via the subscription CLI transports ([evidence for the transports themselves](../subscription-cli/README.md)). No API key or API credit was used.
 
 - **Bindings:** [bindings.subscription.json](../../../tooling/live/bindings.subscription.json), which assigns:
   - analysts, planners, writers and the main auditor to Claude Sonnet 5;
@@ -128,5 +128,5 @@ The handoff harness's first layout put the handoff beside the checkout, and a fr
 
 ## Not covered here
 
-- The OpenAI Responses, OpenAI Chat and Anthropic Messages API protocols, live. They need API credit, which the owner does not use for testing. Gemini native and the OpenAI-compatible endpoint were covered earlier in [qa/p03](../p03/README.md).
+- The OpenAI Responses, OpenAI Chat and Anthropic Messages API protocols, live. They need API credit, which the project's own testing does not use. Gemini native and the OpenAI-compatible endpoint were covered earlier in [qa/p03](../p03/README.md).
 - A deliberate subscription usage-limit hit. Classification is covered by stand-in tests and the recorded CLI messages.

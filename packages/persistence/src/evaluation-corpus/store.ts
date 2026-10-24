@@ -440,7 +440,7 @@ export class EvaluationCorpusStore {
   }
 }
 
-/** Durable `RealWorldOutcomeStore` (see `packages/core/src/eval/corpora.ts`). */
+/** Real-world outcome observations, appended to and queried from the durable corpus. */
 export class DurableRealWorldOutcomeStore {
   constructor(readonly corpus: EvaluationCorpusStore) {}
   async append(observation: RealWorldOutcomeObservation): Promise<void> {
@@ -452,7 +452,7 @@ export class DurableRealWorldOutcomeStore {
   }
 }
 
-/** Durable `IndependenceCorpusStore` (see `packages/core/src/eval/corpora.ts`). */
+/** Independence observations, appended to and queried from the durable corpus. */
 export class DurableIndependenceCorpusStore {
   constructor(readonly corpus: EvaluationCorpusStore) {}
   async append(observation: IndependenceObservation): Promise<void> {

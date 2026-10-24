@@ -56,7 +56,7 @@ endpoint and role binding, and the preflight checks that run before any spend.
 Models run through API keys or, per role, through the vendors' own CLIs signed in with a
 Claude, ChatGPT or Google AI subscription ([setup](docs/setup.md#subscription-clis-instead-of-api-keys)).
 
-**Beta means:** everything above passes CI with injected providers and sandboxes, and the
+**Beta means:** everything above passes the full local check with injected providers and sandboxes, and the
 web UI passes browser acceptance on Chromium, Firefox and WebKit. Every public workflow
 has also run live on subscription models, Gemini has run on its API, Docker acceptance ran
 on a real engine, and the native Claude Code adapter passed conformance against the real
@@ -87,20 +87,12 @@ labelled `smoke_test_only_not_proof` ([evaluation](docs/evaluation.md)).
 
 ### Deferred to a later phase: the paid-API bundle
 
-Three pieces of live validation need funded API accounts. The current maintainer tests only
-on subscriptions, so they are deferred out of this phase and bundled for anyone who wants to
-take them on later:
-
-- **P03, API part:** live runs of the OpenAI Responses, OpenAI Chat and Anthropic Messages
-  protocols, including refusals and context limits.
-- **P08, live limits:** how oversized-context handling behaves at real models' context and
-  output limits.
-- **P15, live batches:** each batch driver (OpenAI, Anthropic, Gemini) run on a funded
-  account.
-
-The code for all three is in place and covered by injected-provider tests; only the live
-evidence is missing. The [completion plan](docs/completion-plan.md#deferred-the-paid-api-bundle)
-lists what exists, the acceptance criteria and how to run each part.
+Three pieces of live validation need funded API accounts, which the project's own testing does not use: the
+OpenAI Responses, OpenAI Chat and Anthropic Messages protocols run live (P03), oversized-context handling at real
+models' limits (P08), and each batch driver on a funded account (P15). Their code is in place and covered by
+injected-provider tests; only the live evidence is missing. The
+[completion plan](docs/completion-plan.md#deferred-the-paid-api-bundle) lists what exists, the acceptance criteria
+and how to run each part.
 
 ## Requirements
 
@@ -171,23 +163,23 @@ unchanged.
 ## Repository layout
 
 ```text
-apps/cli          command-line interface and CI exit codes
+apps/cli          command-line interface and its exit codes
 apps/server       localhost Fastify control plane (127.0.0.1:4178)
 apps/web          operator UI: run list, run pages, new-run form, workflow editor
 packages/runtime  composition root: the one core the CLI and the server both call
 packages/core     workflow runner, prompt compiler, preflight, renderer, replay
 packages/workflow audit/feature/testing nodes, clustering, consensus, verification
-packages/persistence  journal, artifact store, issue-op log, traces, metric queries
+packages/persistence  journal, artifact store, traces, evaluation corpora, metric queries
 packages/providers    transports, model profiles, effort, scheduler, continuation
 packages/harness      canonical harness adapter and profiles
 packages/protocols    versioned protocol registry
-packages/schemas      canonical schemas, provider projections, glyphs
-packages/security     taint, exclusions, redaction, scanner, command policy
-packages/tools        read-only repository tools and evidence bounds
-packages/testing      fake transports, scripted auditors, premise scoring
+packages/schemas      canonical schemas and glyphs
+packages/security     redaction, untrusted-text framing, path guard, write leases
+packages/tools        read-only repository tools and output bounds
+packages/testing      scripted auditors, premise evaluation, handoff acceptance
 docs/                 design language, brand assets, and this document set
 examples/             schema-only examples, model-backed templates and their validation gate
-tooling/              ESLint rules that enforce architecture invariants
+tooling/              architecture lint rules, live-run scripts, packaging, sandbox image, evaluation tools
 ```
 
 ## Documentation set
@@ -199,7 +191,7 @@ tooling/              ESLint rules that enforce architecture invariants
 | [`docs/completion-plan.md`](docs/completion-plan.md) | remaining implementation and validation steps, dependencies and acceptance criteria |
 | [`docs/architecture.md`](docs/architecture.md) | package layout, layering, the core loop, v1.1 extension points |
 | [`docs/privacy.md`](docs/privacy.md) | what leaves your machine, to whom, and how to send less |
-| [`docs/security.md`](docs/security.md) | trust, taint, control plane, suppression, command policy |
+| [`docs/security.md`](docs/security.md) | untrusted text, control plane, repository boundary, sandbox, secrets |
 | [`docs/workflows.md`](docs/workflows.md) | the graph model, node kinds, the three modes, presets |
 | [`docs/provider-model.md`](docs/provider-model.md) | model profiles, transports, effort, structured output |
 | [`docs/harness.md`](docs/harness.md) | canonical harness, harness profiles, native mode |
@@ -237,10 +229,11 @@ There are two kinds, and they are kept apart deliberately:
   (`audit-balanced`, `audit-deep`, `diff-fast`, `diff-review`, `feature-simple`,
   `testing-plan`). They show every run-configuration field and preset. They carry no
   `workflow.modelExecution`, so runtime preflight rejects them for model runs.
-- **Model-backed templates** — eleven files in [`examples/model-backed/`](examples/model-backed):
+- **Model-backed templates** — twelve files in [`examples/model-backed/`](examples/model-backed):
   mixed-provider and compatible-endpoint Audit, interactive and automatic Feature,
   Testing plan and Testing execute on API keys, covering all four wire protocols, and the
-  same five modes on subscription CLIs (`subscription-*.json`). They
+  same five modes on subscription CLIs (`subscription-*.json`, with a Gemini variant of the
+  Audit). They
   pass runtime configuration preflight, and `pnpm run smoke:examples` runs each one
   unmodified through the public runtime with fixture transports, so no credential,
   network or Docker engine is needed.
@@ -251,9 +244,9 @@ runs negative controls proving a stale example fails.
 
 **Model identity is a placeholder in both sets.** `modelId` and `family` read
 `replace-with-your-model-id` / `replace-with-your-model-family`, and both context and
-output limits are `null`. arbitra does not ship a table of provider model names,
-capabilities or prices: those change, and inventing them would be exactly the fabrication
-the product refuses elsewhere. A live run refuses placeholder identities
+output limits are `null`. The web app's New run page fills them in from a small catalogue of
+the subscription CLIs' models (`apps/web/src/pages/new-run/model-catalog.ts`: IDs, tiers,
+limits and effort words, no prices). A live run refuses placeholder identities
 (`MODEL_IDENTITY_PLACEHOLDER`) and missing credentials before any request is sent. The
 templates name dedicated `ARBITRA_*` credential variables, so nothing spends or writes
 implicitly. See [Getting started](docs/setup.md) and
@@ -268,8 +261,8 @@ an HTTP response. See [`docs/security.md`](docs/security.md).
 
 ## Why it exists
 
-Doing this by hand across several models got tedious, and the tools that existed didn't fit, so the maintainer built
-one. Its design was checked against the labs' published guidance and review pipelines: [research](docs/research.md)
+Running the same review across several models by hand was slow, and no existing tool combined them, so arbitra was
+built for it. Its design was checked against the labs' published guidance and review pipelines: [research](docs/research.md)
 and the [design audit](docs/design-audit.md).
 
 ## Licence

@@ -1,11 +1,7 @@
 # arbitra — design language
 
-> Visual references:
-> [Mark studies 01–05](https://claude.ai/code/artifact/27be5a4a-1bed-4d87-a626-265ab44fd794) — thirty-seven candidates, and why this one won.
-
 This document is normative for `apps/web`, the CLI's human-readable output, and the
-Markdown rendered into `implementation/`. It was derived from the original build
-specification, which is not in this repository; the § references point to it.
+Markdown rendered into `implementation/`.
 
 Machine-readable companions live beside it in `docs/brand/`:
 
@@ -23,12 +19,12 @@ Nothing here is a mood choice. Every rule below traces to a property of the prod
 
 | What the product is | What the design must therefore be |
 |---|---|
-| Preserved dissent is the deliverable, not a failure state (§18.8) | Disagreement gets its own colour, and that colour is the brand |
-| The node taxonomy is closed — six kinds (§8) | Those six glyphs are the icon set; a seventh icon is a defect |
-| All three modes are read-only (§2.1) | The interface reports, it never persuades |
-| Fabricating an unmeasured metric is a hard failure (§32.1) | `null`, `degraded` and `unexamined` are designed states, never blank cells |
-| Every model boundary is a trust boundary (§4.2) | Provenance is surface-level, not a detail view |
-| The spec's native form is monospace box-drawing (§33) | Mono is the *display* face, not the code face |
+| Preserved dissent is the deliverable, not a failure state | Disagreement gets its own colour, and that colour is the brand |
+| The node taxonomy is closed — six kinds | Those six glyphs are the icon set; a seventh icon is a defect |
+| No run modifies the repository it reads | The interface reports, it never persuades |
+| Fabricating an unmeasured metric is a hard failure | `null`, `degraded` and `unexamined` are designed states, never blank cells |
+| Every model boundary is a trust boundary | Provenance is surface-level, not a detail view |
+| Its graphs and glyphs are monospace box-drawing | Mono is the *display* face, not the code face |
 
 ## The five rules
 
@@ -97,7 +93,7 @@ space   4 · 8 · 12 · 20 · 32 · 52 · 84          (--s1 … --s7)
 
 ### Pages, not columns
 
-The first interface was the four-column shell of §26: Model Pool, workflow graph,
+The first interface was a four-column shell: Model Pool, workflow graph,
 prompt/context/contract, and inspector with run controls. It set a run's record beside a
 draft of the next run's configuration and never said which panel described which, so R1
 failed at the level of the layout. Since 2026-09-29 the interface is four places, each with
@@ -148,7 +144,7 @@ R2 leaves no hue for "look here", so emphasis is weight, fill and the neutral in
 
 ## Glyphs
 
-Taken verbatim from the spec's closed taxonomy (§8) and shipped as **one typed module**
+The closed taxonomy of six node kinds lives in **one typed module**
 (`docs/brand/glyphs.ts`, shipped as `packages/schemas/src/glyphs.ts`) that the Markdown
 renderer and the graph view import — two copies of the glyph table is the same class of
 defect as two orchestrators.
@@ -221,7 +217,7 @@ is the signal, which is also the argument the product makes.
 
 ### Wordmark rules
 
-- **Always lowercase**, in every context — spec, CLI, package name, prose.
+- **Always lowercase**, in every context — docs, CLI, package name, prose.
 - IBM Plex Mono 500, tracking `-0.045em`, so the mono rhythm tightens into a word rather
   than reading as a filename.
 - Horizontal lockup separates mark and word with the same 1px `--line` rule used elsewhere;
@@ -232,9 +228,9 @@ is the signal, which is also the argument the product makes.
 
 R2 is only real if it is mechanical, which is how this project treats every other
 invariant. `no-raw-color.cjs`, installed as `tooling/eslint-rules/no-raw-color.cjs`, fails
-`pnpm lint` on a colour literal in `apps/web/src` scripts, alongside the existing
-determinism lint (TASK-004). `pnpm run design:check` fails on a hex colour in any stylesheet
-other than `tokens.css`. Both run in `pnpm run ci`.
+`pnpm lint` on a colour literal in `apps/web/src` scripts, alongside the workflow
+determinism lint (`no-workflow-nondeterminism.cjs`). `pnpm run design:check` fails on a hex
+colour in any stylesheet other than `tokens.css`. Both run in `pnpm run ci`.
 
 The web suite reads its own sources for the rest (`apps/web/test/design.test.ts`): every
 stylesheet uses token colours, square corners, no shadow and no gradient, and draws borders

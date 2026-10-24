@@ -9,14 +9,12 @@ bug-finding pipelines and records what changes because of it.
 
 arbitra was conceived independently, and this research was used to pressure-test and refine it. The sources are
 cited as technical literature. Naming a lab or product implies no affiliation, endorsement or compatibility, and
-arbitra reproduces no third party's code, prompts or private material. Two earlier documents hold more detail and
-are kept only locally (they are not in this repository): the research and decision ledger of August 18, 2026
-(`docs/archive/`) and the multi-model design review (`docs/ROUND-TABLE.md`).
+arbitra reproduces no third party's code, prompts or private material.
 
 **Refresh policy.** Guidance, model names, prices, cache rules and CLI settings change within weeks. Read the live
 pages again before a change to the pipeline's shape, and before a release. Volatile facts belong in model
 profiles and transports, not in workflow semantics. A design change that alters what the pipeline does is checked
-against Anthropic's current guidance before it is built (the owner's condition since October 12, 2026).
+against Anthropic's current guidance before it is built (a standing rule since October 12, 2026).
 
 Contents: [1. October 14 check](#1-the-october-14-check) ·
 [2. Timeline](#2-how-the-research-shaped-arbitra) · [3. Anthropic](#3-anthropic) · [4. OpenAI](#4-openai) ·
@@ -26,8 +24,8 @@ Contents: [1. October 14 check](#1-the-october-14-check) ·
 
 ## 1. The October 14 check
 
-After the P20 pilot runs, seven changes were proposed and six were approved by the owner on condition that they
-agree with Anthropic's guidance (the seventh, starting later stages while the audit still runs, was not
+After the P20 pilot runs, seven changes were proposed and six were approved on condition that they agree with
+Anthropic's guidance (the seventh, starting later stages while the audit still runs, was not
 approved). The six were checked against Anthropic's pages, then against ten other labs and the papers below,
 all read on October 14, 2026.
 
@@ -60,7 +58,7 @@ instructions now travel in `model_instructions_file`, which replaces Codex's bui
 | October 11 | Comparable reviewers: Karpathy's llm-council, Claude Code's code-review plugin, PR-Agent, claude-code-security-review | Calls side by side; no repair call for a whole reply (keep the valid operations); a finding checked against the code it cites |
 | October 12 | Anthropic's guidance on review, critics and effort | One pass per review stage; every undecided candidate verified; checking stages one effort step below the audit ([provider model](provider-model.md#one-pass-per-review-stage)) |
 | October 14 | Eleven labs and the papers below | Section 1 |
-| October 14, evening | Five audits of the whole design: the labs' review and security products, commercial reviewers, papers on each stage, transports and terms, evaluation practice | Every candidate verified; questions from the finding's mechanism; per-issue handoff packets; shared cache directory; side-by-side tests of peer review, effort and discovery passes ([design audit](design-audit.md)) |
+| October 14, evening | Five audits of the whole design: the labs' review and security products, commercial reviewers, papers on each stage, transports and terms, evaluation practice | Every candidate verified; questions from the finding's mechanism; per-issue handoff packets; a shared cache directory (planned, then measured unnecessary); side-by-side tests of peer review, effort and discovery passes ([design audit](design-audit.md)) |
 
 ## 3. Anthropic
 
@@ -215,8 +213,8 @@ up to Opus 5.5 and Fable 5.1.
   tuned suggested edits until "50% … are correct", because wrong ones "reduce the developers' trust": "we traded quantity
   for quality".
 - Antigravity CLI ([FAQ](https://antigravity.google/docs/faq), October 11): headless `agy -p` "is intended for direct
-  scripting and CI workflows"; wrapping `agy` in other applications "is not supported under consumer plans" (the owner was
-  told; see `WORK-REMAINING.md`).
+  scripting and CI workflows"; wrapping `agy` in other applications "is not supported under consumer plans" (see
+  `WORK-REMAINING.md`, Vendor terms).
 
 ## 6. Meta, Mistral and xAI
 
@@ -372,8 +370,8 @@ up to Opus 5.5 and Fable 5.1.
 
 These held in August and still hold, with the October additions marked.
 
-1. **More agents are not automatically better.** A complexity gate before fan-out; parallel work only where it is
-   genuinely parallel (Anthropic, Google, Cognition, Qwen).
+1. **More agents are not automatically better.** Feature mode routes its stages through a complexity gate, and an
+   Audit fans out only to the auditors its preset names; parallel work only where it is genuinely parallel (Anthropic, Google, Cognition, Qwen).
 2. **Parallel discovery, one planner.** Discovery fans out; planning is sequential and dependency-heavy (Google's 180
    configurations; Cognition). *October:* a plan may be written in sections only along what the sections do not share,
    with a join check (Anthropic agent teams, LLMCompiler).

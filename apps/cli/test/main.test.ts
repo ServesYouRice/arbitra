@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { IMPLEMENTED_COMMANDS, RESERVED_COMMANDS } from "../src/command-registry.js";
+import { IMPLEMENTED_COMMANDS } from "../src/command-registry.js";
 import type { CoreCommandResult, OrchestratorCore } from "../src/core.js";
 import { runCli } from "../src/main.js";
 import { isCliJsonOutput } from "../src/output/json.js";
@@ -90,7 +90,6 @@ describe("CLI commands", () => {
     expect([...IMPLEMENTED_COMMANDS].sort()).toEqual(
       ["validate", "estimate", "run", "audit", "resume", "status", "replay", "diff", "trace", "export", "report", "requirements", "approve-requirements", "revise-requirements", "apply-requirements-revision", "respond-checkpoint", "batches", "resolve-batch", "workflow", "incremental", "apply-changes"].sort(),
     );
-    expect(RESERVED_COMMANDS).toEqual([]);
     expect(IMPLEMENTED_COMMANDS).toContain("estimate");
     expect(IMPLEMENTED_COMMANDS).toContain("audit");
   });

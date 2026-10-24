@@ -79,9 +79,10 @@ export async function runAuditAcceptance(fixture: AuditFixture, fakeModels: Fake
   if (validated.rejected.length > 0) throw new Error("HANDOFF_FIXTURE_FINDING_REJECTED");
   persist("validation-summary.json", validated.summaries); events.push("validation.completed");
 
-  const clusteringModule = await loadModule("workflow", "clustering/index");
+  const clusteringModule = await loadModule("workflow", "clustering/escalate");
+  const strategyModule = await loadModule("workflow", "clustering/deterministic");
   const cluster = clusteringModule.cluster as (inputs: readonly unknown[], options: unknown) => Promise<ClusterRun>;
-  const clustered = await cluster(validated.accepted, { strategy: clusteringModule.deterministicClusteringStrategy });
+  const clustered = await cluster(validated.accepted, { strategy: strategyModule.deterministicClusteringStrategy });
   if (clustered.clusters.length !== 2) throw new Error(`HANDOFF_EXPECTED_TWO_CLUSTERS:${clustered.clusters.length}`);
   persist("clusters.json", clustered); events.push("clustering.completed");
 

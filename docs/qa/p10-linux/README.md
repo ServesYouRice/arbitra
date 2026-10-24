@@ -1,15 +1,14 @@
 # P10 and P16 browser acceptance on Linux: results
 
-> These Linux captures show the interface before the 2026-09-29 restructure. The rerun of every
-> scenario against the restructured pages, on macOS, is recorded in [`qa/p10`](../p10/README.md).
+> This run tested the interface before the 2026-09-29 restructure. The rerun of every scenario
+> against the restructured pages, on macOS, is recorded in [`qa/p10`](../p10/README.md). This run's
+> screenshots were removed on 2026-10-24; they are in the repository history at 49f3469.
 
 These results come from one recorded run of `pnpm --filter @arbitra/web e2e` on 2026-09-25, in a
 Linux container on an arm64 Mac. The run built the server fixture and the web app inside the
 container, then ran every spec in all three browser engines. That covers the 14 P10 scenarios
 (`feature`, `lifecycle`, `testing` and `views` specs) and the 3 P16 editor scenarios
 (`workflow-editor.spec.ts`). The macOS evidence is in `docs/qa/p10/` and `docs/qa/p16/`.
-Screenshots from this run are in `p10/<browser>/` and `p16/<browser>/`, under the same names
-as the macOS captures.
 
 | Item | Value |
 |---|---|

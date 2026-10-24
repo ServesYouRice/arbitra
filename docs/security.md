@@ -9,11 +9,10 @@ read it, label it, and make sure it can never become a directive.
 
 ## Trust and provenance
 
-`packages/security/src/provenance.ts` defines the provenance vocabulary and annotates
-fields with their trust origin (`annotateTrust`, `FieldTrustMap`). A canonical issue's
-claim is typed `trust: "untrusted_data"` in `packages/schemas/src/canonical-issue.ts` —
-not as decoration, but so nothing downstream can promote a model's restatement of
-repository text into a fact.
+A canonical issue's claim is typed `trust: "untrusted_data"` in
+`packages/workflow/src/nodes/canonical-issues.ts`, and the planner receives it that way
+(`packages/workflow/src/nodes/planner/node.ts`) — not as decoration, but so nothing downstream
+can promote a model's restatement of repository text into a fact.
 
 `packages/security/src/framing.ts` wraps untrusted content in a versioned frame
 (`frameUntrusted`, `UNTRUSTED_FRAME_VERSION`) before it reaches a prompt. The frame is
@@ -22,67 +21,41 @@ framed, and the compiled prompt artifact is what the UI displays — never a rec
 Inside the frame `&`, `<` and `>` are escaped, so content cannot close the frame or open another; quotes
 are left as written (frame version 2). Attribute values escape quotes as well.
 
-## Taint
+## Untrusted text never controls execution
 
-`packages/security/src/taint.ts` propagates taint through derived values (`propagate`,
-`taintForOutput`, `taintedBy`) with a bounded source list (`MAX_TAINT_SOURCES`). `CLEAN_TAINT`
-is the only untainted starting point. Tool output is tainted at the boundary in
-`packages/tools/src/registry.ts`, where every `ToolResult` carries `trust: "untrusted"`.
-
-Taint is not a warning label that can be dropped: a value that reaches a control decision
-carrying taint is a defect, and `packages/security/src/declassify/index.ts` is the only way
-out. Declassification is category-bounded (`DECLASSIFIER_CATEGORIES`), path-bounded
-(`DeclassifiableSchemaPath`) and produces a `DeclassificationProof` recording what was
-released and why. There is no unproofed path.
-
-`packages/security/src/control-class.ts` classifies schema paths (`controlClassOf`) so the
-distinction between a field that can influence control flow and a field that is merely
-displayed is mechanical rather than remembered.
+arbitra does not track taint field by field. It applies one rule instead: everything read
+from the repository and everything a model writes is untrusted, and none of it can make a
+command runnable or widen what a run may write. Tool output carries `trust: "untrusted"` at
+the boundary (`packages/tools/src/registry.ts`). Every verification command in a saved Audit or
+Feature plan is marked `requires_approval` (`packages/runtime/src/model-pipeline.ts`,
+`feature-pipeline.ts`), whatever the model proposed. Only Testing mode runs commands, and only
+those it derives from the repository's own test scripts (see [Command policy](#command-policy)).
 
 ## Trusted control plane
 
-Prompts, protocols and their metadata are **not** read from the audited repository.
-`packages/security/src/control-plane/resolver.ts` resolves control-plane assets from a
-declared source and records which one
-(`trusted_base` · `external_config` · `test_fixture` in
-`packages/protocols/src/registry.ts`). `packages/security/src/control-plane/assets.ts`
-holds the asset contract; `packages/protocols/src/versioning.ts` hashes the bytes so a
+Prompts, protocols and their metadata are **not** read from the audited repository. They are
+bundled with arbitra (`packages/protocols/assets/`) and loaded by
+`packages/protocols/src/bundled.ts` as `trusted_base`; the registry
+(`packages/protocols/src/registry.ts`) accepts only `trusted_base` and `external_config` sources
+(`test_fixture` only in tests), and `packages/protocols/src/versioning.ts` hashes the bytes so a
 protocol's identity is its content, not its name.
 
 This is why a repository that contains a file claiming to be a system prompt cannot become
-one: the resolver never looks there.
+one: the registry never looks there.
 
 ## Repository boundary
 
-| Guarantee | Module |
+| Guarantee | Where |
 |---|---|
-| No path escapes the repository root | `path-guard.ts` — `resolveInsideRoot`, `RepositoryPathGuard`, `PathOutsideRootError` |
-| Immutable snapshot identity and drift detection | `snapshot.ts` — `RepositorySnapshot`, `DriftResult` |
-| Mandatory and configured exclusions | `exclusions.ts` — `createExclusionPolicy`, `isExcluded` |
-| Scope envelope the run may read | `envelope.ts` — `ProposedScope`, `EffectiveScope` |
+| No path escapes the repository root | `packages/security/src/path-guard.ts` — `RepositoryPathGuard`, `resolveInsideRoot`, `PathOutsideRootError` |
+| The snapshot reads only source a person would commit | `packages/runtime/src/repository.ts` — files Git tracks or would track; `.git`, `node_modules`, `dist`, `build`, `coverage`, `.pnpm-store`, `.runs`, `.vite` and dot-directories other than `.github` are skipped; `scope.exclude` applies on top |
+| Private keys never leave a file whole | `repository.ts` masks private key blocks across lines before any later redaction |
+| A resumed run reads the same repository | the snapshot digest; resume refuses a changed repository with `RUN_REPOSITORY_CHANGED` (`packages/runtime/src/orchestrator.ts`) |
 
-Exclusions are policy, not filtering-after-the-fact: an excluded path is never opened, so
-it cannot appear in a footprint, an artifact or a finding.
+Excluded directories are still walked before their files are dropped; that is an open item in
+[remaining work](../WORK-REMAINING.md).
 
-## Injection scanning and suppression candidates
-
-`packages/security/src/scanner/index.ts` scans repository content for instruction-shaped
-text (`scan`, `InstructionRisk`, versioned by `INJECTION_SCANNER_VERSION`, rules in
-`scanner/rules/`). A hit is **not** treated as an attack.
-
-`packages/security/src/suppression.ts` computes suppression candidates deterministically
-from four inputs — scanner risk, audited scope, auditor exposure footprint, and finding
-citations. A candidate is raised only when instruction-shaped content was *read by* an
-auditor and *cited by no finding*. Its note says exactly what that means:
-
-> Instruction-shaped repository content was exposed to an auditor, but no source finding
-> cited this surface. This is not proof of a defect or an attack; it is an unresolved audit
-> uncertainty.
-
-Suppression candidates, unexamined surfaces and degraded coverage appear in the consensus
-artifact (`packages/workflow/src/nodes/canonical-issues.ts`), in human CLI output
-(`apps/cli/src/output/human.ts`) and in machine JSON — not only in the UI, because CI is
-where nobody opens a UI.
+## Injection follow-ups
 
 **Instruction-shaped text beside code.** Reporting a planted instruction does not replace
 auditing the code it sits beside. In one live evaluation, five discovery passes reported a
@@ -103,12 +76,18 @@ the reported text:
   `injection_follow_up_output_limited`.
 - `discovery-injection-follow-ups-<auditor>` records every window and what it found.
 
-The deterministic scanner does not trigger follow-ups. On this repository it flags 14 of 372
-TypeScript source files: the 2 planted test fixtures and 12 benign files.
+Unexamined surfaces and degraded coverage appear in the consensus artifact
+(`packages/workflow/src/nodes/canonical-issues.ts`), in human CLI output
+(`apps/cli/src/output/human.ts`) and in machine JSON — not only in the UI, because CI is where
+nobody opens a UI.
 
-`packages/security/src/overlap-allocator.ts` allocates the security overlap budget
-(`allocateOverlap`) so deliberate double-coverage is a budgeted decision with a recorded
-rationale rather than an accident.
+**Built, not yet wired.** `packages/security` also holds a deterministic injection scanner
+(`scanner/`: instruction-shaped text, imperative suppression wording, hidden Unicode and tag
+characters, encoded payloads, wrapper-breaking sequences), a suppression-candidate join
+(`suppression.ts`: risky content an auditor read but no finding cites), a security overlap
+budget (`overlap-allocator.ts`) and a derived write envelope (`envelope.ts`). Each is unit-tested,
+but no run calls them yet, so the `suppressionCandidates` field of every run is empty. Wiring them
+is planned in [remaining work](../WORK-REMAINING.md#improvement-phase).
 
 ## Command policy
 
@@ -157,12 +136,12 @@ Failed recovery stops verification. Tests cover the process boundary with an inj
 Docker CLI and real bounded Node subprocesses. The same paths, including orphan recovery,
 passed against a real Linux engine ([qa/p04](qa/p04/README.md)).
 
-`packages/security/src/command-policy.ts` classifies every command a plan proposes
-(`classifyCommand`, `classifyPlannedCommand`) into `derived_repository_script`,
-`allowlisted` or `requires_approval`, and `assertCommandExecutable` throws
-`CommandRequiresApprovalError` rather than running one that needs a human. The
-classification is re-resolved against the repository at execution time; a derived script
-that has changed or disappeared becomes `requires_approval`.
+Testing mode takes its commands from the repository's own `test` scripts
+(`repositoryTestCommands` in `packages/runtime/src/testing-context.ts`, marked
+`derived_repository_script`). A configured command must quote its text from a repository file,
+or the run fails with `TESTING_COMMAND_NOT_REPOSITORY_DERIVED`; such a command is marked
+`requires_approval`. Commands in Audit and Feature plans are never run by arbitra and are all
+marked `requires_approval`.
 
 Task IR carries the policy with the command (`taskCommandSchema` in
 `packages/schemas/src/task-ir.ts`), so an executing agent cannot receive a command without
@@ -216,24 +195,27 @@ Three independent barriers, none of which relies on the others:
    referenced variable by name only, before any run or request exists. The shipped
    templates use dedicated `ARBITRA_*` names, so an unrelated exported provider key never
    enables spend.
-2. **Storage.** `packages/persistence/src/private-store.ts` keeps secret-bearing state out
-   of the run directory that gets transported or inspected.
+2. **Redaction.** `redactSecrets` in `packages/security/src/redaction.ts` — the canonical
+   detector set, versioned by `REDACTION_PATTERN_VERSION` — masks secrets in repository text
+   before it reaches a model (`packages/runtime/src/model-discovery.ts`, `model-harness.ts`)
+   and in run records as they are written (`packages/runtime/src/run-store.ts`). What the UI
+   shows is the redacted persisted artifact, so a secret that was never written cannot be read
+   back.
 3. **Egress.** `assertNoSecretEgress` in `apps/server/src/routes/control-plane.ts` is the
-   single outbound pattern set for every HTTP route, including the evaluation routes; it
-   fails the request rather than emitting a match. The CLI `report` command redacts through
-   `redactSecrets` in `packages/security/src/redaction.ts` — the canonical detector set,
-   versioned by `REDACTION_PATTERN_VERSION` — and fails closed if anything survives.
-
-Redaction is applied to persisted artifacts too: what the UI shows is the redacted
-persisted artifact, so a secret that was never written cannot be read back.
+   outbound pattern set for every route registered through the control plane, including the
+   evaluation routes; it fails the request rather than emitting a match. The four routes the
+   local app adds in `apps/server/src/server-main.ts` sit outside it: the run report
+   (`/diagnostics/runs/:runId`) redacts its text through `redactSecrets`, and the others return
+   the CLIs found on the machine, the location of an exported plan and a chosen folder. The CLI
+   `report` command redacts through `redactSecrets` and fails closed if anything survives.
 
 ## Evidence bounds
 
 `packages/tools/src/bounded-output.ts` caps tool output and records truncation with a
 continuation reference rather than silently trimming.
-`packages/tools/src/evidence.ts` validates that cited evidence ranges actually exist in the
-snapshot, which is what makes `packages/workflow/src/nodes/validate-findings.ts` able to
-reject an unsubstantiated finding deterministically, before any model is asked about it.
+`packages/workflow/src/nodes/validate-findings.ts` checks that every cited range exists in the
+snapshot and lies inside what the citing auditor actually read, so an unsubstantiated finding
+is rejected deterministically, before any model is asked about it.
 
 ## What this does not defend against
 
@@ -246,9 +228,8 @@ of dishonesty as a fabricated metric:
   outside `packages/harness/src/canonical/adapter.ts`. Its guarantees and limits are
   restated in [Native harness boundary](#native-harness-boundary) and
   [`harness.md`](harness.md#limits-of-enforcement).
-- Suppression candidates are an *uncertainty signal*. A determined injection that an
-  auditor both read and cited would not raise one.
-- Injection follow-ups depend on the auditor reporting the text. Text that misled an auditor
-  without being reported gets no follow-up.
-- The repository snapshot is trusted to be what Git reported. arbitra detects drift; it
-  does not verify commit signatures.
+- No deterministic scan for injected text runs yet. Injection follow-ups depend on an auditor
+  reporting the text; text that misled an auditor without being reported gets no follow-up and
+  no suppression candidate.
+- The repository snapshot is trusted to be what Git reported. arbitra detects a changed
+  repository on resume; it does not verify commit signatures.

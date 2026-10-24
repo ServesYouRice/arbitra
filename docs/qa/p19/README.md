@@ -1,6 +1,6 @@
 # P19 — final review: open findings and their fixes
 
-On September 29, 2026 the owner chose to fix every feasible open finding in this phase, then
+On September 29, 2026 the decision was to fix every feasible open finding in this phase, then
 rerun the affected live acceptance on subscriptions. This file tracks each fix: the design
 (mapped read-only against commit `0fc9978`), its status, and its commit. **P19 is complete**
 (September 30): every fix is in, and the live acceptance below passed. The completion report

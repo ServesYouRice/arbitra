@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { cluster } from "../../src/clustering/index.js";
+import { cluster } from "../../src/clustering/escalate.js";
 import { decideAdoption, embedFindings, embeddingPairResolver, evaluateEmbeddingClustering, loadClusteringCorpus, pairedBootstrap, scoreClusters, type ClusteringCorpus, type EmbedderResources, type EmbeddingClusteringReport, type TextEmbedder } from "../../src/clustering/evaluation.js";
 
 const corpora = new URL("../../../testing/corpora/clustering/", import.meta.url);

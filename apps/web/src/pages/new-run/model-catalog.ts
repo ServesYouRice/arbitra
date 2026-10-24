@@ -4,7 +4,7 @@ import { setIn, type Draft } from "./draft.js";
  * The models arbitra knows to work on each transport, offered as choices so a model ID cannot be mistyped. Choosing
  * one also sets the profile's family, capability tier, limits and effort words. A model not listed can still be named
  * ("another model ID"), and the full configuration stays editable as JSON. The first entry of each list is the
- * recommended one: the setting the owner's benchmark runs used, except Gemini, which runs at high thinking here
+ * recommended one: the setting the benchmark runs used, except Gemini, which runs at high thinking here
  * (the runs used medium only to shorten them).
  */
 export interface CatalogModel {
@@ -47,10 +47,6 @@ export const MODEL_CATALOG: Readonly<Record<string, readonly CatalogModel[]>> = 
   "codex-cli": OPENAI, "openai-responses": OPENAI,
   "antigravity-cli": GEMINI_CLI, "gemini-native": GEMINI_API,
 };
-
-export function catalogModel(transport: string, modelId: string): CatalogModel | undefined {
-  return MODEL_CATALOG[transport]?.find((model) => model.modelId === modelId);
-}
 
 /** Models a CLI on this machine says the account can use, by transport (only Antigravity lists them). */
 export type OfferedModels = Readonly<Record<string, readonly { readonly id: string; readonly name: string }[]>>;

@@ -1,4 +1,4 @@
-import type { ActivityArtifactRef, ActivityRecord } from "../activity.js";
+import type { ActivityArtifactRef } from "../activity.js";
 import type { RunState, RunnerJournalRecord } from "./events.js";
 
 export interface RunnerProjection {
@@ -31,8 +31,3 @@ export function projectRunner(records: readonly RunnerJournalRecord[]): RunnerPr
   }
   return { state: projectRunState(records), completed, attempts, completedNodeIds };
 }
-
-export function isActivityRecord(record: RunnerJournalRecord): record is ActivityRecord {
-  return record.t === "attempt_start" || record.t === "attempt_error" || record.t === "end";
-}
-

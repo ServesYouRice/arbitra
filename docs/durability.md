@@ -18,8 +18,8 @@ The runner (`packages/core/src/runner/workflow-runner.ts`) never performs I/O or
 directly — it schedules activities. The ESLint rule
 `tooling/eslint-rules/no-workflow-nondeterminism.cjs` enforces this across
 `packages/{core,workflow,persistence}/src`: no `Date.now()`, no `Math.random()`, no direct
-network access outside an activity. Time comes from `services/clock.ts`, randomness from
-`services/rng.ts`.
+network access outside an activity. Randomness comes from `packages/core/src/services/rng.ts`,
+seeded from run and activity identity.
 
 ## The journal
 
@@ -96,13 +96,22 @@ runtime, so a cancelled run stops paying rather than finishing quietly in the ba
 | `index.db` deleted | `packages/persistence/src/index-db/rebuild.ts` rebuilds it from the runs' trace logs, producing an identical query result. The index is a cache, never a source of truth. |
 | `model-activity.index.db` deleted, stale or corrupt | The next trace query re-derives it from the committed trace log; responses and trace IDs are unchanged. |
 
-## Configuration drift
+## Resume checks
 
-`packages/core/src/runner/config-drift.ts` hashes the resolved provider configuration
-(`resolvedProviderConfigHash`) and reports drift (`detectConfigDrift`,
-`ConfigDriftReport`). Resuming a run whose model or provider configuration changed since it
-started is a reportable condition, because the resumed half would not be comparable to the
-first half.
+A resumed run uses the configuration, graph definition and checkpoint policy saved with it,
+never the current configuration. Two checks refuse to continue on inputs that moved, because the
+resumed half would not be comparable to the first:
+
+- **Repository.** Resume, Audit replay and the Feature requirements operations take a new
+  snapshot and compare its digest with the one the run recorded at start
+  (`packages/runtime/src/orchestrator.ts`). A changed source fails with
+  `RUN_REPOSITORY_CHANGED:<runId>`.
+- **Model activity input.** Before any spend, a model activity records a fingerprint of its
+  request: protocol and its identity, model profile, execution settings other than the run's
+  token limit, the redacted messages, effort, response mode, tools, harness identity, source
+  paths and any explicit output ceiling or advisor (`packages/runtime/src/model-activities.ts`).
+  A resumed activity whose request no longer matches fails with `MODEL_ACTIVITY_INPUT_CHANGED`
+  instead of reusing an answer to a different request or paying for a second one.
 
 ## Checkpoints
 
@@ -129,8 +138,6 @@ is then fixed in the same way. The server keeps no
 checkpoint state of its own; the previous in-memory registry was removed. See
 [Gates and human checkpoints](workflows.md#gates-and-human-checkpoints).
 
-`packages/core/src/checkpoints.ts` is unrelated to graph nodes. It is the security
-envelope's rule for when tainted writes or `requires_approval` commands need a checkpoint.
 The web Feature contract view (`apps/web/src/views/feature/`) inspects, revises and approves
 requirements; a blocked run's page answers pending generic human checkpoints in its decision
 banner, above every tab.
@@ -271,6 +278,11 @@ there is no SQLite projection for corpora yet.
 - **Generic checkpoints.** Feature requirements decisions and generic human-node decisions
   are durable. A decided checkpoint takes effect only when the operator resumes the run.
   Resume reuses the recorded decision for the current version and never asks again.
-- **`.runs/` and `implementation/` are mandatory audit exclusions** — `MANDATORY_ROOTS` in
-  `packages/security/src/exclusions.ts`, not a configurable default — so a run cannot read
-  its own output or its own plan and mistake either for repository evidence.
+- **A run does not read its own output.** A repository or module snapshot
+  (`packages/runtime/src/repository.ts`) reads only files with a source extension, plus test
+  metadata such as `package.json` for a Testing run. It skips the
+  `SKIPPED_DIRECTORIES` (`.git`, `node_modules`, `dist`, `build`, `coverage`, `.pnpm-store`,
+  `.runs`, `.vite`), every other directory whose name starts with a dot except `.github`, and,
+  in a Git work tree, every file Git ignores. Run state (`<repository>/.runs/` by default) and
+  exported plans (`.arbitra/plans/`) therefore stay out of the evidence a run reads. A diff
+  scope reads only the files Git reports as changed.

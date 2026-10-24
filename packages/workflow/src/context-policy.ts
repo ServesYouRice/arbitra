@@ -19,13 +19,6 @@ export interface ContextPolicy {
   readonly exclude: readonly string[];
 }
 
-export const DEFAULT_CONTEXT_POLICY: ContextPolicy = {
-  mode: "selected_artifacts",
-  trust: "derived",
-  include: [],
-  exclude: [],
-};
-
 export function isContextMode(value: unknown): value is ContextMode {
   return typeof value === "string" && (CONTEXT_MODES as readonly string[]).includes(value);
 }

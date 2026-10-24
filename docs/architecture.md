@@ -1,8 +1,7 @@
 # Architecture
 
 This describes the system as built. [Verification evidence](qa/README.md) records dated
-evidence; [remaining work](../WORK-REMAINING.md) tracks what is unfinished. The original build specification is a locally retained
-working input and is not required to read this public documentation set.
+evidence; [remaining work](../WORK-REMAINING.md) tracks what is unfinished.
 
 ## Layering
 
@@ -45,7 +44,7 @@ packages/runtime                         composition: Orchestrator, model pipeli
         │
 packages/core                            orchestration: runner, preflight, prompt, render, replay
         │
-packages/workflow                        typed nodes: discovery, clustering, consensus, verification, planner
+packages/workflow                        typed nodes: clustering, consensus, peer review, verification, planner
         │
 packages/harness · packages/providers    model execution: canonical loop, transports, profiles
         │
@@ -54,13 +53,13 @@ packages/protocols · packages/tools · packages/security
 packages/persistence · packages/schemas  durable state and canonical types
 ```
 
-`packages/testing` sits outside the stack: fake transports, scripted auditors and premise
-scoring, used by suites in every layer.
+`packages/testing` sits outside the stack: fixtures, scripted auditors, premise scoring and the
+premise-evaluation driver, used by suites in every layer.
 
 **The CLI and the UI call the same core.** `apps/server/src/routes/control-plane.ts`
 delegates every lifecycle operation to a `ControlPlaneCore` port; `apps/cli/src/core.ts`
 declares the same operations as `OrchestratorCore`. There is no second orchestration
-implementation, and adding one would be the defect the specification names most often.
+implementation.
 
 ## The core loop
 
@@ -68,27 +67,27 @@ implementation, and adding one would be the defect the specification names most 
 the six kinds in `packages/schemas/src/glyphs.ts` — the taxonomy is closed, and
 `packages/workflow/src/node-kinds.ts` and `graph-schema.ts` enforce it.
 
+The executable `audit-deep` graph ([`graphs.ts`](../packages/runtime/src/graphs.ts)) has eight
+nodes; the other Audit stages run inside their executors (see [Audit mode](workflows.md#audit-mode)):
+
 ```text
-■ preflight            snapshot, exclusions, scope, hotspots, impacted surfaces
-■ control plane        protocol assets resolved from a trusted source
-◇ complexity router    decides whether more models are worth paying for
-◆ discovery            independent auditors, isolated contexts, canonical harness
-■ validate findings    deterministic schema and evidence-range checks
-■ clustering           deterministic; escalated pairs recorded
-■ issue board          built from an append-only operation log
-◆ peer review          bounded rounds, dissent retained
-▣ verification         ladder (live runs: rungs inconclusive), one model question last
-■ canonical issues     support count, review denominator, dissent, coverage
+■ preflight            snapshot summary; a model run resolves its protocol assets
+◆ auditor A · B · C    independent discovery, isolated contexts, canonical harness
+↻ consensus            validate findings, cluster, issue board, bounded peer review
+▣ verification         ladder (live runs: rungs inconclusive), one model question last;
+                       canonical issues with support count, review denominator, dissent, coverage
 ◆ planner              Validation Contract, Task DAG, capability routing
-◆ critic               conditional; skipped with a recorded reason
-■ renderer             deterministic implementation/ output
+◆ critic               reads the plan against the issues it has to resolve
 ```
+
+In a model run, the last of planner and critic renders the final plan as the run's
+`implementation` artifact (`handoff` in `packages/runtime/src/model-pipeline.ts`).
 
 Workflow code is deterministic by rule, not by convention:
 `tooling/eslint-rules/no-workflow-nondeterminism.cjs` runs against
 `packages/{core,workflow,persistence}/src` and fails the build on `Date.now()`,
-`Math.random()` or direct network access outside an activity. Time and randomness are
-injected through `packages/core/src/services/clock.ts` and `services/rng.ts`.
+`Math.random()` or direct network access outside an activity. Randomness is seeded from run
+and activity identity by `packages/core/src/services/rng.ts`.
 
 ## Durability boundary
 
@@ -99,11 +98,9 @@ Everything that survives a crash lives in `packages/persistence`:
 | activity journal | `journal.ts`, `journal-load.ts` |
 | fsync policy and durability classes | `fsync.ts` |
 | content-addressed artifacts | `artifact-store.ts` |
-| issue operation log | `issue-ops.ts` |
 | model activity traces | `trace.ts` |
 | rebuildable query index | `index-db/rebuild.ts` |
 | byte-stable serialisation | `canonical-json.ts` |
-| secret-bearing state kept out of the run directory | `private-store.ts` |
 | guarded metric aggregation | `metrics/query.ts`, `metrics/queries.ts` |
 | durable evaluation corpora, provenance and reports | `evaluation-corpus/` |
 
@@ -130,25 +127,29 @@ unrecognised disposition fails closed at `2`. Every command can emit JSON with `
 reports configuration diagnostics, which fail validation with exit `1`, separately from
 environment diagnostics: credential variables, subscription CLI install, version and login,
 the native harness executable, placeholder model identities, and the local Docker engine and
-image. `run`, `start` and `estimate` apply the same configuration checks.
-`run`/`start` also refuse environment errors before a run directory, snapshot or provider
-request exists (exit `2`, reason `preflight_failed`; HTTP `400`). See the
+image. `run`, `estimate` and the server's `POST /runs` apply the same configuration checks.
+`run` and `POST /runs` also refuse environment errors before a run directory, snapshot or
+provider request exists (exit `2`, reason `preflight_failed`; HTTP `400`). See the
 [preflight reference](setup.md#preflight-reference).
 
-`report` renders the evaluation surface and redacts its output through
+`report` prints a run's summary and its gate, and redacts its output through
 `redactSecrets` from `packages/security/src/redaction.ts`, failing closed with
 `report_redaction_failed` if anything secret-shaped survives.
 
 ### Server
 
-`apps/server/src/main.ts` builds a Fastify instance bound to `127.0.0.1:4178`. Every route
-carries a canonical schema from `packages/schemas/src/http-control-plane.ts`; a route with
-no schema entry throws `MISSING_HTTP_SCHEMA` at registration rather than serving unvalidated
-input. Twenty-one control-plane routes are listed in `apps/server/src/routes/inventory.ts`;
-two evaluation routes (`GET /runs/:id/metrics`, `POST /runs/compare`) register only when a
-metric store is wired, and return 404 otherwise.
+`apps/server/src/main.ts` builds the Fastify instance. Every request whose `Host` or `Origin`
+is not a loopback address is refused with 403 (`NON_LOCAL_CONTROL_PLANE_REQUEST`), and an error
+whose message contains a secret is answered with `HTTP_SECRET_EGRESS_BLOCKED` instead. The route
+families in `apps/server/src/routes/` take their canonical schemas from
+`packages/schemas/src/http-control-plane.ts`; a route with no schema entry throws
+`MISSING_HTTP_SCHEMA` at registration rather than serving unvalidated input. Twenty-one
+control-plane routes are listed in `apps/server/src/routes/inventory.ts`. The other families,
+such as the two evaluation routes (`GET /runs/:id/metrics`, `POST /runs/compare`), register only
+when the core provides them; `controlPlaneCore` (`packages/runtime/src/control-plane-core.ts`)
+provides every family.
 
-Four of those routes exist for the operator UI and read only what runs recorded.
+Four of the control-plane routes exist for the operator UI and read only what runs recorded.
 `GET /runs` lists every run newest first: its state and the reason recorded with its latest
 transition, mode, workflow, repository, whether models or scripted detectors executed it,
 creation and last-event times (the modification times of its once-written `context.json` and
@@ -207,8 +208,35 @@ references attached to the selected attempt, with content-hash verification and 
 same secret-egress guard. Historical outputs do not need a current named artifact entry.
 
 There is no WebSocket surface. Run events stream over SSE (`apps/server/src/sse.ts`).
-Every response passes `assertNoSecretEgress`, which fails the request rather than emitting
-a credential.
+Every response of a route family in `apps/server/src/routes/`, and every SSE event, passes
+`assertNoSecretEgress`, which fails the request rather than emitting a credential.
+
+`apps/server/src/server-main.ts` is the process entrypoint (`serve.ts` calls it, and so does the
+single-file app). It reads its settings from the environment:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `ARBITRA_HOST` | `127.0.0.1` | Bind address; anything other than `127.0.0.1` or `::1` is refused |
+| `ARBITRA_PORT` | `4178` | Port, 1 to 65535 |
+| `ARBITRA_REPOSITORY` | the working directory | Repository a run reads when it names none; run state goes in its `.runs/` |
+| `ARBITRA_WEB_DIST` | `apps/web/dist` | Web build to serve if its `index.html` exists; empty serves none |
+| `ARBITRA_BUILD` | the short Git commit, else `tooling/launch/build-id` | Build named in the diagnostics |
+
+It also registers four routes directly. They have no schema entry and do not pass
+`assertNoSecretEgress`; the loopback check and the error handler still apply.
+
+- `GET /diagnostics/environment` returns the build and what `detectEnvironment`
+  (`packages/runtime/src/environment.ts`) found: the subscription CLIs and which API keys are
+  set, never their values. `?refresh=1` checks again.
+- `GET /diagnostics/runs/:runId` returns a run's plain-text report
+  (`packages/runtime/src/run-report.ts`); every line passes `redactSecrets`.
+- `POST /handoff/runs/:runId` writes the run's plan into its repository as prompts under
+  `.arbitra/plans/` (`packages/runtime/src/plan-export.ts`). Runs themselves never write there.
+- `POST /repositories/pick` opens the operating system's folder dialog on this machine and
+  returns the chosen path, or `null` when cancelled (`apps/server/src/folder-picker.ts`).
+
+When the web build is served, `apps/server/src/web-app.ts` answers any GET no route matches with
+a file from it, and refuses a path outside its root.
 
 ### Web
 
@@ -267,8 +295,8 @@ Browser acceptance runs through `pnpm --filter @arbitra/web e2e` (Playwright, Ch
 and WebKit). It is not part of `pnpm test`. The scenarios start the real control plane from
 `apps/server/fixtures/e2e-server.ts` over a temporary state directory. Runs come from the real
 orchestrator with scripted provider and sandbox ports (`apps/server/fixtures/scripted-runs.ts`).
-Results and screenshots are recorded in [`qa/p10/`](qa/p10/README.md) (macOS) and
-[`qa/p10-linux/`](qa/p10-linux/README.md) (Linux arm64).
+Results and screenshots are recorded in [`qa/p10/`](qa/p10/README.md) and
+[`qa/p10-linux/`](qa/p10-linux/README.md); see also [verification evidence](qa/README.md).
 
 Trace list and detail responses are served from a persistent per-run index
 (`packages/persistence/src/trace-index.ts`) that catches up incrementally from the
@@ -278,13 +306,14 @@ corrupt. See [durability](durability.md#traces-and-the-rebuildable-index).
 
 ## Known gaps
 
-The [completion plan](completion-plan.md) records dependencies and acceptance criteria:
+The [completion plan](completion-plan.md) records dependencies, acceptance criteria and status;
+[verification evidence](qa/README.md) records what ran, where and when:
 
-- **The real-model premise evaluation (P06) remains outstanding, and live evidence for
-  the OpenAI and Anthropic API protocols (P03) is deferred** to the
+- **Live evidence for the OpenAI and Anthropic API protocols (P03) is deferred** to the
   [paid-API bundle](completion-plan.md#deferred-the-paid-api-bundle). Every public workflow
-  has run live on subscriptions. Injected-provider tests do not establish model quality. See
-  [`evaluation.md`](evaluation.md).
+  has run live on subscriptions. Injected-provider tests do not establish model quality; the
+  real-model premise evaluation (P06) is summarised in
+  [`evaluation.md`](evaluation.md#live-evaluation).
 - Final Testing verification can reopen invalidated earlier work for bounded, durable repair
   under the original write grants (see [Testing mode](workflows.md#testing-mode)). The repair
   cases, including the critical ones, have run against real containers
@@ -300,8 +329,6 @@ The [completion plan](completion-plan.md) records dependencies and acceptance cr
   trace browser is covered by browser acceptance (see [`qa/p10/`](qa/p10/README.md)).
   Evaluation corpora are durable, and the P06 driver
   (`packages/testing/src/premise-evaluation/`) imports live observations into them.
-- Browser acceptance has run on macOS and Linux arm64, and the full check runs locally and in
-  a Linux container; see [verification evidence](qa/README.md).
 
 ## v1.1 extension points
 
@@ -317,12 +344,11 @@ now differs; all unfinished work is included in the completion plan.
 | Incremental / repeat audit execution | Opt-in incremental Audit in `packages/runtime/src/incremental-audit.ts`. It reuses byte-identical discovery units and identity-matched downstream stages from a completed base, with fallback, provenance and saved-work/coverage reporting. Tested with injected fake providers only; live-provider exercise remains. See [Incremental Audit](workflows.md#incremental-audit) |
 | Provider batch API path | Opt-in batch lane and OpenAI/Anthropic/Gemini drivers in `packages/providers/src/batch/`, tested against injected HTTP; a live run was refused by every provider before job creation, so every driver is declared-unverified. Live validation needs a funded account and is deferred to the [paid-API bundle](completion-plan.md#deferred-the-paid-api-bundle) (P15). See [`provider-model.md`](provider-model.md#batch-lane) |
 | Drag-and-drop workflow canvas editor | Implemented: `apps/web/src/graph/GraphEditor.tsx` edits operator-authored graphs; versions are content-addressed and validated server-side, and runs execute and resume the saved version. Audit mode only (P16) |
-| Local embedding clustering | `packages/workflow/src/clustering/deterministic.ts` is the deterministic path; §25.4 metrics would have to justify replacing it. A local MiniLM candidate was evaluated offline on authored and P06 real-model findings and not adopted (P18, [qa/p18](qa/p18/README.md)) |
+| Local embedding clustering | `packages/workflow/src/clustering/deterministic.ts` is the deterministic path; the recorded escalation metrics (`clustering/escalate.ts`) would have to justify replacing it. A local MiniLM candidate was evaluated offline on authored and P06 real-model findings and not adopted (P18, [qa/p18](qa/p18/README.md)) |
 
-Data for these is recorded now, per §2.4: inspection and exposure footprints, immutable
-snapshot identity, Git base/head/range, hotspots, the activity journal, the issue op log,
-model/harness/protocol/prompt identity, clustering escalation metrics and provider
-scheduler metrics.
+The data these rely on is recorded: the activity journal, the full model/harness/protocol/prompt
+identity of every model trace and, for a model Audit, clustering escalation metrics and the
+snapshot identity with its Git head.
 
 ## Explicitly out of scope
 

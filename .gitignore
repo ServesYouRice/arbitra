@@ -1,14 +1,14 @@
 # ---------------------------------------------------------------------------
 # Documents kept locally for reference, not published.
 #
-# The build prompt and the round-table review are working inputs, not product
+# The build specification and earlier design notes are working inputs, not product
 # documentation: they describe how this repository was produced rather than how
-# the system behaves. The published documentation set is README.md plus the
-# eight documents in docs/, which describe the system as built.
+# the system behaves. The published documentation is README.md, TESTERS.md and
+# docs/, which describe the system as built.
 #
 # docs/DESIGN-LANGUAGE.md and docs/brand/ MUST stay tracked: `pnpm run
 # design:check` reads them as the normative presentation source, so a fresh
-# clone fails CI without them.
+# clone fails the full check without them.
 # ---------------------------------------------------------------------------
 docs/archive/
 docs/MASTER-BUILD-PROMPT.md

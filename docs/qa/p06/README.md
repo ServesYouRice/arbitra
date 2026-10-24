@@ -1,20 +1,20 @@
-# P06: real-model premise evaluation (interim, paused by the daily quota)
+# P06: real-model premise evaluation, version 1 (closed)
 
-**Status: interim.** The evaluation stopped when the free-tier daily limit ran out. It did not
-stop because it was finished. The limit is 500 requests per day per project for
+**Status: closed, superseded** by version 2.1.0 on subscription models
+([p06-subscription](../p06-subscription/README.md)). Version 1 stopped when the free-tier daily limit ran out, not
+because it was finished, and was not resumed. The limit is 500 requests per day per project for
 `gemini-3.1-flash-lite`, and it is shared with the P03 live acceptance.
 
 - Of the 15 prespecified runs, 4 were executed.
 - 2 of those 4 completed.
 - The 2 others (both heterogeneous) **failed in the pipeline**. They are kept as adverse
   results.
-- 1 more run is paused, waiting on quota. It was resumed once, at 21:49 UTC after a quota probe succeeded. Its discovery, verification and first two planner turns then completed before the daily limit was hit again.
-- 10 runs have not started.
+- 1 more run was paused on quota. It was resumed once, at 21:49 UTC after a quota probe succeeded. Its discovery, verification and first two planner turns then completed before the daily limit was hit again.
+- 10 runs never started.
 
 **Decision: `insufficient_evidence` for all three prespecified comparisons.** The decision rule
 needs at least 10 paired ground-truth defects, and only 7 are available. The multi-family
-premise is **untested**, because every auditor was a Gemini model. This README gives the exact
-resume plan so the remaining runs can finish without changing the protocol.
+premise is **untested**, because every auditor was a Gemini model.
 
 - Protocol: [PROTOCOL.md](PROTOCOL.md) and [protocol.json](protocol.json)
   (`arbitra-p06-premise@1.0.0`), committed before any evaluation run in 21cc61f. It is unchanged.
@@ -161,15 +161,15 @@ was nothing to review and the sensitivity precision equals the primary precision
 Neither change accepts anything that was refused before, and evidence grounding and authority
 checks are unchanged. Beta's ef112eb, merged here, additionally sets aside a peer review that
 stays invalid after repair instead of failing the Audit, so a run that hits the D failures above
-should now finish with degraded coverage. The remaining heterogeneous runs will measure that
-path.
+should now finish with degraded coverage. Version 1 ended before
+that path was measured.
 
 ## Decision
 
 | Question | Verdict | Why |
 |---|---|---|
-| Are heterogeneous auditors worth adding over repeated runs of one model? (C vs B) | insufficient_evidence | B is not run yet; fewer than 10 paired defects |
-| Are repeated isolated runs worth it over one run? (B vs A) | insufficient_evidence | B is not run yet |
+| Are heterogeneous auditors worth adding over repeated runs of one model? (C vs B) | insufficient_evidence | B was never run; fewer than 10 paired defects |
+| Are repeated isolated runs worth it over one run? (B vs A) | insufficient_evidence | B was never run |
 | Is the full pipeline worth it over the single-auditor pipeline? (D vs A_pipeline) | insufficient_evidence | D produced no output in 2 of 2 runs |
 
 Current operational guidance for when extra auditors are worthwhile:
@@ -182,58 +182,3 @@ Current operational guidance for when extra auditors are worthwhile:
 
 Treat multi-auditor Audit as unproven. The multi-family premise remains untested because no
 second model family was available.
-
-## Resume plan (keep the protocol unchanged)
-
-The daily quota resets around midnight US Pacific. The ledger and run state live in **this
-worktree** at `.runs/p06/`. Run contexts record absolute checkout paths, so that directory must
-be kept at its current path, `/Users/me/Projects/Selfhosted/arbitra/.claude/worktrees/agent-a6beaf6fd1302766f/.runs/p06`.
-To resume from another checkout, pass `--state` with that absolute path.
-
-1. `pnpm build`
-2. Resume the paused run, then continue the schedule. The driver stops at the first run that
-   does not complete, and re-invoking it resumes that run from a fresh process.
-
-   ```
-   node --env-file=/Users/me/Projects/Selfhosted/arbitra/.env packages/testing/dist/src/premise-evaluation/cli.js run --protocol docs/qa/p06/protocol.json
-   ```
-
-   - The paused run `live-fixture-v1/single/r1` (run-a31982bb-5d2c-487d-8b89-46a89e0cfd8c)
-     failed on quota before any discovery, so `Orchestrator.resume` should continue it.
-   - If resume refuses with `MODEL_ACTIVITY_INPUT_CHANGED`, because the runtime changed since
-     the run started, retire it and continue:
-
-     ```
-     node packages/testing/dist/src/premise-evaluation/cli.js abandon --protocol docs/qa/p06/protocol.json --key live-fixture-v1/single/r1 --reason "<why>"
-     ```
-   - Do the same for any run that fails on output validation, since resuming replays the same
-     refusal. Transport failures such as 503 or quota errors should be resumed, not abandoned.
-3. The remaining schedule, in order, is:
-   1. live-fixture-v1/single/r1 (resume)
-   2. live-fixture-v1/heterogeneous/r1
-   3. premise-v1/single/r2, expanded-evaluation-v1/single/r2, live-fixture-v1/single/r2
-   4. premise-v1/single/r3, expanded-evaluation-v1/single/r3, live-fixture-v1/single/r3
-   5. premise-v1/heterogeneous/r2, expanded-evaluation-v1/heterogeneous/r2,
-      live-fixture-v1/heterogeneous/r2
-
-   The remaining budget under the protocol is 211 attempts (260 − 49) and about 2.27M known
-   tokens.
-
-   `live-fixture-v1/single/r1` stopped on a transport quota error during planner repair 2.
-   That is not an output-validation failure, so resume it and do not abandon it.
-4. `node packages/testing/dist/src/premise-evaluation/cli.js analyse --protocol docs/qa/p06/protocol.json`.
-   This rescores all records and imports them into `evidence/corpus`, which is idempotent.
-   Then update this README from `evidence/results.json` and re-copy `.runs/p06/ledger.json`
-   into `evidence/`.
-5. Before committing, run the redaction check:
-
-   ```
-   grep -rnE "AIza[0-9A-Za-z_-]{20,}|sk-[A-Za-z0-9]{20,}|sk-ant-" docs/qa/p06
-   ```
-
-   It must print nothing.
-
-From the calls observed so far, the remaining runs should need about 7 to 9 attempts per
-single run and 13 to 30 per heterogeneous run. That is roughly 150 to 200 attempts, mostly
-on `gemini-3.1-flash-lite`. Plan on a full daily quota that the P03 acceptance is not using
-at the same time.

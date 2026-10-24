@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { createRedactedExport, replay, type ReplayRunResult, type ReplaySourceRun } from "../../core/src/replay/index.js";
 import { redactSecrets } from "../../security/src/redaction.js";
-import { cluster, deterministicClusteringStrategy, type ValidatedClusterInput } from "../../workflow/src/clustering/index.js";
-import { computeConsensus, type ConsensusBoard } from "../../workflow/src/consensus/index.js";
-import { verifyItems } from "../../workflow/src/nodes/verification/index.js";
+import { deterministicClusteringStrategy } from "../../workflow/src/clustering/deterministic.js";
+import { cluster } from "../../workflow/src/clustering/escalate.js";
+import type { ValidatedClusterInput } from "../../workflow/src/clustering/types.js";
+import { computeConsensus, type ConsensusBoard } from "../../workflow/src/consensus/engine.js";
+import { verifyItems } from "../../workflow/src/nodes/verification/engine.js";
 
 describe("production replay integration", () => {
   it("reuses persisted round-zero findings through production clustering, consensus and deterministic verification", async () => {

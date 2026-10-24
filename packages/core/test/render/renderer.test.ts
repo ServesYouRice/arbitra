@@ -1,12 +1,11 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { isExecutionStateWriteAllowed, renderImplementation, type ImplementationManifest, validateProgressJsonl, writeImplementation } from "../../src/render/index.js";
 
-const REAL_MANIFEST = new URL("../../../../implementation/manifest.json", import.meta.url);
 const fixture = JSON.parse(readFileSync(new URL("./golden/manifest.json", import.meta.url), "utf8")) as ImplementationManifest;
 const expectedHashes = JSON.parse(readFileSync(new URL("./golden/expected-hashes.json", import.meta.url), "utf8")) as Record<string, string>;
 const options = {
@@ -77,16 +76,6 @@ describe("deterministic implementation renderer", () => {
   // a fresh clone and CI do not have it. Run this check wherever the plan is present and
   // skip it — visibly — where it is not, rather than asserting against a file the
   // repository does not ship. Every other case here uses the tracked golden fixture.
-  it.skipIf(!existsSync(REAL_MANIFEST))("renders the real authoritative 49-task manifest without reading living execution state", () => {
-    const real = JSON.parse(readFileSync(REAL_MANIFEST, "utf8")) as ImplementationManifest;
-    const effectiveWriteScopes = Object.fromEntries(real.tasks.map(({ id }) => [id, []]));
-    const tree = renderImplementation(real, { selectedTaskId: "TASK-039", effectiveWriteScopes });
-    expect(real.tasks).toHaveLength(49);
-    expect(Object.keys(tree).filter((path) => /^tasks\/TASK-[0-9]{3}\/task\.md$/u.test(path))).toHaveLength(49);
-    expect(tree["AGENTS.md"]?.split("\n").length).toBeLessThan(50);
-    expect(tree["tasks/TASK-039/task.md"]).toContain("Empty — this task is display-only.");
-  });
-
   it("writes the exact tree beneath a chosen root and rejects traversal", () => {
     const directory = mkdtempSync(join(tmpdir(), "arbitra-render-"));
     temporaryDirectories.push(directory);

@@ -27,7 +27,7 @@ export const SCRIPTED_AUDIT: Draft = Object.freeze({ schemaVersion: 1, mode: "au
   verification: {}, models: {}, harness: { mode: "canonical" }, workflow: { preset: "audit-deep" }, budgets: {}, security: {}, protocols: {}, promptOverrides: {}, contextPolicies: {} });
 
 /**
- * Where New run starts: Claude Code and Codex on the subscription CLIs, with the settings of the owner's benchmark runs.
+ * Where New run starts: Claude Code and Codex on the subscription CLIs, with the settings of the benchmark runs.
  * Gemini is a template of its own, because Google's terms do not support driving the Antigravity CLI from another
  * application on a consumer plan; a tester adds it knowing that.
  */

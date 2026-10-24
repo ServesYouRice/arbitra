@@ -43,8 +43,8 @@ with your own Claude, ChatGPT or Google subscription instead of API keys (see
 
 | Template | Mode / preset | Subscription CLIs |
 |---|---|---|
-| `subscription-audit.json` | Audit / `audit-balanced` | Claude Code, Codex |
-| `subscription-audit-gemini.json` | Audit / `audit-deep` | Claude Code, Codex, Antigravity CLI (Google's terms: see the [privacy](privacy.md) page) |
+| `subscription-audit.json` | Audit / `audit-balanced` (2 auditors, no plan critic: its `roles.critic` serves only as the second opinion) | Claude Code, Codex |
+| `subscription-audit-gemini.json` | Audit / `audit-deep` (3 auditors, critic) | Claude Code, Codex, Antigravity CLI (Google's terms: see the [privacy](privacy.md) page) |
 | `subscription-feature-interactive.json` | Feature, interactive | Claude Code (planner), Codex and Antigravity CLI (reviewers) |
 | `subscription-feature-automatic.json` | Feature, automatic | Claude Code (planner), Codex and Antigravity CLI (reviewers) |
 | `subscription-testing-plan.json` | Testing / `testing-plan` | Claude Code (analyst), Codex (planner) |
@@ -62,7 +62,7 @@ exported in your shell cannot enable a run.
 for file in examples/*.json examples/model-backed/*.json; do
   node apps/cli/dist/src/bin.js validate "$file"
 done
-pnpm run validate:examples   # the same gate CI runs, including negative controls
+pnpm run validate:examples   # also part of the local `pnpm run ci`, with negative controls
 ```
 
 `validate` runs the runtime preflight and reports two things separately:
@@ -144,13 +144,14 @@ to start and dispatches nothing.
    `MODEL_IDENTITY_PLACEHOLDER:<profile>` blocks live runs until you do.
 2. **Capability provenance.** Review `supports`, `limits`, `effort`, `quirks`,
    `capabilityTier` and `structuredOutputDialect` against your provider's own
-   documentation. arbitra ships no model catalogue and infers nothing: these values
-   are your declaration. The runtime enforces them before dispatch (tool use,
-   output/context limits, effort collapse) and records requested and resolved effort on every
-   trace. The template values are conservative starting points, not claims about any
-   model: `limits` are `null` (unknown, never treated as zero), `effort.supported` is
-   `low`/`medium`/`high` with an explicit `xhigh → high` collapse, and `effort.params` is
-   empty, so no provider-specific effort field is sent until you add one.
+   documentation. The runtime infers nothing: these values are your declaration. It
+   enforces them before dispatch (tool use, output/context limits, effort collapse) and
+   records requested and resolved effort on every trace. The template files' values are
+   conservative starting points, not claims about any model: `limits` are `null` (unknown,
+   never treated as zero), `effort.supported` is `low`/`medium`/`high` with an explicit
+   `xhigh → high` collapse, and `effort.params` is empty, so no provider-specific effort field
+   is sent until you add one. In the web app, **New run** can fill a profile from its model
+   catalogue instead (below).
 3. **Endpoints and credentials.** Adjust each `workflow.modelExecution.endpoints[]`
    `endpoint` URL (the compatible templates point at `http://127.0.0.1:8000/v1` and
    `:8001/v1`), then export each named `apiKeyEnvVar` in the shell that runs arbitra. The
@@ -171,12 +172,18 @@ node apps/cli/dist/src/bin.js run my-config.json
 Run from the repository you want to analyze. `run` uses the current directory as the
 repository and stores runs under `.runs/`. That directory is excluded from snapshots.
 
-The same steps work in the web UI (`node apps/server/dist/src/serve.js` from the repository to
-analyze, then `pnpm --filter @arbitra/web dev`). **New run** starts from any of these
-templates, lists every placeholder still in it by path, and shows the model profiles with
-a model to choose for each (or a typed ID for one not listed). **Check configuration** runs the same preflight and
-estimate as `validate` and `estimate`, without saving anything. **Save and start** saves the
-configuration and starts the run, and only when preflight passes.
+The same steps work in the web app. `node apps/server/dist/src/serve.js` serves the built app
+and its control plane on <http://127.0.0.1:4178>; `arbitra.cmd` (Windows), `arbitra.command`
+(macOS, Linux) and the Windows single-file `.exe` start the same thing (see the
+[README](../README.md#running-it)). `pnpm --filter @arbitra/web dev` (port 4173) is needed only
+for work on the UI itself. **New run** asks for the project folder to read and starts from any
+of these templates. The subscription templates come with each CLI's recommended model filled
+in from the app's model catalogue (`apps/web/src/pages/new-run/model-catalog.ts`: model IDs,
+tiers, context and output limits where known, effort words; no prices). It lists every
+placeholder still in a configuration by path, and shows the model profiles with a model to
+choose for each (or a typed ID for one not listed). **Check configuration** runs the same
+preflight and estimate as `validate` and `estimate`, without saving anything. **Save and
+start** saves the configuration and starts the run, and only when preflight passes.
 
 ### Endpoint and role binding
 
@@ -267,9 +274,12 @@ the OS keyring and Gemini's cached Google login is only evidence, so both warn
 the plan's personal usage limits; check that automated use through the official CLI is
 permitted for your plan before relying on it. A plan limit fails the call as `QUOTA` with the
 reset time when the CLI gives one (`CLI_USAGE_LIMIT_REACHED`); short throttles are
-`RATE_LIMIT` and retried. Keep `rateLimits` low (the templates use `maxConcurrent: 1` and
-`rpm: 10`) and `timeoutMs` generous (600000), because CLI calls carry several seconds of
-start-up and a large vendor system context. Batch lanes are not available on CLI endpoints.
+`RATE_LIMIT` and retried. Keep `rateLimits` within what your plan allows and `timeoutMs`
+generous, because CLI calls carry several seconds of start-up and a large vendor system
+context. The subscription Feature and Testing templates use `maxConcurrent: 1`, `rpm: 10` and
+`timeoutMs` 600000; the subscription Audit templates use `maxConcurrent: 4`, `rpm: 30` (10 for
+Google), `timeoutMs` 900000 and `maximumParallelCalls: 4`. Batch lanes are not available on
+CLI endpoints.
 
 Known gaps: Claude Code still adds its own short environment block (working directory,
 platform, date and the signed-in account's email) to the context; Codex declares a few
@@ -286,8 +296,9 @@ characters) or Linux (128 KiB per argument), so there the prompt is one stream-j
 stdin (`--input-format stream-json`, agy 1.1.15 and later), which the CLI cuts at the same
 point. The largest prompt arbitra sends is about `limits.contextTokens` (or
 `maximumContextTokens`, if lower) minus `maximumOutputTokens` bytes, so keep that difference
-within the limit: for example, `contextTokens` 200,000 with the shipped `maximumOutputTokens`
-of 32,000, and discovery then splits a larger repository into prompts that fit. The Gemini CLI records
+within the limit: for example, `contextTokens` 200,000 with a `maximumOutputTokens` of 32,000
+(the subscription Feature and Testing templates), and discovery then splits a larger repository
+into prompts that fit. The Gemini CLI records
 session history under `~/.gemini/tmp`. Output ceilings are enforced for Claude Code
 (`CLAUDE_CODE_MAX_OUTPUT_TOKENS`); Codex, the Antigravity CLI and the Gemini CLI offer no
 per-call output ceiling. The Antigravity CLI reports a reply cut at the model's own output limit
@@ -304,9 +315,9 @@ These limits are enforced:
 | Setting | Effect |
 |---|---|
 | `workflow.modelExecution.maximumTokens` | Durable run-wide admission budget in conservative estimated tokens (derived from request bytes, so it overstates provider tokens). Reservations are saved before dispatch; exhaustion suspends the run (`SUSPENDED_BUDGET`) rather than overspending. |
-| `maximumOutputTokens`, `maximumContextTokens`, `maximumDiscoveryTokens` | Per-request output reserve and context caps. The subscription templates use 32,000 output tokens: subscription output is not billed per token, and live planners (a Plan IR for a few gaps) exceeded 8,000. |
+| `maximumOutputTokens`, `maximumContextTokens`, `maximumDiscoveryTokens` | Per-request output reserve and context caps. The subscription Feature and Testing templates use 32,000 output tokens and the subscription Audit templates 128,000: subscription output is not billed per token, and live planners (a Plan IR for a few gaps) exceeded 8,000. |
 | `maximumRetries`, `timeoutMs`, `rateLimits` | Retry count, per-request timeout, per-provider pacing and concurrency. |
-| `maximumOutputRepairs` | Re-asks per model stage (0–3, default 0; templates use 1) after a reply fails output validation: unparsable JSON, schema, evidence grounding or plan traceability. Each re-ask is its own durable, budgeted activity that carries the rejection reason and the rejected reply as untrusted data. Provider failures, refusals and output-limit stops are never repaired. |
+| `maximumOutputRepairs` | Re-asks per model stage (0–3, default 0; the subscription Audit templates use 2, the other templates 1) after a reply fails output validation: unparsable JSON, schema, evidence grounding or plan traceability. Each re-ask is its own durable, budgeted activity that carries the rejection reason and the rejected reply as untrusted data. Provider failures, refusals and output-limit stops are never repaired. |
 | `verification.maxModelQuestionsPerRound` | Bound on targeted verification questions. Unset, every candidate the review left undecided is asked about; 0 disables model verification. |
 | `estimatedBytesPerToken`, `stageEffort`, `review` | How calls after discovery are sized, the effort of each checking stage, and the checks beyond one pass of each review stage. See [one pass per review stage](provider-model.md#one-pass-per-review-stage). |
 | `verification.execution.maximumRuns`, Testing `maximumAttempts` | Sandbox check runs and writer attempts. |
@@ -321,9 +332,13 @@ nothing; a scripted Audit only gets a warning. Every shipped example leaves `bud
 `scope.kind` is `repository`, `module` (`modules` are repository-relative directories,
 such as `["src"]`) or `diff` (`diffMode` `staged`, `working_tree` or `range` with
 `base`/`head` or `revisionRange`). Snapshots read source files with known source
-extensions, up to 400 files and 512 KiB per file. Snapshots skip hidden directories
-(except `.github`), `.git`, `node_modules`, `dist`, `build`, `coverage` and `.runs`.
-Testing snapshots also include test metadata such as `package.json`. `security` (including
+extensions (Markdown, MDX, JSON and YAML are not read), up to 400 files and 512 KiB per file
+(`packages/runtime/src/repository.ts`). Snapshots skip hidden directories (except `.github`),
+`.git`, `node_modules`, `dist`, `build`, `coverage`, `.pnpm-store`, `.runs` and `.vite`, and
+in a Git work tree every file Git ignores: only files Git tracks or would track
+(`git ls-files --cached --others --exclude-standard`) are read. Symbolic links are not
+followed, and private key blocks are masked. Testing snapshots also include test metadata
+such as `package.json`. `security` (including
 `excludeGlobs`) and `contextPolicies` are not applied by the runtime; preflight warns when
 they are non-empty (`SECURITY_SETTINGS_NOT_ENFORCED`, `CONTEXT_POLICIES_NOT_ENFORCED`).
 To exclude paths, use `scope.exclude`: repository-relative path prefixes removed from the snapshot.
@@ -450,7 +465,36 @@ The source checkout is never modified. The operator supplies it explicitly:
 
 ## Consuming handoffs
 
-Handoffs stay inside the run. Nothing is written to your repository. Export a run with:
+A run writes nothing to your repository. Its handoffs stay inside the run until you export
+them: as JSON, or by saving the plan into the project.
+
+### Export the plan into the project
+
+A run's **Plan** tab in the web app saves the plan into the audited project as prompts
+(`POST /handoff/runs/:runId`, `packages/runtime/src/plan-export.ts`; there is no CLI command).
+It writes `.arbitra/plans/<date>-<run>/` in the run's repository, where `<date>` is the day of
+the save and `<run>` the first eight characters of the run ID after `run-`. Saving again
+writes a new folder beside it (`-2`, `-3`, …); no file is ever overwritten. Snapshots skip
+hidden directories, so a later run does not read the folder.
+
+| File | Contents |
+|---|---|
+| `README.md` | The order of work, blocking questions to answer first, issues to check, model tiers |
+| `AGENTS.md`, `CLAUDE.md` | How a coding agent works through the folder; `CLAUDE.md` points Claude Code at `AGENTS.md` |
+| `PROGRESS.md` | A checklist with one line per check and per task |
+| `prompts/1-strong-model/`, `prompts/2-balanced-model/`, `prompts/3-fast-model/` | One self-contained prompt per task, in the folder of the capability tier the planner chose for it |
+| `prompts/0-check-first/` | One prompt per issue of the plan's scope that the audit could not settle and no task addresses: decide whether it holds, and fix it if it does |
+| `issues.md`, `also-found.md` | The issues the plan fixes; accepted issues no task fixes (only when there are any) |
+| `results.json` | One entry per issue for the executor to fill in: `result` (`fixed`, `not_reproducible`, `no_change_needed` or `blocked`), `failedBefore`, `test` and `proof` |
+
+Each task prompt asks for a test that fails on the current code before the fix. arbitra reads
+`results.json` back from the run's newest saved folder (`packages/runtime/src/plan-results.ts`)
+and reports how many issues were reported, how many a failing test proved, and the count of
+each result: on an Audit's Evaluation tab and in the run report. A run without a plan is
+refused with HTTP 409 (`RUN_HAS_NO_PLAN`), as is a run with no recorded repository
+(`RUN_REPOSITORY_UNKNOWN`).
+
+### Export a run as JSON
 
 ```bash
 node apps/cli/dist/src/bin.js export <run-id> --json > run.json
@@ -460,7 +504,7 @@ node apps/cli/dist/src/bin.js export <run-id> --json > run.json
 
 | Workflow | Artifact | Contents |
 |---|---|---|
-| Audit | `plan-ir`, `canonical-issues` | Plan IR (tasks, validation contract, traceability) and the evidence-backed issues it addresses |
+| Audit | `plan-ir`, `canonical-issues`; a model Audit also `implementation` | Plan IR (tasks, validation contract, traceability) and the evidence-backed issues it addresses; the implementation tree below, with one file per accepted or unverified issue |
 | Feature, Testing plan | `implementation` | A file tree: `manifest.json`, `AGENTS.md`, `README.md`, `context/`, `issues/`, `tasks/<id>/task.md`, `validation/`, `execution/`, `progress.schema.json`, `progress.jsonl` |
 | Testing execute | `testing-execution-completion`, `testing-change-set-*` | The verified change set. Each file has `expectedHash`, `contentHash` and UTF-8 `content` |
 
@@ -479,8 +523,9 @@ for (const [name, content] of Object.entries(tree)) {
 }' run.json handoff/
 ```
 
-Task commands in the tree carry `executionPolicy: "requires_approval"`. The consuming
-executor still decides command policy and write authority.
+Task commands in Audit and Feature trees carry `executionPolicy: "requires_approval"`; a
+Testing tree keeps the policy each command was derived with. Every task's effective write
+scope is empty. The consuming executor still decides command policy and write authority.
 
 A verified Testing change set is applied only on request, to a checkout you name:
 

@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CONSENSUS_POLICY, type ConsensusBoard } from "../../src/consensus/engine.js";
-import { criticNode } from "../../src/nodes/critic/index.js";
+import { criticNode } from "../../src/nodes/critic/node.js";
 import { peerReviewRound, runPeerReview, type PeerIssueOperation, type ReviewRng } from "../../src/nodes/peer-review/round.js";
 import { validateFindings, type FindingSubmission } from "../../src/nodes/validate-findings.js";
 import { validateTraceability, type TraceablePlan } from "../../src/nodes/planner/traceability.js";

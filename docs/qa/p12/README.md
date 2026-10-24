@@ -3,7 +3,7 @@
 Recorded September 27, 2026 on branch `beta` (commits 2690ebe and, for the failure paths, the test added after 9fbd2de). Host: macOS (arm64), Node 22.23.2.
 
 - **CLI:** the real Claude Code 2.1.283 binary.
-- **Credential:** `credentialKind: "subscription_login"`, the owner's Claude subscription login on this host. No API key or token variable was set.
+- **Credential:** `credentialKind: "subscription_login"`, the maintainer's Claude subscription login on this host. No API key or token variable was set.
 - **Model:** Claude Sonnet 5.
 
 ## Command
@@ -49,4 +49,4 @@ Three more opt-in cases in the same file drive the real CLI through the failure 
 ## What this changes
 
 - The support matrix entry is now `conformance_verified`, and the translation layer is `verified: true`. Preflight no longer warns `NATIVE_HARNESS_UNVERIFIED` for Claude Code.
-- The `api_key` and `oauth_token` kinds share the event translation, but run with an isolated home and config directory and one credential variable instead of the host-login flags. They were not run live here, because the owner tests only on subscriptions.
+- The `api_key` and `oauth_token` kinds share the event translation, but run with an isolated home and config directory and one credential variable instead of the host-login flags. They were not run live here, because the project's own testing runs only on subscriptions.

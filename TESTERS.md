@@ -18,8 +18,8 @@ already have. It never changes your code.
     another application is not supported on Google AI Pro or Ultra and may get the account suspended, so arbitra
     leaves Gemini out unless you choose the template that adds it.
 
-  Claude Code and Codex together give the best results; one is enough to try it. Your code is sent to the vendors you choose and to
-  no one else: [what leaves your machine](docs/privacy.md).
+  The default uses Claude Code and Codex together; one is enough to try it. Your code is sent to the vendors you choose
+  and to no one else: [what leaves your machine](docs/privacy.md).
 
 ## Start it
 

@@ -4,11 +4,12 @@ Each folder here holds the evidence of one completion-plan item. It records the 
 commands, results and redacted run references. What is still open is in [remaining work](../../WORK-REMAINING.md).
 Item definitions and the deferred paid-API bundle are in the [completion plan](../completion-plan.md).
 
-- **Full check:** `pnpm run ci` and `pnpm build` ([setup](../setup.md)). They run locally, on the owner's machine
-  and in a clean `node:22` Linux container. The latest is 6578af6 on October 14, 2026.
+- **Full check:** `pnpm run ci` and `pnpm build` ([setup](../setup.md)). They run locally, on the maintainer's machine
+  and in a clean `node:22` Linux container. The latest Linux pass is afdec34, on October 23, 2026.
 - **Docker:** the Docker boundary and the Testing repair cases ran against a real engine ([`p04`](p04/README.md)).
 - **Browsers:** acceptance ran on macOS and Linux arm64 ([`p10`](p10/README.md), [`p10-linux`](p10-linux/README.md));
-  the workflow editor is covered in [`p16`](p16/README.md).
+  the workflow editor is covered in [`p16`](p16/README.md). The latest run passed 69 of 69 tests in Chromium, Firefox
+  and WebKit on Linux, on October 23, 2026 at afdec34.
 - **Live providers:**
   - Gemini native and the OpenAI-compatible chat protocol passed transport conformance ([`p03`](p03/README.md)).
   - On subscriptions, every public workflow passed through the CLIs.
@@ -36,4 +37,4 @@ The live runs found defects, and each was fixed with a regression test:
 | Real Docker engine | 2 | [`p04`](p04/README.md) |
 | Linux browsers | 1 | [`p10-linux`](p10-linux/README.md) |
 
-Defects found by the P20 benchmark runs are listed in [remaining work](../../WORK-REMAINING.md).
+Defects found by the P20 benchmark runs are listed in that file's history: `git show 9558aef:WORK-REMAINING.md`.

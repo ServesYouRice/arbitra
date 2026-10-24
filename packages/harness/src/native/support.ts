@@ -9,7 +9,6 @@ import { CLAUDE_CODE_TRANSLATION, claudeCodeToolClass, type NativeToolClass } fr
  * Audit (independent discovery keeps the canonical round-zero baseline).
  */
 export type NativeHarnessStage = "testing-writer";
-export const NATIVE_HARNESS_STAGES: readonly NativeHarnessStage[] = Object.freeze(["testing-writer"]);
 
 /**
  * `declared_unverified`: implemented and tested against a scripted stand-in executable

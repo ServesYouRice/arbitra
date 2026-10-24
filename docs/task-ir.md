@@ -1,8 +1,9 @@
 # Task IR, Validation Contract and Plan IR
 
-The product's deliverable is a plan a *different* agent can execute from `implementation/`
-alone. That only works if every task carries its own contract — not a description, a
-contract.
+The product's deliverable is a plan a *different* agent can execute without the run: the
+`implementation` tree a run publishes, or the prompts a saved plan writes into the project
+(see [Rendering](#rendering)). That only works if every task carries its own contract — not
+a description, a contract.
 
 ## Traceability
 
@@ -14,7 +15,7 @@ Every link is a persisted ID reference, never a relationship re-derived by a rea
 
 | Link | Where it lives |
 |---|---|
-| finding → issue | `canonicalIssue.sourceFindingIds` (`packages/schemas/src/canonical-issue.ts`) |
+| finding → issue | `canonicalIssue.sourceFindingIds` (`packages/workflow/src/nodes/canonical-issues.ts`) |
 | issue → validation | `planIR.traceability.issueToValidation` (`packages/schemas/src/plan.ts`) |
 | validation → task | `taskIR.addresses.validation` (`packages/schemas/src/task-ir.ts`) |
 | requirement → validation → task | `planIR.traceability.requirementLinks` |
@@ -113,14 +114,21 @@ rollbackPlan: []
 
 Three fields do more work than their size suggests.
 
-**`filesNotToTouch` may only subtract.** It cannot widen scope. An executing agent's write
-scope is `likelyFiles` minus this list, intersected with the repository's own scope
-envelope — see [`security.md`](security.md).
+**`filesNotToTouch` may only subtract.** It cannot widen scope. The renderer
+(`packages/core/src/render/index.ts`) computes a task's effective write scope as the paths the
+run grants it, limited to `likelyFiles` and minus this list. No shipped pipeline grants any:
+Audit, Feature and Testing render every task with an empty effective write scope
+(*display-only*), and the executing agent's environment decides what it may write. Testing
+execution takes its write authority from the operator's grant instead
+([Testing mode](workflows.md#testing-mode)).
 
 **`executionPolicy` travels with the command.** An agent cannot receive a command without
-its policy. `packages/security/src/command-policy.ts` re-resolves the policy against the
-repository immediately before use; a derived script that changed or disappeared becomes
-`requires_approval`, which means a human checkpoint, not a retry.
+its policy. The Audit and Feature handoffs mark every verification command
+`requires_approval`, whatever the plan said (`packages/runtime/src/model-pipeline.ts`,
+`feature-pipeline.ts`), so an executor asks before running any of them. A Testing plan may
+use only the commands its analysis derived, with their policies: package `test` and `test:*`
+scripts as `derived_repository_script`, commands the configuration declares as
+`requires_approval`. See [security](security.md#command-policy).
 
 **`context` is advisory and says so.** It may explain a contract; it cannot expand scope,
 weaken an invariant or authorise a command. That asymmetry is what stops model-authored
@@ -151,8 +159,8 @@ be emitted claiming the multi-model premise was proved. See [`evaluation.md`](ev
 The planner writes `routing.capability` and `routing.effort`, with `reason` recording why,
 and `planIR.routingRecommendations` carries the same decision at plan level. Traceability
 fails a task with no recommendation or no reason (`ROUTING_RECOMMENDATION_MISSING`). The
-deterministic pipeline uses `balanced`/`medium`. `packages/core/src/routing/difficulty.ts`
-scores a task across `DIFFICULTY_DIMENSIONS`, but no pipeline calls it yet.
+deterministic pipeline uses `balanced`/`medium`. No pipeline scores task difficulty itself;
+routing is the planner's.
 
 ## Advisors
 
@@ -208,11 +216,21 @@ native and compatible chat ([`qa/p13-live`](qa/p13-live/README.md)).
 
 ## Rendering
 
-`packages/core/src/render/` turns Plan IR into the `implementation/` directory
-deterministically: `render/markdown/` for prose, `render/manifest.ts` for the machine
-contract, `render/execution-state.ts` and `render/progress.ts` for the status channels,
+`packages/core/src/render/` turns Plan IR into the `implementation` tree deterministically:
+`render/markdown/` for prose, `render/manifest.ts` for the machine contract,
+`render/execution-state.ts` and `render/progress.ts` for the status channels,
 `render/markdown/neutralize.ts` to neutralise untrusted repository prose that appears as
-evidence.
+evidence. A model Audit, and a Feature or Testing run whose plan passes its gate, publish the
+tree as the `implementation` artifact; `export <run-id> --json` returns it
+([Getting started](setup.md#consuming-handoffs)).
+
+Saving the plan into the project is a second, separate form
+(`packages/runtime/src/plan-export.ts`, on the operator's request only). It writes the Plan IR
+as prompts under `.arbitra/plans/<date>-<run>/` in the audited repository, grouped by each
+task's `routing.capability`, with a `results.json` the executor fills in per issue. The run
+reads that file back (`packages/runtime/src/plan-results.ts`) and reports how many issues a
+failing test proved and how many were fixed
+([Export the plan into the project](setup.md#export-the-plan-into-the-project)).
 
 The manifest is authoritative; Markdown is generated from it. Task contracts are immutable
 once rendered — evolving knowledge belongs in the execution directory, never in a rewritten

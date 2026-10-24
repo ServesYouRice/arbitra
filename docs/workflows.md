@@ -1,8 +1,7 @@
 # Workflows
 
 One workflow engine, three modes. Audit, Feature and Testing are graphs over the same
-runner and the same node kinds — there is no second engine, and adding one would be the
-architectural failure the specification warns about most directly.
+runner and the same node kinds; there is no second engine.
 
 ## The graph model
 
@@ -17,8 +16,8 @@ strings, so a bad graph reports every problem at once.
 ### Node kinds
 
 The taxonomy is **closed** at six kinds. It lives in `packages/schemas/src/glyphs.ts` —
-in `schemas`, deliberately, because a seventh kind is a specification change rather than a
-UI change. `packages/workflow/src/node-kinds.ts` enforces it.
+in `schemas`, deliberately, because a seventh kind is a change to the shared contract rather
+than a UI change. `packages/workflow/src/node-kinds.ts` enforces it.
 
 | Glyph | Kind | Meaning |
 |---|---|---|
@@ -36,17 +35,21 @@ design:check` fails if a second copy appears anywhere.
 
 `packages/workflow/src/edge-contracts.ts` types what crosses an edge: an `InputContract`,
 a `PromptContract`, a `ContextContract` and an `OutputContract` with an explicit
-`ValidationBehaviour`. An edge is not a wire — it is the declaration of what the next node
-is allowed to see and what it must return.
+`ValidationBehaviour`. The workflow schema validates their shape and a saved graph stores
+them, but the runner does not apply them: what a node sees and must return is fixed by its
+executor. The [operator-authored graph](#operator-authored-graphs) validator also refuses
+an edge that carries model output as system-trusted context (`CONTEXT_TRUST_ESCALATION`).
 
 ### Context policy
 
 `packages/workflow/src/context-policy.ts` declares `CONTEXT_MODES` (`none`,
 `selected_artifacts`, `summary`, `delta`, `recent_turns`, `full_context`) and
-`CONTEXT_TRUST_LEVELS` with a `DEFAULT_CONTEXT_POLICY`. Discovery stays independent: an
-auditor does not receive another auditor's findings, so agreement between them means
-something. Weakening a context policy to "help" a model is
-how a multi-auditor run quietly becomes a single-auditor run with extra cost.
+`CONTEXT_TRUST_LEVELS`. Graph edges carry these policies, but no run reads them: each
+stage's context is fixed by its executor, and a run configuration's `contextPolicies` only
+draws the `CONTEXT_POLICIES_NOT_ENFORCED` warning ([preflight reference](setup.md#preflight-reference)).
+Discovery stays independent by construction: an auditor does not receive another auditor's
+findings, so agreement between them means something. Weakening that isolation to "help" a
+model is how a multi-auditor run quietly becomes a single-auditor run with extra cost.
 
 ### Gates and human checkpoints
 
@@ -220,9 +223,9 @@ matches it. Browser evidence is in [`docs/qa/p16/`](qa/p16/README.md).
 ## Audit mode
 
 ```text
-■ preflight ─ ◇ complexity router ─┬─ ◆ auditor A ─┐
-                                   ├─ ◆ auditor B ─┼─ ■ validate ─ ■ cluster ─ ■ issue board
-                                   └─ ◆ auditor C ─┘
+■ preflight ─┬─ ◆ auditor A ─┐
+             ├─ ◆ auditor B ─┼─ ■ validate ─ ■ cluster ─ ■ issue board
+             └─ ◆ auditor C ─┘
    ─ ◆ peer review (↻ bounded) ─ ◇ converged? ─ ▣ verification ─ ■ canonical issues
    ─ ◆ planner ─ ◇ critic required? ─ ◆ critic ─ ■ renderer
 ```
@@ -232,15 +235,16 @@ auditors, one consensus loop, a verification subgraph, planner and critic
 ([`graphs.ts`](../packages/runtime/src/graphs.ts)); the other stages run inside those
 nodes' executors.
 
-**Routing.** `packages/core/src/preflight/complexity-gate.ts` recommends an
-`OrchestrationIntensity` from repository signals, and
-`packages/core/src/routing/difficulty.ts` scores tasks across `DIFFICULTY_DIMENSIONS`. Both
-are deterministic, but no shipped pipeline calls them yet: the preset decides how many
-auditors run, and the planner writes each task's routing.
+**Routing.** No shipped pipeline scores repository complexity or task difficulty: the
+preset decides how many auditors run, and the planner writes each task's routing.
 
-**Depth.** `packages/workflow/src/nodes/discovery/depth.ts` allocates auditor scopes for
-`fast`, `balanced` and `deep` (`allocateDiscoveryScopes`), including hotspot-weighted
-coverage.
+**Depth.** `auditDepth` (`fast`, `balanced`, `deep`) sets the effort of discovery (`low`,
+`medium`, `high`), and of the stages after it unless `stageEffort` sets theirs
+(`packages/runtime/src/model-pipeline.ts`); preflight checks that every auditor and role
+profile supports that effort or collapses it explicitly (`packages/runtime/src/preflight.ts`).
+Depth does not change how the source is divided: `allocateDiscoveryScopes`
+(`packages/runtime/src/discovery-scope.ts`, called from `model-discovery.ts`) packs whole
+modules, then whole files, into scopes that fit the discovery budget.
 
 **Validation before opinion.** `packages/workflow/src/nodes/validate-findings.ts` rejects a
 finding whose evidence range does not exist in the snapshot, before any model is asked
@@ -248,12 +252,13 @@ about it. A model cannot argue a finding into existence.
 
 **Planted instructions.** Each `PROMPT_INJECTION` finding an auditor reports gets one
 bounded follow-up discovery of the code around it, so the report cannot stand in for the
-audit. See [security](security.md#injection-scanning-and-suppression-candidates).
+audit. See [security](security.md#injection-follow-ups).
 
 **Clustering.** `packages/workflow/src/clustering/deterministic.ts` (`structural-v3`) clusters
-findings deterministically; `clustering/escalate.ts` records escalated pairs
-(`SemanticClusteringDecision`, `recordSplit`) so the cost of a semantic path — if §25.4
-metrics ever justify one — is measured rather than assumed. A `PROMPT_INJECTION` report
+findings deterministically; `clustering/escalate.ts` sends ambiguous pairs to the bounded
+semantic check of a model run and records each decision with its token usage
+(`SemanticClusteringDecision`, `recordSplit`), so the cost of the semantic path is measured
+rather than assumed. A `PROMPT_INJECTION` report
 clusters only with other such reports: it describes repository text aimed at the auditor,
 never the defect beside it. Other category differences stay a scored signal, because real
 duplicates are filed under different categories. The structural rule never puts two findings
@@ -265,7 +270,9 @@ closer of an answer's two findings joins another auditor's report
 ([P18 record](qa/p18/README.md)).
 
 **Issue board.** `packages/core/src/issue-board/operations.ts` and `projection.ts` build the
-board from an append-only operation log (`packages/persistence/src/issue-ops.ts`). The
+board from an append-only operation log. Every Audit stores the log with the run as its
+`issue-operations` artifact; a model Audit keeps it in `ModelPeerBoard`
+(`packages/runtime/src/model-peer-board.ts`) and also stores it as `board-operations`. The
 board is a projection; the log is the truth.
 
 **Consensus.** `packages/workflow/src/consensus/engine.ts` runs bounded rounds under a
@@ -289,7 +296,9 @@ whether the stage was worth building.
 
 **Canonical issues.** `packages/workflow/src/nodes/canonical-issues.ts` emits support
 count, review denominator, dissent, counter-evidence, coverage, minority findings,
-suppression candidates, unexamined surfaces and recorded limitations. The planner receives
+suppression candidates (always empty for now: the detector is
+[built, not yet wired](security.md#injection-follow-ups)), unexamined surfaces and recorded
+limitations. The planner receives
 `accepted` issues and, in a one-auditor run, `verified_single_source` issues: those whose
 targeted verification returned `CONFIRMED`. The plan's premise report then carries
 `single_source_issues_planned_on_targeted_verification_without_second_auditor`, because no
@@ -301,7 +310,8 @@ Contract, Task DAG and capability routing (see [`task-ir.md`](task-ir.md)).
 `nodes/critic/selection.ts` picks a critic at or above the planner's capability tier and
 records `kind: "skipped"` with `reason: "no_available_critic_at_or_above_planner_capability"`
 when none qualifies — a skipped critic is a recorded degradation, not a silent absence.
-`nodes/revision.ts` revises only on blocking critique.
+`nodes/revision.ts` revises only on blocking critique. The critic runs only when the
+executed graph has a `critic` node (see [Presets](#presets)).
 
 ## Feature mode
 
@@ -401,9 +411,11 @@ at the revision limit remains `BLOCKED` and permits an operator draft revision.
 
 Successful plans publish an `implementation` artifact containing the rendered file tree,
 including `manifest.json`, requirements, tasks and validation. Export it through the
-existing artifact/JSON export interfaces. Source files are not modified; command policy
-and write authority still need resolution in the consuming executor. Blocking questions,
-critic feedback or exploration limitations fail the gate and withhold that handoff.
+existing artifact/JSON export interfaces, or save the plan into the project as prompts
+([Getting started](setup.md#export-the-plan-into-the-project)). Source files are not
+modified; command policy and write authority still need resolution in the consuming
+executor. Blocking questions, critic feedback or exploration limitations fail the gate and
+withhold that handoff.
 All model stages share one harness, provider scheduler and durable budget within the run.
 
 Same engine. `packages/workflow/src/nodes/requirements/` produces a durable Requirements
@@ -812,9 +824,15 @@ modes, `testing-plan` and `testing-execute` live in
 | `testing-plan` | testing | Inventory, grounded risk/gap selection, planner and handoff; no execution |
 | `testing-execute` | testing | Planning, guarded writer/check/finalization stages and verified change handoff |
 
+An Audit plan is criticised only when the executed graph has a `critic` node. Of the presets
+only `audit-deep` has one, so `audit-balanced`, `diff-review` and `diff-fast` run no plan
+critique even when `workflow.modelExecution.roles.critic` is set; that role is then used only
+as the default model for a second opinion (`verification.secondOpinion`). An Audit replay
+can add the critic (`criticEnabled`; the CLI's `replay <run-id>` sets it unless `--no-critic`
+is given).
+
 `pnpm run validate:examples` parses the schema-only examples and model-backed templates
 with `runConfigSchema`, checks the templates against runtime preflight, and runs negative
 controls proving a stale example fails. `pnpm run smoke:examples` runs every template
 through the public runtime with fixture transports. It proves wiring, not live-provider
-behavior. Other preset assets in packages/workflow are not automatically
-available through CLI/server; unknown public preset IDs fail explicitly.
+behavior. An unknown preset ID fails explicitly (`UNKNOWN_WORKFLOW_PRESET`).
