@@ -3,9 +3,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { snapshotRepository, type RepositoryGit } from "../src/repository.js";
+
+// A directory with a name in this set cannot be read, as one without read permission cannot on a POSIX system.
+const unreadable = vi.hoisted(() => new Set<string>());
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  const readdir = (async (path: string, options: never) => {
+    if (unreadable.has(String(path).split(/[\\/]/u).at(-1) ?? "")) throw Object.assign(new Error(`EACCES: permission denied, scandir '${String(path)}'`), { code: "EACCES" });
+    return actual.readdir(path, options);
+  }) as typeof actual.readdir;
+  return { ...actual, readdir };
+});
 
 describe("runtime repository snapshots", () => {
   it("reads the correct version from a real Git index, worktree and revision range", async () => {
@@ -104,6 +115,16 @@ describe("runtime repository snapshots", () => {
       await expect(snapshotRepository(root, 1, { scope: { kind: "diff", base: "--output=unsafe", head: "HEAD" }, git })).rejects.toThrow("INVALID_DIFF_REVISION");
     } finally { await rm(root, { recursive: true, force: true }); }
   });
+  it("never reads a directory the scope leaves out, so an unreadable one cannot fail the snapshot", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbitra-snapshot-pruned-"));
+    try {
+      await Promise.all([mkdir(join(root, "selected", "private"), { recursive: true }), mkdir(join(root, "elsewhere"))]);
+      await Promise.all([writeFile(join(root, "selected", "a.ts"), "export {};\n"), writeFile(join(root, "selected", "private", "b.ts"), "export {};\n"), writeFile(join(root, "elsewhere", "c.ts"), "export {};\n")]);
+      unreadable.add("private").add("elsewhere");
+      const snapshot = await snapshotRepository(root, 5, { scope: { kind: "module", modules: ["selected"], exclude: ["selected/private"] } });
+      expect(snapshot.files.map(({ path }) => path)).toEqual(["selected/a.ts"]);
+    } finally { unreadable.clear(); await rm(root, { recursive: true, force: true }); }
+  });
   it("reads Windows line endings as line ends, keeping the byte offsets of the file", async () => {
     // Observed live (October 19, 2026): with "\r" kept in each line, no quotation of a CRLF file could be grounded.
     const root = await mkdtemp(join(tmpdir(), "arbitra-snapshot-crlf-"));
@@ -142,7 +163,10 @@ describe("runtime repository snapshots", () => {
       await Promise.all([writeFile(join(root, ".gitignore"), "playwright-report/\n"), writeFile(join(root, "app.ts"), "export {};\n"),
         writeFile(join(root, "playwright-report", "index.html"), `<script>${"x".repeat(600_000)}</script>\n`), writeFile(join(root, "playwright-report", "trace.js"), "export {};\n")]);
       expect((await snapshotRepository(root)).files.map(({ path }) => path)).toEqual(["app.ts"]);
-    } finally { await rm(root, { recursive: true, force: true }); }
+      // An ignored directory is not read at all.
+      unreadable.add("playwright-report");
+      expect((await snapshotRepository(root)).files.map(({ path }) => path)).toEqual(["app.ts"]);
+    } finally { unreadable.clear(); await rm(root, { recursive: true, force: true }); }
   });
 
   it("fails closed rather than silently truncating repository coverage", async () => {

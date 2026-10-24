@@ -75,8 +75,12 @@ export async function snapshotRepository(root: string, maximumFiles = 400, optio
   // In a Git work tree, files Git ignores are left out: they are generated (test reports, coverage, builds), and one
   // oversized report refused a whole project (beachflag's playwright-report/index.html, October 20, 2026).
   const listed = await gitListedFiles(guard.root, options.git ?? defaultGit);
+  const listedDirectories = listed === null ? null : new Set([...listed].flatMap((path) => path.split("/").slice(0, -1).map((_, index, parts) => parts.slice(0, index + 1).join("/"))));
+  // A directory that cannot hold a file of the snapshot is not entered: an excluded, unselected or ignored tree costs
+  // no traversal, and cannot fail the snapshot when it is unreadable (arbitra's audit of itself, October 19, 2026).
+  const entered = (path: string): boolean => !excluded(path) && (listedDirectories === null || listedDirectories.has(path)) && (included(path) || modulePaths?.some((prefix) => prefix.startsWith(`${path}/`)) === true);
   const paths: string[] = [];
-  await walk(root, root, paths, maximumFiles + 1, guard, (path) => (listed === null || listed.has(path)) && included(path) && eligible(path));
+  await walk(root, root, paths, maximumFiles + 1, guard, (path) => (listed === null || listed.has(path)) && included(path) && eligible(path), entered);
   if (paths.length > maximumFiles) throw new Error(`REPOSITORY_FILE_LIMIT_EXCEEDED:${maximumFiles}`);
   if (modulePaths !== undefined && paths.length === 0) throw new Error("MODULE_SCOPE_EMPTY");
   const files = await Promise.all(paths.sort().map(async (path): Promise<SourceFile> => sourceFile(path, await guard.readFile(path))));
@@ -89,22 +93,22 @@ async function gitListedFiles(root: string, git: RepositoryGit): Promise<Readonl
   catch { return null; }
 }
 
-async function walk(root: string, directory: string, into: string[], limit: number, guard: RepositoryPathGuard, included: (path: string) => boolean): Promise<void> {
+async function walk(root: string, directory: string, into: string[], limit: number, guard: RepositoryPathGuard, included: (path: string) => boolean, entered: (path: string) => boolean): Promise<void> {
   if (into.length >= limit) return;
   const entries = await readdir(directory, { withFileTypes: true });
   for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
     if (into.length >= limit) return;
     const full = join(directory, entry.name);
+    const path = relative(root, full).split(sep).join("/");
     if (entry.isDirectory()) {
       if (entry.name.startsWith(".") && entry.name !== ".github") continue;
-      if (SKIPPED_DIRECTORIES.has(entry.name)) continue;
-      await walk(root, full, into, limit, guard, included);
+      if (SKIPPED_DIRECTORIES.has(entry.name) || !entered(path)) continue;
+      await walk(root, full, into, limit, guard, included, entered);
       continue;
     }
     // Dirent types are checked before extension and stat so file symlinks are never
     // followed into content outside the audited repository.
     if (!entry.isFile()) continue;
-    const path = relative(root, full).split(sep).join("/");
     if (!included(path)) continue;
     const info = await guard.stat(path);
     if (info.size > MAXIMUM_FILE_BYTES) throw new Error(`REPOSITORY_FILE_TOO_LARGE:${path}`);
