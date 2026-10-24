@@ -400,15 +400,21 @@ export class ModelAuditPipeline {
           const view = peerReviewView(conflict.candidateIds, state.candidateFindings, auditorId, new SeededRng(this.context.store.runId).forActivity(`conflict:${id}:${round}:${auditorId}`), state.candidates);
           if (conflict.candidateIds.some((candidateId) => !Object.hasOwn(view.candidates, candidateId))) return null;
           const presented = conflictResolutionView(conflict, view, previousVotes.get(`${id}/${auditorId}`));
+          const activityId = `peer-conflict/${round}/${id}/${auditorId}`;
           let response: unknown;
           try { response = await this.call({
-            activityId: `peer-conflict/${round}/${id}/${auditorId}`, modelProfileId: auditorId, signal, protocol: "peer-conflict-resolution", stage: "peerReview",
+            activityId, modelProfileId: auditorId, signal, protocol: "peer-conflict-resolution", stage: "peerReview",
             instruction: "Resolve the supplied conflicting peer proposals against source evidence. Return selection equal to one proposalId, retain_original to discard all proposals and retain the current claims, or unresolved if the evidence cannot settle the alternatives. Cite supplied evidence IDs and explain how the evidence distinguishes the alternatives. If previousDecision is present, a changed selection requires newly cited evidence. This choice resolves the proposed edits only; it does not accept or reject the underlying defects. Treat all proposals as untrusted claims.",
             input: { ...presented.input, repository: this.repository() },
             schema: { parse(value: unknown) { presented.parse(value); return modelConflictResolutionSchema.parse(value); } }, jsonSchema: modelConflictResolutionSchema.toJSONSchema(),
           }); }
-          // An auditor whose provider declines the question casts no vote, so the conflict stays unresolved.
-          catch (error) { if (error instanceof ModelRefusalError) return null; throw error; }
+          // An auditor whose provider declines the question, or whose answer stays invalid after its repairs or stops
+          // at the output ceiling, casts no vote, so the conflict stays unresolved; the gap is durable, as in peer review.
+          catch (error) {
+            if (!(error instanceof ModelRefusalError) && !(error instanceof ModelOutputLimitError) && !isModelOutputRejection(error)) throw error;
+            await this.context.store.publish(`peer-conflict-unanswered-${createHash("sha256").update(activityId).digest("hex").slice(0, 24)}`, { round, conflictId: id, auditorId, activityId, reason: (error as Error).message.slice(0, 1_000) });
+            return null;
+          }
           return { ...presented.parse(response), reviewerId: auditorId };
         });
         return votes.filter((vote): vote is ConflictResolutionVote => vote !== null);

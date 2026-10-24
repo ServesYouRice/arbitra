@@ -16,7 +16,7 @@ import type { TestSandbox } from "../src/test-sandbox.js";
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
-async function fixture(options: { secondFile?: boolean; revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; ambiguousClustering?: boolean; oversizedRepository?: boolean; packedReviewSource?: boolean; planQuestion?: boolean; verifierContextTokens?: number; invalidVerification?: boolean; invalidGroupVerification?: boolean; unanimousReview?: boolean; verificationByPlace?: boolean; severities?: readonly string[]; critiqueVerdict?: "HOLDS" | "DOES_NOT_HOLD"; lowerSeverity?: "one" | "two"; severeRejection?: "REJECTED" | "CONFIRMED" } = {}) {
+async function fixture(options: { secondFile?: boolean; revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; conflictFault?: "invalid" | "output_limit";ambiguousClustering?: boolean; oversizedRepository?: boolean; packedReviewSource?: boolean; planQuestion?: boolean; verifierContextTokens?: number; invalidVerification?: boolean; invalidGroupVerification?: boolean; unanimousReview?: boolean; verificationByPlace?: boolean; severities?: readonly string[]; critiqueVerdict?: "HOLDS" | "DOES_NOT_HOLD"; lowerSeverity?: "one" | "two"; severeRejection?: "REJECTED" | "CONFIRMED" } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "arbitra-model-run-")); directories.push(directory);
   const manyIssues = options.largePeerContext === true || options.largePlannerContext === true;
   await writeFile(join(directory, "a.ts"), "const value = null;\n".repeat(manyIssues ? 4 : options.ambiguousClustering === true ? 3 : 1), "utf8");
@@ -127,6 +127,9 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
       expect(user).not.toMatch(/auditor-[abc]/u);
       const input = JSON.parse(user) as { candidates: Record<string, { sources: { evidence: { id: string }[] }[] }> };
       output = { selection: options.conflictResolution ?? "unresolved", evidenceIds: Object.values(input.candidates).flatMap(({ sources }) => sources.flatMap(({ evidence }) => evidence.map(({ id }) => id))), rationale: "Fixture resolution based on supplied source" };
+      // One auditor's answer names no supplied proposal, or stops at the output ceiling (the OpenAI Responses shape).
+      if (options.conflictFault === "output_limit" && request.url.includes("auditor-a")) return { status: 200, headers: {}, body: { status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, output_text: '{"selection":', usage: { input_tokens: 10, output_tokens: 2_000 } } };
+      if (options.conflictFault === "invalid" && request.url.includes("auditor-a")) output = { ...(output as object), selection: "proposal-9" };
     } else if (system.startsWith("Review every")) {
       requests.push({ stage: "review", url: request.url });
       const input = JSON.parse(user) as { round: number; candidates: Record<string, { candidateId: string; sources: { findingRef: string; evidence: { id: string }[] }[] }> };
@@ -642,6 +645,27 @@ describe("composed model audits", () => {
     expect(await read("peer-operation-resolutions")).toMatchObject([{ round: 2, votes: [{ evidenceIds: expect.any(Array) }, { evidenceIds: expect.any(Array) }, { evidenceIds: expect.any(Array) }] }]);
     const state = await read("consensus-state") as { board: { candidates: Record<string, unknown> } };
     expect(Object.keys(state.board.candidates)).toHaveLength(conflictResolution === "retain_original" ? 1 : 2);
+  });
+
+  it.each(["invalid", "output_limit"] as const)("leaves a conflict unresolved and goes on when one auditor's answer is %s", async (conflictFault) => {
+    // One auditor's answer that stays invalid, or stops at the output ceiling, costs its vote, not the run.
+    const { create, config, requests } = await fixture({ conflictingReview: true, conflictResolution: "proposal-1", conflictFault });
+    const core = create(); const result = await core.run(config);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
+    expect(requests.filter(({ stage }) => stage === "conflict")).toHaveLength(3);
+    const artifacts = await core.artifacts(result.runId);
+    const read = async (kind: string): Promise<unknown> => {
+      const descriptor = artifacts.find((artifact) => artifact.kind === kind);
+      if (descriptor === undefined) throw new Error(`MISSING_ARTIFACT:${kind}`);
+      return JSON.parse((await core.artifact(result.runId, descriptor.artifactId) as { content: string }).content);
+    };
+    const unanswered = artifacts.filter(({ kind }) => kind.startsWith("peer-conflict-unanswered-"));
+    expect(unanswered).toHaveLength(1);
+    expect(await read(unanswered[0]?.kind ?? "")).toMatchObject({ round: 2, auditorId: "auditor-a", activityId: expect.stringMatching(/^peer-conflict\/2\/.+\/auditor-a$/u) });
+    // The two answers that came do not settle the conflict, so it stays open for verification and the plan.
+    expect(await read("peer-operation-resolutions")).toEqual([]);
+    expect(await read("peer-operation-conflicts")).toHaveLength(1);
   });
 
   it.each([0, 1, 3])("bounds durable semantic clustering to %i pairs", async (maximumClusteringPairs) => {

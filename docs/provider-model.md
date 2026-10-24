@@ -513,7 +513,8 @@ again. Discovery tries a declined unit once more in smaller parts (several files
 two line windows) and leaves what is declined again unexamined for that auditor (`discovery-declined-*`,
 limitation `discovery_provider_refused`); a unit whose reply stays invalid after its repairs is treated the
 same way (`discovery_reply_rejected`). A declined review batch contributes nothing and counts as rejected
-review output, and an auditor whose provider declines a conflict casts no vote, so that conflict stays
+review output, and an auditor whose provider declines a conflict, or whose answer stays invalid after its
+repairs or stops at the output ceiling, casts no vote (`peer-conflict-unanswered-*`), so that conflict stays
 unresolved.
 Exact and structural matches still resolve without model calls. Unclassified pairs remain
 separate. The run persists classifications, rationales, operations, and unresolved pairs.
