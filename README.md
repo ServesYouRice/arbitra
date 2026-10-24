@@ -126,7 +126,7 @@ interfaces call it — the CLI through `orchestratorCore`, the control plane thr
 ```bash
 pnpm build                                  # both entrypoints run from dist/
 
-node apps/cli/dist/src/bin.js audit --preset audit-deep --module packages/tools  # --full: repositories up to 400 source files
+node apps/cli/dist/src/bin.js audit --preset audit-deep --module packages/tools  # scripted detectors, no models (models: `run <config>`); --full: up to 400 source files
 node apps/server/dist/src/serve.js          # the app and its control plane on 127.0.0.1:4178
 pnpm --filter @arbitra/web dev              # for UI work: a dev server on 127.0.0.1:4173, proxied to the control plane
 ```

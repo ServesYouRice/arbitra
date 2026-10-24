@@ -135,6 +135,9 @@ node apps/cli/dist/src/bin.js audit --preset audit-balanced --module packages/to
 ```
 
 It exits `1` with `degraded_coverage` by design; see the [README](../README.md#running-it).
+`audit --preset` configures no models, so it always runs these detectors, and its output says so
+(`audit --help` prints the same). A model audit starts from a configuration with `run <config>`, as
+below, or from **New run** in the app.
 Snapshots are limited to 400 source files, so `--full` on this repository fails with
 `REPOSITORY_FILE_LIMIT_EXCEEDED:400`. Use `--full` on smaller repositories, or narrow the
 scope with `--module <path>`.

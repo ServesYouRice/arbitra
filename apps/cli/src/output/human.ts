@@ -16,6 +16,8 @@ export function renderHuman(output: CliJsonOutput): string {
     ].join("\n");
   }
   const reasons = output.policy.reasons.length === 0 ? "none" : output.policy.reasons.join(", ");
+  const usage = isRecord(output.result) && typeof output.result["usage"] === "string" ? output.result["usage"] : null;
+  if (usage !== null) return output.policy.gateStatus === "passed" ? usage : `${output.command}: ${output.policy.gateStatus} (reasons: ${reasons})\n${usage}`;
   if (isSecurityConsensusResult(output.result)) {
     const candidates = output.result.suppressionCandidates.flatMap((candidate) => [
       `  - ${candidate.path}; read by: ${formatList(candidate.readBy)}; findings citing: ${formatList(candidate.findingsCiting)}`,
@@ -42,6 +44,10 @@ export function renderHuman(output: CliJsonOutput): string {
     }
     const diagnostics = report.diagnostics.map(({ severity, scope, code, path, message }) => `  - [${severity}${scope === undefined ? "" : ` ${scope}`}] ${code} at ${path}: ${message}`);
     return [...header, `diagnostics: ${report.diagnostics.length === 0 ? "none" : report.diagnostics.length}`, ...diagnostics].join("\n");
+  }
+  const execution = output.command === "audit" && isRecord(output.result) && isRecord(output.result["execution"]) ? output.result["execution"] : null;
+  if (execution !== null && typeof execution["auditors"] === "string" && typeof execution["modelAudit"] === "string") {
+    return [`${output.command}: ${output.policy.gateStatus} (reasons: ${reasons})`, `ran: ${execution["auditors"]}, no model call. For a model audit: ${execution["modelAudit"]}`].join("\n");
   }
   return `${output.command}: ${output.policy.gateStatus} (reasons: ${reasons})`;
 }

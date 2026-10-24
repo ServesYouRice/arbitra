@@ -180,6 +180,11 @@ describe("the CLI port", () => {
     expect(result.reasons).toContain("degraded_coverage");
   });
 
+  it("records that `audit --preset` ran scripted detectors and how to start a model audit", async () => {
+    const result = await orchestratorCore(orchestrator()).audit({ preset: "audit-balanced", target: { kind: "full" } });
+    expect(result.value).toMatchObject({ state: "COMPLETED", execution: { auditors: "scripted detectors", modelCalls: 0, preset: "audit-balanced", modelAudit: expect.stringContaining("arbitra run <config>") } });
+  });
+
   it("reports an unparseable configuration as a failure rather than throwing", async () => {
     const core = orchestratorCore(orchestrator());
     const result = await core.validate(join(repository, "src/util.ts"));

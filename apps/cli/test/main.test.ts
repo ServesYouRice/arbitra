@@ -230,6 +230,24 @@ describe("CLI commands", () => {
     expect(isCliJsonOutput(JSON.parse(capture.stdout.join("")) as unknown)).toBe(true);
   });
 
+  it("says what `audit --preset` runs and how to start a model audit, in its usage and beside its result", async () => {
+    // `audit --preset` configures no models, so a person who read its "audit: failed (reasons: degraded_coverage)" took it for a model audit.
+    const core = new FakeWorkflowCore();
+    const help = captureIo(); const asked = await runCli(["audit", "--help"], core, help.io);
+    expect(asked.exit).toBe(0);
+    expect(core.calls).toEqual([]);
+    expect(help.stdout.join("")).toContain("usage: arbitra audit [--preset audit-balanced|audit-deep|diff-fast|diff-review]");
+    expect(help.stdout.join("")).toContain("scripted detectors: no model is configured and none is called");
+    expect(help.stdout.join("")).toContain("arbitra run <config>");
+    const missing = captureIo(); const refused = await runCli(["audit", "--preset", "audit-deep"], core, missing.io);
+    expect(refused.exit).toBe(2);
+    expect(missing.stderr.join("")).toContain("audit: system_failure (reasons: missing_audit_target)\nusage: arbitra audit");
+    const result = captureIo();
+    core.audit = async () => ({ disposition: "failed", reasons: ["degraded_coverage"], value: { runId: "run-1", state: "COMPLETED", execution: { auditors: "scripted detectors", modelCalls: 0, modelAudit: "arbitra run <config> with models set in workflow.modelExecution" } } });
+    await runCli(["audit", "--preset", "audit-deep", "--full"], core, result.io);
+    expect(result.stderr.join("")).toBe("audit: failed (reasons: degraded_coverage)\nran: scripted detectors, no model call. For a model audit: arbitra run <config> with models set in workflow.modelExecution\n");
+  });
+
   it("returns exit 1 and valid JSON for a diff-review unresolved high issue", async () => {
     const core = new FakeWorkflowCore();
     core.audit = async (request) => ({ disposition: "failed", reasons: ["unresolved_high_issue"], value: { graph: { id: "canonical-audit", version: 1 }, request, canonicalIssues: [{ candidateId: "C-1", severity: "high", disposition: "needs_verification" }], suppressionCandidates: [], securityCoverage: { degraded: false, reason: null }, unexaminedSurfaces: [] } });

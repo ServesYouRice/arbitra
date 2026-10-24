@@ -145,7 +145,10 @@ export function orchestratorCore(orchestrator: Orchestrator) {
         budgets: {}, security: {}, protocols: {}, promptOverrides: {}, contextPolicies: {},
       });
       const { runId, state } = await orchestrator.run(config);
-      return completed(runId, state);
+      const result = await completed(runId, state);
+      // No models are configured, so the auditors are the scripted detectors; the result says so and where a model audit starts.
+      const value = typeof result.value === "object" && result.value !== null ? result.value : {};
+      return { ...result, value: { ...value, execution: { auditors: "scripted detectors", modelCalls: 0, preset: request.preset, modelAudit: "arbitra run <config> with models set in workflow.modelExecution (docs/setup.md, \"Preparing a live run\"), or New run in the app" } } };
     },
 
     async status(runId: string): Promise<CoreCommandResult> {
