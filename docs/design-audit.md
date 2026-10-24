@@ -159,7 +159,9 @@ October 14 ([provider model](provider-model.md#one-pass-per-review-stage)); item
 12. Effort: discovery at `high` against `xhigh`; Gemini at `medium` against `high`; checking stages lower.
 13. A second, varied discovery pass (another order, unit boundary or issue class), and smaller units.
 14. A cheaper verifier first, with uncertain answers sent to the frontier model. Balanced audits only: deep audits
-    keep frontier models in every role (October 24).
+    keep frontier models in every role (October 24). Measured on nextra the same day: Sonnet 5.5 cost about as many
+    tokens as Opus, differed on 12% of verdicts, and was wrong on all three where the truth is known; not adopted
+    ([remaining work](../WORK-REMAINING.md)).
 15. A verifier from another vendor on a sample, to measure same-family preference.
 16. An execution rung for high and critical claims, in the existing Docker sandbox.
 17. A local static analyser whose alerts become candidates and a risk map.

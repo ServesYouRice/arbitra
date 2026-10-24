@@ -174,9 +174,21 @@ are checked against Anthropic's guidance first.
 
 - **Verification is still about half a run's tokens** (nextra 14.4M of 26.8M, 192 questions). Issues below the plan's
   severity bar are no longer verified by default (`belowPlanScope: "skip"`; before that, low and informational
-  questions were 29 to 35% of a run). Next: in balanced audits, a cheaper verifier for medium issues, with high,
-  critical and uncertain answers sent to the frontier model (design audit item 14). Deep audits keep frontier
-  verifiers.
+  questions were 29 to 35% of a run). A cheaper verifier (design audit item 14) was measured on October 24 by
+  replaying nextra's run with Sonnet 5.5 verifying every question (`run-98e2ee7a`, in the experiments folder):
+  - **Cost:** hardly lower. Verification took 11.7M tokens in 412 calls against Opus's 13.3M in 454, and 62
+    call-minutes against 70; the saving is only what a Sonnet token costs against an Opus one.
+  - **Verdicts:** of 188 verified issues, 22 differ (12%). Sonnet confirmed 10 that Opus left unsettled or
+    rejected, rejected 2 that Opus left unsettled, and left unsettled 6 that Opus confirmed (2 of them high) and 4
+    that Opus rejected.
+  - **Where the truth is known** (nextra's plan carried out): Sonnet was wrong all three times. It confirmed the fMP4
+    restart claim (check 05, which does not hold), left the forwarded-IP defect unsettled (TASK-005, proven by a
+    failing test), and rejected the OBS gate on tunnelled sockets (check 07, real when audited). Opus confirmed the
+    second and left the other two unsettled. One more Sonnet confirmation, "`TRUST_PROXY=1` enables IP spoofing",
+    looks wrong too: Express's `req.ip` is only logged.
+  - **So far:** not worth it. The default keeps Opus. The 18 medium issues where they differ will be judged as
+    nextra's plan is carried out; if Sonnet turns out right on most, a medium-only Sonnet verifier for balanced
+    audits is worth another look. Deep audits keep frontier verifiers either way.
 - **Re-asking each finding of a rejected merged candidate rarely changes the answer:** 10 to 16% of each panel's
   tokens, 7 of 50 re-asked confirmed, none a planted defect. Re-ask only across files, or only at medium and above.
 - **No first call reads Claude Code's cache** (72 first calls in one run wrote 1.18M tokens and read none). Measure
@@ -264,7 +276,8 @@ Measurements are for our own judgement of whether the product is good, not to pr
    - Without review no reviewer votes, so the second opinion before rejecting a severe issue never fired (7 severe
      rejections on blog). Every severe rejection now gets it when no review ran.
 
-   Still to measure: a cheaper verifier for balanced audits (item 14), and Gemini's share across the next real runs
+   A cheaper verifier (item 14) is measured and not adopted (see Cost and speed above). Still to measure: Gemini's
+   share across the next real runs
    (above).
 3. **Plans carried out on the real-run projects.** The five runs were on the owner's own projects, so their plans
    are carried out there, on a `dev` branch of each project (never `main`), starting with nextra's remaining issues
@@ -273,9 +286,7 @@ Measurements are for our own judgement of whether the product is good, not to pr
    finding: 79 of nextra's 105 prompts cited validation ids (`VAL-003 tests exist and pass`) that the folder never
    defined; each prompt now carries the assertions it cites.
 
-Next, in this order: the cheaper-verifier replay on nextra's discovery (Sonnet verifying every question, compared
-with Opus's verdicts; started October 24 after the rokbot run, its fix, the checkpoint-2 tag and v0.2.2); test files
-packed with the source they import. nextra's `dev` branch runs alongside, since it touches only nextra. Then the
+Next, in this order: test files packed with the source they import (the cheaper-verifier replay is done, above). nextra's `dev` branch runs alongside, since it touches only nextra. Then the
 smaller items of this phase, then the UI phase, then P21.
 
 **To re-check on the current build** (measured October 11 to 13, before later changes): prompts sized at one byte a
