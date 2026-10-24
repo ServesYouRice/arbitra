@@ -7,7 +7,7 @@ import { canonicalJson } from "@arbitra/core/config/config-store.js";
 import type { HarnessEvent, HarnessUsage } from "@arbitra/harness/adapter.js";
 import { ClaudeCodeHarnessAdapter, NativeHarnessError } from "@arbitra/harness/native/claude-code/adapter.js";
 import { CLAUDE_CODE_VERSION_ARGUMENTS, claudeCodeEnvironment, claudeCodeHostHome, claudeCodeHostLoginEnvironment, isClaudeCodeControlPath, parseClaudeCodeVersion } from "@arbitra/harness/native/claude-code/translation.js";
-import { runNativeProcess, type NativeProcessPort } from "@arbitra/harness/native/process.js";
+import { nativeExecutable, runNativeProcess, type NativeExecutable, type NativeProcessPort } from "@arbitra/harness/native/process.js";
 import { assertNativeHarnessSupported, nativeHarnessSupport, unenforceableNativeTools, type NativeHarnessSupport } from "@arbitra/harness/native/support.js";
 import type { RunConfig } from "@arbitra/schemas/config.js";
 import type { ModelActivityTraceRecord } from "@arbitra/schemas/model-trace.js";
@@ -142,8 +142,9 @@ export async function nativeTestingWriter(store: RunStore, config: RunConfig, ac
 
   const host = options.host?.environment ?? process.env;
   const processes = options.host?.processes ?? { run: runNativeProcess };
-  const executable = host[support.executableEnvVar];
-  if (executable === undefined || !isAbsolute(executable)) throw new Error(`NATIVE_HARNESS_EXECUTABLE_MISSING:${support.executableEnvVar}`);
+  const executablePath = host[support.executableEnvVar];
+  if (executablePath === undefined || !isAbsolute(executablePath)) throw new Error(`NATIVE_HARNESS_EXECUTABLE_MISSING:${support.executableEnvVar}`);
+  const executable = await nativeExecutable(executablePath, support.executableEnvVar);
   const secret = credential === null ? "" : host[credential.variable] ?? "";
   if (credential !== null && secret.length === 0) throw new Error(`NATIVE_HARNESS_CREDENTIAL_MISSING:${credential.variable}`);
   // The host login is found only through the host home; refused here, before any spend.
@@ -174,7 +175,7 @@ export async function nativeTestingWriter(store: RunStore, config: RunConfig, ac
       await writeFile(destination, file.content, { flag: "wx" });
     }
     const realWork = await realpath(work);
-    const adapter = new ClaudeCodeHarnessAdapter({ executable, cwd: work, cwdAliases: realWork === work ? [] : [realWork],
+    const adapter = new ClaudeCodeHarnessAdapter({ ...executable, cwd: work, cwdAliases: realWork === work ? [] : [realWork],
       environment: credential === null ? claudeCodeHostLoginEnvironment({ host, temporaryDirectory: join(directory, "tmp") })
         : claudeCodeEnvironment({ host, home: join(directory, "home"), configDirectory: join(directory, "config"), temporaryDirectory: join(directory, "tmp"), credentialTarget: credential.target, credential: secret }),
       model: profile.modelId, maximumTurns: settings.maximumTurns, timeoutMs: settings.timeoutMs, maximumOutputBytes: settings.maximumOutputBytes ?? DEFAULT_OUTPUT_BYTES,
@@ -290,11 +291,11 @@ async function collectChanges(work: string, pinned: PinnedNativeInput, lease: Wr
   return changes.sort((a, b) => a.path.localeCompare(b.path));
 }
 
-async function probeNativeVersion(executable: string, host: Readonly<Record<string, string | undefined>>, processes: NativeProcessPort, signal: AbortSignal): Promise<string> {
+async function probeNativeVersion({ executable, prefixArguments }: NativeExecutable, host: Readonly<Record<string, string | undefined>>, processes: NativeProcessPort, signal: AbortSignal): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), `${SCRATCH_PREFIX}probe-`));
   try {
     const environment = claudeCodeEnvironment({ host, home: directory, configDirectory: directory, temporaryDirectory: directory, credentialTarget: "ARBITRA_NO_CREDENTIAL", credential: "" });
-    const result = await processes.run({ executable, arguments: CLAUDE_CODE_VERSION_ARGUMENTS, cwd: directory, environment, stdin: "", timeoutMs: 10_000, maximumOutputBytes: 4096, signal });
+    const result = await processes.run({ executable, arguments: [...prefixArguments, ...CLAUDE_CODE_VERSION_ARGUMENTS], cwd: directory, environment, stdin: "", timeoutMs: 10_000, maximumOutputBytes: 4096, signal });
     if (result.stopped === "cancelled") throw new Error("NATIVE_WRITER_CANCELLED");
     if (result.stopped !== null || result.exitCode !== 0) throw new Error(`NATIVE_HARNESS_VERSION_PROBE_FAILED:${result.stopped ?? String(result.exitCode)}`);
     const version = parseClaudeCodeVersion(result.stdout);

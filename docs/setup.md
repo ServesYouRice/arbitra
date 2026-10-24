@@ -383,7 +383,10 @@ login ([evidence](qa/p12/README.md)). See
 Host setup (never run configuration):
 
 - `ARBITRA_CLAUDE_CODE_EXECUTABLE` — absolute path of the `claude` executable. Its
-  `--version` is probed before every native run and must fall in the supported range.
+  `--version` is probed before every native run and must fall in the supported range. On
+  Windows that is `claude.exe`, or the `claude.cmd` an npm install puts on PATH: the Node
+  script the shim names is then run with Node, never through a command shell, and any other
+  `.cmd` or `.bat` is refused (`NATIVE_HARNESS_EXECUTABLE_UNSUPPORTED`).
 - The variable named by `apiKeyEnvVar` — passed to the native process as
   `ANTHROPIC_API_KEY`, its only credential. Not used with `subscription_login` (below).
 - Every writer profile in `workflow.testing.execution.models` must be an `anthropic`
@@ -599,6 +602,7 @@ See [Feature mode](workflows.md#feature-mode) for revision and the equivalent HT
 | `MODEL_IDENTITY_PLACEHOLDER:<id>` | environment (live runs) | Set real `modelId`/`family` |
 | `PROVIDER_CREDENTIAL_MISSING:<endpoint>` | environment | Export the named variable |
 | `NATIVE_HARNESS_EXECUTABLE_MISSING`, `NATIVE_HARNESS_CREDENTIAL_MISSING:<var>`, `NATIVE_HARNESS_HOST_HOME_MISSING` | environment | Export `ARBITRA_CLAUDE_CODE_EXECUTABLE` (absolute path) and the `apiKeyEnvVar` variable; `subscription_login` needs the host `HOME` (`USERPROFILE` on Windows) |
+| `NATIVE_HARNESS_EXECUTABLE_UNSUPPORTED:<var>` | environment | The variable names a Windows `.cmd` or `.bat` that is not an npm shim of an installed package; point it at `claude.exe` or at the npm `claude.cmd` |
 | `SANDBOX_ENGINE_UNAVAILABLE`, `SANDBOX_IMAGE_UNAVAILABLE:<image>` | environment | Start a Linux Docker engine; make the pinned image present locally |
 | `SUBSCRIPTION_CLI_NOT_INSTALLED:<endpoint>`, `SUBSCRIPTION_CLI_VERSION_UNREADABLE:<endpoint>`, `SUBSCRIPTION_CLI_VERSION_UNSUPPORTED:<endpoint>` | environment | Install a supported CLI version, or set its `ARBITRA_*_EXECUTABLE` to an absolute path |
 | `SUBSCRIPTION_CLI_NOT_LOGGED_IN:<endpoint>`, `SUBSCRIPTION_CLI_API_KEY_LOGIN:<endpoint>` | environment | Sign in with the subscription using the command in the message (`claude auth login`, `codex login`, `gemini`) |

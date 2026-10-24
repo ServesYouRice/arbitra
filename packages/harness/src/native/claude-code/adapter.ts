@@ -8,6 +8,8 @@ import { claudeCodeArguments, claudeCodeToolClass, claudeCodeToolPaths, NativeEv
 /** One native run: an isolated scratch working directory, a sanitized environment and hard bounds. */
 export interface NativeInvocation {
   readonly executable: string;
+  /** Arguments before Claude Code's own, such as the script of an npm install run with Node (`nativeExecutable`). */
+  readonly prefixArguments?: readonly string[];
   /** Scratch copy the native process runs in. Never the Testing worktree. */
   readonly cwd: string;
   /** Additional spellings of `cwd` (for example its realpath) that tool paths may use. */
@@ -112,7 +114,7 @@ export class ClaudeCodeHarnessAdapter implements HarnessAdapter {
     const forward = () => controller.abort(policy.signal.reason);
     policy.signal.addEventListener("abort", forward, { once: true });
     if (policy.signal.aborted) forward();
-    const execution = processes.run({ executable: this.invocation.executable, arguments: argv, cwd: this.invocation.cwd, environment: this.invocation.environment,
+    const execution = processes.run({ executable: this.invocation.executable, arguments: [...(this.invocation.prefixArguments ?? []), ...argv], cwd: this.invocation.cwd, environment: this.invocation.environment,
       stdin: prompt.text, timeoutMs: this.invocation.timeoutMs, maximumOutputBytes: this.invocation.maximumOutputBytes, signal: controller.signal, onLine,
       ...(this.invocation.onSpawn === undefined ? {} : { onSpawn: this.invocation.onSpawn }) })
       .finally(() => { finished = true; notify?.(); });

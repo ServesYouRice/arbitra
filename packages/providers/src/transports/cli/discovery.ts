@@ -46,7 +46,7 @@ export async function cliExecutableCandidates(support: CliTransportSupport, host
     if (!absolute(override, host.platform) || !await executable(override, host.platform)) {
       return [{ found: false, reason: "override_invalid", detail: `${support.executableEnvVar} must be the absolute path of an existing executable file` }];
     }
-    return [await found(override, "override", host)];
+    return [await cliExecutableAt(override, "override", host)];
   }
   const names = host.platform === "win32" ? [".exe", ".cmd", ".bat", ""].map((extension) => `${support.command}${extension}`) : [support.command];
   const paths: { readonly path: string; readonly source: CliExecutable["source"] }[] = [];
@@ -60,10 +60,11 @@ export async function cliExecutableCandidates(support: CliTransportSupport, host
   for (const candidate of await wellKnownLocations(support, host)) if (await executable(candidate, host.platform)) paths.push({ path: candidate, source: "well_known" });
   const seen = new Set<string>();
   const unique = paths.filter(({ path }) => { const key = host.platform === "win32" ? path.toLowerCase() : path; if (seen.has(key)) return false; seen.add(key); return true; });
-  return Promise.all(unique.map(({ path, source }) => found(path, source, host)));
+  return Promise.all(unique.map(({ path, source }) => cliExecutableAt(path, source, host)));
 }
 
-async function found(path: string, source: CliExecutable["source"], host: DiscoveryHost): Promise<CliExecutableResolution> {
+/** How to start the CLI installed at `path` (see `CliExecutable`); the native Testing writer starts its override the same way. */
+export async function cliExecutableAt(path: string, source: CliExecutable["source"], host: DiscoveryHost): Promise<CliExecutableResolution> {
   if (host.platform === "win32" && /\.(?:cmd|bat)$/iu.test(path)) {
     const script = await npmShimScript(path);
     if (script === null) return { found: false, reason: "not_found", detail: `${path} is a command shim whose Node entry point could not be identified; set the executable override to the CLI's .exe or script` };

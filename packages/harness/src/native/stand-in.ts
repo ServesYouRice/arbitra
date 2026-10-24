@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { chmod, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
 /**
  * Scripted stand-in for a native harness executable, used by tests where no real
@@ -39,12 +39,46 @@ export interface StandInScenario {
   readonly exitCode?: number;
 }
 
+/**
+ * Laid out as an npm install of Claude Code is on this platform, and returns the path an operator
+ * names in ARBITRA_CLAUDE_CODE_EXECUTABLE: an executable script, or on Windows a `.cmd` shim in
+ * npm's own form that runs the script under `node_modules` with Node.
+ */
 export async function writeStandInExecutable(directory: string, scenario: StandInScenario, name = "claude"): Promise<string> {
+  const source = `#!/usr/bin/env node\n${STAND_IN_SOURCE.replace("__SCENARIO__", () => JSON.stringify(scenario))}`;
+  if (process.platform === "win32") {
+    const script = join("node_modules", "@anthropic-ai", "claude-code", `${name}.cjs`);
+    await mkdir(join(directory, dirname(script)), { recursive: true });
+    await writeFile(join(directory, script), source);
+    const shim = join(directory, `${name}.cmd`);
+    await writeFile(shim, NPM_SHIM.replace("__SCRIPT__", () => script).replaceAll("\n", "\r\n"));
+    return shim;
+  }
   const path = join(directory, name);
-  await writeFile(path, `#!/usr/bin/env node\n${STAND_IN_SOURCE.replace("__SCENARIO__", () => JSON.stringify(scenario))}`, { mode: 0o755 });
+  await writeFile(path, source, { mode: 0o755 });
   await chmod(path, 0o755);
   return path;
 }
+
+/** What npm writes as `claude.cmd` for `npm install -g @anthropic-ai/claude-code` (copied from npm 11.6 on Windows 11). */
+const NPM_SHIM = `@ECHO off
+GOTO start
+:find_dp0
+SET dp0=%~dp0
+EXIT /b
+:start
+SETLOCAL
+CALL :find_dp0
+
+IF EXIST "%dp0%\\node.exe" (
+  SET "_prog=%dp0%\\node.exe"
+) ELSE (
+  SET "_prog=node"
+  SET PATHEXT=%PATHEXT:;.JS;=;%
+)
+
+endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\__SCRIPT__" %*
+`;
 
 /**
  * Whether a process has terminated. A killed descendant is reparented and reaped

@@ -29,6 +29,8 @@ const signal = () => new AbortController().signal;
 const native = { harnessId: "claude-code", stages: ["testing-writer"], apiKeyEnvVar: "FIXTURE_NATIVE_KEY", timeoutMs: 20_000, maximumTurns: 8, maximumToolCalls: 8, maximumTokensPerRun: 50_000 };
 const login = { harnessId: "claude-code", stages: ["testing-writer"], credentialKind: "subscription_login", timeoutMs: 20_000, maximumTurns: 8, maximumToolCalls: 8, maximumTokensPerRun: 50_000 };
 const written = "test('session', () => {});\n";
+/** libuv's `required_vars` (src/win/process.c), less PATH, TEMP and USERPROFILE, which arbitra sets itself. */
+const PLATFORM_ADDED_VARIABLES = ["__CF_USER_TEXT_ENCODING", ...(process.platform === "win32" ? ["HOMEDRIVE", "HOMEPATH", "LOGONSERVER", "SYSTEMDRIVE", "SYSTEMROOT", "USERDOMAIN", "USERNAME", "WINDIR"] : [])];
 
 async function fixture(scenario: StandInScenario) {
   const root = await mkdtemp(join(tmpdir(), "native-writer-")); roots.push(root);
@@ -88,19 +90,39 @@ describe("native Testing writer", () => {
     expect(await f.invoke(f, { config, host })).toEqual({ summary: "Stand-in wrote the requested test", limitations: [] });
     expect((await f.workspace.verificationInput(f.task.id)).writes.map(({ path }) => path)).toEqual(["session.test.ts"]);
     const report = JSON.parse(await readFile(f.report, "utf8")) as { cwd: string; envKeys: string[]; env: Record<string, string | undefined>; argv: string[]; files: string[] };
-    // macOS CoreFoundation adds __CF_USER_TEXT_ENCODING inside the child itself; it is not passed.
-    expect(report.envKeys.filter((key) => key !== "__CF_USER_TEXT_ENCODING")).toEqual(["CLAUDE_CODE_DISABLE_AUTO_MEMORY", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", ...Object.keys(extra), "DISABLE_AUTOUPDATER", "DISABLE_ERROR_REPORTING", "DISABLE_TELEMETRY",
+    // macOS CoreFoundation adds __CF_USER_TEXT_ENCODING inside the child itself, and on Windows libuv adds the variables
+    // Windows programs need from this process when the child's environment lacks them; none of them is passed.
+    expect(report.envKeys.filter((key) => !PLATFORM_ADDED_VARIABLES.includes(key))).toEqual(["CLAUDE_CODE_DISABLE_AUTO_MEMORY", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", ...Object.keys(extra), "DISABLE_AUTOUPDATER", "DISABLE_ERROR_REPORTING", "DISABLE_TELEMETRY",
       "HOME", "NO_COLOR", "PATH", "TEMP", "TMP", "TMPDIR", "USER", "USERPROFILE"].sort());
     expect(report.env).toEqual({ HOME: home, CLAUDE_CONFIG_DIR: "CLAUDE_CONFIG_DIR" in extra ? extra.CLAUDE_CONFIG_DIR : undefined, ANTHROPIC_API_KEY: undefined, CLAUDE_CODE_OAUTH_TOKEN: undefined });
     expect(report.argv).toEqual(expect.arrayContaining(["--allowedTools", "Read,Glob,Grep,Edit(./session.test.ts),Write(./session.test.ts)"]));
     expect(report.argv.slice(-7)).toEqual(["--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--setting-sources", "", "--safe-mode", "--no-session-persistence"]);
     // The scratch copy, control-file exclusion and cleanup are unchanged by the host login.
-    expect(report.cwd).toMatch(/arbitra-native-[0-9a-f-]{36}-[A-Za-z0-9]{6}\/work$/u);
+    expect(report.cwd).toMatch(/arbitra-native-[0-9a-f-]{36}-[A-Za-z0-9]{6}[\\/]work$/u);
     expect(report.files).toContain("session.ts"); expect(report.files).not.toContain("CLAUDE.md");
     expect(await exists(report.cwd)).toBe(false);
     expect(await scratchDirectories()).toEqual(before);
     expect((await traces(f))[0]).toMatchObject({ harnessId: "native:claude-code", outcome: "success" });
     f.partitions.release(f.lease); await f.workspace.close();
+  });
+
+  // An npm install of Claude Code on Windows is a claude.cmd. Node refuses to start a .cmd without a shell since its
+  // fix for CVE-2024-27980, and through a shell cmd.exe would parse the arguments again.
+  it.skipIf(process.platform !== "win32")("starts an npm install's claude.cmd on Windows with Node and its script, never through a command shell", async () => {
+    const f = await fixture({ apiKeySource: "none", steps: [{ write: "session.test.ts", content: written }] });
+    expect(f.executable).toMatch(/\.cmd$/u);
+    const config = runConfigSchema.parse({ ...f.config, harness: { mode: "native", native: login } });
+    expect(await f.invoke(f, { config, host: { environment: { ...f.host.environment, HOME: f.root } } })).toEqual({ summary: "Stand-in wrote the requested test", limitations: [] });
+    const report = JSON.parse(await readFile(f.report, "utf8")) as { argv: string[] };
+    // cmd.exe would have dropped these quotes and the empty argument.
+    expect(report.argv.slice(-7)).toEqual(["--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--setting-sources", "", "--safe-mode", "--no-session-persistence"]);
+    f.partitions.release(f.lease); await f.workspace.close();
+    // A command file that is not an npm shim is refused before any spend.
+    const g = await fixture({ steps: [] });
+    const foreign = join(g.root, "claude.bat"); await writeFile(foreign, "@ECHO off\r\nclaude.exe %*\r\n");
+    await expect(g.invoke(g, { host: { environment: { ...g.host.environment, ARBITRA_CLAUDE_CODE_EXECUTABLE: foreign } } })).rejects.toThrow("NATIVE_HARNESS_EXECUTABLE_UNSUPPORTED:ARBITRA_CLAUDE_CODE_EXECUTABLE");
+    expect((await g.store.listArtifacts()).some(({ kind }) => kind === "model-token-budget" || kind.startsWith("native-writer-run-"))).toBe(false);
+    g.partitions.release(g.lease); await g.workspace.close();
   });
 
   it("stops the host's own login at init when it is an API key, admitting nothing", async () => {
@@ -131,7 +153,7 @@ describe("native Testing writer", () => {
     expect(writes.map(({ path, beforeHash }) => [path, beforeHash])).toEqual([["session.test.ts", null]]);
     const report = JSON.parse(await readFile(f.report, "utf8")) as { cwd: string; envKeys: string[]; env: Record<string, string>; argv: string[]; prompt: string; files: string[] };
     // Isolation: a disposable scratch copy, never the Testing worktree or the source checkout.
-    expect(report.cwd).toMatch(/arbitra-native-[0-9a-f-]{36}-[A-Za-z0-9]{6}\/work$/u);
+    expect(report.cwd).toMatch(/arbitra-native-[0-9a-f-]{36}-[A-Za-z0-9]{6}[\\/]work$/u);
     expect(report.cwd.startsWith(f.root)).toBe(false);
     expect(report.files).toContain("session.ts"); expect(report.files).not.toContain("CLAUDE.md");
     expect(report.envKeys).not.toContain("AWS_SECRET_ACCESS_KEY"); expect(report.envKeys).not.toContain("FIXTURE_NATIVE_KEY");

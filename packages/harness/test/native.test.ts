@@ -6,7 +6,7 @@ import type { HarnessEvent, HarnessRunPolicy } from "../src/adapter.js";
 import { assertCanonicalMeasurements, harnessMeasurementClass } from "../src/measurement.js";
 import { ClaudeCodeHarnessAdapter, NativeHarnessError, type NativeInvocation } from "../src/native/claude-code/adapter.js";
 import { claudeCodeArguments, claudeCodeEnvironment, claudeCodeHostLoginEnvironment, isClaudeCodeControlPath, parseClaudeCodeEvent, parseClaudeCodeVersion } from "../src/native/claude-code/translation.js";
-import { runNativeProcess } from "../src/native/process.js";
+import { nativeExecutable, runNativeProcess } from "../src/native/process.js";
 import { processTerminated, writeStandInExecutable, type StandInScenario } from "../src/native/stand-in.js";
 import { assertNativeHarnessSupported, NATIVE_HARNESS_SUPPORT, nativeHarnessSupport, unenforceableNativeTools } from "../src/native/support.js";
 
@@ -20,9 +20,9 @@ const unused = { async invoke(): Promise<never> { throw new Error("UNUSED"); } }
 
 async function run(scenario: StandInScenario, overrides: Partial<NativeInvocation> = {}, signal?: AbortSignal) {
   const root = await directory();
-  const executable = await writeStandInExecutable(root, scenario);
+  const executable = await nativeExecutable(await writeStandInExecutable(root, scenario), "ARBITRA_CLAUDE_CODE_EXECUTABLE");
   const cwd = await mkdtemp(join(root, "work-"));
-  const adapter = new ClaudeCodeHarnessAdapter({ executable, cwd, environment: { PATH: process.env["PATH"] ?? "" }, model: "fixture-model", maximumTurns: 10, timeoutMs: 20_000,
+  const adapter = new ClaudeCodeHarnessAdapter({ ...executable, cwd, environment: { PATH: process.env["PATH"] ?? "" }, model: "fixture-model", maximumTurns: 10, timeoutMs: 20_000,
     maximumOutputBytes: 1_000_000, maximumTokens: 100_000, writablePaths: ["tests/a.test.ts"], ...overrides });
   const events: HarnessEvent[] = [];
   let failure: NativeHarnessError | null = null;
