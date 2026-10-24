@@ -357,8 +357,8 @@ Measurements are for our own judgement of whether the product is good, not to pr
        - live chunks that arrived before `get-media-init` answered were thrown away.
      - **Viewer page:** a transport recovery dropped the relay without asking for it again, and attempts in flight
        could restart playback during Leave Room's 5 s wait.
-     - **Not real:** 4 of the 16 suspected defects the agents reported while working did not hold, among them a
-       chunk-count overflow and three failing browser tests that served an old build.
+     - **Not real:** 4 of the 18 suspected defects the agents reported while working did not hold: three browser
+       tests failing on an old build, a chunk-count overflow and two of five viewer-page gaps.
 
 Next: the export findings above (same-file order as a hint, "run" instead of "ask before running", read-first lists
 without the task's own new files) and the rest of this phase's smaller items. Then the UI phase, then P21.
