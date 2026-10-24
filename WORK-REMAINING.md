@@ -360,8 +360,23 @@ Measurements are for our own judgement of whether the product is good, not to pr
      - **Not real:** 4 of the 18 suspected defects the agents reported while working did not hold: three browser
        tests failing on an old build, a chunk-count overflow and two of five viewer-page gaps.
 
-Next: the export findings above (same-file order as a hint, "run" instead of "ask before running", read-first lists
-without the task's own new files) and the rest of this phase's smaller items. Then the UI phase, then P21.
+   - **To build from it**, beyond the export findings above:
+     - **Prompts:** point at code by symbol, not by line, since earlier tasks move it. State the audit's premises
+       as claims to check.
+     - **`AGENTS.md`:** carry the rules the brief had to add. Run the checks. An existing test that pins the defect
+       is changed as little as keeps its intent, and cited. A fix that crosses a protocol or the UI also gets an
+       end-to-end check.
+     - **`results.json`:**
+       - Tell a fix proven by a unit test from one also checked end to end. TASK-025 passed its unit tests and
+         played nothing.
+       - Take defects found while fixing, which the run report reads back (14 here).
+     - **Question options:** the recommended option must be one the planner can show works.
+     - **Overlaps:** mark issues one task or check also covers (four here: check 16, TASK-027, TASK-101,
+       TASK-103).
+     - **Confidence:** do not use a model's stated confidence as a signal.
+
+Next: the export findings and the build items above, then the rest of this phase's smaller items. Then the UI phase,
+then P21.
 
 **To re-check on the current build** (measured October 11 to 13, before later changes): prompts sized at one byte a
 token outside the stages that set `estimatedBytesPerToken`; discovery source as one JSON object a line; Gemini's
