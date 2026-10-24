@@ -107,6 +107,25 @@ describe("model board operations", () => {
     expect(() => translateValidPeerOperations({ operations: [advice] }, view, snapshot, "reviewer", 1)).toThrow();
   });
 
+  describe("withdraws only the citations that a left-out operation's own evidence would have resolved", () => {
+    const location = { id: "new:loc", path: "a.ts", startLine: 1, endLine: 1 };
+    const vote = { ...base, operationId: "new:vote", type: "reject", reason: "Claim", citedEvidenceIds: ["C1/source-1/evidence-1", "new:ev"] };
+    const advice = { ...base, operationId: "new:advice", type: "supplement_remediation", text: "Advice" };
+    const keep = (operations: unknown[]) => translateValidPeerOperations(response(operations, [location]), view, snapshot, "reviewer", 1);
+    const cited = ({ batch }: ReturnType<typeof keep>) => batch.operations.map(({ type, citedEvidenceIds }) => [type, citedEvidenceIds]);
+    it("evidence of an operation of the wrong shape", () => {
+      // The vote also cites its candidate's own evidence, so it stands on that.
+      const malformed = keep([{ ...base, operationId: "new:added", type: "add_counter_evidence", citedEvidenceIds: ["new:ev"], evidence: { id: "new:ev", text: "", locationIds: ["new:loc"] } }, vote, advice]);
+      expect(malformed.refused.map(({ operationId }) => operationId)).toEqual(["new:added"]);
+      expect(cited(malformed)).toEqual([["reject", ["e1"]], ["supplement_remediation", ["e1"]]]);
+    });
+    it("but not presented evidence that a refused addition reused the ID of", () => {
+      const presented = keep([{ ...base, operationId: "new:added", type: "add_evidence", evidence: { id: "C1/source-1/evidence-1", text: "return null;", locationIds: ["new:loc"] } }, { ...vote, citedEvidenceIds: ["C1/source-1/evidence-1"] }, advice]);
+      expect(presented.refused).toMatchObject([{ operationId: "new:added", reason: expect.stringContaining("INVALID_PEER_LOCAL_ID") }]);
+      expect(cited(presented)).toEqual([["reject", ["e1"]], ["supplement_remediation", ["e1"]]]);
+    });
+  });
+
   it("applies structural changes with source context and removes retired claims from consensus", () => {
     const candidate = { candidateId: "C1", claim: { title: "Original", description: "Problem" }, sourceFindingIds: [finding.sourceFindingId], severity: "high" as const, blocker: true, status: "open", votes: [], evidence: finding.evidence, counterEvidence: [], firstSeenRound: 0, lastChangedRound: 0 };
     const board = { candidates: { C1: candidate } };

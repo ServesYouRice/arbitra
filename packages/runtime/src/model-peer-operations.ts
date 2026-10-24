@@ -29,18 +29,18 @@ export interface RefusedPeerOperation { readonly operationId: string; readonly t
  */
 export function translateValidPeerOperations(value: unknown, view: View, snapshot: RepositorySnapshot, reviewerId: string, round: number, scopeId?: string,
   alsoRefuse: (batch: PeerOperationBatch) => readonly { readonly index: number; readonly reason: string }[] = () => []): { readonly batch: PeerOperationBatch; readonly refused: readonly RefusedPeerOperation[] } {
-  const { reply: original, malformed, total } = wellFormedPeerReply(value);
+  const { reply: original, malformed, total } = wellFormedPeerReply(value, view.evidenceIds);
   let parsed = original;
   const refused: RefusedPeerOperation[] = [...malformed];
   const leaveOut = (index: number, reason: string, error: unknown): void => {
     const operation = parsed.operations[index];
     if (operation === undefined || (refused.length + 1) * 2 > total) throw error;
     refused.push({ operationId: operation.operationId, type: operation.type, candidateId: operation.candidateId, reason: reason.slice(0, 300) });
-    const withdrawn = new Set(operation.type === "add_evidence" || operation.type === "add_counter_evidence" ? [operation.evidence.id] : operation.type === "add_missing_finding" ? operation.evidence.map(({ id }) => id) : []);
-    const operations = parsed.operations.filter((_, at) => at !== index).map((other) => withdrawn.size === 0 ? other : { ...other, citedEvidenceIds: other.citedEvidenceIds.filter((id) => !withdrawn.has(id)) });
+    const operations = parsed.operations.filter((_, at) => at !== index);
     // A finding that only the refused operation introduced goes with it.
     const introduced = new Set(operations.flatMap((other) => other.type === "add_missing_finding" ? other.candidate.sourceFindingIds : []));
-    parsed = { ...parsed, operations, findings: operation.type === "add_missing_finding" ? parsed.findings.filter(({ sourceFindingId }) => introduced.has(sourceFindingId)) : parsed.findings };
+    const findings = operation.type === "add_missing_finding" ? parsed.findings.filter(({ sourceFindingId }) => introduced.has(sourceFindingId)) : parsed.findings;
+    parsed = withdrawEvidence({ ...parsed, operations, findings }, [...addedEvidence(operation), ...parsed.findings.flatMap(({ evidence }) => evidence.map(({ id }) => id))], view.evidenceIds);
   };
   for (;;) {
     let batch: PeerOperationBatch;
@@ -59,14 +59,16 @@ export function translateValidPeerOperations(value: unknown, view: View, snapsho
 /**
  * The operations of a reply that have a valid shape, and a refusal for each that has not, so an operation of the
  * wrong shape is left out like one that fails its other checks. A finding only such an operation introduced goes
- * with it. The reply is refused whole, with the schema's own message, when its envelope is invalid or when more
- * than half of its operations have the wrong shape. Observed live (P20 pilot): five votes without a `type` refused
- * a reply of 25 operations, and its repair took 100 seconds and changed other votes.
+ * with it, and so do the other operations' citations of evidence only they added (`presented` names the evidence
+ * IDs that resolve without them). The reply is refused whole, with the schema's own message, when its envelope is
+ * invalid or when more than half of its operations have the wrong shape. Observed live (P20 pilot): five votes
+ * without a `type` refused a reply of 25 operations, and its repair took 100 seconds and changed other votes.
  */
-export function wellFormedPeerReply(value: unknown): { readonly reply: PeerOperationsResult; readonly malformed: readonly RefusedPeerOperation[]; readonly total: number } {
+export function wellFormedPeerReply(value: unknown, presented: ReadonlyMap<string, string> = new Map()): { readonly reply: PeerOperationsResult; readonly malformed: readonly RefusedPeerOperation[]; readonly total: number } {
   const envelope = peerReplyEnvelopeSchema.parse(value);
   const malformed: RefusedPeerOperation[] = [];
   const dropped = new Set<string>();
+  const withdrawn: string[] = [];
   const operations = envelope.operations.flatMap((raw, index) => {
     const checked = boardOperationSchema.safeParse(raw);
     if (checked.success) return [checked.data];
@@ -74,6 +76,10 @@ export function wellFormedPeerReply(value: unknown): { readonly reply: PeerOpera
     const text = (field: string, fallback: string) => typeof fields[field] === "string" ? fields[field] : fallback;
     const candidate = typeof fields["candidate"] === "object" && fields["candidate"] !== null ? fields["candidate"] as Record<string, unknown> : {};
     if (Array.isArray(candidate["sourceFindingIds"])) for (const id of candidate["sourceFindingIds"]) if (typeof id === "string") dropped.add(id);
+    for (const entry of Array.isArray(fields["evidence"]) ? fields["evidence"] as unknown[] : [fields["evidence"]]) {
+      const id = typeof entry === "object" && entry !== null ? (entry as Record<string, unknown>)["id"] : undefined;
+      if (typeof id === "string") withdrawn.push(id);
+    }
     malformed.push({ operationId: text("operationId", `operation ${index + 1}`), type: text("type", "untyped"), candidateId: text("candidateId", ""),
       reason: checked.error.issues.map(({ path, message }) => `${path.join(".") || "operation"}: ${message}`).join("; ").slice(0, 300) });
     return [];
@@ -81,7 +87,22 @@ export function wellFormedPeerReply(value: unknown): { readonly reply: PeerOpera
   if (malformed.length * 2 > envelope.operations.length) peerOperationsResultSchema.parse(value);
   const introduced = new Set(operations.flatMap((operation) => operation.type === "add_missing_finding" ? operation.candidate.sourceFindingIds : []));
   const findings = envelope.findings.filter(({ sourceFindingId }) => introduced.has(sourceFindingId) || !dropped.has(sourceFindingId));
-  return { reply: { ...envelope, operations, findings }, malformed, total: envelope.operations.length };
+  const reply = withdrawEvidence({ ...envelope, operations, findings }, [...withdrawn, ...envelope.findings.flatMap(({ evidence }) => evidence.map(({ id }) => id))], presented);
+  return { reply, malformed, total: envelope.operations.length };
+}
+
+const addedEvidence = (operation: PeerOperationsResult["operations"][number]): readonly string[] =>
+  operation.type === "add_evidence" || operation.type === "add_counter_evidence" ? [operation.evidence.id] : operation.type === "add_missing_finding" ? operation.evidence.map(({ id }) => id) : [];
+
+/**
+ * The reply without citations of the `withdrawn` evidence IDs, which operations or findings left out of it added.
+ * An ID the view presents, or that an operation or finding still in the reply adds, still names evidence and stays
+ * cited: a refused addition can reuse a presented ID, and a vote citing that evidence keeps it.
+ */
+function withdrawEvidence(reply: PeerOperationsResult, withdrawn: readonly string[], presented: ReadonlyMap<string, string>): PeerOperationsResult {
+  const kept = new Set([...reply.operations.flatMap(addedEvidence), ...reply.findings.flatMap(({ evidence }) => evidence.map(({ id }) => id))]);
+  const gone = new Set(withdrawn.filter((id) => !presented.has(id) && !kept.has(id)));
+  return gone.size === 0 ? reply : { ...reply, operations: reply.operations.map((operation) => ({ ...operation, citedEvidenceIds: operation.citedEvidenceIds.filter((id) => !gone.has(id)) })) };
 }
 
 /** Validate model additions against immutable source and bind all local provenance. */
