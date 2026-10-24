@@ -502,7 +502,7 @@ is how finely the audit reads the source. A transport that takes only so many by
 (the Antigravity CLI) bounds a call at that size whatever the setting.
 
 `maximumParallelCalls` (default 1, maximum 8) is the number of independent calls one auditor has in flight
-at a time within a stage: the units of a discovery, the batches of a peer review, the conflicts that share
+at a time within a stage: the units of a discovery (however they split), the batches of a peer review, the conflicts that share
 no candidate, the questions of a verification, the briefs and task expansions of a plan, and the parts of a
 critic review. It changes only how long a stage takes: no call reads another's reply, and the replies
 are put together in a fixed order. Each call in flight holds its own budget reservation, and the provider's
@@ -520,10 +520,12 @@ locations or findings are invalid, or when more than half of its operations woul
 
 A provider's refusal of one call does not fail the audit. The CLI transports report a content-filter notice
 as a refusal instead of a reply, and the harness records it durably (`model-refusal-*`) and does not ask
-again. Discovery tries a declined unit once more in smaller parts (several files file by file, one file as
-two line windows) and leaves what is declined again unexamined for that auditor (`discovery-declined-*`,
-limitation `discovery_provider_refused`); a unit whose reply stays invalid after its repairs is treated the
-same way (`discovery_reply_rejected`). A declined review batch contributes nothing and counts as rejected
+again. Discovery tries a declined unit again in smaller parts (several files as two scopes, one file as
+two line windows). A part declined beside parts that were answered is split the same way to find the source
+declined; a declined window, or parts all declined, are left unexamined for that auditor
+(`discovery-declined-*`, limitation `discovery_provider_refused`), since a cause in no one part (a fixed prompt
+the provider refuses) declines every smaller part too. A unit whose reply stays invalid after its repairs is
+treated the same way (`discovery_reply_rejected`). A declined review batch contributes nothing and counts as rejected
 review output, and an auditor whose provider declines a conflict, or whose answer stays invalid after its
 repairs or stops at the output ceiling, casts no vote (`peer-conflict-unanswered-*`), so that conflict stays
 unresolved.

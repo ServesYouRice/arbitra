@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sideBySide } from "../src/side-by-side.js";
+import { sharedLimit, sideBySide } from "../src/side-by-side.js";
 
 const later = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 
@@ -36,5 +36,24 @@ describe("independent work side by side", () => {
     expect(order).toEqual([1, 2]);
     await expect(sideBySide([1], 0, async () => 1)).rejects.toThrow("INVALID_PARALLEL_CALLS");
     await expect(sideBySide([1], 1.5, async () => 1)).rejects.toThrow("INVALID_PARALLEL_CALLS");
+  });
+
+  it("keeps nested work within one shared limit, in the order calls asked, and frees a place after a failure", async () => {
+    const limit = sharedLimit(2);
+    let active = 0; let most = 0; const order: string[] = [];
+    const call = (label: string, fails = false) => limit(async () => {
+      active += 1; most = Math.max(most, active); order.push(label);
+      try { await later(5); if (fails) throw new Error(`FAILED:${label}`); return label; }
+      finally { active -= 1; }
+    });
+    // Each item makes a call, then two side by side of its own, as a discovery unit that splits does.
+    const nested = (item: string) => call(item).then(() => sideBySide([1, 2], 2, (part) => call(`${item}${part}`)));
+    expect(await sideBySide(["a", "b"], 2, nested)).toEqual([["a1", "a2"], ["b1", "b2"]]);
+    expect(most).toBe(2);
+    expect(order).toEqual(["a", "b", "a1", "a2", "b1", "b2"]);
+    await expect(call("c", true)).rejects.toThrow("FAILED:c");
+    expect(await sideBySide(["d", "e", "f"], 3, (item) => call(item))).toEqual(["d", "e", "f"]);
+    expect(most).toBe(2);
+    expect(() => sharedLimit(0)).toThrow("INVALID_PARALLEL_CALLS");
   });
 });

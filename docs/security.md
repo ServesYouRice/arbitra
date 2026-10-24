@@ -67,14 +67,19 @@ each of its `PROMPT_INJECTION` findings and runs one follow-up discovery of the 
 the reported text:
 
 - The follow-up reads an exact line window, from 10 lines before the text to 40 lines after
-  it. Nearby reports share one window.
-- Each auditor runs at most 3 follow-ups. The follow-up is isolated like round zero and
-  durable like any discovery scope (`injection-<hash>`).
-- A window over the cap, over the discovery budget, or whose call stops at the output ceiling
-  is listed as unexamined (`injection_follow_up:<path>:<start>-<end>`) with the limitation
-  `injection_follow_up_capped`, `injection_follow_up_exceeds_discovery_context_budget` or
-  `injection_follow_up_output_limited`.
-- `discovery-injection-follow-ups-<auditor>` records every window and what it found.
+  it. Nearby reports share one window, so text planted every 50 lines or less makes one window
+  of the whole region.
+- A window too large for one call is read as windows that fit the discovery budget, and a call
+  that stops at the output ceiling is halved by lines, as in the primary pass.
+- Each auditor follows up at most 3 windows, however many calls each takes. The follow-up is
+  isolated like round zero and durable like any discovery scope (`injection-<hash>`).
+- A window over the cap, a line too large for the discovery budget alone, one line whose call
+  still stops at the output ceiling, or a call the provider or model declines is listed as
+  unexamined (`injection_follow_up:<path>:<start>-<end>`) with the limitation
+  `injection_follow_up_capped`, `injection_follow_up_exceeds_discovery_context_budget`,
+  `injection_follow_up_output_limited` or `injection_follow_up_declined`.
+- `discovery-injection-follow-ups-<auditor>` records every window or part of one, what it
+  found, and the halves that replaced a call stopped at the ceiling (`outputLimitSplits`).
 
 Unexamined surfaces and degraded coverage appear in the consensus artifact
 (`packages/workflow/src/nodes/canonical-issues.ts`), in human CLI output
@@ -242,5 +247,8 @@ of dishonesty as a fabricated metric:
 - No deterministic scan for injected text runs yet. Injection follow-ups depend on an auditor
   reporting the text; text that misled an auditor without being reported gets no follow-up and
   no suppression candidate.
+- Follow-ups are taken in path and line order, so reported decoys in files that sort earlier
+  can use an auditor's 3 follow-ups before a later file's window; that window is listed as
+  unexamined (`injection_follow_up_capped`).
 - The repository snapshot is trusted to be what Git reported. arbitra detects a changed
   repository on resume; it does not verify commit signatures.

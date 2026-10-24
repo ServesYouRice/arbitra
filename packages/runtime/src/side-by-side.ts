@@ -29,3 +29,20 @@ export async function sideBySide<T, R>(items: readonly T[], limit: number, run: 
   }
   return results;
 }
+
+/**
+ * One allowance of `limit` calls in flight for work that nests `sideBySide`: an item that splits and runs its parts
+ * side by side would otherwise start another `limit` of its own, so two items at a limit of two had four calls in
+ * flight. Calls wait their turn in the order they asked; a call holds its place only while it runs.
+ */
+export function sharedLimit(limit: number): <R>(call: () => Promise<R>) => Promise<R> {
+  if (!Number.isSafeInteger(limit) || limit < 1) throw new Error("INVALID_PARALLEL_CALLS");
+  let running = 0; const waiting: (() => void)[] = [];
+  return async (call) => {
+    if (running < limit) running += 1;
+    else await new Promise<void>((resolve) => waiting.push(resolve));
+    try { return await call(); }
+    // The place passes straight to the next call waiting, so none can overtake it.
+    finally { const next = waiting.shift(); if (next === undefined) running -= 1; else next(); }
+  };
+}
