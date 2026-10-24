@@ -17,7 +17,8 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
   const repository = await mkdtemp(join(tmpdir(), "arbitra-plan-export-"));
   try {
     const content = {
-      "plan-ir": { title: "Section one; Section two", tasks: [task("TASK-2", "fast", ["TASK-1"]), { ...task("TASK-1", "frontier"), addresses: { issues: ["C-1"], validation: ["VAL-1"] } }], unresolvedQuestions: [{ id: "Q-1", question: "Which way?", blocking: true }],
+      "plan-ir": { title: "Section one; Section two", tasks: [task("TASK-2", "fast", ["TASK-1"]), { ...task("TASK-1", "frontier"), addresses: { issues: ["C-1"], validation: ["VAL-1"] }, context: ["Per Q-2, keep the default."] }],
+        unresolvedQuestions: [{ id: "Q-1", question: "Which way?", blocking: true }, { id: "Q-2", question: "Which colour? Default if unanswered: blue.", blocking: false }],
         validationContract: { validation: [{ id: "VAL-1", assertion: "A broken input is refused.", evidence: ["A test that sends one"] }, { id: "VAL-2", assertion: "Not cited.", evidence: [] }] } },
       "canonical-issues": { issues: [{ candidateId: "C-1", severity: "high", disposition: "accepted", claim: { title: "A defect", description: "It breaks." } },
         { candidateId: "C-2", severity: "medium", disposition: "needs_verification", verificationOutcome: "STILL_NEEDS_VERIFICATION", claim: { title: "A disputed defect", description: "It may break." },
@@ -63,6 +64,11 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
     // The validation ids a task cites come with their assertion, and only those.
     expect(await readFile(join(first.directory, "prompts", "1-strong-model", "01-TASK-1.md"), "utf8")).toContain("<validation>\n- VAL-1: A broken input is refused.\n  Evidence: A test that sends one\n</validation>");
     expect(await readFile(join(first.directory, "prompts", "3-fast-model", "02-TASK-2.md"), "utf8")).not.toContain("<validation>");
+    // So do the open questions it cites; the ones that do not block are listed in questions.md, with their defaults.
+    expect(await readFile(join(first.directory, "prompts", "1-strong-model", "01-TASK-1.md"), "utf8")).toContain("- Q-2: Which colour? Default if unanswered: blue.\n</open_questions>");
+    expect(await readFile(join(first.directory, "prompts", "3-fast-model", "02-TASK-2.md"), "utf8")).not.toContain("<open_questions>");
+    expect(readme).toContain("`questions.md` lists 1 more open question the plan went ahead on with a default.");
+    expect(await readFile(join(first.directory, "questions.md"), "utf8")).toContain("- **Q-2**: Which colour? Default if unanswered: blue.");
     const agents = await readFile(join(first.directory, "AGENTS.md"), "utf8");
     expect(agents).toContain("5. Do not change anything in this folder except PROGRESS.md and results.json.");
     expect(agents).toContain("Leave them until every task is done");

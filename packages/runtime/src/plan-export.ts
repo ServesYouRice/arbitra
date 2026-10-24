@@ -18,8 +18,9 @@ interface ExportTask {
   readonly rollbackPlan: readonly string[];
 }
 interface ExportValidation { readonly id: string; readonly assertion: string; readonly evidence: readonly string[] }
+interface ExportQuestion { readonly id: string; readonly question: string; readonly blocking: boolean }
 interface ExportPlan {
-  readonly title: string; readonly tasks: readonly ExportTask[]; readonly unresolvedQuestions: readonly { readonly id: string; readonly question: string; readonly blocking: boolean }[];
+  readonly title: string; readonly tasks: readonly ExportTask[]; readonly unresolvedQuestions: readonly ExportQuestion[];
   readonly validationContract?: { readonly validation?: readonly ExportValidation[] };
 }
 interface ExportIssue {
@@ -98,9 +99,13 @@ export async function exportPlan(orchestrator: Orchestrator, runId: string): Pro
   for (let copy = 2; existsSync(directory); copy += 1) directory = `${base}-${copy}`;
   const files = new Map<string, string>();
   unsettled.forEach((issue, index) => files.set(join("prompts", UNSURE, `${String(index + 1).padStart(2, "0")}-${issue.candidateId}.md`), checkPrompt(issue)));
-  const validation = new Map((plan.validationContract?.validation ?? []).map((entry) => [entry.id, entry]));
-  ordered.forEach((task, index) => files.set(join("prompts", TIERS[task.routing.capability].folder, `${String(index + 1).padStart(2, "0")}-${task.id}.md`), prompt(task, issues, plan.tasks, validation)));
+  const cited = { validation: new Map((plan.validationContract?.validation ?? []).map((entry) => [entry.id, entry])), questions: new Map(plan.unresolvedQuestions.map((entry) => [entry.id, entry])) };
+  ordered.forEach((task, index) => files.set(join("prompts", TIERS[task.routing.capability].folder, `${String(index + 1).padStart(2, "0")}-${task.id}.md`), prompt(task, issues, plan.tasks, cited)));
   files.set("README.md", readme(plan, ordered, runId, overview.workflowId ?? "unknown", { unsettled, unverified, alsoFound: alsoFound.length, kept, notes }));
+  const openQuestions = plan.unresolvedQuestions.filter(({ blocking }) => !blocking);
+  if (openQuestions.length > 0) files.set("questions.md", ["# Open questions", "",
+    "Not blocking: the plan went ahead on each one's default. Answer one to change what the tasks that cite it do; each prompt repeats the questions it depends on.", "",
+    ...openQuestions.map(({ id, question }) => `- **${id}**: ${question}`), ""].join("\n"));
   if (alsoFound.length > 0) files.set("also-found.md", ["# Also found, not planned", "",
     "The reviewers agreed these are real, but no task fixes them; most are below the plan's minimum severity. Fix them when convenient: each says where the defect is and what goes wrong.", "",
     ...alsoFound.map((issue) => `## ${issue.claim.title}\n\n${issue.severity} · ${issue.candidateId}\n\n${issue.claim.description}\n`)].join("\n"));
@@ -159,6 +164,7 @@ function readme(plan: ExportPlan, ordered: readonly ExportTask[], runId: string,
     `Each defect is proven before it is fixed: a test that fails on the current code, then passes with the fix. Record each issue's result in \`${RESULTS_FILE}\`; arbitra reads it back and reports how many defects a failing test proved and how many were fixed.`, "",
     ...(notes.length === 0 ? [] : ["## Read this first", "", ...notes.map((note) => `- ${note}`), ""]),
     ...(blocking.length === 0 ? [] : ["## Answer these first", "", ...blocking.map(({ id, question }) => `- **${id}**: ${question}`), ""]),
+    ...(blocking.length === plan.unresolvedQuestions.length ? [] : [`\`questions.md\` lists ${plan.unresolvedQuestions.length - blocking.length} more open ${plan.unresolvedQuestions.length - blocking.length === 1 ? "question" : "questions"} the plan went ahead on with a default.`, ""]),
     ...(kept.length === 0 ? [] : ["## Severity kept", "",
       `One reviewer alone lowered ${kept.length === 1 ? "this issue" : `these ${kept.length} issues`} below the plan's minimum severity, so ${kept.length === 1 ? "it was" : "they were"} verified and planned at the severity ${kept.length === 1 ? "it was" : "they were"} found with. The reviewer's reason is worth weighing when you fix ${kept.length === 1 ? "it" : "them"}.`, "",
       ...kept.map(({ candidateId, title, foundAs, loweredTo, by, reason }) => `- \`${candidateId}\` ${title}: found as ${foundAs}; ${by} proposed ${loweredTo}: ${reason.replace(/\s+/gu, " ").slice(0, 400)}`), ""]),
@@ -171,12 +177,16 @@ function readme(plan: ExportPlan, ordered: readonly ExportTask[], runId: string,
     "## Model tiers", "", ...Object.values(TIERS).map(({ folder, model, why }) => `- \`${folder}\`: ${model}, for ${why}.`), ""].join("\n");
 }
 
-function prompt(task: ExportTask, issues: ReadonlyMap<string, ExportIssue>, all: readonly ExportTask[], validation: ReadonlyMap<string, ExportValidation>): string {
+function prompt(task: ExportTask, issues: ReadonlyMap<string, ExportIssue>, all: readonly ExportTask[], cited: { readonly validation: ReadonlyMap<string, ExportValidation>; readonly questions: ReadonlyMap<string, ExportQuestion> }): string {
   const tier = TIERS[task.routing.capability];
-  // The plan's validation contract, for the ids this task cites. Observed live (nextra, October 24, 2026): 79 of 105
-  // prompts named checks such as "VAL-003 tests exist and pass" that the folder never defined.
-  const checks = [...new Set(JSON.stringify(task).match(/\bVAL-\d+\b/gu) ?? [])].map((id) => validation.get(id)).filter((entry): entry is ExportValidation => entry !== undefined)
+  // The plan's validation contract and open questions, for the ids this task cites. Observed live (nextra, October
+  // 24, 2026): 79 of 105 prompts named checks such as "VAL-003 tests exist and pass", and 47 named questions such as
+  // "section-…/Q-004", that the folder never defined; only the 5 blocking questions of 68 reached the README.
+  const text = JSON.stringify(task);
+  const checks = [...new Set(text.match(/\bVAL-\d+\b/gu) ?? [])].map((id) => cited.validation.get(id)).filter((entry): entry is ExportValidation => entry !== undefined)
     .map(({ id, assertion, evidence }) => `- ${id}: ${assertion}${evidence.length === 0 ? "" : `\n  Evidence: ${evidence.join("; ")}`}`);
+  const questions = [...cited.questions.values()].filter(({ id }) => new RegExp(`${id.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}(?![\\w-])`, "u").test(text))
+    .map(({ id, question, blocking }) => `- ${id}${blocking ? " (blocking: the README asks it first)" : ""}: ${question}`);
   const list = (items: readonly string[]) => items.length === 0 ? "- none" : items.map((item) => `- ${item}`).join("\n");
   const section = (tag: string, body: string) => `<${tag}>\n${body}\n</${tag}>`;
   const fixes = task.addresses.issues.map((id) => issues.get(id)).filter((issue): issue is ExportIssue => issue !== undefined)
@@ -192,6 +202,7 @@ function prompt(task: ExportTask, issues: ReadonlyMap<string, ExportIssue>, all:
     section("constraints", `Do not change:\n${list([...task.filesNotToTouch, ...task.outOfScope])}\n\nKeep true:\n${list(task.invariants)}`), "",
     ...(task.addresses.issues.length === 0 ? [] : [section("reproduce_first", `For ${task.addresses.issues.length === 1 ? "the issue" : "each issue"} this task fixes (${task.addresses.issues.map((id) => `\`${id}\``).join(", ")}): ${REPRODUCE_FIRST}`), ""]),
     section("steps", task.implementationGuidance.length === 0 ? "- Make the smallest change that meets the success criteria." : task.implementationGuidance.map((step, index) => `${index + 1}. ${step}`).join("\n")), "",
+    ...(questions.length === 0 ? [] : [section("open_questions", `If the person you are working with has answered one, follow the answer; otherwise take the default it states.\n${questions.join("\n")}`), ""]),
     ...(checks.length === 0 ? [] : [section("validation", checks.join("\n")), ""]),
     section("success_criteria", list([...task.goal.doneWhen, ...task.acceptanceCriteria])), "",
     section("verify", `${list([...task.verification.preconditions, ...task.verification.checks])}${commands.length === 0 ? "" : `\n\nCommands:\n${commands.join("\n")}`}`), "",

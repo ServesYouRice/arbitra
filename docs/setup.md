@@ -496,6 +496,7 @@ defects, security issues among them. Remove that line to commit plans on purpose
 | `prompts/1-strong-model/`, `prompts/2-balanced-model/`, `prompts/3-fast-model/` | One self-contained prompt per task, in the folder of the capability tier the planner chose for it |
 | `prompts/4-unsure/` | One prompt per issue of the plan's scope that the audit could not settle and no task addresses, for after the tasks: decide whether it holds, and fix it only if a test or a run shows it |
 | `issues.md`, `also-found.md` | The issues the plan fixes; accepted issues no task fixes (only when there are any) |
+| `questions.md` | The open questions that do not block, each with the default the plan went ahead on (only when there are any); each prompt also repeats the questions and validation checks it cites |
 | `results.json` | One entry per issue for the executor to fill in: `result` (`fixed`, `not_reproducible`, `no_change_needed` or `blocked`), `failedBefore`, `test` and `proof` |
 
 Each task prompt asks for a test that fails on the current code before the fix. arbitra reads

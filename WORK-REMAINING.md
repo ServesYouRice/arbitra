@@ -287,8 +287,10 @@ Measurements are for our own judgement of whether the product is good, not to pr
    are carried out there, on a `dev` branch of each project (never `main`), starting with nextra's remaining issues
    (3 of 126 were fixed for 2.1.6). Count the issues fixed, not reproducible and blocked, what the fixes broke, and
    the work the plan's prompts did not cover (edits made by hand, questions only the owner could answer). First
-   finding: 79 of nextra's 105 prompts cited validation ids (`VAL-003 tests exist and pass`) that the folder never
-   defined; each prompt now carries the assertions it cites.
+   findings: 79 of nextra's 105 prompts cited validation ids (`VAL-003 tests exist and pass`) and 47 cited open
+   questions (`section-…/Q-004`) that the folder never defined, since only the 5 blocking questions of 68 reached
+   the README; each prompt now carries the checks and questions it cites, and `questions.md` lists the others with
+   their defaults.
 
 Next: the smaller items of this phase (the cheaper-verifier replay and test files packed with their source are
 done, above), with nextra's `dev` branch alongside, since it touches only nextra. Then the UI phase, then P21.
