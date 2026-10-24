@@ -11,7 +11,7 @@ import { redactSecrets } from "@arbitra/security/redaction";
 import { boundModelHistory } from "./model-history.js";
 import { withinStringBudget } from "./model-context.js";
 import { promptByteLimit } from "@arbitra/providers/transports/cli/dialects.js";
-import { inputBytesPerToken, isModelOutputRejection, ModelOutputLimitError, ModelRefusalError, outputCeiling, outputLimitKind, refusalKind } from "./context-budget.js";
+import { inputBytesPerToken, isModelOutputRejection, ModelOutputLimitError, ModelRefusalError, outputLimitKind, refusalKind, requestCeiling } from "./context-budget.js";
 import { ModelActivities, parsePromptJson, type ModelActivityRequest } from "./model-activities.js";
 import type { TransportMessage } from "@arbitra/providers/transport-contract.js";
 import { snapshotTools, SNAPSHOT_TOOLS } from "./snapshot-tools.js";
@@ -52,7 +52,7 @@ export class ModelHarness {
    * Discovery passes one byte a token: the size of a unit is how finely the audit reads, not what would fit. */
   estimateInitialTokens(input: ModelActivityRequest<unknown>, bytesPerToken = inputBytesPerToken(this.config).usual): number {
     const { profile, initialMessages, tools } = prepareModelInput(input, this.config, this.testing);
-    return promptTokens(Buffer.byteLength(JSON.stringify({ messages: initialMessages, tools }), "utf8"), bytesPerToken, profile.transport) + outputCeiling(this.config, input.modelProfileId);
+    return promptTokens(Buffer.byteLength(JSON.stringify({ messages: initialMessages, tools }), "utf8"), bytesPerToken, profile.transport) + requestCeiling(this.config, input);
   }
 
   /** A cheap first cut before `estimateInitialTokens`: whether the strings of a payload alone are within `maximumTokens`. */
@@ -67,7 +67,7 @@ export class ModelHarness {
   /** The same request counted at the rate for input a call must carry whole. */
   estimateRequiredTokens(input: ModelActivityRequest<unknown>): number {
     const { profile, initialMessages, tools } = prepareModelInput(input, this.config, this.testing);
-    return promptTokens(Buffer.byteLength(JSON.stringify({ messages: initialMessages, tools }), "utf8"), inputBytesPerToken(this.config).required, profile.transport) + outputCeiling(this.config, input.modelProfileId);
+    return promptTokens(Buffer.byteLength(JSON.stringify({ messages: initialMessages, tools }), "utf8"), inputBytesPerToken(this.config).required, profile.transport) + requestCeiling(this.config, input);
   }
 
   async invoke<T>(input: ModelActivityRequest<T>): Promise<T> {
@@ -118,7 +118,7 @@ export class ModelHarness {
 
   private async markOutputLimited(input: ModelActivityRequest<unknown>, turnActivityId: string): Promise<void> {
     const activityId = input.activityId;
-    await this.store.publish(outputLimitKind(activityId), { activityId, turnActivityId, maximumOutputTokens: outputCeiling(this.config, input.modelProfileId) }, activityId);
+    await this.store.publish(outputLimitKind(activityId), { activityId, turnActivityId, maximumOutputTokens: requestCeiling(this.config, input) }, activityId);
     (await (this.#outputLimited ?? Promise.resolve(new Set<string>()))).add(outputLimitKind(activityId));
   }
 
@@ -142,7 +142,7 @@ export class ModelHarness {
       // be sent. Every other request is measured, and its history archived, as before.
       const rates = inputBytesPerToken(this.config); const rate = input.admittedAsRequired === true ? rates.required : rates.usual;
       const bounded = await boundModelHistory(initialMessages, context.turn === 0 ? [] : request.messages.slice(1),
-        (messages) => promptTokens(Buffer.byteLength(JSON.stringify({ messages, tools: request.tools }), "utf8"), rate, profile.transport) + outputCeiling(this.config, input.modelProfileId) <= maximumContext, toolSet.archive);
+        (messages) => promptTokens(Buffer.byteLength(JSON.stringify({ messages, tools: request.tools }), "utf8"), rate, profile.transport) + requestCeiling(this.config, input) <= maximumContext, toolSet.archive);
       if (bounded.archiveRef !== null) await this.store.publish(`model-history-${key}-${context.turn}`, { activityId: input.activityId, turn: context.turn, archiveRef: bounded.archiveRef, archivedMessages: bounded.archivedMessages, maximumEstimatedTokens: maximumContext });
       return this.activities.invoke({
         ...input, activityId: `${input.activityId}/turn-${context.turn}`, messages: bounded.messages,
@@ -158,7 +158,7 @@ export class ModelHarness {
     } }, harnessProfile);
     const prompt = compiled ?? { text: JSON.stringify(initialMessages), hash: createHash("sha256").update(JSON.stringify(initialMessages)).digest("hex") };
     const runtime = this.testing?.createRuntime(toolSet.runtime, input.activityId, input.signal, input.sourcePaths) ?? toolSet.runtime;
-    const run = adapter.run({ id: input.activityId, modelId: profile.modelId, maximumOutputTokens: outputCeiling(this.config, input.modelProfileId), maxToolTurns: profile.supports.tools ? profile.quirks.toolLoopLimit : 0 }, prompt, tools, runtime, {
+    const run = adapter.run({ id: input.activityId, modelId: profile.modelId, maximumOutputTokens: requestCeiling(this.config, input), maxToolTurns: profile.supports.tools ? profile.quirks.toolLoopLimit : 0 }, prompt, tools, runtime, {
       mode: this.config.mode, round: discovery ? 0 : 1,
       requirements: { structuredEvents: true, enforcesExternalPolicy: true, reportsUsage: true }, signal: input.signal,
       toolContext: { protect: (content, meta) => frameUntrusted(redactSecrets(content).text, meta) },

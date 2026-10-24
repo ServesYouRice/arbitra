@@ -39,7 +39,7 @@ import { createHash } from "node:crypto";
 import type { SemanticClusteringDecision, SemanticClusteringPair } from "@arbitra/workflow/clustering/escalate.js";
 import type { ModelActivityRequest } from "./model-activities.js";
 import type { TransportMessage } from "@arbitra/providers/transport-contract.js";
-import { expectedRecordCapacity, inputBytesPerToken, outputCeiling, isCapacityError, PLAN_TASK_CHARACTERS_PER_OUTPUT_TOKEN, ModelOutputLimitError, ModelRefusalError, OUTPUT_TOKENS_PER_RECORD, outputRecordLimit, replanOnOutputLimit, stageBudget, type EffortStage } from "./context-budget.js";
+import { expectedRecordCapacity, inputBytesPerToken, outputCeiling, requestCeiling, isCapacityError, PLAN_TASK_CHARACTERS_PER_OUTPUT_TOKEN, ModelOutputLimitError, ModelRefusalError, OUTPUT_TOKENS_PER_RECORD, outputRecordLimit, replanOnOutputLimit, stageBudget, type EffortStage } from "./context-budget.js";
 import { agreedConflictResolution, conflictId, conflictResolutionView, independentConflicts, type ConflictResolutionVote } from "./model-conflict-resolution.js";
 import { sideBySide } from "./side-by-side.js";
 import { validateBatchLanes } from "./model-batch-lane.js";
@@ -50,12 +50,20 @@ interface ModelStageInput<T> { activityId: string; modelProfileId: string; signa
   /** Which optional source the call reads; every file as far as it fits unless set. */
   sourceScope?: SourceScope;
   /** With the "cited" scope: the files that count as cited, in place of every path the input names. */
-  citedPaths?: readonly string[] }
+  citedPaths?: readonly string[];
+  /** The most the reply may write, when the stage sets less than the model's own ceiling. */
+  maximumOutputTokens?: number }
 
 /** The most characters of source a group of verification questions reads by itself: about four of the P20 projects'
  * larger files. A question reads the files its claim cites (two on average there), so a group of three stays near
  * what one question read before questions were grouped. */
 const VERIFICATION_GROUP_SOURCE_CHARACTERS = 60_000;
+/** The most one verification answer may write, reasoning included; a group may write this much per question.
+ * Measured (October 2026, 28 run stores on this machine, about 5,500 verification turns of Opus 5.5 and Sonnet 5.5 at
+ * medium effort and GPT-6.1 second opinions): the longest turn wrote 2,284 tokens and 99.9% wrote under 1,800.
+ * Observed (nextra replay with Sonnet verifying, October 24, 2026): one question wrote on to the 128,000-token
+ * ceiling and was recorded unanswered. An answer that long has looped; at this ceiling it stops sooner. */
+const VERIFICATION_OUTPUT_TOKENS = 16_000;
 /** Non-blocking critique items kept from one critic call: longer critiques carry more nitpicks (CriticGPT). */
 const CRITIC_NON_BLOCKING_ITEMS = 10;
 const SEVERITY_ORDER: Readonly<Record<string, number>> = Object.freeze({ critical: 0, high: 1, medium: 2, low: 3, informational: 4 });
@@ -483,21 +491,27 @@ export class ModelAuditPipeline {
     // evidence, under neutral references: not which model found it, nor its severity, status or confidence, which
     // pull a judge towards agreeing (design audit). The candidate's title is only a label: observed live (P20
     // pilot), a merge gave a real defect another finding's title, and the question about that title was rejected.
-    const question = (request: ModelVerificationRequest, findings: readonly AuditFinding[] = convergence.candidateFindings[request.candidateId] ?? [], activityId = `verification/${request.candidateId}/question`) => {
-      // Evidence and location IDs carry the finder's name, so the verifier sees them renamed and its answer is
-      // read back under the real IDs.
+    // Evidence and location IDs carry the finder's name, so the verifier sees them renamed and its answer is read
+    // back under the real IDs. A group's questions share one naming, so an answer that cites the evidence of another
+    // question in its call is still refused.
+    const neutralNames = () => {
       const renamed = new Map<string, string>(); const real = new Map<string, string>();
       const rename = (id: string, kind: "evidence" | "location") => { const known = renamed.get(id); if (known !== undefined) return known; const name = `${kind}-${renamed.size + 1}`; renamed.set(id, name); real.set(name, id); return name; };
-      const presented = { ...request, context: { ...request.context, citedContext: request.context.citedContext.map((cited) => ({ ...cited, evidenceId: rename(cited.evidenceId, "evidence") })),
-        deterministicAttempts: request.context.deterministicAttempts.map((attempt) => ({ ...attempt, evidenceIds: attempt.evidenceIds.map((id) => rename(id, "evidence")) })) } };
-      const known = new Set(presented.context.citedContext.map(({ evidenceId }) => evidenceId));
+      const present = (request: ModelVerificationRequest, findings: readonly AuditFinding[]) => ({ request: { ...request, context: { ...request.context, citedContext: request.context.citedContext.map((cited) => ({ ...cited, evidenceId: rename(cited.evidenceId, "evidence") })),
+        deterministicAttempts: request.context.deterministicAttempts.map((attempt) => ({ ...attempt, evidenceIds: attempt.evidenceIds.map((id) => rename(id, "evidence")) })) } }, findings: neutralFindings(findings, rename) });
+      return { present, real: (id: string) => real.get(id) ?? id };
+    };
+    const answerCeiling = (modelProfileId: string, questions = 1) => Math.min(VERIFICATION_OUTPUT_TOKENS * questions, outputCeiling(this.config, modelProfileId));
+    const question = (request: ModelVerificationRequest, findings: readonly AuditFinding[] = convergence.candidateFindings[request.candidateId] ?? [], activityId = `verification/${request.candidateId}/question`) => {
+      const names = neutralNames(); const presented = names.present(request, findings);
+      const known = new Set(presented.request.context.citedContext.map(({ evidenceId }) => evidenceId));
       return { activityId, modelProfileId: this.#roles.verifier, signal, protocol: "targeted-verification", stage: "verification" as const, sourceScope: "cited" as const,
-        instruction: VERIFICATION_INSTRUCTION,
-        input: { request: presented, findings: neutralFindings(findings, rename), executedChecks: executedChecks.get(request.candidateId), executionInterpretation, unresolvedPeerOperations: conflictsInvolving(operationConflicts, [request.candidateId]).map(conflictOutline), repository: this.repository() },
+        instruction: VERIFICATION_INSTRUCTION, maximumOutputTokens: answerCeiling(this.#roles.verifier),
+        input: { request: presented.request, findings: presented.findings, executedChecks: executedChecks.get(request.candidateId), executionInterpretation, unresolvedPeerOperations: conflictsInvolving(operationConflicts, [request.candidateId]).map(conflictOutline), repository: this.repository() },
         schema: { parse(value: unknown) {
           const parsed = modelVerificationResultSchema.parse(value);
           if (parsed.evidenceIds.some((id) => !known.has(id)) || parsed.outcome !== "STILL_NEEDS_VERIFICATION" && parsed.evidenceIds.length === 0) throw new Error("INVALID_VERIFICATION_EVIDENCE");
-          return { ...parsed, evidenceIds: parsed.evidenceIds.map((id) => real.get(id) ?? id) };
+          return { ...parsed, evidenceIds: parsed.evidenceIds.map(names.real) };
         } }, jsonSchema: modelVerificationResultSchema.toJSONSchema() };
     };
     // Questions whose claims cite the same files may be put in one call (`verification.maxQuestionsPerCall`): the
@@ -507,11 +521,12 @@ export class ModelAuditPipeline {
     const pathsOf = (candidateId: string) => [...new Set((convergence.candidateFindings[candidateId] ?? []).flatMap(({ locations }) => locations.map(({ path }) => path)))];
     const characters = new Map(this.context.snapshot.files.map(({ path, lines }) => [path, lines.reduce((sum, line) => sum + line.length + 1, 0)]));
     const groupQuestion = (requests: readonly ModelVerificationRequest[]) => {
-      const known = new Map(requests.map((request) => [request.candidateId, new Set(request.context.citedContext.map(({ evidenceId }) => evidenceId))]));
+      const names = neutralNames(); const presented = requests.map((request) => names.present(request, convergence.candidateFindings[request.candidateId] ?? []));
+      const known = new Map(presented.map(({ request }) => [request.candidateId, new Set(request.context.citedContext.map(({ evidenceId }) => evidenceId))]));
       const ids = requests.map(({ candidateId }) => candidateId);
-      return { activityId: `verification/group/${createHash("sha256").update(JSON.stringify(ids)).digest("hex").slice(0, 24)}/questions`, modelProfileId: this.#roles.verifier, signal, protocol: "targeted-verification", stage: "verification" as const, sourceScope: "cited" as const,
+      return { activityId: `verification/group/${createHash("sha256").update(JSON.stringify(ids)).digest("hex").slice(0, 24)}/questions`, modelProfileId: this.#roles.verifier, signal, protocol: "targeted-verification", stage: "verification" as const, sourceScope: "cited" as const, maximumOutputTokens: answerCeiling(this.#roles.verifier, requests.length),
         instruction: "Answer each of the verification questions supplied, one answer per candidateId, using the source, including control flow and counterexamples. The questions are asked together because their claims cite the same files; judge every claim on its own, from its own question, findings and evidence: one claim's answer settles nothing about another's. A finding says where a defect is, what triggers it and what goes wrong; judge that against the code, and treat a candidate's title as a label only. An exact quotation alone does not prove a defect. The source supplied is only the files the claims cite: read whatever else an answer depends on (a helper the cited code calls, a caller, a test) with the source tools before you answer. Answer STILL_NEEDS_VERIFICATION when an answer depends on what the source cannot show, such as runtime behaviour, configuration or code outside the repository: that answer is expected, not a failure. Cite only the evidence IDs supplied with that claim's own question.",
-        input: { questions: requests.map((request) => ({ request, findings: neutralFindings(convergence.candidateFindings[request.candidateId] ?? []), executedChecks: executedChecks.get(request.candidateId), unresolvedPeerOperations: conflictsInvolving(operationConflicts, [request.candidateId]).map(conflictOutline) })),
+        input: { questions: presented.map(({ request, findings }) => ({ request, findings, executedChecks: executedChecks.get(request.candidateId), unresolvedPeerOperations: conflictsInvolving(operationConflicts, [request.candidateId]).map(conflictOutline) })),
           executionInterpretation, repository: this.repository() },
         schema: { parse(value: unknown) {
           const { answers } = modelVerificationGroupResultSchema.parse(value);
@@ -520,7 +535,7 @@ export class ModelAuditPipeline {
           return ids.map((id) => {
             const { outcome, evidenceIds, confidence } = answers.find(({ candidateId }) => candidateId === id) ?? answers[0] as (typeof answers)[number];
             if (evidenceIds.some((evidenceId) => !known.get(id)?.has(evidenceId)) || outcome !== "STILL_NEEDS_VERIFICATION" && evidenceIds.length === 0) throw new Error(`INVALID_VERIFICATION_EVIDENCE: the answer for ${id} cites evidence its own question does not supply`);
-            return { outcome, evidenceIds, confidence };
+            return { outcome, evidenceIds: evidenceIds.map(names.real), confidence };
           });
         } }, jsonSchema: modelVerificationGroupResultSchema.toJSONSchema() };
     };
@@ -531,9 +546,16 @@ export class ModelAuditPipeline {
       await context.store.publish(`verification-unanswered-${createHash("sha256").update(`${activityId}/${request.candidateId}`).digest("hex").slice(0, 24)}`, { candidateId: request.candidateId, activityId, reason: (error as Error).message.slice(0, 1_000) });
       return { outcome: "STILL_NEEDS_VERIFICATION" as const, evidenceIds: [], artifactRefs: [], activityId, confidence: 0 };
     };
+    // A bound on questions (`maxModelQuestionsPerRound`) holds for every question verification asks: the re-asks of
+    // a rejected merge's places, a second opinion and a failed group's questions asked one at a time come out of what
+    // the first questions leave. Those are set aside when the questions are grouped, so no re-ask takes one a later
+    // first question needs. A question the bound leaves out is listed (`verification-questions-not-asked`).
+    let spare = typeof configuredQuestions === "number" ? configuredQuestions : Number.POSITIVE_INFINITY;
+    const notAsked: { candidateId: string; activityId: string }[] = [];
+    const allowed = (candidateId: string, activityId: string) => { if (spare >= 1) { spare -= 1; return true; } notAsked.push({ candidateId, activityId }); return false; };
     // A rejected candidate whose findings cite places that do not overlap may have joined different defects, so
-    // each place is asked about on its own, in order, until one is confirmed. The issue then stands for the
-    // findings that were confirmed, under their own title. One extra question per place, for rejected merges only.
+    // each place is asked about on its own, in order. The issue then stands for the findings of every place that was
+    // confirmed, under the first one's title. One extra question per place, for rejected merges only.
     const held = new Map<string, readonly AuditFinding[]>();
     const separately = async (request: ModelVerificationRequest, rejected: ModelVerificationResponse): Promise<ModelVerificationResponse> => {
       const places = findingsByPlace(convergence.candidateFindings[request.candidateId] ?? []);
@@ -542,7 +564,7 @@ export class ModelAuditPipeline {
       // re-asks were 10 to 16% of a panel's tokens and 7 of 50 confirmed, none of them a planted defect.
       if (this.config.verification["reaskMergedPlaces"] === "across_files" && new Set(places.flatMap((findings) => findings.flatMap(({ locations }) => locations.map(({ path }) => path)))).size < 2) return rejected;
       const asked: { sourceFindingIds: readonly string[]; activityId: string; outcome: string | null }[] = [];
-      let confirmed: ModelVerificationResponse | null = null;
+      const confirmed: { answer: ModelVerificationResponse; findings: readonly AuditFinding[] }[] = [];
       for (const findings of places) {
         const evidenceIds = new Set(findings.flatMap(({ evidence }) => evidence.map(({ id }) => id)));
         const citedContext = request.context.citedContext.filter(({ evidenceId }) => evidenceIds.has(evidenceId));
@@ -550,14 +572,18 @@ export class ModelAuditPipeline {
         const sourceFindingIds = findings.map(({ sourceFindingId }) => sourceFindingId);
         const single = { ...request, question: verificationQuestion(findings), context: { ...request.context, citedContext } };
         const stage = question(single, findings, `verification/${request.candidateId}/place/${createHash("sha256").update(JSON.stringify(sourceFindingIds)).digest("hex").slice(0, 16)}`);
+        if (!allowed(request.candidateId, stage.activityId)) continue;
         let answer: ModelVerificationResponse;
         try { answer = { ...await this.call(stage), activityId: stage.activityId, artifactRefs: [] }; }
         catch (error) { answer = await unanswered(single, stage.activityId, error); }
         asked.push({ sourceFindingIds, activityId: stage.activityId, outcome: answer.outcome });
-        if (answer.outcome === "CONFIRMED") { confirmed = answer; held.set(request.candidateId, findings); break; }
+        if (answer.outcome === "CONFIRMED") confirmed.push({ answer, findings });
       }
       await context.store.publish(`verification-places-${request.candidateId}`, { candidateId: request.candidateId, rejectedAs: rejected.activityId, asked });
-      return confirmed ?? rejected;
+      const [first] = confirmed;
+      if (first === undefined) return rejected;
+      held.set(request.candidateId, confirmed.flatMap(({ findings }) => findings));
+      return { ...first.answer, evidenceIds: [...new Set(confirmed.flatMap(({ answer }) => answer.evidenceIds))], confidence: Math.min(...confirmed.map(({ answer }) => answer.confidence)) };
     };
     // A critical or high issue a reviewer backed is rejected only when a second model, asked the same blind question,
     // rejects it too; when the two disagree it stays open for a person or an agent to settle (`verification.
@@ -570,7 +596,9 @@ export class ModelAuditPipeline {
       const candidate = convergence.board.candidates[request.candidateId];
       if (secondOpinion === undefined || rejected.outcome !== "REJECTED" || candidate === undefined || !["critical", "high"].includes(severityOf(candidate))
         || candidate.votes.length > 0 && !candidate.votes.some(({ disposition }) => disposition !== "reject")) return rejected;
-      const stage = { ...question(request, undefined, `verification/${request.candidateId}/second-opinion`), modelProfileId: secondOpinion };
+      const stage = { ...question(request, undefined, `verification/${request.candidateId}/second-opinion`), modelProfileId: secondOpinion, maximumOutputTokens: answerCeiling(secondOpinion) };
+      // Without the second question the rejection is not confirmed, so the issue stays open.
+      if (!allowed(request.candidateId, stage.activityId)) return { ...rejected, outcome: "STILL_NEEDS_VERIFICATION" };
       let answer: ModelVerificationResponse;
       try { answer = { ...await this.call(stage), activityId: stage.activityId, artifactRefs: [] }; }
       catch (error) { answer = await unanswered(request, stage.activityId, error); }
@@ -589,12 +617,15 @@ export class ModelAuditPipeline {
         const answers: ModelVerificationResponse[] = [];
         for (const request of requests) {
           const single = question(request);
+          if (!allowed(request.candidateId, single.activityId)) { answers.push({ outcome: "STILL_NEEDS_VERIFICATION", evidenceIds: [], artifactRefs: [], activityId: single.activityId, confidence: 0 }); continue; }
           try { answers.push({ ...await this.call(single), activityId: single.activityId, artifactRefs: [] }); }
           catch (failure) { answers.push(await unanswered(request, single.activityId, failure)); }
         }
         return answers;
       }
     };
+    // A rejection, asked alone or in a group, goes on to the places of a merge and then to a second opinion.
+    const settled = async (request: ModelVerificationRequest, answer: ModelVerificationResponse) => answer.outcome === "REJECTED" ? confirmRejection(request, await separately(request, answer)) : answer;
     const verification = await verifyItems(items, { ...tools, runAllowlistedSafeTest: async (item, policy) => {
       const attempt = await tools.runAllowlistedSafeTest(item, policy);
       if (execution === undefined) return attempt;
@@ -615,12 +646,12 @@ export class ModelAuditPipeline {
           let answer;
           try { answer = { ...await this.call(stage), activityId: stage.activityId, artifactRefs: [] }; }
           catch (error) { return unanswered(request, stage.activityId, error); }
-          return answer.outcome === "REJECTED" ? confirmRejection(request, await separately(request, answer)) : answer;
+          return settled(request, answer);
         },
         // A group starts with the first question not yet grouped and takes later ones whose claims cite a file it
         // already reads, while the files it reads stay within a bound and the call fits.
         group: async (requests) => {
-          if (perCall <= 1) return requests.map((request) => [request]);
+          if (perCall <= 1) { spare -= requests.length; return requests.map((request) => [request]); }
           const groups: ModelVerificationRequest[][] = []; const taken = new Set<string>();
           for (const [index, first] of requests.entries()) {
             if (taken.has(first.candidateId)) continue;
@@ -636,14 +667,16 @@ export class ModelAuditPipeline {
             groups.push(group);
           }
           await context.store.publish("verification-groups", groups.map((group) => ({ candidateIds: group.map(({ candidateId }) => candidateId), activityId: group.length === 1 ? question(group[0] as ModelVerificationRequest).activityId : groupQuestion(group).activityId })));
+          spare -= groups.length;
           return groups;
         },
         verifyGroup: async (requests) => {
           const answers = await askTogether(requests);
-          return Promise.all(answers.map((answer, index) => { const request = requests[index]; return request === undefined ? answer : confirmRejection(request, answer); }));
+          return Promise.all(answers.map((answer, index) => { const request = requests[index]; return request === undefined ? answer : settled(request, answer); }));
         },
       },
     });
+    if (notAsked.length > 0) await context.store.publish("verification-questions-not-asked", notAsked);
     await context.store.publish("verification-results", verification.results.map(({ candidateId, outcome: result, method }) => ({ candidateId, result, method })));
     await context.store.publish("verification-operations", operations);
     await context.store.publish("verification-metrics", verification.metrics);
@@ -677,6 +710,7 @@ export class ModelAuditPipeline {
         ...(refusedOperations === 0 ? [] : [`peer_review_operations_refused:${refusedOperations}`]),
         ...(verification.metrics.contextLimitedItemIds.length === 0 ? [] : [`verification_question_exceeds_context:${verification.metrics.contextLimitedItemIds.length}`]),
         ...(unansweredQuestions === 0 ? [] : [`verification_question_unanswered:${unansweredQuestions}`]),
+        ...(notAsked.length === 0 ? [] : [`verification_questions_not_asked:${notAsked.length}`]),
         ...(skipped.length === 0 ? [] : [`verification_skipped_below_plan_scope:${skipped.length}`]),
         ...discoveryCoverage.flatMap(({ auditorId, truncated, limitations }) => [...(truncated ? [`discovery_truncated:${auditorId}`] : []), ...limitations.map((limitation) => `${auditorId}:${limitation}`)])],
     });
@@ -1085,7 +1119,7 @@ export class ModelAuditPipeline {
     // costs, so the whole prompt is measured a few times a call and not once a file.
     // Where the transport takes only so many bytes of a prompt, the sum stops there too.
     const byteLimit = promptByteLimit(this.config.models[input.modelProfileId]?.transport ?? "");
-    const sizingMaximum = byteLimit === null ? maximum : Math.min(maximum, Math.floor(byteLimit / inputBytesPerToken(this.config).usual) + outputCeiling(this.config, input.modelProfileId));
+    const sizingMaximum = byteLimit === null ? maximum : Math.min(maximum, Math.floor(byteLimit / inputBytesPerToken(this.config).usual) + requestCeiling(this.config, input));
     const allocated = allocateStageContext(input.input, { fits, sizing: { measure, maximum: sizingMaximum, of: (source) => this.#activities.estimateSourceTokens(source) },
       ...(input.sourceScope === undefined ? {} : { scope: input.sourceScope }), ...(input.citedPaths === undefined ? {} : { citedPaths: input.citedPaths }), ...(input.preferredPaths === undefined ? {} : { preferredPaths: input.preferredPaths }), ...(asRequired ? { smaller: withConflictOutlines(input.input),
       admits: (payload: unknown) => withinStringBudget(payload, maximum * inputBytesPerToken(this.config).required) && this.#activities.estimateRequiredTokens(request(payload)) <= maximum } : {}) });

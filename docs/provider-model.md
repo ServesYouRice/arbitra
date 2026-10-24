@@ -299,13 +299,19 @@ which model found it, nor its severity, status or confidence, and with evidence 
 renamed (a judge leans towards claims stated with authority, and towards its own family's).
 Answering that the source cannot decide is named as an expected answer; such an issue is
 reported as unverified and not planned. A rejected candidate whose findings cite places that do
-not overlap is asked about one place at a time, in order, until one is confirmed; the issue then
-stands for those findings under their own title (`verification-places-<id>`,
+not overlap, asked alone or in a group, is asked about one place at a time, in order; the issue
+then stands for every confirmed place's findings under the first one's title (`verification-places-<id>`,
 `verification-held-findings`). Observed: a merge gave a real defect another finding's title,
 and the question about that title was rejected. The accepted list is ranked by severity, then by
 how many auditors found the issue, then by the verifier's confidence (`issue-ranking`).
 `verification.maxModelQuestionsPerRound` bounds the questions when it is set (zero disables
-model verification). A question reads the files its candidate cites (every other file is a
+model verification): the re-asks of a merge's places, second opinions and a failed group's
+questions asked one at a time come out of what the first questions leave, a question it leaves
+out is listed (`verification-questions-not-asked`, `verification_questions_not_asked:<n>`), and a
+severe rejection it leaves without a second opinion stays open. An answer may write 16,000
+tokens, reasoning included, and a group that many a question: of about 5,500 measured
+verification turns the longest wrote 2,284, and one that ran on to a 128,000-token ceiling had
+looped. A question reads the files its candidate cites (every other file is a
 tool call away, and its instruction says to read what the answer depends on), and the
 unresolved peer operations that involve its own candidate in outline; the plan reads those
 that involve accepted issues in full. A wider source was measured and dropped: with the files
@@ -314,7 +320,8 @@ chain of imports joins most of a project, and the questions of one run read 5.3M
 `verification.maxQuestionsPerCall` (default 1) lets questions whose claims cite the same files
 share a call: a group starts with the first question not yet grouped and takes later ones that
 cite a file it already reads, while the files it reads stay within 60,000 characters and the
-call fits. The call answers every question on its own, with evidence from that question only
+call fits. The call answers every question on its own, with evidence from that question only,
+and shows the evidence and location IDs of all its questions under one neutral naming
 (`verification-groups` lists the groups; `modelQuestionCalls` in the metrics counts the calls).
 Replayed on a run's 58 stored questions, three to a call made 25 calls where there were 58, and
 the source they read first fell from 656,000 to 428,000 characters. It stays off: every lab's

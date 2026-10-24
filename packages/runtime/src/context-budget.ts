@@ -22,6 +22,11 @@ export function outputCeiling(config: RunConfig, modelProfileId: string): number
   return stageBudget(config, modelProfileId).outputCapacity;
 }
 
+/** The output ceiling of one request: the one its stage sets (a verification answer's), or else its model's. */
+export function requestCeiling(config: RunConfig, request: { readonly modelProfileId: string; readonly maximumOutputTokens?: number | undefined }): number {
+  return request.maximumOutputTokens ?? outputCeiling(config, request.modelProfileId);
+}
+
 /** arbitra sizes what it sends at one token a byte unless the run sets `estimatedBytesPerToken`. Real prompts
  * measured 1.9 to 2.4 bytes a token, so one byte a token overstates them about twice, which keeps calls small.
  * What a call must carry whole is another matter: refused at that rate it fails the run, although the provider
