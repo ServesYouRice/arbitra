@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import type { ArtifactApi } from "../../api/artifacts.js";
-import { CONSENSUS_LABELS, consensusToken, useIssueBoard, verificationLabel, verificationToken } from "./IssueBoardView.js";
+import { consensusLabel, consensusToken, notPeerReviewed, useIssueBoard, verificationLabel, verificationToken } from "./IssueBoardView.js";
 import type { PersistedIssueOp } from "./model.js";
 
 /**
@@ -18,7 +18,7 @@ export function IssueDetails({ api, runId, candidateId, refreshKey = null }: { r
     <p className="state prose" data-state="tainted">{row.title}</p>
     <dl className="facts">
       <div><dt>severity</dt><dd>{row.severity}{row.blocker ? " · production blocker" : ""}</dd></div>
-      <div><dt>consensus</dt><dd className="state" data-state={consensusToken(row.consensusState)}>{CONSENSUS_LABELS[row.consensusState]} · {row.supportCount} of {row.reviewDenominator} reviewers support it</dd></div>
+      <div><dt>consensus</dt><dd className="state" data-state={consensusToken(row.consensusState, !notPeerReviewed(row))}>{consensusLabel(row)}{notPeerReviewed(row) ? "" : ` · ${row.supportCount} of ${row.reviewDenominator} reviewers support it`}</dd></div>
       <div><dt>verification</dt><dd className="state" data-state={verificationToken(row.verificationOutcome)}>{verificationLabel(row)}</dd></div>
       {row.status === "unavailable" ? null : <div><dt>board status</dt><dd>{row.status}</dd></div>}
       <div><dt>reviewed by</dt><dd>{row.auditors.join(", ") || "no reviewer recorded"}{row.missingReviewers.length === 0 ? "" : ` · missing ${row.missingReviewers.join(", ")}`}</dd></div>

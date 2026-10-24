@@ -85,7 +85,7 @@ function IssueRowView({ row, selected, onSelect }: { readonly row: IssueRow; rea
       <span className="issue-row__severity">{row.severity}{row.blocker ? " · blocker" : ""}</span>
     </div>
     <p className="issue-row__facts">
-      <span className="state" data-state={consensusToken(row.consensusState)}>{CONSENSUS_LABELS[row.consensusState]} · {row.supportCount} of {row.reviewDenominator} support</span>
+      <span className="state" data-state={consensusToken(row.consensusState, !notPeerReviewed(row))}>{consensusLabel(row)}{notPeerReviewed(row) ? "" : ` · ${row.supportCount} of ${row.reviewDenominator} support`}</span>
       <span className="state" data-state={verificationToken(row.verificationOutcome)}>{verificationLabel(row)}</span>
       <span className="issue-row__location">{location === undefined ? "no location recorded" : `${location.path}:${location.startLine}-${location.endLine}`}{row.locations.length > 1 ? ` · ${row.locations.length - 1} more` : ""}</span>
     </p>
@@ -95,7 +95,17 @@ function IssueRowView({ row, selected, onSelect }: { readonly row: IssueRow; rea
 
 export const CONSENSUS_LABELS: Readonly<Record<IssueRow["consensusState"], string>> = Object.freeze({ accepted: "accepted", rejected: "rejected", needs_verification: "needs verification", non_consensus: "no consensus", single_source: "single source",
   verified_single_source: "single source · confirmed by verification" });
-export function consensusToken(state: IssueRow["consensusState"]): string { return state === "accepted" ? "verified" : state === "rejected" ? "refuted" : state === "single_source" || state === "verified_single_source" ? "unexamined" : "dissent"; }
+/**
+ * No reviewer voted on the issue: a run without review rounds. Observed live (commentanywhere, October 23, 2026): all 150
+ * candidates read "no consensus · 0 of 3 support", which says reviewers disagreed when none was asked. An issue of a
+ * one-auditor run is single-source, not unreviewed.
+ */
+export function notPeerReviewed(row: Pick<IssueRow, "auditors" | "singleSource">): boolean { return !row.singleSource && row.auditors.length === 0; }
+export function consensusLabel(row: Pick<IssueRow, "consensusState" | "auditors" | "singleSource">): string {
+  const label = CONSENSUS_LABELS[row.consensusState];
+  return !notPeerReviewed(row) ? label : row.consensusState === "non_consensus" ? "not peer reviewed" : `${label} · not peer reviewed`;
+}
+export function consensusToken(state: IssueRow["consensusState"], reviewed = true): string { return state === "accepted" ? "verified" : state === "rejected" ? "refuted" : state === "single_source" || state === "verified_single_source" || !reviewed && state === "non_consensus" ? "unexamined" : "dissent"; }
 export function verificationToken(outcome: IssueRow["verificationOutcome"]): string { return outcome === "CONFIRMED" ? "verified" : outcome === "REJECTED" ? "refuted" : outcome === null ? "unexamined" : "degraded"; }
 export function verificationLabel(row: Pick<IssueRow, "verificationOutcome" | "verificationMethod">): string {
   if (row.verificationOutcome === null) return "not verified";

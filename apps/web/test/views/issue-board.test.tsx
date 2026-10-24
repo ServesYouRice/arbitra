@@ -68,6 +68,27 @@ describe("issue board over persisted artifacts", () => {
     expect(within(row as HTMLElement).getByText("single source · confirmed by verification · 1 of 3 support").dataset.state).toBe("unexamined");
   });
 
+  it("says an issue was not peer reviewed, not that reviewers found no consensus, when no reviewer voted", async () => {
+    // Observed live (commentanywhere, October 23, 2026): a run with no review round labelled all 150 candidates "no consensus · 0 of 3 support".
+    const [reviewed] = issueSet.issues;
+    const none = { ...reviewed, supportCount: 0, dissent: [], counterEvidence: [], coverage: { reviewedBy: [], missingReviewers: [] }, verificationOutcome: null, consensusClaim: "No peer-review round was run; only verification checks this issue." };
+    const unreviewed = { ...none, candidateId: "issue-3", claim: { ...none.claim, title: "Cache is never invalidated" }, disposition: "non_consensus" as const };
+    const settled = { ...none, candidateId: "issue-4", claim: { ...none.claim, title: "Token is logged" }, disposition: "accepted" as const, verificationOutcome: "CONFIRMED" as const };
+    const disputed = { ...none, candidateId: "issue-5", claim: { ...none.claim, title: "Lock is never released" }, disposition: "non_consensus" as const, supportCount: 1, coverage: { reviewedBy: ["reviewer-a", "reviewer-b"], missingReviewers: ["reviewer-c"] } };
+    stubArtifacts({ ...ARTIFACT_CONTENT, "canonical-issues": { ...issueSet, issues: [unreviewed, settled, disputed] } });
+    render(<IssueBoardView api={new ArtifactApi()} runId="run-1" />);
+    const row = (title: string) => within((screen.getByText(title)).closest("li") as HTMLElement);
+    await screen.findByText("Cache is never invalidated");
+    expect(row("Cache is never invalidated").getByText("not peer reviewed").dataset.state).toBe("unexamined");
+    expect(row("Token is logged").getByText("accepted · not peer reviewed")).toBeTruthy();
+    expect(row("Lock is never released").getByText("no consensus · 1 of 3 support").dataset.state).toBe("dissent");
+    expect(screen.queryByText(/0 of 3 support/u)).toBeNull();
+    cleanup();
+    render(<IssueDetails api={new ArtifactApi()} runId="run-1" candidateId="issue-3" />);
+    expect(await screen.findByText("not peer reviewed")).toBeTruthy();
+    expect(screen.queryByText(/reviewers support it/u)).toBeNull();
+  });
+
   it("keeps dissent visible on the row when filters combine", async () => {
     stubArtifacts();
     render(<IssueBoardView api={new ArtifactApi()} runId="run-1" />);

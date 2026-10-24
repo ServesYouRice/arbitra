@@ -7,7 +7,7 @@ import { formatTime, isActive } from "../../app/format.js";
 import { GateVerdict } from "../../app/marks.js";
 import { Link, type RunTab } from "../../app/router.js";
 import { FeatureOutcome, HandoffDownload } from "../../views/feature/FeatureView.js";
-import { CONSENSUS_LABELS, CoverageSummary, unresolvedText, useIssueBoard } from "../../views/issue-board/IssueBoardView.js";
+import { consensusLabel, CoverageSummary, unresolvedText, useIssueBoard } from "../../views/issue-board/IssueBoardView.js";
 import type { PersistedIssueSet } from "../../views/issue-board/model.js";
 import { RUN_ARTIFACT_KINDS, useRunArtifact } from "../../views/issue-board/run-artifacts.js";
 import { usePlan } from "../../views/plan/PlanView.js";
@@ -110,7 +110,7 @@ function AuditSummary({ runId, refreshKey }: { readonly runId: string; readonly 
         <CoverageSummary issueSet={issueSet.value} />
         {ranked.length === 0 ? null : <ul aria-label="most severe issues" className="plain-list">{ranked.map((row) => <li className="overview-issue" data-severity={row.severity} key={row.candidateId}>
           <Link to={{ page: "run", runId, tab: "issues", item: selectionItem({ kind: "issue", id: row.candidateId }) }}>{row.title}</Link>
-          <span className="muted"> {row.severity}{row.blocker ? " · blocker" : ""} · {CONSENSUS_LABELS[row.consensusState]}{row.dissent.length === 0 ? "" : " · dissent recorded"}</span>
+          <span className="muted"> {row.severity}{row.blocker ? " · blocker" : ""} · {consensusLabel(row)}{row.dissent.length === 0 ? "" : " · dissent recorded"}</span>
         </li>)}</ul>}
         <p><TabLink runId={runId} tab="issues">open the issue board</TabLink></p>
       </>}

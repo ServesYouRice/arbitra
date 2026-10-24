@@ -145,3 +145,30 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
     expect(await planResults(repository, "run-87654321-abcd")).toBeNull();
   } finally { await rm(repository, { recursive: true, force: true }); }
 });
+
+it("does not say the auditors disagreed about a report no auditor reviewed", async () => {
+  // Observed live (commentanywhere, October 23, 2026): a run with no peer-review round recorded no vote on any issue,
+  // so the reports it left open were not disputed, only unchecked by a second auditor.
+  const repository = await mkdtemp(join(tmpdir(), "arbitra-plan-export-"));
+  try {
+    await mkdir(join(repository, "src"));
+    await writeFile(join(repository, "src", "a.ts"), "export {};\n");
+    const open = (candidateId: string, reviewedBy: readonly string[]) => ({ candidateId, severity: "medium", disposition: "needs_verification", verificationOutcome: "STILL_NEEDS_VERIFICATION", claim: { title: `Open ${candidateId}`, description: "It may retry forever." },
+      dissent: [], coverage: { reviewedBy, missingReviewers: [] }, singleSource: false });
+    const plan = { title: "One section", tasks: [task("TASK-1", "frontier")], unresolvedQuestions: [], validationContract: { validation: [] }, traceability: { issueToValidation: [] } };
+    const run = async (issues: readonly unknown[]) => {
+      const content: Record<string, unknown> = { "plan-ir": plan, "canonical-issues": { issues: [{ candidateId: "C-1", severity: "high", disposition: "accepted", claim: { title: "A defect", description: "It breaks." } }, ...issues] }, "plan-scope": { minimumSeverity: "medium" } };
+      const orchestrator = { overview: async () => ({ repository, workflowId: "audit-balanced" }), repositoryMatches: async () => true,
+        artifacts: async () => Object.keys(content).map((kind) => ({ kind, artifactId: kind })), artifact: async (_runId: string, id: string) => ({ content: JSON.stringify(content[id]) }) } as unknown as Orchestrator;
+      const { directory } = await exportPlan(orchestrator, "run-12345678-abcd");
+      return { readme: await readFile(join(directory, "README.md"), "utf8"), check: await readFile(join(directory, "prompts", "4-unsure", "01-C-2.md"), "utf8") };
+    };
+    const none = await run([open("C-2", [])]);
+    expect(none.readme).toContain("The audit could not settle this report: no peer review checked it, and the verifier could not decide from the code it was shown.");
+    expect(none.check).toContain("no peer review checked this one, and arbitra's verifier could not decide from the code it was shown.");
+    expect(none.readme + none.check).not.toContain("disagreed");
+    const some = await run([open("C-2", ["auditor-a", "auditor-b"])]);
+    expect(some.readme).toContain("The audit could not settle this report: the auditors disagreed, and the verifier could not decide from the code it was shown.");
+    expect(some.check).toContain("they disagreed about this one, and arbitra's verifier could not decide from the code it was shown.");
+  } finally { await rm(repository, { recursive: true, force: true }); }
+});

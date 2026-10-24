@@ -28,6 +28,14 @@ interface ExportPlan {
 interface ExportIssue {
   readonly candidateId: string; readonly severity: string; readonly disposition: string; readonly claim: { readonly title: string; readonly description: string };
   readonly verificationOutcome?: string | null; readonly dissent?: readonly { readonly authorId: string; readonly disposition: string; readonly reason: string }[];
+  readonly coverage?: { readonly reviewedBy?: readonly string[] }; readonly singleSource?: boolean;
+}
+/** No reviewer voted on it: a run without a peer-review round. Such a report is unchecked, not disputed. */
+const unreviewed = (issue: ExportIssue): boolean => issue.singleSource !== true && issue.coverage?.reviewedBy?.length === 0;
+/** Why the audit left these reports open, for the README: auditors who disagreed, or a run with no peer review. */
+function whyUnsettled(issues: readonly ExportIssue[]): string {
+  const none = issues.filter(unreviewed).length;
+  return none === 0 ? "the auditors disagreed" : none === issues.length ? "no peer review checked " + (issues.length === 1 ? "it" : "them") : "the auditors disagreed or no peer review checked them";
 }
 const SEVERITIES = ["informational", "low", "medium", "high", "critical"];
 // Reports the audit could not settle come after the tasks: observed live (nextra, October 24, 2026), 5 of the first 6
@@ -202,7 +210,7 @@ function readme(plan: ExportPlan, ordered: readonly ExportTask[], runId: string,
       return `${index + 1}. \`${task.id}\` ${task.title} · ${TIERS[task.routing.capability].folder}${after.length === 0 ? "" : ` · after ${after.join(", ")}`}${waits.size === 0 ? "" : ` · same files as ${[...waits.keys()].join(", ")}`}`;
     }), "",
     ...(unsettled.length === 0 ? [] : ["## Unsure: check after the tasks, if at all", "",
-      `The audit could not settle ${unsettled.length === 1 ? "this report" : `these ${unsettled.length} reports`}: the auditors disagreed, and the verifier could not decide from the code it was shown. They are not part of the work above, and most such reports do not hold. ${UNSURE_RATE} Each prompt in \`prompts/${UNSURE}\` asks a strong model to decide whether the defect is real, by reading the code and running it where that helps, and to fix it only if a test or a run shows it. They are listed most severe first.`, "",
+      `The audit could not settle ${unsettled.length === 1 ? "this report" : `these ${unsettled.length} reports`}: ${whyUnsettled(unsettled)}, and the verifier could not decide from the code it was shown. They are not part of the work above, and most such reports do not hold. ${UNSURE_RATE} Each prompt in \`prompts/${UNSURE}\` asks a strong model to decide whether the defect is real, by reading the code and running it where that helps, and to fix it only if a test or a run shows it. They are listed most severe first.`, "",
       ...unsettled.map((issue, index) => `${index + 1}. \`${issue.candidateId}\` ${issue.claim.title} · ${issue.severity}`), ""]),
     "## Model tiers", "", ...Object.values(TIERS).map(({ folder, model, why }) => `- \`${folder}\`: ${model}, for ${why}.`), ""].join("\n");
 }
@@ -326,7 +334,7 @@ function checkPrompt(issue: ExportIssue, related: readonly string[]): string {
   const section = (tag: string, body: string) => `<${tag}>\n${body}\n</${tag}>`;
   const views = (issue.dissent ?? []).map(({ authorId, disposition, reason }) => `- ${authorId} (${disposition.replace(/_/gu, " ")}): ${reason.replace(/\s+/gu, " ").slice(0, 1_200)}`);
   return [`# Check ${issue.candidateId} · ${issue.claim.title}`, "", `Suggested model: ${TIERS.frontier.model}, effort high. Why: the audit could not settle this by reading alone.`, "",
-    "You are a careful senior engineer checking one reported defect in this repository before anyone fixes it. Several models audited the project; they disagreed about this one, and arbitra's verifier could not decide from the code it was shown. The report may be wrong, so treat it as a claim to test, not a fact.", "",
+    `You are a careful senior engineer checking one reported defect in this repository before anyone fixes it. Several models audited the project; ${unreviewed(issue) ? "no peer review checked this one" : "they disagreed about this one"}, and arbitra's verifier could not decide from the code it was shown. The report may be wrong, so treat it as a claim to test, not a fact.`, "",
     section("claim", `${issue.claim.title} (${issue.severity})\n\n${issue.claim.description.replace(/\s+/gu, " ").slice(0, 2_000)}`), "",
     ...(views.length === 0 ? [] : [section("what_the_reviewers_said", views.join("\n")), ""]),
     ...(related.length === 0 ? [] : [section("related_reports", `${RELATED_NOTE}\n${related.map((item) => `- ${item}`).join("\n")}`), ""]),
