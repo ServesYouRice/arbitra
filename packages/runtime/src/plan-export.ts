@@ -23,7 +23,9 @@ interface ExportIssue {
   readonly verificationOutcome?: string | null; readonly dissent?: readonly { readonly authorId: string; readonly disposition: string; readonly reason: string }[];
 }
 const SEVERITIES = ["informational", "low", "medium", "high", "critical"];
-const CHECK_FIRST = "0-check-first";
+// Reports the audit could not settle come after the tasks: observed live (nextra, October 24, 2026), 5 of the first 6
+// did not hold, and a folder named to sort first sent the executing agent's strongest model to them before any task.
+const UNSURE = "4-unsure";
 /** The executor's report, one entry per issue, which arbitra reads back (`plan-results.ts`). */
 export const RESULTS_FILE = "results.json";
 export const RESULT_VALUES = ["fixed", "not_reproducible", "no_change_needed", "blocked"] as const;
@@ -91,7 +93,7 @@ export async function exportPlan(orchestrator: Orchestrator, runId: string): Pro
   let directory = base;
   for (let copy = 2; existsSync(directory); copy += 1) directory = `${base}-${copy}`;
   const files = new Map<string, string>();
-  unsettled.forEach((issue, index) => files.set(join("prompts", CHECK_FIRST, `${String(index + 1).padStart(2, "0")}-${issue.candidateId}.md`), checkPrompt(issue)));
+  unsettled.forEach((issue, index) => files.set(join("prompts", UNSURE, `${String(index + 1).padStart(2, "0")}-${issue.candidateId}.md`), checkPrompt(issue)));
   ordered.forEach((task, index) => files.set(join("prompts", TIERS[task.routing.capability].folder, `${String(index + 1).padStart(2, "0")}-${task.id}.md`), prompt(task, issues, plan.tasks)));
   files.set("README.md", readme(plan, ordered, runId, overview.workflowId ?? "unknown", { unsettled, unverified, alsoFound: alsoFound.length, kept, notes }));
   if (alsoFound.length > 0) files.set("also-found.md", ["# Also found, not planned", "",
@@ -102,8 +104,10 @@ export async function exportPlan(orchestrator: Orchestrator, runId: string): Pro
   files.set("AGENTS.md", agents(ordered, unsettled.length, (await read<{ readonly commands: readonly ProjectCommand[] }>(PROJECT_COMMANDS_KIND))?.commands ?? []));
   files.set("CLAUDE.md", "Read AGENTS.md in this folder and follow it.\n");
   files.set("PROGRESS.md", ["# Progress", "", "Tick a task when it is done and verified; note anything left open under it.", "",
-    ...unsettled.map((issue, index) => `- [ ] check ${String(index + 1).padStart(2, "0")} \`${issue.candidateId}\` ${issue.claim.title}`),
-    ...ordered.map((task, index) => `- [ ] ${String(index + 1).padStart(2, "0")} \`${task.id}\` ${task.title}`), ""].join("\n"));
+    ...ordered.map((task, index) => `- [ ] ${String(index + 1).padStart(2, "0")} \`${task.id}\` ${task.title}`), "",
+    ...(unsettled.length === 0 ? [] : ["## Unsure, after the tasks (optional)", "",
+      "The audit could not settle these, and most such reports do not hold. Check one only when the tasks are done, and change nothing for it unless a test or a run shows the defect.", "",
+      ...unsettled.map((issue, index) => `- [ ] check ${String(index + 1).padStart(2, "0")} \`${issue.candidateId}\` ${issue.claim.title}`), ""])].join("\n"));
   files.set("issues.md", ["# Issues this plan fixes", "", ...[...new Set(ordered.flatMap((task) => task.addresses.issues))].map((id) => issues.get(id)).filter((issue): issue is ExportIssue => issue !== undefined)
     .map((issue) => `## ${issue.claim.title}\n\n${issue.severity} · ${issue.disposition} · ${issue.candidateId}\n\n${issue.claim.description}\n`)].join("\n"));
   files.set(RESULTS_FILE, `${JSON.stringify(resultsTemplate(runId, unsettled, ordered, issues), null, 2)}\n`);
@@ -125,17 +129,18 @@ function agents(ordered: readonly ExportTask[], checks: number, commands: readon
     "This folder is a plan to fix defects found in the project it sits in. It was written by arbitra, which audited the project with several models and checked each finding against the code.", "",
     "How to work:", "",
     "1. Read README.md for the order of work and any questions to answer first. If a question is marked as blocking, ask the person you are working with before starting the tasks it affects.",
-    "2. Take the first unticked item in PROGRESS.md and open its prompt under `prompts/`. Follow that prompt; it says what to read, what not to change, and how to check the result.",
+    "2. Take the first unticked task in PROGRESS.md and open its prompt under `prompts/`. Follow that prompt; it says what to read, what not to change, and how to check the result.",
+    ...(checks === 0 ? [] : [`   The items under "Unsure" in PROGRESS.md (prompts in \`prompts/${UNSURE}\`) are reports the audit could not settle, and most do not hold. Leave them until every task is done, take them only if the person you are working with wants them, and treat each as a claim to test: if no test or run shows the defect, change nothing.`]),
     "3. Do one task at a time. Prove each defect before fixing it: a test that fails on the current code for the reason the issue gives. Verify the task as its prompt says before you tick it in PROGRESS.md. If a check fails or the code does not match the prompt, stop and report instead of guessing.",
     `4. Record each issue's result in ${RESULTS_FILE} as you finish it: ${RESULT_VALUES.map((value) => `\`${value}\``).join(", ")}, whether its test failed before the fix, the test, and the proof (the failing output, or why no test could show it).`,
     `5. Do not change anything in this folder except PROGRESS.md and ${RESULTS_FILE}.`, "",
     "The prompt folders say which kind of model each task suits:", "",
-    ...(checks === 0 ? [] : [`- \`${CHECK_FIRST}\`: your strongest model, to decide whether a reported defect the audit could not settle is real, and to fix it if it is.`]),
-    ...Object.values(TIERS).map(({ folder, model, why }) => `- \`${folder}\`: ${model}, for ${why}.`), "",
+    ...Object.values(TIERS).map(({ folder, model, why }) => `- \`${folder}\`: ${model}, for ${why}.`),
+    ...(checks === 0 ? [] : [`- \`${UNSURE}\`: your strongest model, after the tasks, to decide whether a report the audit could not settle holds, and to fix it only if it does.`]), "",
     // The project's own commands, so a test that proves a defect runs the way the project runs its tests.
     ...(commands.length === 0 ? [] : ["The project's own commands, read from its manifests when it was audited (check them before relying on them; run each from the repository root unless a directory is given):", "",
       ...commands.map(({ purpose, command, directory, sourcePath }) => `- ${purpose}: \`${command}\`${directory === "" ? "" : ` in \`${directory}\``} (from \`${sourcePath}\`)`), ""]),
-    `There are ${ordered.length} tasks${checks === 0 ? "" : ` and ${checks} ${checks === 1 ? "issue" : "issues"} to check`}.`, ""].join("\n");
+    `There are ${ordered.length} tasks${checks === 0 ? "" : `, and ${checks} unsure ${checks === 1 ? "report" : "reports"} to check after them if wanted`}.`, ""].join("\n");
 }
 
 interface SeverityKept { readonly candidateId: string; readonly foundAs: string; readonly loweredTo: string; readonly by: string; readonly reason: string }
@@ -149,15 +154,15 @@ function readme(plan: ExportPlan, ordered: readonly ExportTask[], runId: string,
     `Each defect is proven before it is fixed: a test that fails on the current code, then passes with the fix. Record each issue's result in \`${RESULTS_FILE}\`; arbitra reads it back and reports how many defects a failing test proved and how many were fixed.`, "",
     ...(notes.length === 0 ? [] : ["## Read this first", "", ...notes.map((note) => `- ${note}`), ""]),
     ...(blocking.length === 0 ? [] : ["## Answer these first", "", ...blocking.map(({ id, question }) => `- **${id}**: ${question}`), ""]),
-    ...(unsettled.length === 0 ? [] : ["## Check these", "",
-      `The audit could not settle ${unsettled.length === 1 ? "this issue" : `these ${unsettled.length} issues`}: the auditors disagreed, and the verifier could not decide from the code it was shown. Each prompt in \`prompts/${CHECK_FIRST}\` asks a strong model to decide whether the defect is real, by reading the code and running it where that helps, and to fix it if it is.`, "",
-      ...unsettled.map((issue, index) => `${index + 1}. \`${issue.candidateId}\` ${issue.claim.title} · ${issue.severity}`), ""]),
     ...(kept.length === 0 ? [] : ["## Severity kept", "",
       `One reviewer alone lowered ${kept.length === 1 ? "this issue" : `these ${kept.length} issues`} below the plan's minimum severity, so ${kept.length === 1 ? "it was" : "they were"} verified and planned at the severity ${kept.length === 1 ? "it was" : "they were"} found with. The reviewer's reason is worth weighing when you fix ${kept.length === 1 ? "it" : "them"}.`, "",
       ...kept.map(({ candidateId, title, foundAs, loweredTo, by, reason }) => `- \`${candidateId}\` ${title}: found as ${foundAs}; ${by} proposed ${loweredTo}: ${reason.replace(/\s+/gu, " ").slice(0, 400)}`), ""]),
     ...(alsoFound === 0 ? [] : [`\`also-found.md\` lists ${alsoFound} more ${alsoFound === 1 ? "issue" : "issues"} the reviewers agreed ${alsoFound === 1 ? "is" : "are"} real but no task fixes.`, ""]),
     ...(unverified === 0 ? [] : [`${unverified} lower-severity ${unverified === 1 ? "issue was" : "issues were"} left unverified and ${unverified === 1 ? "is" : "are"} not planned; the run's issue board lists them.`, ""]),
     "## Order of work", "", ...ordered.map((task, index) => `${index + 1}. \`${task.id}\` ${task.title} · ${TIERS[task.routing.capability].folder}${task.dependencies.dependsOn.length === 0 ? "" : ` · after ${task.dependencies.dependsOn.join(", ")}`}`), "",
+    ...(unsettled.length === 0 ? [] : ["## Unsure: check after the tasks, if at all", "",
+      `The audit could not settle ${unsettled.length === 1 ? "this report" : `these ${unsettled.length} reports`}: the auditors disagreed, and the verifier could not decide from the code it was shown. They are not part of the work above, and most such reports do not hold. Each prompt in \`prompts/${UNSURE}\` asks a strong model to decide whether the defect is real, by reading the code and running it where that helps, and to fix it only if a test or a run shows it.`, "",
+      ...unsettled.map((issue, index) => `${index + 1}. \`${issue.candidateId}\` ${issue.claim.title} · ${issue.severity}`), ""]),
     "## Model tiers", "", ...Object.values(TIERS).map(({ folder, model, why }) => `- \`${folder}\`: ${model}, for ${why}.`), ""].join("\n");
 }
 
@@ -224,7 +229,7 @@ function resultsTemplate(runId: string, unsettled: readonly ExportIssue[], order
   });
   return { run: runId,
     instructions: `Fill in an entry as you finish its task. result: ${RESULT_VALUES.join(", ")}. failedBefore: true when a test failed on the unchanged code for this issue's reason, false when none could be made to fail. test: the test's file and name. proof: the failing output, or why no test could show the defect.`,
-    issues: [...unsettled.map((issue, index) => entry(issue, `check ${String(index + 1).padStart(2, "0")}`)), ...planned] };
+    issues: [...planned, ...unsettled.map((issue, index) => entry(issue, `check ${String(index + 1).padStart(2, "0")}`))] };
 }
 
 /** Tasks in an order that puts each after the tasks it depends on; the plan's own order breaks ties. */

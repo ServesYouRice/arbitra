@@ -490,11 +490,11 @@ defects, security issues among them. Remove that line to commit plans on purpose
 
 | File | Contents |
 |---|---|
-| `README.md` | The order of work, blocking questions to answer first, issues to check, model tiers |
+| `README.md` | Blocking questions to answer first, the order of work, the unsure reports to check after it, model tiers |
 | `AGENTS.md`, `CLAUDE.md` | How a coding agent works through the folder; `CLAUDE.md` points Claude Code at `AGENTS.md` |
-| `PROGRESS.md` | A checklist with one line per check and per task |
+| `PROGRESS.md` | A checklist with one line per task, then an optional section with one line per unsure report |
 | `prompts/1-strong-model/`, `prompts/2-balanced-model/`, `prompts/3-fast-model/` | One self-contained prompt per task, in the folder of the capability tier the planner chose for it |
-| `prompts/0-check-first/` | One prompt per issue of the plan's scope that the audit could not settle and no task addresses: decide whether it holds, and fix it if it does |
+| `prompts/4-unsure/` | One prompt per issue of the plan's scope that the audit could not settle and no task addresses, for after the tasks: decide whether it holds, and fix it only if a test or a run shows it |
 | `issues.md`, `also-found.md` | The issues the plan fixes; accepted issues no task fixes (only when there are any) |
 | `results.json` | One entry per issue for the executor to fill in: `result` (`fixed`, `not_reproducible`, `no_change_needed` or `blocked`), `failedBefore`, `test` and `proof` |
 

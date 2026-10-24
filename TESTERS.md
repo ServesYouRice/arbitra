@@ -66,8 +66,9 @@ arbitra. Then go on at [Run an audit](#run-an-audit).
    repository until they are fixed. It has one ready-to-paste prompt per fix, sorted by the kind of model
    each suits, and an `AGENTS.md` a coding agent follows: open the project in Claude Code or Codex and ask it to
    work through `.arbitra/plans/<folder>`. Answer the questions its README lists first: they are decisions only you
-   can make. Issues the models could not settle get a prompt of their own under `prompts/0-check-first`, which asks
-   a strong model to decide whether the defect is real and fix it if it is. Each prompt asks for a test that fails
+   can make. Reports the models could not settle are listed apart, after the tasks, with prompts under
+   `prompts/4-unsure` that ask a strong model to decide whether the defect is real and fix it only if a test shows
+   it. Most such reports do not hold, so they are optional. Each prompt asks for a test that fails
    before the fix, and the agent records each issue's result in `results.json`; the run's report and **Evaluation**
    tab then show how many defects a failing test proved and how many were fixed. The **Issues** tab lists everything
    found, including the smaller issues the plan leaves out, and how each was checked.

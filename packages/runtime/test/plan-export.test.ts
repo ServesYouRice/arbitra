@@ -44,29 +44,31 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
     expect(readme).toContain("## Read this first\n\n- The project's files changed after the audit read them");
     expect(readme).toContain("- The `claude-code` CLI moved from version 2.1.296 to 2.1.301 when the run resumed");
     expect(readme).toContain("- `src/auth.ts` lines 2 reads like instructions to a model (model_directed_phrase), and no finding cites it.");
-    // An issue of the plan's scope the audit left open gets a prompt to settle it; one below the scope is only counted.
-    expect(readme).toContain("## Check these");
+    // An issue of the plan's scope the audit left open gets a prompt to settle it, after the tasks; one below the scope
+    // is only counted.
+    expect(readme.indexOf("## Unsure: check after the tasks, if at all")).toBeGreaterThan(readme.indexOf("## Order of work"));
     expect(readme).toContain("1. `C-2` A disputed defect · medium");
     expect(readme).toContain("1 lower-severity issue was left unverified and is not planned");
     // A lowering one reviewer made alone is shown with its reason; accepted issues no task fixes are listed apart.
     expect(readme).toContain("- `C-1` A defect: found as high; auditor-a proposed low: Only a dev script.");
     expect(readme).toContain("`also-found.md` lists 1 more issue");
     expect(await readFile(join(first.directory, "also-found.md"), "utf8")).toContain("## An agreed small defect\n\nlow · C-4\n\nIt leaks a handle.");
-    const check = await readFile(join(first.directory, "prompts", "0-check-first", "01-C-2.md"), "utf8");
+    const check = await readFile(join(first.directory, "prompts", "4-unsure", "01-C-2.md"), "utf8");
     expect(check).toContain("<what_the_reviewers_said>\n- auditor-a (reject): The caller guards it.\n</what_the_reviewers_said>");
-    expect(await readFile(join(first.directory, "PROGRESS.md"), "utf8")).toMatch(/- \[ \] check 01 `C-2` A disputed defect\n- \[ \] 01 `TASK-1`/u);
+    expect(await readFile(join(first.directory, "PROGRESS.md"), "utf8")).toMatch(/- \[ \] 01 `TASK-1`[\s\S]*## Unsure, after the tasks \(optional\)[\s\S]*- \[ \] check 01 `C-2` A disputed defect/u);
     expect(await readFile(join(first.directory, "prompts", "3-fast-model", "02-TASK-2.md"), "utf8")).toContain("<done_before_this>\n- TASK-1 Fix TASK-1\n</done_before_this>");
     // Each defect is proven by a failing test before it is fixed, and its result goes into results.json.
     expect(await readFile(join(first.directory, "prompts", "1-strong-model", "01-TASK-1.md"), "utf8")).toMatch(/<reproduce_first>\nFor the issue this task fixes \(`C-1`\): Before changing code, write a test that fails on the current code/u);
     const agents = await readFile(join(first.directory, "AGENTS.md"), "utf8");
     expect(agents).toContain("5. Do not change anything in this folder except PROGRESS.md and results.json.");
+    expect(agents).toContain("Leave them until every task is done");
     // The project's own commands, as the run read them, so a proving test runs the way the project runs its tests.
     expect(agents).toContain("- test: `pnpm run test` (from `package.json`)\n- test: `go test ./...` in `api` (from `api/go.mod`)");
     const results = JSON.parse(await readFile(join(first.directory, "results.json"), "utf8")) as { run: string; issues: unknown[] };
     expect(results.run).toBe("run-12345678-abcd");
     expect(results.issues).toEqual([
-      { issue: "C-2", title: "A disputed defect", severity: "medium", task: "check 01", result: null, failedBefore: null, test: null, proof: null },
       { issue: "C-1", title: "A defect", severity: "high", task: "TASK-1", result: null, failedBefore: null, test: null, proof: null },
+      { issue: "C-2", title: "A disputed defect", severity: "medium", task: "check 01", result: null, failedBefore: null, test: null, proof: null },
     ]);
     // Nothing is reported until the executor fills an entry in.
     expect(await planResults(repository, "run-12345678-abcd")).toMatchObject({ issues: 2, reported: 0, provenByFailingTest: 0 });

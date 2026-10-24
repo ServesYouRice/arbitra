@@ -13,7 +13,8 @@ narratives of the real-project runs in `git show 7a68462:WORK-REMAINING.md`.
   repository. The held-out set is left unrun by design; the product's claims rest on what each run checks and
   proves, not on the premise.
 - **Releases:** `checkpoint-1` (October 20, 281c27c), v0.1.0 (October 21), v0.2.0 (October 23, adds the Windows
-  single-file `.exe`), v0.2.1 (October 24, Gemini opt-in). Every branch was merged into `main` on October 22; work
+  single-file `.exe`), v0.2.1 (October 24, Gemini opt-in), `checkpoint-2` and v0.2.2 (October 24, 847878b: the
+  critic on two auditors, the project's commands in plans, secret masking that leaves code readable). Every branch was merged into `main` on October 22; work
   continues from `main`. [`TESTERS.md`](TESTERS.md) is the testers' guide.
 - **Next: the improvement phase** below, the changes held back until now because they could destabilise the app.
   Still planned after it:
@@ -154,6 +155,11 @@ are checked against Anthropic's guidance first.
   (The project's commands now reach the planners; see below.)
 - **Duplicates survive:** pairs from different discovery units with the same failure mechanism are never compared,
   nor are candidates added during peer review with existing ones (2 of 5 and 2 of 7 additions in two panels).
+- **Unsure reports are mostly false alarms.** Of nextra's first 6 reports the auditors disagreed on and the verifier
+  could not settle, 5 did not hold; the executing agent changed nothing for them, since each prompt asks for proof
+  first. The plan now lists them after the tasks, as optional, in `prompts/4-unsure` (they came first, in
+  `0-check-first`). Still open: a second look before the plan (in deep audits another frontier model, or a run), and
+  the false-alarm rate among confirmed issues, measured as nextra's plan is carried out.
 - **An abstention says nothing about why.** "Cannot tell" and "rejected" should carry one sentence of what the
   source cannot show, shown in the handoff.
 - **Plan questions are not merged across sections** (one question asked in three sections); merge them and drop the
@@ -263,10 +269,10 @@ Measurements are for our own judgement of whether the product is good, not to pr
    (3 of 126 were fixed for 2.1.6). Count the issues fixed, not reproducible and blocked, what the fixes broke, and
    the work the plan's prompts did not cover (edits made by hand, questions only the owner could answer).
 
-Next, in this order: the default rokbot run (`run-869f90f0`, started October 24 15:54) and the fixes it calls for,
-then the checkpoint-2 tag and v0.2.2; the cheaper-verifier replay on nextra's discovery; test files packed with the
-source they import. nextra's `dev` branch runs alongside, since it touches only nextra. Then the smaller items of
-this phase, then the UI phase, then P21.
+Next, in this order: the cheaper-verifier replay on nextra's discovery (Sonnet verifying every question, compared
+with Opus's verdicts; started October 24 after the rokbot run, its fix, the checkpoint-2 tag and v0.2.2); test files
+packed with the source they import. nextra's `dev` branch runs alongside, since it touches only nextra. Then the
+smaller items of this phase, then the UI phase, then P21.
 
 **To re-check on the current build** (measured October 11 to 13, before later changes): prompts sized at one byte a
 token outside the stages that set `estimatedBytesPerToken`; discovery source as one JSON object a line; Gemini's
