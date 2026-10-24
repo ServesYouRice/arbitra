@@ -18,3 +18,4 @@ tooling/launch/build-id export-subst
 docs/** export-ignore
 WORK-REMAINING.md export-ignore
 *.sh text eol=lf
+.githooks/* text eol=lf

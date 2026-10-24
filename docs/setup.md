@@ -13,11 +13,15 @@ needed only for live runs.
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm run ci      # typecheck, lint, all tests, example validation, design integrity
+pnpm run ci      # typecheck, lint, all tests, example validation, design integrity, privacy
 pnpm build       # the CLI and server run from dist/
+git config core.hooksPath .githooks   # once per clone, before committing
 ```
 
-The default suites make no network calls and need no credentials.
+The default suites make no network calls and need no credentials. The repository is public, so
+`pnpm run privacy:check` (part of `ci`) refuses home-folder paths and email addresses other than
+placeholders in tracked files, and the hooks in `.githooks/` refuse them in a commit, its message
+and its author: commit with the GitHub noreply address (`<id>+<login>@users.noreply.github.com`).
 
 ## 2. Two kinds of example
 

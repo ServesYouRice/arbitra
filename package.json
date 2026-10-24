@@ -10,7 +10,8 @@
   },
   "scripts": {
     "build": "pnpm -r build",
-    "ci": "pnpm typecheck && pnpm lint && pnpm test && pnpm run test:lint-rules && pnpm run validate:examples && pnpm run design:check",
+    "ci": "pnpm typecheck && pnpm lint && pnpm test && pnpm run test:lint-rules && pnpm run validate:examples && pnpm run design:check && pnpm run privacy:check",
+    "privacy:check": "node --test tooling/privacy/check.test.mjs && node tooling/privacy/check.mjs",
     "design:check": "vitest run examples/design-check.test.ts",
     "lint": "eslint apps packages vitest.config.ts eslint.config.js --max-warnings 0",
     "test": "pnpm -r test",

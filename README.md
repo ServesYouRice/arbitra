@@ -102,7 +102,7 @@ environment-gated and skipped unless their variables are set.
 
 ```bash
 pnpm install
-pnpm run ci # typecheck, lint, tests, example validation, design integrity
+pnpm run ci # typecheck, lint, tests, example validation, design integrity, privacy
 ```
 
 **New here? Follow [Getting started](docs/setup.md).** It covers validating every

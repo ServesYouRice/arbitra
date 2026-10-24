@@ -1,0 +1,3 @@
+#!/bin/sh
+# Refuses a commit that would publish personal data. Enable once per clone: git config core.hooksPath .githooks
+exec node tooling/privacy/check.mjs --staged
