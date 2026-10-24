@@ -159,13 +159,16 @@ are checked against Anthropic's guidance first.
   (The project's commands now reach the planners; see below.)
 - **Duplicates survive:** pairs from different discovery units with the same failure mechanism are never compared,
   nor are candidates added during peer review with existing ones (2 of 5 and 2 of 7 additions in two panels).
-- **Unsure reports are mostly false alarms.** Of nextra's first 6 reports the auditors disagreed on and the verifier
-  could not settle, 5 did not hold; the executing agent changed nothing for them, since each prompt asks for proof
-  first. The plan now lists them after the tasks, as optional, in `prompts/4-unsure` (they came first, in
-  `0-check-first`). Still open: the false-alarm rate among confirmed issues, measured as nextra's plan is carried out;
-  and a second look at unsure reports before the plan (another frontier model, or a run), as an option, off by default
-  unless nextra's 20 show severe real defects among them; when off they stay on the issue board and in the plan's
-  optional section. On nextra's scale it would add roughly 1.5 to 3M tokens.
+- **Unsure reports: 7 of nextra's 20 held, and no confirmed issue was a false alarm.** The executing agents decided
+  all 20 from the code and a test. 13 did not hold. 7 did: 5 fixed with a failing test first, 1 already removed by a
+  task, and check 07, real when audited and fixed for 2.1.6. The severe ones were mostly the false alarms: 2 of 10
+  high or critical held (both security: a viewer could connect the host's transport, and the OBS gate let tunnelled
+  sockets through), and 5 of 10 medium. Deciding them took about 2.4M tokens (Opus, 122K each), about what a second
+  look would cost. Of the 126 confirmed issues, 118 were proven by a failing test, 7 were test gaps shown by
+  mutants and 1 had been fixed by a check first. The plan lists unsure reports after the tasks, as optional, in
+  `prompts/4-unsure`. Decided: the second look at unsure reports before the plan stays an option, off by default in
+  both modes, since carrying out the check costs the same and proves the answer. To build: the plan's README gives
+  this rate, and the optional section lists high and critical first.
 - **An abstention says nothing about why.** "Cannot tell" and "rejected" should carry one sentence of what the
   source cannot show, shown in the handoff.
 - **Plan questions are not merged across sections** (one question asked in three sections); merge them and drop the
@@ -296,8 +299,50 @@ Measurements are for our own judgement of whether the product is good, not to pr
    now follows the renumbering, and a prompt marks a cited assertion that is not one of its task's checks; the plan
    already exported for nextra keeps the wrong ids in those ten prompts.
 
-Next: the smaller items of this phase (the cheaper-verifier replay and test files packed with their source are
-done, above), with nextra's `dev` branch alongside, since it touches only nextra. Then the UI phase, then P21.
+   **nextra, carried out October 24** on its `dev` branch (not pushed; it holds fixes for holes in the released
+   2.1.6). One agent per item on the model its tier names (Haiku 19 tasks, Sonnet 70, Opus 15 tasks and the 20
+   checks), up to 17 at once in git worktrees, each reviewed and merged by the driving session. Records are in
+   nextra's `.arbitra/dev-notes/` (`log.md`, `followups.md`, `results/`).
+   - **All 146 issues have a result:** 130 fixed, 1 fixed by another task, 15 no change needed (13 unsure claims
+     that did not hold, check 07, and TASK-027, which check 17 had fixed). 124 were proven by a test that failed on
+     the unchanged code. Unit tests went from 421 to 1,510, all passing, and the browser suite passes 126 (13
+     desktop-only tests skip on the phone project).
+   - **Cost:** about 16.4M tokens and 1,495 agent-minutes for the 124 items. A Haiku item took 3 minutes and 71K
+     tokens on average, a Sonnet one 10 and 128K, an Opus task 29 and 254K, a check 15 and 122K. The follow-ups
+     below took about 2M more.
+   - **Reviewer corrections: 3 of 124.** A Haiku agent skipped the browser check its prompt asked for, because the
+     prompt said "ask before running". An agent stopped as blocked because an existing test pinned the defect: the
+     brief now says to change such a test as little as keeps its intent and cite it, which 12 later items did. One
+     agent's throwaway worktree deleted the shared `node_modules`; the brief now forbids extra worktrees. Running
+     items in parallel cost the driver about a dozen merge fixes (tests written before a shared helper existed, hand
+     merges of a shared spec), none an agent's error.
+   - **What the prompts got wrong** (the agents worked around each and said so):
+     - **Line numbers and quoted code:** stale in most prompts, since earlier items had changed the code.
+     - **Read-first lists:** five named files the task itself creates.
+     - **"Ask before running":** 75 of 125 prompts' verify lines say it, against the plan's own "prove first".
+     - **A wrong file:** check 19 pointed at `fmp4RelayPlayer.js`; the defect was in WatchView's relay player.
+     - **Five wrong premises:** a restore endpoint that did not exist, a ref cleared after `stop()` and not before, a
+       reconnect that would retry, a tunnel origin that cannot reach WebRTC, a refused `SetVideoSettings` that only
+       warns.
+     - **Blocking question 1:** its recommended option, answering with the consumer's payload types, was taken, and
+       it cannot work. Under RFC 3264 a recvonly offer names the payload types its offerer expects to receive. The
+       browser check the owner asked for showed playback failed either way. The fix needed a router per payload-type
+       layout.
+   - **The order serialised more than it had to:** 36 of 125 prompts wait for another task only because both edit
+     a file ("Ordered by arbitra, not a functional dependency"). Run in parallel, each merged cleanly or with one
+     append conflict. To build: export same-file order as a merge hint, not a prerequisite.
+   - **Defects the plan did not cover, found while carrying it out, each fixed with a failing test first:**
+     - **WHEP:** a browser-hosted room could not be watched over WHEP in Chromium or Firefox, in 2.1.6 too.
+     - **Host reclaim:** reclaim requests went out after the host left, on two paths.
+     - **OBS:** a failed setup's rollback restarted a stream OBS was only retrying; the host page missed a WHIP
+       DELETE; the encoder settings file was never really restored.
+     - **Layout:** a 320 px overflow, and a clipped Resolution toggle.
+     - **Port search:** it ran past 65535.
+     - **Still running:** late relay viewers overflowing, a stop sent while the host is offline, and viewer-session
+       gaps.
+
+Next: the export findings above (same-file order as a hint, "run" instead of "ask before running", read-first lists
+without the task's own new files) and the rest of this phase's smaller items. Then the UI phase, then P21.
 
 **To re-check on the current build** (measured October 11 to 13, before later changes): prompts sized at one byte a
 token outside the stages that set `estimatedBytesPerToken`; discovery source as one JSON object a line; Gemini's
