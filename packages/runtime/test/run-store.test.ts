@@ -1,11 +1,40 @@
 import { appendFile, mkdtemp, readFile, rm, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { RunStore } from "../src/run-store.js";
 
+// While `failingWrites` is above zero, each write to an event log lands a prefix of the record and then fails, as a
+// write to a full disk can.
+const partial = vi.hoisted(() => ({ failingWrites: 0 }));
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  const open = (async (...args: Parameters<typeof actual.open>) => {
+    const handle = await actual.open(...args);
+    if (partial.failingWrites === 0 || !String(args[0]).endsWith("events.jsonl")) return handle;
+    partial.failingWrites -= 1;
+    const writeFile = async (data: string): Promise<void> => {
+      await handle.writeFile(data.slice(0, 12));
+      throw Object.assign(new Error("ENOSPC: no space left on device, write"), { code: "ENOSPC" });
+    };
+    return { writeFile, sync: () => handle.sync(), close: () => handle.close() } as unknown as typeof handle;
+  }) as typeof actual.open;
+  return { ...actual, open };
+});
+
 describe("run store paths", () => {
+  it("trims what a failed event append left before the next event is recorded", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "arbitra-run-partial-"));
+    try {
+      const store = new RunStore(directory, "run-partial");
+      await store.appendEvent({ t: "run_transition", runId: store.runId, state: "CREATED" });
+      partial.failingWrites = 1;
+      await expect(store.appendEvent({ t: "run_transition", runId: store.runId, state: "DISCOVERY_RUNNING" })).rejects.toThrow("ENOSPC");
+      await store.appendEvent({ t: "run_transition", runId: store.runId, state: "CANCELLED" });
+      expect((await store.loadEvents()).map((event) => event.t === "run_transition" ? event.state : event.t)).toEqual(["CREATED", "CANCELLED"]);
+    } finally { partial.failingWrites = 0; await rm(directory, { recursive: true, force: true }); }
+  });
   it("recovers an incomplete event tail and redacts artifacts before writing them", async () => {
     const directory = await mkdtemp(join(tmpdir(), "arbitra-run-durable-"));
     try {

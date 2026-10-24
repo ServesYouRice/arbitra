@@ -124,7 +124,13 @@ export class RunStore {
       }
       const file = await open(this.#events, "a");
       try { await file.writeFile(`${JSON.stringify(event)}\n`, "utf8"); if (durability === "expensive") await file.sync(); }
-      finally { await file.close(); }
+      catch (error) {
+        // A write that fails partway leaves a prefix of the record, so the next append trims the tail first. Appended
+        // onto it, the next record would make one malformed line that reads as committed (arbitra's audit of itself,
+        // October 19, 2026).
+        this.#eventsReady = false;
+        throw error;
+      } finally { await file.close(); }
     });
     this.#eventWrites = write.catch(() => undefined);
     await write;
