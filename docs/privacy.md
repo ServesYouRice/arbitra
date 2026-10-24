@@ -9,7 +9,8 @@ Checked against the code on October 24, 2026.
 
 - **Source files, and only those.** arbitra reads files with a source extension (TypeScript, JavaScript, Python,
   Go, Rust, Java, C and C++, C#, PHP, Ruby, Swift, Kotlin, shell scripts, SQL, HTML, CSS, Vue, Svelte, Astro and
-  other languages). It never reads Markdown, JSON, YAML, `.env` files, images or other data. The list is
+  other languages), and web app manifests (`.webmanifest`). It never reads Markdown, JSON, YAML, `.env` files,
+  images or other data. The list is
   `SCANNED_EXTENSIONS` in `packages/runtime/src/repository.ts`.
 - **Only files Git tracks or would track.** In a Git project, anything your `.gitignore` covers is left out, and so
   are `node_modules`, build output, coverage and folders whose names start with a dot (except `.github`).

@@ -38,9 +38,9 @@ describe("runtime repository snapshots", () => {
   it("reads single-file components, shell scripts and C sources, and leaves content and data out", async () => {
     const root = await mkdtemp(join(tmpdir(), "arbitra-snapshot-kinds-"));
     try {
-      for (const name of ["Page.astro", "deploy.sh", "main.c", "lib.mts", "post.mdx", "README.md", "data.json", "ci.yml"]) await writeFile(join(root, name), "content\n");
+      for (const name of ["Page.astro", "deploy.sh", "main.c", "lib.mts", "site.webmanifest", "post.mdx", "README.md", "data.json", "ci.yml"]) await writeFile(join(root, name), "content\n");
       const snapshot = await snapshotRepository(root, 20);
-      expect(snapshot.files.map(({ path }) => path)).toEqual(["Page.astro", "deploy.sh", "lib.mts", "main.c"]);
+      expect(snapshot.files.map(({ path }) => path)).toEqual(["Page.astro", "deploy.sh", "lib.mts", "main.c", "site.webmanifest"]);
     } finally { await rm(root, { recursive: true, force: true }); }
   });
   it("restricts module scope and reads staged contents instead of unstaged edits", async () => {

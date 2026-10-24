@@ -26,9 +26,10 @@ export interface RepositorySnapshot {
 const SKIPPED_DIRECTORIES = new Set([".git", "node_modules", "dist", "build", "coverage", ".pnpm-store", ".runs", ".vite"]);
 // Source a model can audit, not content or data: Markdown, MDX, JSON and YAML stay out. A test run on an Astro blog
 // (October 22, 2026) left out all 30 of its `.astro` pages, layouts and components, so single-file components, shell
-// scripts and the C family were added with the other common languages.
+// scripts and the C family were added with the other common languages. A web app manifest is read with the page
+// source: on nextra (October 23, 2026) the app's "peer-to-peer" claim was only in `public/manifest.webmanifest`.
 const SCANNED_EXTENSIONS = new Set([
-  ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".vue", ".svelte", ".astro", ".html", ".css", ".scss",
+  ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".vue", ".svelte", ".astro", ".html", ".css", ".scss", ".webmanifest",
   ".py", ".go", ".rs", ".java", ".kt", ".scala", ".groovy", ".rb", ".cs", ".fs", ".php", ".swift", ".dart",
   ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".m", ".mm", ".zig",
   ".ex", ".exs", ".erl", ".hs", ".ml", ".clj", ".cljs", ".jl", ".lua", ".pl", ".pm", ".r", ".sol",
