@@ -17,7 +17,11 @@ interface ExportTask {
   readonly verification: { readonly preconditions: readonly string[]; readonly commands: readonly { readonly command: string; readonly expectedExitCode: number; readonly executionPolicy: string }[]; readonly checks: readonly string[] };
   readonly rollbackPlan: readonly string[];
 }
-interface ExportPlan { readonly title: string; readonly tasks: readonly ExportTask[]; readonly unresolvedQuestions: readonly { readonly id: string; readonly question: string; readonly blocking: boolean }[] }
+interface ExportValidation { readonly id: string; readonly assertion: string; readonly evidence: readonly string[] }
+interface ExportPlan {
+  readonly title: string; readonly tasks: readonly ExportTask[]; readonly unresolvedQuestions: readonly { readonly id: string; readonly question: string; readonly blocking: boolean }[];
+  readonly validationContract?: { readonly validation?: readonly ExportValidation[] };
+}
 interface ExportIssue {
   readonly candidateId: string; readonly severity: string; readonly disposition: string; readonly claim: { readonly title: string; readonly description: string };
   readonly verificationOutcome?: string | null; readonly dissent?: readonly { readonly authorId: string; readonly disposition: string; readonly reason: string }[];
@@ -94,7 +98,8 @@ export async function exportPlan(orchestrator: Orchestrator, runId: string): Pro
   for (let copy = 2; existsSync(directory); copy += 1) directory = `${base}-${copy}`;
   const files = new Map<string, string>();
   unsettled.forEach((issue, index) => files.set(join("prompts", UNSURE, `${String(index + 1).padStart(2, "0")}-${issue.candidateId}.md`), checkPrompt(issue)));
-  ordered.forEach((task, index) => files.set(join("prompts", TIERS[task.routing.capability].folder, `${String(index + 1).padStart(2, "0")}-${task.id}.md`), prompt(task, issues, plan.tasks)));
+  const validation = new Map((plan.validationContract?.validation ?? []).map((entry) => [entry.id, entry]));
+  ordered.forEach((task, index) => files.set(join("prompts", TIERS[task.routing.capability].folder, `${String(index + 1).padStart(2, "0")}-${task.id}.md`), prompt(task, issues, plan.tasks, validation)));
   files.set("README.md", readme(plan, ordered, runId, overview.workflowId ?? "unknown", { unsettled, unverified, alsoFound: alsoFound.length, kept, notes }));
   if (alsoFound.length > 0) files.set("also-found.md", ["# Also found, not planned", "",
     "The reviewers agreed these are real, but no task fixes them; most are below the plan's minimum severity. Fix them when convenient: each says where the defect is and what goes wrong.", "",
@@ -166,8 +171,12 @@ function readme(plan: ExportPlan, ordered: readonly ExportTask[], runId: string,
     "## Model tiers", "", ...Object.values(TIERS).map(({ folder, model, why }) => `- \`${folder}\`: ${model}, for ${why}.`), ""].join("\n");
 }
 
-function prompt(task: ExportTask, issues: ReadonlyMap<string, ExportIssue>, all: readonly ExportTask[]): string {
+function prompt(task: ExportTask, issues: ReadonlyMap<string, ExportIssue>, all: readonly ExportTask[], validation: ReadonlyMap<string, ExportValidation>): string {
   const tier = TIERS[task.routing.capability];
+  // The plan's validation contract, for the ids this task cites. Observed live (nextra, October 24, 2026): 79 of 105
+  // prompts named checks such as "VAL-003 tests exist and pass" that the folder never defined.
+  const checks = [...new Set(JSON.stringify(task).match(/\bVAL-\d+\b/gu) ?? [])].map((id) => validation.get(id)).filter((entry): entry is ExportValidation => entry !== undefined)
+    .map(({ id, assertion, evidence }) => `- ${id}: ${assertion}${evidence.length === 0 ? "" : `\n  Evidence: ${evidence.join("; ")}`}`);
   const list = (items: readonly string[]) => items.length === 0 ? "- none" : items.map((item) => `- ${item}`).join("\n");
   const section = (tag: string, body: string) => `<${tag}>\n${body}\n</${tag}>`;
   const fixes = task.addresses.issues.map((id) => issues.get(id)).filter((issue): issue is ExportIssue => issue !== undefined)
@@ -183,6 +192,7 @@ function prompt(task: ExportTask, issues: ReadonlyMap<string, ExportIssue>, all:
     section("constraints", `Do not change:\n${list([...task.filesNotToTouch, ...task.outOfScope])}\n\nKeep true:\n${list(task.invariants)}`), "",
     ...(task.addresses.issues.length === 0 ? [] : [section("reproduce_first", `For ${task.addresses.issues.length === 1 ? "the issue" : "each issue"} this task fixes (${task.addresses.issues.map((id) => `\`${id}\``).join(", ")}): ${REPRODUCE_FIRST}`), ""]),
     section("steps", task.implementationGuidance.length === 0 ? "- Make the smallest change that meets the success criteria." : task.implementationGuidance.map((step, index) => `${index + 1}. ${step}`).join("\n")), "",
+    ...(checks.length === 0 ? [] : [section("validation", checks.join("\n")), ""]),
     section("success_criteria", list([...task.goal.doneWhen, ...task.acceptanceCriteria])), "",
     section("verify", `${list([...task.verification.preconditions, ...task.verification.checks])}${commands.length === 0 ? "" : `\n\nCommands:\n${commands.join("\n")}`}`), "",
     ...(task.rollbackPlan.length === 0 ? [] : [section("if_it_goes_wrong", list(task.rollbackPlan)), ""]),

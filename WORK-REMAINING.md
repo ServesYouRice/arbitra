@@ -269,7 +269,9 @@ Measurements are for our own judgement of whether the product is good, not to pr
 3. **Plans carried out on the real-run projects.** The five runs were on the owner's own projects, so their plans
    are carried out there, on a `dev` branch of each project (never `main`), starting with nextra's remaining issues
    (3 of 126 were fixed for 2.1.6). Count the issues fixed, not reproducible and blocked, what the fixes broke, and
-   the work the plan's prompts did not cover (edits made by hand, questions only the owner could answer).
+   the work the plan's prompts did not cover (edits made by hand, questions only the owner could answer). First
+   finding: 79 of nextra's 105 prompts cited validation ids (`VAL-003 tests exist and pass`) that the folder never
+   defined; each prompt now carries the assertions it cites.
 
 Next, in this order: the cheaper-verifier replay on nextra's discovery (Sonnet verifying every question, compared
 with Opus's verdicts; started October 24 after the rokbot run, its fix, the checkpoint-2 tag and v0.2.2); test files
