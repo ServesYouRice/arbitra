@@ -127,6 +127,9 @@ export function translatePeerOperations(value: unknown, view: View, snapshot: Re
     locations.set(entry.id, { ...entry, id });
   }
   const newEvidence = new Map<string, IssueEvidence>();
+  // Locations that grounded evidence or that a finding holds: moving one would leave that evidence, or the finding's
+  // copy of the range, at lines that differ from the batch's.
+  const settled = new Set<string>();
   const evidence = (entry: IssueEvidence): IssueEvidence => {
     const id = local(entry.id);
     if (entry.locationIds.length === 0) throw new Error("UNGROUNDED_PEER_EVIDENCE: evidence text must be copied exactly from the lines of the locations it cites, and cite at least one location");
@@ -135,7 +138,7 @@ export function translatePeerOperations(value: unknown, view: View, snapshot: Re
       if (location === undefined) throw new Error("UNKNOWN_PEER_LOCATION: evidence and findings may only cite location IDs declared in locations or in the same finding");
       const file = snapshot.files.find(({ path }) => path === location.path);
       const quoted = (start: number) => file !== undefined && redactSecrets(file.lines.slice(start - 1, start - 1 + location.endLine - location.startLine + 1).join("\n")).text.includes(entry.text);
-      if (file !== undefined && !quoted(location.startLine)) {
+      if (file !== undefined && !quoted(location.startLine) && !settled.has(locationId)) {
         // The reviewer's own new location, miscounted by a line or two (observed live): move it
         // to the one nearby range of the same length that holds the exact quotation.
         const nearby = [1, -1, 2, -2, 3, -3].map((offset) => location.startLine + offset).filter((start) => start >= 1 && start + location.endLine - location.startLine <= file.lines.length && quoted(start));
@@ -143,6 +146,7 @@ export function translatePeerOperations(value: unknown, view: View, snapshot: Re
       }
       const anchored = locations.get(locationId) ?? location;
       if (file === undefined || !redactSecrets(file.lines.slice(anchored.startLine - 1, anchored.endLine).join("\n")).text.includes(entry.text)) throw new Error("UNGROUNDED_PEER_EVIDENCE: evidence text must be copied exactly from the lines of the locations it cites, and cite at least one location");
+      settled.add(locationId);
       return location.id;
     });
     const result = { ...entry, id, locationIds: resolved };
@@ -158,7 +162,7 @@ export function translatePeerOperations(value: unknown, view: View, snapshot: Re
     if (finding.evidence.some(({ locationIds }) => locationIds.some((id) => !finding.locations.some((location) => location.id === id)))) throw new Error("PEER_FINDING_LOCATION_MISMATCH: a finding's evidence may only cite that finding's own locations");
     const grounded = finding.evidence.map(evidence);
     return { ...finding, sourceFindingId, locations: finding.locations.map((location) => {
-      const resolved = locations.get(location.id); if (resolved === undefined) throw new Error("UNKNOWN_PEER_LOCATION: evidence and findings may only cite location IDs declared in locations or in the same finding"); return resolved;
+      const resolved = locations.get(location.id); if (resolved === undefined) throw new Error("UNKNOWN_PEER_LOCATION: evidence and findings may only cite location IDs declared in locations or in the same finding"); settled.add(location.id); return resolved;
     }), evidence: grounded };
   });
   const sourceIds = new Map(view.findingIds);

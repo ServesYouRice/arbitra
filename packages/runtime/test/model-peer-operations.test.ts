@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SeededRng } from "@arbitra/core/services/rng.js";
-import { translatePeerOperations, translateValidPeerOperations, wellFormedPeerReply } from "../src/model-peer-operations.js";
+import { translatePeerOperations, translateValidPeerOperations, wellFormedPeerReply, type PeerOperationBatch } from "../src/model-peer-operations.js";
 import { peerReviewView } from "../src/peer-review-view.js";
 import { ModelPeerBoard } from "../src/model-peer-board.js";
 import { computeConsensus, DEFAULT_CONSENSUS_POLICY } from "@arbitra/workflow/consensus/engine.js";
@@ -191,5 +191,28 @@ describe("peer location anchoring", () => {
     const moved = translatePeerOperations(response([operation], [location]), view, three, "reviewer", 1);
     expect(moved.locations).toContainEqual({ id: "reviewer/review-1/loc", path: "a.ts", startLine: 2, endLine: 2 });
     expect(() => translatePeerOperations(response([{ ...operation, evidence: { ...operation.evidence, text: "return Number(text);" } }], [location]), view, three, "reviewer", 1)).toThrow("UNGROUNDED_PEER_EVIDENCE");
+  });
+
+  it("does not move a location that evidence or a finding already holds at its declared range", () => {
+    const lines = ["export function parse(text) {", "  return parseInt(text);", "}"];
+    const three = { root: "fixture", files: [{ path: "a.ts", lines, byteLength: 0, lineStartBytes: [0] }] };
+    // Every evidence entry quotes the lines its locations have in the batch, and every finding holds the batch's locations.
+    const holds = ({ operations, findings, locations }: PeerOperationBatch) => [...operations.flatMap((operation) => operation.type === "add_evidence" || operation.type === "add_counter_evidence" ? [operation.evidence] : operation.type === "add_missing_finding" ? operation.evidence : []), ...findings.flatMap(({ evidence }) => evidence)]
+      .every(({ text, locationIds }) => locationIds.every((id) => { const at = locations.find((location) => location.id === id); return at !== undefined && lines.slice(at.startLine - 1, at.endLine).join("\n").includes(text); }))
+      && findings.every((added) => added.locations.every((location) => locations.some((entry) => JSON.stringify(entry) === JSON.stringify(location))));
+    const header = { ...base, operationId: "new:header", type: "add_evidence", citedEvidenceIds: ["new:header"], evidence: { id: "new:header", text: "export function parse(text) {", locationIds: ["new:loc"] } };
+    const body = { ...base, operationId: "new:body", type: "add_counter_evidence", citedEvidenceIds: ["new:body"], evidence: { id: "new:body", text: "return parseInt(text);", locationIds: ["new:loc"] } };
+    const advice = { ...base, operationId: "new:advice", type: "supplement_remediation", text: "Advice" };
+    // Evidence that does not hold at a shared location is refused; the location is not moved from under evidence that does.
+    const shared = translateValidPeerOperations(response([header, body, advice], [{ id: "new:loc", path: "a.ts", startLine: 1, endLine: 1 }]), view, three, "reviewer", 1);
+    expect(shared.refused).toMatchObject([{ operationId: "new:body", reason: expect.stringContaining("UNGROUNDED_PEER_EVIDENCE") }]);
+    expect(holds(shared.batch)).toBe(true);
+    // The same for a location of a finding added in the reply.
+    const added = { schemaVersion: 1, sourceFindingId: "self/missing", category: "CORRECTNESS", title: "Missing", problem: "Missing claim", recommendedFix: "Fix", severity: "high", productionBlocker: false, status: "needs_verification", confidence: 0.5, productionImpact: "", trigger: "", verification: "", dependencies: [], relatedRisks: [],
+      locations: [{ id: "new:location", path: "a.ts", startLine: 1, endLine: 1 }], evidence: [{ id: "new:evidence", text: "export function parse(text) {", locationIds: ["new:location"] }] };
+    const addition = { ...base, operationId: "new:addition", type: "add_missing_finding", candidateId: "new:missing", candidate: { ...seed("new:missing"), sourceFindingIds: ["self/missing"] }, citedEvidenceIds: ["new:evidence"], evidence: added.evidence };
+    const ofFinding = translateValidPeerOperations(response([addition, { ...body, evidence: { ...body.evidence, locationIds: ["new:location"] } }, advice], [], [added]), view, three, "reviewer", 1);
+    expect(ofFinding.refused).toMatchObject([{ operationId: "new:body", reason: expect.stringContaining("UNGROUNDED_PEER_EVIDENCE") }]);
+    expect(holds(ofFinding.batch)).toBe(true);
   });
 });
