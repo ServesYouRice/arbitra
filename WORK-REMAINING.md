@@ -193,9 +193,18 @@ are checked against Anthropic's guidance first.
     failing test), and rejected the OBS gate on tunnelled sockets (check 07, real when audited). Opus confirmed the
     second and left the other two unsettled. One more Sonnet confirmation, "`TRUST_PROXY=1` enables IP spoofing",
     looks wrong too: Express's `req.ip` is only logged.
-  - **So far:** not worth it. The default keeps Opus. The 18 medium issues where they differ will be judged as
-    nextra's plan is carried out; if Sonnet turns out right on most, a medium-only Sonnet verifier for balanced
-    audits is worth another look. Deep audits keep frontier verifiers either way.
+  - **Scored against the carried-out plan** (nextra's `.arbitra/dev-notes/verifier-comparison.md`): 15 of the 22
+    differing verdicts have a known truth; the other 7 were Opus rejections that never reached the plan.
+    - **Opus:** right on all 6 of its definite calls, all real defects proven by a failing test, which Sonnet left
+      unsettled. It left the other 9 unsettled.
+    - **Sonnet:** right on 6 of its 9 definite calls, all medium. It was wrong on both highs it decided (it
+      confirmed check 05 and rejected check 07) and confirmed check 18, a medium that did not hold.
+    - **Confidence:** it does not separate Sonnet's right calls from its wrong ones (0.70 to 0.86 for either).
+    - **Where Opus left a medium unsettled:** Sonnet decided 6 of 7 rightly.
+  - **So far:** a cheaper primary verifier is not worth it, since it misses real defects Opus confirms; the default
+    keeps Opus. Worth one measured try in balanced audits: a Sonnet second look at medium reports Opus leaves
+    unsettled (about 28K tokens a question, against about 122K for an agent to decide a check), off until the next
+    real run shows it holds beyond these 7 cases. High and critical stay with frontier verifiers, as in deep audits.
 - **Re-asking each finding of a rejected merged candidate rarely changes the answer:** 10 to 16% of each panel's
   tokens, 7 of 50 re-asked confirmed, none a planted defect. Re-ask only across files, or only at medium and above.
 - **No first call reads Claude Code's cache** (72 first calls in one run wrote 1.18M tokens and read none). Measure
