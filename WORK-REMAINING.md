@@ -151,8 +151,10 @@ are checked against Anthropic's guidance first.
 
 **Cost and speed**
 
-- **Verification is most of a run's tokens** (three quarters of an Opus-only run; low and informational questions
-  alone 29 to 35%, though those issues get no task). A cheaper verifier for low severity (design audit item 14).
+- **Verification is still about half a run's tokens** (nextra 14.4M of 26.8M, 192 questions). Issues below the plan's
+  severity bar are no longer verified by default (`belowPlanScope: "skip"`; before that, low and informational
+  questions were 29 to 35% of a run). Next: a cheaper verifier for medium issues, with high, critical and uncertain
+  answers sent to the frontier model (design audit item 14).
 - **Re-asking each finding of a rejected merged candidate rarely changes the answer:** 10 to 16% of each panel's
   tokens, 7 of 50 re-asked confirmed, none a planted defect. Re-ask only across files, or only at medium and above.
 - **No first call reads Claude Code's cache** (72 first calls in one run wrote 1.18M tokens and read none). Measure
