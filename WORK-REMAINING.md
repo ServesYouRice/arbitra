@@ -103,7 +103,10 @@ see its results); one word per idea and models named by model and effort (`Opus 
 chooses from before code; then build on a `ui` branch with the browser tests. Done when the owner signs off and the
 browser suite passes in Linux. Step one is done (October 25): an inventory of every screen with 70 screenshots and a
 research report, kept outside the repository in the experiments folder's `ui-2026-10-25`, and the mockups the owner
-chooses from ("arbitra UI Mockups": start, watch, issues, plan and results, and the words). Defects the inventory
+chooses from ("arbitra UI Mockups": start, watch, issues, plan and results, and the words). The owner chose A for
+every screen (October 25), with Watch's stages drawn as a graph whose lines into the running stage move, saving the
+plan as the Summary's first action, and the Lighter lineup at medium and low effort. The build has started on the
+`ui` branch: the run page first, then Issues, Plan and Results, then New run once the depths are settled. Defects the inventory
 found, fixed in the rebuild: an absent run answers `RUN_API_500`; Workflows opens on an `UNAUTHORIZED_CHANGE` refusal;
 the report's copy button is announced as "copy run id"; saving the plan twice writes a second folder; Overview and
 Issues scroll sideways on a phone; the check says "ready to start" above a refused snapshot; a failed run offers a
