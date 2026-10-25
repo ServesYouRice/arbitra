@@ -64,7 +64,7 @@ export const batchLaneSchema = z.object({
 const stageEffortLevel = z.union([effortLevelSchema, z.record(identifier, effortLevelSchema)]);
 
 /** The model stages whose effort a run may set on its own. */
-export const EFFORT_STAGES = ["discovery", "clustering", "peerReview", "verification", "secondOpinion", "critiqueCheck", "planner", "critic", "revision"] as const;
+export const EFFORT_STAGES = ["discovery", "clustering", "peerReview", "verification", "secondOpinion", "critiqueCheck", "variantSearch", "planner", "critic", "revision"] as const;
 export type EffortStage = typeof EFFORT_STAGES[number];
 
 /** Configured limits are operator policy, not a shipped table of provider capabilities. */
@@ -77,8 +77,10 @@ export const providerExecutionSchema = z.object({
    * by default the verifier. `critiqueChecker`: the model that checks each blocking critique before it forces a
    * revision. Off unless set; a model of neither the planner's nor the critic's family judges the claim between them
    * most evenly. `secondOpinion`: the model asked again when the verifier rejects a severe issue a reviewer backed
-   * (`verification.secondOpinion`); by default the critic, or another auditor than the verifier. */
-  roles: z.object({ planner: identifier, verifier: identifier, mediumVerifier: identifier.optional(), merger: identifier.optional(), critic: identifier.optional(), critiqueChecker: identifier.optional(), secondOpinion: identifier.optional() }).strict().optional(),
+   * (`verification.secondOpinion`); by default the critic, or another auditor than the verifier. `variantSearcher`: the
+   * model that looks for the same defect elsewhere in the repository after verification, when `workflow.variantSearch`
+   * is on; it only proposes, and what it proposes is checked like any finding. */
+  roles: z.object({ planner: identifier, verifier: identifier, mediumVerifier: identifier.optional(), merger: identifier.optional(), critic: identifier.optional(), critiqueChecker: identifier.optional(), secondOpinion: identifier.optional(), variantSearcher: identifier.optional() }).strict().optional(),
   maximumClusteringPairs: z.number().int().min(0).max(1000).optional(),
   maximumOutputTokens: z.number().int().positive(),
   maximumDiscoveryTokens: z.number().int().positive().optional(),
@@ -92,10 +94,10 @@ export const providerExecutionSchema = z.object({
   /** Effort per model stage, in the CLIs' words (low, medium, high, xhigh, max), as each model profile's
    * `effort.params` sends it: finding issues (`discovery`), merging duplicates (`clustering`), peer review, checking
    * issues (`verification`), the second opinion before a severe rejection, the check of a blocking critique
-   * (`critiqueCheck`), the plan, the plan critic and the plan's revision. A stage's value is one level, or one per
-   * profile (`{ "auditor-a": "high", "auditor-b": "max" }`). The second opinion and the critique check follow
-   * `verification` when they are left out; any other stage left out (or a profile its map leaves out) runs at the
-   * level of the audit depth. */
+   * (`critiqueCheck`), the search for variants of confirmed issues (`variantSearch`), the plan, the plan critic and
+   * the plan's revision. A stage's value is one level, or one per profile (`{ "auditor-a": "high", "auditor-b": "max" }`).
+   * The second opinion and the critique check follow `verification` when they are left out; any other stage left out
+   * (or a profile its map leaves out) runs at the level of the audit depth. */
   stageEffort: z.object(Object.fromEntries(EFFORT_STAGES.map((stage) => [stage, stageEffortLevel])) as Record<EffortStage, typeof stageEffortLevel>).partial().strict().optional(),
   /** Checks beyond one pass of each review stage. All are off unless set: candidates of different peer-review
    * batches are not compared for a merge, plan records of different critic batches are not compared, and the

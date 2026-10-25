@@ -85,6 +85,7 @@ export function roleSlots(draft: Draft): readonly RoleSlot[] {
     { label: "verifier", path: [...base, "verifier"], multiple: false, optional: false, hint: "checks each issue against the code; critical and high issues always go to it, so make it the strongest" },
     { label: "medium verifier", path: [...base, "mediumVerifier"], multiple: false, optional: true, hint: "checks the issues below high instead of the verifier, with a lighter model" },
     { label: "critic", path: [...base, "critic"], multiple: false, optional: true, hint: "reviews the plan when the critic is switched on" },
+    { label: "variant searcher", path: [...base, "variantSearcher"], multiple: false, optional: true, hint: "looks for the confirmed issues' variants when the variant search is switched on; it only proposes" },
   ];
 }
 

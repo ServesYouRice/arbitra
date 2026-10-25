@@ -88,6 +88,20 @@ describe("critic context partitioning", () => {
     expect((await criticContextParts(six, [], [], fits)).map((part) => criticPartIdentity(part))).toEqual(parts.map((part) => criticPartIdentity(part)));
   });
 
+  it("gives a batch the plan-wide notes that name its records or none, its own tasks' routing, and not the planner's reasoning", async () => {
+    // Observed live (veritra): beside one task of a 227-task plan, the rest of the plan was 370 KB, and no batch fit.
+    const original = await plan(); const route = original.routingRecommendations[0]; if (route === undefined) throw new Error("FIXTURE_ROUTE_ABSENT");
+    const noted = { ...original, implementationStrategy: ["Fix TASK-001 first.", "Fix TASK-003 last.", "Keep the public API."], rolloutConcerns: ["TASK-002 changes the ABI."],
+      unresolvedQuestions: [{ id: "Q-1", question: "Does TASK-003 need a migration?", blocking: false, blastRadius: "low" as const }],
+      routingRecommendations: original.tasks.map(({ id }) => ({ ...route, taskId: id })) };
+    const parts = await criticContextParts(noted, [], [], async ({ recordIds }) => recordIds.length <= 1, null, 20, {}, undefined, false);
+    const planOf = (taskId: string) => (parts.find(({ recordIds }) => recordIds.includes(`task:${taskId}`))?.input as { plan: PlanIR }).plan;
+    expect(planOf("TASK-001")).toMatchObject({ implementationStrategy: ["Fix TASK-001 first.", "Keep the public API."], rolloutConcerns: [], unresolvedQuestions: [] });
+    expect(planOf("TASK-001").routingRecommendations.map(({ taskId }) => taskId)).toEqual(["TASK-001"]);
+    expect(planOf("TASK-001").reasoningOutcome).not.toBe(noted.reasoningOutcome);
+    expect(planOf("TASK-003").unresolvedQuestions).toEqual(noted.unresolvedQuestions);
+  });
+
   it("retains the one-call path when the plan fits", async () => {
     const original = await plan();
     const parts = await criticContextParts(original, [], [], async () => true);

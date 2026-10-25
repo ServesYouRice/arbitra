@@ -59,6 +59,19 @@ describe("provider execution configuration", () => {
     // A per-profile effort names configured profiles only.
     expect(withEffort({ discovery: { "auditor-z": "xhigh" } }).error?.issues[0]?.path).toEqual(["workflow", "modelExecution", "stageEffort", "discovery", "auditor-z"]);
   });
+  it("names the variant searcher and its effort, and takes the variant search switch only as an Audit's true or false", () => {
+    const parsed = providerExecutionSchema.parse({ ...valid, roles: { planner: "auditor", verifier: "auditor", variantSearcher: "auditor" }, stageEffort: { variantSearch: "high" } });
+    expect([parsed.roles?.variantSearcher, parsed.stageEffort?.variantSearch]).toEqual(["auditor", "high"]);
+    const raw: unknown = JSON.parse(readFileSync(new URL("./golden/run-config.valid.json", import.meta.url), "utf8"));
+    const config = runConfigSchema.parse(raw);
+    const paths = (workflow: Record<string, unknown>, mode = config.mode) => runConfigSchema.safeParse({ ...config, mode, workflow }).error?.issues.map(({ path }) => path.join(".")) ?? [];
+    expect(paths({ variantSearch: true })).toEqual([]);
+    expect(paths({ variantSearch: false })).toEqual([]);
+    expect(paths({ variantSearch: "yes" })).toEqual(["workflow.variantSearch"]);
+    // A saved graph decides its own steps, as it decides its critic.
+    expect(paths({ variantSearch: true, graph: { id: "saved", version: "a".repeat(64) } })).toEqual(["workflow.variantSearch"]);
+    expect(paths({ variantSearch: true }, "feature")).toContain("workflow.variantSearch");
+  });
   it.each([
     { modelEndpoints: { auditor: "missing" } },
     { rateLimits: {} },

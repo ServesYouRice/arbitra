@@ -170,6 +170,10 @@ truncated. When they do not fit, the stage is recomposed:
   (files, line ranges, bytes, refused reads, findings citing them), the auditor's summary
   `readsBeyondUnits`. A run pinned to an earlier production-audit does not resume an unfinished
   discovery (`DISCOVERY_PROTOCOL_RETIRED`); its stored results stay readable.
+- **The variant search reads the same way.** Its tools read the files its issues cite freely and
+  any other file within the same 64 KiB a call, and what it proposes is validated as a discovery
+  unit's findings are (`groundFindings`): it may cite only what it was given or read
+  ([variant search](workflows.md#variant-search)).
 
 Output capacity is handled twice. Before spend, stages that emit one decision per record cap
 batch sizes with `OUTPUT_TOKENS_PER_RECORD` (peer review 160, critic 60, planner brief 900,

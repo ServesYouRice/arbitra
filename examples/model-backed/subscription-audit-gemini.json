@@ -202,6 +202,7 @@
   "workflow": {
     "preset": "audit-three-finders",
     "critic": false,
+    "variantSearch": false,
     "modelExecution": {
       "endpoints": [
         {

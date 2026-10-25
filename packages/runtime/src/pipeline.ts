@@ -37,6 +37,8 @@ export interface AuditContext {
   readonly policy: ConsensusPolicy;
   readonly maximumRounds: number;
   readonly criticEnabled: boolean;
+  /** The run's graph searches for variants of the confirmed issues between verification and the plan (`workflow.variantSearch`). */
+  readonly variantSearchEnabled?: boolean;
   readonly auditorKind?: "scripted_auditors" | "model_auditors";
 }
 

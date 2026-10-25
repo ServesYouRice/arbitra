@@ -43,7 +43,8 @@ export async function criticContextParts(plan: PlanIR, issues: CanonicalIssueSet
   const full: CriticContextPart = { kind: "full", recordIds: records, input: { plan, validationContract: plan.validationContract, canonicalIssues: issues, necessaryContext, ...(revisionContext === null ? {} : { revisionContext }), ...supplemental } };
   if (records.length <= maximumRecords && await fits(full)) return [full];
   const index = {
-    tasks: plan.tasks.map(({ id, addresses, dependencies, scope }) => ({ id, addresses, dependencies, scope })),
+    // A task's files show which tasks of other batches change the same code; its components and interfaces are read with the task.
+    tasks: plan.tasks.map(({ id, addresses, dependencies, scope }) => ({ id, addresses, dependencies, files: scope.likelyFiles })),
     issueIds: issues.map(({ candidateId }) => candidateId),
     validationIds: plan.validationContract.validation.map(({ id }) => id),
     ...(revisionContext === null ? {} : { priorCritique: revisionContext.priorCritique.items.map(({ id, taskIds, issueIds, blocking }) => ({ id, taskIds, issueIds, blocking })), resolutionIds: revisionContext.proposedResolutions.map(({ critiqueItemId }) => critiqueItemId) }),
@@ -58,14 +59,28 @@ export async function criticContextParts(plan: PlanIR, issues: CanonicalIssueSet
     if (kind === "revision") return { item: revisionContext?.priorCritique.items.find((item) => item.id === id), proposedResolution: revisionContext?.proposedResolutions.find(({ critiqueItemId }) => critiqueItemId === id) };
     return supplemental[kind ?? ""]?.find((entry) => entry.id === id);
   };
+  // A batch carries the plan-wide notes that name one of its records or none, the routing of its own tasks, and not the
+  // planner's reasoning about the whole plan. Observed live (veritra, a 227-task plan of 1.4 MB): the rest of the plan
+  // beside one task was 370 KB, more than the critic's whole context at the run's bytes a token, so no batch fit.
+  const knownIds = [...plan.tasks.map(({ id }) => id), ...issues.map(({ candidateId }) => candidateId), ...plan.validationContract.validation.map(({ id }) => id)];
+  const naming = knownIds.length === 0 ? null : new RegExp([...knownIds].sort((a, b) => b.length - a.length).map((id) => id.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join("|"), "gu");
+  const notes = <T>(entries: readonly T[], text: (entry: T) => string) => entries.map((entry) => ({ entry, names: new Set(naming === null ? [] : text(entry).match(naming) ?? []) }));
+  const planNotes = { implementationStrategy: notes(plan.implementationStrategy, String), dependencies: notes(plan.dependencies, String), rolloutConcerns: notes(plan.rolloutConcerns, String),
+    migrationConcerns: notes(plan.migrationConcerns, String), unresolvedQuestions: notes(plan.unresolvedQuestions, ({ question }) => question) };
   const part = (recordIds: readonly string[], kind: "review" | "pair_check", segment?: PeerReviewSegment, pairs?: readonly (readonly [string, string])[]): CriticContextPart => {
     const selected = new Set(recordIds.filter((id) => id !== segment?.candidateId));
     const validationContract = { ...plan.validationContract, validation: plan.validationContract.validation.filter(({ id }) => selected.has(`validation:${id}`)) };
+    const own = new Set([...selected].map((recordId) => recordId.slice(recordId.indexOf(":") + 1)));
+    const about = <T>(scoped: readonly { entry: T; names: ReadonlySet<string> }[]) => scoped.filter(({ names }) => names.size === 0 || [...names].some((id) => own.has(id))).map(({ entry }) => entry);
     return { kind, recordIds, input: {
       reviewScope: pairs === undefined
         ? { kind, recordIds, completePlan: false, globalIndex: index, instruction: "Other full records are reviewed in separate durable batches. Use global maps for relationships; do not report a missing record merely because it is outside this batch." }
         : { kind, recordIds, pairs, completePlan: false, globalIndex: index, instruction: "Each record here was already reviewed in full in its own batch. Check only relationships between the listed record pairs; do not repeat findings about a single record, and do not report a missing record merely because it is outside this batch." },
-      plan: { ...plan, tasks: plan.tasks.filter(({ id }) => selected.has(`task:${id}`)), validationContract },
+      plan: { ...plan, reasoningOutcome: "Left out of this batch: the planner's reasoning about the whole plan is read with the complete plan only.",
+        implementationStrategy: about(planNotes.implementationStrategy), dependencies: about(planNotes.dependencies), rolloutConcerns: about(planNotes.rolloutConcerns),
+        migrationConcerns: about(planNotes.migrationConcerns), unresolvedQuestions: about(planNotes.unresolvedQuestions),
+        routingRecommendations: plan.routingRecommendations.filter(({ taskId }) => selected.has(`task:${taskId}`)),
+        tasks: plan.tasks.filter(({ id }) => selected.has(`task:${id}`)), validationContract },
       validationContract,
       canonicalIssues: issues.filter(({ candidateId }) => selected.has(`issue:${candidateId}`)), necessaryContext,
       ...(revisionContext === null ? {} : { revisionContext: {

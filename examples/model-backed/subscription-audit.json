@@ -152,6 +152,7 @@
   "workflow": {
     "preset": "audit-two-finders",
     "critic": false,
+    "variantSearch": false,
     "modelExecution": {
       "endpoints": [
         {
