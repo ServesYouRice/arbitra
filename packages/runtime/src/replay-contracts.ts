@@ -4,7 +4,7 @@ import type { RunConfig, RunScope } from "@arbitra/schemas/config.js";
 import { featureExecutionSchema } from "@arbitra/schemas/feature-execution.js";
 import { providerExecutionSchema } from "@arbitra/schemas/provider-execution.js";
 import { testingExecutionSchema } from "@arbitra/schemas/testing.js";
-import type { ActivityReplaySource } from "./model-activities.js";
+import type { ActivityReplaySource, LowerCeilingIdentity } from "./model-activities.js";
 import type { RunStore } from "./run-store.js";
 
 export type ModelReplayMode = "feature" | "testing";
@@ -187,13 +187,13 @@ export class ReplaySeed implements ActivityReplaySource {
     if (source.runId !== contract.sourceRunId || target.runId === source.runId) throw new Error("REPLAY_SEED_RUN_MISMATCH");
   }
 
-  async lookup(request: { readonly activityId: string; readonly key: string; readonly replayIdentity: string }) {
+  async lookup(request: { readonly activityId: string; readonly key: string; readonly replayIdentity: string; readonly lowerCeiling?: LowerCeilingIdentity }) {
     const definition = replayStages(this.contract.mode).find(({ matches }) => matches(request.activityId));
     const decision = definition === undefined ? undefined : this.contract.stages.find(({ stage }) => stage === definition.stage);
     const miss = async (reason: string) => { await this.record(request, decision?.stage ?? null, { decision: "regenerated", reason }); return null; };
     if (definition === undefined || decision === undefined) return miss("activity_outside_replay_contract");
     if (decision.decision !== "reuse") return miss("stage_invalidated");
-    const saved = await readReplayableOutput(this.source, request.key, request.replayIdentity);
+    const saved = await readReplayableOutput(this.source, request.key, request.replayIdentity, request.lowerCeiling);
     if ("reason" in saved) return miss(saved.reason);
     await this.record(request, decision.stage, { decision: "reused", sourceArtifactId: saved.sourceArtifactId });
     return { value: saved.value, sourceRunId: this.source.runId, sourceArtifactId: saved.sourceArtifactId };
@@ -211,17 +211,28 @@ export class ReplaySeed implements ActivityReplaySource {
 
 /**
  * A saved model output from another run, usable only when it was produced under exactly
- * the requested replay identity. A missing or corrupt artifact is never trusted.
+ * the requested replay identity, or under the same request with a higher output ceiling when
+ * its answer wrote no more than the requested ceiling (`lowerCeiling`): an answer that fits
+ * is the answer the lower ceiling allows. A missing or corrupt artifact is never trusted.
  */
-export async function readReplayableOutput(source: RunStore, key: string, replayIdentity: string): Promise<{ readonly value: unknown; readonly sourceArtifactId: string } | { readonly reason: string }> {
-  const descriptor = (await source.listArtifacts()).find(({ kind }) => kind === key);
+export async function readReplayableOutput(source: RunStore, key: string, replayIdentity: string, lowerCeiling?: LowerCeilingIdentity): Promise<{ readonly value: unknown; readonly sourceArtifactId: string } | { readonly reason: string }> {
+  const artifacts = await source.listArtifacts();
+  const descriptor = artifacts.find(({ kind }) => kind === key);
   if (descriptor === undefined) return { reason: "source_activity_absent" };
   let saved: { value?: unknown; replayIdentity?: unknown };
   try { saved = await source.artifacts.get<{ value?: unknown; replayIdentity?: unknown }>(descriptor.ref); }
   catch { return { reason: "source_artifact_unreadable" }; }
   if (typeof saved !== "object" || saved === null || !("value" in saved)) return { reason: "source_artifact_unreadable" };
   if (typeof saved.replayIdentity !== "string") return { reason: "source_activity_identity_unavailable" };
-  if (saved.replayIdentity !== replayIdentity) return { reason: "activity_identity_changed" };
+  if (saved.replayIdentity !== replayIdentity) {
+    if (lowerCeiling === undefined || saved.replayIdentity !== lowerCeiling.replayIdentity) return { reason: "activity_identity_changed" };
+    const trace = artifacts.find(({ kind }) => kind === `${key}-trace`);
+    let written: unknown;
+    try { written = trace === undefined ? undefined : (await source.artifacts.get<{ provenance?: { usage?: { outputTokens?: unknown } } | null }>(trace.ref)).provenance?.usage?.outputTokens; }
+    catch { written = undefined; }
+    if (typeof written !== "number") return { reason: "source_output_tokens_unavailable" };
+    if (written > lowerCeiling.maximumOutputTokens) return { reason: "source_output_above_ceiling" };
+  }
   return { value: saved.value, sourceArtifactId: descriptor.artifactId };
 }
 

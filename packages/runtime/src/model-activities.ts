@@ -7,7 +7,7 @@ import { DurableTokenBudget } from "@arbitra/providers/token-budget.js";
 import { ContinuationStateStore } from "@arbitra/providers/continuation/store.js";
 import { ProviderBudgetSuspendedError, ProviderInvocationFailure, type InvocationTrace, type TraceSink } from "@arbitra/providers/runtime.js";
 import { BatchItemFailedError, BatchLane, type BatchResolution, type BatchSubmissionRecord, type BatchSubmissionView } from "@arbitra/providers/batch/lane.js";
-import { inputBytesPerToken, ModelOutputLimitError, outputCeiling } from "./context-budget.js";
+import { inputBytesPerToken, ModelOutputLimitError, outputCeiling, requestCeiling } from "./context-budget.js";
 import type { TransportMessage, TransportTool } from "@arbitra/providers/transport-contract.js";
 import { runConfigSchema, type RunConfig } from "@arbitra/schemas/config.js";
 import { providerExecutionSchema } from "@arbitra/schemas/provider-execution.js";
@@ -63,13 +63,18 @@ export interface AdvisorActivityIdentity {
 
 export const ADVISOR_HARNESS_ID = "advisor-direct";
 
+/** A request whose stage sets an output ceiling below its model's: the replay identity the same request has under the
+ * model's ceiling, and its own ceiling. */
+export interface LowerCeilingIdentity { readonly replayIdentity: string; readonly maximumOutputTokens: number }
+
 /**
  * A replay run's view of its immutable source run. It answers whether one activity may
  * reuse the source output: only when the activity's stage is compatible under the mode's
- * replay contract and the saved output was produced under the same replay identity.
+ * replay contract and the saved output was produced under the same replay identity, or under
+ * the same request with a higher output ceiling (`lowerCeiling`) and wrote no more than this one allows.
  */
 export interface ActivityReplaySource {
-  lookup(request: { readonly activityId: string; readonly key: string; readonly replayIdentity: string }): Promise<{ readonly value: unknown; readonly sourceRunId: string; readonly sourceArtifactId: string } | null>;
+  lookup(request: { readonly activityId: string; readonly key: string; readonly replayIdentity: string; readonly lowerCeiling?: LowerCeilingIdentity }): Promise<{ readonly value: unknown; readonly sourceRunId: string; readonly sourceArtifactId: string } | null>;
   /** Record that a looked-up output could not be used after all, e.g. it fails its schema. */
   reject(request: { readonly activityId: string; readonly key: string }, reason: string): Promise<void>;
 }
@@ -182,10 +187,10 @@ export class ModelActivities {
    * answers it, but not run-local budget, retry, rate or lane settings, which cannot change
    * the meaning of a saved output.
    */
-  #replayIdentity(input: ModelActivityRequest<unknown>, profile: unknown, messages: readonly TransportMessage[]): string {
+  #replayIdentity(input: ModelActivityRequest<unknown>, profile: unknown, messages: readonly TransportMessage[], maximumOutputTokens = requestCeiling(this.#config, input)): string {
     const endpointId = this.#execution.modelEndpoints[input.modelProfileId];
     return hash({ protocol: input.protocol, protocolIdentity: input.protocolIdentity ?? null, modelProfileId: input.modelProfileId, profile,
-      endpoint: this.#execution.endpoints.find(({ id }) => id === endpointId) ?? null, maximumOutputTokens: input.maximumOutputTokens ?? outputCeiling(this.#config, input.modelProfileId),
+      endpoint: this.#execution.endpoints.find(({ id }) => id === endpointId) ?? null, maximumOutputTokens,
       messages, effort: input.effort ?? null, responseMode: input.responseMode ?? "json", tools: input.tools ?? [], harnessIdentity: input.harnessIdentity ?? null,
       sourcePaths: input.sourcePaths === undefined ? null : [...input.sourcePaths].sort() });
   }
@@ -214,7 +219,11 @@ export class ModelActivities {
     if (input.replayOnly === true) throw new Error("MODEL_ACTIVITY_NOT_COMPLETED");
     // A replay run consults its source only for activities it has not started itself.
     if (this.#replay !== undefined && await this.read(`${key}-input`) === null) {
-      const reused = await this.#replay.lookup({ activityId: input.activityId, key, replayIdentity });
+      // A stage that lowered its ceiling after the source ran (verification's 16,000 tokens an answer, October 25, 2026,
+      // where earlier runs asked for the model's 128,000) may still take an answer that wrote no more than that.
+      const ceiling = outputCeiling(this.#config, input.modelProfileId);
+      const lowerCeiling = input.maximumOutputTokens !== undefined && input.maximumOutputTokens < ceiling ? { replayIdentity: this.#replayIdentity(input, profile, messages, ceiling), maximumOutputTokens: input.maximumOutputTokens } : undefined;
+      const reused = await this.#replay.lookup({ activityId: input.activityId, key, replayIdentity, ...(lowerCeiling === undefined ? {} : { lowerCeiling }) });
       if (reused !== null) {
         let value: T | undefined;
         try { value = input.schema.parse(reused.value); }

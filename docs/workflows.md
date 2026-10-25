@@ -633,8 +633,11 @@ per-activity check below, which includes the protocol hash they were produced un
 
 Within a reused stage each activity is also checked on its own. Its saved output must
 carry a replay identity equal to the new request's. That identity covers the full
-messages, the model profile and endpoint, the protocol, the harness policy, tools and
-source paths; budgets, retries, rate limits and the batch lane are excluded. Reused
+messages, the model profile and endpoint, the protocol, the output ceiling, the harness
+policy, tools and source paths; budgets, retries, rate limits and the batch lane are
+excluded. A request whose stage sets a ceiling below its model's (a verification answer's
+16,000 tokens) also takes an output saved under the model's ceiling that wrote no more
+output tokens than its own; a resumed run still takes only its own request's. Reused
 outputs are published in the new run with `replayedFrom` provenance naming the source
 artifact. They make no provider call and consume none of the new run's token budget.
 Every other activity is regenerated and charged to the new run. Each lookup is recorded
@@ -645,6 +648,8 @@ as `replay-activity-<key>` with `reused` or a reason:
 - `source_artifact_unreadable` (missing or corrupt, detected by content hash)
 - `source_activity_identity_unavailable` (saved before replay identities existed)
 - `activity_identity_changed`
+- `source_output_above_ceiling`, `source_output_tokens_unavailable` (saved under a higher
+  ceiling, and its output tokens are above the request's or were not reported)
 - `source_output_invalid`
 
 Missing or corrupt source artifacts are never trusted. They force regeneration.

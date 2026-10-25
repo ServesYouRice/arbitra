@@ -12,7 +12,7 @@ import type { WorkflowGraphReference } from "@arbitra/schemas/workflow-graphs.js
 import { incrementalAuditSchema, type IncrementalAuditRequest } from "@arbitra/schemas/incremental.js";
 import { providerExecutionSchema } from "@arbitra/schemas/provider-execution.js";
 import { RepositoryPathGuard } from "@arbitra/security/path-guard";
-import type { ActivityReplaySource } from "./model-activities.js";
+import type { ActivityReplaySource, LowerCeilingIdentity } from "./model-activities.js";
 import { readReplayableOutput, type ProtocolPin } from "./replay-contracts.js";
 import type { RepositoryGit, RepositorySnapshot } from "./repository.js";
 import type { RunStore, StoredRunContext } from "./run-store.js";
@@ -434,7 +434,7 @@ export class IncrementalSeed implements ActivityReplaySource {
 
   setUnitDecision(record: UnitDecisionRecord): void { this.#units.set(record.activityId, record); }
 
-  async lookup(request: { readonly activityId: string; readonly key: string; readonly replayIdentity: string }) {
+  async lookup(request: { readonly activityId: string; readonly key: string; readonly replayIdentity: string; readonly lowerCeiling?: LowerCeilingIdentity }) {
     const unitActivity = discoveryUnitActivity(request.activityId);
     const unit = unitActivity === null ? undefined : this.#units.get(unitActivity);
     const stage = unitActivity === null ? INCREMENTAL_AUDIT_STAGES.find(({ prefixes }) => prefixes.some((prefix) => request.activityId === prefix || request.activityId.startsWith(`${prefix}/`)))?.stage ?? null : null;
@@ -447,7 +447,7 @@ export class IncrementalSeed implements ActivityReplaySource {
       if (stage === null) return miss("activity_outside_incremental_contract");
       if (this.contract.stages.find((item) => item.stage === stage)?.decision !== "reuse") return miss("stage_invalidated");
     }
-    const saved = await readReplayableOutput(this.base, request.key, request.replayIdentity);
+    const saved = await readReplayableOutput(this.base, request.key, request.replayIdentity, request.lowerCeiling);
     if ("reason" in saved) return miss(saved.reason);
     const trace = await readKind<{ terminal?: { tokenUsage?: { inputTokens?: number | null; outputTokens?: number | null } | null } }>(this.base, `${request.key}-trace`);
     const usage = trace?.terminal?.tokenUsage;

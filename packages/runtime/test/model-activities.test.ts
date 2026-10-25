@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runConfigSchema } from "@arbitra/schemas/config.js";
 import type { HttpClient } from "@arbitra/providers/transport-contract.js";
+import { IncrementalSeed, type IncrementalContract } from "../src/incremental-audit.js";
 import { ModelActivities, parsePromptJson } from "../src/model-activities.js";
 import { RunStore } from "../src/run-store.js";
 
@@ -28,8 +29,9 @@ async function fixture(maximumTokens = 10_000, maximumRetries = 0) {
   const send = vi.fn<HttpClient["send"]>(async () => ({ status: 200, headers: {}, body: {
     id: "response-1", output_text: '{"answer":"ok"}', usage: { input_tokens: 2, output_tokens: 3 },
   } }));
-  const create = () => new ModelActivities(store, config, { client: { send }, credential: () => "fixture-credential" });
-  return { store, send, create };
+  const client = { client: { send }, credential: () => "fixture-credential" };
+  const create = () => new ModelActivities(store, config, client);
+  return { store, send, create, root, config, client };
 }
 function request(activityId = "auditor-a/discovery") {
   return { activityId, modelProfileId: "auditor-a", protocol: "discovery@1", messages: [{ role: "user" as const, content: "Return a JSON answer." }], signal: new AbortController().signal,
@@ -103,6 +105,30 @@ describe("durable model activities", () => {
     const trace = (await store.listArtifacts()).find(({ kind }) => kind.endsWith("-trace"));
     if (trace === undefined) throw new Error("TRACE_ABSENT");
     expect(JSON.parse((await store.readArtifact(trace.artifactId)).content).attempts).toHaveLength(2);
+  });
+
+  it("replays a saved answer asked under a higher output ceiling when it fits the lower one, and keeps a resume strict", async () => {
+    // Since October 25, 2026 a verification answer asks for at most 16,000 tokens where earlier runs asked for the
+    // model's ceiling (128,000), and a replay of such a run asked every verification question again.
+    const { create, send, store, root, config, client } = await fixture();
+    const question = request("verification/C-1/turn-0");
+    await create().invoke(question);
+    const replay = async (runId: string, changed: Partial<ReturnType<typeof request>> & { maximumOutputTokens: number }) => {
+      const target = new RunStore(root, runId);
+      const seed = new IncrementalSeed(store, target, { baseRunId: store.runId, stages: [{ stage: "verification", decision: "reuse" }] } as unknown as IncrementalContract);
+      await new ModelActivities(target, config, client, seed).invoke({ ...question, ...changed });
+      const record = (await target.listArtifacts()).find(({ kind }) => kind.startsWith("incremental-activity-"));
+      return record === undefined ? null : JSON.parse((await target.readArtifact(record.artifactId)).content) as { decision: string; reason?: string };
+    };
+    // The saved answer wrote 3 tokens under the run's ceiling of 10.
+    expect(await replay("replay-fits", { maximumOutputTokens: 5 })).toMatchObject({ decision: "reused" });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(await replay("replay-above", { maximumOutputTokens: 2 })).toMatchObject({ decision: "regenerated", reason: "source_output_above_ceiling" });
+    expect(await replay("replay-changed", { maximumOutputTokens: 5, messages: [{ role: "user", content: "Different" }] })).toMatchObject({ decision: "regenerated", reason: "activity_identity_changed" });
+    expect(send).toHaveBeenCalledTimes(3);
+    // The run itself, resumed, does not take its answer under another ceiling.
+    await expect(create().invoke({ ...question, maximumOutputTokens: 5 })).rejects.toThrow("MODEL_ACTIVITY_INPUT_CHANGED");
+    expect(send).toHaveBeenCalledTimes(3);
   });
 
   it("rejects cancelled calls before publishing or spending", async () => {
