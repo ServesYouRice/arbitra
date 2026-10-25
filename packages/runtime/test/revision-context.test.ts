@@ -47,9 +47,13 @@ describe("planner revision in parts", () => {
     const { input, port, calls, artifacts } = await fixture();
     requiredAt(input.originalPlan.tasks, 1).dependencies = { dependsOn: ["TASK-001"], blocks: [], conflictsWith: [] };
     input.originalPlan.taskGraph = [{ from: "TASK-001", to: "TASK-002" }];
+    // Observed live (veritra): a 227-task plan's notes and reasoning beside one item were more than the reviser's context.
+    input.originalPlan.implementationStrategy = ["Fix TASK-001 first.", "Then TASK-002.", "Keep the public API."];
     const result = await reviseWithContext(input, port);
     expect(calls).toHaveLength(1);
     const supplied = requiredAt(calls, 0).input as Supplied;
+    expect(supplied.planHeader["implementationStrategy"]).toEqual(["Fix TASK-001 first.", "Keep the public API."]);
+    expect(supplied.planHeader["reasoningOutcome"]).not.toBe(input.originalPlan.reasoningOutcome);
     expect(supplied.critique.map(({ id }) => id)).toEqual(["critique-1", "critique-2"]);
     expect(supplied.selectedTasks.map(({ id }) => id)).toEqual(["TASK-001"]);
     expect(supplied.taskIndex.map(({ id }) => id)).toEqual(["TASK-001", "TASK-002"]);
