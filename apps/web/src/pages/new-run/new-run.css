@@ -1,25 +1,107 @@
-/* The new-run form: one column of sections, each a surface with a label title. */
-.new-run { display: grid; gap: var(--s4); max-width: 1080px; }
-.form-section { display: grid; gap: var(--s3); min-width: 0; }
+/* New run: one column of numbered sections on the ground, each under a hairline; the lineup cards side by side. */
+.new-run { display: grid; gap: var(--s5); max-width: 1080px; min-width: 0; }
+.form-section { display: grid; gap: var(--s3); min-width: 0; padding-block-start: var(--s4); border-block-start: var(--hairline) solid var(--line); }
 .field-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: var(--s3); align-items: start; }
+.tick { display: flex; gap: var(--s2); align-items: flex-start; min-height: var(--row-h); padding-block: var(--s1); color: var(--ink); font: 400 var(--t-micro)/var(--lh-body) var(--font-body); cursor: pointer; }
+.tick > span { min-width: 0; }
+.tick .field__hint { display: block; margin-block-start: var(--s1); }
+.tick input, .reading-table input, .choice input, .lineup-card__head input { width: var(--s4); height: var(--s4); min-height: 0; margin: 0; padding: 0; flex: none; accent-color: var(--ink); }
+.tick input:disabled { cursor: not-allowed; }
+
+/* The project: the path takes the width, Browse at its end and below it on a phone; recent projects one click each. */
+.repository-row { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: stretch; }
+.project-input { flex: 1 1 20rem; min-width: 0; min-height: var(--row-h-comfy); font-size: var(--t-body); }
+.recent { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+.project-line { color: var(--ink); }
+.problem-line { display: grid; gap: var(--s1); }
+.problem-line details > summary, .diagnostics details > summary { cursor: pointer; color: var(--mute); width: fit-content; }
+
+/* How thorough: a card per depth; the chosen one carries the ink rule, the others a hairline. */
+.thorough { display: grid; gap: var(--s3); min-width: 0; }
+.lineup-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); gap: var(--s3); }
+.lineup-card { display: grid; align-content: start; gap: var(--s3); padding: var(--s4); background: var(--surface); border: var(--hairline) solid var(--line); cursor: pointer; min-width: 0; }
+.lineup-card[data-chosen="true"] { border-color: var(--ink); }
+.lineup-card__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+.lineup-card__name { color: var(--ink); font: 600 var(--t-lead)/var(--lh-tight) var(--font-display); letter-spacing: -0.02em; }
+.lineup-card__tag { margin-inline-start: auto; color: var(--mute); font: 500 var(--t-label)/var(--lh-tight) var(--font-display); letter-spacing: .14em; text-transform: uppercase; }
+.lineup-card__when { color: var(--body); font: 400 var(--t-micro)/var(--lh-body) var(--font-body); }
+.lineup-card__rows { display: grid; gap: var(--s2); padding-block: var(--s2); border-block: var(--hairline) solid var(--line-soft); }
+.lineup-card__row { display: grid; grid-template-columns: minmax(6rem, 8rem) minmax(0, 1fr); gap: var(--s2); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); }
+.lineup-card__step { color: var(--mute); }
+.lineup-card__model { display: block; color: var(--ink); overflow-wrap: anywhere; }
+.lineup-card__role { color: var(--mute); }
+.lineup-card__usage { display: grid; gap: var(--s1); color: var(--body); font: 400 var(--t-micro)/var(--lh-body) var(--font-data); font-variant-numeric: tabular-nums; }
+.lineup-card__tokens { color: var(--ink); font-weight: 600; }
+.lineup-card__basis { color: var(--mute); font-family: var(--font-body); }
+.switch-row { display: grid; gap: var(--s1); }
+.lineup-choice { display: grid; gap: var(--s1); max-width: 40rem; }
+.change-disclosure > summary { font-weight: 600; }
+.change-models { display: grid; gap: var(--s3); padding-block: var(--s3); min-width: 0; }
+
+/* Steps: one row each, the switch and name, what it does, and who does it. */
+.steps { display: grid; margin: 0; padding: 0; list-style: none; background: var(--surface); border: var(--hairline) solid var(--line); }
+.step { display: grid; grid-template-columns: minmax(10rem, 14rem) minmax(0, 1fr); gap: var(--s1) var(--s4); padding: var(--s3) var(--s4); }
+.step + .step { border-block-start: var(--hairline) solid var(--line-soft); }
+.step[data-on="false"] .step__models { color: var(--mute); }
+.step__name { display: grid; align-content: start; gap: var(--s1); color: var(--ink); font: 600 var(--t-micro)/var(--lh-tight) var(--font-data); }
+.step__name .tick { min-height: 0; padding: 0; font: inherit; }
+.step__always { color: var(--mute); font: 500 var(--t-label)/var(--lh-tight) var(--font-display); letter-spacing: .14em; text-transform: uppercase; }
+.step__explain { color: var(--body); font: 400 var(--t-micro)/var(--lh-body) var(--font-body); }
+.step__models { grid-column: 2; color: var(--ink); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); overflow-wrap: anywhere; }
+
+/* What to read: the folder table, the tests, and the files left out. */
+.reading { display: grid; gap: var(--s3); min-width: 0; }
+.reading-table td:first-child, .reading-table th:first-child { width: var(--s5); }
+.reading-table td:nth-child(n+3), .reading-table th:nth-child(n+3) { text-align: end; }
+.reading-table td:nth-child(n+3) { white-space: nowrap; }
+.reading-table td:nth-child(2) { overflow-wrap: break-word; }
+.reading-table tr[data-read="false"] td { color: var(--mute); }
+.generated { padding-block: var(--s2); }
+.generated .field__hint { display: block; }
+
+/* What goes into the plan: two choices, each with what it means. */
+.plan-scope { display: grid; gap: var(--s2); }
+.choice { display: flex; gap: var(--s2); align-items: flex-start; padding: var(--s3); background: var(--surface); border: var(--hairline) solid var(--line); cursor: pointer; }
+.choice > span { display: grid; gap: var(--s1); min-width: 0; }
+.choice__name { color: var(--ink); font: 600 var(--t-micro)/var(--lh-tight) var(--font-data); }
+
+/* This computer. */
+.computer { display: grid; gap: var(--s3); min-width: 0; }
+.computer-list > li { display: grid; gap: var(--s1); padding-block: var(--s1); }
+.computer-cli { color: var(--ink); overflow-wrap: anywhere; }
+.computer-path { color: var(--mute); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); overflow-wrap: anywhere; }
+.computer-how { display: grid; gap: var(--s2); font-size: var(--t-micro); }
+.computer-how strong { color: var(--ink); font-weight: 600; }
+
+/* More options: one fold, its closed line saying what the options are set to. */
+.more > summary { font-weight: 600; overflow-wrap: anywhere; }
+.more-options { display: grid; gap: var(--s4); padding-block: var(--s3) var(--s4); min-width: 0; }
 .scope, .roles { display: grid; gap: var(--s3); margin: 0; padding: var(--s3); border: var(--hairline) solid var(--line-soft); border-radius: var(--radius); min-width: 0; }
 .role-multiple { margin: 0; padding: 0; border: 0; }
 .role-multiple legend { padding: 0; color: var(--mute); }
 .import input { width: auto; }
-/* A template value still to fill in: a refuted stripe, because preflight will refuse it. */
+.limits .field { align-content: start; }
+.json-view { display: grid; gap: var(--s2); }
+/* A template value still to fill in: a refuted stripe, because the check will refuse it. */
 input.placeholder, select.placeholder { border-inline-start: var(--stripe) solid var(--refuted); }
 tr[data-placeholder="true"] td:first-child { font-weight: 600; color: var(--ink); }
-.limits .field { align-content: start; }
-.form-section .table input, .form-section .table select { min-width: 16rem; }
-/* The path field takes the width; browse sits at its end, and drops below it on a narrow screen. */
-.repository-row { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: end; }
-.repository-row .field { flex: 1 1 20rem; }
+.change-models .table input, .change-models .table select { min-width: 12rem; }
 .model-choice { display: grid; gap: var(--s1); }
+
+/* Start: the one primary action, what stops it, and what happened. */
+.start-bar { display: grid; gap: var(--s3); padding-block-start: var(--s4); border-block-start: var(--hairline) solid var(--ink); }
+.readiness { display: grid; gap: var(--s2); }
 .diagnostics > li { display: grid; gap: var(--s1); padding-block: var(--s1); }
-.advanced > summary { list-style: none; cursor: pointer; }
-.advanced > summary::-webkit-details-marker { display: none; }
-.advanced > summary .panel-title::after { content: " · show"; }
-.advanced[open] > summary .panel-title::after { content: " · hide"; }
-.check { display: grid; gap: var(--s2); padding: var(--s3); border: var(--hairline) solid var(--line); background: var(--sunken); }
-@media (forced-colors: active) { .scope, .roles, .check, input.placeholder, select.placeholder { border-color: CanvasText; } }
-.machine-models { display: grid; gap: var(--s2); padding-bottom: var(--s3); border-bottom: var(--hairline) solid var(--line-soft); }
+.diagnostic__words { max-width: var(--measure); color: var(--body); font: 400 var(--t-micro)/var(--lh-body) var(--font-body); overflow-wrap: anywhere; }
+.save-as { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: end; }
+
+@media (max-width: 700px) {
+  .new-run { gap: var(--s4); }
+  .lineup-card { padding: var(--s3); }
+  .step { grid-template-columns: minmax(0, 1fr); padding: var(--s3); }
+  .step__models { grid-column: 1; }
+}
+@media (forced-colors: active) {
+  .form-section, .lineup-card, .lineup-card__rows, .steps, .step, .choice, .scope, .roles, .start-bar, input.placeholder, select.placeholder { border-color: CanvasText; }
+  .lineup-card[data-chosen="true"] { border-color: Highlight; }
+}

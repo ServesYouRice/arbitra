@@ -247,11 +247,11 @@ test.describe("workflow canvas editing", () => {
     // The saved version starts its run from the new-run page, with its reference filled in.
     const { repository } = await (await request.post("/__fixture/repositories/audit")).json() as { repository: string };
     await page.getByRole("link", { name: "start an Audit run with this graph" }).click();
-    await expect(page.getByLabel("workflow", { exact: true })).toHaveValue(`graph:${graphId}:${version}`);
-    await expect(page.getByLabel("checkpoints", { exact: true })).toHaveValue("interactive");
-    await page.getByLabel("repository path").fill(repository);
-    await page.getByLabel("configuration name").fill(`run-${project}`);
-    await page.getByRole("button", { name: "save and start" }).click();
+    await expect(page.getByLabel("graph", { exact: true })).toHaveValue(`graph:${graphId}:${version}`);
+    await expect(page.getByLabel("ask me before", { exact: true })).toHaveValue("interactive");
+    await page.getByLabel("project folder").fill(repository);
+    await expect(page.getByRole("region", { name: "check result" })).toContainText("Ready to start.");
+    await page.getByRole("button", { name: "Start audit" }).click();
     await expect(stateChip(page)).toHaveText("needs you");
     const runId = new URL(page.url()).searchParams.get("run") ?? "";
     expect(runId).toMatch(/^run-/u);

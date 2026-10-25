@@ -7,6 +7,8 @@ import { record } from "../run/models.js";
  */
 export type Draft = Readonly<Record<string, unknown>>;
 export type Mode = "audit" | "feature" | "testing";
+/** One edit of the draft at a path; `undefined` removes the key. */
+export type Edit = (path: readonly string[], value: unknown) => void;
 
 export function getIn(draft: Draft, path: readonly string[]): unknown {
   let value: unknown = draft;
@@ -81,20 +83,20 @@ export function roleSlots(draft: Draft): readonly RoleSlot[] {
   if (Object.keys(record(draft["models"])).length === 0) return [];
   const base = ["workflow", "modelExecution", "roles"];
   return [
-    { label: "planner", path: [...base, "planner"], multiple: false, optional: false, hint: "turns accepted issues into the plan" },
-    { label: "verifier", path: [...base, "verifier"], multiple: false, optional: false, hint: "checks each issue against the code; critical and high issues always go to it, so make it the strongest" },
-    { label: "medium verifier", path: [...base, "mediumVerifier"], multiple: false, optional: true, hint: "checks the issues below high instead of the verifier, with a lighter model" },
-    { label: "critic", path: [...base, "critic"], multiple: false, optional: true, hint: "reviews the plan when the critic is switched on" },
+    { label: "writes the plan", path: [...base, "planner"], multiple: false, optional: false, hint: "Turns the confirmed issues into the plan." },
+    { label: "checks each issue", path: [...base, "verifier"], multiple: false, optional: false, hint: "Critical and high issues always go to it, so make it the strongest." },
+    { label: "checks medium issues", path: [...base, "mediumVerifier"], multiple: false, optional: true, hint: "In place of the one above, with a lighter model." },
+    { label: "reviews the plan", path: [...base, "critic"], multiple: false, optional: true, hint: "When the plan review is switched on." },
   ];
 }
 
 export interface Limit { readonly label: string; readonly path: readonly string[]; readonly hint: string }
 /** The limits the runtime enforces on model spend (see the BUDGETS_NOT_ENFORCED preflight message). */
 export const LIMITS: readonly Limit[] = Object.freeze([
-  { label: "run token budget", path: ["workflow", "modelExecution", "maximumTokens"], hint: "tokens the whole run may spend on model calls; the run pauses when it is spent" },
-  { label: "output tokens per call", path: ["workflow", "modelExecution", "maximumOutputTokens"], hint: "the output each call reserves; the budget must be at least this" },
-  { label: "timeout per call (ms)", path: ["workflow", "modelExecution", "timeoutMs"], hint: "a call that takes longer fails and may be retried" },
-  { label: "retries per call", path: ["workflow", "modelExecution", "maximumRetries"], hint: "0 to 10" },
+  { label: "stop at (tokens)", path: ["workflow", "modelExecution", "maximumTokens"], hint: "The run pauses when its model calls have used this many tokens; you can raise it and resume." },
+  { label: "output a call may write (tokens)", path: ["workflow", "modelExecution", "maximumOutputTokens"], hint: "What each call reserves for its answer; the stop must be at least this." },
+  { label: "longest call (ms)", path: ["workflow", "modelExecution", "timeoutMs"], hint: "A call that takes longer is stopped and may be tried again." },
+  { label: "tries again per call", path: ["workflow", "modelExecution", "maximumRetries"], hint: "0 to 10." },
 ]);
 
 /** A name that says where the configuration came from; the operator can change it before saving. */

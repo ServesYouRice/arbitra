@@ -46,18 +46,17 @@ test.describe("finding, starting and reading runs", () => {
     const { repository } = await (await request.post("/__fixture/repositories/audit")).json() as { repository: string };
     await guard(page);
     await page.goto("/?page=new-run&from=template:scripted-audit");
-    await expect(page.getByLabel("starting point")).toHaveValue("template:scripted-audit");
-    await expect(page.getByText("no models · the auditors are deterministic detectors")).toBeVisible();
-    await page.getByLabel("repository path").fill(repository);
-    await page.getByRole("button", { name: "check configuration" }).click();
+    await expect(page.getByLabel("lineup", { exact: true })).toHaveValue("template:scripted-audit");
+    await expect(page.getByText("Scripted detectors", { exact: true })).toBeVisible();
+    // The project starts empty, and the page reads it as soon as it is named: no button to check.
+    await expect(page.getByLabel("project folder")).toHaveValue("");
+    await page.getByLabel("project folder").fill(repository);
     const result = page.getByRole("region", { name: "check result" });
-    await expect(result).toContainText("ready to start");
-    await expect(result).toContainText("calls no model · scripted detectors");
-    await expect(result.getByLabel("estimate")).toContainText("scripted auditors make no provider calls");
+    await expect(result).toContainText("Ready to start. It calls no model: scripted detectors.");
+    await expect(page.getByRole("table", { name: "folders" })).toBeVisible();
     expect(await accessibilityAudit(page)).toEqual([]);
     await shot(page, testInfo, "navigation-02-new-run-checked");
-    await page.getByLabel("configuration name").fill(`smoke-${testInfo.project.name}`);
-    await page.getByRole("button", { name: "save and start" }).click();
+    await page.getByRole("button", { name: "Start audit" }).click();
     await expect(page.getByRole("heading", { level: 1, name: / · audit$/u })).toBeVisible();
     await expect(stateChip(page)).toHaveText("done");
     // The server records the real path (on macOS /var is /private/var), so compare its unique tail.
@@ -65,16 +64,19 @@ test.describe("finding, starting and reading runs", () => {
     await expect(page.getByRole("region", { name: "What it read and how" })).toContainText(repository.split("/").slice(-2).join("/"));
   });
 
-  test("preflight refuses a run this machine cannot start, and an API-key template lists what is left to fill in", async ({ page }, testInfo) => {
+  test("preflight refuses a run this machine cannot start, and an API-key template lists what is left to fill in", async ({ page, request }, testInfo) => {
+    const { repository } = await (await request.post("/__fixture/repositories/audit")).json() as { repository: string };
     await guard(page);
-    // The default starting point is complete, but this machine has none of the subscription CLIs it needs.
+    // The default lineup is complete, but this machine has none of the subscription CLIs it needs.
     await page.goto("/?page=new-run");
     await expect(page.getByLabel("model for auditor-a")).toHaveValue("claude-opus-5-5");
-    await page.getByRole("button", { name: "save and start" }).click();
+    await expect(page.getByRole("button", { name: "Start audit" })).toBeDisabled();
+    await page.getByLabel("project folder").fill(repository);
+    await page.getByRole("button", { name: "Start audit" }).click();
     const result = page.getByRole("region", { name: "check result" });
-    await expect(result).not.toContainText("ready to start");
-    await expect(page.getByText("Starting needs a configuration that passes preflight; fix the problems above first.")).toBeVisible();
-    await expect(page.getByRole("heading", { level: 1, name: "New run" })).toBeVisible();
+    await expect(result).toContainText("Not ready:");
+    await expect(result).not.toContainText("Ready to start.");
+    await expect(page.getByRole("heading", { level: 1, name: "New audit" })).toBeVisible();
     await shot(page, testInfo, "navigation-03-template-refused");
     await page.goto("/?page=new-run&from=template:audit-mixed-providers");
     const open = page.getByRole("list", { name: "placeholders to fill in" });
@@ -129,7 +131,7 @@ test.describe("finding, starting and reading runs", () => {
         expect(await coveredControls(page), `${view} at ${width}px`).toEqual([]);
       }
       await page.goto("/?page=new-run");
-      await expect(page.getByRole("heading", { level: 1, name: "New run" })).toBeVisible();
+      await expect(page.getByRole("heading", { level: 1, name: "New audit" })).toBeVisible();
       expect(await coveredControls(page), `new run at ${width}px`).toEqual([]);
       await open(page, runId, "issues");
       await page.locator(".issue-row__title").first().click();
