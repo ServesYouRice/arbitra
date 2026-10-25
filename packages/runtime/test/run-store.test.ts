@@ -56,7 +56,7 @@ describe("run store paths", () => {
       const stored = await resumed.publish("harness", { password: "arbitrary-long-secret", text: JSON.stringify({ layer: "round", value: nested }) });
       const read = JSON.parse((await resumed.readArtifact(stored.artifactId)).content) as { password: string; text: string };
       expect(read.password).toBe("[REDACTED:assigned_secret]");
-      expect((JSON.parse((JSON.parse(read.text) as { value: string }).value) as { lines: { text: string }[] }).lines.map(({ text }) => text)).toEqual(["    apiKey: [REDACTED:assigned_secret]", "    clock,"]);
+      expect((JSON.parse((JSON.parse(read.text) as { value: string }).value) as { lines: { text: string }[] }).lines.map(({ text }) => text)).toEqual(["    apiKey: [REDACTED:assigned_secret],", "    clock,"]);
     } finally { await rm(directory, { recursive: true, force: true }); }
   });
   it.each(["../outside", "..\\outside", "/absolute", "C:\\absolute", ".hidden", "run/id", ""])(

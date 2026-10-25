@@ -120,6 +120,15 @@ describe("secret redaction", () => {
     }
   });
 
+  it("masks in time linear in the text, however its values nest or end", () => {
+    // A value left in place is scanned again from its start: unbounded, 1 MB of nested calls took 137 s.
+    for (const text of ["token=f(".repeat(25_000), `token=${"a".repeat(300)}${"\\".repeat(200_000)}x`, JSON.stringify("token=abcdefghijklmnop\n".repeat(10_000))]) {
+      const started = performance.now();
+      redactSecrets(text);
+      expect(performance.now() - started).toBeLessThan(2_000);
+    }
+  });
+
   it("finds secrets under prefixed names, masks named values whole and private keys line by line", () => {
     // Found by arbitra's audit of itself (October 19, 2026).
     for (const line of ["DB_PASSWORD=hunter2isNotSecret", "AWS_SECRET_ACCESS_KEY: 'wJalrXUtnFEMIK7MDENG'", "client_secret = \"abcdefghijk1\"", "clientSecret: 'abcdefghijk1'"])

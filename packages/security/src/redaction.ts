@@ -89,17 +89,20 @@ function readsAsCode(secret: string, before: string, whole: boolean): boolean {
  */
 const MINIMUM_SECRET = 12;
 function cutAt(value: string, inQuery: boolean): number {
-  for (const { index } of value.matchAll(inQuery ? /\\+[nrt]|[&#]/gu : /\\+[nrt]/gu)) if (index >= MINIMUM_SECRET && value[index - 1] !== "\\") return index;
+  for (const { index } of value.matchAll(inQuery ? /(?<!\\)\\+[nrt]|[&#]/gu : /(?<!\\)\\+[nrt]/gu)) if (index >= MINIMUM_SECRET && value[index - 1] !== "\\") return index;
   return value.length;
 }
 /** At the end of a value the pattern took, whether the value goes on: the pattern stopped at its limit. */
 const GOES_ON = /\\*[^\s"'\\]/uy;
-const VALUE_END = /[\s"']|\\+[nrt]/gu;
-const VALUE_END_IN_QUERY = /[\s"'&#]|\\+[nrt]/gu;
-function runOn(text: string, from: number, inQuery: boolean): number {
-  const end = inQuery ? VALUE_END_IN_QUERY : VALUE_END;
-  end.lastIndex = from;
-  return end.exec(text)?.index ?? text.length;
+const VALUE_END = /[\s"']|(?<!\\)\\+[nrt]/gu;
+const VALUE_END_IN_QUERY = /[\s"'&#]|(?<!\\)\\+[nrt]/gu;
+/** The rest of a value longer than the pattern takes, without the backslashes it ends in. */
+function runOn(text: string, from: number, inQuery: boolean): string {
+  const pattern = inQuery ? VALUE_END_IN_QUERY : VALUE_END;
+  pattern.lastIndex = from;
+  let end = pattern.exec(text)?.index ?? text.length;
+  while (end > from && text[end - 1] === "\\") end -= 1;
+  return text.slice(from, end);
 }
 function withoutTrailingDelimiters(value: string): string {
   const unopened = new Map(([[")", "("], ["]", "["], ["}", "{"]] as const).map(([close, open]) => [close as string, value.split(close).length - value.split(open).length]));
@@ -131,7 +134,7 @@ export function redactSecrets(text: string): RedactionResult {
       const longer = cut === captured.length && GOES_ON.test(text);
       let secret = longer ? captured : withoutTrailingDelimiters(captured.slice(0, cut));
       const left = MARKER.test(secret) || readsAsCode(secret, text.slice(match.index, start), !longer);
-      if (!left && longer) secret = withoutTrailingDelimiters(text.slice(start, runOn(text, start + cut, inQuery)).replace(/\\+$/u, ""));
+      if (!left && longer) secret = withoutTrailingDelimiters(captured + runOn(text, start + cut, inQuery));
       // Scanning resumes after the part masked, so what a cut leaves is scanned like any text, and at the start of a
       // value left in place: `connect(password=...)` reads as code and holds a secret, and in JSON text a value
       // left in place can run on over an escaped line break into the next line.
