@@ -16,6 +16,7 @@ the P20 pilot in `git show e917ec7:WORK-REMAINING.md`, the first narratives of t
 | commentanywhere, Oct 23 | `run-5a90c75d` | 93 files, 11,719 lines | 40 min | 234 | 7.5M (640) | 51 of 150 confirmed (1 critical, 7 high, 43 medium) | 146K | 20 / 8 / 2 |
 | nextra, Oct 23 | `run-ccd3ccea` | 172 files, 38,967 lines | 105 min | 683 | 26.8M (688) | 126 of 415 confirmed (1 critical, 21 high, 104 medium) | 213K | 40 / 30 / 3 |
 | rokbot, Oct 24 | `run-869f90f0` | 125 files, about 26,100 lines | 71 min | 418 | 15.8M (605) | 102 of 300 confirmed (10 high, 92 medium) | 155K | 45 / 15 / — |
+| veritra, Oct 25 | `run-e5546c4c` | 416 files, 103,575 lines | about 5 h 25 | 1,451 | 70.0M (675) | 256 of 929 confirmed (36 high, 220 medium) | 273K | 133 / 50 / — |
 
 beachflag ran before confirmed issues were reported, so its counts are accepted issues. beachflag, rokavatar and
 blog ran with one peer-review round; commentanywhere, nextra and rokbot without one, the default since October 23.
@@ -61,6 +62,19 @@ What each run changed:
   how the capability token was made and compared: a call or an index on a secret's name now reads as code
   (6daff11). Once, near the end of planning, the server took more than 20 seconds to answer a status request; it
   did not happen again.
+- **veritra**, the largest so far (about 40,000 of its lines are tests; generated files left out), on the two-auditor deep
+  lineup with the plan critic, from a clone of its `origin/main` (67ecb85). The 400-file snapshot limit refused it and
+  is now 1,000 (45ed1d2). Its time is active time: the run also waited 55 minutes on Codex's five-hour limit and 2 h 20
+  stopped on a failure. Wall time: discovery 2 h 50 (Opus done after 2 h 37, Sol the long pole; 9 turns ended without
+  an answer, most at the 15-minute call limit), clustering 7 minutes, verification 40 (45.5M of the 70.0M tokens,
+  391 questions at 116K each), plan 39 for 227 tasks (a plan of 1.5 MB, 120 open questions), critic 61 in 12 batches,
+  its check 2, revision 7 (17 calls, all 19 blocking points revised). The critic and its check took 5.7M (8%), and
+  its batches carried none of the 254 files the plan cites. The run stopped three times after the plan, each time
+  fixed at the cause and resumed with every finished stage replayed: the critic's sizing measured the whole plan and
+  the prompt compiler refused it at 1 MiB (44a5225); every critic batch carried the plan's 370 KB of plan-wide notes
+  and reserved Sol's whole 128,000-token output ceiling, so no batch fit (766a289); and the revision's calls carried
+  the same notes (3539d7c). A fourth stop was a slip in that last fix: rewording a sentence every critic batch
+  carries changed their recorded inputs (23e0f59).
 
 Verification costs 75K to 86K tokens a question. Gemini's confirmed finds that no other model made, against what its
 audit cost: rokavatar 0 for 2.1M tokens at high thinking (560 call-minutes; 17 of 51 calls lost, 12 to its content
