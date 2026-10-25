@@ -59,11 +59,12 @@ export class EvaluationApi {
   }
 }
 export interface EvaluationState { readonly metrics: EvaluationMetrics | null; readonly state: "loading" | "loaded" | "absent" | "error"; readonly error: string | null }
-export function useEvaluationMetrics(api: EvaluationApi, runId: string | null): EvaluationState {
+/** `refreshKey`: a new value reads the metrics again, keeping the last ones on screen until the new read answers. */
+export function useEvaluationMetrics(api: EvaluationApi, runId: string | null, refreshKey: unknown = null): EvaluationState {
   const [value, setValue] = useState<EvaluationState>({ metrics: null, state: "loading", error: null });
-  useEffect(() => { if (runId === null) { setValue({ metrics: null, state: "absent", error: null }); return; } let active = true; setValue({ metrics: null, state: "loading", error: null });
+  useEffect(() => { if (runId === null) { setValue({ metrics: null, state: "absent", error: null }); return; } let active = true; setValue((current) => ({ metrics: current.metrics, state: "loading", error: null }));
     void api.metrics(runId).then((metrics) => { if (active) setValue({ metrics, state: "loaded", error: null }); }, (cause: unknown) => { if (active) setValue({ metrics: null, state: "error", error: cause instanceof Error ? cause.message : String(cause) }); });
-    return () => { active = false; }; }, [api, runId]);
+    return () => { active = false; }; }, [api, runId, refreshKey]);
   return value;
 }
 /** Rendering helper: a measurement the run did not produce is never shown as zero. */

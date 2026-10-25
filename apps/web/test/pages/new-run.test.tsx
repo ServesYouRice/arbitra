@@ -158,7 +158,7 @@ describe("the new-run page", () => {
     render(<App />);
     fireEvent.change(await screen.findByRole("textbox", { name: "configuration name" }), { target: { value: "Smoke" } });
     fireEvent.click(screen.getByRole("button", { name: "save and start" }));
-    expect(await screen.findByRole("heading", { level: 1, name: "Audit run · audit-deep" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 1, name: "fixture · audit" })).toBeTruthy();
     expect(address().get("run")).toBe("run-new");
     expect(calls.filter((call) => call.startsWith("POST"))).toEqual(["POST /preflight", "POST /configurations", "POST /runs"]);
   });

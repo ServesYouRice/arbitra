@@ -53,7 +53,7 @@ export function RunsPage(): ReactElement {
         <thead><tr><th scope="col">run</th><th scope="col">status</th><th scope="col">what ran</th><th scope="col">result</th><th scope="col">repository</th><th scope="col">started</th></tr></thead>
         <tbody>{items.map((item) => <tr key={item.runId} data-state={item.state ?? "unreadable"} onClick={(event) => { if (!(event.target instanceof Element && event.target.closest("a, button"))) navigate({ page: "run", runId: item.runId, tab: null, item: null }); }}>
           <td className="nowrap"><Link aria-label={`open run ${item.runId}`} className="run-list__id" to={{ page: "run", runId: item.runId, tab: null, item: null }}>{shortRunId(item.runId)}</Link></td>
-          <td><StateChip state={item.state} live={item.live} /></td>
+          <td><StateChip state={item.state} /></td>
           <td>{whatRan(item)}</td>
           <td><Result item={item} /></td>
           <td>{item.repository === null ? "unavailable" : <span title={item.repository}>{basename(item.repository)}</span>}</td>
@@ -73,7 +73,7 @@ function whatRan(item: RunListItem): ReactElement {
 function Result({ item }: { readonly item: RunListItem }): ReactElement {
   if (item.problem !== null) return <p className="state" data-state="degraded">records unreadable · {item.problem}</p>;
   if (item.state === "BLOCKED") return <p className="state" data-state="attention">needs you · {item.pendingDecisions === 1 ? "1 decision" : `${item.pendingDecisions} decisions`}</p>;
-  if (item.gate !== null) return <GateVerdict gate={item.gate} compact />;
+  if (item.gate !== null) return <GateVerdict gate={item.gate} />;
   if (item.state === "FAILED") return <p className="state" data-state="refuted">failed · {item.reason ?? "no reason recorded"}</p>;
   if (item.state === "CANCELLED" || item.state?.startsWith("SUSPENDED") === true) return <p className="note">can be resumed</p>;
   if (!item.live) return <p className="state" data-state="degraded">not executed by this control plane · running elsewhere or interrupted</p>;

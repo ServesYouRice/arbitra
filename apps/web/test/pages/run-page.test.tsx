@@ -3,30 +3,125 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HumanCheckpointResource, PlanQuestionsCheckpointResource } from "../../src/api/runs.js";
 import { App } from "../../src/app/App.js";
+import { ARTIFACT_CONTENT } from "../views/fixtures.js";
 import { address, json, stubBrowser, stubControlPlane, visit } from "../support.js";
-import { artifactRoutes, EMPTY_TRACES, FEATURE_WORKFLOW, overview, resource } from "./fixtures.js";
+import { artifactRoutes, BALANCED_WORKFLOW, discoveryProgress, EMPTY_TRACES, FEATURE_WORKFLOW, finishedProgress, metrics, modelOverview, overview, resource } from "./fixtures.js";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); visit(""); });
 
+/** The recorded fact beside a label in a list of facts. */
+const fact = (region: HTMLElement, label: string): string | null | undefined => within(region).getByText(label, { selector: "dt" }).nextElementSibling?.textContent;
+const main = (): HTMLElement => document.querySelector("main") as HTMLElement;
+
 describe("the run page", () => {
-  it("opens a finished scripted audit on its overview: the gate in words and codes, and only the Audit tabs", async () => {
+  it("opens a finished audit on its Summary: the plan to save first, what needs the person, the issues by verdict, how it ran, and no recorded code", async () => {
     stubBrowser();
-    stubControlPlane({ "GET /runs/run-1": resource(), "GET /runs/run-1/overview": overview(), ...artifactRoutes("run-1") });
+    stubControlPlane({ "GET /runs/run-1": resource(), "GET /runs/run-1/overview": overview(), "GET /runs/run-1/metrics": metrics(), "GET /handoff/runs/run-1": { saved: [] }, ...artifactRoutes("run-1") });
     visit("?run=run-1");
     render(<App />);
-    expect(await screen.findByRole("heading", { level: 1, name: "Audit run · audit-deep" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 1, name: "fixture · audit" })).toBeTruthy();
+    expect(document.querySelector(".run-header .chip")?.textContent).toBe("done");
     const tabs = screen.getByRole("navigation", { name: "run views" });
-    expect(within(tabs).getAllByRole("link").map((link) => link.textContent)).toEqual(["Overview", "Issues", "Plan", "Activity", "Evaluation"]);
-    expect(within(tabs).getByRole("link", { name: "Overview" }).getAttribute("aria-current")).toBe("page");
-    const result = await screen.findByRole("region", { name: "result" });
-    expect(within(result).getByText("done · needs you")).toBeTruthy();
-    expect(within(result).getByText(/^coverage is incomplete/u)).toBeTruthy();
-    expect(within(result).getByText("degraded_coverage")).toBeTruthy();
-    expect(within(result).getByText(/the CLI exits 1 for this run/u)).toBeTruthy();
-    expect(within(result).getByText(/a scripted run always fails the gate on coverage/u)).toBeTruthy();
-    expect(screen.getAllByText(/scripted detectors · no model calls/u).length).toBeGreaterThan(0);
-    expect(await screen.findByText(/2 canonical issues from 31 source findings by 3 auditors/u)).toBeTruthy();
-    expect(screen.getByRole("link", { name: "open the issue board" }).getAttribute("href")).toBe("/?run=run-1&view=issues");
+    expect(within(tabs).getAllByRole("link").map((link) => link.textContent)).toEqual(["Summary", "Issues", "Plan", "Results", "How it ran"]);
+    expect(within(tabs).getByRole("link", { name: "Summary" }).getAttribute("aria-current")).toBe("page");
+    const plan = await screen.findByRole("region", { name: "The plan is ready · 1 task for 1 issue" });
+    // The plan comes first on the page, and saving it is the page's one primary action.
+    expect(main().querySelector(".summary > *")?.getAttribute("aria-labelledby")).toBe("plan-card-title");
+    expect(within(plan).getByRole("button", { name: "Save the plan into the project" }).className).toContain("button--primary");
+    expect(document.querySelectorAll("main .button--primary")).toHaveLength(1);
+    expect(await within(plan).findByText("Not saved yet. Nothing in the project changes until you save.")).toBeTruthy();
+    expect(within(plan).getByRole("link", { name: "Read it first" }).getAttribute("href")).toBe("/?run=run-1&view=plan");
+    const needs = screen.getByRole("region", { name: "Needs you" });
+    expect(within(needs).getAllByRole("link").map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
+      ["1 question only you can answer, before the tasksAnswer →", "/?run=run-1&view=plan"],
+      ["20 issues the check could not settle: the plan checks them firstSee them →", "/?run=run-1&view=issues"],
+    ]);
+    const issues = await screen.findByRole("region", { name: "Issues · 415 found" });
+    expect([...issues.querySelectorAll(".verdict")].map((cell) => cell.textContent)).toEqual(["126confirmed · 1 critical, 21 high, 104 medium", "20unsettled · the check could not settle them",
+      "46rejected · each with its reason", "223not checked · below the plan's bar, or left open"]);
+    const ran = screen.getByRole("region", { name: "How it ran" });
+    expect(fact(ran, "tokens")).toBe("none: scripted detectors call no model");
+    expect(fact(ran, "found issues")).toBe("scripted detectors, no model calls");
+    expect(within(ran).getByRole("button", { name: "Copy a report to send" })).toBeTruthy();
+    expect(main().textContent).not.toMatch(/COMPLETED|unresolved_issues|degraded_coverage|canonical issue/u);
+  });
+
+  it("saves the plan into the project on request, then says where it went and what to do next", async () => {
+    stubBrowser();
+    const saved: { directory: string; relative: string; savedAt: string }[] = [];
+    const calls = stubControlPlane({ "GET /runs/run-1": resource(), "GET /runs/run-1/overview": overview(), "GET /runs/run-1/metrics": metrics(), ...artifactRoutes("run-1"),
+      "GET /handoff/runs/run-1": () => ({ saved }),
+      "POST /handoff/runs/run-1": () => { saved.push({ directory: "/work/fixture/.arbitra/plans/2026-10-25-run1", relative: ".arbitra/plans/2026-10-25-run1", savedAt: "2026-10-25T09:30:00.000Z" }); return { directory: saved[0]?.directory, files: ["README.md"] }; } });
+    visit("?run=run-1");
+    render(<App />);
+    const plan = await screen.findByRole("region", { name: "The plan is ready · 1 task for 1 issue" });
+    fireEvent.click(await within(plan).findByRole("button", { name: "Save the plan into the project" }));
+    expect(await within(plan).findByText("Saved in the project")).toBeTruthy();
+    expect(within(plan).getByText(".arbitra/plans/2026-10-25-run1")).toBeTruthy();
+    expect(within(plan).getByText(/^Next: open the project in Claude Code or Codex and ask it to work through/u).textContent).toContain(".arbitra/plans/2026-10-25-run1/README.md. Answer the 1 question it asks first");
+    expect(within(plan).getByRole("button", { name: "Copy that request" })).toBeTruthy();
+    // Saved, the plan is no longer the page's call to act: nothing is filled any more.
+    expect(within(plan).queryByRole("button", { name: "Save the plan into the project" })).toBeNull();
+    expect(calls.filter((call) => call === "POST /handoff/runs/run-1")).toHaveLength(1);
+  });
+
+  it("shows a plan saved before as saved, after a reload", async () => {
+    stubBrowser();
+    stubControlPlane({ "GET /runs/run-1": resource(), "GET /runs/run-1/overview": overview(), "GET /runs/run-1/metrics": metrics(), ...artifactRoutes("run-1"),
+      "GET /handoff/runs/run-1": { saved: [{ directory: "/work/fixture/.arbitra/plans/2026-10-24-run1-2", relative: ".arbitra/plans/2026-10-24-run1-2", savedAt: "2026-10-24T10:00:00.000Z" }, { directory: "/work/fixture/.arbitra/plans/2026-10-24-run1", relative: ".arbitra/plans/2026-10-24-run1", savedAt: "2026-10-24T09:00:00.000Z" }] } });
+    visit("?run=run-1");
+    render(<App />);
+    const plan = await screen.findByRole("region", { name: "The plan is ready · 1 task for 1 issue" });
+    expect(await within(plan).findByText(".arbitra/plans/2026-10-24-run1-2")).toBeTruthy();
+    expect(within(plan).getByText(/2 copies are in \.arbitra\/plans; this is the newest\./u)).toBeTruthy();
+  });
+
+  it("watches a running audit: the step and its time, what it has read and found, the stages with the finders side by side, and the calls started again", async () => {
+    stubBrowser();
+    stubControlPlane({ "GET /runs/run-1": resource({ state: "DISCOVERY_RUNNING", resumable: true, workflow: BALANCED_WORKFLOW }), "GET /runs/run-1/overview": modelOverview({ state: "DISCOVERY_RUNNING", gate: null, live: true }),
+      "GET /runs/run-1/progress": discoveryProgress(), "GET /runs/run-1/traces*": EMPTY_TRACES, ...artifactRoutes("run-1", { preflight: { fileCount: 416, lineCount: 103_575 } }, { preflight: "preflight" }) });
+    visit("?run=run-1");
+    render(<App />);
+    expect(await screen.findByRole("heading", { level: 1, name: "veritra · audit" })).toBeTruthy();
+    expect(document.querySelector(".run-header .chip")?.textContent).toBe("running");
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
+    expect(await screen.findByText(/416 files, 103,575 lines/u)).toBeTruthy();
+    const now = await screen.findByRole("region", { name: "now" });
+    expect(await within(now).findByText("Finding issues · 1 h 05 so far")).toBeTruthy();
+    expect(within(now).getByText("36 parts read · 309 issues found, not checked yet · 3.4M of 65M tokens")).toBeTruthy();
+    const stages = screen.getByRole("group", { name: "stages" });
+    expect(within(stages).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual([
+      "Read the project · done · 0:01 · 416 files",
+      "Find issues · running · 1:05 · Opus 5.5 · xhigh · 22 parts read",
+      "Find issues · running · 1:05 · GPT-6.1 Sol · xhigh · 14 parts read, 1 declined",
+      "Merge duplicates · next", "Check each issue · waiting · Opus 5.5 · high", "Write the plan · waiting · Opus 5.5 · high", "Review the plan · waiting · GPT-6.1 Sol · high",
+    ]);
+    // The two finders share a column; only the line into the running column moves.
+    expect(stages.querySelectorAll(".stage-graph__column")[1]?.querySelectorAll(".stage")).toHaveLength(2);
+    expect([...stages.querySelectorAll(".stage-edge")].map((edge) => (edge as HTMLElement).dataset.flow)).toEqual(["live", "idle", "idle", "idle", "idle"]);
+    expect(within(stages).getAllByRole("button").filter((button) => button.getAttribute("aria-current") === "step")).toHaveLength(2);
+    expect(screen.getByText("7 model calls ran past 15 min and were started again. Which")).toBeTruthy();
+    const found = screen.getByRole("region", { name: "Found so far · not checked yet" });
+    expect(within(found).getByText("36 high · 107 medium · 158 low · 8 info")).toBeTruthy();
+    expect(within(found).getAllByRole("listitem")).toHaveLength(4);
+    expect((within(found).getAllByRole("listitem")[0] as HTMLElement).dataset.severity).toBe("high");
+    fireEvent.click(within(found).getByRole("button", { name: "All 309, not checked yet" }));
+    expect(within(found).getAllByRole("listitem")).toHaveLength(6);
+    expect(screen.getByRole("link", { name: "Records" }).getAttribute("href")).toBe("/?run=run-1&view=activity");
+    // A stage opens its records beside the page.
+    fireEvent.click(within(stages).getByRole("button", { name: /^Find issues · running · 1:05 · Opus/u }));
+    await waitFor(() => expect(address().get("item")).toBe("node:auditor-a"));
+    expect(await screen.findByRole("complementary", { name: "details · Auditor A" })).toBeTruthy();
+  });
+
+  it("follows the run's own events when its progress cannot be read, and says so", async () => {
+    stubBrowser();
+    stubControlPlane({ "GET /runs/run-1": resource({ state: "DISCOVERY_RUNNING", resumable: true, workflow: BALANCED_WORKFLOW }), "GET /runs/run-1/overview": modelOverview({ state: "DISCOVERY_RUNNING", gate: null, live: true }),
+      "GET /runs/run-1/progress": () => json({ statusCode: 500, error: "REQUEST_FAILED", message: "EMFILE" }, 500), ...artifactRoutes("run-1", {}) });
+    visit("?run=run-1");
+    render(<App />);
+    expect(await screen.findByText(/The run's progress could not be read just now/u)).toBeTruthy();
+    expect(within(screen.getByRole("group", { name: "stages" })).getAllByRole("button")).toHaveLength(7);
   });
 
   it("holds the tab until the header has the run's settings, so no row moves under a click", async () => {
@@ -36,24 +131,27 @@ describe("the run page", () => {
     stubControlPlane({ "GET /runs/run-1": resource(), "GET /runs/run-1/overview": async () => { await arrived; return overview(); }, ...artifactRoutes("run-1") });
     visit("?run=run-1&view=issues");
     render(<App />);
-    expect(await screen.findByRole("heading", { level: 1, name: "Audit run · audit-deep" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 1, name: "run-1 · audit" })).toBeTruthy();
     // Observed in Firefox: the rows drew first, the header then grew by two lines, and a
     // click aimed at the first issue landed on the filters that moved into its place.
     expect(screen.getByText("loading the run")).toBeTruthy();
     expect(screen.queryByRole("region", { name: "issue board" })).toBeNull();
     release();
     expect(await screen.findByRole("region", { name: "issue board" })).toBeTruthy();
-    expect(screen.getByText("/work/fixture")).toBeTruthy();
+    expect(screen.getByText(/scripted detectors, no model calls/u)).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: "fixture · audit" })).toBeTruthy();
   });
 
-  it("opens the tab without the run's settings when they cannot be read, and says so", async () => {
+  it("opens the tab without the run's settings when they cannot be read, and says so in words", async () => {
     stubBrowser();
     stubControlPlane({ "GET /runs/run-1": resource(), "GET /runs/run-1/overview": () => new Response("{}", { status: 503 }), ...artifactRoutes("run-1") });
     visit("?run=run-1&view=issues");
     render(<App />);
     expect(await screen.findByRole("region", { name: "issue board" })).toBeTruthy();
-    expect(screen.getByText(/^run settings unavailable · /u).dataset.state).toBe("degraded");
-    expect(screen.getAllByText("unavailable").length).toBe(4);
+    const problem = screen.getByText(/^The run's settings could not be read/u).closest(".problem") as HTMLElement;
+    expect(problem.dataset.state).toBe("degraded");
+    // The recorded code is one click down, not in the sentence.
+    expect(within(problem).getByText("RUN_API_503").closest("details")).not.toBeNull();
     expect(screen.queryByText("loading")).toBeNull();
   });
 
@@ -73,6 +171,101 @@ describe("the run page", () => {
     expect(address().get("view")).toBe("issues");
   });
 
+  it("says what the Issues and Plan tabs will hold while the run is still working", async () => {
+    stubBrowser();
+    stubControlPlane({ "GET /runs/run-1": resource({ state: "DISCOVERY_RUNNING", resumable: true }), "GET /runs/run-1/overview": overview({ state: "DISCOVERY_RUNNING", gate: null, live: true }),
+      "GET /runs/run-1/progress": discoveryProgress(), ...artifactRoutes("run-1", { preflight: { fileCount: 3 } }) });
+    visit("?run=run-1&view=issues");
+    render(<App />);
+    const issues = await screen.findByRole("region", { name: "issues" });
+    expect(within(issues).getByText(/^No issue is checked yet\. The issues appear here once the run has merged duplicates and checked each one/u)).toBeTruthy();
+    expect(within(issues).getByRole("link", { name: "Summary" }).getAttribute("href")).toBe("/?run=run-1");
+    fireEvent.click(within(screen.getByRole("navigation", { name: "run views" })).getByRole("link", { name: "Plan" }));
+    expect(await screen.findByText(/^No plan yet\. The run writes it once every issue is checked/u)).toBeTruthy();
+    expect(main().textContent).not.toMatch(/artifact absent/u);
+  });
+
+  it("says plainly that a run failed because the project is too large to read, and offers no resume that cannot help", async () => {
+    stubBrowser();
+    const reason = "Error: REPOSITORY_FILE_LIMIT_EXCEEDED:400";
+    stubControlPlane({ "GET /runs/run-1": resource({ state: "FAILED", resumable: true }), "GET /runs/run-1/overview": overview({ state: "FAILED", reason, gate: null }), "GET /runs/run-1/progress": finishedProgress({ state: "FAILED" }), ...artifactRoutes("run-1", {}) });
+    visit("?run=run-1");
+    render(<App />);
+    const failed = await screen.findByRole("region", { name: "The run failed" });
+    expect(within(failed).getByText("The project has more than 400 source files, more than one run reads.")).toBeTruthy();
+    expect(within(failed).getByText(/^Start a new audit that reads some folders of the project, or leaves some out\. Resuming this run would stop the same way\./u)).toBeTruthy();
+    expect(within(failed).getByText(reason).closest("details")).not.toBeNull();
+    expect(document.querySelector(".run-header .chip")?.textContent).toBe("failed");
+    expect(screen.queryByRole("button", { name: "Resume" })).toBeNull();
+  });
+
+  it("offers resume for a failure that resuming can help, and keeps the error one click down", async () => {
+    stubBrowser();
+    const calls = stubControlPlane({ "GET /runs/run-1": resource({ state: "FAILED", resumable: true }), "GET /runs/run-1/overview": overview({ state: "FAILED", reason: "ProviderInvocationFailure: Provider openai failed after 3 attempts (TIMEOUT: Provider stage timed out after 900000ms)", gate: null }),
+      "POST /runs/run-1/resume": resource({ state: "CREATED", resumable: true }), ...artifactRoutes("run-1", {}) });
+    visit("?run=run-1");
+    render(<App />);
+    const failed = await screen.findByRole("region", { name: "The run failed" });
+    expect(within(failed).getByText("A model call kept running past its time limit.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(calls).toContain("POST /runs/run-1/resume"));
+  });
+
+  it("says when a run paused for usage goes on by itself", async () => {
+    stubBrowser();
+    const reason = "ProviderUsageLimitError: Provider openai reached its usage limit (QUOTA: CLI_USAGE_LIMIT_REACHED: the Codex CLI subscription's usage allowance is exhausted until 2026-10-25T11:46:00.000Z)";
+    stubControlPlane({ "GET /runs/run-1": resource({ state: "SUSPENDED_RATE_LIMIT", resumable: true }), "GET /runs/run-1/overview": overview({ state: "SUSPENDED_RATE_LIMIT", reason, gate: null }), ...artifactRoutes("run-1", {}) });
+    visit("?run=run-1");
+    render(<App />);
+    const paused = await screen.findByRole("region", { name: "Paused for usage" });
+    expect(within(paused).getByText(/Codex CLI's usage limit was reached\. Everything it has done is kept\. The limit resets at/u)).toBeTruthy();
+    expect(document.querySelector(".run-header .chip")?.textContent).toBe("paused for usage");
+    expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
+  });
+
+  it("tells how a finished run went in full, keeps the recorded codes in the details, and has its records one click down", async () => {
+    stubBrowser();
+    stubControlPlane({ "GET /runs/run-1": resource({ workflow: BALANCED_WORKFLOW }), "GET /runs/run-1/overview": modelOverview(), "GET /runs/run-1/progress": finishedProgress(), "GET /runs/run-1/metrics": metrics(),
+      "GET /runs/run-1/traces*": EMPTY_TRACES, ...artifactRoutes("run-1", { ...ARTIFACT_CONTENT, preflight: { fileCount: 416, lineCount: 103_575 } }) });
+    visit("?run=run-1&view=how-it-ran");
+    render(<App />);
+    const facts = await screen.findByRole("region", { name: "Time, tokens and models" });
+    await waitFor(() => expect(fact(facts, "tokens")).toBe("26.8M · 213K per confirmed issue"));
+    expect(fact(facts, "time")).toBe("1 h 45 · reading under a minute, finding 53 min, merging 4 min, checking 19 min, plan 26 min, review 2 min");
+    expect(fact(facts, "found issues")).toBe("Opus 5.5 · xhigh, GPT-6.1 Sol · xhigh");
+    expect(fact(facts, "checked them")).toBe("Opus 5.5 · high");
+    expect(fact(facts, "wrote the plan")).toBe("Opus 5.5 · high");
+    await waitFor(() => expect(fact(facts, "reviewed the plan")).toBe("GPT-6.1 Sol · high · 1 objection"));
+    const settings = screen.getByRole("region", { name: "What it read and how" });
+    expect(fact(settings, "project")).toBe("/work/veritra · 416 files, 103,575 lines");
+    expect(fact(settings, "review rounds")).toBe("none: each issue goes straight to its check");
+    const codes = screen.getByText("Recorded codes").closest("details") as HTMLElement;
+    expect(within(codes).getByText("COMPLETED")).toBeTruthy();
+    expect(within(codes).getByText("audit-balanced")).toBeTruthy();
+    fireEvent.click(screen.getByRole("link", { name: "Activity" }));
+    await waitFor(() => expect(address().get("view")).toBe("activity"));
+    const records = screen.getByRole("navigation", { name: "records" });
+    expect(within(records).getAllByRole("link").map((link) => link.textContent)).toEqual(["← How it ran", "Activity", "Evaluation"]);
+    expect(within(screen.getByRole("navigation", { name: "run views" })).getByRole("link", { name: "How it ran" }).getAttribute("aria-current")).toBe("page");
+    expect(await screen.findByRole("region", { name: "trace browser" })).toBeTruthy();
+  });
+
+  it("says a plan is not carried out yet, and reads its results again on request", async () => {
+    stubBrowser();
+    let carried = false;
+    const calls = stubControlPlane({ "GET /runs/run-1": resource(), "GET /runs/run-1/overview": overview(), ...artifactRoutes("run-1"),
+      "GET /runs/run-1/metrics": () => metrics({ planResults: carried ? { issues: 146, reported: 146, provenByFailingTest: 115, notProvenByTest: 16, checkedEndToEnd: 12, results: { fixed: 130, no_change_needed: 15, not_reproducible: 1, blocked: 0 }, foundWhileFixing: { reported: 14, provenByFailingTest: 9 } } : null }) });
+    visit("?run=run-1&view=results");
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "Not carried out yet" })).toBeTruthy();
+    expect(screen.getByText(/it records each issue's result in/u).textContent).toContain("results.json");
+    carried = true;
+    fireEvent.click(screen.getByRole("button", { name: "Read results again" }));
+    expect(await screen.findByRole("heading", { name: "Results · 146 issues reported of 146" })).toBeTruthy();
+    expect([...document.querySelectorAll(".verdict")].map((cell) => cell.textContent)).toEqual(["130fixed, of 146", "115proven by a test that failed first", "15no change needed", "14more defects found while fixing"]);
+    expect(calls.filter((call) => call === "GET /runs/run-1/metrics")).toHaveLength(2);
+  });
+
   it("puts a blocked run's decision above every tab and resumes only once nothing is left to decide", async () => {
     stubBrowser();
     const pending: HumanCheckpointResource = { kind: "human", checkpointId: "approval", version: "a".repeat(64), mode: "interactive", status: "pending", prompt: 'Release the plan? <img src=x onerror="window.__injected=1">', decisions: ["approve", "reject"] };
@@ -88,6 +281,7 @@ describe("the run page", () => {
     render(<App />);
     const banner = () => screen.getByRole("region", { name: /This run is waiting for your decision/u });
     await screen.findByRole("region", { name: /This run is waiting for your decision/u });
+    expect(document.querySelector(".run-header .chip")?.textContent).toBe("needs you");
     expect(within(banner()).getByText(/Release the plan\? <img src=x/u)).toBeTruthy();
     expect(document.querySelector("img[src='x']")).toBeNull();
     expect((within(banner()).getByRole("button", { name: "resume run" }) as HTMLButtonElement).disabled).toBe(true);
@@ -116,6 +310,7 @@ describe("the run page", () => {
     render(<App />);
     const banner = () => screen.getByRole("region", { name: /This run is waiting for your decision/u });
     const form = await screen.findByRole("form", { name: "plan questions" });
+    expect(screen.getByRole("region", { name: "Needs you" }).textContent).toContain("The run waits on the decisions above.");
     expect(within(form).getByText("Throw or clamp an out-of-range value?")).toBeTruthy();
     const send = within(form).getByRole("button", { name: "send answers" }) as HTMLButtonElement;
     expect(send.disabled).toBe(true);
@@ -133,7 +328,7 @@ describe("the run page", () => {
     await waitFor(() => expect(calls).toContain("POST /runs/run-1/resume"));
   });
 
-  it("lands a link to a tab this mode does not have on the overview", async () => {
+  it("lands a link to a tab this mode does not have, or the old Overview, on the Summary", async () => {
     stubBrowser();
     stubControlPlane({
       "GET /runs/run-2": resource({ runId: "run-2", workflow: FEATURE_WORKFLOW }),
@@ -144,9 +339,10 @@ describe("the run page", () => {
     render(<App />);
     const tabs = await screen.findByRole("navigation", { name: "run views" });
     await waitFor(() => expect(address().get("view")).toBeNull());
-    expect(within(tabs).getAllByRole("link").map((link) => link.textContent)).toEqual(["Overview", "Requirements", "Plan", "Activity", "Evaluation"]);
-    expect(within(tabs).getByRole("link", { name: "Overview" }).getAttribute("aria-current")).toBe("page");
-    expect((await screen.findAllByText("gate passed")).length).toBeGreaterThan(0);
+    expect(within(tabs).getAllByRole("link").map((link) => link.textContent)).toEqual(["Summary", "Requirements", "Plan", "How it ran"]);
+    expect(within(tabs).getByRole("link", { name: "Summary" }).getAttribute("aria-current")).toBe("page");
+    expect(await screen.findByRole("region", { name: "Requirements and handoff" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: "fixture · feature" })).toBeTruthy();
   });
 
   it("explains a node from the run's own records, including that a scripted auditor calls no model", async () => {
@@ -196,35 +392,37 @@ describe("the run page", () => {
     stubBrowser();
     let state = "DISCOVERY_RUNNING";
     const calls = stubControlPlane({ "GET /runs/run-1": () => resource({ state, resumable: true }), "GET /runs/run-1/overview": () => overview({ state, gate: null, live: state !== "CANCELLED" }),
-      "POST /runs/run-1/cancel": () => { state = "CANCELLED"; return resource({ state, resumable: true }); }, ...artifactRoutes("run-1") });
+      "GET /runs/run-1/progress": () => discoveryProgress({ state, live: state !== "CANCELLED" }), "POST /runs/run-1/cancel": () => { state = "CANCELLED"; return resource({ state, resumable: true }); }, ...artifactRoutes("run-1") });
     visit("?run=run-1");
     render(<App />);
-    expect(await screen.findByText("running · discovery")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "cancel run" }));
-    expect(await screen.findByText("cancelled")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "resume run" })).toBeTruthy();
+    await waitFor(() => expect(document.querySelector(".run-header .chip")?.textContent).toBe("running"));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(document.querySelector(".run-header .chip")?.textContent).toBe("cancelled"));
+    expect(await screen.findByRole("region", { name: "Cancelled" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
     expect(calls).toContain("POST /runs/run-1/cancel");
   });
 
-  it("offers resume, not cancel, for a running run this control plane is not executing, and says why", async () => {
+  it("offers resume, not cancel, for a running run this arbitra is not executing, and says why", async () => {
     stubBrowser();
     const calls = stubControlPlane({ "GET /runs/run-1": resource({ state: "PEER_REVIEW_RUNNING", resumable: true }), "GET /runs/run-1/overview": overview({ state: "PEER_REVIEW_RUNNING", gate: null, live: false }),
       "POST /runs/run-1/resume": resource({ state: "PEER_REVIEW_RUNNING", resumable: true }), ...artifactRoutes("run-1") });
     visit("?run=run-1");
     render(<App />);
-    expect(await screen.findByText(/This control plane is not executing this run\. Another arbitra process, such as the CLI, may be running it/u)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "cancel run" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "resume run" }));
+    expect(await screen.findByText(/This arbitra is not running this run\. Another arbitra, such as the command line, may be running it/u)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Resume" }));
     await waitFor(() => expect(calls).toContain("POST /runs/run-1/resume"));
   });
 
-  it("says so when the run cannot be opened", async () => {
+  it("says so in words when the run cannot be opened, with the recorded error one click down", async () => {
     stubBrowser();
     stubControlPlane({ "GET /runs/run-9": () => json({ statusCode: 500, error: "REQUEST_FAILED", message: "RUN_ABSENT:run-9" }, 500) });
     visit("?run=run-9");
     render(<App />);
     expect(await screen.findByRole("heading", { name: "This run could not be opened" })).toBeTruthy();
-    expect(screen.getByRole("alert").textContent).toContain("RUN_ABSENT:run-9 (RUN_API_500)");
-    expect(screen.getByRole("link", { name: "back to all runs" }).getAttribute("href")).toBe("/");
+    expect(screen.getByText(/^No run with this ID is recorded by this arbitra\./u)).toBeTruthy();
+    expect(screen.getByText(/RUN_ABSENT:run-9 \(RUN_API_500\)/u).closest("details")).not.toBeNull();
+    expect(screen.getByRole("link", { name: "Back to all runs" }).getAttribute("href")).toBe("/");
   });
 });

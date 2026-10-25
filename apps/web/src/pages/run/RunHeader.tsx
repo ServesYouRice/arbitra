@@ -1,25 +1,32 @@
 import { useEffect, useState, type ReactElement } from "react";
 import type { RunOverview, RunResource } from "../../api/runs.js";
 import { useApis } from "../../app/apis.js";
-import { formatTime, isActive, MODE_LABELS } from "../../app/format.js";
-import { GateVerdict, StateChip } from "../../app/marks.js";
+import { basename, formatTime, isActive } from "../../app/format.js";
+import { StateChip } from "../../app/marks.js";
 import { Link } from "../../app/router.js";
 import { raisedTokenLimit, tokens } from "../../app/token-limit.js";
+import { failureWords, type Mode } from "../../app/words.js";
 import { modelName, modelProfiles, record } from "./models.js";
 
+const MODE_WORDS: Readonly<Record<Mode, string>> = Object.freeze({ audit: "audit", feature: "feature", testing: "testing" });
+const NEW_RUN: Readonly<Record<Mode, string>> = Object.freeze({ audit: "New audit with these settings", feature: "New feature run with these settings", testing: "New testing run with these settings" });
+
 /**
- * Who, what and where for one run, and the single lifecycle action its state allows. A
- * blocked run's decisions live in the banner beneath this, not here.
+ * The run's project and kind, its state in words, and the one lifecycle action its state allows: cancel a working
+ * run, resume a stopped one when resuming can help, raise the token limit of one paused on it, or start a new run
+ * like a finished one. A blocked run's decisions are in the banner beneath this, with its resume.
  */
-export function RunHeader({ runId, mode, resource, overview, overviewError = null, reason, streamError, onChanged }: {
+export function RunHeader({ runId, mode, resource, overview, overviewError = null, reason, streamError, files, onChanged }: {
   readonly runId: string;
-  readonly mode: "audit" | "feature" | "testing";
+  readonly mode: Mode;
   readonly resource: RunResource | null;
   readonly overview: RunOverview | null;
   /** Why the run's recorded settings could not be read, when they could not. */
   readonly overviewError?: string | null;
   readonly reason: string | null;
   readonly streamError: string | null;
+  /** How much of the project the run read, from its preflight record, once known. */
+  readonly files?: { readonly files: number; readonly lines: number | null } | null;
   readonly onChanged: () => void;
 }): ReactElement {
   const { runs } = useApis();
@@ -32,83 +39,51 @@ export function RunHeader({ runId, mode, resource, overview, overviewError = nul
     catch (cause) { setFailure(cause instanceof Error ? cause.message : String(cause)); }
     finally { setBusy(false); }
   };
-  // A running state that this control plane is not executing: run elsewhere (such as the CLI)
-  // or interrupted when its process stopped. Cancel cannot reach it; resume is the way on.
+  // A working state that this arbitra is not executing: run elsewhere (such as the CLI) or interrupted when its
+  // process stopped. Cancel cannot reach it; resume is the way on, and the Summary says why.
   const elsewhere = isActive(state) && overview !== null && !overview.live;
-  const resumable = resource?.resumable === true && state !== null && (elsewhere || ["CANCELLED", "FAILED", "SUSPENDED_BUDGET", "SUSPENDED_RATE_LIMIT"].includes(state));
+  const helps = state !== "FAILED" || failureWords(reason ?? overview?.reason ?? null).resumable;
+  const resumable = resource?.resumable === true && state !== null && helps && (elsewhere || ["CANCELLED", "FAILED", "SUSPENDED_BUDGET", "SUSPENDED_RATE_LIMIT"].includes(state));
   // A run paused on its token budget goes on only with a higher limit; everything it has charged stays charged.
   const limit = record(record(overview?.configuration?.["workflow"])["modelExecution"])["maximumTokens"];
   const [raised, setRaised] = useState(0);
   useEffect(() => { if (typeof limit === "number") setRaised(raisedTokenLimit(limit)); }, [limit]);
-  const workflowId = resource?.workflow?.id ?? overview?.workflowId ?? null;
-  const absent = overviewError === null ? "loading" : "unavailable";
+  const project = overview?.repository == null ? runId : basename(overview.repository);
+  const facts = overview === null ? [] : [`started ${formatTime(overview.createdAt)}`, executorText(overview),
+    ...(files == null ? [] : [`${files.files.toLocaleString("en")} files${files.lines === null ? "" : `, ${files.lines.toLocaleString("en")} lines`}`])];
   return <header className="run-header">
-    <Link className="run-header__back" to={{ page: "runs" }}>all runs</Link>
+    <Link className="run-header__back" to={{ page: "runs" }}>← Runs</Link>
     <div className="run-header__title">
-      <h1 className="page-title">{MODE_LABELS[mode]} run{workflowId === null ? "" : ` · ${workflowId}`}</h1>
-      <StateChip state={state} live={overview?.live === true} />
+      <h1 className="page-title">{project} · {MODE_WORDS[mode]}</h1>
+      <StateChip state={state} />
       <div className="actions">
-        {isActive(state) && !elsewhere ? <button className="button" disabled={busy} type="button" onClick={() => { void act(() => runs.cancel(runId)); }}>cancel run</button> : null}
+        {isActive(state) && !elsewhere ? <button className="button" disabled={busy} type="button" onClick={() => { void act(() => runs.cancel(runId)); }}>Cancel</button> : null}
         {resumable && state === "SUSPENDED_BUDGET" && typeof limit === "number" ? <form className="raise-limit" onSubmit={(event) => { event.preventDefault(); void act(() => runs.resume(runId, raised)); }}>
           <label className="field">token limit · now {tokens(limit)}<input aria-label="new token limit" min={limit + 1} step={1_000_000} type="number" value={raised} onChange={(event) => setRaised(Number(event.target.value))} /></label>
-          <button className="button button--primary" disabled={busy || !(raised > limit)} type="submit">raise to {tokens(raised)} and resume</button>
+          <button className="button button--primary" disabled={busy || !(raised > limit)} type="submit">Raise to {tokens(raised)} and resume</button>
         </form>
-          : resumable ? <button className="button button--primary" disabled={busy} type="button" onClick={() => { void act(() => runs.resume(runId)); }}>resume run</button> : null}
-        {state === "COMPLETED" ? <Link className="button" to={{ page: "new-run", from: `run:${runId}`, graph: null }}>new run with these settings</Link> : null}
+          : resumable ? <button className="button button--primary" disabled={busy} type="button" onClick={() => { void act(() => runs.resume(runId)); }}>Resume</button> : null}
+        {state === "COMPLETED" ? <Link className="more-link" to={{ page: "new-run", from: `run:${runId}`, graph: null }}>{NEW_RUN[mode]}</Link> : null}
       </div>
     </div>
-    <dl className="run-header__meta">
-      <div><dt>run</dt><dd><code>{runId}</code> <CopyButton text={runId} /></dd></div>
-      <div><dt>repository</dt><dd>{overview === null ? absent : overview.repository ?? "not recorded"}</dd></div>
-      <div><dt>started</dt><dd>{overview === null ? absent : formatTime(overview.createdAt)}</dd></div>
-      <div><dt>last activity</dt><dd>{overview === null ? absent : formatTime(overview.updatedAt)}</dd></div>
-      <div><dt>executed by</dt><dd>{overview === null ? absent : executorText(overview)}</dd></div>
-    </dl>
-    <RunReport runId={runId} />
-    {state === "FAILED" ? <p className="state" data-state="refuted">failed · {reason ?? overview?.reason ?? "no reason recorded"}</p> : null}
-    {elsewhere ? <p className="state" data-state="degraded">This control plane is not executing this run. Another arbitra process, such as the CLI, may be running it, or it stopped when its process did. Resume it only if nothing else is running it.</p> : null}
-    {overview?.gate == null ? null : <GateVerdict gate={overview.gate} compact />}
-    {overview === null && overviewError !== null ? <p className="state" data-state="degraded" role="alert">run settings unavailable · {overviewError}</p> : null}
-    {streamError === null ? null : <p className="state" data-state="degraded" role="alert">live updates unavailable · {streamError}</p>}
-    {failure === null ? null : <p className="state" data-state="degraded" role="alert">{failure}</p>}
+    {facts.length === 0 ? overviewError === null ? <p className="run-header__meta" role="status">reading the run's settings</p> : null : <p className="run-header__meta">{facts.join(" · ")}</p>}
+    {overview === null && overviewError !== null ? <Problem detail={overviewError}>The run's settings could not be read, so its project, models and times are missing here. Reload the page to try again.</Problem> : null}
+    {streamError === null ? null : <Problem detail={streamError}>Live updates stopped, so this page may be behind the run. Reload it to see where the run stands.</Problem>}
+    {failure === null ? null : <Problem detail={failure}>That did not go through, and the run is as it was. Try again, or reload the page to see where it stands.</Problem>}
   </header>;
 }
 
+/** A problem in words first; what the server recorded one click down. */
+export function Problem({ detail, children }: { readonly detail: string | null; readonly children: string }): ReactElement {
+  return <div className="state problem" data-state="degraded" role="alert">
+    <p>{children}</p>
+    {detail === null ? null : <details><summary>Details</summary><code>{detail}</code></details>}
+  </div>;
+}
+
+/** The models that ran the run, by name, or that scripted detectors did. */
 export function executorText(overview: RunOverview): string {
-  if (overview.executor === "scripted") return "scripted detectors · no model calls · a smoke test, not a model audit";
+  if (overview.executor === "scripted") return "scripted detectors, no model calls";
   const profiles = overview.configuration === null ? [] : modelProfiles(overview.configuration);
-  return profiles.length === 0 ? "no model profiles" : [...new Set(profiles.map(({ modelId }) => modelName(modelId)))].join(" · ");
-}
-
-/**
- * The run's plain-text report, for a tester to copy and send: build, machine, models found, settings, each stage's
- * calls and every failed call. Read when opened, so it reflects the run as it is then; it holds no source code.
- */
-function RunReport({ runId }: { readonly runId: string }): ReactElement {
-  const [open, setOpen] = useState(false);
-  const [text, setText] = useState<string | null>(null);
-  useEffect(() => {
-    if (!open) return;
-    setText(null);
-    void fetch(`/diagnostics/runs/${encodeURIComponent(runId)}`).then(async (response) => setText(response.ok ? await response.text() : `report unavailable · HTTP ${response.status}`), (error: unknown) => setText(`report unavailable · ${String(error)}`));
-  }, [open, runId]);
-  return <details className="run-report" onToggle={(event) => setOpen((event.currentTarget as HTMLDetailsElement).open)}>
-    <summary>report to send · copy it and send it to whoever helps you</summary>
-    {text === null ? <p className="state" data-state="unexamined">reading the run</p> : <>
-      <textarea aria-label="run report" className="run-report__text" readOnly rows={14} value={text} onFocus={(event) => event.currentTarget.select()} />
-      <CopyButton text={text} />
-    </>}
-  </details>;
-}
-
-function CopyButton({ text }: { readonly text: string }): ReactElement {
-  const [copied, setCopied] = useState<boolean | null>(null);
-  const copy = (): void => {
-    // The clipboard exists only in a secure context; localhost is one, other hosts may not be.
-    const clipboard = typeof navigator === "undefined" ? undefined : (navigator.clipboard as Clipboard | undefined);
-    if (clipboard === undefined) setCopied(false);
-    else void clipboard.writeText(text).then(() => setCopied(true), () => setCopied(false));
-    setTimeout(() => setCopied(null), 2_000);
-  };
-  return <button aria-label="copy run id" className="link-button" type="button" onClick={copy}>{copied === null ? "copy" : copied ? "copied" : "copy failed"}</button>;
+  return profiles.length === 0 ? "no models recorded" : [...new Set(profiles.map(({ modelId }) => modelName(modelId)))].join(" · ");
 }

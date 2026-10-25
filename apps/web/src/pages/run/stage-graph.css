@@ -1,0 +1,36 @@
+/* A run's stages as boxes joined by lines. Status is a word and an ink frame, never a fill or a hue of its own. */
+.stage-graph { display: flex; align-items: center; min-width: 0; overflow-x: auto; padding: var(--s4); border: var(--hairline) solid var(--line); background: var(--sunken); }
+.stage-graph__column { display: flex; flex-direction: column; gap: var(--s3); }
+.stage { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s1); width: 156px; min-height: 104px; padding: var(--s3); text-align: start; background: var(--surface); border: var(--hairline) solid var(--line); color: var(--body); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); overflow-wrap: anywhere; }
+.stage__name { color: var(--ink); font-weight: 500; }
+.stage__status { color: var(--mute); }
+.stage[data-status="running"] { border-color: var(--ink); }
+.stage[data-status="running"] .stage__status { color: var(--ink); }
+.stage[data-status="done"] .stage__status, .stage[data-status="reused"] .stage__status { color: var(--body); }
+.stage[data-status="failed"] { border-inline-start: var(--stripe) solid var(--refuted); }
+.stage[data-status="failed"] .stage__status { color: var(--ink); }
+.stage[data-status="stopped"] { border-style: dashed; }
+.stage[aria-pressed="true"] { outline: var(--hairline) solid var(--ink); outline-offset: var(--s1); }
+
+/* The lines: a still hairline, a firmer line into finished stages, and a moving one into a running stage. */
+.stage-edge { flex: 0 0 36px; align-self: center; height: var(--s3); }
+.stage-edge svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.stage-edge line { stroke: var(--line); stroke-width: var(--hairline); }
+.stage-edge[data-flow="done"] line { stroke: var(--mute); }
+.stage-edge[data-flow="live"] line { stroke: var(--ink); stroke-dasharray: 6 6; animation: stage-flow 0.7s linear infinite; }
+.stage-edge__down { display: none; }
+@keyframes stage-flow { to { stroke-dashoffset: -12; } }
+@media (prefers-reduced-motion: reduce) { .stage-edge[data-flow="live"] line { animation: none; } }
+
+/* A phone: the stages run top to bottom, each box the width of the page. */
+@media (max-width: 700px) {
+  .stage-graph { flex-direction: column; align-items: stretch; overflow-x: visible; padding: var(--s3); }
+  .stage { width: 100%; min-height: 0; }
+  .stage-edge { flex: 0 0 var(--s4); width: var(--s3); height: var(--s4); }
+  .stage-edge__across { display: none; }
+  .stage-edge__down { display: inline; }
+}
+@media (forced-colors: active) {
+  .stage-graph, .stage { border-color: CanvasText; }
+  .stage-edge line { stroke: CanvasText; }
+}

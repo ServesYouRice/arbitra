@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
+import type { RunProgress } from "@arbitra/schemas/run-progress.js";
 import type { RunEvent } from "./sse.js";
 import type { WorkflowJson } from "../graph/layout.js";
+
+export type { RunProgress } from "@arbitra/schemas/run-progress.js";
+/** A folder a run's plan was saved to in its project (`GET /handoff/runs/:id`). */
+export interface SavedPlan { readonly directory: string; readonly relative: string; readonly savedAt: string }
+/** How often a working run's progress is read again: a stage's parts land every few minutes, its clock every second. */
+export const PROGRESS_POLL_MS = 5_000;
 
 /** A generic human checkpoint; answer its current `version`, then resume the run. */
 export interface HumanCheckpointResource { readonly kind: "human"; readonly checkpointId: string; readonly version: string; readonly mode: "interactive" | "automatic"; readonly status: "pending" | "approved" | "rejected"; readonly prompt: string; readonly decisions: readonly ("approve" | "reject")[]; readonly nodeId?: string }
@@ -59,6 +66,12 @@ export class RunApi {
   constructor(private readonly baseUrl = "") {}
   list(): Promise<readonly RunListItem[]> { return this.request("/runs"); }
   overview(runId: string): Promise<RunOverview> { return this.request(`/runs/${encodeURIComponent(runId)}/overview`); }
+  /** What the run has done so far, read from its records: the watch line's data. */
+  progress(runId: string): Promise<RunProgress> { return this.request(`/runs/${encodeURIComponent(runId)}/progress`); }
+  /** Where this run's plan was saved in its project, newest first. */
+  savedPlans(runId: string): Promise<{ readonly saved: readonly SavedPlan[] }> { return this.request(`/handoff/runs/${encodeURIComponent(runId)}`); }
+  /** Writes the plan into the project as prompts, on the operator's request only; a run never writes to it. */
+  savePlan(runId: string): Promise<{ readonly directory: string; readonly files: readonly string[] }> { return this.request(`/handoff/runs/${encodeURIComponent(runId)}`, { method: "POST" }); }
   selectedRepository(): Promise<{ readonly repository: string }> { return this.request("/repositories/selected"); }
   /** Opens the system's folder dialog on this machine (the control plane's); null when it was cancelled. */
   pickRepository(): Promise<{ readonly path: string | null }> { return this.request("/repositories/pick", { method: "POST", body: "{}" }); }
@@ -168,6 +181,32 @@ export function useLoaded<T>(key: string | null, load: () => Promise<T>, refresh
     return () => { active = false; };
   }, [key, refreshKey]);
   return state.key === key ? state : { value: null, error: null, loading: key !== null };
+}
+
+/**
+ * The run's progress, read again on every run event and, while `poll` is set (this control plane is executing the
+ * run), every few seconds: discovery records parts for an hour between two events.
+ */
+export function useProgress(api: RunApi, runId: string, refreshKey: unknown, poll: boolean): Loaded<RunProgress> {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!poll) return;
+    const timer = setInterval(() => setTick((value) => value + 1), PROGRESS_POLL_MS);
+    return () => clearInterval(timer);
+  }, [poll]);
+  return useLoaded(`progress:${runId}`, () => api.progress(runId), `${String(refreshKey)}:${tick}`);
+}
+
+/** The current time, moved on every `interval` while `running`, so an elapsed time on screen counts on. */
+export function useNow(running: boolean, interval = 1_000): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!running) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), interval);
+    return () => clearInterval(timer);
+  }, [running, interval]);
+  return now;
 }
 
 function runBody(configurationId: string, repository: string): { configurationId: string; repository?: string } {

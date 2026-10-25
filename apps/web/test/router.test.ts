@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { artifactName, gateReasonLabel, isActive, modeOfWorkflow, runStateLabel, shortPath, shortRunId } from "../src/app/format.js";
 import { parseRoute, routeHref } from "../src/app/router.js";
 import { parseSelection, selectionItem } from "../src/pages/run/selection.js";
-import { tabsFor } from "../src/pages/run/tabs.js";
+import { placesFor, tabsFor } from "../src/pages/run/tabs.js";
 
 describe("addresses", () => {
   it("round-trips every page, run tab and selection through the query string", () => {
@@ -18,7 +18,9 @@ describe("addresses", () => {
     expect(routeHref({ page: "run", runId: "run 1", tab: "plan", item: "trace:task:T-1" })).toBe("/?run=run+1&view=plan&item=trace%3Atask%3AT-1");
   });
 
-  it("keeps links written for the old column-two views working", () => {
+  it("keeps links written for the old column-two views and the Overview tab working", () => {
+    expect(parseRoute("?run=run-1&view=overview")).toMatchObject({ tab: "summary" });
+    expect(parseRoute("?run=run-1&view=how-it-ran")).toMatchObject({ tab: "how-it-ran" });
     expect(parseRoute("?run=run-1&view=graph")).toMatchObject({ tab: "activity" });
     expect(parseRoute("?run=run-1&view=traces")).toMatchObject({ tab: "activity" });
     expect(parseRoute("?run=run-1&view=feature")).toMatchObject({ tab: "requirements" });
@@ -27,10 +29,11 @@ describe("addresses", () => {
     expect(parseRoute("?view=graph")).toEqual({ page: "runs" });
   });
 
-  it("offers each mode only the tabs that can hold something", () => {
-    expect(tabsFor("audit")).toEqual(["overview", "issues", "plan", "activity", "evaluation"]);
-    expect(tabsFor("feature")).toEqual(["overview", "requirements", "plan", "activity", "evaluation"]);
-    expect(tabsFor("testing")).toEqual(["overview", "plan", "execution", "activity", "evaluation"]);
+  it("offers each mode only the tabs that can hold something, with the records one click down", () => {
+    expect(tabsFor("audit")).toEqual(["summary", "issues", "plan", "results", "how-it-ran"]);
+    expect(tabsFor("feature")).toEqual(["summary", "requirements", "plan", "how-it-ran"]);
+    expect(tabsFor("testing")).toEqual(["summary", "plan", "execution", "how-it-ran"]);
+    expect(placesFor("audit")).toEqual([...tabsFor("audit"), "activity", "evaluation"]);
     expect(modeOfWorkflow("feature-simple")).toBe("feature");
     expect(modeOfWorkflow("testing-execute")).toBe("testing");
     expect(modeOfWorkflow("my-saved-graph")).toBe("audit");
@@ -45,14 +48,15 @@ describe("addresses", () => {
   });
 });
 
-describe("plain words beside recorded codes", () => {
-  it("names every run state and says which ones still do work", () => {
-    expect(runStateLabel("BLOCKED")).toEqual({ text: "waiting for your decision", tone: "attention" });
+describe("plain words for recorded codes", () => {
+  it("names every run state in one word per idea and says which ones still do work", () => {
+    expect(runStateLabel("BLOCKED")).toEqual({ text: "needs you", tone: "attention" });
     expect(runStateLabel("FAILED")).toEqual({ text: "failed", tone: "refuted" });
-    expect(runStateLabel("CREATED")).toEqual({ text: "starting", tone: null });
-    expect(runStateLabel("CREATED", true)).toEqual({ text: "running", tone: null });
-    expect(runStateLabel("PEER_REVIEW_RUNNING")).toEqual({ text: "running · peer review", tone: null });
-    expect(runStateLabel("SOMETHING_NEW")).toEqual({ text: "running · something new", tone: null });
+    expect(runStateLabel("COMPLETED")).toEqual({ text: "done", tone: null });
+    expect(runStateLabel("SUSPENDED_RATE_LIMIT")).toEqual({ text: "paused for usage", tone: "degraded" });
+    expect(runStateLabel("SUSPENDED_BUDGET")).toEqual({ text: "paused at its token limit", tone: "degraded" });
+    // Which step a working run is in is the watch line's to say; the state word is the same for all.
+    for (const state of ["CREATED", "DISCOVERY_RUNNING", "PEER_REVIEW_RUNNING", "SOMETHING_NEW"]) expect(runStateLabel(state)).toEqual({ text: "running", tone: null });
     expect(runStateLabel(null)).toEqual({ text: "unreadable", tone: "degraded" });
     expect(["CREATED", "VERIFYING"].every(isActive)).toBe(true);
     expect(["COMPLETED", "FAILED", "BLOCKED", "CANCELLED", "SUSPENDED_BUDGET", "SUSPENDED_RATE_LIMIT", null].some(isActive)).toBe(false);

@@ -8,7 +8,7 @@ import { artifactRoutes, listItem, overview, resource } from "./fixtures.js";
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); visit(""); });
 
 describe("the run list", () => {
-  it("lists every run with its state in words and code, what ran it, and what it concluded", async () => {
+  it("lists every run with its state in words, what ran it, and what it concluded", async () => {
     stubBrowser();
     stubControlPlane({
       "GET /repositories/selected": { repository: "/work/fixture" },
@@ -24,7 +24,9 @@ describe("the run list", () => {
     const table = await screen.findByRole("table", { name: "runs" });
     const rows = within(table).getAllByRole("row").slice(1);
     expect(rows.map((row) => within(row).getAllByRole("cell")[0]?.textContent)).toEqual(["aaaaaaaa", "bbbbbbbb", "cccccccc", "eeeeeeee", "ffffffff"]);
-    expect(rows[0]?.textContent).toContain("waiting for your decision BLOCKED");
+    expect(rows.map((row) => row.querySelector(".chip")?.textContent)).toEqual(["needs you", "failed", "done", "done", "unreadable"]);
+    // The recorded state codes are in each run's details, not on the list.
+    expect(table.textContent).not.toMatch(/BLOCKED|COMPLETED/u);
     expect(rows[0]?.textContent).toContain("needs you · 2 decisions");
     expect(rows[1]?.textContent).toContain("failed · PROVIDER_TIMEOUT");
     expect(rows[2]?.textContent).toContain("gate passed");
@@ -41,7 +43,7 @@ describe("the run list", () => {
     stubControlPlane({ "GET /repositories/selected": { repository: "/work/fixture" }, "GET /runs": [listItem()], "GET /runs/run-1": resource(), "GET /runs/run-1/overview": overview(), ...artifactRoutes("run-1") });
     render(<App />);
     fireEvent.click(await screen.findByRole("link", { name: "open run run-1" }));
-    expect(await screen.findByRole("heading", { level: 1, name: "Audit run · audit-deep" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 1, name: "fixture · audit" })).toBeTruthy();
     expect(address().get("run")).toBe("run-1");
     fireEvent.click(screen.getByRole("link", { name: "Runs" }));
     expect(await screen.findByRole("table", { name: "runs" })).toBeTruthy();
@@ -85,10 +87,10 @@ describe("the run list", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       render(<App />);
-      expect(await screen.findByText("running · discovery")).toBeTruthy();
+      expect(await screen.findByText("running")).toBeTruthy();
       state = "COMPLETED";
       await vi.advanceTimersByTimeAsync(4_500);
-      await waitFor(() => expect(screen.getByText("finished")).toBeTruthy());
+      await waitFor(() => expect(screen.getByText("done")).toBeTruthy());
     } finally { vi.useRealTimers(); }
   });
 });

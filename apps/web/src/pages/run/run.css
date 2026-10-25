@@ -7,13 +7,10 @@
 .raise-limit { display: flex; flex-wrap: wrap; align-items: end; gap: var(--s2); }
 .raise-limit input { width: 12rem; }
 .run-header__title .actions { margin-inline-start: auto; }
-.run-header__meta { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s4); margin: 0; font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); }
-.run-header__meta > div { display: flex; gap: var(--s1); min-width: 0; }
+.run-header__meta { margin: 0; color: var(--body); font: 400 var(--t-micro)/var(--lh-body) var(--font-data); overflow-wrap: anywhere; }
 .run-report { font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); }
 .run-report > summary { cursor: pointer; color: var(--mute); width: fit-content; }
 .run-report__text { display: block; width: 100%; margin-block: var(--s2); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); background: var(--sunken); color: var(--ink); border: var(--hairline) solid var(--line); padding: var(--s2); resize: vertical; }
-.run-header__meta dt { color: var(--mute); }
-.run-header__meta dd { margin: 0; overflow-wrap: anywhere; }
 .run-missing { display: grid; gap: var(--s3); }
 
 /* The run waits on the operator: framed in ink, the human-checkpoint glyph in its title. */
@@ -33,13 +30,7 @@
 .details-stack { display: grid; gap: var(--s3); min-width: 0; font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); }
 .details-section { display: grid; gap: var(--s2); min-width: 0; }
 
-.overview { display: grid; gap: var(--s4); }
-.overview .section { padding: var(--s4); background: var(--surface); border: var(--hairline) solid var(--line); }
-.overview-issue { padding-inline-start: var(--s2); border-inline-start: var(--stripe) solid var(--faint); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); }
-.overview .facts { max-width: 960px; }
 .more-link { font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); }
-.gate { display: grid; gap: var(--s1); }
-.gate__code { color: var(--mute); }
 
 .activity { display: grid; gap: var(--s5); }
 .artifact-index > li[data-selected="true"] { background: var(--sunken); }
@@ -51,6 +42,6 @@
 }
 @media (max-width: 900px) {
   .run-header__title .actions { margin-inline-start: 0; }
-  .overview .section, .decision { padding: var(--s3); }
+  .decision { padding: var(--s3); }
 }
-@media (forced-colors: active) { .decision, .details, .overview .section, .overview-issue { border-color: CanvasText; } }
+@media (forced-colors: active) { .decision, .details { border-color: CanvasText; } }

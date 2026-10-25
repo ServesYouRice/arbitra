@@ -8,7 +8,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
  * Addresses stay in the query because the control plane owns `/runs/…` and the other API
  * paths the dev server forwards to it.
  */
-export const RUN_TABS = ["overview", "issues", "plan", "requirements", "execution", "activity", "evaluation"] as const;
+export const RUN_TABS = ["summary", "issues", "plan", "results", "how-it-ran", "requirements", "execution", "activity", "evaluation"] as const;
 export type RunTab = typeof RUN_TABS[number];
 
 export type Route =
@@ -17,8 +17,8 @@ export type Route =
   | { readonly page: "new-run"; readonly from: string | null; readonly graph: string | null }
   | { readonly page: "workflows"; readonly source: string | null };
 
-// Links written before the restructure name the old column-two views.
-const LEGACY_VIEWS: Readonly<Record<string, RunTab>> = Object.freeze({ graph: "activity", traces: "activity", feature: "requirements", testing: "execution" });
+// Links written before the restructures name the old column-two views and the Overview tab, now the Summary.
+const LEGACY_VIEWS: Readonly<Record<string, RunTab>> = Object.freeze({ graph: "activity", traces: "activity", feature: "requirements", testing: "execution", overview: "summary" });
 
 export function parseRoute(search: string): Route {
   const query = new URLSearchParams(search);

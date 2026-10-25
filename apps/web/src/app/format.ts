@@ -1,32 +1,26 @@
 /**
- * Plain words for recorded codes. Every label here is shown beside the code it translates,
- * never instead of it: the code is the record, the words are a reading aid (R1).
+ * Plain words for recorded codes. A main line shows the words alone; the code itself is shown in the details and the
+ * copied report, where a person checking the record looks for it (R1, as revised October 25, 2026).
  */
 
 /** A state token, or `attention` for "the operator must act", which carries no semantic hue. */
 export type Tone = "verified" | "dissent" | "refuted" | "tainted" | "unexamined" | "degraded" | "attention";
 
-const PHASES: Readonly<Record<string, string>> = Object.freeze({
-  SNAPSHOTTED: "snapshot taken", PREFLIGHT_COMPLETE: "preflight done", DISCOVERY_RUNNING: "discovery", DISCOVERY_COMPLETE: "discovery done",
-  CLUSTERED: "clustering done", PEER_REVIEW_RUNNING: "peer review", CONSENSUS_PRELIMINARY: "consensus", VERIFYING: "verification",
-  CONSENSUS_COMPLETE: "consensus done", PLANNING: "planning", PLAN_REVIEW: "plan review", PLAN_REVISION: "plan revision", COMPILED: "writing the handoff",
-});
-
 /**
- * `live`: this control plane is executing the run. A graph run records no state between CREATED and its end, so a
- * live one reads "running" while its code still says CREATED (observed: a self-audit read "starting" 20 minutes in).
+ * A run's state in one word per idea: running · paused for usage · needs you · done · failed, and cancelled. Every
+ * working state reads "running"; which step it is in is the watch line's to say. Since the runner records each stage,
+ * CREATED lasts only until the first stage starts, so it no longer reads "starting".
  */
-export function runStateLabel(state: string | null, live = false): { readonly text: string; readonly tone: Tone | null } {
+export function runStateLabel(state: string | null): { readonly text: string; readonly tone: Tone | null } {
   switch (state) {
     case null: return { text: "unreadable", tone: "degraded" };
-    case "CREATED": return { text: live ? "running" : "starting", tone: null };
-    case "COMPLETED": return { text: "finished", tone: null };
+    case "COMPLETED": return { text: "done", tone: null };
     case "FAILED": return { text: "failed", tone: "refuted" };
-    case "BLOCKED": return { text: "waiting for your decision", tone: "attention" };
+    case "BLOCKED": return { text: "needs you", tone: "attention" };
     case "CANCELLED": return { text: "cancelled", tone: "unexamined" };
-    case "SUSPENDED_BUDGET": return { text: "paused · token budget reached", tone: "degraded" };
-    case "SUSPENDED_RATE_LIMIT": return { text: "paused · usage limit", tone: "degraded" };
-    default: return { text: `running · ${PHASES[state] ?? state.toLowerCase().replaceAll("_", " ")}`, tone: null };
+    case "SUSPENDED_BUDGET": return { text: "paused at its token limit", tone: "degraded" };
+    case "SUSPENDED_RATE_LIMIT": return { text: "paused for usage", tone: "degraded" };
+    default: return { text: "running", tone: null };
   }
 }
 

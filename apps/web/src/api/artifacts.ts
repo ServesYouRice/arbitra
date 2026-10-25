@@ -43,6 +43,11 @@ export class ArtifactApi {
 }
 
 export function useArtifacts(api: ArtifactApi, runId: string | null, refreshKey: unknown = null): readonly ArtifactDescriptor[] {
+  return useArtifactListing(api, runId, refreshKey).artifacts;
+}
+
+/** The run's artifacts, and whether the list has been read at all: an empty list read is not a list still loading. */
+export function useArtifactListing(api: ArtifactApi, runId: string | null, refreshKey: unknown = null): { readonly artifacts: readonly ArtifactDescriptor[]; readonly loaded: boolean } {
   const [result, setResult] = useState<{ runId: string | null; artifacts: readonly ArtifactDescriptor[] }>({ runId: null, artifacts: [] });
   useEffect(() => {
     if (runId === null) return;
@@ -50,5 +55,5 @@ export function useArtifacts(api: ArtifactApi, runId: string | null, refreshKey:
     void api.list(runId, refreshKey).then((artifacts) => { if (active) setResult({ runId, artifacts }); }, () => { if (active) setResult({ runId, artifacts: [] }); });
     return () => { active = false; };
   }, [api, runId, refreshKey]);
-  return result.runId === runId ? result.artifacts : [];
+  return result.runId === runId ? { artifacts: result.artifacts, loaded: true } : { artifacts: [], loaded: false };
 }
