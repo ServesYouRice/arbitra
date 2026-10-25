@@ -89,6 +89,9 @@ From the research review; each decides a cut or a build.
   what the 9% more discovery units cost.
 - **The new export:** how many workarounds the executing agents still need, against nextra's stale lines, wrong
   premises and false waits; and how often a prompt's `<write_scope>` was too narrow.
+- **The premise check** (built October 25, `premise-check.ts`): whether agents run `check-premises.mjs` before each
+  task, act on `<not_found>` (16 of 2,132 on nextra, most of them library names), and need fewer workarounds for
+  moved lines (201 moved over nextra's fixes).
 - **The verifier's required reason:** how often an answer leaves it out and costs a repair.
 - **A Sonnet second look at medium reports Opus leaves unsettled:** build it as an option, off by default; it decided
   6 of 7 rightly on nextra, at about 28K tokens a question.
@@ -160,8 +163,6 @@ rounds; the repository field starts on the server's own folder; and depth means 
   nextra's 5 overlaps).
 - **A variant sweep after verification** (owner: yes, an optional step; after the depths lane, on Gemini when chosen): check each confirmed defect's siblings (same callee,
   handler family or flag). It runs after verification, so the six finished runs can test it first.
-- **Check each prompt's premises at export** (owner: yes; building October 25, with a script in the plan folder): resolve every path, symbol and quote a task names, and
-  mark the ones that do not resolve.
 - **Re-audit only what changed:** a later run on the same project audits the diff since the last run and the files
   that import it, and carries forward the issues still present. Builds on "Memory across runs". Owner: wanted, later.
 - **Boundary units from a channel map:** socket events, routes and fetch paths, WHIP/WHEP and environment keys found
