@@ -208,8 +208,11 @@ Other host credentials, tokens and proxies are not passed.
 Tool authority is refused at preflight when it cannot be enforced: shell, network, subagent,
 MCP and unknown tools (`NATIVE_HARNESS_TOOL_UNENFORCEABLE`). At run time, streamed tool
 events are checked against the granted tools, the scratch root and the exact leased paths;
-a violation, timeout or cancellation kills the whole process group
-(`packages/harness/src/native/process.ts`). File changes are diffed after exit and admitted
+a violation, timeout or cancellation kills the whole process tree: on POSIX its process group,
+and every descendant found in the process table (`packages/harness/src/native/process.ts`).
+A descendant whose parents have all exited, outside that group (or, on Linux, session), is out
+of reach: it is noticed only while it holds the output pipes, and then the run fails its
+cleanup check. File changes are diffed after exit and admitted
 only through `TestingWorkspace.write` under the task's write lease; one change outside the
 lease, a deletion or an unsupported file admits nothing. The scratch copy is removed on
 every path and swept on restart.
