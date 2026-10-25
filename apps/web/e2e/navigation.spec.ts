@@ -61,7 +61,8 @@ test.describe("finding, starting and reading runs", () => {
     await expect(page.getByRole("heading", { level: 1, name: / · audit$/u })).toBeVisible();
     await expect(stateChip(page)).toHaveText("done");
     // The server records the real path (on macOS /var is /private/var), so compare its unique tail.
-    await expect(page.locator(".run-header__meta")).toContainText(repository.split("/").slice(-2).join("/"));
+    await viewTab(page, "How it ran").click();
+    await expect(page.getByRole("region", { name: "What it read and how" })).toContainText(repository.split("/").slice(-2).join("/"));
   });
 
   test("preflight refuses a run this machine cannot start, and an API-key template lists what is left to fill in", async ({ page }, testInfo) => {
@@ -111,8 +112,9 @@ test.describe("finding, starting and reading runs", () => {
     }
     // On a phone the stages run top to bottom.
     await open(page, runId, "how-it-ran");
-    await expect(page.locator(".stage-edge__down").first()).toBeVisible();
-    await expect(page.locator(".stage-edge__across").first()).toBeHidden();
+    // A line has no area to be "visible" by, so the test reads which of the two the stylesheet draws.
+    expect(await page.locator(".stage-edge__down").first().evaluate((line) => getComputedStyle(line).display)).not.toBe("none");
+    expect(await page.locator(".stage-edge__across").first().evaluate((line) => getComputedStyle(line).display)).toBe("none");
     await open(page, runId, "summary");
     await shot(page, testInfo, "navigation-06-phone-summary");
   });

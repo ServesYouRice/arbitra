@@ -9,7 +9,6 @@ test.describe("Testing execution review", () => {
     await open(page, runId, "execution");
     const view = page.getByRole("region", { name: "testing execution" });
     await expect(stateChip(page)).toHaveText("done");
-    await expect(page.getByText("gate passed").first()).toBeVisible();
     await expect(view.getByLabel("write partitions")).toContainText("tests/001.test.ts");
     await expect(view.getByLabel("check bindings")).toContainText("/usr/bin/node --test tests/001.test.ts");
     await expect(view.getByText("3 · runtime default")).toBeVisible();
@@ -74,6 +73,8 @@ test.describe("Testing execution review", () => {
   test("the Summary states the Testing result and offers the verified handoff", async ({ page, request }) => {
     const runId = await createRun(request, "testing-pass");
     await open(page, runId, "summary");
+    // The gate, in words: the Summary says how a Testing run ended before what it produced.
+    await expect(page.getByRole("region", { name: "How it ended", exact: true })).toHaveText("gate passed");
     const summary = page.getByRole("region", { name: "Tests" });
     await expect(summary.getByText("execution · passed")).toBeVisible();
     await expect(summary.getByText(/^verified change set · 1 files/u)).toBeVisible();

@@ -4,7 +4,8 @@ import type { ArtifactDescriptor } from "../../api/artifacts.js";
 import { useLoaded, useNow, type Loaded, type RunOverview, type RunProgress, type RunResource } from "../../api/runs.js";
 import type { RunEvent } from "../../api/sse.js";
 import { useApis } from "../../app/apis.js";
-import { formatTime, isActive } from "../../app/format.js";
+import { formatTime, gateReasonLabel, isActive } from "../../app/format.js";
+import { GateVerdict } from "../../app/marks.js";
 import { Link, type RunTab } from "../../app/router.js";
 import { tokens as limitWords } from "../../app/token-limit.js";
 import { counted, duration, failureWords, SEVERITIES, severityWord, stepDoing, tokenWords, type Mode } from "../../app/words.js";
@@ -239,12 +240,17 @@ function PlanCard({ runId, plan, questions }: { readonly runId: string; readonly
   </section>;
 }
 
+/** Gate reasons the Summary says in its own words: work for the person, and what a source-only audit cannot see. */
+const KNOWN_GATE_REASONS = new Set(["unresolved_issues", "blocking_plan_questions", "blocking_critic_feedback", "degraded_coverage", "degraded_critic_coverage"]);
+
 /** What only the person can do now, each a link to where it is done. */
 function NeedsYou({ runId, questions, confirmed, reasons }: { readonly runId: string; readonly questions: number; readonly confirmed: ConfirmedYield | null; readonly reasons: readonly string[] }): ReactElement {
   const items: { readonly text: string; readonly tab: RunTab; readonly action: string }[] = [
     ...(questions > 0 ? [{ text: `${counted(questions, "question")} only you can answer, before the tasks`, tab: "plan" as const, action: "Answer" }] : []),
     ...(confirmed !== null && confirmed.unsettled > 0 ? [{ text: `${counted(confirmed.unsettled, "issue")} the check could not settle: the plan checks them first`, tab: "issues" as const, action: "See them" }] : []),
     ...(reasons.includes("blocking_critic_feedback") ? [{ text: "An objection to the plan that its revision does not answer", tab: "plan" as const, action: "Read it" }] : []),
+    // Any other reason the gate failed is not work the plan names: it is said as recorded, in words.
+    ...reasons.filter((code) => !KNOWN_GATE_REASONS.has(code)).map((code) => ({ text: `The gate did not pass: ${gateReasonLabel(code)}`, tab: "how-it-ran" as const, action: "See how it ran" })),
   ];
   return <section aria-labelledby="needs-title" className="summary-section">
     <h2 className="panel-title" id="needs-title">Needs you</h2>
@@ -313,6 +319,7 @@ export function RanFacts({ runId, mode, overview, progress, confirmed, critique,
 function OtherDone(props: SummaryProps): ReactElement {
   const { runId, mode, run, overview, progress } = props;
   return <>
+    {overview?.gate == null ? null : <section aria-label="How it ended" className="summary-section"><GateVerdict gate={overview.gate} /></section>}
     <ModeSummary {...props} />
     <RanFacts runId={runId} mode={mode} overview={overview} progress={progress.value} confirmed={null} critique={null} workflow={run?.workflow ?? null} />
   </>;

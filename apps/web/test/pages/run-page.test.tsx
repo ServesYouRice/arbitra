@@ -343,6 +343,18 @@ describe("the run page", () => {
     expect(within(tabs).getByRole("link", { name: "Summary" }).getAttribute("aria-current")).toBe("page");
     expect(await screen.findByRole("region", { name: "Requirements and handoff" })).toBeTruthy();
     expect(screen.getByRole("heading", { level: 1, name: "fixture · feature" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "How it ended" }).textContent).toBe("gate passed");
+  });
+
+  it("names any other reason an audit's gate did not pass under Needs you, in words", async () => {
+    stubBrowser();
+    stubControlPlane({ "GET /runs/run-1": resource(), "GET /runs/run-1/overview": overview({ gate: { status: "failed", reasons: ["degraded_coverage", "checkpoint_rejected:approval"] } }), "GET /runs/run-1/metrics": metrics({ confirmedYield: { ...metrics().confirmedYield as object, unsettled: 0 } }),
+      "GET /handoff/runs/run-1": { saved: [] }, ...artifactRoutes("run-1") });
+    visit("?run=run-1");
+    render(<App />);
+    const needs = await screen.findByRole("region", { name: "Needs you" });
+    await waitFor(() => expect(within(needs).getByRole("link", { name: /^The gate did not pass: checkpoint approval was rejected/u }).getAttribute("href")).toBe("/?run=run-1&view=how-it-ran"));
+    expect(main().textContent).not.toMatch(/checkpoint_rejected/u);
   });
 
   it("explains a node from the run's own records, including that a scripted auditor calls no model", async () => {
