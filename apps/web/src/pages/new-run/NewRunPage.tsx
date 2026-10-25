@@ -13,6 +13,7 @@ import { effortFor, modelName, modelProfiles, PLACEHOLDER_PREFIX, record, roleEf
 import { modelSettings, offeredCatalog, withStrongestOffered, type CatalogModel, type OfferedModels } from "./model-catalog.js";
 import { getIn, graphOf, LIMITS, lines, modeOf, placeholders, presetOf, roleSlots, setIn, suggestedName, withGraph, withPreset, withScopeKind, type Draft, type RoleSlot } from "./draft.js";
 import { DEFAULT_START, SCRIPTED_AUDIT, TEMPLATES } from "./templates.js";
+import { DEPTHS, findersOf, isSubscriptionAudit, withDepth, withFinders, type Depth } from "./depth.js";
 
 const PRESET_SHAPES: Readonly<Record<string, string>> = Object.freeze({
   "audit-two-finders": "Two independent finders, bounded peer review, verification and a planner.",
@@ -31,7 +32,6 @@ const CONSENSUS: readonly (readonly [string, string])[] = [
   ["risk_weighted", "high-risk issues go to every auditor, the rest to two reviewers"],
   ["minimal", "only disputed, high-risk, single-source or low-confidence issues are reviewed"],
 ];
-const DEPTH: readonly (readonly [string, string])[] = [["fast", "low effort"], ["balanced", "medium effort"], ["deep", "high effort"]];
 const LEAVE = { title: "unsaved configuration", description: "This configuration has changes that are not saved. Leaving or choosing another starting point discards them." } as const;
 
 interface Loaded { readonly draft: Draft; readonly name: string; readonly savedId: string | null; readonly source: string; readonly repository?: string }
@@ -248,6 +248,8 @@ function AuditFields({ draft, edit, setDraft, listing }: { readonly draft: Draft
   if (preset !== null && saved === null && !presets.includes(preset)) presets.push(preset);
   const checkpoints = getIn(draft, ["workflow", "checkpoints", "mode"]);
   const scripted = Object.keys(record(draft["models"])).length === 0;
+  const subscription = isSubscriptionAudit(draft);
+  const depth = String(draft["auditDepth"] ?? "balanced");
   return <>
     <label className="field">workflow
       <select aria-label="workflow" value={value} onChange={(event) => { const [kind, id, version] = event.target.value.split(":"); if (kind === "preset" && id !== undefined) setDraft(withPreset(draft, id)); if (kind === "graph" && id !== undefined && version !== undefined) setDraft(withGraph(draft, { id, version })); }}>
@@ -262,10 +264,26 @@ function AuditFields({ draft, edit, setDraft, listing }: { readonly draft: Draft
       </label>
       <label className="field">review rounds<input aria-label="review rounds" max={3} min={0} type="number" value={Number(draft["maxConsensusRounds"] ?? 1)} onChange={(event) => edit(["maxConsensusRounds"], Number(event.target.value))} /></label>
       <label className="field">audit depth
-        <select aria-label="audit depth" value={String(draft["auditDepth"] ?? "balanced")} onChange={(event) => edit(["auditDepth"], event.target.value)}>{DEPTH.map(([key, text]) => <option key={key} value={key}>{key} · {text}</option>)}</select>
+        <select aria-label="audit depth" value={depth} onChange={(event) => setDraft(withDepth(draft, event.target.value as Depth))}>
+          {(Object.keys(DEPTHS) as Depth[]).map((key) => <option key={key} value={key}>{DEPTHS[key].label}</option>)}
+          {depth === "fast" ? <option value="fast">fast · the earlier low-effort depth</option> : null}
+        </select>
       </label>
+      {subscription ? <label className="field">finders
+        <select aria-label="finders" value={String(findersOf(draft))} onChange={(event) => setDraft(withFinders(draft, event.target.value === "3" ? 3 : 2))}>
+          <option value="2">two · Claude and GPT</option><option value="3">three · adds Gemini</option>
+        </select>
+      </label> : null}
     </div>
-    <p className="field__hint">Peer review: {CONSENSUS.find(([key]) => key === draft["consensusPolicy"])?.[1] ?? "unknown policy"}. Disputed issues get another round, up to the limit (0 to 3). Depth is the effort requested from the models{scripted ? "; scripted detectors ignore it" : ". A model audit runs its plan critic at depth deep or when it plans a critical or high security issue, and otherwise records it as not required"}.</p>
+    <p className="field__hint">Peer review: {CONSENSUS.find(([key]) => key === draft["consensusPolicy"])?.[1] ?? "unknown policy"}. Disputed issues get another round, up to the limit (0 to 3). {scripted ? "Depth sets the models' effort; scripted detectors ignore it."
+      : subscription ? `Depth sets the models and the effort of every step, in each vendor's word. ${Object.hasOwn(DEPTHS, depth) ? DEPTHS[depth as Depth].summary : "This configuration's efforts are its own; choose a depth to set them."}`
+      : "Depth is a label here: this configuration keeps its own models, and a stage without its own effort runs at the depth's level (deep high, otherwise medium)."}</p>
+    {subscription && findersOf(draft) === 3 ? <p className="field__hint">The third finder is Gemini 3.8 Flash at high thinking, at every depth, and only a finder: its findings are checked like the others, and it does nothing else. Google&apos;s terms say using the Antigravity CLI inside another application is not supported on its consumer plans and may get the account suspended: choose three only if you accept that for your Google account.</p> : null}
+    {saved !== null ? null : <>
+      <label className="operator-check"><input aria-label="review the plan with a critic" checked={getIn(draft, ["workflow", "critic"]) === true} type="checkbox" onChange={(event) => edit(["workflow", "critic"], event.target.checked)} />
+        review the plan with a critic</label>
+      <p className="field__hint">Off by default, at every depth. A second model reads the plan, a checker tests each blocking item, and the planner revises once. In our runs its items were precise (18 of 20 real on nextra), but it caught 1 of the 21 plan errors met when the plan was carried out, its revision added errors, and it took 9 to 17% of a run&apos;s tokens.</p>
+    </>}
     <label className="field">checkpoints
       <select aria-label="checkpoints" value={typeof checkpoints === "string" ? checkpoints : ""} onChange={(event) => edit(["workflow", "checkpoints"], event.target.value === "" ? undefined : { mode: event.target.value })}>
         <option value="">none</option><option value="interactive">interactive · stop for your decision</option><option value="automatic">automatic · decide from the configuration</option>
@@ -350,7 +368,7 @@ function ModelsSection({ draft, edit, offered, machine, onUseModels }: { readonl
     <p className="note">Each profile names a model on an endpoint. Choose a model for each, or use the recommended ones; choosing one also sets its family and tier. The credentials themselves stay with the CLI or in the environment variables the endpoints name.</p>
     {recommendable.length === 0 ? null : <p><button className="button" type="button" onClick={() => { for (const profile of recommendable) { const choice = offeredCatalog(profile.transport, offered)?.[0]; if (choice !== undefined) choose(edit, profile.alias, choice); } }}>
       use the recommended models · {recommendable.map((profile) => modelName(offeredCatalog(profile.transport, offered)?.[0]?.modelId ?? "")).join(", ")}</button></p>}
-    <p className="note">Effort per stage: {EFFORT_STAGES.map(({ label, stage }) => `${label} ${[...new Set(profiles.filter(({ roles }) => roles.some((role) => stage === "discovery" ? role.label.startsWith("auditor") : role.node === stage)).map(({ alias }) => effortFor(draft, alias, stage === "verification" ? "verification" : stage)))].join("/") || "-"}`).join(" · ")}. Audit depth sets the auditors&apos; effort; the later stages run at their own, usually lower, effort. Higher effort finds more and takes longer and more of your plan&apos;s usage.</p>
+    <p className="note">Effort per stage: {EFFORT_STAGES.map(({ label, stage }) => `${label} ${[...new Set(profiles.filter(({ roles }) => roles.some((role) => stage === "discovery" ? role.label.startsWith("auditor") : role.node === stage && role.stage === undefined)).map(({ alias }) => effortFor(draft, alias, stage === "verification" ? "verification" : stage)))].join("/") || "-"}`).join(" · ")}. Each step runs at its own effort, which the audit depth sets. Higher effort finds more and takes longer and more of your plan&apos;s usage.</p>
     <div className="table-scroll"><table aria-label="model profiles" className="table">
       <thead><tr><th scope="col">profile</th><th scope="col">provider · transport</th><th scope="col">model</th><th scope="col">family</th><th scope="col">tier · independence</th><th scope="col">roles · effort</th></tr></thead>
       <tbody>{profiles.map((profile) => <tr data-placeholder={profile.placeholder} key={profile.alias}>
@@ -358,7 +376,7 @@ function ModelsSection({ draft, edit, offered, machine, onUseModels }: { readonl
         <td>{profile.provider} · {profile.transport}</td>
         <ModelChoice profile={profile} edit={edit} catalog={offeredCatalog(profile.transport, offered)} />
         <td>{profile.capabilityTier} · {profile.independenceGroup}</td>
-        <td>{profile.roles.map(({ label, node }) => { const effort = roleEffort(draft, profile.alias, node); return effort === null ? label : `${label} · ${effort}`; }).join(", ") || "none"}</td>
+        <td>{profile.roles.map(({ label, node, stage }) => { const effort = roleEffort(draft, profile.alias, stage ?? node); return effort === null ? label : `${label} · ${effort}`; }).join(", ") || "none"}</td>
       </tr>)}</tbody>
     </table></div>
     <RoleFields draft={draft} edit={edit} aliases={aliases} />

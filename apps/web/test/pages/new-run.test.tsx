@@ -37,7 +37,7 @@ describe("configuration drafts", () => {
 
   it("names each mode's model roles where the runtime reads them", () => {
     expect(roleSlots(SCRIPTED_AUDIT)).toEqual([]);
-    expect(roleSlots(template("subscription-audit").config).map(({ path }) => path.join("."))).toEqual(["workflow.modelExecution.roles.planner", "workflow.modelExecution.roles.verifier", "workflow.modelExecution.roles.critic"]);
+    expect(roleSlots(template("subscription-audit").config).map(({ path }) => path.join("."))).toEqual(["workflow.modelExecution.roles.planner", "workflow.modelExecution.roles.verifier", "workflow.modelExecution.roles.mediumVerifier", "workflow.modelExecution.roles.critic"]);
     expect(roleSlots(template("subscription-feature-interactive").config).map(({ label, multiple }) => `${label}${multiple ? "[]" : ""}`)).toEqual(["requirements", "exploration", "planner", "reviewers[]", "critic"]);
     expect(roleSlots(template("testing-execute").config).map(({ label }) => label)).toEqual(["analyst", "planner", "fast writer", "balanced writer", "frontier writer"]);
     expect(roleSlots(template("testing-plan").config).map(({ label }) => label)).toEqual(["analyst", "planner"]);
@@ -80,6 +80,30 @@ describe("the new-run page", () => {
     expect(rows[1]?.textContent).toContain("auditor a · xhigh");
     expect(rows).toHaveLength(3);
     expect(screen.queryByRole("list", { name: "placeholders to fill in" })).toBeNull();
+  });
+
+  it("sets the depth, the finder count and the plan critic as three separate choices", async () => {
+    stubBrowser();
+    const bodies: { config: Record<string, unknown> }[] = [];
+    stubControlPlane({ ...BASE_ROUTES, "POST /preflight": ({ body }: { body: { config: Record<string, unknown> } }) => { bodies.push(body); return READY; } });
+    visit("?page=new-run&from=template:subscription-audit");
+    render(<App />);
+    const depth = await screen.findByRole("combobox", { name: "audit depth" }) as HTMLSelectElement;
+    expect([depth.value, (screen.getByRole("combobox", { name: "finders" }) as HTMLSelectElement).value, (screen.getByRole("checkbox", { name: "review the plan with a critic" }) as HTMLInputElement).checked]).toEqual(["deep", "2", false]);
+    fireEvent.change(depth, { target: { value: "cheap" } });
+    expect(await screen.findByText(/Find: Sonnet 5\.5 high and GPT-6 Luna max\./u)).toBeTruthy();
+    // Cheap adds Opus for the severe issues and Sol for the second opinion beside the two finders.
+    const rows = within(screen.getByRole("table", { name: "model profiles" })).getAllByRole("row").map(({ textContent }) => textContent ?? "");
+    expect(rows.find((row) => row.startsWith("checker"))).toContain("verifier · high");
+    expect(rows.find((row) => row.startsWith("second-opinion"))).toContain("second opinion · medium");
+    fireEvent.change(screen.getByRole("combobox", { name: "finders" }), { target: { value: "3" } });
+    expect(await screen.findByText(/The third finder is Gemini 3\.8 Flash at high thinking/u)).toBeTruthy();
+    fireEvent.click(screen.getByRole("checkbox", { name: "review the plan with a critic" }));
+    fireEvent.click(screen.getByRole("button", { name: "check configuration" }));
+    await screen.findByRole("region", { name: "check result" });
+    const sent = bodies.at(-1)?.config ?? {};
+    expect([sent["auditDepth"], getIn(sent, ["workflow", "preset"]), getIn(sent, ["workflow", "critic"]), getIn(sent, ["models", "auditor-c", "modelId"]), getIn(sent, ["models", "auditor-a", "modelId"])])
+      .toEqual(["cheap", "audit-three-finders", true, "gemini-3.8-flash-high", "claude-sonnet-5-5"]);
   });
 
   it("starts the scripted smoke test, says it calls no model, and describes the preset's steps", async () => {

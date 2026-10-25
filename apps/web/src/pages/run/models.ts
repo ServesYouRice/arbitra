@@ -3,7 +3,7 @@
  * configuration alone. `node` names the workflow node a role runs in, so a node's details
  * can show the models bound to it.
  */
-export interface RoleBinding { readonly label: string; readonly node: string }
+export interface RoleBinding { readonly label: string; readonly node: string; /** The effort stage, where it is not the node's own. */ readonly stage?: string }
 export interface ModelProfileSummary {
   readonly alias: string;
   readonly provider: string;
@@ -27,9 +27,13 @@ export function modelProfiles(config: Readonly<Record<string, unknown>>): readon
   if (config["mode"] === "audit") {
     for (const alias of Object.keys(models)) if (alias.startsWith("auditor-")) bind(alias, { label: `auditor ${alias.slice("auditor-".length)}`, node: alias });
     const audit = record(record(workflow["modelExecution"])["roles"]);
-    bind(audit["planner"], { label: "planner", node: "planner" });
+    bind(audit["merger"] ?? audit["verifier"], { label: "merger", node: "consensus", stage: "clustering" });
     bind(audit["verifier"], { label: "verifier", node: "verification" });
+    bind(audit["mediumVerifier"], { label: "medium verifier", node: "verification" });
+    bind(audit["secondOpinion"], { label: "second opinion", node: "verification", stage: "secondOpinion" });
+    bind(audit["planner"], { label: "planner", node: "planner" });
     bind(audit["critic"], { label: "critic", node: "critic" });
+    bind(audit["critiqueChecker"], { label: "critique check", node: "critic", stage: "critiqueCheck" });
   }
   if (config["mode"] === "feature") {
     const feature = record(record(workflow["feature"])["roles"]);
@@ -84,10 +88,11 @@ export function effortFor(config: Readonly<Record<string, unknown>>, alias: stri
   return slug ?? level;
 }
 
+const ROLE_STAGES: readonly string[] = ["discovery", "clustering", "verification", "secondOpinion", "critiqueCheck", "planner", "critic"];
 /** The effort a role runs at (an auditor at finding's effort, a later stage at its own), or null for another role. */
 export function roleEffort(config: Readonly<Record<string, unknown>>, alias: string, node: string): string | null {
   const stage = node.startsWith("auditor-") ? "discovery" : node;
-  return stage === "discovery" || stage === "verification" || stage === "planner" || stage === "critic" ? effortFor(config, alias, stage) : null;
+  return ROLE_STAGES.includes(stage) ? effortFor(config, alias, stage as EffortStage) : null;
 }
 
 /** Each model node's label as the model that ran it and its effort, such as `Opus 5.5 · xhigh`, for graphs. */

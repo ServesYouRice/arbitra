@@ -176,6 +176,7 @@
       "roles": {
         "planner": "auditor-a",
         "verifier": "auditor-a",
+        "secondOpinion": "auditor-b",
         "critic": "auditor-b",
         "critiqueChecker": "auditor-a"
       },

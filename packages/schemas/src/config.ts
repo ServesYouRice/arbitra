@@ -29,7 +29,10 @@ export const runConfigSchema = z.object({
   schemaVersion: z.literal(RUN_CONFIG_SCHEMA_VERSION),
   mode: z.enum(["audit", "feature", "testing"]),
   scope: runScopeSchema,
-  auditDepth: z.enum(["fast", "balanced", "deep"]),
+  /** The depth preset a configuration was written at: deep, balanced or cheap differ only in models and efforts (New
+   * run writes them). A stage without its own `stageEffort` runs at the depth's level: deep high, fast low, otherwise
+   * medium. `fast`, the earlier low-effort depth, is still read so stored runs and saved configurations load. */
+  auditDepth: z.enum(["fast", "cheap", "balanced", "deep"]),
   consensusPolicy: z.enum(["full", "risk_weighted", "minimal"]),
   maxConsensusRounds: z.number().int().min(0).max(3),
   verification: jsonObjectSchema.superRefine((verification, context) => {
