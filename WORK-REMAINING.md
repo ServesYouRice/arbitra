@@ -25,9 +25,11 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
   native-harness suites included.
 - **Research review, October 25:** every step checked against other labs, products and our own runs
   ([research](docs/research.md#12-the-review-of-october-25)). Its ideas are placed below.
-- **veritra, October 25:** audit running on 45ed1d2 (`run-e5546c4c`, 416 files, 103,575 lines of which about 40,000
-  are tests; generated files left out). The 400-file snapshot limit refused it and is now 1,000. The builds marked
-  *before veritra* were not in it, so this run is their baseline.
+- **veritra, October 25:** audited (`run-e5546c4c`, 416 files, 103,575 lines of which about 40,000 are tests;
+  generated files left out): 256 of 929 confirmed (36 high, 220 medium), a plan of 227 tasks, 70.0M tokens. It ran on
+  45ed1d2, finished on that build plus the critic and revision fixes it showed were needed
+  ([real runs](docs/qa/real-runs.md#the-runs)). The 400-file snapshot limit refused it and is now 1,000. The builds
+  marked *before veritra* were not in it, so this run is their baseline.
 
 ## Order of work
 
@@ -49,7 +51,8 @@ Small defects the October 25 lanes found and did not fix, each to be shown by a 
 - **After the operator answers a question the critic's revision could not settle**, the gate still reports
   `blocking_critic_feedback`.
 - **Discovery calls run past the 15-minute call limit and start again from nothing:** 7 of veritra's first 36 (4 of
-  22 Opus, 3 of 14 Sol), none in the six earlier runs; Opus wrote 33K tokens a call against nextra's 23K. Each costs
+  22 Opus, 3 of 14 Sol), 9 turns without an answer in the whole run (4 Opus, 5 Sol, counting the stop at Codex's usage limit), none in the six
+  earlier runs; Opus wrote 33K tokens a call against nextra's 23K, up to 67.5K. Each costs
   a slot for 15 minutes and the tokens already spent. Take the durations from the finished run, then size the limit
   or the units from them, or split a unit that times out as one that stops at the output ceiling.
 - **The planner's `audit_mode_is_read_only` constraint makes sections ask whether they may write** (two questions in
@@ -100,7 +103,11 @@ From the research review; each decides a cut or a build.
   6 of 7 rightly on nextra, at about 28K tokens a question.
 - **Eight discovery units at a time** instead of four: the audit runs in two waves (14 minutes of a 28-minute run).
 - **Claude Code's cache on first calls:** 72 first calls in one run wrote 1.18M tokens and read none.
-- **Whether the critic still lacks its source** (`critic-result.citedSourceLeftOut`), if it stays.
+- **Whether the critic still lacks its source** (`critic-result.citedSourceLeftOut`), if it stays: on veritra's
+  227-task plan its 12 batches carried none of the 254 files the plan cites.
+- **What a verification question costs on a large project:** 116K tokens on veritra (391 questions, 45.5M, 65% of the
+  run; 2.9 turns a question), against 75K to 86K on the earlier runs. Find whether the tool turns or the source a
+  question carries make the difference before changing anything.
 - **What the injection scanner's hits hold**, before sending them to model follow-ups.
 - **Four measurements from October 11 to 13:** prompts sized at one byte a token outside the stages that set
   `estimatedBytesPerToken`, discovery source as one JSON object a line, Gemini's output nearly all thinking, a pinned
