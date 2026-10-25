@@ -77,9 +77,10 @@ export function variantBatchId(batch: readonly VariantSeed[]): string {
   return `batch-${createHash("sha256").update(JSON.stringify(batch.map(({ issue }) => issue.candidateId))).digest("hex").slice(0, 16)}`;
 }
 
-/** The candidate a proposed variant becomes, named after its finding. */
+/** The candidate a proposed variant becomes, named as clustering names a candidate of that one finding: the verifier
+ * reads candidate IDs, and nothing in the question says a candidate is a variant. */
 export function variantCandidateId(sourceFindingId: string): string {
-  return `V-${createHash("sha256").update(sourceFindingId).digest("hex").slice(0, 12)}`;
+  return `C-${createHash("sha256").update(JSON.stringify([sourceFindingId])).digest("hex").slice(0, 12)}`;
 }
 
 /** Every place the issue set already reports, as line ranges by file ("12-30"), overlapping ranges merged. */

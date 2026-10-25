@@ -13,6 +13,7 @@ import { snapshotRepository } from "../src/repository.js";
 import { replayVariantSearch } from "../src/variant-replay.js";
 import { reportedPlaces, variantBatches, variantCandidateId, variantSeeds, withoutDuplicates, type VariantFinding } from "../src/variant-search.js";
 import type { AuditFinding } from "../src/auditors.js";
+import { clustersFrom } from "@arbitra/workflow/clustering/deterministic.js";
 import type { CanonicalIssue, CanonicalIssueSet } from "@arbitra/workflow/nodes/canonical-issues.js";
 
 /*
@@ -122,7 +123,8 @@ describe("the variant search", () => {
     const variants = issues.filter(({ variantOf }) => variantOf !== undefined);
     expect(variants).toEqual([expect.objectContaining({ variantOf: seed.candidateId, disposition: "accepted", verificationOutcome: "CONFIRMED", severity: "high" })]);
     const variant = variants[0] as Issue;
-    expect(variant.candidateId).toMatch(/^V-[0-9a-f]{12}$/u);
+    // Named as clustering names any candidate, so nothing tells the verifier this one is a variant.
+    expect(variant.candidateId).toBe(clustersFrom(new Map([[variant.sourceFindingIds[0] ?? "", variant.sourceFindingIds[0] ?? ""]]))[0]?.clusterId);
     const findings = await setup.read<{ sourceFindingId: string; locations: { path: string }[]; variantOf?: string }[]>(core, run.runId, "source-findings");
     expect(findings.find(({ sourceFindingId }) => sourceFindingId === variant.sourceFindingIds[0])).toMatchObject({ locations: [{ path: "b.ts" }], variantOf: seed.candidateId });
     // The rejected issue stays rejected, and its variant is recorded as such rather than verified again.
@@ -201,7 +203,7 @@ describe("the variant search", () => {
     const execution = (await new RunStore(output, other.runId).loadContext()).modelConfiguration?.workflow["modelExecution"] as { roles: Record<string, string>; modelEndpoints: Record<string, string>; stageEffort: Record<string, string> };
     expect([execution.roles["variantSearcher"], execution.modelEndpoints["variant-searcher"], execution.stageEffort["variantSearch"]]).toEqual(["variant-searcher", "searcher", "high"]);
     expect((await new RunStore(output, other.runId).loadContext()).modelConfiguration?.models["variant-searcher"]?.modelId).toBe("searcher-sonnet");
-    expect(other.summary).toMatchObject({ seeds: 1, added: [expect.stringMatching(/^V-/u) as unknown] });
+    expect(other.summary).toMatchObject({ seeds: 1, added: [expect.stringMatching(/^C-/u) as unknown] });
     // A file the run read that changed since refuses the replay, and says which.
     await writeFile(join(setup.directory, "b.ts"), "export const changed = true;\n", "utf8");
     await expect(replayVariantSearch({ source, output, searcher: "searcher", providerOptions: { client: { send: setup.send }, credential: () => "fixture-credential" } })).rejects.toThrow(/RUN_REPOSITORY_CHANGED:.*b\.ts/u);
@@ -281,6 +283,6 @@ describe("the variant search's batches and duplicates", () => {
     expect(kept.map(({ sourceFindingId }) => sourceFindingId)).toEqual(["v/1"]);
     expect(dropped).toEqual([{ sourceFindingId: "v/2", variantOf: "C-1", reason: "repeats_an_issue", duplicateOf: "C-2", disposition: "rejected" },
       { sourceFindingId: "v/3", variantOf: "C-1", reason: "restates_its_issue", duplicateOf: "C-1" }, { sourceFindingId: "v/4", variantOf: "C-1", reason: "repeats_a_variant", duplicateOf: "v/1" }]);
-    expect(variantCandidateId("v/1")).toMatch(/^V-[0-9a-f]{12}$/u);
+    expect(variantCandidateId("v/1")).toBe(clustersFrom(new Map([["v/1", "v/1"]]))[0]?.clusterId);
   });
 });
