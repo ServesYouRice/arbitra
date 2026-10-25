@@ -135,13 +135,26 @@ function withoutTrailingDelimiters(value: string): string {
   return value.slice(0, end);
 }
 
+/** Where the last private key END marker ends, or 0 when the text holds none. */
+function privateKeyScope(text: string): number {
+  const end = /-----END [A-Z ]*PRIVATE KEY-----/uy;
+  for (let at = text.lastIndexOf("-----END "); at >= 0; at = at === 0 ? -1 : text.lastIndexOf("-----END ", at - 1)) {
+    end.lastIndex = at;
+    if (end.test(text)) return end.lastIndex;
+  }
+  return 0;
+}
+
 const MARKER = /^\[REDACTED:(?:aws_access_key|api_token|github_token|bearer_token|assigned_secret|private_key)\]$/u;
 
 export function redactSecrets(text: string): RedactionResult {
   const matches: Array<{ kind: SecretKind; start: number; end: number }> = [];
   for (const detector of DETECTORS) {
     const expression = new RegExp(detector.expression);
-    for (let from = 0, match = expression.exec(text); match !== null; from = expression.lastIndex, match = expression.exec(text)) {
+    // A key's BEGIN marker after the last END marker has no END, so the key scan stops there: each such BEGIN scanned
+    // to the end of the text, and 1 MB of unmatched BEGIN lines took 15.7 s to mask (found October 25, 2026).
+    const subject = detector.kind === "private_key" ? text.slice(0, privateKeyScope(text)) : text;
+    for (let from = 0, match = expression.exec(subject); match !== null; from = expression.lastIndex, match = expression.exec(subject)) {
       const captured = match[detector.secretGroup];
       const start = match.indices?.[detector.secretGroup]?.[0];
       if (captured === undefined || start === undefined) continue;

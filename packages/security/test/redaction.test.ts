@@ -145,6 +145,17 @@ describe("secret redaction", () => {
     }
   });
 
+  it("masks in time linear in the text when private key markers have no end", () => {
+    // Each BEGIN marker with no END after it scanned to the end of the text: 1 MB of them took 15.7 s.
+    const begins = "-----BEGIN PRIVATE KEY-----\n".repeat(20_000);
+    const key = "-----BEGIN PRIVATE KEY-----\nabc123\n-----END PRIVATE KEY-----";
+    for (const [text, masked] of [[begins, begins], [`${key}\n${begins}`, `[REDACTED:private_key]\n${begins}`], [`${begins}${key}`, "[REDACTED:private_key]"]] as const) {
+      const started = performance.now();
+      expect(redactSecrets(text).text).toBe(masked);
+      expect(performance.now() - started).toBeLessThan(500);
+    }
+  });
+
   it("finds secrets under prefixed names, masks named values whole and private keys line by line", () => {
     // Found by arbitra's audit of itself (October 19, 2026).
     for (const line of ["DB_PASSWORD=hunter2isNotSecret", "AWS_SECRET_ACCESS_KEY: 'wJalrXUtnFEMIK7MDENG'", "client_secret = \"abcdefghijk1\"", "clientSecret: 'abcdefghijk1'"])
