@@ -1,7 +1,8 @@
 import type { PlanIR } from "@arbitra/schemas/plan.js";
 
-/** What a part of a large plan reads in place of the planner's reasoning about the whole plan. */
-export const REASONING_LEFT_OUT = "Left out of this part: the planner's reasoning about the whole plan is read with the complete plan only.";
+/** What a part of a large plan reads in place of the planner's reasoning about the whole plan. The words are part of
+ * each critic batch's recorded input: changed, a resumed run's finished batches no longer replay (MODEL_ACTIVITY_INPUT_CHANGED). */
+export const REASONING_LEFT_OUT = "Left out of this batch: the planner's reasoning about the whole plan is read with the complete plan only.";
 
 type Notes = Pick<PlanIR, "implementationStrategy" | "dependencies" | "rolloutConcerns" | "migrationConcerns" | "unresolvedQuestions">;
 
