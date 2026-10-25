@@ -11,6 +11,8 @@ describe("a lineup, step by step, as model and effort", () => {
   it("names each model as its vendor does, with the effort in the CLI's own word, Gemini's taken from its model ID", () => {
     const three = withFinders(template("subscription-audit"), 3);
     expect([modelAt(three, "auditor-a", "discovery"), modelAt(three, "auditor-b", "discovery"), modelAt(three, "auditor-c", "discovery")]).toEqual(["Opus 5.5 · xhigh", "GPT-6.1 Sol · xhigh", "Gemini 3.8 Flash · high"]);
+    // A template's placeholder is a model still to choose, not a model's name.
+    expect(modelAt(template("audit-mixed-providers"), "auditor-a", "discovery")).toBe("model not chosen yet");
   });
 
   it("reads the approved table at each depth: find, merge, check with its second opinion, plan", () => {

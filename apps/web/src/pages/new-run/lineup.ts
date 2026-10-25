@@ -1,4 +1,4 @@
-import { effortFor, modelName, record } from "../run/models.js";
+import { effortFor, modelName, PLACEHOLDER_PREFIX, record } from "../run/models.js";
 import { getIn, graphOf, setIn, type Draft } from "./draft.js";
 
 /**
@@ -13,6 +13,7 @@ const LEVEL_IN_ID = /-(low|medium|high|max)$/u;
 export function modelAt(draft: Draft, alias: unknown, stage: Stage): string {
   if (typeof alias !== "string") return "none chosen";
   const modelId = String(record(record(draft["models"])[alias])["modelId"] ?? alias);
+  if (modelId.startsWith(PLACEHOLDER_PREFIX)) return "model not chosen yet";
   const level = LEVEL_IN_ID.exec(modelId)?.[1];
   return level !== undefined && modelId.startsWith("gemini-") ? `${modelName(modelId.replace(LEVEL_IN_ID, ""))} · ${level}` : `${modelName(modelId)} · ${effortFor(draft, alias, stage)}`;
 }
