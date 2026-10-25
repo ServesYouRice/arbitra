@@ -133,7 +133,8 @@ left "throw or clamp?" open and failed, and nothing could answer it and resume.
 - The critic's revision waits at the same checkpoint, in the critic node, when it leaves
   blocking questions: one for each critique item it could not revise, and any a fix needs.
   The answers are applied before a recheck (`review.recheckRevisedPlan`) reads the plan, and
-  `plan-revision-question-resolutions` records their rounds.
+  `plan-revision-question-resolutions` records their rounds. Without a recheck, an item whose
+  question the operator answered no longer fails the gate (`blocking_critic_feedback`).
 - A revision that cannot fit the planner's context fails with
   `PLAN_QUESTION_REVISION_CONTEXT_EXCEEDED:<version>`. No graph may use `plan-questions`
   as a gate or human node ID (`RESERVED_CHECKPOINT_ID`). Automatic mode and runs without a

@@ -36,7 +36,7 @@ import { assertMergeCheckOperations, peerReviewBatches, segmentText, type PeerRe
 import { criticContextParts, criticPartIdentity, type CriticContextPart } from "./critic-context.js";
 import { auditPlannerRecords, planWithContext, type PlannerRecordSet, type PlannerStage } from "./planner-context.js";
 import { conflictOutline, conflictsInvolving, withConflictOutlines, type PeerOperationConflict } from "./peer-operation-conflicts.js";
-import { reviseWithContext } from "./revision-context.js";
+import { asksAboutNotRevised, reviseWithContext } from "./revision-context.js";
 import { createHash } from "node:crypto";
 import type { SemanticClusteringDecision, SemanticClusteringPair } from "@arbitra/workflow/clustering/escalate.js";
 import type { ModelActivityRequest } from "./model-activities.js";
@@ -1153,8 +1153,12 @@ export class ModelAuditPipeline {
         await this.context.store.publish("plan-ir", revisedPlan);
         return finalFeedback;
       }
-      const notRevised = new Set((await this.context.store.listArtifacts()).some(({ kind }) => kind === "planner-revision-composition")
-        ? (await readStage<{ notRevisedCritiqueItemIds?: readonly string[] }>(this.context.store, "planner-revision-composition")).notRevisedCritiqueItemIds ?? [] : []);
+      const leftOpen = (await this.context.store.listArtifacts()).some(({ kind }) => kind === "planner-revision-composition")
+        ? (await readStage<{ notRevisedCritiqueItemIds?: readonly string[] }>(this.context.store, "planner-revision-composition")).notRevisedCritiqueItemIds ?? [] : [];
+      // An item the revision could not revise asks the operator how to resolve it. Once the operator has answered that
+      // question, the answered plan carries the decision, and the item no longer holds the gate.
+      const settled = revised.plan.unresolvedQuestions.map(({ id }) => id).filter((id) => !revisedPlan.unresolvedQuestions.some((question) => question.id === id));
+      const notRevised = new Set(leftOpen.filter((itemId) => !settled.some((questionId) => asksAboutNotRevised(questionId, itemId))));
       const answered = { ...feedback, revision: { rechecked: false, resolvedCritiqueItemIds: revised.resolutions.map(({ critiqueItemId }) => critiqueItemId).filter((id) => !notRevised.has(id)), notRevisedCritiqueItemIds: [...notRevised] } };
       await this.context.store.publish("critic-feedback", answered);
       await this.context.store.publish("plan-ir", revisedPlan);

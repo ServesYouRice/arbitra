@@ -16,7 +16,7 @@ import type { TestSandbox } from "../src/test-sandbox.js";
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
-async function fixture(options: { secondFile?: boolean; revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: true | "every"; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; conflictFault?: "invalid" | "output_limit"; ambiguousClustering?: boolean; oversizedRepository?: boolean; packedReviewSource?: boolean; planQuestion?: boolean; verifierContextTokens?: number; invalidVerification?: boolean; invalidGroupVerification?: boolean; unanimousReview?: boolean; verificationByPlace?: boolean; holdingPlaces?: readonly string[]; placeBesideMerge?: boolean; severities?: readonly string[]; critiqueVerdict?: "HOLDS" | "DOES_NOT_HOLD"; lowerSeverity?: "one" | "two"; severeRejection?: "REJECTED" | "CONFIRMED"; revisionQuestion?: boolean; depth?: "fast" | "balanced" | "deep"; finding?: { readonly severity?: string; readonly category?: string }; abstainAt?: string; confidenceByLine?: boolean } = {}) {
+async function fixture(options: { secondFile?: boolean; revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: true | "every"; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; conflictFault?: "invalid" | "output_limit"; ambiguousClustering?: boolean; oversizedRepository?: boolean; packedReviewSource?: boolean; planQuestion?: boolean; verifierContextTokens?: number; invalidVerification?: boolean; invalidGroupVerification?: boolean; unanimousReview?: boolean; verificationByPlace?: boolean; holdingPlaces?: readonly string[]; placeBesideMerge?: boolean; severities?: readonly string[]; critiqueVerdict?: "HOLDS" | "DOES_NOT_HOLD"; lowerSeverity?: "one" | "two"; severeRejection?: "REJECTED" | "CONFIRMED"; revisionQuestion?: boolean; revisionPatchOutputLimit?: boolean; depth?: "fast" | "balanced" | "deep"; finding?: { readonly severity?: string; readonly category?: string }; abstainAt?: string; confidenceByLine?: boolean } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "arbitra-model-run-")); directories.push(directory);
   const manyIssues = options.largePeerContext === true || options.largePlannerContext === true;
   await writeFile(join(directory, "a.ts"), "const value = null;\n".repeat(manyIssues || options.placeBesideMerge === true ? 4 : options.ambiguousClustering === true ? 3 : 1), "utf8");
@@ -238,12 +238,15 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
       requests.push({ stage: "plan-answers", url: request.url });
       const input = JSON.parse(user) as { plan: ReturnType<typeof planIRSchema.parse>; operatorAnswers: { questionId: string; answer: string }[] };
       expect(input.operatorAnswers).toEqual(options.revisionQuestion === true ? [{ questionId: "Q-revision", question: "Keep the old default for callers that pass no value?", answer: "Keep it." }]
+        : options.revisionPatchOutputLimit === true ? expect.arrayContaining([expect.objectContaining({ questionId: expect.stringMatching(/\/not-revised\//u), answer: "Leave the task as it is." })])
         : [{ questionId: "Q-null", question: "Throw or default when the value is null?", answer: "Throw a typed error." }]);
       // The reply keeps the answered question; the runtime removes it.
       output = { ...input.plan, title: "Answered plan" };
     } else if (system.startsWith("Revise the selected tasks")) {
       requests.push({ stage: "revision-patch", url: request.url });
       if (failRevisionPatch && requests.filter(({ stage }) => stage === "revision-patch").length === 2) return { status: 503, headers: {}, body: {} };
+      // Every revision call stops at the output ceiling (the OpenAI Responses shape), so each item is left open.
+      if (options.revisionPatchOutputLimit === true) return { status: 200, headers: {}, body: { status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, output_text: '{"resolutions":', usage: { input_tokens: 10, output_tokens: 2_000 } } };
       const input = JSON.parse(user) as { selectedTasks: ReturnType<typeof planIRSchema.parse>["tasks"]; selectedTaskIds: string[]; critique: { id: string }[] };
       expect(input.selectedTasks.length).toBeGreaterThan(0);
       expect(input.selectedTasks.every(({ implementationGuidance }) => implementationGuidance[0]?.startsWith("Review this implementation detail."))).toBe(true);
@@ -563,6 +566,27 @@ describe("composed model audits", () => {
     const gate = await resumed.gate(result.runId);
     expect(gate.reasons).not.toContain("blocking_plan_questions");
     expect(gate.reasons).not.toContain("blocking_critic_feedback");
+  });
+
+  it.each([false, true])("holds the gate on a critique item the revision could not revise until the operator answers its question (answered: %s)", async (answered) => {
+    // Each item's revision call stops at the output ceiling: the plan keeps its tasks and asks how to resolve the item.
+    const { create, config, requests } = await fixture({ largeCriticContext: true, revision: "resolved", revisionPatchOutputLimit: true });
+    const run = answered ? { ...config, workflow: { ...config.workflow, checkpoints: { mode: "interactive" } } } : config;
+    const core = create(); const result = await core.run(run); let state: string = result.state;
+    if (answered) {
+      expect(state).toBe("BLOCKED");
+      const pending = (await core.status(result.runId)).checkpoints.find((checkpoint) => checkpoint.kind === "plan-questions");
+      if (pending?.kind !== "plan-questions") throw new Error("PLAN_QUESTIONS_CHECKPOINT_ABSENT");
+      expect(pending.questions.length).toBeGreaterThan(0);
+      expect(pending.questions.every(({ id }) => /^revision-[\d.]+\/not-revised\//u.test(id))).toBe(true);
+      await core.respondCheckpoint(result.runId, "plan-questions", { version: pending.version, answers: pending.questions.map(({ id }) => ({ questionId: id, answer: "Leave the task as it is." })) });
+      const resumed = create(); await resumed.resume(result.runId); ({ state } = await resumed.wait(result.runId));
+      expect(requests.filter(({ stage }) => stage === "plan-answers")).toHaveLength(1);
+    }
+    expect(state).toBe("COMPLETED");
+    const gate = await create().gate(result.runId);
+    expect(gate.reasons.includes("blocking_critic_feedback")).toBe(!answered);
+    expect(gate.reasons.includes("blocking_plan_questions")).toBe(!answered);
   });
 
   it("runs a switched-on plan critic at every depth, and none when it is switched off", { timeout: 30_000 }, async () => {

@@ -90,7 +90,7 @@ export async function reviseWithContext(input: ModelRevisionInput, port: Planner
   const notRevised: string[] = [];
   const applied: { activityId: string; round: number; critiqueItemIds: readonly string[]; selectedTaskIds: readonly string[]; lineage: PlanRevisionPatch["lineage"] }[] = [];
   const leaveOpen = (critique: Critique, reason: string, key: string) => {
-    const questionId = `revision-${key}/not-revised/${digest([critique.id])}`;
+    const questionId = `revision-${key}${notRevisedSuffix(critique.id)}`;
     current = planIRSchema.parse({ ...current, unresolvedQuestions: [...current.unresolvedQuestions, { id: questionId, question: `Critique item ${critique.id} was not revised: ${reason} The plan is unchanged for this item. How should it be resolved?`, blocking: true, blastRadius: "high" }] });
     resolutions.set(critique.id, `Not revised: ${reason} The plan is unchanged for it and carries the blocking question ${questionId}.`);
     notRevised.push(critique.id);
@@ -204,6 +204,12 @@ export async function reviseWithContext(input: ModelRevisionInput, port: Planner
   await port.publish("planner-revision-composition", { logicalModelCalls: applied.length, rounds: Math.max(0, ...applied.map(({ round }) => round)), originalTaskLineage: Object.fromEntries(lineage), kind: "critique_patch_batches", notRevisedCritiqueItemIds: notRevised });
   return result;
 }
+
+/** Whether `questionId` is the blocking question a revision asks about critique item `critiqueId` it could not revise. */
+export function asksAboutNotRevised(questionId: string, critiqueId: string): boolean {
+  return questionId.startsWith("revision-") && questionId.endsWith(notRevisedSuffix(critiqueId));
+}
+function notRevisedSuffix(critiqueId: string): string { return `/not-revised/${digest([critiqueId])}`; }
 
 /**
  * Applies one revision call's patch. The call may change only its selected tasks; its new tasks, questions and
