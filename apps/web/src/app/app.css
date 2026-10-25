@@ -79,7 +79,9 @@ a.button--primary { background: var(--ink); border-color: var(--ink); color: var
 .main-nav { display: flex; flex-wrap: wrap; gap: var(--s4); }
 .main-nav a { display: inline-flex; align-items: center; min-height: var(--row-h); color: var(--body); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); text-decoration: none; border-block-end: var(--stripe) solid transparent; }
 .main-nav a[aria-current="page"] { color: var(--ink); border-block-end-color: var(--ink); }
-.page { display: grid; gap: var(--s4); align-content: start; max-width: 1480px; margin: 0 auto; padding: var(--s4) var(--s4) var(--s6); }
+/* One 1080px column, as New audit's; a run's page is wider, for its details beside the list. */
+.page { display: grid; gap: var(--s4); align-content: start; max-width: calc(1080px + 2 * var(--s4)); margin: 0 auto; padding: var(--s4) var(--s4) var(--s6); }
+.page--wide { max-width: 1480px; }
 .page-head { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: var(--s3); }
 .page-head__text { display: grid; gap: var(--s2); }
 .surface { background: var(--surface); border: var(--hairline) solid var(--line); padding: var(--s4); min-width: 0; }

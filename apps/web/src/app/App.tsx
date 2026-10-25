@@ -34,7 +34,7 @@ function Frame(): ReactElement {
         <NavLink to={{ page: "workflows", source: null }} current={route.page === "workflows"}>Workflows</NavLink>
       </nav>
     </header>
-    <main className="page">
+    <main className={route.page === "run" ? "page page--wide" : "page"}>
       <Suspense fallback={<p className="state" data-state="unexamined" role="status">loading page</p>}>
         {route.page === "runs" ? <RunsPage />
           : route.page === "run" ? <RunPage key={route.runId} runId={route.runId} tab={route.tab} item={route.item} />
