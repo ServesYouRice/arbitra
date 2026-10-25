@@ -20,7 +20,8 @@ Contents: [1. October 14 check](#1-the-october-14-check) ·
 [2. Timeline](#2-how-the-research-shaped-arbitra) · [3. Anthropic](#3-anthropic) · [4. OpenAI](#4-openai) ·
 [5. Google](#5-google) · [6. Meta, Mistral, xAI](#6-meta-mistral-and-xai) · [7. Eastern labs](#7-eastern-labs) ·
 [8. Comparable products](#8-comparable-products) · [9. Papers](#9-papers) ·
-[10. Conclusions](#10-conclusions-across-the-sources) · [11. Sources](#11-source-index)
+[10. Conclusions](#10-conclusions-across-the-sources) · [11. Sources](#11-source-index) ·
+[12. The review of October 25](#12-the-review-of-october-25)
 
 ## 1. The October 14 check
 
@@ -409,3 +410,32 @@ DeepSeek's [API documentation](https://api-docs.deepseek.com/); Moonshot's [Kimi
 and [technical report](https://arxiv.org/abs/2507.20534); [Qwen Code](https://qwenlm.github.io/qwen-code-docs/en/users/features/arena/);
 Z.AI's [GLM-5 overview](https://docs.z.ai/guides/llm/glm-5); and the product documentation of Factory, Cognition, Qodo and
 Cursor cited in section 8.
+
+## 12. The review of October 25
+
+Six research agents checked every step from discovery to the carried-out plan against other labs, products and papers
+newer than section 1, and against the six real runs ([real-project runs](qa/real-runs.md)). The owner-facing summary is
+the page "arbitra Pipeline Review"; the plan of work places each idea ([remaining work](../WORK-REMAINING.md)).
+
+- **Position.** No product runs finders from different vendors over a whole repository, writes one plan split by model
+  tier, or publishes per-issue outcomes; nextra (126 of 126 confirmed issues real) is stronger precision evidence than
+  any vendor publishes. Behind: no map of the project before discovery (Claude Security and Codex Security build an
+  editable threat model), no execution before reporting (Codex Security, XBOW, AIxCC, Anthropic's OSS Scanner of
+  October 8, 2026), no review of the fix, and no memory across runs.
+- **Discovery** cannot read outside its unit: 8 of nextra's 97 calls used a tool, and import packing never joins
+  client and server. Exploring agents beat one-shot prompts ([RepoAudit](https://arxiv.org/html/2501.18160v3), ICML
+  2025); a review split across workers lost cross-section defects ([arXiv 2605.26174](https://arxiv.org/html/2605.26174)).
+- **Deduplication** compares only pairs whose cited lines overlap; the duplicate literature retrieves likely pairs
+  first. **Peer review off** holds: voting explains most of what debate gains
+  ([arXiv 2508.17536](https://arxiv.org/abs/2508.17536)).
+- **Severity** is the weakest step: no rubric, the highest member wins, and the verifier never re-rates it, while models
+  over-rate severity ([arXiv 2610.24623](https://arxiv.org/abs/2610.24623): 49.6% at best).
+- **Verification** holds where the truth is known; its rejections have never been checked. A question costs about 74K
+  input tokens for under 1K of output. Model-written proofs need a strict gate: 71.5% of passing proofs of concept were
+  invalid in [PoC-Gym](https://arxiv.org/html/2602.04165v1).
+- **Plan and handoff:** one fresh agent per finding matches every fixer; critiquing a multi-issue plan has no measured
+  evidence, and a plausible wrong fix direction closed the bug about one time in six
+  ([1Password](https://1password.com/blog/why-ai-generated-patches-still-require-human-review), August 6, 2026).
+- **Evaluation:** precision is measured well; recall rests on 21 planted defects and single runs. Capture–recapture over
+  the auditors' overlap puts Opus and Sol together at about 82 to 87% of what the pipeline could confirm (an upper
+  bound).
