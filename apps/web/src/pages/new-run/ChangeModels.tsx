@@ -5,7 +5,7 @@ import { modelSettings, offeredCatalog, type CatalogModel, type OfferedModels } 
 
 /** Where a model runs, in words: "Claude Code", or the API it is called through. */
 const RUNS_THROUGH: Readonly<Record<string, string>> = Object.freeze({ "claude-code-cli": "Claude Code", "codex-cli": "Codex", "antigravity-cli": "Antigravity", "gemini-cli": "Gemini CLI",
-  "anthropic-messages": "Anthropic API", "openai-responses": "OpenAI API", "gemini-native": "Gemini API", "openai-compatible-chat": "an OpenAI-compatible endpoint" });
+  "anthropic-messages": "Anthropic API", "openai-responses": "OpenAI API", "gemini-native": "Gemini API", "openai-chat": "an OpenAI-compatible endpoint" });
 export const runsThrough = (transport: string): string => RUNS_THROUGH[transport] ?? transport;
 
 /**

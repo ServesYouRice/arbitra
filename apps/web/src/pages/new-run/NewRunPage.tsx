@@ -1,7 +1,7 @@
 import "./new-run.css";
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { useConfigurations } from "../../api/configurations.js";
-import type { PreflightDiagnostic, PreflightResult } from "../../api/runs.js";
+import type { PreflightResult } from "../../api/runs.js";
 import { useLoaded } from "../../api/runs.js";
 import type { GraphListing } from "../../api/workflows.js";
 import { useApis } from "../../app/apis.js";
@@ -13,11 +13,11 @@ import { modelProfiles, record } from "../run/models.js";
 import { withStrongestOffered } from "./model-catalog.js";
 import { getIn, modeOf, placeholders, setIn, suggestedName, withGraph, type Draft, type Mode } from "./draft.js";
 import { DEFAULT_START, SCRIPTED_AUDIT, TEMPLATES } from "./templates.js";
-import { isSubscriptionAudit } from "./depth.js";
+import { isDepthLineup } from "./depth.js";
 import { leftOut, reading, withPath } from "./reading.js";
 import { HowThorough, PlanScope, StepsList } from "./HowThorough.js";
 import { OverLimit, WhatToRead } from "./WhatToRead.js";
-import { antigravityState, offeredModels, ThisComputer, type DetectedEnvironment } from "./ThisComputer.js";
+import { antigravityState, missingClis, offeredModels, ThisComputer, type DetectedEnvironment } from "./ThisComputer.js";
 import { ChangeModels } from "./ChangeModels.js";
 import { MoreOptions, optionsSummary } from "./MoreOptions.js";
 import { FeatureFields, TestingFields } from "./ModeFields.js";
@@ -223,10 +223,10 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
   };
 
   const startKey = from ?? (graph === null ? DEFAULT_START : "graph");
-  const subscription = isSubscriptionAudit(draft);
+  const depthLineup = isDepthLineup(draft);
   const scripted = mode === "audit" && Object.keys(record(draft["models"])).length === 0;
   const transports = new Set(modelProfiles(draft).map(({ transport }) => transport));
-  const usesApiKeys = ((getIn(draft, ["workflow", "modelExecution", "endpoints"]) ?? []) as readonly { readonly apiKeyEnvVar?: unknown }[]).some(({ apiKeyEnvVar }) => typeof apiKeyEnvVar === "string");
+  const keyVariables = ((getIn(draft, ["workflow", "modelExecution", "endpoints"]) ?? []) as readonly { readonly apiKeyEnvVar?: unknown }[]).flatMap(({ apiKeyEnvVar }) => typeof apiKeyEnvVar === "string" ? [apiKeyEnvVar] : []);
   const auditors = result?.estimate?.estimate.auditors ?? null;
   let step = 0;
   const number = (): number => { step += 1; return step; };
@@ -256,25 +256,25 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
         <span className="lineup-card__when">Fixed detectors stand in for the finders. Nothing is spent: the run shows the steps work, not what models find.</span>
         <span><button className="button" type="button" onClick={() => navigate({ page: "new-run", from: DEFAULT_START, graph: null }, { replace: true })}>Audit with Claude Code and Codex instead</button></span>
       </div></div>
-        : <HowThorough draft={draft} setDraft={setDraft} lines={lines} antigravity={antigravityState(environment)} />}
+        : <HowThorough draft={draft} setDraft={setDraft} lines={lines} offered={offered} antigravity={antigravityState(environment)} />}
       <LineupChoice startKey={startKey} graph={graph} loaded={loaded} configurations={configurations} onChoose={(key) => navigate({ page: "new-run", from: key, graph: null }, { replace: true })} />
       <OpenValues open={open} />
-      {scripted ? null : <details className="disclosure change-disclosure" open={open.length > 0 || !subscription}>
-        <summary>Change models</summary>
+      {scripted ? null : <details className="fold change-disclosure" open={open.length > 0}>
+        <summary>Change models: each model's details, and which model does what</summary>
         <ChangeModels draft={draft} edit={edit} offered={offered} />
       </details>}
     </Section> : <Section number={number()} title={mode === "feature" ? "What to plan" : "What to test"} id="what">
       {mode === "feature" ? <FeatureFields draft={draft} edit={edit} /> : <TestingFields draft={draft} edit={edit} />}
       <LineupChoice startKey={startKey} graph={graph} loaded={loaded} configurations={configurations} onChoose={(key) => navigate({ page: "new-run", from: key, graph: null }, { replace: true })} />
       <OpenValues open={open} />
-      <details className="disclosure change-disclosure" open>
+      <details className="fold change-disclosure" open>
         <summary>Models</summary>
         <ChangeModels draft={draft} edit={edit} offered={offered} />
       </details>
     </Section>}
 
     {mode === "audit" && !scripted ? <Section number={number()} title="Steps" id="steps">
-      <StepsList draft={draft} setDraft={setDraft} />
+      <StepsList draft={draft} setDraft={setDraft} offered={offered} />
     </Section> : null}
 
     <Section number={number()} title="What to read" id="read">
@@ -288,18 +288,20 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
       <PlanScope draft={draft} setDraft={setDraft} />
     </Section> : null}
 
-    <Section title="This computer" id="computer">
-      <ThisComputer environment={environment} failure={environmentFailure} transports={transports} apiKeys={usesApiKeys} subscription={subscription} onRefresh={() => { loadEnvironment(true); void runCheck(); }} />
+    <Section title="This computer" id="computer" aside={<>
+      {environment?.checkedAt === undefined ? null : <span className="note">checked {new Date(environment.checkedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span>}
+      <button className="button button--small" type="button" onClick={() => { loadEnvironment(true); void runCheck(); }}>Check again</button></>}>
+      <ThisComputer environment={environment} failure={environmentFailure} transports={transports} keyVariables={keyVariables} subscription={depthLineup} />
     </Section>
 
-    <details className="disclosure more" id="more">
+    <details className="more" id="more">
       <summary>More options · {optionsSummary(draft)}</summary>
       <MoreOptions draft={draft} edit={edit} setDraft={setDraft} listing={listing.value} recommendedLimit={lines === null || auditors === null ? null : recommendedTokenLimit(lines, auditors)}
         onUseLimit={(value) => { autoLimit.current = value; edit(TOKEN_LIMIT, value); }} onImport={(file) => { void importFile(file); }} />
     </details>
 
     <section aria-label="start" className="start-bar">
-      <Readiness project={project} checking={checking || !fresh} error={checkError} result={fresh ? result : null} open={open} lines={read?.lines ?? null} />
+      <Readiness project={project} checking={checking || !fresh} error={checkError} result={fresh ? result : null} open={open} lines={read?.lines ?? null} missing={missingClis(environment, transports)} />
       <div className="actions">
         <button className="button button--primary" disabled={busy !== null || project === ""} type="button" onClick={() => { void start(); }}>{busy === "starting" ? "starting" : busy === "saving" && naming === null ? "saving" : START[mode]}</button>
         {naming === null ? <button className="button" disabled={busy !== null} type="button" onClick={() => setNaming(loaded?.savedId != null ? loaded.name : `${project === "" ? "" : `${projectName(project)} · `}${String(draft["auditDepth"] ?? mode)}`)}>{loaded?.savedId != null ? `Save changes to “${loaded.name}”` : "Save as a lineup"}</button>
@@ -329,8 +331,9 @@ function rememberRepository(path: string): void {
   try { localStorage.setItem(RECENT_REPOSITORIES, JSON.stringify([path, ...recentRepositories().filter((entry) => entry !== path)].slice(0, 8))); } catch { /* not kept */ }
 }
 
-function Section({ number, title, id, children }: { readonly number?: number; readonly title: string; readonly id: string; readonly children: ReactNode }): ReactElement {
-  return <section aria-labelledby={`${id}-title`} className="form-section"><h2 className="panel-title" id={`${id}-title`}>{number === undefined ? title : `${number} · ${title}`}</h2>{children}</section>;
+function Section({ number, title, id, aside, children }: { readonly number?: number; readonly title: string; readonly id: string; readonly aside?: ReactNode; readonly children: ReactNode }): ReactElement {
+  const heading = <h2 className="panel-title" id={`${id}-title`}>{number === undefined ? title : `${number} · ${title}`}</h2>;
+  return <section aria-labelledby={`${id}-title`} className="form-section">{aside === undefined ? heading : <div className="form-section__head">{heading}{aside}</div>}{children}</section>;
 }
 
 /** The project in one line once it is read: how much the run reads, or what stopped the reading, in words. */
@@ -371,27 +374,40 @@ function OpenValues({ open }: { readonly open: readonly string[] }): ReactElemen
     <ul aria-label="placeholders to fill in" className="plain-list">{open.map((path) => <li key={path}><code>{path}</code></li>)}</ul></div>;
 }
 
-/** Whether the run can start, said once beside Start: what is missing, each problem in words with its code folded. */
-function Readiness({ project, checking, error, result, open, lines }: { readonly project: string; readonly checking: boolean; readonly error: string | null; readonly result: PreflightResult | null; readonly open: readonly string[]; readonly lines: number | null }): ReactElement {
+/** The CLIs a lineup needs that this computer lacks, as one clause: "Claude Code and Codex CLI are not installed". */
+function missingWords(missing: readonly { readonly name: string; readonly state: string }[]): string {
+  const byState = new Map<string, string[]>();
+  for (const { name, state } of missing) byState.set(state, [...(byState.get(state) ?? []), name]);
+  return [...byState].map(([state, names]) => `${names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`} ${names.length === 1 ? "is" : "are"} ${state}`).join("; ");
+}
+
+/**
+ * Whether the run can start, said once beside Start in one line: what is missing, pointing up to where it shows.
+ * This computer's problems are not repeated; the lineup's own are listed one line each; every recorded code, and
+ * the notes the check adds, are one click down.
+ */
+function Readiness({ project, checking, error, result, open, lines, missing }: { readonly project: string; readonly checking: boolean; readonly error: string | null; readonly result: PreflightResult | null; readonly open: readonly string[]; readonly lines: number | null; readonly missing: readonly { readonly name: string; readonly state: string }[] }): ReactElement {
   if (project === "") return <p className="note">Choose the project first.</p>;
   if (error !== null) return <p className="state" data-state="refuted">Not ready: the project could not be read (above).</p>;
   if (result === null) return <p className="note" role="status">{checking ? "checking…" : ""}</p>;
   const errors = result.diagnostics.filter(({ severity }) => severity === "error");
   const warnings = result.diagnostics.filter(({ severity }) => severity === "warning");
+  const computer = errors.filter(({ scope, code }) => scope === "environment" && code.startsWith("SUBSCRIPTION_CLI_"));
+  const others = errors.filter((item) => !computer.includes(item));
   const ready = result.ready && open.length === 0 && lines !== 0;
+  const headline = ready ? "Ready to start." : result.estimateError !== null ? "Not ready: the project could not be read (above)."
+    : lines === 0 ? "Not ready: everything is left out."
+    : computer.length > 0 ? `Not ready: ${missing.length === 0 ? `${counted(computer.length, "problem")} with the CLIs on this computer` : missingWords(missing)}; see This computer above.`
+    : !result.valid ? `Not ready: ${counted(errors.length, "problem")} in the lineup.`
+    : errors.length > 0 ? `Not ready: ${counted(errors.length, "problem")} on this computer.` : `Not ready: ${counted(open.length, "value")} still to fill in.`;
   return <div aria-label="check result" className="readiness" role="region">
-    <p className="state" data-state={ready ? "verified" : "refuted"}>{ready ? "Ready to start." : result.estimateError !== null ? "Not ready: the project could not be read (above)."
-      : lines === 0 ? "Not ready: everything is left out." : !result.valid ? `Not ready: ${counted(errors.length, "problem")} in the lineup.` : errors.length > 0 ? `Not ready: ${counted(errors.length, "problem")} on this computer.` : `Not ready: ${counted(open.length, "value")} still to fill in.`}
-      {result.modelBacked === false ? " It calls no model: scripted detectors." : ""}</p>
-    {errors.length + warnings.length === 0 ? null : <ul aria-label="problems" className="plain-list diagnostics">{[...errors, ...warnings].map((item, index) => <Diagnostic item={item} key={`${item.code}-${item.path}-${index}`} />)}</ul>}
+    <p className="state" data-state={ready ? "verified" : "refuted"}>{headline}{result.modelBacked === false ? " It calls no model: scripted detectors." : ""}</p>
+    {others.length === 0 ? null : <ul aria-label="problems" className="plain-list diagnostics">{others.map((item, index) => <li className="diagnostic__words" key={`${item.code}-${index}`}>{item.message}</li>)}</ul>}
+    {errors.length + warnings.length === 0 ? null : <details className="fold"><summary>{warnings.length === 0 ? "recorded codes" : `recorded codes, and ${counted(warnings.length, "note")} from the check`}</summary>
+      <ul className="plain-list diagnostics">{[...errors, ...warnings].map((item, index) => <li key={`${item.code}-${item.path}-${index}`}><code>{item.code}</code> · {item.scope === "environment" ? "this computer" : <code>{item.path}</code>}
+        {item.severity === "warning" ? <span className="diagnostic__words"> {item.message}</span> : null}</li>)}</ul>
+    </details>}
   </div>;
-}
-
-function Diagnostic({ item }: { readonly item: PreflightDiagnostic }): ReactElement {
-  return <li className="state" data-state={item.severity === "error" ? "refuted" : "degraded"}>
-    <p className="diagnostic__words">{item.severity === "warning" ? "Note: " : ""}{item.message}</p>
-    <details><summary>recorded code</summary><code>{item.code}</code> · {item.scope === "environment" ? "this computer" : <code>{item.path}</code>}</details>
-  </li>;
 }
 
 /** Another lineup: a saved one, the settings of a run, or a template for another way to run. */

@@ -1,12 +1,19 @@
-/* New run: one column of numbered sections on the ground, each under a hairline; the lineup cards side by side. */
-.new-run { display: grid; gap: var(--s5); max-width: 1080px; min-width: 0; }
-.form-section { display: grid; gap: var(--s3); min-width: 0; padding-block-start: var(--s4); border-block-start: var(--hairline) solid var(--line); }
+/* New run: one 1080px column, centred in the page, of numbered sections 52px apart (the chosen mockup, Start A), a
+   soft hairline between them as the design language asks.
+   Prose is 16px sans, data 13px mono, labels 11px; lists and tables sit in hairline boxes on the surface. */
+.new-run { display: grid; gap: var(--s4); width: 100%; max-width: 1080px; margin-inline: auto; min-width: 0; }
+.form-section { display: grid; gap: var(--s3); min-width: 0; padding-block-start: var(--s5); border-block-start: var(--hairline) solid var(--line-soft); }
+.form-section__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); }
+.form-section__head > .button { margin-inline-start: auto; }
+.new-run .button--small { min-height: var(--s5); padding: 0 var(--s3); }
 .field-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: var(--s3); align-items: start; }
-.tick { display: flex; gap: var(--s2); align-items: flex-start; min-height: var(--row-h); padding-block: var(--s1); color: var(--ink); font: 400 var(--t-micro)/var(--lh-body) var(--font-body); cursor: pointer; }
+.tick { display: flex; gap: var(--s2); align-items: flex-start; color: var(--ink); font: 400 var(--t-micro)/var(--lh-body) var(--font-body); cursor: pointer; }
 .tick > span { min-width: 0; }
-.tick .field__hint { display: block; margin-block-start: var(--s1); }
-.tick input, .reading-table input, .choice input, .lineup-card__head input { width: var(--s4); height: var(--s4); min-height: 0; margin: 0; padding: 0; flex: none; accent-color: var(--ink); }
-.tick input:disabled { cursor: not-allowed; }
+.tick .field__hint { display: block; }
+.tick input, .reading-table input, .choice input, .choice-inline input, .lineup-card__head input, .generated__row input { width: var(--s4); height: var(--s4); min-height: 0; margin: 0; padding: 0; flex: none; accent-color: var(--ink); }
+.tick input:disabled, .generated__row input:disabled { cursor: not-allowed; }
+.fold > summary { width: fit-content; cursor: pointer; color: var(--mute); font: 400 var(--t-micro)/var(--lh-body) var(--font-data); }
+.fold[open] > summary { margin-block-end: var(--s2); }
 
 /* The project: the path takes the width, Browse at its end and below it on a phone; recent projects one click each. */
 .repository-row { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: stretch; }
@@ -14,68 +21,99 @@
 .recent { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
 .project-line { color: var(--ink); }
 .problem-line { display: grid; gap: var(--s1); }
-.problem-line details > summary, .diagnostics details > summary { cursor: pointer; color: var(--mute); width: fit-content; }
+.problem-line details > summary { cursor: pointer; color: var(--mute); width: fit-content; }
 
-/* How thorough: a card per depth; the chosen one carries the ink rule, the others a hairline. */
+/* How thorough: how the models are reached, then a card per depth; the chosen card carries the ink rule. */
 .thorough { display: grid; gap: var(--s3); min-width: 0; }
-.lineup-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); gap: var(--s3); }
-.lineup-card { display: grid; align-content: start; gap: var(--s3); padding: var(--s4); background: var(--surface); border: var(--hairline) solid var(--line); cursor: pointer; min-width: 0; }
+.route { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s1) var(--s4); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); color: var(--ink); }
+.route__label { color: var(--mute); }
+.route .field__hint { flex-basis: 100%; }
+.choice-inline { display: inline-flex; align-items: center; gap: var(--s2); cursor: pointer; }
+.lineup-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--s3); }
+.lineup-card { display: flex; flex-direction: column; gap: var(--s3); padding: var(--s4); background: var(--surface); border: var(--hairline) solid var(--line); cursor: pointer; min-width: 0; }
 .lineup-card[data-chosen="true"] { border-color: var(--ink); }
-.lineup-card__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+.lineup-card__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3); }
 .lineup-card__name { color: var(--ink); font: 600 var(--t-lead)/var(--lh-tight) var(--font-display); letter-spacing: -0.02em; }
-.lineup-card__tag { margin-inline-start: auto; color: var(--mute); font: 500 var(--t-label)/var(--lh-tight) var(--font-display); letter-spacing: .14em; text-transform: uppercase; }
-.lineup-card__when { color: var(--body); font: 400 var(--t-micro)/var(--lh-body) var(--font-body); }
-.lineup-card__rows { display: grid; gap: var(--s2); padding-block: var(--s2); border-block: var(--hairline) solid var(--line-soft); }
-.lineup-card__row { display: grid; grid-template-columns: minmax(6rem, 8rem) minmax(0, 1fr); gap: var(--s2); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); }
+.lineup-card__tag { margin-inline-start: auto; padding: var(--s1) var(--s2); color: var(--ink); border: var(--hairline) solid var(--line); font: 500 var(--t-label)/var(--lh-tight) var(--font-display); letter-spacing: .14em; text-transform: uppercase; }
+.lineup-card__when { color: var(--body); font: 400 var(--t-body)/1.5 var(--font-body); }
+.lineup-card__rows { display: grid; gap: var(--s1); }
+.lineup-card__row { display: grid; grid-template-columns: 128px minmax(0, 1fr); gap: var(--s1) var(--s3); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); }
 .lineup-card__step { color: var(--mute); }
 .lineup-card__model { display: block; color: var(--ink); overflow-wrap: anywhere; }
 .lineup-card__role { color: var(--mute); }
-.lineup-card__usage { display: grid; gap: var(--s1); color: var(--body); font: 400 var(--t-micro)/var(--lh-body) var(--font-data); font-variant-numeric: tabular-nums; }
-.lineup-card__tokens { color: var(--ink); font-weight: 600; }
-.lineup-card__basis { color: var(--mute); font-family: var(--font-body); }
-.switch-row { display: grid; gap: var(--s1); }
+.lineup-card .link-button { align-self: flex-start; font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); }
+.lineup-card__usage { display: grid; gap: var(--s1); margin-block-start: auto; padding-block-start: var(--s3); border-block-start: var(--hairline) solid var(--line); color: var(--body); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); font-variant-numeric: tabular-nums; }
+.lineup-card__tokens { color: var(--ink); font: 600 var(--t-body)/var(--lh-tight) var(--font-data); }
+.lineup-card__basis { color: var(--mute); font-size: var(--t-label); }
+.third-finder { display: grid; gap: var(--s1); padding: var(--s3) var(--s4); background: var(--surface); border: var(--hairline) solid var(--line); }
+.third-finder__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s4); }
 .lineup-choice { display: grid; gap: var(--s1); max-width: 40rem; }
-.change-disclosure > summary { font-weight: 600; }
-.change-models { display: grid; gap: var(--s3); padding-block: var(--s3); min-width: 0; }
+.change-disclosure .change-models { padding-block: var(--s2); }
+.change-models { display: grid; gap: var(--s3); min-width: 0; }
 
-/* Steps: one row each, the switch and name, what it does, and who does it. */
+/* A seat: the model and its effort, chosen in place. */
+.seat { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--s1); min-width: 0; }
+.seat select { min-height: 0; max-width: 100%; padding: var(--s1) var(--s2); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); color: var(--ink); }
+.seat .note { font-family: var(--font-data); }
+/* A model the person names: the endpoint's address, the model and the key variable, under the seat. */
+.add-model { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: var(--s2) var(--s3); flex-basis: 100%; padding: var(--s3); border: var(--hairline) solid var(--line); background: var(--sunken); }
+.add-model__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); grid-column: 1 / -1; }
+
+/* Steps: one compact row each, the switch and name, then who does it; what it does is one muted line under that. */
 .steps { display: grid; margin: 0; padding: 0; list-style: none; background: var(--surface); border: var(--hairline) solid var(--line); }
-.step { display: grid; grid-template-columns: minmax(10rem, 14rem) minmax(0, 1fr); gap: var(--s1) var(--s4); padding: var(--s3) var(--s4); }
+.step { display: grid; grid-template-columns: minmax(10rem, 13rem) minmax(0, 1fr); gap: var(--s1) var(--s4); align-items: center; padding: var(--s2) var(--s4); }
 .step + .step { border-block-start: var(--hairline) solid var(--line-soft); }
-.step[data-on="false"] .step__models { color: var(--mute); }
-.step__name { display: grid; align-content: start; gap: var(--s1); color: var(--ink); font: 600 var(--t-micro)/var(--lh-tight) var(--font-data); }
-.step__name .tick { min-height: 0; padding: 0; font: inherit; }
+.step__name { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s1) var(--s2); color: var(--ink); font: 600 var(--t-micro)/var(--lh-tight) var(--font-data); }
+.step__name .tick { font: inherit; color: inherit; align-items: center; }
 .step__always { color: var(--mute); font: 500 var(--t-label)/var(--lh-tight) var(--font-display); letter-spacing: .14em; text-transform: uppercase; }
-.step__explain { color: var(--body); font: 400 var(--t-micro)/var(--lh-body) var(--font-body); }
-.step__models { grid-column: 2; color: var(--ink); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); overflow-wrap: anywhere; }
+.step__seats { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s1) var(--s4); min-width: 0; }
+.step__seat { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--s1) var(--s2); min-width: 0; }
+.step__label { color: var(--mute); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); }
+.step__models { color: var(--mute); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); overflow-wrap: anywhere; }
+.step__explain { grid-column: 2; color: var(--mute); font: 400 var(--t-micro)/var(--lh-body) var(--font-body); }
+.step__more { display: inline; margin-inline-start: var(--s2); }
+.step__more > summary { display: inline; cursor: pointer; color: var(--body); font-family: var(--font-data); text-decoration: underline; text-underline-offset: 2px; }
+.step__more[open] { display: block; margin-inline-start: 0; color: var(--body); }
 
-/* What to read: the folder table, the tests, and the files left out. */
+/* What to read: the folder table, the tests and the generated files, each in a hairline box. */
 .reading { display: grid; gap: var(--s3); min-width: 0; }
-.reading-table td:first-child, .reading-table th:first-child { width: var(--s5); }
+.reading .table-scroll, .box-row, .box-fold { background: var(--surface); border: var(--hairline) solid var(--line); }
+.reading-table th, .reading-table td { padding: var(--s2) var(--s4); }
+.reading-table td:first-child, .reading-table th:first-child { width: var(--s5); padding-inline-end: 0; }
 .reading-table td:nth-child(n+3), .reading-table th:nth-child(n+3) { text-align: end; }
 .reading-table td:nth-child(n+3) { white-space: nowrap; }
-.reading-table td:nth-child(2) { overflow-wrap: break-word; }
+.reading-table td:nth-child(2) { overflow-wrap: break-word; color: var(--ink); }
 .reading-table tr[data-read="false"] td { color: var(--mute); }
-.generated { padding-block: var(--s2); }
-.generated .field__hint { display: block; }
+.box-row { padding: var(--s3) var(--s4); }
+.box-row__title { color: var(--ink); }
+.box-fold > summary { padding: var(--s3) var(--s4); cursor: pointer; color: var(--ink); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); }
+.generated { gap: 0; border-block-start: var(--hairline) solid var(--line); }
+.generated__row { display: grid; grid-template-columns: var(--s4) minmax(0, 1.4fr) minmax(0, 1fr) 6rem; gap: var(--s3); align-items: center; padding: var(--s1) var(--s4); font: 400 var(--t-micro)/var(--lh-body) var(--font-data); cursor: pointer; }
+.generated li + li .generated__row { border-block-start: var(--hairline) solid var(--line-soft); }
+.generated__path { color: var(--ink); overflow-wrap: anywhere; }
+.generated__why { color: var(--mute); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.generated__lines { text-align: end; color: var(--body); }
+.generated__note { padding: var(--s2) var(--s4) var(--s3); }
 
-/* What goes into the plan: two choices, each with what it means. */
-.plan-scope { display: grid; gap: var(--s2); }
-.choice { display: flex; gap: var(--s2); align-items: flex-start; padding: var(--s3); background: var(--surface); border: var(--hairline) solid var(--line); cursor: pointer; }
+/* What goes into the plan: two choices side by side, each with what it means. */
+.plan-scope { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--s3); }
+.choice { display: flex; gap: var(--s2); align-items: flex-start; padding: var(--s3) var(--s4); background: var(--surface); border: var(--hairline) solid var(--line); cursor: pointer; }
 .choice > span { display: grid; gap: var(--s1); min-width: 0; }
 .choice__name { color: var(--ink); font: 600 var(--t-micro)/var(--lh-tight) var(--font-data); }
 
-/* This computer. */
-.computer { display: grid; gap: var(--s3); min-width: 0; }
-.computer-list > li { display: grid; gap: var(--s1); padding-block: var(--s1); }
-.computer-cli { color: var(--ink); overflow-wrap: anywhere; }
-.computer-path { color: var(--mute); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); overflow-wrap: anywhere; }
-.computer-how { display: grid; gap: var(--s2); font-size: var(--t-micro); }
-.computer-how strong { color: var(--ink); font-weight: 600; }
+/* This computer: one row per CLI in a hairline box. */
+.computer { display: grid; gap: var(--s2); min-width: 0; }
+.computer .table-scroll { background: var(--surface); border: var(--hairline) solid var(--line); }
+.computer-table th, .computer-table td { padding: var(--s2) var(--s4); vertical-align: middle; }
+.computer-table th { color: var(--ink); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); letter-spacing: 0; text-transform: none; white-space: nowrap; }
+.computer-table td.state { border-inline-start-width: var(--stripe); }
+.computer-table tr:last-child th, .computer-table tr:last-child td { border-block-end: 0; }
+.computer-paths { font: 400 var(--t-micro)/var(--lh-body) var(--font-data); }
 
 /* More options: one fold, its closed line saying what the options are set to. */
-.more > summary { font-weight: 600; overflow-wrap: anywhere; }
-.more-options { display: grid; gap: var(--s4); padding-block: var(--s3) var(--s4); min-width: 0; }
+.more { border-block: var(--hairline) solid var(--line); }
+.more > summary { padding-block: var(--s4); cursor: pointer; color: var(--ink); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); overflow-wrap: anywhere; }
+.more-options { display: grid; gap: var(--s4); padding-block: 0 var(--s4); min-width: 0; }
 .scope, .roles { display: grid; gap: var(--s3); margin: 0; padding: var(--s3); border: var(--hairline) solid var(--line-soft); border-radius: var(--radius); min-width: 0; }
 .role-multiple { margin: 0; padding: 0; border: 0; }
 .role-multiple legend { padding: 0; color: var(--mute); }
@@ -88,20 +126,28 @@ tr[data-placeholder="true"] td:first-child { font-weight: 600; color: var(--ink)
 .change-models .table input, .change-models .table select { min-width: 12rem; }
 .model-choice { display: grid; gap: var(--s1); }
 
-/* Start: the one primary action, what stops it, and what happened. */
-.start-bar { display: grid; gap: var(--s3); padding-block-start: var(--s4); border-block-start: var(--hairline) solid var(--ink); }
+/* Start: what stops it in one line, then the one primary action. */
+.start-bar { display: grid; gap: var(--s3); }
 .readiness { display: grid; gap: var(--s2); }
-.diagnostics > li { display: grid; gap: var(--s1); padding-block: var(--s1); }
+.diagnostics > li { padding-block: var(--s1); }
 .diagnostic__words { max-width: var(--measure); color: var(--body); font: 400 var(--t-micro)/var(--lh-body) var(--font-body); overflow-wrap: anywhere; }
 .save-as { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: end; }
 
 @media (max-width: 700px) {
-  .new-run { gap: var(--s4); }
+  .form-section { padding-block-start: var(--s4); }
   .lineup-card { padding: var(--s3); }
-  .step { grid-template-columns: minmax(0, 1fr); padding: var(--s3); }
-  .step__models { grid-column: 1; }
+  .step { grid-template-columns: minmax(0, 1fr); padding: var(--s2) var(--s3); }
+  .step__explain { grid-column: 1; }
+  .generated__row { grid-template-columns: var(--s4) minmax(0, 1fr) 4rem; }
+  .generated__why { display: none; }
+  .reading-table th, .reading-table td, .computer-table th, .computer-table td { padding-inline: var(--s2); }
+  /* A CLI's row stacks on a phone: its name, then what it is and whether the lineup uses it. */
+  .computer-table tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); border-block-end: var(--hairline) solid var(--line-soft); }
+  .computer-table th { grid-column: 1 / -1; border-block-end: 0; padding-block-end: 0; }
+  .computer-table td { border-block-end: 0; }
+  .computer-table td:empty { display: none; }
 }
 @media (forced-colors: active) {
-  .form-section, .lineup-card, .lineup-card__rows, .steps, .step, .choice, .scope, .roles, .start-bar, input.placeholder, select.placeholder { border-color: CanvasText; }
+  .form-section, .add-model, .lineup-card, .lineup-card__usage, .third-finder, .steps, .step, .choice, .scope, .roles, .more, .reading .table-scroll, .box-row, .box-fold, .generated, .computer .table-scroll, input.placeholder, select.placeholder, .lineup-card__tag { border-color: CanvasText; }
   .lineup-card[data-chosen="true"] { border-color: Highlight; }
 }

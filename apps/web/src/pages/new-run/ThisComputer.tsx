@@ -15,33 +15,36 @@ export function antigravityState(environment: DetectedEnvironment | null): "read
   return environment === null ? "unknown" : cli?.state === "ready" ? "ready" : "missing";
 }
 
+/** The CLIs the lineup uses that are not ready on this computer, and why, in words: what Start needs first. */
+export function missingClis(environment: DetectedEnvironment | null, transports: ReadonlySet<string>): readonly { readonly name: string; readonly state: string }[] {
+  return (environment?.clis ?? []).filter(({ transport, state }) => transports.has(transport) && state !== "ready").map(({ name, state }) => ({ name, state: state.replaceAll("_", " ") }));
+}
+
 /**
- * This computer: each CLI arbitra found, where, whether it is signed in, what it offers, and whether the lineup uses
- * it; then how models are found and chosen, which the setup did not say before (inventory, October 25, 2026).
+ * This computer: one row per CLI arbitra looked for, with its version, whether it is signed in, what it offers and
+ * whether the lineup uses it. How to install one that is missing, where each was found, and how models are found and
+ * chosen are each one click down.
  */
-export function ThisComputer({ environment, failure, transports, apiKeys, subscription, onRefresh }: { readonly environment: DetectedEnvironment | null; readonly failure: string | null; readonly transports: ReadonlySet<string>; readonly apiKeys: boolean; readonly subscription: boolean; readonly onRefresh: () => void }): ReactElement {
-  const checked = environment?.checkedAt === undefined ? null : new Date(environment.checkedAt);
-  const keys = Object.entries(environment?.apiKeys ?? {}).filter(([, set]) => set).map(([name]) => name);
+export function ThisComputer({ environment, failure, transports, keyVariables, subscription }: { readonly environment: DetectedEnvironment | null; readonly failure: string | null; readonly transports: ReadonlySet<string>; readonly keyVariables: readonly string[]; readonly subscription: boolean }): ReactElement {
   return <div className="computer">
     {failure !== null ? <p className="state" data-state="degraded">The CLIs on this computer could not be checked · {failure}</p>
       : environment === null ? <p className="state" data-state="unexamined" role="status">Looking for the CLIs on this computer</p>
-      : <ul aria-label="CLIs on this computer" className="plain-list computer-list">{environment.clis.map((cli) => {
+      : <div className="table-scroll"><table aria-label="CLIs on this computer" className="table computer-table"><tbody>{environment.clis.map((cli) => {
         const used = transports.has(cli.transport);
         const gemini = (cli.models ?? []).filter(({ id }) => /gemini|argon/iu.test(id));
-        return <li className="state" data-state={cli.state === "ready" ? used ? "verified" : "unexamined" : used ? "refuted" : "degraded"} key={cli.name}>
-          <span className="computer-cli">{cli.name}{cli.version === null ? "" : ` ${cli.version}`} · {cli.state === "ready" ? cli.note : cli.state.replaceAll("_", " ")}{used ? "" : " · not in this lineup"}</span>
-          {cli.fix === null ? null : <span className="field__hint"> {cli.fix}</span>}
-          {gemini.length === 0 ? null : <span className="field__hint"> Offers {gemini.map(({ name }) => name).join(", ")}.</span>}
-          {cli.path === undefined || cli.path === null ? null : <span className="computer-path">found at <code>{cli.path}</code></span>}
-        </li>;
-      })}{apiKeys ? <li className="state" data-state={keys.length === 0 ? "unexamined" : "verified"}>API keys · {keys.length === 0 ? "none set" : keys.join(", ")}</li> : null}</ul>}
-    <div className="actions">
-      <button className="button" type="button" onClick={onRefresh}>Check again</button>
-      {checked === null ? null : <span className="note">checked at {checked.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span>}
-    </div>
-    <div className="prose computer-how">
-      <p><strong>How models are found.</strong> arbitra asks each CLI on this computer for its version and whether it is signed in; no model is called. Claude Code and Codex do not list their models, so their choices are the models arbitra knows to work through them. Antigravity lists the models your account can use, and only its Gemini models are offered, so a third finder stays independent of Claude and GPT.</p>
-      <p><strong>How they are chosen.</strong> {subscription ? "Each card names the model and effort of every step, in the CLI’s own effort word. Opus 5.5 always checks the critical and high issues; Gemini only ever finds issues. Change models picks others." : "This lineup names its own models; Change models picks others. The first model of each list is the one the measured runs used."}</p>
-    </div>
+        return <tr data-ready={cli.state === "ready"} data-used={used} key={cli.name}>
+          <th scope="row">{cli.name}{cli.version === null ? "" : ` ${cli.version}`}</th>
+          <td className="state" data-state={cli.state === "ready" ? "verified" : used ? "refuted" : "degraded"}>{cli.state === "ready" ? cli.note : cli.state.replaceAll("_", " ")}
+            {cli.fix === null ? null : <details className="fold"><summary>how to fix</summary><span className="field__hint">{cli.fix}</span></details>}</td>
+          <td>{gemini.length === 0 ? "" : `offers ${gemini.map(({ name }) => name).join(", ")}`}</td>
+          <td className={used ? undefined : "muted"}>{used ? "in this lineup" : "not in this lineup"}</td>
+        </tr>;
+      })}{keyVariables.length === 0 ? null : <tr><th scope="row">API keys</th><td>read from {keyVariables.join(", ")}; the check says if one is not set</td><td /><td>in this lineup</td></tr>}</tbody></table></div>}
+    {environment === null ? null : <details className="fold">
+      <summary>Where each was found, and how models are found and chosen</summary>
+      <ul className="plain-list computer-paths">{environment.clis.filter(({ path }) => typeof path === "string").map(({ name, path }) => <li key={name}>{name} · <code>{path}</code></li>)}</ul>
+      <p className="note">arbitra asks each CLI on this computer for its version and whether it is signed in; no model is called. Claude Code and Codex do not list their models, so their choices are the models arbitra knows to work through them. Antigravity lists the models your account can use, and only its Gemini models are offered, so a third finder stays independent of Claude and GPT.</p>
+      <p className="note">{subscription ? "Each card names the model and effort of every step, in the CLI's own effort word; the steps below change any of them. Opus 5.5 always checks the critical and high issues; Gemini only ever does optional work." : "This lineup names its own models; the steps below and Change models pick others."} Usage windows (five-hour, weekly) are not shown: arbitra does not know your plan.</p>
+    </details>}
   </div>;
 }

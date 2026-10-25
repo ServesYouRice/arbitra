@@ -45,20 +45,18 @@ export function WhatToRead({ files, complete, suggestions, exclude, onExclude, o
         <td>{entry}</td><td colSpan={2}>not counted</td><td>left out</td>
       </tr>)}</tbody>
     </table></div>
-    {tests.length === 0 ? <p className="note">No tests found by their names or folders.</p> : <div className="switch-row">
-      <label className="tick"><input aria-label="audit the tests" checked={testsOn} type="checkbox" onChange={(event) => onExclude(withTests(exclude, files, event.target.checked))} />
-        <span>Audit the tests · <span className="mono">{testsOn ? `${read.testLines.toLocaleString("en")} of these lines (${share(read.testLines, read.lines)})` : `${sum(tests).toLocaleString("en")} lines left out`}</span></span></label>
-      <p className="field__hint">On four runs, 6 to 15% of the confirmed issues were in tests, mostly tests that cannot catch the defect they are named for; parts holding only tests took about 4 to 7% of the tokens.</p>
-    </div>}
-    {suggestions.length === 0 ? null : <details className="disclosure" open>
-      <summary>Left out · {counted(generated.length, "file")} that look{generated.length === 1 ? "s" : ""} generated, vendored or minified · {sum(generated).toLocaleString("en")} lines</summary>
+    {tests.length === 0 ? <p className="note">No tests found by their names or folders.</p> : <label className="box-row tick"><input aria-label="audit the tests" checked={testsOn} type="checkbox" onChange={(event) => onExclude(withTests(exclude, files, event.target.checked))} />
+      <span><span className="mono box-row__title">Audit the tests too · {testsOn ? `${read.testLines.toLocaleString("en")} of these lines (${share(read.testLines, read.lines)})` : `${sum(tests).toLocaleString("en")} lines left out`}</span>
+        <span className="field__hint">On four runs, 6 to 15% of confirmed issues were in tests, mostly tests that cannot catch the defect they are named for.</span></span></label>}
+    {suggestions.length === 0 ? null : <details className="box-fold">
+      <summary>Left out · {counted(generated.length, "generated file")} · {sum(generated).toLocaleString("en")} lines</summary>
       <ul aria-label="generated files" className="plain-list generated">{suggestions.map(({ path, lines, reason }) => {
         const out = exclude.includes(path);
         const above = !out && leftOut(exclude, path);
-        return <li key={path}><label className="tick"><input aria-label={`leave out ${path}`} checked={out || above} disabled={above} type="checkbox" onChange={(event) => onSuggestion(path, event.target.checked)} />
-          <span><span className="mono">{path}</span> · {lines.toLocaleString("en")} lines<span className="field__hint"> {above ? "Its folder is left out." : reason}</span></span></label></li>;
+        return <li key={path}><label className="generated__row"><input aria-label={`leave out ${path}`} checked={out || above} disabled={above} type="checkbox" onChange={(event) => onSuggestion(path, event.target.checked)} />
+          <span className="generated__path">{path}</span><span className="generated__why">{above ? "its folder is left out" : reason}</span><span className="generated__lines">{lines.toLocaleString("en")}</span></label></li>;
       })}</ul>
-      <p className="field__hint">An audit of them reports defects in code nobody edits. Untick one to read it anyway.</p>
+      <p className="field__hint generated__note">Generated, vendored or minified: an audit of them reports defects in code nobody edits. Untick one to read it anyway.</p>
     </details>}
     {uncounted.length === 0 ? null : <p className="note">Left out paths are not counted: without them the project is more than a run reads.</p>}
   </div>;

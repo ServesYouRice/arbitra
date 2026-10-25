@@ -1,7 +1,7 @@
-import subscriptionAuditGemini from "../../../../../examples/model-backed/subscription-audit-gemini.json" with { type: "json" };
 import { record } from "../run/models.js";
 import { getIn, setIn, type Draft } from "./draft.js";
 import { MODEL_CATALOG, modelSettings } from "./model-catalog.js";
+import { profileFor, routeOf, transportFor, vendorOf, withEndpoint, withoutUnboundEndpoints } from "./routes.js";
 
 /**
  * Depth presets for a subscription audit (Claude Code and Codex): a depth is the models and the effort of each step, in
@@ -66,10 +66,17 @@ const EXTRA: Readonly<Record<Exclude<Alias, "auditor-a" | "auditor-b">, "auditor
 const execution = (draft: Draft) => record(getIn(draft, ["workflow", "modelExecution"]));
 const transportOf = (draft: Draft, alias: string) => record(record(draft["models"])[alias])["transport"];
 
-/** Whether the draft is an audit on Claude Code and Codex, the lineup the depth presets are written for. */
-export function isSubscriptionAudit(draft: Draft): boolean {
-  return draft["mode"] === "audit" && transportOf(draft, "auditor-a") === "claude-code-cli" && transportOf(draft, "auditor-b") === "codex-cli" && getIn(draft, ["workflow", "modelExecution", "modelEndpoints"]) !== undefined;
+/**
+ * Whether the draft is an audit the depth presets are written for: Claude as the first finder and GPT as the second,
+ * both through the CLIs on this computer or both through API keys (see routes.ts).
+ */
+export function isDepthLineup(draft: Draft): boolean {
+  return draft["mode"] === "audit" && routeOf(draft) !== null && vendorOf(transportOf(draft, "auditor-a"))?.provider === "anthropic"
+    && vendorOf(transportOf(draft, "auditor-b"))?.provider === "openai" && getIn(draft, ["workflow", "modelExecution", "modelEndpoints"]) !== undefined;
 }
+
+/** Whether the draft is a depth lineup on Claude Code and Codex, the subscription CLIs. */
+export function isSubscriptionAudit(draft: Draft): boolean { return isDepthLineup(draft) && routeOf(draft) === "cli"; }
 
 /** How many finders the draft runs, by its preset (the earlier names count too). */
 export function findersOf(draft: Draft): FinderCount {
@@ -84,7 +91,7 @@ export function findersOf(draft: Draft): FinderCount {
  */
 export function withDepth(draft: Draft, depth: Depth): Draft {
   let next = setIn(draft, ["auditDepth"], depth);
-  if (!isSubscriptionAudit(draft)) return next;
+  if (!isDepthLineup(draft)) return next;
   const preset = DEPTHS[depth];
   const endpoints = record(execution(draft)["modelEndpoints"]);
   for (const [alias, base] of Object.entries(EXTRA)) {
@@ -102,6 +109,8 @@ export function withDepth(draft: Draft, depth: Depth): Draft {
   }
   next = setIn(next, ["workflow", "modelExecution", "roles"], { ...preset.roles });
   next = setIn(next, ["workflow", "modelExecution", "stageEffort"], { discovery: discoveryEffort(preset.discovery, findersOf(next)), ...preset.efforts });
+  // A profile one step had of its own (a model chosen for that step) goes: the depth chooses every step again.
+  next = withoutUnusedProfiles(next);
   return searching(next) ? withVariantSearch(next, true) : next;
 }
 
@@ -120,9 +129,9 @@ const searching = (draft: Draft) => getIn(draft, ["workflow", "variantSearch"]) 
  */
 export function withVariantSearch(draft: Draft, on: boolean): Draft {
   let next = setIn(draft, ["workflow", "variantSearch"], on);
-  if (!isSubscriptionAudit(draft)) return next;
-  const gemini = transportOf(next, "auditor-c") === "antigravity-cli";
-  const sonnet = MODEL_CATALOG["claude-code-cli"]?.find(({ modelId }) => modelId === SONNET);
+  if (!isDepthLineup(draft)) return next;
+  const gemini = vendorOf(transportOf(next, "auditor-c"))?.family === "gemini";
+  const sonnet = MODEL_CATALOG[String(transportOf(next, "auditor-a"))]?.find(({ modelId }) => modelId === SONNET);
   if (on && !gemini && sonnet !== undefined) {
     let profile: Draft = record(record(next["models"])["auditor-a"]);
     for (const [path, value] of modelSettings(sonnet)) profile = setIn(profile, path, value);
@@ -139,35 +148,25 @@ function discoveryEffort(finders: DepthPreset["discovery"], count: FinderCount):
   return distinct.size === 1 ? [...distinct][0] as Level : levels;
 }
 
-const GEMINI = subscriptionAuditGemini as unknown as Draft;
-const GEMINI_ENDPOINT = (getIn(GEMINI, ["workflow", "modelExecution", "endpoints"]) as readonly { readonly id: string; readonly providerId: string; readonly transport: string }[]).find(({ transport }) => transport === "antigravity-cli");
-
 /**
- * The draft with two finders (Claude, GPT) or three (Gemini added through the Antigravity CLI). The third finder is
- * Gemini 3.8 Flash at high thinking at every depth, and only a finder: its findings are checked like any other.
- * Google's terms do not support driving the Antigravity CLI from another application on a consumer plan, so New
- * run says so where three are chosen.
+ * The draft with two finders (Claude, GPT) or three. The third is Gemini 3.8 Flash at high thinking by default, through
+ * Antigravity or Gemini's API as the lineup's route goes, and only a finder: its findings are checked like any other.
+ * Another model can take its place (assign.ts). Google's terms do not support driving the Antigravity CLI from another
+ * application on a consumer plan, so New run says so where it is chosen.
  */
 export function withFinders(draft: Draft, count: FinderCount): Draft {
-  if (!isSubscriptionAudit(draft) || GEMINI_ENDPOINT === undefined) return draft;
+  const transport = transportFor("google", routeOf(draft) ?? "cli");
+  if (!isDepthLineup(draft) || transport === undefined) return draft;
   const present = record(draft["models"])["auditor-c"] !== undefined;
   let next = setIn(draft, ["workflow", "preset"], count === 3 ? "audit-three-finders" : "audit-two-finders");
-  const endpoints = (execution(draft)["endpoints"] ?? []) as readonly { readonly id: string; readonly providerId: string }[];
   if (count === 3 && !present) {
-    const model = MODEL_CATALOG["antigravity-cli"]?.[0];
-    let profile: Draft = record(record(GEMINI["models"])["auditor-c"]);
-    if (model !== undefined) for (const [path, value] of modelSettings(model)) profile = setIn(profile, path, value);
-    next = setIn(next, ["models", "auditor-c"], profile);
-    if (!endpoints.some(({ id }) => id === GEMINI_ENDPOINT.id)) next = setIn(next, ["workflow", "modelExecution", "endpoints"], [...endpoints, GEMINI_ENDPOINT]);
-    next = setIn(next, ["workflow", "modelExecution", "modelEndpoints", "auditor-c"], GEMINI_ENDPOINT.id);
-    next = setIn(next, ["workflow", "modelExecution", "rateLimits", GEMINI_ENDPOINT.providerId], getIn(GEMINI, ["workflow", "modelExecution", "rateLimits", GEMINI_ENDPOINT.providerId]));
+    const added = withEndpoint(next, transport);
+    if (added === undefined) return draft;
+    next = setIn(added.draft, ["models", "auditor-c"], profileFor(transport, MODEL_CATALOG[transport]?.[0], {}));
+    next = setIn(next, ["workflow", "modelExecution", "modelEndpoints", "auditor-c"], added.endpoint);
   }
   if (count === 2 && present) {
-    next = setIn(setIn(next, ["models", "auditor-c"], undefined), ["workflow", "modelExecution", "modelEndpoints", "auditor-c"], undefined);
-    const bound = new Set(Object.values(record(execution(next)["modelEndpoints"])));
-    const kept = endpoints.filter(({ id }) => bound.has(id));
-    next = setIn(next, ["workflow", "modelExecution", "endpoints"], kept);
-    for (const provider of new Set(endpoints.map(({ providerId }) => providerId))) if (!kept.some(({ providerId }) => providerId === provider)) next = setIn(next, ["workflow", "modelExecution", "rateLimits", provider], undefined);
+    next = withoutUnboundEndpoints(setIn(setIn(next, ["models", "auditor-c"], undefined), ["workflow", "modelExecution", "modelEndpoints", "auditor-c"], undefined));
   }
   const adjusted = withFinderEfforts(next, count);
   return searching(adjusted) ? withVariantSearch(adjusted, true) : adjusted;
@@ -185,4 +184,22 @@ function withFinderEfforts(draft: Draft, count: FinderCount): Draft {
     return [stage, distinct.size === 1 && Object.keys(levels).length >= 2 ? [...distinct][0] : levels];
   }));
   return setIn(draft, ["workflow", "modelExecution", "stageEffort"], adjusted);
+}
+
+/**
+ * The draft without the profiles nothing uses: a profile that is not a finder and that no role names (one a step had
+ * of its own before it took another model), with its endpoint binding, its efforts and any endpoint left unbound.
+ */
+export function withoutUnusedProfiles(draft: Draft): Draft {
+  const named = new Set(Object.values(record(getIn(draft, ["workflow", "modelExecution", "roles"]))));
+  const unused = Object.keys(record(draft["models"])).filter((alias) => !alias.startsWith("auditor-") && !named.has(alias));
+  if (unused.length === 0) return draft;
+  let next = draft;
+  for (const alias of unused) next = setIn(setIn(next, ["models", alias], undefined), ["workflow", "modelExecution", "modelEndpoints", alias], undefined);
+  for (const [stage, value] of Object.entries(record(execution(next)["stageEffort"]))) {
+    if (typeof value !== "object" || value === null) continue;
+    const kept = Object.fromEntries(Object.entries(record(value)).filter(([alias]) => !unused.includes(alias)));
+    next = setIn(next, ["workflow", "modelExecution", "stageEffort", stage], Object.keys(kept).length === 0 ? undefined : kept);
+  }
+  return withoutUnboundEndpoints(next);
 }

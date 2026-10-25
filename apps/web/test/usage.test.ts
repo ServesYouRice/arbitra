@@ -9,7 +9,8 @@ describe("what a run will use, from measured runs", () => {
     // Inside the sizes measured, a time range from the slowest and the fastest minute per line.
     expect(rokbot.minutes).toEqual({ low: 70, high: 90 });
     expect(usageWords(rokbot)).toEqual({ tokens: "≈ 15.7M–18.3M tokens", vendors: "Claude Code ≈ 13.6M–15.9M · Codex ≈ 2M–2.4M", time: "1 h 10 – 1 h 30, not counting a pause for a usage limit",
-      basis: "basis: 3 runs at deep on October 23 and 24, 11,719 to 38,967 lines: 605 to 688 tokens a line, 40 min to 1 h 45. They reviewed the plan, which took 9 to 17% of their tokens; it is off here." });
+      basis: "basis: 3 runs at deep on October 23 and 24, 11,719 to 38,967 lines: 605 to 688 tokens a line, 40 min to 1 h 45. They reviewed the plan, which took 9 to 17% of their tokens; it is off here.",
+      short: "basis: 3 measured runs, 605–688 tokens a line" });
     const three = usage({ depth: "deep", finders: 3, reviewRound: false, critic: true, lines: 38_967 });
     expect(three.vendors.map(({ name }) => name)).toEqual(["Claude Code", "Codex", "Antigravity"]);
     expect(usageWords(three).basis).toBe("basis: 3 runs at deep on October 23 and 24, 11,719 to 38,967 lines: 605 to 688 tokens a line, 40 min to 1 h 45. They reviewed the plan too.");
@@ -34,7 +35,7 @@ describe("what a run will use, from measured runs", () => {
   it("says a depth or a review round no run has measured is not measured, and does not guess", () => {
     for (const depth of ["balanced", "cheap"]) {
       const words = usageWords(usage({ depth, finders: 2, reviewRound: false, critic: false, lines: 26_100 }));
-      expect(words).toEqual({ tokens: "not measured yet", vendors: null, time: "the first run of it measures it", basis: null });
+      expect(words).toEqual({ tokens: "not measured yet", vendors: null, time: "the first run of it measures it", basis: null, short: null });
     }
     // One review round was measured on three earlier runs, with Gemini as the third finder and no split by vendor.
     const reviewed = usage({ depth: "deep", finders: 3, reviewRound: true, critic: false, lines: 12_000 });

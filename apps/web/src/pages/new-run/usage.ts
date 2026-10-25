@@ -25,7 +25,8 @@ const SIZE_MARGIN = 0.1;
 /** Each vendor's share of a deep run's tokens, by finder count: rokbot ran two finders, nextra three. */
 const SHARES: Readonly<Record<2 | 3, readonly (readonly [string, number])[]>> = { 2: [["Claude Code", 0.87], ["Codex", 0.13]], 3: [["Claude Code", 0.81], ["Codex", 0.12], ["Antigravity", 0.07]] };
 
-export interface UsageInput { readonly depth: string; readonly finders: 2 | 3; readonly reviewRound: boolean; readonly critic: boolean; readonly lines: number | null }
+/** `names` says what reaches each finder in this lineup ("Anthropic's API", "the third finder"); the shares are the measured ones. */
+export interface UsageInput { readonly depth: string; readonly finders: 2 | 3; readonly reviewRound: boolean; readonly critic: boolean; readonly lines: number | null; readonly names?: readonly string[] }
 export interface Usage {
   readonly basis: Basis | null;
   readonly perLine: { readonly low: number; readonly high: number } | null;
@@ -47,7 +48,7 @@ export function usage(input: UsageInput): Usage {
   const perThousandLines = { low: Math.min(...speeds), high: Math.max(...speeds) };
   if (input.lines === null) return { basis, perLine, tokens: null, vendors: [], minutes: null, perThousandLines, input };
   const tokens = { low: input.lines * perLine.low, high: input.lines * perLine.high };
-  const vendors = input.reviewRound ? [] : SHARES[input.finders].map(([name, share]) => ({ name, low: Math.round(tokens.low * share), high: Math.round(tokens.high * share) }));
+  const vendors = input.reviewRound ? [] : SHARES[input.finders].map(([name, share], index) => ({ name: input.names?.[index] ?? name, low: Math.round(tokens.low * share), high: Math.round(tokens.high * share) }));
   // A project within a tenth of the sizes measured counts as measured: nextra's checkout reads a few lines more than
   // its run did. Further out, the time per line is not known to hold.
   const sizes = basis.runs.map(({ lines }) => lines);
@@ -56,10 +57,11 @@ export function usage(input: UsageInput): Usage {
   return { basis, perLine, tokens, vendors, minutes, perThousandLines, input };
 }
 
-export interface UsageWords { readonly tokens: string; readonly vendors: string | null; readonly time: string; readonly basis: string | null }
+/** What a run will use, in words; `short` is the basis in one line for a card, `basis` the whole of it. */
+export interface UsageWords { readonly tokens: string; readonly vendors: string | null; readonly time: string; readonly basis: string | null; readonly short: string | null }
 export function usageWords(estimate: Usage): UsageWords {
   const { basis, perLine, perThousandLines, input } = estimate;
-  if (basis === null || perLine === null || perThousandLines === null) return { tokens: "not measured yet", vendors: null, time: "the first run of it measures it", basis: null };
+  if (basis === null || perLine === null || perThousandLines === null) return { tokens: "not measured yet", vendors: null, time: "the first run of it measures it", basis: null, short: null };
   const range = (low: number, high: number) => `${tokenWords(low)}–${tokenWords(high)}`;
   const runs = [...basis.runs].sort((a, b) => a.lines - b.lines);
   const smallest = runs[0]; const largest = runs.at(-1);
@@ -75,6 +77,7 @@ export function usageWords(estimate: Usage): UsageWords {
     tokens: estimate.tokens === null ? `≈ ${perLine.low} to ${perLine.high} tokens a line of the project` : `≈ ${range(estimate.tokens.low, estimate.tokens.high)} tokens`,
     vendors: estimate.vendors.length === 0 ? null : estimate.vendors.map(({ name, low, high }) => `${name} ≈ ${range(low, high)}`).join(" · "),
     time: timeWords,
+    short: `basis: ${basis.runs.length} measured runs, ${Math.min(...rates).toLocaleString("en")}–${Math.max(...rates).toLocaleString("en")} tokens a line`,
     basis: `basis: ${basis.what}, ${(smallest?.lines ?? 0).toLocaleString("en")} to ${(largest?.lines ?? 0).toLocaleString("en")} lines: ${Math.min(...rates).toLocaleString("en")} to ${Math.max(...rates).toLocaleString("en")} tokens a line, ${time(Math.min(...minutes))} to ${time(Math.max(...minutes))}. ${critic}`,
   };
 }

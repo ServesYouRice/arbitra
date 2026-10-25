@@ -1,6 +1,8 @@
 import { effortFor, modelName, PLACEHOLDER_PREFIX, record } from "../run/models.js";
+import type { Seat } from "./assign.js";
 import { withVariantSearch } from "./depth.js";
 import { getIn, graphOf, setIn, type Draft } from "./draft.js";
+import { notOffered } from "./routes.js";
 
 /**
  * A lineup read step by step: which model does each step, at which effort, in the vendor's own word ("Opus 5.5 ·
@@ -10,11 +12,16 @@ import { getIn, graphOf, setIn, type Draft } from "./draft.js";
 type Stage = Parameters<typeof effortFor>[2];
 const LEVEL_IN_ID = /-(low|medium|high|max)$/u;
 
-/** A profile's model and effort at a stage. A model whose ID carries its effort (Gemini through Antigravity) shows it once. */
+/**
+ * A profile's model and effort at a stage. A model whose ID carries its effort (Gemini through Antigravity) shows it
+ * once; a model its CLI or API is not known to offer (Argon through an API key) says so rather than hide it.
+ */
 export function modelAt(draft: Draft, alias: unknown, stage: Stage): string {
   if (typeof alias !== "string") return "none chosen";
-  const modelId = String(record(record(draft["models"])[alias])["modelId"] ?? alias);
+  const profile = record(record(draft["models"])[alias]);
+  const modelId = String(profile["modelId"] ?? alias);
   if (modelId.startsWith(PLACEHOLDER_PREFIX)) return "model not chosen yet";
+  if (notOffered(String(profile["transport"] ?? ""), modelId) && !String(profile["transport"]).endsWith("-cli")) return `${modelName(modelId)} · not offered through an API key`;
   const level = LEVEL_IN_ID.exec(modelId)?.[1];
   return level !== undefined && modelId.startsWith("gemini-") ? `${modelName(modelId.replace(LEVEL_IN_ID, ""))} · ${level}` : `${modelName(modelId)} · ${effortFor(draft, alias, stage)}`;
 }
@@ -23,50 +30,72 @@ const roles = (draft: Draft) => record(getIn(draft, ["workflow", "modelExecution
 const finders = (draft: Draft) => Object.keys(record(draft["models"])).filter((alias) => alias.startsWith("auditor-")).sort();
 const modelBacked = (draft: Draft) => draft["mode"] === "audit" && finders(draft).length > 0 && getIn(draft, ["workflow", "modelExecution"]) !== undefined;
 
+/** A place a model sits in a step, and the words before it ("medium", "its points checked by"). */
+export interface StepSeat { readonly seat: Seat; readonly label?: string }
+
 export interface Step {
   readonly id: string;
   readonly name: string;
-  /** What the step does, in one line. */
+  /** What the step does, in one short line. */
   readonly explain: string;
+  /** More about it, one click down. */
+  readonly more?: string;
   /** Absent for a step every run has. */
   readonly toggle?: { readonly on: (draft: Draft) => boolean; readonly set: (draft: Draft, on: boolean) => Draft; /** Why it is recommended off, where the runs showed its value is weak. */ readonly recommendOff?: string };
   /** Whether the step applies to this lineup at all. */
   readonly applies?: (draft: Draft) => boolean;
   /** Who does it, as "model · effort" lines. */
   readonly models: (draft: Draft) => readonly string[];
+  /** Where its models sit, to change them in place. */
+  readonly seats: (draft: Draft) => readonly StepSeat[];
 }
 
 const MERGE_PAIRS = ["workflow", "modelExecution", "maximumClusteringPairs"] as const;
+const splitCheck = (draft: Draft) => { const role = roles(draft); return role["mediumVerifier"] !== undefined && role["mediumVerifier"] !== role["verifier"]; };
 
 export const STEPS: readonly Step[] = Object.freeze([
-  { id: "find", name: "Find issues", explain: "Each finder reads the whole project part by part, on its own, and reports the issues it sees and where they are.",
-    models: (draft: Draft) => finders(draft).map((alias) => modelAt(draft, alias, "discovery")) },
-  { id: "merge", name: "Merge duplicates", explain: "A model decides whether two reports are one issue, so each issue is checked and planned once. Off, only reports matched without a model are merged, and each duplicate left is checked on its own.",
+  { id: "find", name: "Find issues", explain: "Each finder reads the whole project on its own and reports the issues it sees.",
+    models: (draft: Draft) => finders(draft).map((alias) => modelAt(draft, alias, "discovery")),
+    // The third finder is chosen where it is added, under How thorough.
+    seats: (draft: Draft) => finders(draft).filter((alias) => alias !== "auditor-c").map((alias): StepSeat => ({ seat: { kind: "finder", alias } })) },
+  { id: "merge", name: "Merge duplicates", explain: "A model decides which reports are one issue, so each is checked and planned once.",
+    more: "Off, only reports matched without a model are merged, and each duplicate left is checked on its own.",
     toggle: { on: (draft: Draft) => getIn(draft, MERGE_PAIRS) !== 0, set: (draft: Draft, on: boolean) => setIn(draft, MERGE_PAIRS, on ? undefined : 0) },
-    models: (draft: Draft) => [modelAt(draft, roles(draft)["merger"] ?? roles(draft)["verifier"], "clustering")] },
-  { id: "review", name: "Review round", explain: "Each finder reads the others' issues and says whether it agrees; issues they still disagree on are marked disputed.",
+    models: (draft: Draft) => [modelAt(draft, roles(draft)["merger"] ?? roles(draft)["verifier"], "clustering")],
+    seats: () => [{ seat: { kind: "role", role: "merger", fallback: "verifier" } }] },
+  { id: "review", name: "Review round", explain: "The finders vote on each other's issues; those they still disagree on are marked disputed.",
     toggle: { on: (draft: Draft) => Number(draft["maxConsensusRounds"] ?? 0) > 0, set: (draft: Draft, on: boolean) => setIn(draft, ["maxConsensusRounds"], on ? 1 : 0),
       recommendOff: "In two test runs it took about 40% of the tokens and added one or two issues." },
     applies: (draft: Draft) => finders(draft).length > 1,
-    models: (draft: Draft) => finders(draft).map((alias) => modelAt(draft, alias, "peerReview")) },
+    models: (draft: Draft) => finders(draft).map((alias) => modelAt(draft, alias, "peerReview")),
+    seats: () => [{ seat: { kind: "stage", stage: "peerReview" }, label: "the finders at" }] },
   { id: "check", name: "Check each issue", explain: "A model reads the code again for each issue the plan covers, and confirms or rejects it.",
-    models: (draft: Draft) => { const role = roles(draft); const medium = role["mediumVerifier"];
-      return medium === undefined || medium === role["verifier"] ? [modelAt(draft, role["verifier"], "verification")] : [`critical and high ${modelAt(draft, role["verifier"], "verification")}`, `medium ${modelAt(draft, medium, "verification")}`]; } },
-  { id: "second-opinion", name: "Second opinion", explain: "Before a critical or high issue is rejected, a model of another vendor is asked; if the two disagree, the issue stays unsettled.",
+    models: (draft: Draft) => splitCheck(draft) ? [`critical and high ${modelAt(draft, roles(draft)["verifier"], "verification")}`, `medium ${modelAt(draft, roles(draft)["mediumVerifier"], "verification")}`]
+      : [modelAt(draft, roles(draft)["verifier"], "verification")],
+    seats: (draft: Draft) => splitCheck(draft) ? [{ seat: { kind: "role", role: "verifier" }, label: "critical and high" }, { seat: { kind: "role", role: "mediumVerifier" }, label: "medium" }]
+      : [{ seat: { kind: "role", role: "verifier" } }] },
+  { id: "second-opinion", name: "Second opinion", explain: "Before a critical or high issue is rejected, a model of another vendor is asked.",
+    more: "If the two disagree, the issue stays unsettled, and the saved plan has a prompt to check it by hand.",
     toggle: { on: (draft: Draft) => getIn(draft, ["verification", "secondOpinion"]) === "severe_rejections", set: (draft: Draft, on: boolean) => setIn(draft, ["verification", "secondOpinion"], on ? "severe_rejections" : undefined) },
-    models: (draft: Draft) => [modelAt(draft, roles(draft)["secondOpinion"] ?? roles(draft)["critic"], "secondOpinion")] },
-  { id: "variant-search", name: "Search for variants", explain: "For each confirmed issue, a model looks for the same defect elsewhere in the project; each place it proposes is checked like any issue. New and not measured yet, so off by default.",
+    models: (draft: Draft) => [modelAt(draft, roles(draft)["secondOpinion"] ?? roles(draft)["critic"], "secondOpinion")],
+    seats: () => [{ seat: { kind: "role", role: "secondOpinion", fallback: "critic" } }] },
+  { id: "variant-search", name: "Search for variants", explain: "For each confirmed issue, a model looks for the same defect elsewhere; what it proposes is checked like any issue.",
+    more: "New and not measured yet, so off by default. Gemini searches when it is a finder, else Sonnet 5.5.",
     toggle: { on: (draft: Draft) => getIn(draft, ["workflow", "variantSearch"]) === true, set: withVariantSearch },
     applies: (draft: Draft) => graphOf(draft) === null && modelBacked(draft),
-    models: (draft: Draft) => [modelAt(draft, roles(draft)["variantSearcher"], "variantSearch")] },
+    // Off, it names who would search once it is on.
+    models: (draft: Draft) => { const on = getIn(draft, ["workflow", "variantSearch"]) === true ? draft : withVariantSearch(draft, true); return [modelAt(on, roles(on)["variantSearcher"], "variantSearch")]; },
+    seats: () => [{ seat: { kind: "role", role: "variantSearcher" } }] },
   { id: "plan", name: "Write the plan", explain: "Turns the confirmed issues into tasks, each with a prompt a coding agent can carry out.",
-    models: (draft: Draft) => [modelAt(draft, roles(draft)["planner"], "planner")] },
-  { id: "critic", name: "Review the plan", explain: "A model of the other vendor reads the plan, each blocking point it raises is checked, and the plan is revised once.",
+    models: (draft: Draft) => [modelAt(draft, roles(draft)["planner"], "planner")],
+    seats: () => [{ seat: { kind: "role", role: "planner" } }] },
+  { id: "critic", name: "Review the plan", explain: "A model of the other vendor reviews the plan; its points are checked and the plan is revised once.",
     toggle: { on: (draft: Draft) => getIn(draft, ["workflow", "critic"]) === true, set: (draft: Draft, on: boolean) => setIn(draft, ["workflow", "critic"], on),
       recommendOff: "On our runs its points were precise (18 of 20 real on nextra), but it caught 1 of the 21 plan errors met when the plan was carried out, its revision added errors, and it took 9 to 17% of a run's tokens." },
     applies: (draft: Draft) => graphOf(draft) === null,
-    models: (draft: Draft) => [modelAt(draft, roles(draft)["critic"], "critic"), `its points checked by ${modelAt(draft, roles(draft)["critiqueChecker"] ?? roles(draft)["planner"], "critiqueCheck")}`] },
-]);
+    models: (draft: Draft) => [modelAt(draft, roles(draft)["critic"], "critic"), `its points checked by ${modelAt(draft, roles(draft)["critiqueChecker"] ?? roles(draft)["planner"], "critiqueCheck")}`],
+    seats: () => [{ seat: { kind: "role", role: "critic" } }, { seat: { kind: "role", role: "critiqueChecker", fallback: "planner" }, label: "its points checked by" }] },
+] satisfies Step[]);
 
 export interface StepState { readonly step: Step; /** Null for a step every run has. */ readonly on: boolean | null; readonly models: readonly string[] }
 

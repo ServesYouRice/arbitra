@@ -19,6 +19,13 @@ const FILES = [
   { path: "mobile/lib/app.dart", lines: 400, test: false, leftOut: false }, { path: "mobile/lib/db.g.dart", lines: 200, test: false, leftOut: false },
   { path: "server/main.go", lines: 300, test: false, leftOut: false }, { path: "server/main_test.go", lines: 100, test: true, leftOut: false },
 ];
+/** This computer as the October 25 probe saw it, with Claude Code missing and Argon offered. */
+const ENVIRONMENT = { build: "test", checkedAt: "2026-10-25T10:21:00.000Z", apiKeys: {}, clis: [
+  { transport: "claude-code-cli", name: "Claude Code", path: null, version: "2.1.310", state: "not_installed", note: "not found", fix: "Install Claude Code." },
+  { transport: "codex-cli", name: "Codex CLI", path: "C:/bin/codex.cmd", version: "0.162.1", state: "ready", note: "signed in", fix: null },
+  { transport: "antigravity-cli", name: "Antigravity CLI", path: "C:/bin/agy.exe", version: "1.4.7", state: "ready", note: "ready", fix: null,
+    models: [{ id: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)" }, { id: "gemini-4-argon", name: "Gemini 4 Argon" }, { id: "claude-opus-4-6-thinking", name: "Claude Opus 4.6" }] },
+] };
 const SUGGESTED = [{ path: "mobile/lib/db.g.dart", lines: 200, reason: "its first lines say: // GENERATED CODE - DO NOT MODIFY BY HAND" }];
 const READY = { valid: true, ready: true, mode: "audit", preset: "audit-two-finders", modelBacked: true, diagnostics: [], repository: "/work/fixture", estimateError: null,
   estimate: { estimate: { files: 4, lines: 1000, nodes: 7, auditors: 2, providerCalls: null, costUsd: null, currency: null, basis: "configured_models_cost_unknown_without_pricing_and_outputs" },
@@ -93,10 +100,10 @@ describe("the new-run page", () => {
     expect((screen.getByRole("button", { name: "Start audit" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("Choose the project first.")).toBeTruthy();
     expect((screen.getByRole("radio", { name: "Deep" }) as HTMLInputElement).checked).toBe(true);
-    const deep = screen.getByRole("radio", { name: "Deep" }).closest("label");
+    const deep = screen.getByRole("radio", { name: "Deep" }).closest(".lineup-card");
     expect(deep?.textContent).toContain("Opus 5.5 · xhigh");
     expect(deep?.textContent).toContain("second opinion GPT-6.1 Sol · high");
-    expect(screen.getByRole("radio", { name: "Balanced" }).closest("label")?.textContent).toContain("medium Sonnet 5.5 · high");
+    expect(screen.getByRole("radio", { name: "Balanced" }).closest(".lineup-card")?.textContent).toContain("medium Sonnet 5.5 · high");
     expect((screen.getByRole("combobox", { name: "model for auditor-a" }) as HTMLSelectElement).value).toBe("claude-opus-5-5");
     expect(screen.queryByRole("combobox", { name: "model for auditor-c" })).toBeNull();
     expect(checked("add a third finder")).toBe(false);
@@ -114,12 +121,14 @@ describe("the new-run page", () => {
     expect(await screen.findByText("Ready to start.", {}, AFTER_CHECK)).toBeTruthy();
     expect(bodies).toEqual([{ config: template("subscription-audit").config, repository: "/work/fixture" }]);
     expect(screen.getByText("4 source files · 1,000 lines, 100 of them tests")).toBeTruthy();
-    const deep = screen.getByRole("radio", { name: "Deep" }).closest("label")?.textContent ?? "";
+    const deep = screen.getByRole("radio", { name: "Deep" }).closest(".lineup-card")?.textContent ?? "";
     expect(deep).toContain("≈ 600K–700K tokens");
     expect(deep).toContain("Claude Code ≈ 522K–609K · Codex ≈ 78K–91K");
     expect(deep).toContain("time not measured at this size: the smallest measured, commentanywhere, 11,719 lines, took 40 min");
-    expect(deep).toContain("basis: 3 runs at deep on October 23 and 24");
-    expect(screen.getByRole("radio", { name: "Cheap" }).closest("label")?.textContent).toContain("not measured yet");
+    expect(deep).toContain("basis: 3 measured runs, 605–688 tokens a line");
+    // The whole basis is one click down, below the cards.
+    expect(screen.getByText("How the estimates are made").closest("details")?.textContent).toContain("basis: 3 runs at deep on October 23 and 24, 11,719 to 38,967 lines");
+    expect(screen.getByRole("radio", { name: "Cheap" }).closest(".lineup-card")?.textContent).toContain("not measured yet");
   });
 
   it("leaves a folder out with one tick and the tests with another, and counts them without reading the project again", async () => {
@@ -154,7 +163,10 @@ describe("the new-run page", () => {
     await screen.findByRole("radio", { name: "Deep" });
     project("/work/fixture");
     const generated = await screen.findByRole("list", { name: "generated files" }, AFTER_CHECK);
-    expect(generated.textContent).toContain("mobile/lib/db.g.dart · 200 lines its first lines say: // GENERATED CODE - DO NOT MODIFY BY HAND");
+    // Closed by default: one line per file, its reason and its lines.
+    expect(generated.closest("details")?.open).toBe(false);
+    expect(generated.closest("details")?.querySelector("summary")?.textContent).toBe("Left out · 1 generated file · 200 lines");
+    expect(generated.textContent).toBe("mobile/lib/db.g.dartits first lines say: // GENERATED CODE - DO NOT MODIFY BY HAND200");
     expect(checked("leave out mobile/lib/db.g.dart")).toBe(true);
     expect(leftOutPaths()).toBe("mobile/lib/db.g.dart");
     // Leaving it out is the check's own setting: the page is not edited by it.
@@ -177,7 +189,7 @@ describe("the new-run page", () => {
     fireEvent.click(await screen.findByRole("radio", { name: "Cheap" }));
     expect((screen.getByRole("radio", { name: "Cheap" }) as HTMLInputElement).checked).toBe(true);
     fireEvent.click(screen.getByRole("checkbox", { name: "add a third finder" }));
-    expect(screen.getByRole("radio", { name: "Cheap" }).closest("label")?.textContent).toContain("Gemini 3.8 Flash · high");
+    expect(screen.getByRole("radio", { name: "Cheap" }).closest(".lineup-card")?.textContent).toContain("Gemini 3.8 Flash · high");
     const steps = screen.getByRole("list", { name: "steps" });
     expect(within(steps).getAllByRole("listitem").map((item) => item.querySelector(".step__name")?.textContent)).toEqual(["Find issuesalways", "Merge duplicates", "Review roundrecommended off", "Check each issuealways", "Second opinion", "Search for variants", "Write the planalways", "Review the planrecommended off"]);
     expect(steps.textContent).toContain("it caught 1 of the 21 plan errors met when the plan was carried out");
@@ -253,17 +265,116 @@ describe("the new-run page", () => {
     expect(getIn(bodies[2]?.config ?? {}, ["scope", "exclude"])).toBeUndefined();
   });
 
-  it("says each problem on this computer in words, with its recorded code one click down", async () => {
+  it("names what this computer lacks in one line beside Start, pointing up, with the recorded codes one click down", async () => {
     stubBrowser();
-    stubControlPlane({ ...BASE_ROUTES, "POST /preflight": { ...READY, ready: false, diagnostics: [{ code: "SUBSCRIPTION_CLI_NOT_INSTALLED:claude-code", severity: "error", scope: "environment", path: "$environment", message: "Claude Code is not available." }] } });
+    stubControlPlane({ ...BASE_ROUTES, "GET /diagnostics/environment": ENVIRONMENT,
+      "POST /preflight": { ...READY, ready: false, diagnostics: [{ code: "SUBSCRIPTION_CLI_NOT_INSTALLED:claude-code", severity: "error", scope: "environment", path: "$environment", message: "Claude Code is not available." },
+        { code: "SUBSCRIPTION_CLI_UNVERIFIED:antigravity-cli", severity: "warning", scope: "configuration", path: "workflow", message: "Antigravity support is declared but not yet verified." }] } });
     visit("?page=new-run");
     render(<App />);
     await screen.findByRole("radio", { name: "Deep" });
+    const computer = await screen.findByRole("table", { name: "CLIs on this computer" });
+    expect(within(computer).getAllByRole("row").map(({ textContent }) => textContent)).toEqual([
+      "Claude Code 2.1.310not installedhow to fixInstall Claude Code.in this lineup", "Codex CLI 0.162.1signed inin this lineup", "Antigravity CLI 1.4.7readyoffers Gemini 3.8 Flash (High), Gemini 4 Argonnot in this lineup"]);
     project("/work/fixture");
     const result = await screen.findByRole("region", { name: "check result" }, AFTER_CHECK);
-    expect(result.textContent).toContain("Not ready: 1 problem on this computer.");
-    expect(within(result).getByText("Claude Code is not available.")).toBeTruthy();
-    expect(within(result).getByText("SUBSCRIPTION_CLI_NOT_INSTALLED:claude-code").closest("details")).toBeTruthy();
+    expect(within(result).getByText("Not ready: Claude Code is not installed; see This computer above.")).toBeTruthy();
+    // This computer's problem is not repeated; its code, and the check's note, are one click down.
+    expect(result.textContent).not.toContain("Claude Code is not available.");
+    expect(within(result).getByText("SUBSCRIPTION_CLI_NOT_INSTALLED:claude-code").closest("details")?.querySelector("summary")?.textContent).toBe("recorded codes, and 1 note from the check");
+  });
+
+  it("changes a step's model and effort in place, marks the depth changed, and resets it from the card", async () => {
+    stubBrowser();
+    const bodies: Body[] = [];
+    stubControlPlane({ ...BASE_ROUTES, "POST /preflight": ({ body }: { body: Body }) => { bodies.push(body); return READY; } });
+    visit("?page=new-run");
+    render(<App />);
+    await screen.findByRole("radio", { name: "Deep" });
+    const planner = screen.getByRole("combobox", { name: "model: write the plan" }) as HTMLSelectElement;
+    expect(planner.value).toBe("t:claude-code-cli|claude-opus-5-5");
+    // Gemini is never offered for a core step.
+    expect([...planner.options].map(({ value }) => value).some((value) => value.includes("antigravity"))).toBe(false);
+    fireEvent.change(planner, { target: { value: "t:claude-code-cli|claude-sonnet-5-5" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "effort: write the plan" }), { target: { value: "max" } });
+    expect(screen.getByRole("radio", { name: "Deep" }).closest(".lineup-card")?.textContent).toContain("Deep, changed");
+    expect(screen.getByRole("radio", { name: "Deep" }).closest(".lineup-card")?.textContent).toContain("Sonnet 5.5 · max");
+    project("/work/fixture");
+    await waitFor(() => expect(bodies).toHaveLength(1), AFTER_CHECK);
+    const sent = bodies[0]?.config ?? {};
+    const plans = String(getIn(sent, ["workflow", "modelExecution", "roles", "planner"]));
+    expect([getIn(sent, ["models", plans, "modelId"]), getIn(sent, ["models", "auditor-a", "modelId"]), getIn(sent, ["workflow", "modelExecution", "stageEffort", "planner", plans])]).toEqual(["claude-sonnet-5-5", "claude-opus-5-5", "max"]);
+    fireEvent.click(screen.getByRole("button", { name: "reset to deep" }));
+    expect(screen.getByRole("radio", { name: "Deep" }).closest(".lineup-card")?.textContent).not.toContain("changed");
+    expect((screen.getByRole("combobox", { name: "model: write the plan" }) as HTMLSelectElement).value).toBe("t:claude-code-cli|claude-opus-5-5");
+  });
+
+  it("takes any model the lineup reaches as the third finder, Argon first when Antigravity offers it, and says it is not measured", async () => {
+    stubBrowser();
+    const bodies: Body[] = [];
+    stubControlPlane({ ...BASE_ROUTES, "GET /diagnostics/environment": ENVIRONMENT, "POST /preflight": ({ body }: { body: Body }) => { bodies.push(body); return READY; } });
+    visit("?page=new-run");
+    render(<App />);
+    await screen.findByRole("table", { name: "CLIs on this computer" });
+    fireEvent.click(screen.getByRole("checkbox", { name: "add a third finder" }));
+    const third = screen.getByRole("combobox", { name: "model: third finder" }) as HTMLSelectElement;
+    expect(third.value).toBe("t:antigravity-cli|gemini-3.8-flash");
+    expect([...third.options].map(({ textContent }) => textContent).slice(0, 3)).toEqual(["Gemini 4 Argon (strongest, offered by your CLI, not measured)", "Gemini 3.8 Flash", "Opus 5.5 (strongest, slowest)"]);
+    expect([...third.options].at(-1)?.textContent).toBe("another model: an OpenAI-compatible endpoint…");
+    fireEvent.change(third, { target: { value: "t:antigravity-cli|gemini-4-argon" } });
+    expect(screen.getByText(/this model as a third finder is not measured/u)).toBeTruthy();
+    expect(screen.getByText(/Through Antigravity: Google's terms/u)).toBeTruthy();
+    project("/work/fixture");
+    await waitFor(() => expect(bodies).toHaveLength(1), AFTER_CHECK);
+    expect([getIn(bodies[0]?.config ?? {}, ["models", "auditor-c", "modelId"]), getIn(bodies[0]?.config ?? {}, ["workflow", "preset"])]).toEqual(["gemini-4-argon", "audit-three-finders"]);
+  });
+
+  it("takes a model the person names as the third finder: Kimi through Moonshot's OpenAI-compatible endpoint", async () => {
+    stubBrowser();
+    const bodies: Body[] = [];
+    stubControlPlane({ ...BASE_ROUTES, "POST /preflight": ({ body }: { body: Body }) => { bodies.push(body); return READY; } });
+    visit("?page=new-run");
+    render(<App />);
+    await screen.findByRole("radio", { name: "Deep" });
+    fireEvent.click(screen.getByRole("checkbox", { name: "add a third finder" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "model: third finder" }), { target: { value: "add another model" } });
+    const form = screen.getByRole("group", { name: "another model: third finder" });
+    expect([(within(form).getByRole("textbox", { name: "base URL: third finder" }) as HTMLInputElement).value, (within(form).getByRole("textbox", { name: "key variable: third finder" }) as HTMLInputElement).value])
+      .toEqual(["https://api.moonshot.ai/v1", "ARBITRA_MOONSHOT_API_KEY"]);
+    expect((within(form).getByRole("button", { name: "use it" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(within(form).getByRole("textbox", { name: "model ID: third finder" }), { target: { value: "kimi-3.1" } });
+    fireEvent.click(within(form).getByRole("button", { name: "use it" }));
+    const third = screen.getByRole("combobox", { name: "model: third finder" }) as HTMLSelectElement;
+    expect([third.value, third.selectedOptions[0]?.textContent]).toEqual(["e:moonshot|kimi-3.1", "kimi-3.1 (not measured)"]);
+    expect(screen.getByText(/this model as a third finder is not measured/u)).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Deep" }).closest(".lineup-card")?.textContent).toContain("kimi-3.1 · high");
+    project("/work/fixture");
+    await waitFor(() => expect(bodies).toHaveLength(1), AFTER_CHECK);
+    const sent = bodies[0]?.config ?? {};
+    expect([getIn(sent, ["models", "auditor-c", "transport"]), getIn(sent, ["models", "auditor-c", "modelId"]), getIn(sent, ["workflow", "modelExecution", "modelEndpoints", "auditor-c"])]).toEqual(["openai-chat", "kimi-3.1", "moonshot"]);
+    expect(getIn(sent, ["workflow", "modelExecution", "endpoints"])).toContainEqual({ id: "moonshot", providerId: "moonshot", transport: "openai-chat", endpoint: "https://api.moonshot.ai/v1", apiKeyEnvVar: "ARBITRA_MOONSHOT_API_KEY" });
+  });
+
+  it("reaches the same depths through API keys, and says a model with no API equivalent on its card", async () => {
+    stubBrowser();
+    const bodies: Body[] = [];
+    stubControlPlane({ ...BASE_ROUTES, "GET /diagnostics/environment": ENVIRONMENT, "POST /preflight": ({ body }: { body: Body }) => { bodies.push(body); return READY; } });
+    visit("?page=new-run");
+    render(<App />);
+    await screen.findByRole("table", { name: "CLIs on this computer" });
+    fireEvent.click(screen.getByRole("checkbox", { name: "add a third finder" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "model: third finder" }), { target: { value: "t:antigravity-cli|gemini-4-argon" } });
+    fireEvent.click(screen.getByRole("radio", { name: "API keys" }));
+    expect(within(screen.getByRole("radiogroup", { name: "models run through" })).getByText(/ARBITRA_ANTHROPIC_API_KEY, ARBITRA_OPENAI_API_KEY, ARBITRA_GEMINI_API_KEY/u)).toBeTruthy();
+    expect(within(screen.getByRole("table", { name: "CLIs on this computer" })).getByText(/read from ARBITRA_ANTHROPIC_API_KEY/u)).toBeTruthy();
+    const deep = screen.getByRole("radio", { name: "Deep" }).closest(".lineup-card")?.textContent ?? "";
+    expect(deep).toContain("Opus 5.5 · xhigh");
+    expect(deep).toContain("Gemini 4 Argon · not offered through an API key");
+    fireEvent.click(screen.getByRole("radio", { name: "Cheap" }));
+    project("/work/fixture");
+    await waitFor(() => expect(bodies).toHaveLength(1), AFTER_CHECK);
+    const sent = bodies[0]?.config ?? {};
+    expect([getIn(sent, ["models", "auditor-a", "transport"]), getIn(sent, ["models", "auditor-a", "modelId"]), getIn(sent, ["models", "auditor-b", "transport"])]).toEqual(["anthropic-messages", "claude-sonnet-5-5", "openai-responses"]);
   });
 
   it("starts the run from this project's last start, saved, and opens it", async () => {
