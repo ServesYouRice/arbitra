@@ -63,6 +63,12 @@ export interface WorkflowRunnerOptions {
   readonly definitions: RunDefinitionStore;
   readonly loadRecords: (runId: string) => Promise<readonly RunnerJournalRecord[]>;
   readonly executors: Readonly<Partial<Record<RunnerNode["kind"], NodeExecutor>>>;
+  /**
+   * The run state a node's work puts the run in (an auditor: DISCOVERY_RUNNING), recorded as a transition when the
+   * node starts. Without it a run reads CREATED from its start to its end: the graph knows nodes, not stages, and the
+   * composition that built the graph supplies the mapping. A node replayed from an earlier attempt records none.
+   */
+  readonly stageState?: (node: RunnerNode) => RunState | undefined;
 }
 
 export interface ResumePlanEntry {
@@ -139,7 +145,8 @@ export class WorkflowRunner {
         records = initial.records;
         const transition: RunEvent = { t: "run_transition", runId, state: "CREATED", ...(initial.resumed ? { reason: "resumed" } : {}) };
         await append(transition, "expensive");
-        await this.#execute(initial.definition, records, append, cancellation);
+        // Read synchronously at each dispatch: nodes started together see the transition the first of them made.
+        await this.#execute(initial.definition, records, append, cancellation, () => liveState);
         const state: RunState = cancellation.cancelled ? "CANCELLED" : "COMPLETED";
         await append({ t: "run_transition", runId, state, ...(cancellation.reason === undefined ? {} : { reason: cancellation.reason }) }, "expensive");
         return state;
@@ -170,6 +177,7 @@ export class WorkflowRunner {
     records: RunnerJournalRecord[],
     append: (record: RunnerJournalRecord, durability?: "cheap" | "expensive") => Promise<void>,
     cancellation: RunCancellation,
+    currentState: () => RunState,
   ): Promise<void> {
     const { graph, config } = definition;
     const plan = buildGraphPlan(graph, config.runId);
@@ -193,6 +201,8 @@ export class WorkflowRunner {
         const node = required(plan.nodes.get(nodeId), `Unknown node ${nodeId}`);
         const id = required(plan.activityIds.get(nodeId), `Missing activity id for ${nodeId}`);
         const wasCompleted = projection.completed.has(id);
+        const stage = wasCompleted ? undefined : this.#options.stageState?.(node);
+        if (stage !== undefined && stage !== currentState()) await append({ t: "run_transition", runId: config.runId, state: stage });
         await append({ t: "node_dispatched", runId: config.runId, nodeId, activityId: id });
         const inputs = new Map(required(plan.predecessors.get(nodeId), "Missing predecessors")
           .map((predecessor) => [predecessor, outputs.get(predecessor)] as const));

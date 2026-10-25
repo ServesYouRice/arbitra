@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ActivityArtifactRef } from "../../src/activity.js";
-import type { RunnerJournalRecord } from "../../src/runner/events.js";
+import type { RunnerJournalRecord, RunState } from "../../src/runner/events.js";
 import { projectRunState, projectRunner } from "../../src/runner/state-projection.js";
 import { RunCheckpointError, RunSuspendedError } from "../../src/runner/suspension.js";
 import {
@@ -9,6 +9,7 @@ import {
   type NodeExecutor,
   type RunHandle,
   type RunnerGraph,
+  type RunnerNode,
   type StoredRunDefinition,
 } from "../../src/runner/workflow-runner.js";
 
@@ -152,6 +153,30 @@ describe("WorkflowRunner", () => {
     expect(storage.artifacts.values.size).toBe(5);
   });
 
+  it("records the state of each stage it starts, once for nodes started together, and none for a node it replays", async () => {
+    // Observed live (October 25, 2026): an audit read CREATED for its whole discovery, because the runner recorded
+    // only its start and its end.
+    const storage = new MemoryRuntimeStorage();
+    const states = (records: readonly RunnerJournalRecord[]) => records.flatMap((record) => record.t === "run_transition" ? [record.state] : []);
+    let failPlanning = true;
+    const execute: NodeExecutor = async ({ node }) => { if (node.id === "plan" && failPlanning) throw new Error("synthetic planner failure"); return node.id; };
+    expect(await createRunner(storage, execute, phaseOf).start(stagedGraph(), { runId: "phases", concurrencyLimit: 2 }).result).toBe("FAILED");
+    expect(states(storage.records)).toEqual(["CREATED", "DISCOVERY_RUNNING", "PEER_REVIEW_RUNNING", "PLANNING", "FAILED"]);
+    failPlanning = false;
+    const resumed = createRunner(storage, execute, phaseOf).resume("phases");
+    expect(await resumed.result).toBe("COMPLETED");
+    expect(states(storage.records).slice(5)).toEqual(["CREATED", "PLANNING", "COMPLETED"]);
+  });
+
+  it("leaves the state alone while a node runs when the graph has no stage states", async () => {
+    const storage = new MemoryRuntimeStorage();
+    let during: string | undefined;
+    const live: { handle?: RunHandle } = {};
+    live.handle = createRunner(storage, async ({ node }) => { if (node.id === "a") during = live.handle?.state; return node.id; }).start(fiveNodeFanOut(), { runId: "no-phases" });
+    expect(await live.handle.result).toBe("COMPLETED");
+    expect(during).toBe("CREATED");
+  });
+
   it("rejects invalid concurrency explicitly", () => {
     const storage = new MemoryRuntimeStorage();
     const runner = createRunner(storage, async () => null);
@@ -163,6 +188,7 @@ describe("WorkflowRunner", () => {
 function createRunner(
   storage: MemoryRuntimeStorage,
   execute: NodeExecutor,
+  stageState?: (node: RunnerNode) => RunState | undefined,
 ): WorkflowRunner {
   return new WorkflowRunner({
     journal: storage,
@@ -170,7 +196,23 @@ function createRunner(
     definitions: storage,
     loadRecords: async () => [...storage.records],
     executors: { deterministic: execute, gate: execute },
+    ...(stageState === undefined ? {} : { stageState }),
   });
+}
+
+/** Two finders side by side, then a merge, then a plan: the shape of an audit. */
+function stagedGraph(): RunnerGraph {
+  const goal = { objective: "test", doneWhen: [], stopWhen: [], blockedWhen: [] };
+  const node = (id: string) => ({ id, kind: "deterministic" as const, label: id, goal });
+  return {
+    schemaVersion: 1, id: "staged", entryNodeId: "read",
+    nodes: [node("read"), node("find-a"), node("find-b"), node("merge"), node("plan")],
+    edges: [{ id: "r-a", from: "read", to: "find-a" }, { id: "r-b", from: "read", to: "find-b" }, { id: "a-m", from: "find-a", to: "merge" }, { id: "b-m", from: "find-b", to: "merge" }, { id: "m-p", from: "merge", to: "plan" }],
+  };
+}
+
+function phaseOf(node: RunnerNode): RunState | undefined {
+  return node.id.startsWith("find-") ? "DISCOVERY_RUNNING" : node.id === "merge" ? "PEER_REVIEW_RUNNING" : node.id === "plan" ? "PLANNING" : undefined;
 }
 
 function fiveNodeFanOut(): RunnerGraph {

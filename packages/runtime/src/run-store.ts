@@ -113,8 +113,11 @@ export class RunStore {
     };
   }
 
-  async appendEvent(event: RunEvent, durability: "cheap" | "expensive" = "cheap"): Promise<void> {
-    if (!isRunEvent(event) || event.runId !== this.runId) throw new Error(`INVALID_RUN_EVENT:${this.runId}`);
+  async appendEvent(given: RunEvent, durability: "cheap" | "expensive" = "cheap"): Promise<void> {
+    if (!isRunEvent(given) || given.runId !== this.runId) throw new Error(`INVALID_RUN_EVENT:${this.runId}`);
+    // When each stage started and ended is read from these times; the runner itself never reads the clock.
+    // arbitra-determinism: allow -- the store stamps its own write time at the composition boundary
+    const event: RunEvent = given.at === undefined ? { ...given, at: new Date().toISOString() } : given;
     const write = this.#eventWrites.then(async () => {
       await mkdir(this.directory, { recursive: true });
       if (!this.#eventsReady) {

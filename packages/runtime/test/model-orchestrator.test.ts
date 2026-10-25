@@ -1550,6 +1550,31 @@ describe("composed model audits", () => {
     expect(Math.abs(once - 2 * twice)).toBeLessThanOrEqual(2);
   });
 
+  it("reads a run whose auditors are working as finding issues, not as just created", async () => {
+    // Observed live (October 25, 2026): the overview of a veritra audit read CREATED for its whole hour of discovery.
+    const setup = await fixture();
+    let sent: () => void = () => {};
+    const dispatched = new Promise<void>((resolve) => { sent = resolve; });
+    setup.blockDiscovery(sent);
+    const core = setup.create(); const resource = await core.start(setup.config);
+    await dispatched;
+    expect((await core.overview(resource.runId)).state).toBe("DISCOVERY_RUNNING");
+    expect((await core.status(resource.runId)).state).toBe("DISCOVERY_RUNNING");
+    expect((await core.listRuns()).find(({ runId }) => runId === resource.runId)?.state).toBe("DISCOVERY_RUNNING");
+    expect((await core.cancel(resource.runId)).state).toBe("CANCELLED");
+  });
+
+  it("records each stage's state on its way, with the time the store wrote each event", async () => {
+    const { create, config } = await fixture();
+    const core = create();
+    const result = await core.run(config);
+    expect(result.state).toBe("COMPLETED");
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(events.flatMap((event) => event.t === "run_transition" ? [event.state] : [])).toEqual(["CREATED", "DISCOVERY_RUNNING", "PEER_REVIEW_RUNNING", "VERIFYING", "PLANNING", "PLAN_REVIEW", "COMPLETED"]);
+    expect(events.every(({ at }) => typeof at === "string" && !Number.isNaN(Date.parse(at)))).toBe(true);
+    expect(events.map(({ at }) => at ?? "")).toEqual(events.map(({ at }) => at ?? "").sort());
+  });
+
   it("cancels active model calls even if HTTP clients ignore cancellation", async () => {
     const fixture_ = await fixture();
     let sent: () => void = () => {};

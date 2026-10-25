@@ -9,7 +9,7 @@ import type { RunEvent, RunState } from "@arbitra/core/runner/events.js";
 import { runConfigSchema, type RunConfig } from "@arbitra/schemas/config.js";
 import { DEFAULT_AUDITORS, type AuditFinding } from "./auditors.js";
 import type { CanonicalIssueSet } from "@arbitra/workflow/nodes/canonical-issues.js";
-import { AUDIT_DEEP_GRAPH, auditorIdsFor, PRESET_GRAPHS, withCritic } from "./graphs.js";
+import { AUDIT_DEEP_GRAPH, auditorIdsFor, auditStageState, PRESET_GRAPHS, withCritic } from "./graphs.js";
 import { assertNoPreflightErrors, configurationDiagnostics, ENVIRONMENT_VERSIONS_KIND, environmentDiagnostics, graphForConfiguration, PreflightError, type ConfigurationPreflightOptions, type PreflightDiagnostic } from "./preflight.js";
 import { DockerTestSandbox } from "./test-sandbox.js";
 import { canonicalise, converge, critique, discover, plan, preflight, readStage, verify, type AuditContext, type ConvergenceResult, type Plan } from "./pipeline.js";
@@ -1151,6 +1151,8 @@ export class Orchestrator {
       artifacts: store.artifacts,
       definitions: store.definitions(),
       loadRecords: () => store.loadRecords(),
+      // The overview reads which stage the audit is in from these transitions.
+      stageState: auditStageState,
       executors: {
         deterministic: async () => { await models?.prepareProtocols(); return preflight(context); },
         model: async ({ node, signal }: NodeExecutionContext) => {

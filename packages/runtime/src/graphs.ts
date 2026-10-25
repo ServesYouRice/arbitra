@@ -1,3 +1,4 @@
+import type { RunState } from "@arbitra/core/runner/events.js";
 import type { RunnerGraph, RunnerNode } from "@arbitra/core/runner/workflow-runner.js";
 
 const node = (id: string, kind: RunnerNode["kind"], label: string): RunnerNode => Object.freeze({ id, kind, label, goal: label });
@@ -99,6 +100,18 @@ export function graphForPreset(preset: string | undefined): RunnerGraph {
 /** The auditors a preset's graph actually dispatches, so discovery never runs blind. */
 export function auditorIdsFor(graph: RunnerGraph): readonly string[] {
   return Object.freeze(graph.nodes.filter(({ id, kind }) => kind === "model" && id.startsWith("auditor-")).map(({ id }) => id));
+}
+
+/**
+ * The run state an Audit node's work puts the run in (spec §7.7), recorded when the node starts. The Audit executors
+ * pick a node's work by its kind, and a model node's by its ID, so the same rule covers the presets and saved graphs.
+ * The preflight, gates and human checkpoints leave the state as it is.
+ */
+export function auditStageState(node: RunnerNode): RunState | undefined {
+  if (node.kind === "model") return node.id === "planner" ? "PLANNING" : node.id === "critic" ? "PLAN_REVIEW" : "DISCOVERY_RUNNING";
+  if (node.kind === "loop") return "PEER_REVIEW_RUNNING";
+  if (node.kind === "subgraph") return "VERIFYING";
+  return undefined;
 }
 
 /** Replay overrides and a balanced audit's critic role change the executable graph, including presets without a critic. */
