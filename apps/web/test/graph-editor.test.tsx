@@ -77,7 +77,9 @@ describe("graph editor", () => {
     } as unknown as WorkflowApi;
     const dirty = vi.fn();
     render(<GraphEditor api={api} configurationId={null} onDirtyChange={dirty} />);
-    const editor = await screen.findByRole("region", { name: /workflow graph · editing audit-deep/u });
+    const editor = await screen.findByRole("region", { name: "workflow graph · editing audit-deep-copy" });
+    // Taking the shipped preset's own ID back is refused by the server, and its diagnostics are text.
+    fireEvent.change(within(editor).getByLabelText("graph id"), { target: { value: "audit-deep" } });
     const diagnostics = await within(editor).findByRole("list", { name: "validation diagnostics" });
     expect(diagnostics.textContent).toContain("<b>shipped</b> preset");
     expect(diagnostics.querySelector("b")).toBeNull();
@@ -108,5 +110,29 @@ describe("graph editor", () => {
     expect(within(editor).getByText(`no unsaved changes · version ${"b".repeat(64)}`)).toBeTruthy();
     // The dirty flag is reported from a passive effect, which can run after the committed text is visible.
     await waitFor(() => expect(dirty).toHaveBeenLastCalledWith(false));
+  });
+
+  // Observed (UI inventory, October 25, 2026): Workflows opened on "invalid · 1 diagnostic · UNAUTHORIZED_CHANGE", because
+  // the first graph it loads is a preset's template, which keeps the shipped preset's ID the server reserves.
+  it("opens a preset as a copy under an ID no preset or saved graph has, so the server does not refuse the graph it opens on", { timeout: 30_000 }, async () => {
+    class Observer { observe() {} unobserve() {} disconnect() {} }
+    vi.stubGlobal("ResizeObserver", Observer);
+    const validated: string[] = [];
+    const refusal: GraphValidation = { valid: false, version: null, configurationChecked: false, privileged: [], diagnostics: [{ code: "UNAUTHORIZED_CHANGE", path: "$.id", message: "The graph reuses the shipped preset ID." }] };
+    const api = {
+      // A saved graph already holds the first copy's ID.
+      list: async () => ({ graphs: [{ graphId: "audit-deep-copy", versions: [{ graphId: "audit-deep-copy", version: "c".repeat(64), parentVersion: null, savedAt: "2026-01-01T00:00:00.000Z", authorizations: [] }] }], templates: [template] }),
+      version: async () => { throw new Error("unused"); },
+      validate: async (graph: AuthoredGraph) => { validated.push(graph.id); return graph.id === "audit-deep" ? refusal : { ...refusal, valid: true, version: "d".repeat(64), diagnostics: [] }; },
+      save: async () => { throw new Error("unused"); },
+    } as unknown as WorkflowApi;
+    render(<GraphEditor api={api} configurationId={null} />);
+    const editor = await screen.findByRole("region", { name: "workflow graph · editing audit-deep-copy-2" });
+    expect(await within(editor).findByText(/^valid · version d{64} · /u)).toBeTruthy();
+    expect(within(editor).queryByRole("list", { name: "validation diagnostics" })).toBeNull();
+    expect(validated).not.toContain("audit-deep");
+    expect((within(editor).getByLabelText("graph id") as HTMLInputElement).value).toBe("audit-deep-copy-2");
+    expect(within(editor).getByText("no unsaved changes · not saved as a version")).toBeTruthy();
+    expect(within(editor).getByText("Opened from the preset template audit-deep as a copy: a saved graph cannot take a shipped preset's ID.")).toBeTruthy();
   });
 });

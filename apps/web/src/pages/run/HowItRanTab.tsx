@@ -9,7 +9,7 @@ import type { Mode } from "../../app/words.js";
 import { CopyButton } from "../../controls/CopyButton.js";
 import { useEvaluationMetrics } from "../../views/evaluation/api.js";
 import { RUN_ARTIFACT_KINDS, useRunArtifact } from "../../views/issue-board/run-artifacts.js";
-import { stageNotes, stepModels, type CritiqueRecord, type PreflightRecord } from "./facts.js";
+import { stageNotes, stepModels, type CriticResultRecord, type CritiqueRecord, type PreflightRecord } from "./facts.js";
 import { modelProfiles } from "./models.js";
 import { ModelTable } from "./NodeDetails.js";
 import { executorText } from "./RunHeader.js";
@@ -32,13 +32,14 @@ export function HowItRanTab({ runId, mode, run, overview, progress, events, arti
   const metrics = useEvaluationMetrics(evaluation, done ? runId : null);
   const preflight = useRunArtifact<PreflightRecord>(api, artifacts.some(({ kind }) => kind === "preflight") ? runId : null, "preflight", refreshKey).value;
   const critique = useRunArtifact<CritiqueRecord>(api, artifacts.some(({ kind }) => kind === RUN_ARTIFACT_KINDS.criticFeedback) ? runId : null, RUN_ARTIFACT_KINDS.criticFeedback, refreshKey).value;
+  const criticResult = useRunArtifact<CriticResultRecord>(api, artifacts.some(({ kind }) => kind === RUN_ARTIFACT_KINDS.criticResult) ? runId : null, RUN_ARTIFACT_KINDS.criticResult, refreshKey).value;
   const workflow = run?.workflow ?? null;
   const stages = workflow === null ? null : stageViews({ workflow, mode, progress: progress.value, events, now, models: stepModels(overview), notes: stageNotes({ workflow, progress: progress.value, preflight, critique }) });
   if (overview === null) return <p role="status">reading the run's settings</p>;
   const profiles = overview.configuration === null ? [] : modelProfiles(overview.configuration);
   const scope = Object.entries(overview.scope).filter(([key]) => key !== "kind").map(([key, value]) => `${key} ${Array.isArray(value) ? value.join(", ") : String(value)}`).join(" · ");
   return <div className="summary how-it-ran">
-    <RanFacts runId={runId} mode={mode} overview={overview} progress={progress.value} confirmed={metrics.metrics?.confirmedYield ?? null} critique={critique} workflow={workflow} full />
+    <RanFacts runId={runId} mode={mode} overview={overview} progress={progress.value} confirmed={metrics.metrics?.confirmedYield ?? null} critique={critique} criticResult={criticResult} workflow={workflow} full />
     {stages === null || workflow === null ? null : <section aria-labelledby="how-stages-title" className="summary-section">
       <h2 className="panel-title" id="how-stages-title">Stages</h2>
       <StageGraph stages={stages} workflow={workflow} selectedId={selectedNode} onSelect={onSelectNode} />

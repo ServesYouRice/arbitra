@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ArtifactApi } from "../../api/artifacts.js";
-export const RUN_ARTIFACT_KINDS = Object.freeze({ canonicalIssues: "canonical-issues", sourceFindings: "source-findings", issueOperations: "issue-operations", verificationResults: "verification-results", plan: "plan-ir", criticFeedback: "critic-feedback" });
+export const RUN_ARTIFACT_KINDS = Object.freeze({ canonicalIssues: "canonical-issues", sourceFindings: "source-findings", issueOperations: "issue-operations", verificationResults: "verification-results", plan: "plan-ir", criticFeedback: "critic-feedback", criticResult: "critic-result" });
 export type RunArtifactState = "loading" | "loaded" | "absent" | "error";
 export interface RunArtifact<T> { readonly value: T | null; readonly state: RunArtifactState; readonly error: string | null }
 

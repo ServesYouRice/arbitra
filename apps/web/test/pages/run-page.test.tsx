@@ -47,6 +47,43 @@ describe("the run page", () => {
     expect(main().textContent).not.toMatch(/COMPLETED|unresolved_issues|degraded_coverage|canonical issue/u);
   });
 
+  // Review the plan is a switch, off by default since October 25, 2026: a run without it showed nothing about a review.
+  it("says on a finished audit's Summary that its plan was not reviewed when Review the plan was off", async () => {
+    stubBrowser();
+    const unreviewed = Object.fromEntries(Object.entries(ARTIFACT_CONTENT).filter(([kind]) => kind !== "critic-feedback"));
+    stubControlPlane({ "GET /runs/run-1": resource(), "GET /runs/run-1/overview": modelOverview(), "GET /runs/run-1/progress": finishedProgress(), "GET /runs/run-1/metrics": metrics(),
+      "GET /handoff/runs/run-1": { saved: [] }, ...artifactRoutes("run-1", unreviewed) });
+    visit("?run=run-1");
+    render(<App />);
+    const ran = await screen.findByRole("region", { name: "How it ran" });
+    expect(fact(ran, "wrote the plan")).toBe("Opus 5.5 · high");
+    expect(fact(ran, "reviewed the plan")).toBe("no: Review the plan was off for this run");
+  });
+
+  it("says a review the run did not need did not happen, from the review's record, and names no reviewer", async () => {
+    stubBrowser();
+    const calls = stubControlPlane({ "GET /runs/run-1": resource({ workflow: BALANCED_WORKFLOW }), "GET /runs/run-1/overview": modelOverview(), "GET /runs/run-1/progress": finishedProgress(), "GET /runs/run-1/metrics": metrics(),
+      "GET /handoff/runs/run-1": { saved: [] }, ...artifactRoutes("run-1", { ...ARTIFACT_CONTENT,
+        "critic-result": { status: "not_required", requirement: { required: false, reasons: [] }, degradedReviewCoverage: false, criticCalls: 0, citedSourceLeftOut: [] },
+        "critic-feedback": { summary: "critic not_required", items: [] } }) });
+    visit("?run=run-1");
+    render(<App />);
+    const ran = await screen.findByRole("region", { name: "How it ran" });
+    await waitFor(() => expect(fact(ran, "reviewed the plan")).toBe("no: not needed for this run"));
+    expect(calls).toContain(`GET /runs/run-1/artifacts/${encodeURIComponent("artifact:critic-result")}`);
+  });
+
+  it("names the model that reviewed the plan and what it found", async () => {
+    stubBrowser();
+    stubControlPlane({ "GET /runs/run-1": resource({ workflow: BALANCED_WORKFLOW }), "GET /runs/run-1/overview": modelOverview(), "GET /runs/run-1/progress": finishedProgress(), "GET /runs/run-1/metrics": metrics(),
+      "GET /handoff/runs/run-1": { saved: [] }, ...artifactRoutes("run-1", { ...ARTIFACT_CONTENT,
+        "critic-result": { status: "completed", requirement: { required: true, reasons: ["switched_on"] }, degradedReviewCoverage: false, criticCalls: 1, citedSourceLeftOut: [] } }) });
+    visit("?run=run-1");
+    render(<App />);
+    const ran = await screen.findByRole("region", { name: "How it ran" });
+    await waitFor(() => expect(fact(ran, "reviewed the plan")).toBe("GPT-6.1 Sol · high · 1 objection"));
+  });
+
   it("saves the plan into the project on request, then says where it went and what to do next", async () => {
     stubBrowser();
     const saved: { directory: string; relative: string; savedAt: string }[] = [];
@@ -199,6 +236,25 @@ describe("the run page", () => {
     expect(within(failed).getByText(reason).closest("details")).not.toBeNull();
     expect(document.querySelector(".run-header .chip")?.textContent).toBe("failed");
     expect(screen.queryByRole("button", { name: "Resume" })).toBeNull();
+    // Starting again is the way on: New audit opens with this run's settings, where the folders to read are chosen.
+    const again = screen.getByRole("link", { name: "New audit with these settings" });
+    expect(new URL(again.getAttribute("href") ?? "", "http://arbitra.test").searchParams.get("from")).toBe("run:run-1");
+  });
+
+  // veritra (October 25, 2026): "Error: Prompt free text exceeds 1 MiB." The page said to resume, which stopped the same way
+  // until a newer arbitra fixed the cause; the resume after the update went on from where the run stopped.
+  it("says a failure inside arbitra needs a newer arbitra before a resume, and keeps resume for after the update", async () => {
+    stubBrowser();
+    const reason = "Error: Prompt free text exceeds 1 MiB.";
+    stubControlPlane({ "GET /runs/run-1": resource({ state: "FAILED", resumable: true }), "GET /runs/run-1/overview": overview({ state: "FAILED", reason, gate: null }), "GET /runs/run-1/progress": finishedProgress({ state: "FAILED" }), ...artifactRoutes("run-1", {}) });
+    visit("?run=run-1");
+    render(<App />);
+    const failed = await screen.findByRole("region", { name: "The run failed" });
+    expect(within(failed).getByText("The run stopped on an error inside arbitra, not at a model.")).toBeTruthy();
+    expect(within(failed).getByText(/^Resuming with this version of arbitra stops the same way\. Update arbitra, then resume: what the run finished is kept\./u)).toBeTruthy();
+    expect(within(failed).getByText(reason).closest("details")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "New audit with these settings" })).toBeNull();
   });
 
   it("offers resume for a failure that resuming can help, and keeps the error one click down", async () => {

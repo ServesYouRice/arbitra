@@ -14,7 +14,8 @@ const NEW_RUN: Readonly<Record<Mode, string>> = Object.freeze({ audit: "New audi
 /**
  * The run's project and kind, its state in words, and the one lifecycle action its state allows: cancel a working
  * run, resume a stopped one when resuming can help, raise the token limit of one paused on it, or start a new run
- * like a finished one. A blocked run's decisions are in the banner beneath this, with its resume.
+ * like a finished one, or like a failed one that resuming cannot help. A blocked run's decisions are in the banner
+ * beneath this, with its resume.
  */
 export function RunHeader({ runId, mode, resource, overview, overviewError = null, reason, streamError, files, onChanged }: {
   readonly runId: string;
@@ -42,8 +43,11 @@ export function RunHeader({ runId, mode, resource, overview, overviewError = nul
   // A working state that this arbitra is not executing: run elsewhere (such as the CLI) or interrupted when its
   // process stopped. Cancel cannot reach it; resume is the way on, and the Summary says why.
   const elsewhere = isActive(state) && overview !== null && !overview.live;
-  const helps = state !== "FAILED" || failureWords(reason ?? overview?.reason ?? null).resumable;
+  // The server says `resumable` of every run that is not done; whether resuming a failed one can help is in its reason.
+  const helps = state !== "FAILED" || failureWords(reason ?? overview?.reason ?? null, mode).resumable;
   const resumable = resource?.resumable === true && state !== null && helps && (elsewhere || ["CANCELLED", "FAILED", "SUSPENDED_BUDGET", "SUSPENDED_RATE_LIMIT"].includes(state));
+  // A finished run, or a failed one that a resume would only repeat, goes on as a new run with its settings.
+  const again = state === "COMPLETED" || (state === "FAILED" && !helps);
   // A run paused on its token budget goes on only with a higher limit; everything it has charged stays charged.
   const limit = record(record(overview?.configuration?.["workflow"])["modelExecution"])["maximumTokens"];
   const [raised, setRaised] = useState(0);
@@ -63,7 +67,7 @@ export function RunHeader({ runId, mode, resource, overview, overviewError = nul
           <button className="button button--primary" disabled={busy || !(raised > limit)} type="submit">Raise to {tokens(raised)} and resume</button>
         </form>
           : resumable ? <button className="button button--primary" disabled={busy} type="button" onClick={() => { void act(() => runs.resume(runId)); }}>Resume</button> : null}
-        {state === "COMPLETED" ? <Link className="more-link" to={{ page: "new-run", from: `run:${runId}`, graph: null }}>{NEW_RUN[mode]}</Link> : null}
+        {again ? <Link className="more-link" to={{ page: "new-run", from: `run:${runId}`, graph: null }}>{NEW_RUN[mode]}</Link> : null}
       </div>
     </div>
     {facts.length === 0 ? overviewError === null ? <p className="run-header__meta" role="status">reading the run's settings</p> : null : <p className="run-header__meta">{facts.join(" · ")}</p>}

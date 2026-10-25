@@ -81,21 +81,52 @@ export const RESULT_WORDS: Readonly<Record<string, string>> = Object.freeze({ fi
 /** What a failure means for the person: what happened, what to do, and whether resuming can help. */
 export interface FailureWords { readonly what: string; readonly todo: string; readonly resumable: boolean }
 
+const KEPT = "What it finished is kept.";
+const AGAIN = "Resuming this run would stop the same way.";
+const SEND = "If it stops the same way again, copy the report below and send it to whoever helps you.";
+
 /**
- * The failures a person can act on, in words. A failure arbitra cannot name keeps "resume" open (the run may have
- * stopped on something passing) and its recorded reason goes to the details. Observed (inventory, October 25, 2026):
- * a run whose snapshot was refused offered a resume that could only fail the same way.
+ * What a failure means for the person, read from its recorded reason (`<error name>: <message>`). The control plane
+ * says `resumable` of every run that is not done, so whether resuming can help is decided here, by the reason:
+ *
+ * - the run's own settings or project cause it, and a resume repeats it: start a new run, and no resume is offered;
+ * - something on this computer (a sign-in, a key, a CLI, the disk): fix it, then resume;
+ * - a model's service or a call's time limit: resume now;
+ * - anything else stopped inside arbitra, where the same version stops the same way: update arbitra, then resume.
+ *   veritra stopped four times so (October 25, 2026: a prompt over 1 MiB, two sizing limits, a changed call input),
+ *   and each resumed once a newer arbitra fixed the cause, so resume stays offered for after the update.
+ *
+ * Observed (inventory, October 25, 2026): a run whose snapshot was refused offered a resume that could only fail the
+ * same way, and every unnamed failure said to resume.
  */
-export function failureWords(reason: string | null): FailureWords {
+export function failureWords(reason: string | null, mode: Mode = "audit"): FailureWords {
   const text = reason ?? "";
+  const run = mode === "audit" ? "audit" : `${mode} run`;
+  if (text.trim() === "") return { what: "The run stopped on an error, and no reason was recorded.", todo: `Resume it to go on from where it stopped. ${KEPT} ${SEND}`, resumable: true };
+  // Start again: the run's recorded settings or its project are the cause.
   const files = /REPOSITORY_FILE_LIMIT_EXCEEDED:(\d+)/u.exec(text);
-  if (files !== null) return { what: `The project has more than ${Number(files[1]).toLocaleString("en")} source files, more than one run reads.`, todo: "Start a new audit that reads some folders of the project, or leaves some out. Resuming this run would stop the same way.", resumable: false };
-  if (/RUN_REPOSITORY_CHANGED/u.test(text)) return { what: "The project's files changed after the run read them, so the run cannot go on from where it stopped.", todo: "Put the files back as they were to resume, or start a new audit of the project as it is now.", resumable: false };
-  if (/MODEL_IDENTITY_PLACEHOLDER/u.test(text)) return { what: "A model in the lineup is a placeholder, not a model this machine can run.", todo: "Start a new audit with a model chosen for each step.", resumable: false };
-  if (/PROVIDER_CREDENTIAL_MISSING/u.test(text)) return { what: "A model's API key is not set on this machine.", todo: "Set the key, restart arbitra, then resume the run.", resumable: true };
+  if (files !== null) return { what: `The project has more than ${Number(files[1]).toLocaleString("en")} source files, more than one run reads.`, todo: `Start a new ${run} that reads some folders of the project, or leaves some out. ${AGAIN}`, resumable: false };
+  if (/MODEL_IDENTITY_PLACEHOLDER/u.test(text)) return { what: "A model in the lineup is a placeholder, not a model this computer can run.", todo: `Start a new ${run} with a model chosen for each step. ${AGAIN}`, resumable: false };
+  if (/CLI_MODEL_UNAVAILABLE|CLI_ACCOUNT_INELIGIBLE/u.test(text)) return { what: "A model in the lineup is not offered to the account its CLI is signed in to.", todo: `Start a new ${run} with another model for that step. ${AGAIN}`, resumable: false };
+  if (/CLI_EFFORT_PARAMETER_UNSUPPORTED/u.test(text)) return { what: "A model refused the effort the lineup gives it.", todo: `Start a new ${run} with another effort for that step. ${AGAIN}`, resumable: false };
+  // Fix it on this computer, then resume.
+  if (/RUN_REPOSITORY_CHANGED/u.test(text)) return { what: "The project's files changed after the run read them, so the run cannot go on from where it stopped.", todo: `Put the files back as they were to resume, or start a new ${run} of the project as it is now.`, resumable: true };
+  const signedOut = /CLI_NOT_LOGGED_IN: (.+?) is not signed in/u.exec(text);
+  if (signedOut !== null) return { what: `${signedOut[1] ?? "A model's CLI"} is not signed in on this computer.`, todo: `Sign in to it (the details say how), then resume the run. ${KEPT}`, resumable: true };
+  const variable = /Credential environment variable (\S+) is not set/u.exec(text)?.[1];
+  if (variable !== undefined || /PROVIDER_CREDENTIAL_MISSING/u.test(text)) return { what: "A model's API key is not set on this computer.", todo: `Set ${variable ?? "the key"}, restart arbitra, then resume the run. ${KEPT}`, resumable: true };
+  if (/CLI_API_KEY_IN_USE/u.test(text)) return { what: "Claude Code used an API key where the lineup runs through its subscription, so nothing was sent.", todo: `Remove the key from the environment arbitra runs in, restart arbitra, then resume the run. ${KEPT}`, resumable: true };
+  if (/CLI_NOT_INSTALLED|CLI_SPAWN_FAILED/u.test(text)) return { what: "A model's CLI could not be started on this computer.", todo: `Install it, or make it findable as the details say, then resume the run. ${KEPT}`, resumable: true };
+  if (/CLI_VERSION_UNSUPPORTED|CLI_VERSION_UNREADABLE/u.test(text)) return { what: "A model's CLI is a version arbitra does not support.", todo: `Install a version the details name, or update arbitra, then resume the run. ${KEPT}`, resumable: true };
+  if (/\(AUTH: /u.test(text)) return { what: "A model's provider refused the sign-in or key on this computer.", todo: `Check the key or sign in again, restart arbitra, then resume the run. ${KEPT}`, resumable: true };
+  const resource = /\b(ENOSPC|EMFILE|ENFILE|ENOMEM|EBUSY|EPERM|EACCES)\b/u.exec(text)?.[1];
+  if (resource !== undefined) return { what: `This computer refused arbitra a file or resource it needed (${resource}).`, todo: `Free what the details name, such as disk space or a file another program holds, then resume the run. ${KEPT}`, resumable: true };
+  // Resume now: a model's service, its allowance or a call's time limit.
   if (/ProviderUsageLimitError|usage limit|usage allowance/iu.test(text)) return { what: "A model's usage limit was reached.", todo: "Resume the run once the limit has reset. Everything it has done is kept.", resumable: true };
   if (/\bTIMEOUT\b|timed out/iu.test(text)) return { what: "A model call kept running past its time limit.", todo: "Resume the run: it goes on from where it stopped, and calls already finished are kept.", resumable: true };
-  return { what: "The run stopped on an error.", todo: "Resume it to go on from where it stopped; what it finished is kept. If it stops the same way again, copy the report below and send it to whoever helps you.", resumable: true };
+  if (/^ProviderInvocationFailure: .*\((?:HTTP|RATE_LIMIT|MALFORMED_RESPONSE|CANCELLED|UNKNOWN)\b/u.test(text)) return { what: "A model call failed: the model's service or its CLI did not answer as expected.", todo: `Resume the run: it goes on from where it stopped, and calls already finished are kept. ${SEND}`, resumable: true };
+  // Update, then resume: arbitra's own check or defect, which the same version repeats.
+  return { what: "The run stopped on an error inside arbitra, not at a model.", todo: "Resuming with this version of arbitra stops the same way. Update arbitra, then resume: what the run finished is kept. If the update does not fix it, copy the report below and send it to whoever helps you.", resumable: true };
 }
 
 /** A failed run reads plainly first: the code and message go in the details. */

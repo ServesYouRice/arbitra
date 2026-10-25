@@ -57,8 +57,10 @@ export function GraphEditor({ api, configurationId, preferredSource = null, onDi
     setSaveStatus(null); setSelection(null);
     const [type, first, second] = key.split(":");
     if (type === "template") {
+      // A template keeps its preset's ID, which the server refuses for a saved graph (UNAUTHORIZED_CHANGE), so it opens
+      // as a copy under an ID of its own. Observed (UI inventory, October 25, 2026): Workflows opened on that refusal.
       const template = available.templates.find(({ id }) => id === first);
-      if (template !== undefined) { dispatch({ type: "load", graph: template, version: null }); setSource(key); setLoadedSource(key); }
+      if (template !== undefined) { dispatch({ type: "load", graph: { ...template, id: copyId(template.id, available) }, version: null }); setSource(key); setLoadedSource(key); }
       return;
     }
     if (type === "saved" && first !== undefined && second !== undefined) {
@@ -167,6 +169,7 @@ export function GraphEditor({ api, configurationId, preferredSource = null, onDi
       <button aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z Control+Y" disabled={state.future.length === 0} type="button" onClick={redo}>redo</button>
       <button aria-keyshortcuts="Control+S Meta+S" disabled={!dirty || saving} type="button" onClick={() => { void save(); }}>save as new version</button>
     </div>
+    {loadedSource.startsWith("template:") ? <p className="note">Opened from the preset template {loadedSource.slice("template:".length)} as a copy: a saved graph cannot take a shipped preset&apos;s ID.</p> : null}
     {saveStatus === null ? null : <p className="state" data-state={saveStatus.kind === "saved" ? "verified" : "refuted"} role={saveStatus.kind === "saved" ? "status" : "alert"}>{saveStatus.text}</p>}
     {reference === null ? null : <p className="editor-reference">run configuration reference · <code aria-label="run configuration reference">{reference}</code></p>}
     <label>graph id<input aria-label="graph id" value={graph.id} onChange={(event) => edit({ type: "setGraphId", id: event.target.value }, "graph-id")} /></label>
@@ -245,6 +248,13 @@ function EditorCanvas({ graph, selection, onSelect, onConnect }: { readonly grap
   return <div className="graph-canvas" data-testid="editor-canvas"><ReactFlow nodes={nodes} edges={edges} deleteKeyCode={null} minZoom={0.1} nodesConnectable nodesDraggable={false} onConnect={(connection: Connection) => onConnect(connection.source, connection.target)} onEdgeClick={(_, edge) => onSelect({ kind: "edge", id: edge.id })} onInit={setFlow} onNodeClick={(_, node) => onSelect({ kind: "node", id: node.id })}><Background /><Controls showInteractive={false} /></ReactFlow></div>;
 }
 
+/** `<preset>-copy`, or `-copy-2` and on when a preset or a saved graph already has that ID. */
+function copyId(preset: string, listing: GraphListing): string {
+  const taken = new Set([...listing.templates.map(({ id }) => id), ...listing.graphs.map(({ graphId }) => graphId)]);
+  const base = `${preset}-copy`;
+  if (!taken.has(base)) return base;
+  for (let suffix = 2; ; suffix += 1) if (!taken.has(`${base}-${suffix}`)) return `${base}-${suffix}`;
+}
 function sourceKeys(listing: GraphListing): string[] {
   return [...listing.templates.map(({ id }) => `template:${id}`), ...listing.graphs.flatMap(({ graphId, versions }) => versions.map(({ version }) => `saved:${graphId}:${version}`))];
 }

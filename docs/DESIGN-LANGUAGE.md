@@ -113,7 +113,9 @@ A run page reads top to bottom:
 - **Header.** The project and the run's kind as the page title (`veritra · audit`), the
   state chip in words, and the one lifecycle action the state allows: cancel a working run,
   resume a stopped one when resuming can help, raise the token limit of one paused on it,
-  or start a new run like a finished one. Beneath it when it started, what executed it
+  or start a new run like a finished one, or like a failed one that resuming cannot help.
+  Whether it can help is read from the failure's recorded reason, since the server calls
+  every run that is not done resumable. Beneath it when it started, what executed it
   (models, or scripted detectors that make no model call) and how much of the project it read.
 - **Decision banner.** Present only while the run is blocked, above every tab, with the
   decisions themselves and the resume that follows them.
@@ -125,9 +127,11 @@ A run page reads top to bottom:
   far`, then the parts read, the issues found and not checked yet, the tokens against the
   limit), the stages as boxes joined by lines, with stages that run side by side stacked and
   the lines into a running stage moving (still under `prefers-reduced-motion`), and what has
-  been found so far. When it stopped: what happened and what to do, in words. When it is
-  done: the plan first, with saving it into the project as the page's one primary action,
-  then what needs the person, the issues by verdict, and how it ran.
+  been found so far. When it stopped: what happened and what to do, in words: start again,
+  fix something on this computer and resume, resume now, or update arbitra and then resume.
+  When it is done: the plan first, with saving it into the project as the page's one primary
+  action, then what needs the person, the issues by verdict, and how it ran, which says
+  whether the plan was reviewed (also when Review the plan was off).
 - **Details panel.** Whatever is selected (a node, an issue, a plan step, a model attempt,
   an artifact), shown from the run's own records. It sits beside the tab, 360–440px, behind
   a 1px hairline, and exists only while something is selected. Below 1180px it is a modal

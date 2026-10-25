@@ -15,7 +15,7 @@ import { FeatureOutcome, HandoffDownload } from "../../views/feature/FeatureView
 import type { PersistedPlan } from "../../views/plan/traceability.js";
 import { RUN_ARTIFACT_KINDS, useRunArtifact } from "../../views/issue-board/run-artifacts.js";
 import { Handoff, Outcome, Planning, useTestingView } from "../../views/testing/TestingView.js";
-import { criticWords, runTime, stageNotes, stageTimes, stepModels, type CritiqueRecord, type PreflightRecord } from "./facts.js";
+import { planReview, runTime, stageNotes, stageTimes, stepModels, type CriticResultRecord, type CritiqueRecord, type PreflightRecord } from "./facts.js";
 import { notificationsSupported, useNotifyChoice } from "./notify.js";
 import { configuredChecker, record } from "./models.js";
 import { PlanCard } from "./PlanCard.js";
@@ -59,10 +59,11 @@ function useStageData({ runId, mode, run, overview, progress, events, artifacts,
   const { artifacts: api } = useApis();
   const preflight = useRunArtifact<PreflightRecord>(api, artifacts.some(({ kind }) => kind === "preflight") ? runId : null, "preflight", refreshKey).value;
   const critique = useRunArtifact<CritiqueRecord>(api, artifacts.some(({ kind }) => kind === RUN_ARTIFACT_KINDS.criticFeedback) ? runId : null, RUN_ARTIFACT_KINDS.criticFeedback, refreshKey).value;
+  const criticResult = useRunArtifact<CriticResultRecord>(api, artifacts.some(({ kind }) => kind === RUN_ARTIFACT_KINDS.criticResult) ? runId : null, RUN_ARTIFACT_KINDS.criticResult, refreshKey).value;
   const workflow = run?.workflow ?? null;
   if (workflow === null) return null;
   const notes = stageNotes({ workflow, progress: progress.value, preflight, critique });
-  return { workflow, preflight, critique, stages: stageViews({ workflow, mode, progress: progress.value, events, now, models: stepModels(overview), notes }) };
+  return { workflow, preflight, critique, criticResult, stages: stageViews({ workflow, mode, progress: progress.value, events, now, models: stepModels(overview), notes }) };
 }
 
 /** The status line, the stages and what discovery has found so far: the run page while a run works. */
@@ -144,7 +145,7 @@ function Stopped(props: SummaryProps & { readonly state: string }): ReactElement
   const data = useStageData(props, Date.now());
   const why = reason ?? overview?.reason ?? null;
   const limit = record(record(overview?.configuration?.["workflow"])["modelExecution"])["maximumTokens"];
-  const note: ReactNode = state === "FAILED" ? <FailureNote reason={why} />
+  const note: ReactNode = state === "FAILED" ? <FailureNote reason={why} mode={props.mode} />
     : state === "SUSPENDED_RATE_LIMIT" ? <UsageLimitPause reason={why} />
     : state === "SUSPENDED_BUDGET" ? <Alert title="Paused at its token limit">The run reached its limit{typeof limit === "number" ? ` of ${limitWords(limit)} tokens` : ""}, with everything it has done kept. Raise the limit in the header to go on from where it stopped.</Alert>
     : state === "CANCELLED" ? <Alert title="Cancelled">The run was cancelled. What it finished is kept: resume it from the header to go on from where it stopped.</Alert>
@@ -169,8 +170,8 @@ function Alert({ title, tone = "degraded", children }: { readonly title: string;
 }
 
 /** What failed and what to do, plainly; the recorded reason one click down. */
-function FailureNote({ reason }: { readonly reason: string | null }): ReactElement {
-  const words = failureWords(reason);
+function FailureNote({ reason, mode }: { readonly reason: string | null; readonly mode: Mode }): ReactElement {
+  const words = failureWords(reason, mode);
   return <Alert title="The run failed" tone="refuted">
     <p className="prose">{words.what}</p>
     <p className="prose">{words.todo}</p>
@@ -202,7 +203,7 @@ function AuditDone(props: SummaryProps): ReactElement {
       : <PlanCard runId={runId} plan={plan.value} questions={questions} />}
     <NeedsYou runId={runId} questions={questions} confirmed={confirmed} reasons={overview?.gate?.reasons ?? []} />
     <IssueCounts runId={runId} />
-    <RanFacts runId={runId} mode="audit" overview={overview} progress={progress.value} confirmed={confirmed} critique={data?.critique ?? null} workflow={props.run?.workflow ?? null} />
+    <RanFacts runId={runId} mode="audit" overview={overview} progress={progress.value} confirmed={confirmed} critique={data?.critique ?? null} criticResult={data?.criticResult ?? null} workflow={props.run?.workflow ?? null} />
   </>;
 }
 
@@ -250,29 +251,32 @@ function Verdict({ count, word, detail }: { readonly count: number; readonly wor
   return <div className="verdict" data-verdict={word}><span className="verdict__count">{count.toLocaleString("en")}</span><span className="verdict__words"><span className="verdict__word">{word}</span>{detail === "" ? "" : ` · ${detail}`}</span></div>;
 }
 
-/** How the run went, in a few facts: time, tokens, and which model did each step at what effort. */
-export function RanFacts({ runId, mode, overview, progress, confirmed, critique, workflow, full = false }: {
+/** How the run went, in a few facts: time, tokens, which model did each step at what effort, and whether the plan was reviewed. */
+export function RanFacts({ runId, mode, overview, progress, confirmed, critique, criticResult = null, workflow, full = false }: {
   readonly runId: string; readonly mode: Mode; readonly overview: RunOverview | null; readonly progress: RunProgress | null; readonly confirmed: ConfirmedYield | null;
-  readonly critique: CritiqueRecord | null; readonly workflow: RunResource["workflow"] | null; readonly full?: boolean;
+  readonly critique: CritiqueRecord | null; readonly criticResult?: CriticResultRecord | null; readonly workflow: RunResource["workflow"] | null; readonly full?: boolean;
 }): ReactElement {
   const now = Date.now();
   const time = runTime(progress, overview, now);
   const perStage = workflow === null || workflow === undefined ? null : stageTimes(workflow, mode, progress, now);
   const models = stepModels(overview);
   const auditors = [...models].filter(([id]) => id.startsWith("auditor-")).map(([, label]) => label);
-  const hasCritic = workflow?.nodes.some(({ id }) => id === "critic") === true;
   const scripted = overview?.executor === "scripted";
   const tokensUsed = progress?.tokens.used ?? confirmed?.tokens ?? null;
+  // Every Audit with a planner says whether its plan was reviewed, also when Review the plan was off (the default).
+  const review = mode !== "audit" || workflow == null || !workflow.nodes.some(({ id }) => id === "planner") ? null
+    : planReview({ workflow, result: criticResult, feedback: critique, state: overview?.state ?? null });
+  const reviewed = review === null ? null : <div><dt>reviewed the plan</dt><dd>{[review.reviewed && !scripted ? models.get("critic") : null, review.words].filter(Boolean).join(" · ")}</dd></div>;
   return <section aria-labelledby={full ? "ran-facts-title" : "ran-title"} className="summary-section">
     {full ? <h2 className="panel-title" id="ran-facts-title">Time, tokens and models</h2> : <h2 className="panel-title" id="ran-title">How it ran</h2>}
     <dl className="facts ran-facts">
       <div><dt>time</dt><dd>{time === null ? "not recorded" : `${duration(time.ms)}${perStage === null ? time.recorded ? "" : " from its start to its last record" : ` · ${perStage}`}`}</dd></div>
       <div><dt>tokens</dt><dd>{scripted ? "none: scripted detectors call no model" : tokensUsed === null ? "not recorded" : `${tokenWords(tokensUsed)}${confirmed?.tokensPerConfirmed == null ? "" : ` · ${tokenWords(confirmed.tokensPerConfirmed)} per confirmed issue`}${(progress?.tokens.callsWithoutUsage ?? 0) > 0 ? ` · ${counted(progress?.tokens.callsWithoutUsage ?? 0, "call")} reported none` : ""}`}</dd></div>
-      {mode !== "audit" ? null : scripted ? <div><dt>found issues</dt><dd>scripted detectors, no model calls</dd></div> : <>
+      {mode !== "audit" ? null : scripted ? <><div><dt>found issues</dt><dd>scripted detectors, no model calls</dd></div>{reviewed}</> : <>
         {auditors.length === 0 ? null : <div><dt>found issues</dt><dd>{auditors.join(", ")}</dd></div>}
         {models.has("verification") ? <div><dt>checked them</dt><dd>{checkers(overview)}</dd></div> : null}
         {models.has("planner") ? <div><dt>wrote the plan</dt><dd>{models.get("planner")}</dd></div> : null}
-        {hasCritic ? <div><dt>reviewed the plan</dt><dd>{[models.get("critic"), critique === null ? null : criticWords(critique)].filter(Boolean).join(" · ") || "recorded no review"}</dd></div> : null}
+        {reviewed}
       </>}
     </dl>
     {full ? null : <div className="summary-links">

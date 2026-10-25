@@ -1,4 +1,5 @@
 import type { RunOverview, RunProgress } from "../../api/runs.js";
+import { isActive } from "../../app/format.js";
 import type { WorkflowJson } from "../../graph/layout.js";
 import { counted, duration, stepShort, type Mode } from "../../app/words.js";
 import { modelNodeLabels } from "./models.js";
@@ -35,6 +36,28 @@ export function criticWords(critique: CritiqueRecord): string {
   if (critique.items.length === 0) return "no objections";
   const unanswered = critique.revision?.notRevisedCritiqueItemIds?.length;
   return `${counted(critique.items.length, "objection")}${unanswered === undefined ? "" : ` · ${critique.items.length - unanswered} answered by the revised plan`}`;
+}
+
+/** The critic's record of whether it ran (`critic-result`): reviewed, not required, or skipped for want of an independent model. */
+export interface CriticResultRecord { readonly status: "completed" | "not_required" | "skipped" }
+export interface PlanReview { readonly reviewed: boolean; readonly words: string }
+
+/**
+ * Whether the plan was reviewed, from the run's records: the run's graph has a critic only when Review the plan was
+ * switched on (off by default since October 25, 2026); `critic-result` says whether it then reviewed the plan, found no
+ * review required (runs from before the switch) or was skipped; `critic-feedback` says what it found, and is the only
+ * record of a scripted run's review.
+ */
+export function planReview({ workflow, result, feedback, state }: { readonly workflow: WorkflowJson; readonly result: CriticResultRecord | null; readonly feedback: CritiqueRecord | null; readonly state: string | null }): PlanReview {
+  if (!workflow.nodes.some(({ id }) => id === "critic")) return { reviewed: false, words: "no: Review the plan was off for this run" };
+  if (result?.status === "not_required") return { reviewed: false, words: "no: not needed for this run" };
+  if (result?.status === "skipped") return { reviewed: false, words: "no: no other model was free to review it" };
+  if (result?.status === "completed") return { reviewed: true, words: feedback === null ? "reviewed" : criticWords(feedback) };
+  if (feedback !== null) {
+    const words = criticWords(feedback);
+    return /^critic (not_required|skipped|disabled)/u.test(feedback.summary) ? { reviewed: false, words: `no: ${words.replace(/^skipped: /u, "")}` } : { reviewed: true, words };
+  }
+  return { reviewed: false, words: state === "COMPLETED" ? "recorded no review" : isActive(state) ? "not yet" : "not yet: the run stopped before it" };
 }
 
 /** The run's working time so far: from its records when they carry times, else from its start to its last record. */
