@@ -9,12 +9,12 @@ and the recorded evidence) are the old ones, and [`commit-map-2026-10-24.txt`](c
 each one's new hash.
 
 - **Full check:** `pnpm run ci` and `pnpm build` ([setup](../setup.md)). They run locally, on the maintainer's machine
-  and in a clean `node:22` Linux container. The latest Linux pass is 738a139 (x86_64), on October 25, 2026; the
-  full check also passes on Windows since then, the native-harness suites included.
+  and in a clean `node:22` Linux container. The latest Linux pass is 0468674 (x86_64, v0.3.0), on October 25, 2026;
+  the full check passes on Windows at the same commit, the native-harness suites included.
 - **Docker:** the Docker boundary and the Testing repair cases ran against a real engine ([`p04`](p04/README.md)).
 - **Browsers:** acceptance ran on macOS and Linux arm64 ([`p10`](p10/README.md), [`p10-linux`](p10-linux/README.md));
-  the workflow editor is covered in [`p16`](p16/README.md). The latest run passed 69 of 69 tests in Chromium, Firefox
-  and WebKit on Linux x86_64, on October 25, 2026 at 2d37c15.
+  the workflow editor is covered in [`p16`](p16/README.md). The latest run passed 75 of 75 tests in Chromium, Firefox
+  and WebKit on Linux x86_64, on October 25, 2026 at 0468674, on the pages rebuilt in the UI phase.
 - **Live providers:**
   - Gemini native and the OpenAI-compatible chat protocol passed transport conformance ([`p03`](p03/README.md)).
   - On subscriptions, every public workflow passed through the CLIs.

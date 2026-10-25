@@ -1,6 +1,6 @@
 # Completion plan
 
-Updated October 24, 2026, on `main`. Original baseline: d33c36e. See [status](#status) for each item.
+Updated October 25, 2026, on `main`. Original baseline: d33c36e. See [status](#status) for each item.
 
 This plan covers every unfinished implementation, validation and usability step identified
 in the project review. The [verification evidence](qa/README.md) records measured evidence, and
@@ -81,8 +81,8 @@ To pick it up:
 ## Status
 
 The full check (`pnpm run ci` and `pnpm build`) runs locally, on the development machine and in a clean
-`node:22` Linux container; no hosted CI is used. It last passed in Linux on October 25, 2026 at 738a139, with
-69 of 69 browser tests in Chromium, Firefox and WebKit at 2d37c15, and on Windows with every suite.
+`node:22` Linux container; no hosted CI is used. It last passed on October 25, 2026 at 0468674 (v0.3.0), in Linux
+with 75 of 75 browser tests in Chromium, Firefox and WebKit, and on Windows with every suite.
 
 Live environments used so far:
 
@@ -110,7 +110,7 @@ Evidence is in `docs/qa/`.
 | P07 | **Complete** | Every repair case, including the critical success/failure ones, rerun with real containers ([`qa/p04`](qa/p04/README.md)) | — |
 | P08 | Implemented; live limits deferred | All inventory stages now compose (global outline hierarchically, Feature drafting/exploration, Testing risk partitions) with resume tests; limits in `docs/harness.md` | Deferred to the [paid-API bundle](#deferred-the-paid-api-bundle): live context limits |
 | P09 | **Complete** | — | — |
-| P10 | **Complete** | 51/51 Playwright runs on Linux arm64 as well as macOS; one product race fixed (live state published after the event log) ([`qa/p10-linux`](qa/p10-linux/README.md)). On September 29 the interface was restructured into pages (run list, run pages with a decision banner and per-mode tabs, a new-run form, a workflows page), merged from branch `ui-restructure`; browser acceptance rerun on macOS: 69 passed, 0 failed across three engines ([`qa/p10`](qa/p10/README.md)) | — |
+| P10 | **Complete** | 51/51 Playwright runs on Linux arm64 as well as macOS; one product race fixed (live state published after the event log) ([`qa/p10-linux`](qa/p10-linux/README.md)). On September 29 the interface was restructured into pages (run list, run pages with a decision banner and per-mode tabs, a new-run form, a workflows page), merged from branch `ui-restructure`; browser acceptance rerun on macOS: 69 passed, 0 failed across three engines ([`qa/p10`](qa/p10/README.md)). On October 25 the pages were rebuilt in the UI phase and released in v0.3.0: 75 passed, 0 failed in Linux | — |
 | P11 | **Complete** | Feature/Testing replay exercised end to end through the orchestrator, CLI and HTTP with changed protocol, model, scope, requirements, authorization and verification | — |
 | P12 | **Complete** | `credentialKind: subscription_login` runs the writer on the host's Claude login. Against the real Claude Code 2.1.283: the conformance run (leased write, events, usage, planted `CLAUDE.md` ignored, cleanup), and the tool-call limit, cancellation, crash recovery and timeout paths with process-tree termination, scratch cleanup and unknown usage charged in full. The matrix entry is `conformance_verified` ([`qa/p12`](qa/p12/README.md)) | — |
 | P13 | **Complete** | Live advisor path on Gemini native and compatible chat: limits, identity, measured usage, replay without spend ([`qa/p13-live`](qa/p13-live/README.md)) | — |

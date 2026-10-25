@@ -11,6 +11,8 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
 
 - **Releases:** v0.3.0 (October 25, 0468674: the Windows exe and the source zip) is the latest. Work continues on
   `main`; [`TESTERS.md`](TESTERS.md) is the testers' guide.
+- **Break, October 25 to 31:** v0.3.0 goes to friends to test; their reports arrive as GitHub issues or as a run's
+  copied report. Work resumes after the Claude weekly reset on October 31, at the top of the order below.
 - **Default lineup:** New run starts on Claude Code and Codex (`subscription-audit`: two finders at depth deep, no
   peer-review round, plan critic off); balanced and cheap depths, a third finder and the critic are separate
   choices in New run (October 25). Gemini is only ever the opt-in third finder, labelled with Google's terms. The Feature templates still use Antigravity as
@@ -18,11 +20,6 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
 - **Evidence:** six real projects audited; nextra's plan carried out on its `dev` branch: all 126 confirmed issues
   were real, 118 shown by a failing test, and 14 more defects were found while fixing. P20 is closed on its pilot
   (October 19); its held-out set stays unrun by design.
-- **Clear now, October 25:** the dependency advisories, the self-audit's open defects and the small items, in 16
-  lanes, each defect shown by a failing test first (afb494f to 26af136). Two were product defects found on the way:
-  arbitra could not start an npm-installed Claude Code (`claude.cmd`) as the native Testing writer on Windows, and a
-  quoted secret in source carried as JSON reached the model unmasked. The full check now passes on Windows, the
-  native-harness suites included.
 - **Research review, October 25:** every step checked against other labs, products and our own runs
   ([research](docs/research.md#12-the-review-of-october-25)). Its ideas are placed below.
 - **veritra, October 25:** audited (`run-e5546c4c`, 416 files, 103,575 lines of which about 40,000 are tests;
@@ -33,13 +30,19 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
 
 ## Order of work
 
-1. **Measure first** (no model calls, or one cheap run): they decide what to cut before anything is built.
-2. **Small builds before the next real runs** ("Need design", marked *before veritra*).
-3. **The next real runs:** veritra and nananananana, once their current development settles. Audit both on the current
-   build, carry out one plan with the new export, and take the measurements under "Measure on the next runs".
-4. **UI phase**: built on the `ui` branch, merged into `main` and released in 0.3.0; the owner's review goes on.
-5. **Improvements the measurements support** (the rest of "Need design").
-6. **P21**, the completion report and the docs reconciled with the final build, then a release.
+1. **Testers' reports on v0.3.0:** a defect is shown by a failing test, fixed on `main` and released as 0.3.x; a
+   request goes into the lists below.
+2. **veritra's plan,** after the reset on October 31: re-export run `run-e5546c4c` on the current build, carry its 227
+   tasks out on veritra's `dev` branch (never `main`), count what the prompts did not cover, and take the export,
+   premise-check and write-scope measurements under "Measure on the next runs".
+3. **Measure first** (no model calls, or one cheap run): they decide what to cut before anything is built.
+4. **Small builds before the next real runs** ("Need design", marked *before veritra*).
+5. **The next real run:** nananananana, once its current development settles, on the current build, with the rest of
+   "Measure on the next runs".
+6. **UI phase**: built on the `ui` branch, merged into `main` and released in 0.3.0; the owner's review and the
+   testers' reports go on.
+7. **Improvements the measurements support** (the rest of "Need design").
+8. **P21**, the completion report and the docs reconciled with the final build, then a release.
 
 ## Measure first
 
@@ -108,8 +111,8 @@ browser suite passes in Linux. Step one is done (October 25): an inventory of ev
 research report, kept outside the repository in the experiments folder's `ui-2026-10-25`, and the mockups the owner
 chooses from ("arbitra UI Mockups": start, watch, issues, plan and results, and the words). The owner chose A for
 every screen (October 25), with Watch's stages drawn as a graph whose lines into the running stage move, saving the
-plan as the Summary's first action, and the Lighter lineup at medium and low effort. The build is on the `ui` branch:
-the run page first, then Issues, Plan and Results, then New run. Issues, Plan and Results
+plan as the Summary's first action, and the Lighter lineup at medium and low effort. It was built on the `ui` branch
+and merged into `main` on October 25: the run page first, then Issues, Plan and Results, then New run. Issues, Plan and Results
 were built on October 25: the issues grouped by verdict (confirmed, unsettled, rejected, not checked), most severe
 first, each with its place, who found it and who checked it by model and effort (the checker read from the run's model
 attempts, so balanced's Sonnet checks show as Sonnet), "variant of" when an issue carries `variantOf`, and its
