@@ -28,7 +28,9 @@ fi
 export PATH="$pnpm_home/node_modules/.bin:$PATH"
 
 cd "$root"
-current="$(git rev-parse HEAD 2>/dev/null || stat -f %m pnpm-lock.yaml 2>/dev/null || stat -c %Y pnpm-lock.yaml)"
+# Outside Git, the lockfile's time: GNU stat (Linux) first, since its -f prints the file system's changing free blocks;
+# BSD stat (macOS) refuses -c and prints nothing, then gives the time with -f %m.
+current="$(git rev-parse HEAD 2>/dev/null || stat -c %Y pnpm-lock.yaml 2>/dev/null || stat -f %m pnpm-lock.yaml)"
 built="$(cat "$runtime/built-from" 2>/dev/null || true)"
 if [ ! -f apps/server/dist/src/serve.js ] || [ ! -f apps/web/dist/index.html ] || [ "$built" != "$current" ]; then
   say "installing (first start or after an update: a few minutes)"; pnpm install --frozen-lockfile
