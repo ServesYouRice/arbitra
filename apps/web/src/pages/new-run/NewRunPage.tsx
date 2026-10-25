@@ -16,7 +16,7 @@ import { DEFAULT_START, SCRIPTED_AUDIT, TEMPLATES } from "./templates.js";
 import { isSubscriptionAudit } from "./depth.js";
 import { leftOut, reading, withPath } from "./reading.js";
 import { HowThorough, PlanScope, StepsList } from "./HowThorough.js";
-import { WhatToRead } from "./WhatToRead.js";
+import { OverLimit, WhatToRead } from "./WhatToRead.js";
 import { antigravityState, offeredModels, ThisComputer, type DetectedEnvironment } from "./ThisComputer.js";
 import { ChangeModels } from "./ChangeModels.js";
 import { MoreOptions, optionsSummary } from "./MoreOptions.js";
@@ -278,7 +278,9 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
     </Section> : null}
 
     <Section number={number()} title="What to read" id="read">
-      {files === null ? <p className="note">{project === "" ? "Choose the project to see its folders, its tests and what each holds of the estimate." : result?.estimate == null ? "The folders show once the project is read." : `${counted(result.estimate.estimate.files, "file")} · ${result.estimate.estimate.lines.toLocaleString("en")} lines`}</p>
+      {files === null && result?.folders !== undefined ? <OverLimit folders={result.folders.folders} complete={result.folders.complete} limit={Number(/REPOSITORY_FILE_LIMIT_EXCEEDED:(\d+)/u.exec(result.estimateError ?? "")?.[1] ?? 1_000)}
+        exclude={exclude} onExclude={(next) => setDraft((current) => withExclude(current, next))} />
+        : files === null ? <p className="note">{project === "" ? "Choose the project to see its folders, its tests and what each holds of the estimate." : result?.estimate == null ? "The folders show once the project is read." : `${counted(result.estimate.estimate.files, "file")} · ${result.estimate.estimate.lines.toLocaleString("en")} lines`}</p>
         : <WhatToRead files={files} complete={result?.estimate?.read?.complete === true} suggestions={result?.estimate?.suggestedLeaveOut ?? []} exclude={exclude} onExclude={(next) => setDraft((current) => withExclude(current, next))} onSuggestion={onSuggestion} />}
     </Section>
 
@@ -351,7 +353,7 @@ function Problem({ words, code, tone = "refuted" }: { readonly words: string; re
 /** Why the project could not be read, and what to do: the snapshot's refusals in words. */
 export function readFailure(code: string, project: string): string {
   const files = /REPOSITORY_FILE_LIMIT_EXCEEDED:(\d+)/u.exec(code);
-  if (files !== null) return `The project has more than ${Number(files[1]).toLocaleString("en")} source files, more than one run reads. Leave out folders, or read some folders only, under More options.`;
+  if (files !== null) return `The project has more than ${Number(files[1]).toLocaleString("en")} source files, more than one run reads. Leave out folders under What to read, or read some folders only under More options.`;
   const large = /REPOSITORY_FILE_TOO_LARGE:(\S+)/u.exec(code);
   if (large !== null) return `${large[1]} is larger than 512 KB, more than a run reads in one file. Leave it out under More options.`;
   if (/REPOSITORY_NOT_FOUND/u.test(code)) return `There is no folder at ${project}.`;

@@ -208,6 +208,25 @@ describe("the new-run page", () => {
     expect(await screen.findByText("There is no folder at /work/absent.", {}, AFTER_CHECK)).toBeTruthy();
   });
 
+  it("lists the folders of a project over the file limit, and reads it again once folders are left out", async () => {
+    stubBrowser();
+    const bodies: Body[] = [];
+    const over = { ...READY, ready: false, estimate: null, estimateError: "REPOSITORY_FILE_LIMIT_EXCEEDED:1000",
+      folders: { complete: true, folders: [{ path: "app", files: 700 }, { path: "vendor", files: 301 }, { path: "", files: 1 }] } };
+    stubControlPlane({ ...BASE_ROUTES, "POST /preflight": ({ body }: { body: Body }) => { bodies.push(body); return bodies.length === 1 ? over : READY; } });
+    visit("?page=new-run");
+    render(<App />);
+    await screen.findByRole("radio", { name: "Deep" });
+    project("/work/fixture");
+    const folders = await screen.findByRole("table", { name: "folders" }, AFTER_CHECK);
+    expect(within(folders).getAllByRole("row").slice(1).map(({ textContent }) => textContent)).toEqual(["app700", "vendor301", "files at the top1"]);
+    expect(screen.getByText("1,002 source files: a run reads at most 1,000. Leave out folders until it fits.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("checkbox", { name: "read vendor" }));
+    expect(screen.getByText("701 source files with these folders left out: that fits.")).toBeTruthy();
+    expect(await screen.findByText("Ready to start.", {}, AFTER_CHECK)).toBeTruthy();
+    expect(getIn(bodies[1]?.config ?? {}, ["scope", "exclude"])).toEqual(["vendor"]);
+  });
+
   it("says each problem on this computer in words, with its recorded code one click down", async () => {
     stubBrowser();
     stubControlPlane({ ...BASE_ROUTES, "POST /preflight": { ...READY, ready: false, diagnostics: [{ code: "SUBSCRIPTION_CLI_NOT_INSTALLED:claude-code", severity: "error", scope: "environment", path: "$environment", message: "Claude Code is not available." }] } });

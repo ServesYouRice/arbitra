@@ -14,7 +14,7 @@ import { assertNoPreflightErrors, configurationDiagnostics, ENVIRONMENT_VERSIONS
 import { DockerTestSandbox } from "./test-sandbox.js";
 import { canonicalise, converge, critique, discover, plan, preflight, readStage, verify, type AuditContext, type ConvergenceResult, type Plan } from "./pipeline.js";
 import { suggestLeaveOuts } from "./generated-files.js";
-import { defaultGit, SNAPSHOT_FILE_LIMIT, snapshotRepository, type RepositorySnapshot } from "./repository.js";
+import { defaultGit, SNAPSHOT_FILE_LIMIT, snapshotRepository, sourceFolderCounts, type RepositorySnapshot } from "./repository.js";
 import { isTestPath, modulePartition } from "./discovery-scope.js";
 import { assertDiscoveryResumable } from "./model-discovery.js";
 import { listRunIds, RunStore, type ArtifactDescriptor, type StoredRunContext } from "./run-store.js";
@@ -247,6 +247,11 @@ export class Orchestrator {
       suggestedLeaveOut: await suggestLeaveOuts(listed),
       gate: "clear",
     });
+  }
+
+  /** The source files each folder at the top of the scope holds, before its leave-outs: for a scope more than a run reads. */
+  async sourceFolders(config: RunConfig, repository = this.repository): Promise<unknown> {
+    return sourceFolderCounts(resolve(repository), this.configurations.validate(config).scope);
   }
 
   /**

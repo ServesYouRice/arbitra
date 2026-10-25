@@ -67,6 +67,8 @@ export interface PreflightResult {
   readonly repository: string;
   readonly estimate: EstimateResource | null;
   readonly estimateError: string | null;
+  /** For a scope over the file limit: how many source files each folder at its top holds, before its leave-outs. */
+  readonly folders?: { readonly complete: boolean; readonly folders: readonly { readonly path: string; readonly files: number }[] };
 }
 
 export class RunApi {

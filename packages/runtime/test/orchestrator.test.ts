@@ -294,6 +294,23 @@ describe("the control-plane port", () => {
     expect(await core.runs.preflight({ config, repository })).toMatchObject({ valid: true, ready: true, estimateError: null });
   });
 
+  it("counts the files of each folder of a project over the file limit, so the check can say which to leave out", async () => {
+    const project = mkdtempSync(join(tmpdir(), "arbitra-over-limit-"));
+    try {
+      const { mkdir, writeFile } = await import("node:fs/promises");
+      for (const [folder, count] of [["app", 700], ["vendor", 301]] as const) {
+        await mkdir(join(project, folder), { recursive: true });
+        await Promise.all(Array.from({ length: count }, (_, index) => writeFile(join(project, folder, `f${index}.ts`), "export {};\n", "utf8")));
+      }
+      await writeFile(join(project, "main.ts"), "export {};\n", "utf8");
+      const core = controlPlaneCore(orchestrator());
+      expect(await core.runs.preflight({ config, repository: project })).toMatchObject({ valid: true, ready: false, estimate: null, estimateError: "REPOSITORY_FILE_LIMIT_EXCEEDED:1000",
+        folders: { complete: true, folders: [{ path: "app", files: 700 }, { path: "vendor", files: 301 }, { path: "", files: 1 }] } });
+      // Leaving a folder out makes it fit, and the check is ready.
+      expect(await core.runs.preflight({ config: { ...config, scope: { kind: "repository", exclude: ["vendor"] } }, repository: project })).toMatchObject({ ready: true, estimateError: null });
+    } finally { rmSync(project, { recursive: true, force: true }); }
+  });
+
   it("rejects cancellation of an unknown run instead of fabricating success", async () => {
     await expect(orchestrator().cancel("run-absent")).rejects.toThrow("RUN_ABSENT:run-absent");
   });

@@ -75,23 +75,44 @@ export async function snapshotRepository(root: string, maximumFiles = SNAPSHOT_F
   const excluded = (path: string): boolean => exclusions.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
   const eligible = (path: string): boolean => !excluded(path) && (SCANNED_EXTENSIONS.has(path.slice(path.lastIndexOf(".")).toLowerCase()) || options.includeTestMetadata === true && (TEST_METADATA.has(path.split("/").at(-1) ?? "") || additional.has(path)));
   if (scope.kind === "diff") return snapshotDiff(guard, scope, maximumFiles, options.git ?? defaultGit, eligible);
+  const paths = await sourcePaths(root, guard, scope, maximumFiles + 1, options.git ?? defaultGit, eligible, excluded);
+  if (paths.length > maximumFiles) throw new Error(`REPOSITORY_FILE_LIMIT_EXCEEDED:${maximumFiles}`);
+  if (scope.kind === "module" && paths.length === 0) throw new Error("MODULE_SCOPE_EMPTY");
+  const files = await Promise.all(paths.sort().map(async (path): Promise<SourceFile> => sourceFile(path, await guard.readFile(path))));
+  return Object.freeze({ root, files: Object.freeze(files) });
+}
+
+/**
+ * How many source files each folder at the top of a whole-repository or folders scope holds, counted without reading
+ * them and without the scope's leave-outs: what New run shows when the scope is more than a run reads, so folders can
+ * be left out until it fits. Counting stops at `maximumFiles`, and `complete` says whether it did; a diff scope is not
+ * counted (null).
+ */
+export async function sourceFolderCounts(root: string, scope: RunScope, maximumFiles = 50_000, git: RepositoryGit = defaultGit): Promise<{ readonly folders: readonly { readonly path: string; readonly files: number }[]; readonly complete: boolean } | null> {
+  if (scope.kind === "diff") return null;
+  const guard = await RepositoryPathGuard.create(root);
+  const paths = await sourcePaths(root, guard, scope, maximumFiles + 1, git, (path) => SCANNED_EXTENSIONS.has(path.slice(path.lastIndexOf(".")).toLowerCase()), () => false);
+  const counts = new Map<string, number>();
+  for (const path of paths.slice(0, maximumFiles)) { const folder = path.includes("/") ? path.slice(0, path.indexOf("/")) : ""; counts.set(folder, (counts.get(folder) ?? 0) + 1); }
+  return Object.freeze({ folders: Object.freeze([...counts].map(([path, files]) => Object.freeze({ path, files })).sort((a, b) => b.files - a.files || a.path.localeCompare(b.path))), complete: paths.length <= maximumFiles });
+}
+
+/** The source files a whole-repository or folders scope reads, by path, up to `limit` of them. */
+async function sourcePaths(root: string, guard: RepositoryPathGuard, scope: RunScope, limit: number, git: RepositoryGit, eligible: (path: string) => boolean, excluded: (path: string) => boolean): Promise<string[]> {
   const modules = scope.kind === "module" ? scope.modules : undefined;
   if (scope.kind === "module" && (modules === undefined || modules.length === 0)) throw new Error("MODULE_SCOPE_REQUIRED");
   const modulePaths = modules?.map((path) => relative(guard.root, guard.resolve(path)).split(sep).join("/").replace(/\/$/u, ""));
   const included = (path: string): boolean => modulePaths === undefined || modulePaths.some((prefix) => prefix === "" || path === prefix || path.startsWith(`${prefix}/`));
   // In a Git work tree, files Git ignores are left out: they are generated (test reports, coverage, builds), and one
   // oversized report refused a whole project (beachflag's playwright-report/index.html, October 20, 2026).
-  const listed = await gitListedFiles(guard.root, options.git ?? defaultGit);
+  const listed = await gitListedFiles(guard.root, git);
   const listedDirectories = listed === null ? null : new Set([...listed].flatMap((path) => path.split("/").slice(0, -1).map((_, index, parts) => parts.slice(0, index + 1).join("/"))));
   // A directory that cannot hold a file of the snapshot is not entered: an excluded, unselected or ignored tree costs
   // no traversal, and cannot fail the snapshot when it is unreadable (arbitra's audit of itself, October 19, 2026).
   const entered = (path: string): boolean => !excluded(path) && (listedDirectories === null || listedDirectories.has(path)) && (included(path) || modulePaths?.some((prefix) => prefix.startsWith(`${path}/`)) === true);
   const paths: string[] = [];
-  await walk(root, root, paths, maximumFiles + 1, guard, (path) => (listed === null || listed.has(path)) && included(path) && eligible(path), entered);
-  if (paths.length > maximumFiles) throw new Error(`REPOSITORY_FILE_LIMIT_EXCEEDED:${maximumFiles}`);
-  if (modulePaths !== undefined && paths.length === 0) throw new Error("MODULE_SCOPE_EMPTY");
-  const files = await Promise.all(paths.sort().map(async (path): Promise<SourceFile> => sourceFile(path, await guard.readFile(path))));
-  return Object.freeze({ root, files: Object.freeze(files) });
+  await walk(root, root, paths, limit, guard, (path) => (listed === null || listed.has(path)) && included(path) && eligible(path), entered);
+  return paths;
 }
 
 /** The files Git tracks or would track (untracked but not ignored), relative to `root`; null outside a work tree or without Git. */

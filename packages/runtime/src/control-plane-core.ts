@@ -70,7 +70,12 @@ export function controlPlaneCore(orchestrator: Orchestrator) {
         try { return Object.freeze({ ...report, repository, estimate: await orchestrator.estimate(request?.config as RunConfig, repository), estimateError: null }); }
         // The estimate reads the snapshot a run would read, so a refused snapshot refuses the run too: the check must
         // not say ready above it (inventory, October 25, 2026: "ready to start" over REPOSITORY_FILE_LIMIT_EXCEEDED).
-        catch (error) { return Object.freeze({ ...report, ready: false, repository, estimate: null, estimateError: error instanceof Error ? error.message : String(error) }); }
+        catch (error) {
+          const estimateError = error instanceof Error ? error.message : String(error);
+          // A scope over the file limit says how many files each folder holds, so the person can leave some out until it fits.
+          const folders = estimateError.startsWith("REPOSITORY_FILE_LIMIT_EXCEEDED:") ? await orchestrator.sourceFolders(request?.config as RunConfig, repository).catch(() => null) : null;
+          return Object.freeze({ ...report, ready: false, repository, estimate: null, estimateError, ...(folders === null ? {} : { folders }) });
+        }
       },
       start: async (body: unknown) => { const request = await configured(body); return orchestrator.start(request.config, request.repository); },
       status: (id: string) => orchestrator.status(id),

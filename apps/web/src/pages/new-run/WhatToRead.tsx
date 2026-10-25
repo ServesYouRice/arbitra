@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import type { ReadFile } from "../../api/runs.js";
 import { counted } from "../../app/words.js";
-import { folderGroups, groupRead, leftOut, reading, sum, testsRead, withGroup, withTests } from "./reading.js";
+import { folderGroups, groupRead, leftOut, reading, sum, testsRead, withGroup, withTests, type FolderGroup } from "./reading.js";
 
 export interface Suggestion { readonly path: string; readonly lines: number; readonly reason: string }
 
@@ -55,5 +55,30 @@ export function WhatToRead({ files, complete, suggestions, exclude, onExclude, o
       <p className="field__hint">An audit of them reports defects in code nobody edits. Untick one to read it anyway.</p>
     </details>}
     {complete ? null : <p className="note">Some leave-outs are not counted here: without them the project is more than a run reads.</p>}
+  </div>;
+}
+
+/**
+ * A project over the file limit: how many source files each folder holds, and one tick each to leave it out until the
+ * rest fits. The page reads the project again after each tick; once it fits, the folder table above takes over.
+ */
+export function OverLimit({ folders, complete, limit, exclude, onExclude }: {
+  readonly folders: readonly { readonly path: string; readonly files: number }[]; readonly complete: boolean; readonly limit: number;
+  readonly exclude: readonly string[]; readonly onExclude: (next: readonly string[]) => void;
+}): ReactElement {
+  const groups: readonly (FolderGroup & { readonly count: number })[] = folders.map(({ path, files }) => ({ id: path, label: path === "" ? "files at the top" : path, leaveOut: path === "" ? [] : [path], files: [], count: files }));
+  const read = (group: FolderGroup): boolean => group.leaveOut.length === 0 || groupRead(group, exclude);
+  const total = groups.reduce((all, { count }) => all + count, 0);
+  const kept = groups.filter(read).reduce((all, { count }) => all + count, 0);
+  return <div className="reading">
+    <p className="state" data-state="refuted">{total.toLocaleString("en")}{complete ? "" : " or more"} source files: a run reads at most {limit.toLocaleString("en")}. Leave out folders until it fits.</p>
+    <div className="table-scroll"><table aria-label="folders" className="table reading-table">
+      <thead><tr><th scope="col">read</th><th scope="col">folder</th><th scope="col">files</th></tr></thead>
+      <tbody>{groups.map((group) => <tr data-read={read(group)} key={group.id}>
+        <td>{group.leaveOut.length === 0 ? null : <input aria-label={`read ${group.label}`} checked={read(group)} type="checkbox" onChange={(event) => onExclude(withGroup(exclude, groups, group, event.target.checked))} />}</td>
+        <td>{group.label}</td><td>{group.count.toLocaleString("en")}</td>
+      </tr>)}</tbody>
+    </table></div>
+    {kept === total ? null : <p className="note" role="status">{kept.toLocaleString("en")} source files with these folders left out: {kept <= limit ? "that fits." : "still too many."}</p>}
   </div>;
 }
