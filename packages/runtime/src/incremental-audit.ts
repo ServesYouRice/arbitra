@@ -14,6 +14,7 @@ import { providerExecutionSchema } from "@arbitra/schemas/provider-execution.js"
 import { RepositoryPathGuard } from "@arbitra/security/path-guard";
 import type { ActivityReplaySource, LowerCeilingIdentity } from "./model-activities.js";
 import { readReplayableOutput, type ProtocolPin } from "./replay-contracts.js";
+import { REPOSITORY_INDEX_KIND_PREFIX } from "./repository-index.js";
 import type { RepositoryGit, RepositorySnapshot } from "./repository.js";
 import type { RunStore, StoredRunContext } from "./run-store.js";
 
@@ -91,6 +92,12 @@ export interface DiscoveryUnit {
 export interface DiscoveryUnitHooks {
   begin(unit: DiscoveryUnit): Promise<void>;
   complete(unit: DiscoveryUnit, accepted: readonly SourceFinding[]): Promise<void>;
+  /**
+   * After `begin`: the repository index a unit that reuses its base's work is sent, the one the base sent, so its
+   * request is the base's byte for byte. Every unit carries the index of the whole repository, which any change to a
+   * file's line count or symbols changes; with the current one, no unit would ever be reused.
+   */
+  indexFor?(unit: DiscoveryUnit): Promise<{ readonly index: unknown } | undefined>;
 }
 
 export function unitKey(unit: { readonly auditorId: string; readonly scopeId: string | null }): string { return `${unit.auditorId}-${unit.scopeId ?? "whole"}`; }
@@ -517,6 +524,12 @@ export class DiscoveryUnits implements DiscoveryUnitHooks {
     await this.store.publish(kind, record, unit.auditorId);
     this.#decisions.set(unit.activityId, record);
     seed.setUnitDecision(record);
+  }
+
+  async indexFor(unit: DiscoveryUnit): Promise<{ readonly index: unknown } | undefined> {
+    if (this.seed === undefined || this.#decisions.get(unit.activityId)?.decision !== "reuse") return undefined;
+    const recorded = await readKind<{ readonly json?: unknown }>(this.seed.base, `${REPOSITORY_INDEX_KIND_PREFIX}${unit.auditorId}`);
+    return typeof recorded?.json === "string" ? { index: JSON.parse(recorded.json) as unknown } : undefined;
   }
 
   async complete(unit: DiscoveryUnit, accepted: readonly SourceFinding[]): Promise<void> {

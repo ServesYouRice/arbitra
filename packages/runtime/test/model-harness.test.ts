@@ -186,8 +186,9 @@ describe("durable canonical model harness", () => {
     const { create, send, store } = await setup(2, 0, 0, source);
     const supplied: string[][] = [];
     send.mockImplementation(async (value) => {
-      const user = (value.body as { input: { role: string; content: string }[] }).input.filter(({ role }) => role === "user").map(({ content }) => content).join("\n");
-      const paths = source.files.map(({ path }) => path).filter((path) => user.includes(path));
+      // The files a unit was given; its repository index names every file.
+      const paths = (value.body as { input: { role: string; content: string }[] }).input.filter(({ role }) => role === "user")
+        .flatMap(({ content }) => (JSON.parse(content) as { files?: { path: string }[] }).files?.map(({ path }) => path) ?? []);
       supplied.push(paths);
       return { status: 200, headers: {}, body: paths.length > 1
         ? { status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, output_text: '{"findings":', usage: { input_tokens: 10, output_tokens: 500 } }

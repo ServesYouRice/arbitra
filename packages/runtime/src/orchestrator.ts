@@ -15,6 +15,7 @@ import { DockerTestSandbox } from "./test-sandbox.js";
 import { canonicalise, converge, critique, discover, plan, preflight, readStage, verify, type AuditContext, type ConvergenceResult, type Plan } from "./pipeline.js";
 import { defaultGit, snapshotRepository, type RepositorySnapshot } from "./repository.js";
 import { modulePartition } from "./discovery-scope.js";
+import { assertDiscoveryResumable } from "./model-discovery.js";
 import { listRunIds, RunStore, type ArtifactDescriptor, type StoredRunContext } from "./run-store.js";
 import { ModelAuditPipeline, validateModelAudit, type AuditUnitOptions } from "./model-pipeline.js";
 import { captureSnapshotIdentity, INCREMENTAL_CONTRACT_KIND, incrementalReport, incrementalRequestOf, IncrementalSeed, planIncrementalAudit, readIncrementalArtifact, SNAPSHOT_IDENTITY_KIND, type IncrementalContract, type SnapshotIdentity } from "./incremental-audit.js";
@@ -551,6 +552,8 @@ export class Orchestrator {
     // Resuming a replay run continues that run under the contract it was created with; it
     // never re-decides reuse from the current configuration.
     const seed = modelReplay && sourceStore !== undefined ? new ReplaySeed(sourceStore, store, await resumableReplayContract(store, storedContext)) : undefined;
+    // A discovery left unfinished under an earlier production-audit is refused here, before the run starts again.
+    if (storedContext.modelConfiguration?.mode === "audit" && reused === undefined) await assertDiscoveryResumable(store, context.auditors.map(({ auditorId }) => auditorId));
     const units = storedContext.modelConfiguration?.mode === "audit" && reused === undefined ? await this.#resumeUnits(store, snapshot, storedContext.repositoryDigest) : undefined;
     const { runner, close } = this.#runner(store, context, reused, storedContext.modelConfiguration, storedContext.checkpointPolicy, seed, units);
     const handle = runner.resume(runId);

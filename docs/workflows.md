@@ -783,7 +783,11 @@ and findings artifact) and whether the findings equal the base's.
 Units are allocated on the current snapshot in the same way as in a full run. A small
 repository that fits one context is a single unit per auditor, so any change regenerates
 that auditor's discovery; partial reuse comes from partitioned discovery. Only a
-byte-identical unit is reused, so reused findings always cite unchanged bytes.
+byte-identical unit is reused, so reused findings always cite unchanged bytes. Since
+production-audit 2.0.0 every unit carries the index of the whole repository, which any
+change to a file's line count or symbols changes; a unit the run reuses is sent the index
+its base sent (`discovery-index-<auditor>`), so its request stays the base's. A unit that
+read another file is regenerated (`footprint_outside_unit`).
 `baseFindingLineage` re-anchors each base finding by exact content only:
 
 - `unchanged`

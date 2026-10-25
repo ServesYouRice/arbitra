@@ -119,7 +119,7 @@
   "budgets": {},
   "security": {},
   "protocols": {
-    "audit": "1.0.0",
+    "audit": "2.0.0",
     "peer-review": "1.0.0",
     "verification": "1.0.0"
   },
