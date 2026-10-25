@@ -139,9 +139,11 @@ run offers a resume that cannot help. It owns:
 - Whether a run's critic ran or was "not required", which the run page does not show.
 - **New run, left for later:** what a run will use as a share of each vendor's five-hour and weekly windows (the app
   does not know the person's plan; today it shows tokens per vendor and a time range from the measured runs); a
-  switch for checking each issue, which the runtime does not have; the variant search as one entry in the steps list
-  once `workflow.variantSearch` lands; and estimates for balanced and cheap, which say "not measured yet" until a run
-  of each is measured.
+  switch for checking each issue, which the runtime does not have; estimates for balanced and cheap, which say "not
+  measured yet" until a run of each is measured; and a run through API keys, or with a model named on an
+  OpenAI-compatible endpoint (Kimi through Moonshot, OpenRouter, a local server), which New run now writes but no run
+  has made: the effort words it sends through the APIs follow the CLIs' and are unverified there (the paid-API
+  bundle is parked).
 
 ## Need design
 
