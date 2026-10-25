@@ -138,9 +138,8 @@ It exits `1` with `degraded_coverage` by design; see the [README](../README.md#r
 `audit --preset` configures no models, so it always runs these detectors, and its output says so
 (`audit --help` prints the same). A model audit starts from a configuration with `run <config>`, as
 below, or from **New run** in the app.
-Snapshots are limited to 400 source files, so `--full` on this repository fails with
-`REPOSITORY_FILE_LIMIT_EXCEEDED:400`. Use `--full` on smaller repositories, or narrow the
-scope with `--module <path>`.
+Snapshots are limited to 1,000 source files; a larger scope fails with
+`REPOSITORY_FILE_LIMIT_EXCEEDED:1000`, so narrow it with `--module <path>`.
 
 ## Preparing a live run
 
@@ -344,7 +343,7 @@ such as `["src"]`) or `diff` (`diffMode` `staged`, `working_tree` or `range` wit
 `base`/`head` or `revisionRange`; `working_tree` includes new files not yet added, and a
 diff of a folder inside a larger Git work tree covers only that folder). Snapshots read source
 files with known source extensions and web app manifests (`.webmanifest`); Markdown, MDX,
-JSON and YAML are not read. Snapshots read up to 400 files and 512 KiB per file
+JSON and YAML are not read. Snapshots read up to 1,000 files and 512 KiB per file
 (`packages/runtime/src/repository.ts`). Snapshots skip hidden directories (except `.github`),
 `.git`, `node_modules`, `dist`, `build`, `coverage`, `.pnpm-store`, `.runs` and `.vite`, and
 in a Git work tree every file Git ignores: only files Git tracks or would track

@@ -36,6 +36,13 @@ const SCANNED_EXTENSIONS = new Set([
   ".sh", ".bash", ".ps1", ".psm1", ".sql", ".prisma", ".graphql", ".gql", ".proto", ".tf",
 ]);
 const MAXIMUM_FILE_BYTES = 512 * 1024;
+/**
+ * The most source files a snapshot reads before it refuses the scope. 400 refused veritra (October 25, 2026; 427
+ * source files, about 100,000 lines once generated files are left out), a project a subscription audits in a day. At
+ * about 250 lines a file, 1,000 files is about 250,000 lines, some 170M tokens at the 600 to 700 a line the real runs
+ * measured: a guard against a home folder or a large monorepo, not a budget, which the run's token limit is.
+ */
+export const SNAPSHOT_FILE_LIMIT = 1_000;
 const TEST_METADATA = new Set(["package.json", "pnpm-workspace.yaml", "pyproject.toml", "pytest.ini", "tox.ini", "setup.cfg", "Cargo.toml", "go.mod", "Makefile", "build.gradle", "pom.xml"]);
 const runGit = promisify(execFile);
 export interface RepositoryGit { run(root: string, args: readonly string[]): Promise<string> }
@@ -57,7 +64,7 @@ export const defaultGit: RepositoryGit = { async run(root, args) {
  * Audit and Feature modes are read-only (spec §2.1), so this only ever reads. Line start
  * offsets are carried because finding validation checks every cited line against them.
  */
-export async function snapshotRepository(root: string, maximumFiles = 400, options: { readonly scope?: RunScope; readonly git?: RepositoryGit; readonly includeTestMetadata?: boolean; readonly additionalPaths?: readonly string[] } = {}): Promise<RepositorySnapshot> {
+export async function snapshotRepository(root: string, maximumFiles = SNAPSHOT_FILE_LIMIT, options: { readonly scope?: RunScope; readonly git?: RepositoryGit; readonly includeTestMetadata?: boolean; readonly additionalPaths?: readonly string[] } = {}): Promise<RepositorySnapshot> {
   if (!Number.isSafeInteger(maximumFiles) || maximumFiles < 1) throw new RangeError("INVALID_MAXIMUM_FILES");
   const guard = await RepositoryPathGuard.create(root);
   const scope = options.scope ?? { kind: "repository" };
