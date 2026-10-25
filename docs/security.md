@@ -270,9 +270,10 @@ of dishonesty as a fabricated metric:
   outside `packages/harness/src/canonical/adapter.ts`. Its guarantees and limits are
   restated in [Native harness boundary](#native-harness-boundary) and
   [`harness.md`](harness.md#limits-of-enforcement).
-- No deterministic scan for injected text runs yet. Injection follow-ups depend on an auditor
-  reporting the text; text that misled an auditor without being reported gets no follow-up and
-  no suppression candidate.
+- Injection follow-ups depend on an auditor reporting the text; the deterministic scanner's hits
+  are not sent to them. Text that misled an auditor without being reported gets no follow-up,
+  and becomes a suppression candidate only when the scanner flags it, which it does only for
+  the patterns it knows.
 - Follow-ups are taken in path and line order, so reported decoys in files that sort earlier
   can use an auditor's 3 follow-ups before a later file's window; that window is listed as
   unexamined (`injection_follow_up_capped`).
