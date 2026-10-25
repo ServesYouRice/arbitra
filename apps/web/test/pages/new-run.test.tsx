@@ -213,7 +213,9 @@ describe("the new-run page", () => {
     const bodies: Body[] = [];
     const over = { ...READY, ready: false, estimate: null, estimateError: "REPOSITORY_FILE_LIMIT_EXCEEDED:1000",
       folders: { complete: true, folders: [{ path: "app", files: 700 }, { path: "vendor", files: 301 }, { path: "", files: 1 }] } };
-    stubControlPlane({ ...BASE_ROUTES, "POST /preflight": ({ body }: { body: Body }) => { bodies.push(body); return bodies.length === 1 ? over : READY; } });
+    // Once it fits, the folders it leaves out are not listed: the whole project is still more than a run reads.
+    const fits = { ...READY, estimate: { ...READY.estimate, read: { complete: false, files: FILES } } };
+    stubControlPlane({ ...BASE_ROUTES, "POST /preflight": ({ body }: { body: Body }) => { bodies.push(body); return bodies.length === 2 ? fits : over; } });
     visit("?page=new-run");
     render(<App />);
     await screen.findByRole("radio", { name: "Deep" });
@@ -225,6 +227,11 @@ describe("the new-run page", () => {
     expect(screen.getByText("701 source files with these folders left out: that fits.")).toBeTruthy();
     expect(await screen.findByText("Ready to start.", {}, AFTER_CHECK)).toBeTruthy();
     expect(getIn(bodies[1]?.config ?? {}, ["scope", "exclude"])).toEqual(["vendor"]);
+    // The folder left out stays a row, ticked back in to read the project again.
+    expect(within(screen.getByRole("table", { name: "folders" })).getAllByRole("row").at(-1)?.textContent).toBe("vendornot countedleft out");
+    fireEvent.click(screen.getByRole("checkbox", { name: "read vendor" }));
+    await waitFor(() => expect(bodies).toHaveLength(3), AFTER_CHECK);
+    expect(getIn(bodies[2]?.config ?? {}, ["scope", "exclude"])).toBeUndefined();
   });
 
   it("says each problem on this computer in words, with its recorded code one click down", async () => {

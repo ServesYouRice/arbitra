@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import type { ReadFile } from "../../api/runs.js";
 import { counted } from "../../app/words.js";
-import { folderGroups, groupRead, leftOut, reading, sum, testsRead, withGroup, withTests, type FolderGroup } from "./reading.js";
+import { covers, folderGroups, groupRead, leaveOutPath, leftOut, reading, sum, testsRead, withGroup, withPath, withTests, type FolderGroup } from "./reading.js";
 
 export interface Suggestion { readonly path: string; readonly lines: number; readonly reason: string }
 
@@ -26,6 +26,9 @@ export function WhatToRead({ files, complete, suggestions, exclude, onExclude, o
   const tests = files.filter(({ test }) => test);
   const testsOn = testsRead(files, exclude);
   const generated = suggestions.filter(({ path }) => leftOut(exclude, path));
+  // Without its leave-outs the project is more than a run reads, so what they leave out is not listed: each is a row
+  // of its own, ticked back in to read the project again.
+  const uncounted = complete ? [] : exclude.filter((entry) => !files.some(({ path }) => covers(entry, path)));
   return <div className="reading">
     <div className="table-scroll"><table aria-label="folders" className="table reading-table">
       <thead><tr><th scope="col">read</th><th scope="col">folder</th><th scope="col">files</th><th scope="col">lines</th><th scope="col">of the estimate</th></tr></thead>
@@ -37,7 +40,10 @@ export function WhatToRead({ files, complete, suggestions, exclude, onExclude, o
           <td>{group.label}</td><td>{group.files.length.toLocaleString("en")}</td><td>{sum(group.files).toLocaleString("en")}</td>
           <td>{on ? share(groupLines, read.lines) : "left out"}</td>
         </tr>;
-      })}</tbody>
+      })}{uncounted.map((entry) => <tr data-read="false" key={`left out ${entry}`}>
+        <td><input aria-label={`read ${entry}`} checked={false} type="checkbox" onChange={() => onExclude(withPath(exclude, leaveOutPath(entry), false))} /></td>
+        <td>{entry}</td><td colSpan={2}>not counted</td><td>left out</td>
+      </tr>)}</tbody>
     </table></div>
     {tests.length === 0 ? <p className="note">No tests found by their names or folders.</p> : <div className="switch-row">
       <label className="tick"><input aria-label="audit the tests" checked={testsOn} type="checkbox" onChange={(event) => onExclude(withTests(exclude, files, event.target.checked))} />
@@ -54,7 +60,7 @@ export function WhatToRead({ files, complete, suggestions, exclude, onExclude, o
       })}</ul>
       <p className="field__hint">An audit of them reports defects in code nobody edits. Untick one to read it anyway.</p>
     </details>}
-    {complete ? null : <p className="note">Some leave-outs are not counted here: without them the project is more than a run reads.</p>}
+    {uncounted.length === 0 ? null : <p className="note">Left out paths are not counted: without them the project is more than a run reads.</p>}
   </div>;
 }
 
