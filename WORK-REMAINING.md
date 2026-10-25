@@ -109,13 +109,23 @@ browser suite passes in Linux. Step one is done (October 25): an inventory of ev
 research report, kept outside the repository in the experiments folder's `ui-2026-10-25`, and the mockups the owner
 chooses from ("arbitra UI Mockups": start, watch, issues, plan and results, and the words). The owner chose A for
 every screen (October 25), with Watch's stages drawn as a graph whose lines into the running stage move, saving the
-plan as the Summary's first action, and the Lighter lineup at medium and low effort. The build has started on the
-`ui` branch: the run page first, then Issues, Plan and Results, then New run once the depths are settled. Defects the inventory
-found, fixed in the rebuild: an absent run answers `RUN_API_500`; Workflows opens on an `UNAUTHORIZED_CHANGE` refusal;
-the report's copy button is announced as "copy run id"; saving the plan twice writes a second folder; Overview and
-Issues scroll sideways on a phone; the check says "ready to start" above a refused snapshot; a failed run offers a
-resume that cannot help; a whole-repository audit's graph shows "Diff scope" and a "Disagreement" loop with no review
-rounds; the repository field starts on the server's own folder; and depth means effort, against spec §16.4. It owns:
+plan as the Summary's first action, and the Lighter lineup at medium and low effort. The build is on the `ui` branch:
+the run page first, then Issues, Plan and Results, then New run once the depths are settled. Issues, Plan and Results
+were built on October 25: the issues grouped by verdict (confirmed, unsettled, rejected, not checked), most severe
+first, each with its place, who found it and who checked it by model and effort (the checker read from the run's model
+attempts, so balanced's Sonnet checks show as Sonnet), "variant of" when an issue carries `variantOf`, and its
+evidence, the check's reason, a second opinion and dissent one click down; the plan in its saved folder's order of work
+(questions first, tasks with their model, "after" and "same files as", the unsure reports after the tasks, from a
+read-only outline route that shares the export's rules), with the Summary's save card and, once saved, how much of what
+the prompts name the premise check did not find; and each issue's result from `results.json`, the tasks' issues apart
+from the reports checked after them. Fixed by that build: an absent run answered `RUN_API_500` (now 404); saving the
+plan twice wrote a second folder (the Plan tab had its own save button); Issues scrolled sideways on a phone; a
+whole-repository audit's records showed "Diff scope" and a "Disagreement" loop with no review rounds; and the Summary
+said the plan checks unsettled issues first, when the saved plan checks them after its tasks. The report's copy button
+was already named for the report. The inventory's other defects belong to the other screens: Workflows opens on an
+`UNAUTHORIZED_CHANGE` refusal; Overview scrolls sideways on a phone; the check says "ready to start" above a refused
+snapshot; a failed run offers a resume that cannot help; the repository field starts on the server's own folder; and
+depth means effort, against spec §16.4. It owns:
 
 - "Balanced" and "deep" name two settings: the workflow (two or three auditors) and the audit depth (effort).
 - The owner's drag-and-drop "slots" idea for settings, audited against a preset with a lineup card and a plain role
