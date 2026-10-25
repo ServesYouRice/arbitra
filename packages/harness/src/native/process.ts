@@ -1,4 +1,4 @@
-import { cliExecutableAt, hostNodeExecutable } from "@arbitra/providers/transports/cli/discovery.js";
+import { cliExecutableAt, hostNodeExecutable } from "@arbitra/providers/executables.js";
 
 /** The bounded process runner lives with the provider transports, which also start CLI processes. */
 export * from "@arbitra/providers/process.js";
