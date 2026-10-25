@@ -1,4 +1,4 @@
-import { execFile, spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { execFile, spawn, spawnSync, type ChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import type { Socket } from "node:net";
 
@@ -59,7 +59,7 @@ export function runNativeProcess(request: NativeProcessRequest): Promise<NativeP
     const startedAt = Date.now();
     // Some refusals throw at once rather than emit `error`: on Windows a `.cmd` or `.bat` without a shell is EINVAL
     // (Node's CVE-2024-27980 fix), observed live with npm's `claude.cmd` (October 25, 2026).
-    let child: ReturnType<typeof spawn>;
+    let child: ChildProcessWithoutNullStreams;
     try { child = spawn(request.executable, [...request.arguments], { cwd: request.cwd, env: { ...request.environment }, shell: false, windowsHide: true, detached: posix, stdio: ["pipe", "pipe", "pipe"] }); }
     catch { resolveResult({ pid: null, exitCode: null, exitSignal: null, stopped: "spawn_error", violation: null, stdout: "", stderr: "", treeTerminated: true }); return; }
     const pid = child.pid ?? null;
