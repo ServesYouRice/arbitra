@@ -265,6 +265,35 @@ describe("the control-plane port", () => {
     } finally { rmSync(alternate, { recursive: true, force: true }); }
   });
 
+  it("lists each file the scope reads before its leave-outs, which are tests, and which the scope leaves out", async () => {
+    const project = mkdtempSync(join(tmpdir(), "arbitra-listing-"));
+    try {
+      const { mkdir, writeFile } = await import("node:fs/promises");
+      const files: Readonly<Record<string, string>> = { "server/app.ts": "a\nb\nc\n", "server/app.test.ts": "t\n", "tests/test_backup.py": "t\nt\n", "mobile/db.g.dart": "// GENERATED CODE - DO NOT MODIFY BY HAND\nx\n", "main.go": "package main\n" };
+      for (const [path, content] of Object.entries(files)) { await mkdir(join(project, path, ".."), { recursive: true }); await writeFile(join(project, path), content, "utf8"); }
+      const estimated = await orchestrator().estimate(orchestrator().configurations.validate({ ...config, scope: { kind: "repository", exclude: ["mobile/db.g.dart", "tests"] } }), project) as {
+        estimate: { files: number; lines: number }; read: { complete: boolean; files: readonly { path: string; lines: number; test: boolean; leftOut: boolean }[] }; suggestedLeaveOut: readonly { path: string }[] };
+      expect(estimated.estimate).toMatchObject({ files: 3, lines: 8 });
+      expect(estimated.read).toEqual({ complete: true, files: [
+        { path: "main.go", lines: 2, test: false, leftOut: false },
+        { path: "mobile/db.g.dart", lines: 3, test: false, leftOut: true },
+        { path: "server/app.test.ts", lines: 2, test: true, leftOut: false },
+        { path: "server/app.ts", lines: 4, test: false, leftOut: false },
+        { path: "tests/test_backup.py", lines: 3, test: true, leftOut: true },
+      ] });
+      // A generated file the scope already leaves out is still suggested, so the page can show it ticked.
+      expect(estimated.suggestedLeaveOut.map(({ path }) => path)).toEqual(["mobile/db.g.dart"]);
+    } finally { rmSync(project, { recursive: true, force: true }); }
+  });
+
+  it("does not call a configuration ready to start when its snapshot would be refused", async () => {
+    // Observed (inventory, October 25, 2026): "ready to start" above "estimate unavailable · REPOSITORY_FILE_LIMIT_EXCEEDED:1000".
+    const core = controlPlaneCore(orchestrator());
+    const checked = await core.runs.preflight({ config: { ...config, scope: { kind: "repository", exclude: ["."] } }, repository }) as { valid: boolean; ready: boolean; estimate: unknown; estimateError: string | null };
+    expect(checked).toMatchObject({ valid: true, ready: false, estimate: null, estimateError: "SCOPE_EXCLUSION_COVERS_REPOSITORY" });
+    expect(await core.runs.preflight({ config, repository })).toMatchObject({ valid: true, ready: true, estimateError: null });
+  });
+
   it("rejects cancellation of an unknown run instead of fabricating success", async () => {
     await expect(orchestrator().cancel("run-absent")).rejects.toThrow("RUN_ABSENT:run-absent");
   });

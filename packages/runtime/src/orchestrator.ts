@@ -15,7 +15,7 @@ import { DockerTestSandbox } from "./test-sandbox.js";
 import { canonicalise, converge, critique, discover, plan, preflight, readStage, verify, type AuditContext, type ConvergenceResult, type Plan } from "./pipeline.js";
 import { suggestLeaveOuts } from "./generated-files.js";
 import { defaultGit, SNAPSHOT_FILE_LIMIT, snapshotRepository, type RepositorySnapshot } from "./repository.js";
-import { modulePartition } from "./discovery-scope.js";
+import { isTestPath, modulePartition } from "./discovery-scope.js";
 import { assertDiscoveryResumable } from "./model-discovery.js";
 import { listRunIds, RunStore, type ArtifactDescriptor, type StoredRunContext } from "./run-store.js";
 import { ModelAuditPipeline, validateModelAudit, type AuditUnitOptions } from "./model-pipeline.js";
@@ -216,11 +216,21 @@ export class Orchestrator {
   /**
    * A pre-flight cost estimate. Scripted auditors make no provider calls, so the estimate
    * reports zero spend and says why, rather than inventing a number.
+   *
+   * `read` lists every file the scope would read without its leave-outs, with its lines, whether it is a test and
+   * whether the scope leaves it out, so New run can count a folder, the tests or a generated file in or out without
+   * reading the project again. When the scope without its leave-outs is more than a run reads, only the files read
+   * are listed and `complete` is false.
    */
   async estimate(config: RunConfig, repository = this.repository): Promise<unknown> {
     const validated = this.configurations.validate(config);
     const { graph } = await this.#assertRunnable(validated);
     const snapshot = await snapshotRepository(resolve(repository), SNAPSHOT_FILE_LIMIT, { scope: validated.scope, ...testingSnapshotOptions(validated) });
+    const { exclude, ...unexcluded } = validated.scope;
+    const whole = exclude === undefined || exclude.length === 0 ? snapshot
+      : await snapshotRepository(resolve(repository), SNAPSHOT_FILE_LIMIT, { scope: unexcluded, ...testingSnapshotOptions(validated) }).catch(() => null);
+    const listed = whole ?? snapshot;
+    const read = new Set(snapshot.files.map(({ path }) => path));
     return Object.freeze({
       estimate: Object.freeze({
         files: snapshot.files.length,
@@ -232,7 +242,9 @@ export class Orchestrator {
         currency: null,
         basis: Object.keys(validated.models).length > 0 ? "configured_models_cost_unknown_without_pricing_and_outputs" : "scripted_auditors_make_no_provider_calls",
       }),
-      suggestedLeaveOut: await suggestLeaveOuts(snapshot),
+      read: Object.freeze({ complete: whole !== null, files: Object.freeze(listed.files.map((file) => Object.freeze({ path: file.path, lines: file.lines.length, test: isTestPath(file.path), leftOut: !read.has(file.path) }))) }),
+      // Over the files before the leave-outs too, so a suggestion already taken stays listed as taken.
+      suggestedLeaveOut: await suggestLeaveOuts(listed),
       gate: "clear",
     });
   }

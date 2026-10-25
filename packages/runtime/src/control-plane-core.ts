@@ -68,7 +68,9 @@ export function controlPlaneCore(orchestrator: Orchestrator) {
         const report = await orchestrator.preflight(request?.config);
         if (!report.valid) return Object.freeze({ ...report, repository, estimate: null, estimateError: null });
         try { return Object.freeze({ ...report, repository, estimate: await orchestrator.estimate(request?.config as RunConfig, repository), estimateError: null }); }
-        catch (error) { return Object.freeze({ ...report, repository, estimate: null, estimateError: error instanceof Error ? error.message : String(error) }); }
+        // The estimate reads the snapshot a run would read, so a refused snapshot refuses the run too: the check must
+        // not say ready above it (inventory, October 25, 2026: "ready to start" over REPOSITORY_FILE_LIMIT_EXCEEDED).
+        catch (error) { return Object.freeze({ ...report, ready: false, repository, estimate: null, estimateError: error instanceof Error ? error.message : String(error) }); }
       },
       start: async (body: unknown) => { const request = await configured(body); return orchestrator.start(request.config, request.repository); },
       status: (id: string) => orchestrator.status(id),

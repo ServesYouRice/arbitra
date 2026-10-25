@@ -17,8 +17,13 @@ export interface PlanQuestionsCheckpointResource { readonly kind: "plan-question
 export type CheckpointResource = HumanCheckpointResource | RequirementsCheckpointResource | PlanQuestionsCheckpointResource;
 export interface RunResource { readonly runId: string; readonly state: string; readonly resumable: boolean; readonly checkpoints: readonly CheckpointResource[]; readonly eventsCursor?: string; readonly preservedArtifacts?: number; readonly workflow?: WorkflowJson; /** Present when the run executes a saved operator-authored graph. */ readonly workflowGraph?: { readonly id: string; readonly version: string; readonly executedVersion: string } }
 export interface EstimateResource { readonly estimate: { readonly files: number; readonly lines: number; readonly nodes: number; readonly auditors: number; readonly providerCalls: number | null; readonly costUsd: number | null; readonly currency: string | null; readonly basis: string };
+  /** Every file the scope reads before its leave-outs: its lines, whether it is a test, and whether the scope leaves it
+   * out. `complete` is false when the scope without its leave-outs is more than a run reads; only the files read are
+   * listed then. Absent from an older server. */
+  readonly read?: { readonly complete: boolean; readonly files: readonly ReadFile[] };
   /** Files that look generated, vendored or minified, each with its reason: suggestions for the scope's leave-outs. */
   readonly suggestedLeaveOut?: readonly { readonly path: string; readonly lines: number; readonly reason: string }[]; readonly gate: string }
+export interface ReadFile { readonly path: string; readonly lines: number; readonly test: boolean; readonly leftOut: boolean }
 
 /** One run in the run list, as the orchestrator read it from the run's own records. */
 export interface RunListItem {

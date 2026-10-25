@@ -56,6 +56,9 @@ interface Group { readonly id: string; readonly files: readonly SourceFile[] }
 interface BundledGroup { readonly id: string; readonly bundles: readonly (readonly SourceFile[])[] }
 
 const TEST_PATH = /(?:^|\/)(?:test|tests|__tests__|spec)\/|\.(?:test|spec)\.[cm]?[jt]sx?$|(?:^|\/)test_[^/]+\.py$|_test\.(?:py|go|rb|dart)$|_spec\.rb$/u;
+/** Whether a repository-relative path is a test by its name or folder: what discovery packs beside its source, and
+ * what New run counts as the project's test lines. */
+export function isTestPath(path: string): boolean { return TEST_PATH.test(path); }
 
 /**
  * Moves each test file next to the source it tests, so a discovery unit holds both. Observed live (five real runs,
@@ -66,7 +69,7 @@ const TEST_PATH = /(?:^|\/)(?:test|tests|__tests__|spec)\/|\.(?:test|spec)\.[cm]
  */
 function besideTheirSource(snapshot: RepositorySnapshot, groups: readonly Group[]): readonly BundledGroup[] {
   const imports = importsOf(snapshot);
-  const isTest = (path: string) => TEST_PATH.test(path);
+  const isTest = isTestPath;
   const position = new Map(groups.flatMap((group) => group.files.map(({ path }) => path)).map((path, index) => [path, index]));
   const anchors = new Map<string, string>();
   for (const { path } of snapshot.files) {
