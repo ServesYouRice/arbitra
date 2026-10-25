@@ -203,16 +203,22 @@ async function discoverPrimary(options: ModelDiscoveryOptions): Promise<readonly
   const windowed: { path: string; windows: { startLine: number; endLine: number }[]; unexaminedLines: number[] }[] = [];
   // Set when the whole snapshot was declined: the pending units are then the parts of a declined unit.
   let wholeDeclined = false;
+  // Set when the whole snapshot was declined and cannot be split (one file of one line): it is recorded as declined.
+  let unsplit: Declined | undefined;
   if (maximum === undefined || byteSum(options.snapshot.files) <= maximum && estimate(discoveryRequest(options)) <= maximum) {
     if (maximum !== undefined) await options.store.publish(`discovery-scopes-${options.auditorId}`, { scopes: [{ scopeId: "whole", paths: options.snapshot.files.map(({ path }) => path), estimatedTokens: estimate(discoveryRequest(options)), splitModules: [] }], unallocatedPaths: [], maximumEstimatedTokens: maximum });
     try { return await discoverScopeWithModel(options); }
     catch (error) {
       const cause = declined(error, options);
-      const parts = stoppedAtOutputCeiling(error, options) || cause !== null ? splitOutputLimitedUnit(options.snapshot, { files: options.snapshot.files, splitModules: [] }) : null;
-      if (parts === null) throw error;
-      (cause === null ? outputLimitSplits : declinedSplits).push({ scopeId: "whole", into: parts.map(unitScopeId) });
-      pending.push(...parts);
-      wholeDeclined = cause !== null;
+      const whole: PendingUnit = { files: options.snapshot.files, splitModules: [] };
+      const parts = stoppedAtOutputCeiling(error, options) || cause !== null ? splitOutputLimitedUnit(options.snapshot, whole) : null;
+      if (parts === null && cause !== null) unsplit = { unit: whole, cause, error };
+      else if (parts === null) throw error;
+      else {
+        (cause === null ? outputLimitSplits : declinedSplits).push({ scopeId: "whole", into: parts.map(unitScopeId) });
+        pending.push(...parts);
+        wholeDeclined = cause !== null;
+      }
     }
   } else {
     const allocation = allocateDiscoveryScopes(options.snapshot, (files) => byteSum(files) <= maximum && estimate(discoveryRequest({ ...options, snapshot: { ...options.snapshot, files }, scopeId: `scope-${"0".repeat(24)}` })) <= maximum);
@@ -236,9 +242,8 @@ async function discoverPrimary(options: ModelDiscoveryOptions): Promise<readonly
   const concurrency = options.concurrency ?? 1;
   // Every call of this audit takes its place from one allowance, however deep its units split.
   const limited = sharedLimit(concurrency);
-  const record = async ({ unit, cause, error }: Declined): Promise<Outcome> => {
+  const record = async ({ unit, cause, error }: Declined, scopeId = unitScopeId(unit)): Promise<Outcome> => {
     const { window } = unit;
-    const scopeId = unitScopeId(unit);
     // This auditor leaves the source unexamined and says so; the audit goes on with what the others found.
     const surfaces = unit.files.map(({ path }) => window === undefined ? path : `${path}:${window.startLine}-${window.endLine}`);
     await options.store.publish(`discovery-declined-${options.auditorId}-${scopeId}`, { scopeId, cause, surfaces, reason: (error instanceof ModelRefusalError ? error.refusal : error instanceof Error ? error.message : String(error)).slice(0, 500) }, options.auditorId);
@@ -289,7 +294,7 @@ async function discoverPrimary(options: ModelDiscoveryOptions): Promise<readonly
   // Up to `concurrency` units are audited at a time: no unit reads another's result, and the results are put
   // together in unit order, so the audit does not depend on which call returns first.
   // Observed live (P20 pilot): five scopes one after another were 33 minutes of a 40-minute audit.
-  const outcomes = wholeDeclined ? await retried(pending) : await sideBySide(pending, concurrency, (unit) => audit(unit));
+  const outcomes = unsplit !== undefined ? [await record(unsplit, "whole")] : wholeDeclined ? await retried(pending) : await sideBySide(pending, concurrency, (unit) => audit(unit));
   const audited = outcomes.flatMap((outcome) => outcome.audited);
   const splits = outcomes.flatMap((outcome) => outcome.splits);
   outputLimitSplits.push(...splits.filter((split) => split.declined !== true));
@@ -308,7 +313,7 @@ async function discoverPrimary(options: ModelDiscoveryOptions): Promise<readonly
   // A single line larger than the whole budget is irreducible and stays explicit.
   const unexaminedLines = windowed.flatMap(({ path, unexaminedLines }) => unexaminedLines.map((line) => `${path}:${line}`));
   coverage.unexaminedDueToBudget.push(...unexaminedLines);
-  coverage.limitations.push("discovery_partitioned_context", ...[...lineSplitPaths].map((path) => `file_context_split:${path}`), ...(unexaminedLines.length === 0 ? [] : ["lines_exceed_discovery_context_budget"]), ...(outputLimitSplits.length === 0 ? [] : ["discovery_output_limit_split"]), ...(declinedSplits.length === 0 ? [] : ["discovery_declined_unit_split"]));
+  coverage.limitations.push(...(unsplit === undefined ? ["discovery_partitioned_context"] : []), ...[...lineSplitPaths].map((path) => `file_context_split:${path}`), ...(unexaminedLines.length === 0 ? [] : ["lines_exceed_discovery_context_budget"]), ...(outputLimitSplits.length === 0 ? [] : ["discovery_output_limit_split"]), ...(declinedSplits.length === 0 ? [] : ["discovery_declined_unit_split"]));
   await options.store.publish(`discovery-scopes-${options.auditorId}`, { scopes, unallocatedPaths: [], windowedPaths: windowed.map(({ path, windows }) => ({ path, windows })), unexaminedLines, maximumEstimatedTokens: maximum ?? null, ...(outputLimitSplits.length === 0 ? {} : { outputLimitSplits }), ...(declinedSplits.length === 0 ? {} : { declinedSplits }) });
   await options.store.publish(`discovery-validation-${options.auditorId}`, { ...coverage, unexaminedDueToBudget: [...new Set(coverage.unexaminedDueToBudget)], acceptedCount: findings.length, limitations: [...new Set(coverage.limitations)] });
   await options.store.publish(`findings-${options.auditorId}`, findings, options.auditorId);

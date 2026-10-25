@@ -543,7 +543,7 @@ A provider's refusal of one call does not fail the audit. The CLI transports rep
 as a refusal instead of a reply, and the harness records it durably (`model-refusal-*`) and does not ask
 again. Discovery tries a declined unit again in smaller parts (several files as two scopes, one file as
 two line windows). A part declined beside parts that were answered is split the same way to find the source
-declined; a declined window, or parts all declined, are left unexamined for that auditor
+declined; a declined window or one-line unit, or parts all declined, are left unexamined for that auditor
 (`discovery-declined-*`, limitation `discovery_provider_refused`), since a cause in no one part (a fixed prompt
 the provider refuses) declines every smaller part too. A unit whose reply stays invalid after its repairs is
 treated the same way (`discovery_reply_rejected`). A declined review batch contributes nothing and counts as rejected

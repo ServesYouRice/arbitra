@@ -516,4 +516,23 @@ describe("independent model discovery", () => {
     expect(result.map(({ locations }) => locations[0]?.path)).toEqual(["a.ts", "b.ts", "c.ts", "d.ts", "e.ts", "f.ts", "g.ts", "h.ts"]);
     expect(await artifact(store, "discovery-validation-auditor-a")).toMatchObject({ acceptedCount: 8, unexaminedDueToBudget: ["discovery_provider_refused:c.ts:2-2"] });
   });
+
+  it("records a declined whole snapshot that cannot be split, as it records any declined unit", async () => {
+    // One file of one line is the whole snapshot and cannot be split into smaller units.
+    for (const [failure, cause] of [[(activityId: string) => new ModelRefusalError(activityId, "This request was blocked."), "provider_refused"], [() => Object.assign(new Error("DISCOVERY_BLOCKER_SEVERITY_INVALID"), { modelOutputRejected: true }), "reply_rejected"]] as const) {
+      const root = await mkdtemp(join(tmpdir(), "arbitra-discovery-declined-whole-")); directories.push(root);
+      const store = new RunStore(root, "run-declined-whole");
+      const { activities, spent } = ceilinged(() => true, failure);
+      const run = () => discoverWithModel({ auditorId: "auditor-a", modelProfileId: "model", snapshot, activities, store, signal: new AbortController().signal });
+      expect(await run()).toEqual([]);
+      expect(spent).toHaveLength(1);
+      const scopes = await artifact(store, "discovery-scopes-auditor-a") as { scopes: { scopeId: string; paths: string[]; declined?: string }[] };
+      expect(scopes.scopes).toEqual([expect.objectContaining({ scopeId: "whole", paths: ["src/a.ts"], declined: cause })]);
+      expect(await artifact(store, "discovery-validation-auditor-a")).toMatchObject({ acceptedCount: 0, unexaminedDueToBudget: [`discovery_${cause}:src/a.ts`], limitations: expect.arrayContaining([`discovery_${cause}`]) });
+      expect(await artifact(store, "discovery-declined-auditor-a-whole")).toMatchObject({ scopeId: "whole", cause, surfaces: ["src/a.ts"] });
+      // A resumed discovery records the same without asking the provider again.
+      expect(await run()).toEqual([]);
+      expect(spent).toHaveLength(1);
+    }
+  });
 });
