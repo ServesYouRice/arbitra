@@ -62,3 +62,14 @@ arbitra is a Gemini API key from Google AI Studio. New run shows this beside the
 - The vendor CLIs' own conversation logs: arbitra asks Claude Code for no saved session and Codex for an ephemeral
   one unless a call needs a follow-up turn, and deletes each Antigravity conversation after the call.
 - The run report you can copy for support holds no source code and no model output, and is masked like the rest.
+
+## The report you can send the developer
+
+A run's Summary offers **Send to the developer** (on a finished or failed run), and the plan card a box, **Also send
+the run's report to the developer when I save**. Either opens a new issue at
+<https://github.com/ServesYouRice/arbitra/issues> in your browser, filled in with the run report: arbitra's build, your
+system and Node version, which CLIs it found and whether they are signed in, which API keys are set (not their
+values), the run's settings, including the folders and files it was set to read or leave out, the counts and tokens
+of each step, and the codes and messages of failed calls. Nothing is sent until you submit the issue from your
+GitHub account, and issues there are public. The first time, the exact text is shown before anything opens; agreeing
+is kept in that browser, and clearing the box turns it off. arbitra itself still sends nothing anywhere.

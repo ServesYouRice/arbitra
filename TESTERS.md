@@ -77,7 +77,8 @@ arbitra. Then go on at [Run an audit](#run-an-audit).
    project and mind your plans' usage.
 7. When it finishes, the run page's Summary leads with **the plan**: **Save the plan into the project** writes a
    `.arbitra/plans/` folder into your project, which Git ignores: it lists every open issue, so keep it out of a public
-   repository until they are fixed. It has one ready-to-paste prompt per fix, sorted by the kind of model
+   repository until they are fixed. Tick the box under it to send the developer the run's report as you save (see
+   [If something goes wrong](#if-something-goes-wrong)). The folder has one ready-to-paste prompt per fix, sorted by the kind of model
    each suits, and an `AGENTS.md` a coding agent follows: open the project in Claude Code or Codex and ask it to
    work through `.arbitra/plans/<folder>`. Answer the questions its README lists first: they are decisions only you
    can make. Reports the models could not settle are listed apart, after the tasks, with prompts under
@@ -94,7 +95,12 @@ keeps everything it has done. If a run reaches a usage limit of one of your plan
 when the plan says when the limit resets, arbitra resumes the run by itself a minute later while it stays open.
 Otherwise resume it from the run's page once the limit has reset.
 
-On the run's Summary, click **Copy a report to send** and send the text to whoever gave you arbitra (or open an issue
-at <https://github.com/ServesYouRice/arbitra/issues>). It holds
-no source code and no secrets: the app's version, your system, which tools it found, the run's settings and any
-errors. If arbitra does not start at all, copy the lines in its window instead.
+On the run's Summary, click **Send to the developer**: it opens a GitHub issue filled in with the run's report, which
+you submit from your GitHub account (issues there are public). To send it with every plan you save, tick **Also send
+the run's report to the developer when I save** under the Save button. The first time, either shows you the exact
+text first. It holds no source code and no secrets: the app's version, your system, which tools it found, the run's
+settings (with the folders and files it read or left out) and any errors. **Copy a report to send** copies the same
+text, to send another way. If arbitra does not start at all, copy the lines in its window instead.
+
+If arbitra opens a page that looks older than this guide, or its window says another arbitra is already running,
+close the other arbitra's window: the new one then starts by itself.

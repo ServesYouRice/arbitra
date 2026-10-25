@@ -41,7 +41,19 @@ say "starting on $url (log: $log)"
 node apps/server/dist/src/serve.js >"$log" 2>&1 &
 server=$!
 trap 'kill $server 2>/dev/null || true' EXIT INT TERM
-for _ in $(seq 1 60); do sleep 0.5; curl -fs "$url/runs" >/dev/null 2>&1 && break; kill -0 $server 2>/dev/null || { tail -20 "$log"; exit 1; }; done
-if command -v open >/dev/null 2>&1; then open "$url"; elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$url"; fi
+open_url() { if command -v open >/dev/null 2>&1; then open "$url"; elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$url"; fi; }
+# Wait for this server, not whatever answers on the port: an older arbitra left running there must not be opened.
+ours=""
+for _ in $(seq 1 60); do
+  sleep 0.5
+  kill -0 $server 2>/dev/null || break
+  curl -fs "$url/diagnostics/server" 2>/dev/null | grep -Eq "\"pid\":$server[,}]" && { ours=1; break; }
+done
+if [ -z "$ours" ] && ! kill -0 $server 2>/dev/null; then
+  # It exits 0 when this build already runs there, and names another build when one does.
+  if wait $server; then say "already running on $url; opening it"; open_url; exit 0; fi
+  tail -20 "$log"; exit 1
+fi
+open_url
 say "running. Keep this window open; close it or press Ctrl+C to stop arbitra."
 wait $server

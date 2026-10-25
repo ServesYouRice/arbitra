@@ -73,14 +73,23 @@ async function main() {
   // Node's notices about its own experimental features (SQLite) mean nothing to the person reading this window.
   process.removeAllListeners("warning");
   process.chdir(data);
-  const url = `http://127.0.0.1:${process.env.ARBITRA_PORT ?? "4178"}`;
-  // A second start while arbitra runs opens it again instead of failing on the busy port.
-  const running = await fetch(`${url}/diagnostics/environment`, { signal: AbortSignal.timeout(2_000) }).then((response) => response.ok, () => false);
-  if (running) { say(`already running on ${url}; opening it`); openBrowser(url); setTimeout(() => process.exit(0), 3_000); return; }
   const server = join(app, "server.cjs");
   const { serve } = createRequire(server)(server);
-  await serve();
+  // A second start of this version opens the one running. Another version on the port is never opened in its place:
+  // this one waits for it to be closed, then starts.
+  let started;
+  for (let told = false; started === undefined;) {
+    try { started = await serve(); }
+    catch (error) {
+      if (!(error instanceof Error) || error.name !== "ArbitraAlreadyRunningError") throw error;
+      if (!told) say(`${error.message} Close the other arbitra's window; this one starts by itself once it has stopped.`);
+      told = true;
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+    }
+  }
+  const { url, alreadyRunning } = started;
   openBrowser(url);
+  if (alreadyRunning) { say(`already running on ${url}; opening it`); setTimeout(() => process.exit(0), 3_000); return; }
   say(`running on ${url}. Keep this window open; closing it stops arbitra. Runs are kept in ${data}`);
 }
 

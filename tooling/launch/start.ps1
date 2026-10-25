@@ -57,10 +57,19 @@ if (-not $ready) {
 $log = Join-Path $logs ("arbitra-" + (Get-Date -Format "yyyy-MM-dd-HHmmss") + ".log")
 Say "starting on $url (log: $log)"
 $server = Start-Process $node -ArgumentList "apps\server\dist\src\serve.js" -NoNewWindow -PassThru -RedirectStandardOutput $log -RedirectStandardError "$log.err"
-for ($i = 0; $i -lt 60; $i++) {
+# Kept now, the handle lets the exit code be read once the process has ended.
+$null = $server.Handle
+# Wait for this server, not whatever answers on the port: an older arbitra left running there must not be opened.
+$ours = $false
+for ($i = 0; $i -lt 60 -and -not $ours -and -not $server.HasExited; $i++) {
   Start-Sleep -Milliseconds 500
-  try { Invoke-WebRequest -UseBasicParsing "$url/runs" -TimeoutSec 2 | Out-Null; break } catch {}
-  if ($server.HasExited) { Get-Content "$log.err" -Tail 20; throw "arbitra stopped while starting" }
+  try { $ours = (Invoke-RestMethod "$url/diagnostics/server" -TimeoutSec 2).pid -eq $server.Id } catch {}
+}
+if (-not $ours -and $server.HasExited) {
+  # It exits 0 when this build already runs there, and names another build when one does.
+  if ($server.ExitCode -eq 0) { Say "already running on $url; opening it"; Start-Process $url; Start-Sleep -Seconds 3; return }
+  Get-Content "$log.err" -Tail 20
+  throw "arbitra stopped while starting"
 }
 Start-Process $url
 Say "running. Keep this window open; close it to stop arbitra."

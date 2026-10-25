@@ -88,3 +88,7 @@
 @media (forced-colors: active) {
   .summary .facts, .watch-now, .found-list, .found-item, .summary-alert, .plan-card, .needs-list, .verdicts, .not-yet, .result-list, .result-list > li { border-color: CanvasText; }
 }
+
+/* The report to send the developer: its text and where it goes, the first time, on a line of its own. */
+.send-report { display: grid; flex-basis: 100%; gap: var(--s3); padding: var(--s3); background: var(--sunken); border: var(--hairline) solid var(--line); }
+.send-report.state { padding: 0; background: none; border: 0; }
