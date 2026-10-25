@@ -73,7 +73,7 @@ export function GraphEditor({ api, configurationId, preferredSource = null, onDi
       if (!active) return;
       setListing(value);
       const keys = sourceKeys(value);
-      void load(preferredSource !== null && keys.includes(preferredSource) ? preferredSource : keys.find((key) => key === "template:audit-deep") ?? keys[0] ?? "", value);
+      void load(preferredSource !== null && keys.includes(preferredSource) ? preferredSource : keys.find((key) => key === "template:audit-three-finders") ?? keys[0] ?? "", value);
     }, (cause: unknown) => { if (active) setListingError(message(cause)); });
     return () => { active = false; };
   }, [api, load, preferredSource]);

@@ -42,6 +42,23 @@ describe("provider execution configuration", () => {
       { lanes: [{ ...lane, driver: "openai-batch" }] },
     ]) expect(providerExecutionSchema.safeParse({ ...valid, batch: invalid }).success, JSON.stringify(invalid)).toBe(false);
   });
+  it("takes each stage's effort in the CLIs' words, for every model of the stage or per profile", () => {
+    // Finding issues has its own effort, and xhigh and max reach the configuration (deep finds at xhigh; Luna at max).
+    const stageEffort = { discovery: { "auditor-a": "high", "auditor-b": "max" }, clustering: "low", verification: "high", secondOpinion: "medium", critiqueCheck: "medium", planner: "xhigh" };
+    expect(providerExecutionSchema.parse({ ...valid, stageEffort }).stageEffort).toEqual(stageEffort);
+    for (const invalid of [{ discovery: "ultra" }, { finding: "high" }, { discovery: { "auditor-a": "minimal" } }]) {
+      expect(providerExecutionSchema.safeParse({ ...valid, stageEffort: invalid }).success, JSON.stringify(invalid)).toBe(false);
+    }
+    const raw: unknown = JSON.parse(readFileSync(new URL("./golden/run-config.valid.json", import.meta.url), "utf8"));
+    const rawProfile: unknown = JSON.parse(readFileSync(new URL("./golden/model-profile.valid.json", import.meta.url), "utf8"));
+    const config = runConfigSchema.parse({ ...(raw as object), models: { auditor: rawProfile } });
+    const model = config.models["auditor"]; if (model === undefined) throw new Error("MISSING_FIXTURE_MODEL");
+    const execution = { ...valid, endpoints: [{ ...valid.endpoints[0], providerId: model.provider, transport: model.transport }], rateLimits: { [model.provider]: { rpm: 10, tpm: 10_000, maxConcurrent: 2 } } };
+    const withEffort = (effort: unknown) => runConfigSchema.safeParse({ ...config, workflow: { modelExecution: { ...execution, stageEffort: effort } } });
+    expect(withEffort({ discovery: { auditor: "xhigh" } }).success).toBe(true);
+    // A per-profile effort names configured profiles only.
+    expect(withEffort({ discovery: { "auditor-z": "xhigh" } }).error?.issues[0]?.path).toEqual(["workflow", "modelExecution", "stageEffort", "discovery", "auditor-z"]);
+  });
   it.each([
     { modelEndpoints: { auditor: "missing" } },
     { rateLimits: {} },

@@ -9,14 +9,14 @@ export interface AuditCommandPort { audit(request: { readonly preset: string; re
  * said so: `audit: failed (reasons: degraded_coverage)` reads like a model audit that found gaps.
  */
 export const AUDIT_USAGE = [
-  "usage: arbitra audit [--preset audit-balanced|audit-deep|diff-fast|diff-review] (--full | --module <path> | --staged | --working-tree | --base <ref> [--head <ref>] | --range <revisions>)",
-  "This runs the preset over the target with scripted detectors: no model is configured and none is called, so it checks the pipeline and the plainest defects, not what a model audit finds.",
+  "usage: arbitra audit [--preset audit-two-finders|audit-three-finders|diff-fast|diff-review] (--full | --module <path> | --staged | --working-tree | --base <ref> [--head <ref>] | --range <revisions>)",
+  "This runs the preset over the target with scripted detectors: no model is configured and none is called, so it checks the pipeline and the plainest defects, not what a model audit finds. audit-balanced and audit-deep, the earlier names of the two- and three-finder presets, still work.",
   "For a model audit, run arbitra run <config> with models set in workflow.modelExecution (templates in examples/model-backed, steps in docs/setup.md under \"Preparing a live run\"), or start a new run in the app.",
 ].join("\n");
 
 export async function executeAudit(core: AuditCommandPort, argv: readonly string[]): Promise<CoreCommandResult> {
   if (argv.includes("--help") || argv.includes("-h")) return { disposition: "passed", reasons: [], value: { usage: AUDIT_USAGE } };
-  const preset = option(argv, "--preset") ?? "audit-balanced"; const moduleId = option(argv, "--module"); const base = option(argv, "--base"); const head = option(argv, "--head"); const range = option(argv, "--range");
+  const preset = option(argv, "--preset") ?? "audit-two-finders"; const moduleId = option(argv, "--module"); const base = option(argv, "--base"); const head = option(argv, "--head"); const range = option(argv, "--range");
   const flags = [argv.includes("--full"), moduleId !== undefined, argv.includes("--staged"), argv.includes("--working-tree"), base !== undefined || head !== undefined || range !== undefined].filter(Boolean).length;
   if (flags !== 1) return { disposition: "system_failure", reasons: [flags === 0 ? "missing_audit_target" : "conflicting_audit_targets"], value: { usage: AUDIT_USAGE } };
   let target: AuditCliTarget;

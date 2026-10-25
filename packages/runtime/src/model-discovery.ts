@@ -41,7 +41,7 @@ export interface ModelDiscoveryOptions {
     readsBeyondSource?(activityId: string): ReadsBeyondUnit | null };
   readonly store: RunStore;
   readonly signal: AbortSignal;
-  readonly effort?: "low" | "medium" | "high" | "xhigh";
+  readonly effort?: "low" | "medium" | "high" | "xhigh" | "max";
   readonly protocol?: PinnedProtocol;
   readonly maximumInputTokens?: number;
   /** Units audited at a time (default 1). No unit reads another's result, so this changes only how long discovery takes. */

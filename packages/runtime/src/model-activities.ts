@@ -23,7 +23,7 @@ export interface ModelActivityRequest<T> {
   readonly modelProfileId: string;
   readonly messages: readonly TransportMessage[];
   readonly signal: AbortSignal;
-  readonly effort?: "low" | "medium" | "high" | "xhigh";
+  readonly effort?: "low" | "medium" | "high" | "xhigh" | "max";
   /** Protocol/schema version is part of the durable request identity. */
   readonly protocol: string;
   readonly protocolIdentity?: ProtocolIdentity;

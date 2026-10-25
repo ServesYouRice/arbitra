@@ -82,8 +82,9 @@ export function roleSlots(draft: Draft): readonly RoleSlot[] {
   const base = ["workflow", "modelExecution", "roles"];
   return [
     { label: "planner", path: [...base, "planner"], multiple: false, optional: false, hint: "turns accepted issues into the plan" },
-    { label: "verifier", path: [...base, "verifier"], multiple: false, optional: false, hint: "answers the single model question verification may ask" },
-    { label: "critic", path: [...base, "critic"], multiple: false, optional: true, hint: "reviews the plan at depth deep or when a critical or high security issue is planned; audit-deep requires one" },
+    { label: "verifier", path: [...base, "verifier"], multiple: false, optional: false, hint: "checks each issue against the code; critical and high issues always go to it, so make it the strongest" },
+    { label: "medium verifier", path: [...base, "mediumVerifier"], multiple: false, optional: true, hint: "checks the issues below high instead of the verifier, with a lighter model" },
+    { label: "critic", path: [...base, "critic"], multiple: false, optional: true, hint: "reviews the plan when the critic is switched on" },
   ];
 }
 

@@ -509,11 +509,14 @@ that the review had not rejected.
   result cut in the middle of a line still named the whole range, and the model asked again
   from a guessed line.
 
-`stageEffort` sets the effort of the stages after discovery (`clustering`, `peerReview`,
-`verification`, `planner`, `critic`, `revision`; each `low`, `medium` or `high`, mapped by the
-model profile). A stage left out runs at the effort of the audit depth, as discovery always
-does. The shipped deep audits check at `medium` and cluster at `low`: a provider's highest
+`stageEffort` sets the effort of each step (`discovery`, `clustering`, `peerReview`,
+`verification`, `secondOpinion`, `critiqueCheck`, `planner`, `critic`, `revision`; each `low`,
+`medium`, `high`, `xhigh` or `max`, the CLIs' own words, or one per profile), as the model
+profile's `effort.params` sends it. The second opinion and the critique check follow
+`verification` when left out; any other step left out runs at the depth's level. The shipped
+deep audits find at `xhigh`, check and plan at `high` and merge at `low`: a provider's highest
 effort is for work where a gain was measured, and a check is a narrower task than the audit.
+The depth presets are in [setup](setup.md#depths-finders-and-the-plan-critic).
 
 `estimatedBytesPerToken` (1 to 4, default 1) is how many bytes of a prompt count as one token
 when a call after discovery is sized. Real prompts measured 1.9 to 2.5 bytes a token, so the

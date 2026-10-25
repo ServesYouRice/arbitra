@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { effortLevelSchema } from "./model-profile.js";
 
 const identifier = z.string().trim().min(1);
 const endpointUrl = z.string().url().refine((value) => {
@@ -59,17 +60,25 @@ export const batchLaneSchema = z.object({
   maximumAttempts: z.number().int().min(1).max(5).default(2),
 }).strict();
 
-const stageEffortLevel = z.enum(["low", "medium", "high"]);
+/** A stage's effort: one level for every model it calls, or one per model profile (`{ "auditor-b": "max" }`). */
+const stageEffortLevel = z.union([effortLevelSchema, z.record(identifier, effortLevelSchema)]);
+
+/** The model stages whose effort a run may set on its own. */
+export const EFFORT_STAGES = ["discovery", "clustering", "peerReview", "verification", "secondOpinion", "critiqueCheck", "planner", "critic", "revision"] as const;
+export type EffortStage = typeof EFFORT_STAGES[number];
 
 /** Configured limits are operator policy, not a shipped table of provider capabilities. */
 export const providerExecutionSchema = z.object({
   endpoints: z.array(providerEndpointSchema).min(1),
   modelEndpoints: z.record(identifier, identifier),
-  /** `critiqueChecker`: the model that checks each blocking critique before it forces a revision. Off unless set;
-   * a model of neither the planner's nor the critic's family judges the claim between them most evenly.
-   * `secondOpinion`: the model asked again when the verifier rejects a severe issue a reviewer backed
+  /** `verifier` checks each issue against the code; it is the strongest checker, and critical and high issues always
+   * go to it. `mediumVerifier`: the model that checks the issues below high instead (medium ones, and lower ones when
+   * they are checked); by default the verifier. `merger`: the model that decides whether two findings are one issue;
+   * by default the verifier. `critiqueChecker`: the model that checks each blocking critique before it forces a
+   * revision. Off unless set; a model of neither the planner's nor the critic's family judges the claim between them
+   * most evenly. `secondOpinion`: the model asked again when the verifier rejects a severe issue a reviewer backed
    * (`verification.secondOpinion`); by default the critic, or another auditor than the verifier. */
-  roles: z.object({ planner: identifier, verifier: identifier, critic: identifier.optional(), critiqueChecker: identifier.optional(), secondOpinion: identifier.optional() }).strict().optional(),
+  roles: z.object({ planner: identifier, verifier: identifier, mediumVerifier: identifier.optional(), merger: identifier.optional(), critic: identifier.optional(), critiqueChecker: identifier.optional(), secondOpinion: identifier.optional() }).strict().optional(),
   maximumClusteringPairs: z.number().int().min(0).max(1000).optional(),
   maximumOutputTokens: z.number().int().positive(),
   maximumDiscoveryTokens: z.number().int().positive().optional(),
@@ -80,9 +89,14 @@ export const providerExecutionSchema = z.object({
    * twice what a provider reads: real prompts measured 1.9 to 2.5 bytes a token). At 2 a call carries about what
    * its context holds. Discovery units stay at one byte a token: their size is how finely the audit reads. */
   estimatedBytesPerToken: z.number().min(1).max(4).optional(),
-  /** Effort for the stages after discovery, each low, medium or high as the model profile maps it. A stage left
-   * out runs at the effort of the audit depth, as discovery always does. */
-  stageEffort: z.object({ clustering: stageEffortLevel, peerReview: stageEffortLevel, verification: stageEffortLevel, planner: stageEffortLevel, critic: stageEffortLevel, revision: stageEffortLevel }).partial().strict().optional(),
+  /** Effort per model stage, in the CLIs' words (low, medium, high, xhigh, max), as each model profile's
+   * `effort.params` sends it: finding issues (`discovery`), merging duplicates (`clustering`), peer review, checking
+   * issues (`verification`), the second opinion before a severe rejection, the check of a blocking critique
+   * (`critiqueCheck`), the plan, the plan critic and the plan's revision. A stage's value is one level, or one per
+   * profile (`{ "auditor-a": "high", "auditor-b": "max" }`). The second opinion and the critique check follow
+   * `verification` when they are left out; any other stage left out (or a profile its map leaves out) runs at the
+   * level of the audit depth. */
+  stageEffort: z.object(Object.fromEntries(EFFORT_STAGES.map((stage) => [stage, stageEffortLevel])) as Record<EffortStage, typeof stageEffortLevel>).partial().strict().optional(),
   /** Checks beyond one pass of each review stage. All are off unless set: candidates of different peer-review
    * batches are not compared for a merge, plan records of different critic batches are not compared, and the
    * critic does not read the revised plan again. */

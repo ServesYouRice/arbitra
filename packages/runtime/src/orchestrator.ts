@@ -9,7 +9,7 @@ import type { RunEvent, RunState } from "@arbitra/core/runner/events.js";
 import { runConfigSchema, type RunConfig } from "@arbitra/schemas/config.js";
 import { DEFAULT_AUDITORS, type AuditFinding } from "./auditors.js";
 import type { CanonicalIssueSet } from "@arbitra/workflow/nodes/canonical-issues.js";
-import { AUDIT_DEEP_GRAPH, auditorIdsFor, PRESET_GRAPHS, withCritic } from "./graphs.js";
+import { AUDIT_THREE_FINDERS_GRAPH, auditorIdsFor, PRESET_NAMES, withCritic } from "./graphs.js";
 import { assertNoPreflightErrors, configurationDiagnostics, ENVIRONMENT_VERSIONS_KIND, environmentDiagnostics, graphForConfiguration, PreflightError, type ConfigurationPreflightOptions, type PreflightDiagnostic } from "./preflight.js";
 import { DockerTestSandbox } from "./test-sandbox.js";
 import { canonicalise, converge, critique, discover, plan, preflight, readStage, verify, type AuditContext, type ConvergenceResult, type Plan } from "./pipeline.js";
@@ -189,7 +189,7 @@ export class Orchestrator {
     this.#providerOptions = options.providerOptions ?? {};
     this.#testSandbox = options.testSandbox;
     for (const id of Object.keys(options.graphs ?? {})) {
-      if (Object.hasOwn(PRESET_GRAPHS, id)) throw new Error(`DUPLICATE_WORKFLOW_PRESET:${id}`);
+      if (PRESET_NAMES.includes(id)) throw new Error(`DUPLICATE_WORKFLOW_PRESET:${id}`);
       if (options.graphs?.[id]?.id !== id) throw new Error(`WORKFLOW_PRESET_ID_MISMATCH:${id}`);
     }
     this.#graphs = Object.freeze({ ...options.graphs });
@@ -748,7 +748,7 @@ export class Orchestrator {
   }
 
   #validateGraph(graph: unknown, authorize: readonly WorkflowGraphAuthorization[], configuration?: RunConfig): AuthoredGraphValidation {
-    return validateAuthoredGraph(graph, { gatePolicies: this.#gatePolicies, authorize, reservedIds: [...Object.keys(PRESET_GRAPHS), ...Object.keys(this.#graphs)], ...(configuration === undefined ? {} : { configuration }) });
+    return validateAuthoredGraph(graph, { gatePolicies: this.#gatePolicies, authorize, reservedIds: [...PRESET_NAMES, ...Object.keys(this.#graphs)], ...(configuration === undefined ? {} : { configuration }) });
   }
 
   /** Saved graphs by ID with their versions, and an editable template of each Audit preset. */
@@ -1233,7 +1233,7 @@ export class Orchestrator {
   }
 }
 
-export { AUDIT_DEEP_GRAPH, type RunnerGraph };
+export { AUDIT_THREE_FINDERS_GRAPH, type RunnerGraph };
 
 /** The store's content-addressed ref stays internal; callers address artifacts by id. */
 export type PublicArtifact = Omit<ArtifactDescriptor, "ref">;

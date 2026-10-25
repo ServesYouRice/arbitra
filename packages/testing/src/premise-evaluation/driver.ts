@@ -174,9 +174,11 @@ export function readConfiguration(root: string, protocol: EvaluationProtocol): R
 /**
  * The single-auditor baseline: the same auditor profile, endpoint, depth, verification and
  * execution limits as the heterogeneous configuration, on the shipped single-auditor preset.
- * Its planner and verifier are that auditor, so no second model is involved.
+ * Its planner and verifier are that auditor, so no second model is involved, and no plan critic
+ * reads its plan, whatever the heterogeneous configuration's critic switch says.
  */
 export function singleAuditorConfiguration(config: RunConfig, auditorId: string): RunConfig {
+  const workflow = Object.fromEntries(Object.entries(config.workflow).filter(([key]) => key !== "critic"));
   const profile = config.models[auditorId];
   const execution = config.workflow["modelExecution"] as { endpoints: readonly { id: string; providerId: string }[]; modelEndpoints: Record<string, string>; rateLimits: Record<string, unknown>; roles?: unknown } | undefined;
   if (profile === undefined || execution === undefined) throw new Error(`P06_SINGLE_AUDITOR_ABSENT:${auditorId}`);
@@ -184,7 +186,7 @@ export function singleAuditorConfiguration(config: RunConfig, auditorId: string)
   const endpoints = execution.endpoints.filter(({ id }) => id === endpointId);
   if (endpoints.length !== 1) throw new Error(`P06_SINGLE_AUDITOR_ENDPOINT_ABSENT:${auditorId}`);
   const providers = new Set(endpoints.map(({ providerId }) => providerId));
-  return { ...config, models: { [auditorId]: profile }, workflow: { ...config.workflow, preset: "diff-fast", modelExecution: { ...execution, endpoints, modelEndpoints: { [auditorId]: endpointId },
+  return { ...config, models: { [auditorId]: profile }, workflow: { ...workflow, preset: "diff-fast", modelExecution: { ...execution, endpoints, modelEndpoints: { [auditorId]: endpointId },
     rateLimits: Object.fromEntries(Object.entries(execution.rateLimits).filter(([provider]) => providers.has(provider))), roles: { planner: auditorId, verifier: auditorId } } } } as RunConfig;
 }
 

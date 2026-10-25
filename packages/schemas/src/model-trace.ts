@@ -8,8 +8,8 @@ export interface ModelActivityTraceRecord {
   readonly protocolId: string; readonly protocolVersion: string; readonly protocolHash: string;
   readonly promptHash: string; readonly resolvedProviderConfigHash: string;
   readonly capability: "frontier" | "balanced" | "fast";
-  readonly effortRequested: "low" | "medium" | "high" | "xhigh" | null;
-  readonly effortResolved: "low" | "medium" | "high" | "xhigh" | null;
+  readonly effortRequested: "low" | "medium" | "high" | "xhigh" | "max" | null;
+  readonly effortResolved: "low" | "medium" | "high" | "xhigh" | "max" | null;
   readonly inputArtifactRefs: readonly string[]; readonly outputArtifactRef: string | null;
   readonly durationMs: number;
   readonly tokenUsage: { readonly inputTokens: number | null; readonly outputTokens: number | null;

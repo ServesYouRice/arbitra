@@ -37,10 +37,10 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
   const providers = ["openai", "anthropic", "google"];
   const transports = ["openai-responses", "anthropic-messages", "gemini-native"];
   const ids = ["auditor-a", "auditor-b", "auditor-c"];
-  // The example reviews once. These audits allow a second round, which the tests of later rounds need. They run at
-  // depth deep, where the plan critic always reads the plan.
+  // The example reviews once. These audits allow a second round, which the tests of later rounds need. They run three
+  // finders (under the preset's earlier name) with the plan critic switched on.
   const config = runConfigSchema.parse({ ...example, auditDepth: options.depth ?? "deep", maxConsensusRounds: 2, models: Object.fromEntries(ids.map((id, index) => [id, { ...template, provider: providers[index], transport: transports[index], independenceGroup: id, modelId: id }])),
-    workflow: { preset: "audit-deep", modelExecution: {
+    workflow: { preset: "audit-deep", critic: true, modelExecution: {
       endpoints: ids.map((id, index) => ({ id, providerId: providers[index], transport: transports[index], endpoint: `https://${id}.example/v1`, apiKeyEnvVar: "FIXTURE_KEY" })),
       modelEndpoints: Object.fromEntries(ids.map((id) => [id, id])), roles: { planner: "auditor-a", verifier: "auditor-b", critic: "auditor-c" },
       maximumClusteringPairs: manyIssues ? 0 : 20, maximumOutputTokens: 2_000, maximumTokens: manyIssues || options.largeCriticContext === true && options.revision !== undefined ? 20_000_000 : 1_000_000, timeoutMs: 30_000, maximumRetries: 0,
@@ -565,22 +565,25 @@ describe("composed model audits", () => {
     expect(gate.reasons).not.toContain("blocking_critic_feedback");
   });
 
-  it("runs the plan critic at depth deep or for a critical or high security issue, and otherwise records it as not required", async () => {
-    // A critic node makes a critic available; the run's depth and the planned issues decide whether it reads the plan
-    // (spec §20.6), and critic-result records why.
+  it("runs a switched-on plan critic at every depth, and none when it is switched off", { timeout: 30_000 }, async () => {
+    // Depth no longer decides the critic (a deliberate departure from spec §3.7 and §20.6, made October 25, 2026, on
+    // the scored runs): switched on, it reads the plan at every depth; critic-result records the issues that would
+    // once have required it.
     const cases = [
-      { depth: "balanced", finding: {}, status: "not_required", reasons: [] },
-      { depth: "deep", finding: {}, status: "completed", reasons: ["deep_mode"] },
-      { depth: "balanced", finding: { severity: "critical" }, status: "completed", reasons: ["critical_issue"] },
-      { depth: "balanced", finding: { category: "SECURITY" }, status: "completed", reasons: ["high_security_issue"] },
+      { depth: "balanced", finding: {}, critic: true, status: "completed", reasons: ["switched_on"] },
+      { depth: "fast", finding: {}, critic: true, status: "completed", reasons: ["switched_on"] },
+      { depth: "balanced", finding: { severity: "critical" }, critic: true, status: "completed", reasons: ["switched_on", "critical_issue"] },
+      { depth: "balanced", finding: { category: "SECURITY" }, critic: true, status: "completed", reasons: ["switched_on", "high_security_issue"] },
+      { depth: "deep", finding: { severity: "critical" }, critic: false, status: null, reasons: null },
     ] as const;
-    for (const { depth, finding, status, reasons } of cases) {
+    for (const { depth, finding, critic, status, reasons } of cases) {
       const { create, config, requests } = await fixture({ depth, finding });
+      config.workflow["critic"] = critic;
       const core = create(); const result = await core.run(config);
       expect(result.state).toBe("COMPLETED");
       const descriptor = (await core.artifacts(result.runId)).find(({ kind }) => kind === "critic-result");
-      const recorded = JSON.parse((await core.artifact(result.runId, descriptor?.artifactId ?? "") as { content: string }).content) as { status: string; requirement: { reasons: string[] }; degradedReviewCoverage: boolean };
-      expect({ depth, finding, status: recorded.status, reasons: recorded.requirement.reasons, degraded: recorded.degradedReviewCoverage }).toEqual({ depth, finding, status, reasons, degraded: false });
+      const recorded = descriptor === undefined ? null : JSON.parse((await core.artifact(result.runId, descriptor.artifactId) as { content: string }).content) as { status: string; requirement: { reasons: string[] }; degradedReviewCoverage: boolean };
+      expect({ depth, finding, status: recorded?.status ?? null, reasons: recorded?.requirement.reasons ?? null, degraded: recorded?.degradedReviewCoverage ?? false }).toEqual({ depth, finding, status, reasons, degraded: false });
       expect(requests.filter(({ stage }) => stage === "critic")).toHaveLength(status === "completed" ? 1 : 0);
       expect((await core.gate(result.runId)).reasons).not.toContain("degraded_critic_coverage");
     }
@@ -1173,6 +1176,33 @@ describe("composed model audits", () => {
     expect(verificationInputs.length).toBeGreaterThan(0);
   });
 
+  it("checks critical and high issues with the verifier and the others with the medium verifier", async () => {
+    // A cheap audit checks medium issues with Sonnet; a critical or high one always goes to the strongest checker.
+    const { create, config, requests, verificationInputs } = await fixture({ largePeerContext: true, severities: ["medium", "high", "low", "critical"] });
+    const roles = (config.workflow["modelExecution"] as { roles: Record<string, string> }).roles;
+    roles["mediumVerifier"] = "auditor-a";
+    const core = create(); const result = await core.run(config);
+    expect(result.state).toBe("COMPLETED");
+    const canonical = (await core.artifacts(result.runId)).find(({ kind }) => kind === "canonical-issues");
+    const severity = new Map((JSON.parse((await core.artifact(result.runId, canonical?.artifactId ?? "") as { content: string }).content) as { issues: { candidateId: string; severity: string }[] }).issues.map(({ candidateId, severity: level }) => [candidateId, level]));
+    const asked = requests.filter(({ stage }) => stage === "verification").map(({ url }, index) => [severity.get(verificationInputs[index]?.candidateId ?? ""), url.includes("auditor-b") ? "verifier" : url.includes("auditor-a") ? "medium verifier" : url] as const);
+    expect(new Set(asked.map(([level]) => level))).toEqual(new Set(["critical", "high", "medium", "low"]));
+    expect(asked.every(([level, checker]) => checker === (level === "critical" || level === "high" ? "verifier" : "medium verifier")), JSON.stringify(asked)).toBe(true);
+  });
+
+  it("merges duplicates with the merger, else with the verifier", async () => {
+    const usual = await fixture({ ambiguousClustering: true });
+    await usual.create().run(usual.config);
+    expect(usual.requests.filter(({ stage }) => stage === "clustering").map(({ url }) => url.includes("auditor-b"))).toContain(true);
+    const { create, config, requests } = await fixture({ ambiguousClustering: true });
+    (config.workflow["modelExecution"] as { roles: Record<string, string> }).roles["merger"] = "auditor-c";
+    const result = await create().run(config);
+    expect(result.state).toBe("COMPLETED");
+    const merged = requests.filter(({ stage }) => stage === "clustering");
+    expect(merged.length).toBeGreaterThan(0);
+    expect(merged.every(({ url }) => url.includes("auditor-c"))).toBe(true);
+  });
+
   it.each([["one", "high"], ["two", "low"]] as const)("keeps an issue in the plan's scope unless two reviewers lower it below: lowered by %s", async (lowered, severity) => {
     // Observed live (rokavatar): 25 issues found at medium or higher were lowered to low by one reviewer each, so they
     // were neither verified nor planned.
@@ -1535,14 +1565,17 @@ describe("composed model audits", () => {
     const depthEffort = (await traces(first, measured.runId)).find(({ activityId }) => activityId.startsWith("peer-review/"))?.effortRequested;
     expect((await traces(first, measured.runId)).filter(({ activityId }) => !activityId.includes("/discovery")).every(({ effortRequested }) => effortRequested === depthEffort)).toBe(true);
     const { create, config } = await fixture();
-    Object.assign(config.workflow["modelExecution"] as object, { stageEffort: { verification: "low", critic: "medium" }, estimatedBytesPerToken: 2 });
+    // Finding issues has an effort of its own, here one per finder; auditor-c is left out of the map.
+    Object.assign(config.workflow["modelExecution"] as object, { stageEffort: { discovery: { "auditor-a": "low", "auditor-b": "medium" }, verification: "low", critic: "medium" }, estimatedBytesPerToken: 2 });
     const core = create(); const result = await core.run(config);
     expect(result.state).toBe("COMPLETED");
     const efforts = await traces(core, result.runId);
     expect(efforts.filter(({ activityId }) => activityId.startsWith("verification/")).map(({ effortRequested }) => effortRequested)).toEqual(["low"]);
     expect(efforts.filter(({ activityId }) => activityId.startsWith("critic/")).map(({ effortRequested }) => effortRequested)).toEqual(["medium"]);
-    // A stage the run does not name, and discovery always, keep the effort of the audit depth.
-    expect(efforts.filter(({ activityId }) => activityId.startsWith("peer-review/") || activityId.includes("/discovery")).every(({ effortRequested }) => effortRequested === depthEffort)).toBe(true);
+    const discovery = (auditorId: string) => [...new Set(efforts.filter(({ activityId }) => activityId.startsWith(`${auditorId}/`) && activityId.includes("/discovery")).map(({ effortRequested }) => effortRequested))];
+    expect([discovery("auditor-a"), discovery("auditor-b"), discovery("auditor-c")]).toEqual([["low"], ["medium"], [depthEffort]]);
+    // A stage the run does not name keeps the effort of the audit depth.
+    expect(efforts.filter(({ activityId }) => activityId.startsWith("peer-review/")).every(({ effortRequested }) => effortRequested === depthEffort)).toBe(true);
     // At two bytes a token the same question is counted at about half, beside the unchanged output allowance.
     const question = (list: { activityId: string; estimatedTokens: number }[]) => (list.find(({ activityId }) => activityId.startsWith("verification/"))?.estimatedTokens ?? 0) - 2_000;
     const [once, twice] = [question(await contexts(first, measured.runId)), question(await contexts(core, result.runId))];

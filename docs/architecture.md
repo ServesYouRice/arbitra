@@ -67,7 +67,7 @@ implementation.
 the six kinds in `packages/schemas/src/glyphs.ts` — the taxonomy is closed, and
 `packages/workflow/src/node-kinds.ts` and `graph-schema.ts` enforce it.
 
-The executable `audit-deep` graph ([`graphs.ts`](../packages/runtime/src/graphs.ts)) has eight
+The executable `audit-three-finders` graph ([`graphs.ts`](../packages/runtime/src/graphs.ts)), with the plan critic switched on (`workflow.critic`), has eight
 nodes; the other Audit stages run inside their executors (see [Audit mode](workflows.md#audit-mode)):
 
 ```text
@@ -77,7 +77,7 @@ nodes; the other Audit stages run inside their executors (see [Audit mode](workf
 ▣ verification         ladder (live runs: rungs inconclusive), one model question last;
                        canonical issues with support count, review denominator, dissent, coverage
 ◆ planner              Validation Contract, Task DAG, capability routing
-◆ critic               reads the plan against the issues it has to resolve
+◆ critic               when switched on: reads the plan against the issues it has to resolve
 ```
 
 In a model run, the last of planner and critic renders the final plan as the run's

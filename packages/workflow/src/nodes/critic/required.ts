@@ -1,4 +1,6 @@
 export interface CriticRequirementContext {
+  /** The operator switched the critic on (an Audit's `workflow.critic`): it reads the plan whatever else holds. */
+  readonly switchedOn?: boolean;
   readonly hasCriticalIssue?: boolean;
   readonly hasHighSecurityIssue?: boolean;
   readonly schemaOrDatabaseMigration?: boolean;
@@ -10,6 +12,7 @@ export interface CriticRequirementContext {
 }
 
 const conditions = [
+  ["switched_on", "switchedOn"],
   ["critical_issue", "hasCriticalIssue"],
   ["high_security_issue", "hasHighSecurityIssue"],
   ["schema_or_database_migration", "schemaOrDatabaseMigration"],

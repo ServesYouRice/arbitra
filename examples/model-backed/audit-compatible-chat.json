@@ -119,7 +119,7 @@
     "mode": "canonical"
   },
   "workflow": {
-    "preset": "audit-balanced",
+    "preset": "audit-two-finders",
     "modelExecution": {
       "endpoints": [
         {

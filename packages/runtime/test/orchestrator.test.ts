@@ -42,7 +42,8 @@ const config = Object.freeze({
   consensusPolicy: "risk_weighted",
   maxConsensusRounds: 2,
   verification: {}, models: {}, harness: { mode: "canonical" },
-  workflow: { preset: "audit-deep" },
+  // Three finders and the plan critic: every node of an audit.
+  workflow: { preset: "audit-three-finders", critic: true },
   budgets: {}, security: {}, protocols: {}, promptOverrides: {}, contextPolicies: {},
 });
 
@@ -76,6 +77,19 @@ describe("the executable graph", () => {
     expect(auditorIdsFor(graphForPreset("audit-balanced"))).toHaveLength(2);
     expect(auditorIdsFor(graphForPreset("diff-fast"))).toHaveLength(1);
   });
+
+  it("names the audit presets by finder count, reads their earlier names as aliases, and leaves the critic to its switch", () => {
+    // audit-balanced and audit-deep meant two and three finders, which read as depths; saved configurations still name them.
+    expect(auditorIdsFor(graphForPreset("audit-two-finders"))).toEqual(["auditor-a", "auditor-b"]);
+    expect(auditorIdsFor(graphForPreset("audit-three-finders"))).toEqual(["auditor-a", "auditor-b", "auditor-c"]);
+    expect(graphForPreset("audit-balanced")).toBe(graphForPreset("audit-two-finders"));
+    expect(graphForPreset("audit-deep")).toBe(graphForPreset("audit-three-finders"));
+    expect(graphForPreset(undefined).id).toBe("audit-three-finders");
+    for (const preset of ["audit-two-finders", "audit-three-finders", "diff-review", "diff-fast"]) expect(graphForPreset(preset).nodes.map(({ id }) => id)).not.toContain("critic");
+    expect(() => graphForPreset("hasOwnProperty")).toThrow("UNKNOWN_WORKFLOW_PRESET:hasOwnProperty");
+    // An earlier name stays reserved: no registered graph may take it.
+    expect(() => new Orchestrator({ repository, stateDirectory: state, graphs: { "audit-deep": { ...graphForPreset("audit-deep"), id: "audit-deep" } } })).toThrow("DUPLICATE_WORKFLOW_PRESET:audit-deep");
+  });
 });
 
 describe("a run over the fixture repository", () => {
@@ -99,8 +113,10 @@ describe("a run over the fixture repository", () => {
   });
   it("rejects uncomposed execution modes rather than silently substituting an audit", async () => {
     const core = orchestrator();
-    await expect(core.start(core.configurations.validate({ ...config, mode: "feature" }))).rejects.toThrow("FEATURE_EXECUTION_CONFIGURATION_REQUIRED");
-    await expect(core.estimate(core.configurations.validate({ ...config, mode: "testing" }))).rejects.toThrow("TESTING_EXECUTION_CONFIGURATION_REQUIRED");
+    // The plan critic switch is an Audit setting, so the other modes leave it out.
+    const workflow = { preset: config.workflow.preset };
+    await expect(core.start(core.configurations.validate({ ...config, mode: "feature", workflow }))).rejects.toThrow("FEATURE_EXECUTION_CONFIGURATION_REQUIRED");
+    await expect(core.estimate(core.configurations.validate({ ...config, mode: "testing", workflow }))).rejects.toThrow("TESTING_EXECUTION_CONFIGURATION_REQUIRED");
     await expect(core.start(core.configurations.validate({ ...config, harness: { mode: "native" } }))).rejects.toThrow("NATIVE_HARNESS_DISCOVERY_FORBIDDEN");
   });
   it("runs the two-auditor graph without requesting nonexistent third-auditor artifacts", async () => {
