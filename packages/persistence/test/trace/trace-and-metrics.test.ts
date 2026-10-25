@@ -42,6 +42,12 @@ describe("model activity traces and derived metrics", () => {
     await new TraceRecorder(root).record({ ...trace("failed-preflight", "error"), effortRequested: null, effortResolved: null });
     expect((await loadActivityTraces(root, "run-1"))[0]).toMatchObject({ effortRequested: null, effortResolved: null });
   });
+  it("records a call at max, the effort a cheap audit finds issues with on Luna", async () => {
+    const root = await temporaryRoot();
+    await new TraceRecorder(root).record({ ...trace("luna-discovery", "success"), effortRequested: "max", effortResolved: "max" });
+    expect((await loadActivityTraces(root, "run-1"))[0]).toMatchObject({ effortRequested: "max", effortResolved: "max" });
+    await expect(new TraceRecorder(root).record({ ...trace("ultra", "success"), effortRequested: "ultra" as "max" })).rejects.toThrow("INVALID_MODEL_ACTIVITY_TRACE:routing");
+  });
   it("records one exhaustive terminal trace for each outcome and keeps refusals separate", async () => {
     const root = await temporaryRoot(); const recorder = new TraceRecorder(root);
     for (const [index, outcome] of (["success", "refusal", "error", "cancelled"] as const).entries()) {

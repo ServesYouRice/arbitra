@@ -116,6 +116,9 @@ export const runConfigSchema = z.object({
   for (const [role, id] of Object.entries(execution.roles ?? {})) {
     if (id !== undefined && !Object.hasOwn(config.models, id)) context.addIssue({ code: "custom", path: ["workflow", "modelExecution", "roles", role], message: "Unknown model profile" });
   }
+  for (const [stage, value] of Object.entries(execution.stageEffort ?? {})) {
+    if (typeof value === "object") for (const id of Object.keys(value)) if (!Object.hasOwn(config.models, id)) context.addIssue({ code: "custom", path: ["workflow", "modelExecution", "stageEffort", stage, id], message: "Unknown model profile" });
+  }
   for (const [id, model] of Object.entries(config.models)) {
     const endpointId = Object.hasOwn(execution.modelEndpoints, id) ? execution.modelEndpoints[id] : undefined;
     const endpoint = endpointId === undefined ? undefined : endpoints.get(endpointId);

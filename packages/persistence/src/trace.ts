@@ -79,6 +79,9 @@ const requiredKeys = ["schemaVersion", "runId", "nodeId", "activityId", "attempt
   "inputArtifactRefs", "outputArtifactRef", "durationMs", "tokenUsage", "costUsd", "cacheHitRate", "toolCallCount",
   "toolCallErrors", "repairCount", "refusal", "error", "continuationState", "advisorTokens", "outcome"] as const;
 
+/** The effort words a call may request and resolve to (Claude Code's and Codex's, low to max). */
+const TRACE_EFFORTS: readonly string[] = ["low", "medium", "high", "xhigh", "max"];
+
 function validateTrace(value: unknown): asserts value is ModelActivityTraceRecord {
   if (!isObject(value) || Object.keys(value).length !== requiredKeys.length || requiredKeys.some((key) => !(key in value))) throw new Error("INVALID_MODEL_ACTIVITY_TRACE_FIELDS");
   for (const key of ["runId", "nodeId", "activityId", "modelId", "modelProfileVersion", "transportId", "transportVersion",
@@ -90,8 +93,8 @@ function validateTrace(value: unknown): asserts value is ModelActivityTraceRecor
   if (value.schemaVersion !== 1 || typeof value.outcome !== "string"
     || ["success", "refusal", "error", "cancelled"].includes(value.outcome) === false) throw new Error("INVALID_MODEL_ACTIVITY_TRACE:outcome");
   if (typeof value.capability !== "string" || ["frontier", "balanced", "fast"].includes(value.capability) === false
-    || value.effortRequested !== null && (typeof value.effortRequested !== "string" || ["low", "medium", "high", "xhigh"].includes(value.effortRequested) === false)
-    || value.effortResolved !== null && (typeof value.effortResolved !== "string" || ["low", "medium", "high", "xhigh"].includes(value.effortResolved) === false)) throw new Error("INVALID_MODEL_ACTIVITY_TRACE:routing");
+    || value.effortRequested !== null && (typeof value.effortRequested !== "string" || TRACE_EFFORTS.includes(value.effortRequested) === false)
+    || value.effortResolved !== null && (typeof value.effortResolved !== "string" || TRACE_EFFORTS.includes(value.effortResolved) === false)) throw new Error("INVALID_MODEL_ACTIVITY_TRACE:routing");
   if (!Array.isArray(value.inputArtifactRefs) || !value.inputArtifactRefs.every((item) => typeof item === "string")) throw new Error("INVALID_MODEL_ACTIVITY_TRACE:inputArtifactRefs");
   if (value.outputArtifactRef !== null && typeof value.outputArtifactRef !== "string") throw new Error("INVALID_MODEL_ACTIVITY_TRACE:outputArtifactRef");
   if (!validUsage(value.tokenUsage) || !nullableNonnegative(value.costUsd)

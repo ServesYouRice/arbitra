@@ -9,6 +9,8 @@ import { testingExecutionSchema } from "@arbitra/schemas/testing.js";
 import { verificationExecutionSchema, type VerificationExecution } from "@arbitra/schemas/verification-execution.js";
 import { concreteWritePath } from "@arbitra/security/write-partitions";
 import { AUDIT_BALANCED_GRAPH, auditorIdsFor, graphForPreset, withCritic } from "./graphs.js";
+import { secondOpinionProfile } from "./audit-roles.js";
+import { stageEffort, type EffortStage } from "./stage-effort.js";
 import type { TestSandbox } from "./test-sandbox.js";
 import { validateBatchLanes } from "./model-batch-lane.js";
 import { validateAdvisorPolicy } from "./model-advisors.js";
@@ -219,7 +221,27 @@ function executionOf(config: RunConfig, diagnostics: PreflightDiagnostic[]): Pro
   return parsed.success ? parsed.data : undefined;
 }
 
-const DEPTH_EFFORT = { fast: "low", balanced: "medium", deep: "high" } as const;
+/** Each model stage an audit can run, with the profile it calls there; a stage the configuration switches off is left out. */
+function auditStageProfiles(config: RunConfig, graph: RunnerGraph, execution: ProviderExecution): readonly (readonly [EffortStage, string])[] {
+  const auditors = auditorIdsFor(graph);
+  const roles = execution.roles;
+  const pairs: (readonly [EffortStage, string])[] = auditors.map((id) => ["discovery", id] as const);
+  if (config.maxConsensusRounds > 0) pairs.push(...auditors.map((id) => ["peerReview", id] as const));
+  if (roles === undefined) return pairs;
+  if (execution.maximumClusteringPairs !== 0) pairs.push(["clustering", roles.verifier]);
+  pairs.push(["verification", roles.verifier], ["planner", roles.planner]);
+  const second = config.verification["secondOpinion"] === "severe_rejections" ? secondOpinionProfile(roles, auditors) : undefined;
+  if (second !== undefined) pairs.push(["secondOpinion", second]);
+  if (graph.nodes.some(({ id }) => id === "critic")) {
+    if (roles.critic !== undefined) pairs.push(["critic", roles.critic]);
+    pairs.push(["revision", roles.planner]);
+    if (roles.critiqueChecker !== undefined) pairs.push(["critiqueCheck", roles.critiqueChecker]);
+  }
+  return pairs.filter(([, id]) => Object.hasOwn(config.models, id));
+}
+
+/** The subscription CLIs whose effort flag takes the level's own word: a profile that sends none leaves the CLI's default. */
+const EFFORT_FLAG_CLIS: Readonly<Record<string, string>> = Object.freeze({ "claude-code-cli": "Claude Code (--effort)", "codex-cli": "Codex (model_reasoning_effort)" });
 
 function auditDiagnostics(config: RunConfig, graph: RunnerGraph | undefined, execution: ProviderExecution | undefined, diagnostics: PreflightDiagnostic[]): void {
   if (graph === undefined || execution === undefined) return;
@@ -234,9 +256,20 @@ function auditDiagnostics(config: RunConfig, graph: RunnerGraph | undefined, exe
   } else if (criticEnabled && roles.critic === undefined) {
     diagnostics.push(error("MODEL_CRITIC_PROFILE_REQUIRED", "workflow.modelExecution.roles.critic", `Preset ${graph.id} runs a plan critic. Set roles.critic to a configured profile, preferably from a different independenceGroup than roles.planner.`));
   }
-  const effort = DEPTH_EFFORT[config.auditDepth];
-  const used = new Set([...auditors, ...Object.values(roles ?? {})].filter((id): id is string => id !== undefined && Object.hasOwn(config.models, id)));
-  for (const id of used) effortDiagnostic(config, id, [effort], `auditDepth ${config.auditDepth}`, diagnostics);
+  // Every stage asks each profile it calls for that stage's effort (stageEffort, else the depth's level).
+  const refused = new Set<string>(); const unsent = new Set<string>();
+  for (const [stage, id] of auditStageProfiles(config, graph, execution)) {
+    if (refused.has(id)) continue;
+    const level = stageEffort(config, stage, id);
+    const before = diagnostics.length;
+    effortDiagnostic(config, id, [level], `Stage ${stage}`, diagnostics);
+    if (diagnostics.length > before) { refused.add(id); continue; }
+    const profile = config.models[id] as ModelProfile;
+    const cli = EFFORT_FLAG_CLIS[profile.transport];
+    if (unsent.has(id) || cli === undefined || Object.hasOwn(resolveEffort(profile, level).params, "effort")) continue;
+    unsent.add(id);
+    diagnostics.push(warning(`MODEL_EFFORT_NOT_SENT:${id}`, `models.${id}.effort.params`, `Stage ${stage} asks ${id} for effort "${level}", but its effort.params sends ${cli} no effort for that level, so the model runs at the CLI's own default. Add effort.params.${level}: {"effort": "${level}"} (the CLI's word for it), as choosing the model in New run does.`));
+  }
 }
 
 function featureDiagnostics(config: RunConfig, diagnostics: PreflightDiagnostic[]): void {

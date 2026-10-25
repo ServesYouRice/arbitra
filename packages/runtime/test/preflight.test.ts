@@ -56,6 +56,24 @@ describe("configuration preflight", () => {
     expect(nodes(diff)).not.toContain("critic");
   });
 
+  it("checks each stage's effort against the profile it calls, and warns when a CLI would be sent no effort", async () => {
+    const config = mutable(await template("subscription-audit"));
+    const bare = { supported: ["low", "medium", "high"], collapse: { xhigh: "high" }, params: {} };
+    const words = { supported: ["low", "medium", "high", "xhigh", "max"], collapse: {}, params: Object.fromEntries(["low", "medium", "high", "xhigh", "max"].map((level) => [level, { effort: level }])) };
+    (config.models["auditor-a"] as Record<string, unknown>)["effort"] = bare;
+    (config.models["auditor-b"] as Record<string, unknown>)["effort"] = { ...bare, params: { high: { effort: "high" } } };
+    execution(config)["stageEffort"] = { discovery: { "auditor-a": "high", "auditor-b": "max" }, verification: "high", planner: "high" };
+    const diagnostics = configurationDiagnostics(config as unknown as RunConfig);
+    // auditor-b finds issues at max, which it neither supports nor collapses; the depth's level would have passed.
+    expect(codes(diagnostics)).toEqual(["MODEL_EFFORT_UNSUPPORTED:auditor-b"]);
+    expect(diagnostics.find(({ code }) => code === "MODEL_EFFORT_UNSUPPORTED:auditor-b")?.message).toContain("Stage discovery requests effort \"max\"");
+    // auditor-a supports high but sends Claude Code nothing for it, so the CLI would run its own default.
+    expect(diagnostics.filter(({ code }) => code.startsWith("MODEL_EFFORT_NOT_SENT")).map(({ code, path }) => [code, path])).toEqual([["MODEL_EFFORT_NOT_SENT:auditor-a", "models.auditor-a.effort.params"]]);
+    (config.models["auditor-a"] as Record<string, unknown>)["effort"] = words;
+    (config.models["auditor-b"] as Record<string, unknown>)["effort"] = words;
+    expect(configurationDiagnostics(config as unknown as RunConfig).filter(({ code }) => code.startsWith("MODEL_EFFORT"))).toEqual([]);
+  });
+
   it("refuses a spend limit the runtime would ignore and flags other unenforced sections", async () => {
     const config = mutable(await template("audit-mixed-providers"));
     config["budgets"] = { maximumCostUsd: 5 };

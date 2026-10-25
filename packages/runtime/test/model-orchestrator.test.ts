@@ -1535,14 +1535,17 @@ describe("composed model audits", () => {
     const depthEffort = (await traces(first, measured.runId)).find(({ activityId }) => activityId.startsWith("peer-review/"))?.effortRequested;
     expect((await traces(first, measured.runId)).filter(({ activityId }) => !activityId.includes("/discovery")).every(({ effortRequested }) => effortRequested === depthEffort)).toBe(true);
     const { create, config } = await fixture();
-    Object.assign(config.workflow["modelExecution"] as object, { stageEffort: { verification: "low", critic: "medium" }, estimatedBytesPerToken: 2 });
+    // Finding issues has an effort of its own, here one per finder; auditor-c is left out of the map.
+    Object.assign(config.workflow["modelExecution"] as object, { stageEffort: { discovery: { "auditor-a": "low", "auditor-b": "medium" }, verification: "low", critic: "medium" }, estimatedBytesPerToken: 2 });
     const core = create(); const result = await core.run(config);
     expect(result.state).toBe("COMPLETED");
     const efforts = await traces(core, result.runId);
     expect(efforts.filter(({ activityId }) => activityId.startsWith("verification/")).map(({ effortRequested }) => effortRequested)).toEqual(["low"]);
     expect(efforts.filter(({ activityId }) => activityId.startsWith("critic/")).map(({ effortRequested }) => effortRequested)).toEqual(["medium"]);
-    // A stage the run does not name, and discovery always, keep the effort of the audit depth.
-    expect(efforts.filter(({ activityId }) => activityId.startsWith("peer-review/") || activityId.includes("/discovery")).every(({ effortRequested }) => effortRequested === depthEffort)).toBe(true);
+    const discovery = (auditorId: string) => [...new Set(efforts.filter(({ activityId }) => activityId.startsWith(`${auditorId}/`) && activityId.includes("/discovery")).map(({ effortRequested }) => effortRequested))];
+    expect([discovery("auditor-a"), discovery("auditor-b"), discovery("auditor-c")]).toEqual([["low"], ["medium"], [depthEffort]]);
+    // A stage the run does not name keeps the effort of the audit depth.
+    expect(efforts.filter(({ activityId }) => activityId.startsWith("peer-review/")).every(({ effortRequested }) => effortRequested === depthEffort)).toBe(true);
     // At two bytes a token the same question is counted at about half, beside the unchanged output allowance.
     const question = (list: { activityId: string; estimatedTokens: number }[]) => (list.find(({ activityId }) => activityId.startsWith("verification/"))?.estimatedTokens ?? 0) - 2_000;
     const [once, twice] = [question(await contexts(first, measured.runId)), question(await contexts(core, result.runId))];

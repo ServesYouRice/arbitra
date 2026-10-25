@@ -3,7 +3,8 @@ import { z } from "zod";
 export const MODEL_PROFILE_SCHEMA_VERSION = 1 as const;
 
 export const capabilityTierSchema = z.enum(["frontier", "balanced", "fast"]);
-export const effortLevelSchema = z.enum(["low", "medium", "high", "xhigh"]);
+/** Effort levels in the subscription CLIs' own words (Claude Code `--effort`, Codex `model_reasoning_effort`). */
+export const effortLevelSchema = z.enum(["low", "medium", "high", "xhigh", "max"]);
 
 const providerParameterSchema = z.union([z.string(), z.number(), z.boolean()]);
 

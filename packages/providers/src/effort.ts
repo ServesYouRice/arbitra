@@ -1,5 +1,13 @@
-export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh"] as const;
+/**
+ * Effort levels, named as the subscription CLIs name them: Claude Code takes `--effort low|medium|high|xhigh|max` and
+ * Codex `model_reasoning_effort` the same words. A profile's `effort.params` says what each level sends; a level it
+ * does not support it collapses to one it does. `max` is optional: a profile that neither supports nor collapses it
+ * refuses a request for it, so profiles written before it existed stay valid.
+ */
+export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
 export type EffortLevel = typeof EFFORT_LEVELS[number];
+/** The levels every profile supports or collapses explicitly. */
+const REQUIRED_LEVELS: readonly EffortLevel[] = ["low", "medium", "high", "xhigh"];
 export type EffortParameter = string | number | boolean | null;
 
 export interface EffortProfile {
@@ -47,7 +55,7 @@ export function parseEffortProfile(value: unknown): EffortProfile {
     }
     params[parsedLevel] = Object.freeze(rawParams as Record<string, EffortParameter>);
   }
-  for (const level of EFFORT_LEVELS) {
+  for (const level of REQUIRED_LEVELS) {
     if (!supported.includes(level) && collapse[level] === undefined) throw new Error(`INVALID_PROFILE:effort.collapse.${level}: missing explicit collapse`);
   }
   return Object.freeze({ supported: Object.freeze(supported), collapse: Object.freeze(collapse), params: Object.freeze(params) });
