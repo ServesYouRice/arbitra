@@ -138,7 +138,14 @@ rounds; the repository field starts on the server's own folder; and depth means 
   a step is recommended off only where the runs showed its value is weak (the plan critic). Examples: deep with Opus
   and Sol only, balanced with all three models and every step. The defaults are then set from measured runs on a
   project smaller than veritra, with strong models at low and medium effort among them (this also answers the
-  cheaper-checks item below). Replaces today's depth-as-effort, against spec §16.4.
+  cheaper-checks item below). Replaces today's depth-as-effort, against spec §16.4. Researched October 25 (kept in
+  the experiments folder's `depth-2026-10-25`): today's default is already deep; nothing lower has run on a real
+  project. Effort is the lever where output dominates (finding, planning); checking is 99% input, so there only the
+  model's tier saves (lowering its effort saves about 2%). OpenAI's mid tier today is GPT-6 Luna (Terra is the older
+  GPT-5.6), at 1/20 of Sol's Codex credits. Needed first: effort words for Sonnet, Haiku and Luna (they run at the
+  CLI's default today), an effort for finding on its own, an explicit critic switch in place of the depth rule
+  (`model-pipeline.ts:920`), depth presets that write models and efforts, and finder presets named by count (not
+  `audit-balanced` and `audit-deep`).
 - **Let discovery read across its unit** (*before veritra*): tools may read the whole snapshot, every unit gets a file
   and symbol index, and the prompt says to read the caller, callee or other side. Only 8 of nextra's 97 discovery calls
   used a tool; 52 limitations say a caller was "not supplied".
