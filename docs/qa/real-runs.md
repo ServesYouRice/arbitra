@@ -144,9 +144,9 @@ Carried out on nextra's `dev` branch (pushed October 24). One agent per item on 
 checks), up to 17 at once in git worktrees, each reviewed and merged by the driving session. Records are in
 nextra's `.arbitra/dev-notes/` (`log.md`, `followups.md`, `results/`).
 - **All 146 issues have a result:** 130 fixed, 1 fixed by another task, 15 no change needed (13 unsure claims
-  that did not hold, check 07, and TASK-027, which check 17 had fixed). 124 were proven by a test that failed on
-  the unchanged code. Unit tests went from 421 to 1,510, all passing, and the browser suite passes 126 (13
-  desktop-only tests skip on the phone project).
+  that did not hold, check 07, and TASK-027, which check 17 had fixed). 124 are recorded as proven by a test that
+  failed on the unchanged code (checked October 25, below). Unit tests went from 421 to 1,510, all passing, and the
+  browser suite passes 126 (13 desktop-only tests skip on the phone project).
 - **Cost:** about 16.4M tokens and 1,495 agent-minutes for the 124 items. A Haiku item took 3 minutes and 71K
   tokens on average, a Sonnet one 10 and 128K, an Opus task 29 and 254K, a check 15 and 122K. The follow-ups
   below took about 2M more.
@@ -217,6 +217,39 @@ from the code and a test. 13 did not hold. 7 did: 5 fixed with a failing test fi
 check 07, real when audited and fixed for 2.1.6. The severe ones were mostly the false alarms: 2 of 10 high or
 critical held (both security: a viewer could connect the host's transport, and the OBS gate let tunnelled sockets
 through), and 5 of 10 medium. Deciding them took about 2.4M tokens (Opus, 122K each), about what a second look would
-cost. Of the 126 confirmed issues, 118 were proven by a failing test, 7 were test gaps shown by mutants and 1 had been
-fixed by a check first. Decided: the second look at unsure reports before the plan stays an option, off by default in
-both modes, since carrying out the check costs the same and proves the answer; the plan's README gives this rate.
+cost. No confirmed issue turned out unreal (the proofs are checked below). Decided: the second look at unsure reports
+before the plan stays an option, off by default in both modes, since carrying out the check costs the same and proves
+the answer; the plan's README gives this rate.
+
+### The proofs, checked (October 25)
+
+Each of the 124 proofs was classed by hand from nextra's `results.json`, dev-notes and `dev` history, with no model
+calls.
+- **115 failed on the defect's behaviour:** 106 on an assertion (17 of them in the browser), 4 on the defect's own
+  exception and 5 on a bounded wait where the defect is a hang.
+- **3 more were shown by a script** while the committed test failed only on a missing export.
+- **9 were not a failing test of the defect's behaviour:** 5 failed only on a missing module or export, 2 asserted on
+  source text, 1 had no failing run (TASK-095, a test gap shown by a mutant) and 1 failed on another defect (TASK-102).
+- **Re-run:** 14 unit proofs, rerun in a separate clone, all failed on the fix's parent with assertions and passed on
+  the fix. Every cited range ran in 11. In the other 3, the cited code that did not run was a caller, a route file or
+  the producer's side.
+- **The records disagree in places:** TASK-095 and TASK-102 are marked `failedBefore: true` against their own proof
+  text, and 18 behavioural proofs also added tests that failed only on a missing export, so a count of failing tests
+  overstates them. The raw failing output was kept for 11 issues only.
+
+### The plan critic, scored (October 25)
+
+nextra's critic items were checked against the code and against what carrying out the plan met, and a sample of
+rokbot's against its source, with no model calls.
+- **Precision is high:** 18 of nextra's 20 distinct items were real, and the 2 that were not are the 2 the critique
+  check rejected. All 10 of rokbot's items checked rest on true facts.
+- **Recall of what execution met is near zero:** none of the 8 named problems above (five wrong premises, question 1's
+  unworkable answer, check 19's wrong file, stale lines), and 1 of the 21 plan errors the dev-notes record (TASK-051
+  and 052's exit clash, which the revision fixed). The critic saw almost no source (`citedSourceLeftOut`: 124 files on
+  nextra, 88 on rokbot), and those problems are about the source.
+- **The revision added errors:** TASK-091's wrong premise ("so onReconnect can retry") is not in the plan before the
+  critique, the 10 prompts with wrong validation ids are all revised tasks, and TASK-092's step 8 had to be
+  overridden.
+- **Cost:** the critic, its check and the revision took 11.5% of nextra's tokens and 8.6% of its time (3.1M, 9 of 105
+  minutes), and 16.9% and 10.6% of rokbot's.
+- No prompt carries the 6 non-blocking items, and the agents dealt with 5 of them on their own.

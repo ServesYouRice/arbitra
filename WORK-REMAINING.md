@@ -56,16 +56,20 @@ Small defects the October 25 lanes found and did not fix, each to be shown by a 
 
 From the research review; each decides a cut or a build.
 
-- **Score the plan critic against what execution met:** nextra's and rokbot's critic items, both ways, against the
-  five wrong premises, the unworkable answer, check 19's wrong file and the stale lines. Few matches: drop the critic
-  and revision from the default (about 9% of a run). No model calls.
+- **The plan critic, scored ([real-project runs](docs/qa/real-runs.md#the-plan-critic-scored-october-25)):** 18 of 20
+  items real, 1 of 21 plan errors execution met, and the revision wrote errors of its own, for 11.5 to 17% of a run.
+  For the owner to decide: drop the critic and revision from the default and keep them as an option. The spec makes
+  the critic mandatory for deep audits and critical or high security issues (§3.7, §20.6).
 - **Test the rejections by running code, once:** an agent tries to write a failing test for nextra's 13 severe and 10
   random medium rejections (about 2.8M tokens). None real: drop the second opinion before rejecting a severe issue (it
   agreed 20 of 22 times). Two or more real: build the execution rung.
 - **What the severity bar throws away:** match the 14 defects found while fixing nextra against its 223 never-verified
   low candidates, then verify a random 25 (about 2M tokens).
-- **Check the past proofs:** for nextra's 124 failing tests, did each fail on an assertion and did the cited lines
-  run? Then ship a proof-replay script in each plan folder. No model calls.
+- **A proof-replay script in each plan folder:** the proofs, checked (115 of 124 behavioural, 9 not; cited ranges
+  ran in 11 of 14 re-run), showed `results.json` needs the fix commit, the proving test files and the failure's class
+  (assertion, exception, hang, missing export, source text) for a script to rerun each proof on the fix's parent and
+  on the fix. A prototype and the measurements are kept outside the repository, in the experiments folder's
+  `measure-2026-10-25`.
 - **A recall estimate in every run report:** capture–recapture over the auditors' confirmed issues (Opus and Sol
   together find about 82 to 87% of what the pipeline could confirm, an upper bound), with the survival ledger designed
   on October 14.
