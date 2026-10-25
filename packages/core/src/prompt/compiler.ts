@@ -9,10 +9,18 @@ export interface CompiledPrompt {
   readonly provenance: PromptProvenance;
 }
 
+/** The most bytes one piece of a prompt's free text (an input message, the instruction, an override) may hold. */
+export const PROMPT_TEXT_LIMIT_BYTES = 1_048_576;
+
+/** A piece of a prompt's free text is over `PROMPT_TEXT_LIMIT_BYTES`: the prompt cannot be compiled at that size. */
+export class PromptTextLimitError extends Error {
+  constructor() { super("Prompt free text exceeds 1 MiB."); this.name = "PromptTextLimitError"; }
+}
+
 export function compile(spec: PromptCompileSpec): CompiledPrompt {
   let redactionCount = 0;
   const clean = (text: string): string => {
-    if (new TextEncoder().encode(text).byteLength > 1_048_576) throw new Error("Prompt free text exceeds 1 MiB.");
+    if (new TextEncoder().encode(text).byteLength > PROMPT_TEXT_LIMIT_BYTES) throw new PromptTextLimitError();
     const result = spec.security.redact(text.normalize("NFC")); redactionCount += result.redactionCount; return result.text;
   };
   const protect = (input: UntrustedPromptInput): string => {
