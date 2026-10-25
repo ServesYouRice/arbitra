@@ -16,6 +16,7 @@
 .issue-row__severity { font-size: var(--t-label); letter-spacing: .14em; text-transform: uppercase; color: var(--mute); white-space: nowrap; }
 .issue-row__facts { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); margin: 0; color: var(--body); font-variant-numeric: tabular-nums; }
 .issue-row__location { color: var(--mute); overflow-wrap: anywhere; }
+.issue-row__variant { color: var(--mute); overflow-wrap: anywhere; }
 .issue-row__dissent { margin: 0; overflow-wrap: anywhere; }
 
 @media (forced-colors: active) {

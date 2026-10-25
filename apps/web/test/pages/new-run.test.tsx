@@ -37,7 +37,7 @@ describe("configuration drafts", () => {
 
   it("names each mode's model roles where the runtime reads them", () => {
     expect(roleSlots(SCRIPTED_AUDIT)).toEqual([]);
-    expect(roleSlots(template("subscription-audit").config).map(({ path }) => path.join("."))).toEqual(["workflow.modelExecution.roles.planner", "workflow.modelExecution.roles.verifier", "workflow.modelExecution.roles.mediumVerifier", "workflow.modelExecution.roles.critic"]);
+    expect(roleSlots(template("subscription-audit").config).map(({ path }) => path.join("."))).toEqual(["workflow.modelExecution.roles.planner", "workflow.modelExecution.roles.verifier", "workflow.modelExecution.roles.mediumVerifier", "workflow.modelExecution.roles.critic", "workflow.modelExecution.roles.variantSearcher"]);
     expect(roleSlots(template("subscription-feature-interactive").config).map(({ label, multiple }) => `${label}${multiple ? "[]" : ""}`)).toEqual(["requirements", "exploration", "planner", "reviewers[]", "critic"]);
     expect(roleSlots(template("testing-execute").config).map(({ label }) => label)).toEqual(["analyst", "planner", "fast writer", "balanced writer", "frontier writer"]);
     expect(roleSlots(template("testing-plan").config).map(({ label }) => label)).toEqual(["analyst", "planner"]);
@@ -104,6 +104,28 @@ describe("the new-run page", () => {
     const sent = bodies.at(-1)?.config ?? {};
     expect([sent["auditDepth"], getIn(sent, ["workflow", "preset"]), getIn(sent, ["workflow", "critic"]), getIn(sent, ["models", "auditor-c", "modelId"]), getIn(sent, ["models", "auditor-a", "modelId"])])
       .toEqual(["cheap", "audit-three-finders", true, "gemini-3.8-flash-high", "claude-sonnet-5-5"]);
+  });
+
+  it("offers the variant search beside the critic, off by default, with Sonnet searching or Gemini when it is a finder", async () => {
+    stubBrowser();
+    const bodies: { config: Record<string, unknown> }[] = [];
+    stubControlPlane({ ...BASE_ROUTES, "POST /preflight": ({ body }: { body: { config: Record<string, unknown> } }) => { bodies.push(body); return { ...READY, estimate: { ...READY.estimate, estimate: { ...READY.estimate.estimate, variantSearch: true } } }; } });
+    visit("?page=new-run&from=template:subscription-audit");
+    render(<App />);
+    const box = await screen.findByRole("checkbox", { name: "search for variants" }) as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    expect(screen.getByText(/New and not measured yet, so off by default/u)).toBeTruthy();
+    fireEvent.click(box);
+    fireEvent.click(screen.getByRole("button", { name: "check configuration" }));
+    await screen.findByRole("region", { name: "check result" });
+    expect(screen.getByText(/searches for variants/u)).toBeTruthy();
+    const sent = bodies.at(-1)?.config ?? {};
+    expect([getIn(sent, ["workflow", "variantSearch"]), getIn(sent, ["workflow", "modelExecution", "roles", "variantSearcher"]), getIn(sent, ["models", "variant-searcher", "modelId"]), getIn(sent, ["workflow", "modelExecution", "stageEffort", "variantSearch"])])
+      .toEqual([true, "variant-searcher", "claude-sonnet-5-5", "high"]);
+    fireEvent.change(screen.getByRole("combobox", { name: "finders" }), { target: { value: "3" } });
+    fireEvent.click(screen.getByRole("button", { name: "check configuration" }));
+    await waitFor(() => expect(getIn(bodies.at(-1)?.config ?? {}, ["workflow", "modelExecution", "roles", "variantSearcher"])).toBe("auditor-c"));
+    expect(getIn(bodies.at(-1)?.config ?? {}, ["models", "variant-searcher"])).toBeUndefined();
   });
 
   it("starts the scripted smoke test, says it calls no model, and describes the preset's steps", async () => {

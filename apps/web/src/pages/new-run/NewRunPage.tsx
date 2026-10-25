@@ -13,7 +13,7 @@ import { effortFor, modelName, modelProfiles, PLACEHOLDER_PREFIX, record, roleEf
 import { modelSettings, offeredCatalog, withStrongestOffered, type CatalogModel, type OfferedModels } from "./model-catalog.js";
 import { getIn, graphOf, LIMITS, lines, modeOf, placeholders, presetOf, roleSlots, setIn, suggestedName, withGraph, withPreset, withScopeKind, type Draft, type RoleSlot } from "./draft.js";
 import { DEFAULT_START, SCRIPTED_AUDIT, TEMPLATES } from "./templates.js";
-import { DEPTHS, findersOf, isSubscriptionAudit, withDepth, withFinders, type Depth } from "./depth.js";
+import { DEPTHS, findersOf, isSubscriptionAudit, withDepth, withFinders, withVariantSearch, type Depth } from "./depth.js";
 
 const PRESET_SHAPES: Readonly<Record<string, string>> = Object.freeze({
   "audit-two-finders": "Two independent finders, bounded peer review, verification and a planner.",
@@ -283,6 +283,9 @@ function AuditFields({ draft, edit, setDraft, listing }: { readonly draft: Draft
       <label className="operator-check"><input aria-label="review the plan with a critic" checked={getIn(draft, ["workflow", "critic"]) === true} type="checkbox" onChange={(event) => edit(["workflow", "critic"], event.target.checked)} />
         review the plan with a critic</label>
       <p className="field__hint">Off by default, at every depth. A second model reads the plan, a checker tests each blocking item, and the planner revises once. In our runs its items were precise (18 of 20 real on nextra), but it caught 1 of the 21 plan errors met when the plan was carried out, its revision added errors, and it took 9 to 17% of a run&apos;s tokens.</p>
+      <label className="operator-check"><input aria-label="search for variants" checked={getIn(draft, ["workflow", "variantSearch"]) === true} type="checkbox" onChange={(event) => setDraft(withVariantSearch(draft, event.target.checked))} />
+        search for variants</label>
+      <p className="field__hint">New and not measured yet, so off by default: after verification, a model looks for the same defect elsewhere in the repository ({subscription ? "Gemini 3.8 Flash when it is a finder, else Sonnet 5.5" : "the variant searcher under roles"}), and each place it proposes is checked like any finding.</p>
     </>}
     <label className="field">checkpoints
       <select aria-label="checkpoints" value={typeof checkpoints === "string" ? checkpoints : ""} onChange={(event) => edit(["workflow", "checkpoints"], event.target.value === "" ? undefined : { mode: event.target.value })}>
@@ -533,7 +536,7 @@ function CheckResult({ result, stale, limit, onUseLimit, onLeaveOut }: { readonl
       <div><dt>files read</dt><dd>{estimate.files} files · {estimate.lines} lines</dd></div>
       {suggested.length === 0 ? null : <div><dt>generated files</dt><dd>{suggested.length} {suggested.length === 1 ? "file" : "files"} · {suggested.reduce((total, { lines }) => total + lines, 0)} lines look generated, vendored or minified <button className="link-button" type="button" onClick={() => onLeaveOut(suggested.map(({ path }) => path))}>leave them out</button>
         <ul aria-label="suggested leave-outs" className="plain-list">{suggested.map(({ path, lines, reason }) => <li key={path}><code>{path}</code> · {lines} lines · {reason}</li>)}</ul></dd></div>}
-      <div><dt>workflow</dt><dd>{estimate.nodes} steps · {estimate.auditors} auditors</dd></div>
+      <div><dt>workflow</dt><dd>{estimate.nodes} steps · {estimate.auditors} auditors{estimate.variantSearch === true ? " · searches for variants, which is not measured yet" : ""}</dd></div>
       <div><dt>model calls</dt><dd>{estimate.providerCalls === null ? "not known before the run" : estimate.providerCalls}</dd></div>
       {typeof limit !== "number" ? null : <div><dt>token limit</dt><dd>{tokens(limit)}{recommendedTokenLimit(estimate.lines, estimate.auditors) === limit ? " · set for this project's size" : <> · {tokens(recommendedTokenLimit(estimate.lines, estimate.auditors))} recommended for this size <button className="link-button" type="button" onClick={() => onUseLimit(recommendedTokenLimit(estimate.lines, estimate.auditors))}>use it</button></>}</dd></div>}
       <div><dt>cost</dt><dd>{estimate.costUsd === null ? "unavailable · no pricing is configured" : `${estimate.costUsd} ${estimate.currency ?? "USD"}`}</dd></div>

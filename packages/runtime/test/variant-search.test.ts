@@ -110,6 +110,10 @@ describe("the variant search", () => {
     const core = setup.create();
     const run = await core.run(setup.config);
     expect(run.state).toBe("COMPLETED");
+    // The run's graph, which the web app draws, has the step between verification and the planner.
+    const { workflow } = await core.status(run.runId) as unknown as { workflow: { nodes: { id: string; label: string }[] } };
+    expect(workflow.nodes.map(({ id }) => id).slice(-3)).toEqual(["verification", "variant-search", "planner"]);
+    expect(workflow.nodes.find(({ id }) => id === "variant-search")?.label).toBe("Searching for variants");
     const issues = (await setup.read<{ issues: Issue[] }>(core, run.runId, "canonical-issues")).issues;
     const seed = issues.find(({ sourceFindingIds }) => sourceFindingIds.some((id) => id.startsWith("auditor-a")));
     if (seed === undefined) throw new Error("SEED_ABSENT");

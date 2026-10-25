@@ -79,4 +79,15 @@ describe("the executed graph", () => {
     fireEvent.click(within(list).getByRole("button", { name: /Auditor A/u }));
     expect(selected).toHaveBeenCalledWith(expect.objectContaining({ id: "auditor-a", kind: "model" }));
   });
+
+  it("draws the variant search where a run's graph has it, between verification and the planner, and shows it running", () => {
+    class Observer { observe() {} unobserve() {} disconnect() {} }
+    vi.stubGlobal("ResizeObserver", Observer);
+    const searched: WorkflowJson = { id: "audit-two-finders", nodes: [{ id: "verification", kind: "subgraph", label: "Verification" }, { id: "variant-search", kind: "model", label: "Searching for variants" }, { id: "planner", kind: "model", label: "Planner" }],
+      edges: [{ id: "verification-variant-search", from: "verification", to: "variant-search" }, { id: "variant-search-planner", from: "variant-search", to: "planner" }] };
+    render(<GraphView workflowJson={searched} runEvents={[{ t: "node_completed", runId: "r", nodeId: "verification", activityId: "v" }, { t: "node_dispatched", runId: "r", nodeId: "variant-search", activityId: "s" }]} onSelect={vi.fn()} />);
+    const list = screen.getByLabelText("live run stages");
+    expect(within(list).getAllByRole("listitem").map((item) => [item.querySelector(".run-stage__select")?.textContent?.replace(/^\S+ /u, ""), item.getAttribute("data-runtime")]))
+      .toEqual([["subgraph · Verification", "completed"], ["model · Searching for variants", "running"], ["model · Planner", "not_started"]]);
+  });
 });

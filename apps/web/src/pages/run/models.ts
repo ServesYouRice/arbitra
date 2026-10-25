@@ -34,6 +34,7 @@ export function modelProfiles(config: Readonly<Record<string, unknown>>): readon
     bind(audit["planner"], { label: "planner", node: "planner" });
     bind(audit["critic"], { label: "critic", node: "critic" });
     bind(audit["critiqueChecker"], { label: "critique check", node: "critic", stage: "critiqueCheck" });
+    bind(audit["variantSearcher"], { label: "variant searcher", node: "variant-search", stage: "variantSearch" });
   }
   if (config["mode"] === "feature") {
     const feature = record(record(workflow["feature"])["roles"]);
@@ -68,7 +69,7 @@ export function modelName(modelId: string): string {
 }
 function capitalise(word: string): string { return word.charAt(0).toUpperCase() + word.slice(1); }
 
-type EffortStage = "discovery" | "clustering" | "peerReview" | "verification" | "secondOpinion" | "critiqueCheck" | "planner" | "critic" | "revision";
+type EffortStage = "discovery" | "clustering" | "peerReview" | "verification" | "secondOpinion" | "critiqueCheck" | "variantSearch" | "planner" | "critic" | "revision";
 /**
  * The effort a stage asks of a profile, in the vendor's own word: the stage's `stageEffort` (one level, or one per
  * profile), else verification's for the second opinion and the critique check, else the audit depth's (fast low,
@@ -88,7 +89,7 @@ export function effortFor(config: Readonly<Record<string, unknown>>, alias: stri
   return slug ?? level;
 }
 
-const ROLE_STAGES: readonly string[] = ["discovery", "clustering", "verification", "secondOpinion", "critiqueCheck", "planner", "critic"];
+const ROLE_STAGES: readonly string[] = ["discovery", "clustering", "verification", "secondOpinion", "critiqueCheck", "variantSearch", "planner", "critic"];
 /** The effort a role runs at (an auditor at finding's effort, a later stage at its own), or null for another role. */
 export function roleEffort(config: Readonly<Record<string, unknown>>, alias: string, node: string): string | null {
   const stage = node.startsWith("auditor-") ? "discovery" : node;
@@ -107,7 +108,7 @@ export function modelNodeLabels(config: Readonly<Record<string, unknown>> | null
   // A model whose ID names its thinking level (Gemini 3.8 Flash high) already says its effort.
   const label = (profile: ModelProfileSummary, stage: EffortStage) => LEVEL_IN_ID.test(profile.modelId) ? modelName(profile.modelId) : `${modelName(profile.modelId)} · ${effortFor(config, profile.alias, stage)}`;
   for (const profile of profiles) if (profile.alias.startsWith("auditor-")) labels.set(profile.alias, label(profile, "discovery"));
-  for (const [node, role, stage] of [["planner", "planner", "planner"], ["verification", "verifier", "verification"], ["critic", "critic", "critic"]] as const) {
+  for (const [node, role, stage] of [["planner", "planner", "planner"], ["verification", "verifier", "verification"], ["critic", "critic", "critic"], ["variant-search", "variantSearcher", "variantSearch"]] as const) {
     const profile = name(roles[role]);
     if (profile !== undefined) labels.set(node, label(profile, stage));
   }

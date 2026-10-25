@@ -89,6 +89,19 @@ describe("issue board over persisted artifacts", () => {
     expect(screen.queryByText(/reviewers support it/u)).toBeNull();
   });
 
+  it("names the issue a variant repeats, on its row and in its details", async () => {
+    // The variant search proposed another place with a confirmed issue's defect, and verification confirmed it.
+    const [first, second] = issueSet.issues;
+    stubArtifacts({ ...ARTIFACT_CONTENT, "canonical-issues": { ...issueSet, issues: [first, { ...second, variantOf: "issue-1" }] } });
+    render(<IssueBoardView api={new ArtifactApi()} runId="run-1" />);
+    const row = (await screen.findByText("Retry loop is unbounded")).closest("li");
+    expect(within(row as HTMLElement).getByText("variant of issue-1")).toBeTruthy();
+    expect(within(screen.getByText("Role check missing on update").closest("li") as HTMLElement).queryByText(/variant of/u)).toBeNull();
+    cleanup();
+    render(<IssueDetails api={new ArtifactApi()} runId="run-1" candidateId="issue-2" />);
+    expect((await screen.findByText("variant of")).nextElementSibling?.textContent).toBe("issue-1");
+  });
+
   it("keeps dissent visible on the row when filters combine", async () => {
     stubArtifacts();
     render(<IssueBoardView api={new ArtifactApi()} runId="run-1" />);
