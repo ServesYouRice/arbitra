@@ -64,6 +64,9 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
   // line unless set) hold.
   const byPlace = (question: string) => { const places = question.match(/a\.ts:\d+/gu) ?? []; return places.length === 1 && (options.holdingPlaces ?? ["a.ts:2"]).includes(places[0] ?? "") ? "CONFIRMED" : "REJECTED"; };
   const plannerContexts: { unresolvedPeerOperations: { candidateIds: string[] }[] }[] = [];
+  // The constraints each planner call is given.
+  const plannerConstraints: { stage: string; constraints: string[] }[] = [];
+  const plannerConstraint = (stage: string, user: string): void => { plannerConstraints.push({ stage, constraints: (JSON.parse(user) as { constraints: string[] }).constraints }); };
   // What the staged planner's calls read: the files, and for an expansion the locations and the findings of its issues.
   const plannerReads: { stage: "outline" | "expand"; sourcePaths: string[]; locationIds: string[]; sourceFindingIds: string[] }[] = [];
   const plannerRead = (stage: "outline" | "expand", user: string): void => {
@@ -204,11 +207,13 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
       }) };
     } else if (system.startsWith("Read the complete accepted issues")) {
       requests.push({ stage: "planner-brief", url: request.url });
+      plannerConstraint("planner-brief", user);
       const input = JSON.parse(user) as { canonicalIssues: { candidateId: string; remediationSupplements: string[] }[] };
       expect(input.canonicalIssues.every(({ remediationSupplements }) => remediationSupplements[0]?.includes("Original detail"))).toBe(true);
       output = { issues: input.canonicalIssues.map(({ candidateId }) => ({ issueId: candidateId, summary: "Null source claim with detailed guard constraints", affectedPaths: ["a.ts"], behavioralAssertions: ["Guard null values"], integrationConstraints: ["Preserve existing behavior"], unresolvedQuestions: [] })) };
     } else if (system.startsWith("Produce the single global plan outline")) {
       requests.push({ stage: "planner-outline", url: request.url });
+      plannerConstraint("planner-outline", user);
       plannerRead("outline", user);
       const input = JSON.parse(user) as { issueBriefs: PlannerBrief["issues"]; acceptedIssueIds: string[]; premiseReport: unknown };
       const templateTask = planTemplate.tasks[0]; if (templateTask === undefined) throw new Error("FIXTURE_TASK_ABSENT");
@@ -220,6 +225,7 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
       };
     } else if (system.startsWith("Expand the selected task")) {
       requests.push({ stage: "planner-expand", url: request.url });
+      plannerConstraint("planner-expand", user);
       const input = JSON.parse(user) as { selectedTask: PlannerTaskOutline; canonicalIssues: { candidateId: string; remediationSupplements: string[] }[] };
       if (failExpansion && input.selectedTask.id === "TASK-2") return { status: 503, headers: {}, body: {} };
       plannerRead("expand", user);
@@ -228,6 +234,7 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
       output = { task: { ...planTemplate.tasks[0], ...input.selectedTask }, unresolvedQuestions: input.selectedTask.id === "TASK-4" ? [{ id: "Q-1", question: "Integration needs operator decision", blocking: true, blastRadius: "high" }] : [] };
     } else if (system.startsWith("Produce a complete")) {
       requests.push({ stage: "planner", url: request.url });
+      plannerConstraint("planner", user);
       const input = JSON.parse(user) as { canonicalIssues: { candidateId: string }[]; premiseReport: unknown };
       plannerContexts.push((JSON.parse(user) as { projectContext: (typeof plannerContexts)[number] }).projectContext);
       const acceptedIssueIds = input.canonicalIssues.map(({ candidateId }) => candidateId);
@@ -284,7 +291,7 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
     return { status: 200, headers: {}, body: response };
   };
   const create = (testSandbox?: TestSandbox, providerOptions: TransportFactoryOptions & { readonly factories?: Readonly<Record<string, TransportFactory>> } = {}) => new Orchestrator({ repository: directory, stateDirectory: join(directory, ".runs"), providerOptions: { client: { send }, credential: () => "fixture-credential", ...providerOptions }, ...(testSandbox === undefined ? {} : { testSandbox }) });
-  return { directory, create, config, requests, verificationInputs, plannerContexts, plannerReads, reviewInputs, packedChecks, criticIssueIds, verificationFlight, mergedListedPair: () => mergedListedPair, failRevisionPatch: (value: boolean) => { failRevisionPatch = value; }, failExpansion: (value: boolean) => { failExpansion = value; }, failCritic: (value: boolean) => { failCritic = value; }, quotaCritic: (until: string) => { quotaUntil = until; }, failVerification: (value: boolean) => { failVerification = value; }, blockDiscovery: (callback: () => void) => { blockDiscovery = callback; } };
+  return { directory, create, config, requests, verificationInputs, plannerContexts, plannerConstraints, plannerReads, reviewInputs, packedChecks, criticIssueIds, verificationFlight, mergedListedPair: () => mergedListedPair, failRevisionPatch: (value: boolean) => { failRevisionPatch = value; }, failExpansion: (value: boolean) => { failExpansion = value; }, failCritic: (value: boolean) => { failCritic = value; }, quotaCritic: (until: string) => { quotaUntil = until; }, failVerification: (value: boolean) => { failVerification = value; }, blockDiscovery: (callback: () => void) => { blockDiscovery = callback; } };
 }
 
 describe("composed model audits", () => {
@@ -390,6 +397,23 @@ describe("composed model audits", () => {
       expect(read.locationIds.length).toBeGreaterThan(0); expect(read.locationIds.length).toBeLessThan(outline[0]?.locationIds.length ?? 0);
       expect(read.locationIds.every((id) => read.sourceFindingIds.some((sourceId) => id.startsWith(`${sourceId}/`)))).toBe(true);
     }
+  });
+
+  it("tells every planner call that the audit only read the code and that the plan is for an agent that will change it", async () => {
+    // Observed live: told only "audit_mode_is_read_only", plan sections asked whether their tasks could write (two
+    // blocking questions in each nextra plan; one of veritra's asked for "a separate write-enabled execution phase").
+    const stages = new Set<string>();
+    for (const options of [{}, { largePlannerContext: true }]) {
+      const { create, config, plannerConstraints } = await fixture(options);
+      expect((await create().run(config)).state).toBe("COMPLETED");
+      for (const { stage, constraints } of plannerConstraints) {
+        stages.add(stage);
+        expect(constraints, stage).not.toContain("audit_mode_is_read_only");
+        expect(constraints.join(" "), stage).toMatch(/only read the repository/u);
+        expect(constraints.join(" "), stage).toMatch(/a coding agent that will change the code/u);
+      }
+    }
+    expect([...stages].sort()).toEqual(["planner", "planner-brief", "planner-expand", "planner-outline"]);
   });
 
   it("plans oversized accepted issues using one global outline and resumes completed expansions", async () => {

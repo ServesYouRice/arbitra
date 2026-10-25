@@ -19,7 +19,7 @@ import { isModelOutputRejection, ModelHarness } from "./model-harness.js";
 import { discoverWithModel, groundFindings } from "./model-discovery.js";
 import { repositoryIndex } from "./repository-index.js";
 import { pathsOfSeeds, reportedPlaces, VARIANT_SEARCH_ACTOR, VARIANT_SEARCH_INSTRUCTION, VARIANT_SEARCH_READ_BYTES, variantBatches, variantBatchId, variantCandidateId, variantSeeds, withoutDuplicates, type VariantFinding, type VariantSeed } from "./variant-search.js";
-import { INSTRUCTION_SHAPED_TEXT_RULE, PLAN_TEXT_RULE } from "./prompt-conventions.js";
+import { AUDIT_PLAN_CONSTRAINT, INSTRUCTION_SHAPED_TEXT_RULE, PLAN_TEXT_RULE } from "./prompt-conventions.js";
 import { converge, readStage, type AuditContext, type ConvergenceResult } from "./pipeline.js";
 import { plannerCommandContext, PROJECT_COMMANDS_KIND, type ProjectCommand } from "./project-commands.js";
 import { instructionRisk, INSTRUCTION_RISK_KIND } from "./instruction-risk.js";
@@ -989,7 +989,7 @@ export class ModelAuditPipeline {
       projectContext: { ...projectContext, unresolvedPeerOperations: conflicts },
       canonicalIssues: accepted,
       repositoryContext: this.context.snapshot.files.map(({ path, lines }) => ({ ref: path, trust: "repo", content: lines.join("\n") })),
-      constraints: ["audit_mode_is_read_only"], workflowGoal: "Resolve accepted issues while preserving intended behavior.", premiseReport: planPremise,
+      constraints: [AUDIT_PLAN_CONSTRAINT], workflowGoal: "Resolve accepted issues while preserving intended behavior.", premiseReport: planPremise,
     });
     if (plan.mode !== "audit" || JSON.stringify(plan.premiseReport) !== JSON.stringify(planPremise)) throw new Error("MODEL_PLAN_PROVENANCE_MISMATCH");
     await this.context.store.publish("planner-result", { logicalModelCalls: modelCalls });

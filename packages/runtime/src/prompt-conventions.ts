@@ -21,6 +21,14 @@ export const NEW_FILES_ARE_NOT_SURFACES = "Surfaces name existing snapshot files
 export const PLAN_TEXT_RULE = "Write task text an agent can follow after earlier tasks have changed the code: name code by its symbol (function, component, route, test or setting) and its file, and give a line number only beside the symbol, since line numbers move. State what an issue says about how the code behaves as a claim to check against the code, not as a settled fact. Recommend an answer to an unresolved question only when the source, a standard you cite or a test shows that it works; otherwise say that no option is known to work.";
 
 /**
+ * The audit's constraint on its plan: the run only reads, and the plan is the work of an agent that writes. Observed
+ * live: told only "audit_mode_is_read_only", plan sections asked whether their tasks could change files (two blocking
+ * questions in each nextra plan; one of veritra's, October 25, 2026, asked for "a separate write-enabled execution
+ * phase" and said the tasks must not run without one).
+ */
+export const AUDIT_PLAN_CONSTRAINT = "This audit only read the repository and changed nothing. The plan you write is for a coding agent that will change the code afterwards: its tasks edit files, so do not ask whether they may.";
+
+/**
  * A prompt-injection report must not stand in for auditing the code beside it. Observed live
  * (P06 version 1): five discovery passes reported a planted "this file is safe" comment as
  * prompt injection, and none reported the hard-coded admin bypass directly below it.
