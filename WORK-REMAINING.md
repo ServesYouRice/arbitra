@@ -48,6 +48,10 @@ Small defects the October 25 lanes found and did not fix, each to be shown by a 
 - **An event whose sync failed after a full write is kept**, so a retry records it twice.
 - **After the operator answers a question the critic's revision could not settle**, the gate still reports
   `blocking_critic_feedback`.
+- **Discovery calls run past the 15-minute call limit and start again from nothing:** 7 of veritra's first 36 (4 of
+  22 Opus, 3 of 14 Sol), none in the six earlier runs; Opus wrote 33K tokens a call against nextra's 23K. Each costs
+  a slot for 15 minutes and the tokens already spent. Take the durations from the finished run, then size the limit
+  or the units from them, or split a unit that times out as one that stops at the output ceiling.
 - **The planner's `audit_mode_is_read_only` constraint makes sections ask whether they may write** (two questions in
   each nextra plan): reword it.
 - **`filesNotToTouch` globs do not subtract from `likelyFiles` globs**, and a bare `.` in `likelyFiles` covers nothing.
@@ -97,7 +101,14 @@ Audit every screen, control and term; research how people want this kind of setu
 person's work (pick a project, choose how thorough with measured cost, start, watch, read the issues, take the plan,
 see its results); one word per idea and models named by model and effort (`Opus 5.5 · xhigh`); mockups the owner
 chooses from before code; then build on a `ui` branch with the browser tests. Done when the owner signs off and the
-browser suite passes in Linux. It owns:
+browser suite passes in Linux. Step one is done (October 25): an inventory of every screen with 70 screenshots and a
+research report, kept outside the repository in the experiments folder's `ui-2026-10-25`, and the mockups the owner
+chooses from ("arbitra UI Mockups": start, watch, issues, plan and results, and the words). Defects the inventory
+found, fixed in the rebuild: an absent run answers `RUN_API_500`; Workflows opens on an `UNAUTHORIZED_CHANGE` refusal;
+the report's copy button is announced as "copy run id"; saving the plan twice writes a second folder; Overview and
+Issues scroll sideways on a phone; the check says "ready to start" above a refused snapshot; a failed run offers a
+resume that cannot help; a whole-repository audit's graph shows "Diff scope" and a "Disagreement" loop with no review
+rounds; the repository field starts on the server's own folder; and depth means effort, against spec §16.4. It owns:
 
 - "Balanced" and "deep" name two settings: the workflow (two or three auditors) and the audit depth (effort).
 - The owner's drag-and-drop "slots" idea for settings, audited against a preset with a lineup card and a plain role
