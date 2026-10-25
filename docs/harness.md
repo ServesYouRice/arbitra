@@ -155,6 +155,21 @@ truncated. When they do not fit, the stage is recomposed:
   the same overlap. Each smaller unit is a durable activity of its own, so the split is the same
   after a restart. `discovery-scopes-<auditor>` lists every split (`outputLimitSplits`), and
   coverage carries `discovery_output_limit_split`.
+- **Discovery reads beyond its unit** (production-audit 2.0.0, October 25, 2026). A unit audits
+  its own files, and its tools read the whole snapshot with the same redaction and framing.
+  Reads of other files share 64 KiB a call (`DISCOVERY_READ_BEYOND_UNIT_BYTES`): a read is cut at
+  whole lines to what is left, then refused with `READ_BUDGET_SPENT`, within the tool-turn limit
+  and the activity's byte budget. Every unit carries `repositoryIndex`, each file with its line
+  count and exported or top-level symbols, at most 16 KiB and a quarter of the unit's budget,
+  ahead of its files and under a source label that names no unit, so all units of a run share it
+  as a cached prefix. The prompt asks the model to read callers, callees and the other side of a
+  boundary before concluding, and not to report a limitation a read would remove. A finding may
+  cite the lines its reads delivered from another file: validation checks them against the
+  snapshot like the unit's own, and refuses lines of another file the unit never read
+  (`evidence_outside_exposure`). Each unit's `discovery-validation-*` records `readBeyondUnit`
+  (files, line ranges, bytes, refused reads, findings citing them), the auditor's summary
+  `readsBeyondUnits`. A run pinned to an earlier production-audit does not resume an unfinished
+  discovery (`DISCOVERY_PROTOCOL_RETIRED`); its stored results stay readable.
 
 Output capacity is handled twice. Before spend, stages that emit one decision per record cap
 batch sizes with `OUTPUT_TOKENS_PER_RECORD` (peer review 160, critic 60, planner brief 900,

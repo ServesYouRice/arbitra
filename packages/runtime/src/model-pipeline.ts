@@ -182,7 +182,8 @@ export class ModelAuditPipeline {
     const contextLimit = Math.min(execution.maximumContextTokens ?? 128_000, execution.maximumDiscoveryTokens ?? Number.POSITIVE_INFINITY, this.config.models[auditorId]?.limits.contextTokens ?? Number.POSITIVE_INFINITY);
     // A unit is sized at one byte a token whatever the run counts for later stages (estimatedBytesPerToken): the
     // size of a unit is how finely the audit reads the source, and a larger one is a different audit.
-    const activities = { invoke: <T>(request: ModelActivityRequest<T>) => this.#activities.invoke(request), estimateInitialTokens: (request: ModelActivityRequest<unknown>) => this.#activities.estimateInitialTokens(request, 1) };
+    const activities = { invoke: <T>(request: ModelActivityRequest<T>) => this.#activities.invoke(request), estimateInitialTokens: (request: ModelActivityRequest<unknown>) => this.#activities.estimateInitialTokens(request, 1),
+      readsBeyondSource: (activityId: string) => this.#activities.readsBeyondSource(activityId) };
     return discoverWithModel({ auditorId, modelProfileId: auditorId, snapshot: this.context.snapshot, activities, store: this.context.store, signal, effort: this.effort(), protocol, maximumInputTokens: Math.floor(contextLimit * 0.8), concurrency: execution.maximumParallelCalls ?? 1, ...(this.#units === undefined ? {} : { units: this.#units }) });
   }
 

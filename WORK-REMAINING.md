@@ -80,6 +80,11 @@ From the research review; each decides a cut or a build.
 
 ## Measure on the next runs
 
+- **Discovery reading beyond its unit** (production-audit 2.0.0): audit nextra again from
+  `arbitra-experiments\checkouts\nextra` with run ccd3ccea's lineup, after a cheap shakedown of the reads. Does it
+  find the client that never sends the operator token, and the other client–server misses; how many calls read
+  beyond their unit (8 of 97 before) and how many limitations say "not supplied" (52); what the index costs in
+  units and tokens (13 KB a unit on nextra) and how much of it the cache serves.
 - **Test files packed with their source:** whether claims about production code that cite only tests go away, and
   what the 9% more discovery units cost.
 - **The new export:** how many workarounds the executing agents still need, against nextra's stale lines, wrong
@@ -150,9 +155,6 @@ rounds; the repository field starts on the server's own folder; and depth means 
   CLI's default today), an effort for finding on its own, an explicit critic switch in place of the depth rule
   (`model-pipeline.ts:920`), depth presets that write models and efforts, and finder presets named by count (not
   `audit-balanced` and `audit-deep`).
-- **Let discovery read across its unit** (owner: go; building October 25): tools may read the whole snapshot, every unit gets a file
-  and symbol index, and the prompt says to read the caller, callee or other side. Only 8 of nextra's 97 discovery calls
-  used a tool; 52 limitations say a caller was "not supplied".
 - **Compare the right pairs for duplicates** (*before veritra*): cross-auditor pairs first, same-answer pairs last (1
   merge in 332), a higher ceiling when batched, and TF-IDF neighbours in other files (the export's version found 4 of
   nextra's 5 overlaps).
