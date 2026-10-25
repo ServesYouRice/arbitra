@@ -86,7 +86,7 @@ export function runnerGraphOf(graph: WorkflowGraph): RunnerGraph { return graph 
  * It keeps the preset ID, so saving it unchanged is refused as a shipped-preset change.
  */
 export function authoredTemplates(): readonly WorkflowGraph[] {
-  return Object.freeze(["audit-deep", "audit-balanced", "diff-review", "diff-fast"].map((id) => templateOf(PRESET_GRAPHS[id] as RunnerGraph)));
+  return Object.freeze(["audit-three-finders", "audit-two-finders", "diff-review", "diff-fast"].map((id) => templateOf(PRESET_GRAPHS[id] as RunnerGraph)));
 }
 
 export function templateOf(preset: RunnerGraph): WorkflowGraph {

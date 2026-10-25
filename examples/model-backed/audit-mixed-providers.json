@@ -166,7 +166,7 @@
     "mode": "canonical"
   },
   "workflow": {
-    "preset": "audit-deep",
+    "preset": "audit-three-finders",
     "modelExecution": {
       "endpoints": [
         {

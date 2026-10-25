@@ -150,7 +150,7 @@
     "mode": "canonical"
   },
   "workflow": {
-    "preset": "audit-balanced",
+    "preset": "audit-two-finders",
     "critic": false,
     "modelExecution": {
       "endpoints": [

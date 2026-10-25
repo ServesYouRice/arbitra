@@ -17,7 +17,7 @@ it("lists, validates, saves and shows operator-authored graphs through the orche
     expect(() => parseWorkflowCommand(["validate", "a.json", "--parent=abc"])).toThrow("USAGE");
     const listed = await runCli(["workflow", "list", "--json"], cli(), io);
     expect(listed.exit).toBe(0);
-    const template = (listed.output.result as { templates: { id: string }[] }).templates.find(({ id }) => id === "audit-balanced");
+    const template = (listed.output.result as { templates: { id: string }[] }).templates.find(({ id }) => id === "audit-two-finders");
     const presetPath = join(root, "preset.json");
     await writeFile(presetPath, JSON.stringify(template));
     // A shipped preset ID is privileged: refused by default, accepted only when named.

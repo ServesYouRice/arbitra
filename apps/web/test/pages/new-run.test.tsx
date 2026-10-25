@@ -10,11 +10,11 @@ import { artifactRoutes, overview, resource } from "./fixtures.js";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); visit(""); });
 const template = (id: string) => { const found = TEMPLATES.find((item) => item.id === id); if (found === undefined) throw new Error(`no template ${id}`); return found; };
-const AUDIT_DEEP = { schemaVersion: 1, id: "audit-deep", goal: { objective: "Audit", doneWhen: [], stopWhen: [], blockedWhen: [] }, entryNodeId: "preflight",
+const AUDIT_THREE_FINDERS = { schemaVersion: 1, id: "audit-three-finders", goal: { objective: "Audit", doneWhen: [], stopWhen: [], blockedWhen: [] }, entryNodeId: "preflight",
   nodes: ["preflight", "auditor-a", "auditor-b", "consensus"].map((id) => ({ id, kind: id.startsWith("auditor") ? "model" : "deterministic", label: id === "preflight" ? "Preflight" : id === "consensus" ? "Consensus" : `Auditor ${id.slice(-1).toUpperCase()}`, goal: { objective: id, doneWhen: [], stopWhen: [], blockedWhen: [] } })),
   edges: [["preflight", "auditor-a"], ["preflight", "auditor-b"], ["auditor-a", "consensus"], ["auditor-b", "consensus"]].map(([from, to]) => ({ id: `${from}-${to}`, from, to })) };
-const BASE_ROUTES = { "GET /configurations": [], "GET /repositories/selected": { repository: "/work/fixture" }, "GET /workflows": { graphs: [], templates: [AUDIT_DEEP] } };
-const READY = { valid: true, ready: true, mode: "audit", preset: "audit-deep", modelBacked: false, diagnostics: [], repository: "/work/fixture", estimateError: null,
+const BASE_ROUTES = { "GET /configurations": [], "GET /repositories/selected": { repository: "/work/fixture" }, "GET /workflows": { graphs: [], templates: [AUDIT_THREE_FINDERS] } };
+const READY = { valid: true, ready: true, mode: "audit", preset: "audit-three-finders", modelBacked: false, diagnostics: [], repository: "/work/fixture", estimateError: null,
   estimate: { estimate: { files: 12, lines: 34, nodes: 8, auditors: 3, providerCalls: 0, costUsd: 0, currency: null, basis: "scripted_auditors_make_no_provider_calls" }, gate: "clear" } };
 
 describe("configuration drafts", () => {
@@ -22,7 +22,7 @@ describe("configuration drafts", () => {
     const edited = setIn(SCRIPTED_AUDIT, ["workflow", "modelExecution", "maximumTokens"], 1000);
     expect(getIn(edited, ["workflow", "modelExecution", "maximumTokens"])).toBe(1000);
     expect(getIn(SCRIPTED_AUDIT, ["workflow", "modelExecution"])).toBeUndefined();
-    expect(getIn(setIn(edited, ["workflow", "modelExecution"], undefined), ["workflow"])).toEqual({ preset: "audit-deep" });
+    expect(getIn(setIn(edited, ["workflow", "modelExecution"], undefined), ["workflow"])).toEqual({ preset: "audit-three-finders" });
     expect(lines(" src/a \n\n src/b ")).toEqual(["src/a", "src/b"]);
     expect(lines("  \n")).toBeUndefined();
   });
@@ -189,6 +189,16 @@ describe("the new-run page", () => {
     expect(screen.getByRole("button", { name: "save and start" })).toBeTruthy();
   });
 
+  it("loads a saved configuration that names a preset by its earlier name, and says what it runs", async () => {
+    stubBrowser();
+    stubControlPlane({ ...BASE_ROUTES, "GET /configurations": [{ id: "cfg-8", name: "Old" }], "GET /configurations/cfg-8": { id: "cfg-8", name: "Old", config: { ...SCRIPTED_AUDIT, workflow: { preset: "audit-deep" } } } });
+    visit("?page=new-run&from=config:cfg-8");
+    render(<App />);
+    await waitFor(() => expect((screen.getByRole("combobox", { name: "workflow" }) as HTMLSelectElement).value).toBe("preset:audit-deep"));
+    expect(screen.getByText(/^The earlier name of audit-three-finders\. Three independent finders/u)).toBeTruthy();
+    expect(await screen.findByText(/Steps: Preflight → Auditor A, Auditor B → Consensus\./u)).toBeTruthy();
+  });
+
   it("asks before leaving with unsaved edits, and leaves only when told to discard them", async () => {
     stubBrowser();
     stubControlPlane({ ...BASE_ROUTES, "GET /runs": [] });
@@ -266,7 +276,7 @@ describe("the new-run page", () => {
 
   it("starts from a saved workflow graph with interactive checkpoints", async () => {
     stubBrowser();
-    stubControlPlane({ ...BASE_ROUTES, "GET /workflows": { graphs: [{ graphId: "reviewed", versions: [{ graphId: "reviewed", version: "abc123", parentVersion: null, savedAt: "2026-09-29T09:00:00.000Z", authorizations: [] }] }], templates: [AUDIT_DEEP] } });
+    stubControlPlane({ ...BASE_ROUTES, "GET /workflows": { graphs: [{ graphId: "reviewed", versions: [{ graphId: "reviewed", version: "abc123", parentVersion: null, savedAt: "2026-09-29T09:00:00.000Z", authorizations: [] }] }], templates: [AUDIT_THREE_FINDERS] } });
     visit("?page=new-run&graph=reviewed@abc123");
     render(<App />);
     await waitFor(() => expect((screen.getByRole("combobox", { name: "workflow" }) as HTMLSelectElement).value).toBe("graph:reviewed:abc123"));

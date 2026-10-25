@@ -24,7 +24,7 @@ import { withRecommendedModels } from "./model-catalog.js";
 export interface Template { readonly id: string; readonly mode: Mode; readonly label: string; readonly description: string; readonly config: Draft }
 
 export const SCRIPTED_AUDIT: Draft = Object.freeze({ schemaVersion: 1, mode: "audit", scope: { kind: "repository" }, auditDepth: "balanced", consensusPolicy: "risk_weighted", maxConsensusRounds: 1,
-  verification: {}, models: {}, harness: { mode: "canonical" }, workflow: { preset: "audit-deep" }, budgets: {}, security: {}, protocols: {}, promptOverrides: {}, contextPolicies: {} });
+  verification: {}, models: {}, harness: { mode: "canonical" }, workflow: { preset: "audit-three-finders" }, budgets: {}, security: {}, protocols: {}, promptOverrides: {}, contextPolicies: {} });
 
 /**
  * Where New run starts: Claude Code and Codex on the subscription CLIs, with the settings of the benchmark runs.

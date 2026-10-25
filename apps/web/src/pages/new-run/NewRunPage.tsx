@@ -15,11 +15,17 @@ import { getIn, graphOf, LIMITS, lines, modeOf, placeholders, presetOf, roleSlot
 import { DEFAULT_START, SCRIPTED_AUDIT, TEMPLATES } from "./templates.js";
 
 const PRESET_SHAPES: Readonly<Record<string, string>> = Object.freeze({
-  "audit-deep": "Three independent auditors, bounded peer review, verification, a planner, and a critic at depth deep or for a critical or high security issue.",
-  "audit-balanced": "Two independent auditors, bounded peer review, verification, a planner, and, when one is set, a critic at depth deep or for a critical or high security issue.",
+  "audit-two-finders": "Two independent finders, bounded peer review, verification and a planner.",
+  "audit-three-finders": "Three independent finders, bounded peer review, verification and a planner.",
   "diff-review": "Two independent auditors over a diff, bounded review, verification and a planner.",
   "diff-fast": "One auditor over a diff, deterministic verification and a planner; no peer review, so every issue stays single-source.",
 });
+/** The audit presets' earlier names, which saved configurations may still use. */
+const EARLIER_PRESETS: Readonly<Record<string, string>> = Object.freeze({ "audit-balanced": "audit-two-finders", "audit-deep": "audit-three-finders" });
+const shapeOf = (preset: string): string | undefined => {
+  const current = EARLIER_PRESETS[preset];
+  return current === undefined ? PRESET_SHAPES[preset] : `The earlier name of ${current}. ${PRESET_SHAPES[current] ?? ""}`;
+};
 const CONSENSUS: readonly (readonly [string, string])[] = [
   ["full", "every auditor reviews every issue"],
   ["risk_weighted", "high-risk issues go to every auditor, the rest to two reviewers"],
@@ -236,14 +242,16 @@ function AuditFields({ draft, edit, setDraft, listing }: { readonly draft: Draft
   const templates = listing?.templates ?? [];
   const graphs = listing?.graphs ?? [];
   const value = saved === null ? `preset:${preset ?? ""}` : `graph:${saved.id}:${saved.version}`;
-  const shape = saved !== null ? `Saved graph ${saved.id} @ ${saved.version.slice(0, 12)}.` : PRESET_SHAPES[preset ?? ""] ?? "An unknown preset; preflight will say whether it exists.";
-  const pipeline = saved === null ? templates.find(({ id }) => id === preset) : undefined;
+  const shape = saved !== null ? `Saved graph ${saved.id} @ ${saved.version.slice(0, 12)}.` : shapeOf(preset ?? "") ?? "An unknown preset; preflight will say whether it exists.";
+  const pipeline = saved === null ? templates.find(({ id }) => id === (EARLIER_PRESETS[preset ?? ""] ?? preset)) : undefined;
+  const presets = templates.length === 0 ? Object.keys(PRESET_SHAPES) : templates.map(({ id }) => id);
+  if (preset !== null && saved === null && !presets.includes(preset)) presets.push(preset);
   const checkpoints = getIn(draft, ["workflow", "checkpoints", "mode"]);
   const scripted = Object.keys(record(draft["models"])).length === 0;
   return <>
     <label className="field">workflow
       <select aria-label="workflow" value={value} onChange={(event) => { const [kind, id, version] = event.target.value.split(":"); if (kind === "preset" && id !== undefined) setDraft(withPreset(draft, id)); if (kind === "graph" && id !== undefined && version !== undefined) setDraft(withGraph(draft, { id, version })); }}>
-        <optgroup label="presets">{(templates.length === 0 ? Object.keys(PRESET_SHAPES) : templates.map(({ id }) => id)).map((id) => <option key={id} value={`preset:${id}`}>{id}</option>)}</optgroup>
+        <optgroup label="presets">{presets.map((id) => <option key={id} value={`preset:${id}`}>{id}</option>)}</optgroup>
         {graphs.length === 0 ? null : <optgroup label="saved graphs">{graphs.flatMap(({ graphId, versions }) => versions.map(({ version }) => <option key={`${graphId}:${version}`} value={`graph:${graphId}:${version}`}>{graphId} @ {version.slice(0, 12)}</option>))}</optgroup>}
       </select>
     </label>
@@ -524,7 +532,7 @@ async function startingPoint(from: string | null, graph: string | null, apis: Re
     const overview = await apis.runs.overview(runId);
     // A scripted Audit stores no configuration; its preset, scope and review settings are enough to repeat it.
     const draft = overview.configuration ?? { ...SCRIPTED_AUDIT, scope: overview.scope, consensusPolicy: overview.consensusPolicy, maxConsensusRounds: overview.maximumRounds,
-      workflow: overview.workflowGraph === null ? { preset: overview.workflowId ?? "audit-deep" } : { graph: overview.workflowGraph, ...(overview.checkpointMode === null ? {} : { checkpoints: { mode: overview.checkpointMode } }) } };
+      workflow: overview.workflowGraph === null ? { preset: overview.workflowId ?? "audit-three-finders" } : { graph: overview.workflowGraph, ...(overview.checkpointMode === null ? {} : { checkpoints: { mode: overview.checkpointMode } }) } };
     // A rerun reads the repository its run read, not whatever the control plane now defaults to.
     return { draft, name: `rerun of ${runId.slice(0, 12)}`, savedId: null, source: `the settings run ${runId} was created with`, ...(overview.repository === null ? {} : { repository: overview.repository }) };
   }

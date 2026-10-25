@@ -37,10 +37,10 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
   const providers = ["openai", "anthropic", "google"];
   const transports = ["openai-responses", "anthropic-messages", "gemini-native"];
   const ids = ["auditor-a", "auditor-b", "auditor-c"];
-  // The example reviews once. These audits allow a second round, which the tests of later rounds need. They run at
-  // depth deep, where the plan critic always reads the plan.
+  // The example reviews once. These audits allow a second round, which the tests of later rounds need. They run three
+  // finders (under the preset's earlier name) with the plan critic switched on.
   const config = runConfigSchema.parse({ ...example, auditDepth: options.depth ?? "deep", maxConsensusRounds: 2, models: Object.fromEntries(ids.map((id, index) => [id, { ...template, provider: providers[index], transport: transports[index], independenceGroup: id, modelId: id }])),
-    workflow: { preset: "audit-deep", modelExecution: {
+    workflow: { preset: "audit-deep", critic: true, modelExecution: {
       endpoints: ids.map((id, index) => ({ id, providerId: providers[index], transport: transports[index], endpoint: `https://${id}.example/v1`, apiKeyEnvVar: "FIXTURE_KEY" })),
       modelEndpoints: Object.fromEntries(ids.map((id) => [id, id])), roles: { planner: "auditor-a", verifier: "auditor-b", critic: "auditor-c" },
       maximumClusteringPairs: manyIssues ? 0 : 20, maximumOutputTokens: 2_000, maximumTokens: manyIssues || options.largeCriticContext === true && options.revision !== undefined ? 20_000_000 : 1_000_000, timeoutMs: 30_000, maximumRetries: 0,

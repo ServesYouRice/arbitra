@@ -6,18 +6,18 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { runConfigSchema } from "@arbitra/schemas/config.js";
 import type { WorkflowGraph } from "@arbitra/workflow/graph-schema.js";
 import { authoredTemplates, defaultEdge, templateOf, validateAuthoredGraph, type AuthoredGraphOptions } from "../src/authored-graphs.js";
-import { AUDIT_DEEP_GRAPH, PRESET_GRAPHS } from "../src/graphs.js";
+import { AUDIT_THREE_FINDERS_GRAPH, PRESET_NAMES, withCritic } from "../src/graphs.js";
 import { Orchestrator } from "../src/orchestrator.js";
 
 const goal = (objective: string) => ({ objective, doneWhen: [], stopWhen: [], blockedWhen: [] });
 const baseConfig = { schemaVersion: 1, mode: "audit", scope: { kind: "repository" }, auditDepth: "balanced", consensusPolicy: "risk_weighted", maxConsensusRounds: 2, verification: {}, models: {}, harness: { mode: "canonical" }, workflow: {}, budgets: {}, security: {}, protocols: {}, promptOverrides: {}, contextPolicies: {} };
 const config = (workflow: Record<string, unknown>) => runConfigSchema.parse({ ...baseConfig, workflow });
-const options = (extra: Partial<AuthoredGraphOptions> = {}): AuthoredGraphOptions => ({ gatePolicies: { pass: async () => ({ passed: true, reasons: [] }) }, authorize: [], reservedIds: Object.keys(PRESET_GRAPHS), ...extra });
+const options = (extra: Partial<AuthoredGraphOptions> = {}): AuthoredGraphOptions => ({ gatePolicies: { pass: async () => ({ passed: true, reasons: [] }) }, authorize: [], reservedIds: PRESET_NAMES, ...extra });
 const codes = (graph: unknown, extra: Partial<AuthoredGraphOptions> = {}): string[] => validateAuthoredGraph(graph, options(extra)).diagnostics.map(({ code }) => code);
 
-/** audit-deep with a human sign-off between verification and the planner, under a new ID. */
+/** The three-finder audit with its critic and a human sign-off between verification and the planner, under a new ID. */
 function reviewed(id = "reviewed-audit"): WorkflowGraph {
-  const template = templateOf(AUDIT_DEEP_GRAPH);
+  const template = templateOf(withCritic(AUDIT_THREE_FINDERS_GRAPH, true));
   return {
     ...template, id,
     nodes: [...template.nodes.map((node) => node.kind === "loop" ? { ...node, maximum: 1 } : node), { id: "signoff", kind: "human", label: "Sign-off", goal: goal("Operator sign-off"), config: { prompt: "Plan the accepted issues?" } }],
@@ -28,9 +28,11 @@ function reviewed(id = "reviewed-audit"): WorkflowGraph {
 describe("authored graph validation", () => {
   it("accepts an edited Audit template and rejects its unchanged shipped preset ID by default", () => {
     expect(codes(reviewed())).toEqual([]);
-    expect(authoredTemplates().map(({ id }) => id)).toEqual(["audit-deep", "audit-balanced", "diff-review", "diff-fast"]);
+    expect(authoredTemplates().map(({ id }) => id)).toEqual(["audit-three-finders", "audit-two-finders", "diff-review", "diff-fast"]);
+    // The earlier preset names stay reserved, so no saved graph can take the place a stored configuration names.
+    expect(codes(reviewed("audit-deep"))).toEqual(["UNAUTHORIZED_CHANGE"]);
     for (const template of authoredTemplates()) expect(codes(template)).toEqual(["UNAUTHORIZED_CHANGE"]);
-    expect(codes(templateOf(AUDIT_DEEP_GRAPH), { authorize: ["shipped_preset_id"] })).toEqual([]);
+    expect(codes(templateOf(AUDIT_THREE_FINDERS_GRAPH), { authorize: ["shipped_preset_id"] })).toEqual([]);
   });
 
   it("rejects schema errors, invalid edges, unbounded loops and broken stage contracts", () => {
@@ -96,7 +98,7 @@ describe("saved graph dispatch", () => {
 
   it("executes and resumes exactly the saved version, never a later one", async () => {
     const first = orchestrator();
-    await expect(first.saveWorkflowGraph({ graph: templateOf(AUDIT_DEEP_GRAPH) })).rejects.toMatchObject({ statusCode: 422, message: "WORKFLOW_GRAPH_INVALID:UNAUTHORIZED_CHANGE" });
+    await expect(first.saveWorkflowGraph({ graph: templateOf(AUDIT_THREE_FINDERS_GRAPH) })).rejects.toMatchObject({ statusCode: 422, message: "WORKFLOW_GRAPH_INVALID:UNAUTHORIZED_CHANGE" });
     await expect(first.saveWorkflowGraph({ graph: reviewed(), authorize: ["everything"] })).rejects.toMatchObject({ statusCode: 400 });
     const saved = await first.saveWorkflowGraph({ graph: reviewed() });
     expect(saved).toMatchObject({ created: true, record: { graphId: "reviewed-audit", parentVersion: null, authorizations: [], savedAt: "2026-01-01T00:00:00.000Z" } });

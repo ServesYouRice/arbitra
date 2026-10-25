@@ -42,9 +42,13 @@ describe("configuration preflight", () => {
     delete execution(config)["roles"];
     expect(codes(configurationDiagnostics(config as unknown as RunConfig))).toEqual(["MODEL_EXECUTION_ROLES_REQUIRED"]);
     execution(config)["roles"] = { planner: "auditor-a", verifier: "auditor-b" };
+    // A critic is needed only when it is switched on.
+    expect(configurationDiagnostics(config as unknown as RunConfig)).toEqual([]);
+    config.workflow["critic"] = true;
     const critic = configurationDiagnostics(config as unknown as RunConfig);
     expect(critic).toEqual([expect.objectContaining({ code: "MODEL_CRITIC_PROFILE_REQUIRED", path: "workflow.modelExecution.roles.critic" })]);
     const balanced = mutable(await template("audit-compatible-chat"));
+    // The three-finder preset's earlier name still runs three finders.
     balanced.workflow["preset"] = "audit-deep";
     execution(balanced)["roles"] = { planner: "auditor-a", verifier: "auditor-b", critic: "auditor-b" };
     expect(configurationDiagnostics(balanced as unknown as RunConfig)).toEqual([expect.objectContaining({ code: "MODEL_PROFILE_REQUIRED:auditor-c", path: "models.auditor-c" })]);

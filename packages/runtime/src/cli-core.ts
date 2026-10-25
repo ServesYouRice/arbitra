@@ -7,6 +7,10 @@ import type { BatchResolutionRequest } from "@arbitra/schemas/provider-execution
 import { PLAN_QUESTIONS_CHECKPOINT_ID } from "@arbitra/schemas/checkpoint-policy.js";
 import type { Orchestrator } from "./orchestrator.js";
 import { PreflightError } from "./preflight.js";
+import { PRESET_ALIASES } from "./graphs.js";
+
+/** Whether a preset name, or its earlier name, is the three-finder audit. */
+const threeFinders = (preset: string): boolean => (Object.hasOwn(PRESET_ALIASES, preset) ? PRESET_ALIASES[preset] : preset) === "audit-three-finders";
 import { withIncrementalBase } from "./incremental-audit.js";
 import { applyTestingChangeSet } from "./testing-change-set.js";
 
@@ -136,8 +140,9 @@ export function orchestratorCore(orchestrator: Orchestrator) {
         scope: request.target.kind === "diff"
           ? { kind: "diff", diffMode: request.target.target, ...(request.target.range === undefined ? { base: request.target.base ?? "origin/main", head: request.target.head ?? "HEAD" } : { revisionRange: request.target.range }) }
           : request.target.kind === "module" ? { kind: "module", modules: [request.target.moduleId] } : { kind: "repository" },
-        auditDepth: request.preset === "diff-fast" ? "fast" : request.preset === "audit-deep" ? "deep" : "balanced",
-        consensusPolicy: request.preset === "diff-fast" ? "minimal" : request.preset === "audit-deep" ? "full" : "risk_weighted",
+        // Three finders review every issue, as audit-deep (their earlier name) did; scripted detectors read no depth.
+        auditDepth: request.preset === "diff-fast" ? "fast" : threeFinders(request.preset) ? "deep" : "balanced",
+        consensusPolicy: request.preset === "diff-fast" ? "minimal" : threeFinders(request.preset) ? "full" : "risk_weighted",
         // One review round: what it leaves undecided goes to verification, not to another round.
         maxConsensusRounds: request.preset === "diff-fast" ? 0 : 1,
         verification: {}, models: {}, harness: { mode: "canonical" },
