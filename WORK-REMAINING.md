@@ -131,7 +131,9 @@ rounds; the repository field starts on the server's own folder; and depth means 
 
 ## Need design
 
-- **Depths and steps (owner's design, October 25; research running):** deep, balanced and cheap differ only in models
+- **Depths and steps (owner's design, October 25; the first changes are building):** Gemini, when chosen, runs at
+  high at every depth and takes work that would otherwise spend Opus or Sol: the owner says many people have it at
+  little cost and unused, while Opus and Sol must be used sparingly. deep, balanced and cheap differ only in models
   and efforts: deep has frontier models (Opus 5.5, GPT-6.1 Sol) at xhigh and high, balanced the same models at low and
   medium, cheap mid-tier models (Sonnet 5.5, OpenAI's mid tier) at about medium. Two or three finding models is a
   separate choice. Every step from finding issues to the planner is available at every depth and can be switched off;
@@ -146,15 +148,15 @@ rounds; the repository field starts on the server's own folder; and depth means 
   CLI's default today), an effort for finding on its own, an explicit critic switch in place of the depth rule
   (`model-pipeline.ts:920`), depth presets that write models and efforts, and finder presets named by count (not
   `audit-balanced` and `audit-deep`).
-- **Let discovery read across its unit** (*before veritra*): tools may read the whole snapshot, every unit gets a file
+- **Let discovery read across its unit** (owner: go; building October 25): tools may read the whole snapshot, every unit gets a file
   and symbol index, and the prompt says to read the caller, callee or other side. Only 8 of nextra's 97 discovery calls
   used a tool; 52 limitations say a caller was "not supplied".
 - **Compare the right pairs for duplicates** (*before veritra*): cross-auditor pairs first, same-answer pairs last (1
   merge in 332), a higher ceiling when batched, and TF-IDF neighbours in other files (the export's version found 4 of
   nextra's 5 overlaps).
-- **A variant sweep after verification** (*before veritra*): check each confirmed defect's siblings (same callee,
+- **A variant sweep after verification** (owner: yes, an optional step; after the depths lane, on Gemini when chosen): check each confirmed defect's siblings (same callee,
   handler family or flag). It runs after verification, so the six finished runs can test it first.
-- **Check each prompt's premises at export** (*before veritra*): resolve every path, symbol and quote a task names, and
+- **Check each prompt's premises at export** (owner: yes; building October 25, with a script in the plan folder): resolve every path, symbol and quote a task names, and
   mark the ones that do not resolve.
 - **Re-audit only what changed:** a later run on the same project audits the diff since the last run and the files
   that import it, and carries forward the issues still present. Builds on "Memory across runs". Owner: wanted, later.
@@ -166,7 +168,7 @@ rounds; the repository field starts on the server's own folder; and depth means 
 - **Hand the verifier its context:** callers, definitions and imports up front, file reads reused across questions on
   one file (a question costs about 74K input tokens for under 1K of output). Owner: measure it later on a project
   smaller than veritra.
-- **Review each fix from another vendor:** root cause or guard, a variant the test misses, a new defect.
+- **Review each fix from another vendor** (owner: yes, later, as "Check the fixes"): root cause or guard, a variant the test misses, a new defect.
 - **Memory across runs:** stable issue fingerprints, disproved claims as prior evidence, fixed issues found again
   marked reopened.
 - **Docs and standards as an oracle:** README, docs, `.env.example` and configuration as untrusted claims to check.
