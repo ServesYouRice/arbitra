@@ -9,7 +9,7 @@ import type { RunEvent, RunState } from "@arbitra/core/runner/events.js";
 import { runConfigSchema, type RunConfig } from "@arbitra/schemas/config.js";
 import { DEFAULT_AUDITORS, type AuditFinding } from "./auditors.js";
 import type { CanonicalIssueSet } from "@arbitra/workflow/nodes/canonical-issues.js";
-import { AUDIT_THREE_FINDERS_GRAPH, auditorIdsFor, auditStageState, PRESET_NAMES, withCritic } from "./graphs.js";
+import { AUDIT_THREE_FINDERS_GRAPH, auditorIdsFor, auditStageState, PRESET_NAMES, VARIANT_SEARCH_NODE_ID, withCritic } from "./graphs.js";
 import { assertNoPreflightErrors, configurationDiagnostics, ENVIRONMENT_VERSIONS_KIND, environmentDiagnostics, graphForConfiguration, PreflightError, type ConfigurationPreflightOptions, type PreflightDiagnostic } from "./preflight.js";
 import { DockerTestSandbox } from "./test-sandbox.js";
 import { canonicalise, converge, critique, discover, plan, preflight, readStage, verify, type AuditContext, type ConvergenceResult, type Plan } from "./pipeline.js";
@@ -237,6 +237,8 @@ export class Orchestrator {
         lines: snapshot.files.reduce((total, file) => total + file.lines.length, 0),
         nodes: graph.nodes.length,
         auditors: auditorIdsFor(graph).length,
+        // The variant search is a step of its own when it is on; what it costs is not measured yet.
+        variantSearch: graph.nodes.some(({ id }) => id === VARIANT_SEARCH_NODE_ID),
         providerCalls: Object.keys(validated.models).length > 0 ? null : 0,
         costUsd: Object.keys(validated.models).length > 0 ? null : 0,
         currency: null,
@@ -330,6 +332,7 @@ export class Orchestrator {
       policy: Object.freeze({ name: storedContext.consensusPolicy, quorum: 2, minimumIndependentGroupsForHighRisk: 2 }),
       maximumRounds: storedContext.maximumRounds,
       criticEnabled: storedContext.criticEnabled,
+      variantSearchEnabled: graph.nodes.some(({ id }) => id === VARIANT_SEARCH_NODE_ID),
     });
     const { runner, close } = this.#runner(store, context, undefined, modelConfiguration, checkpointPolicy, undefined, units);
     const handle = runner.start(graph, { runId });
@@ -479,7 +482,7 @@ export class Orchestrator {
       if (replayGraph !== definition.graph) throw Object.assign(new Error("REPLAY_SAVED_GRAPH_IMMUTABLE:criticEnabled"), { statusCode: 409 });
     }
     validateGraphCheckpoints(replayGraph, original.checkpointPolicy, this.#gatePolicies);
-    if (original.modelConfiguration !== undefined) validateModelAudit(original.modelConfiguration, auditorIdsFor(replayGraph), overrides.criticEnabled);
+    if (original.modelConfiguration !== undefined) validateModelAudit(original.modelConfiguration, auditorIdsFor(replayGraph), overrides.criticEnabled, replayGraph.nodes.some(({ id }) => id === VARIANT_SEARCH_NODE_ID));
     const auditors = auditorsFor(definition.graph, original.modelConfiguration);
     const findings = Object.fromEntries(await Promise.all(auditors.map(async ({ auditorId }) => [auditorId, await readStage<readonly AuditFinding[]>(source, `findings-${auditorId}`)] as const)));
     const runId = this.#newRunId();
@@ -496,7 +499,8 @@ export class Orchestrator {
       const commands = (await source.listArtifacts()).findLast(({ kind }) => kind === PROJECT_COMMANDS_KIND);
       if (commands !== undefined) await store.publish(PROJECT_COMMANDS_KIND, JSON.parse((await source.readArtifact(commands.artifactId)).content));
     }
-    const context: AuditContext = Object.freeze({ snapshot, store, auditors, auditorKind: original.modelConfiguration === undefined ? "scripted_auditors" : "model_auditors", policy: Object.freeze({ name: overrides.consensusPolicy, quorum: 2, minimumIndependentGroupsForHighRisk: 2 }), maximumRounds: overrides.maximumRounds, criticEnabled: overrides.criticEnabled });
+    const context: AuditContext = Object.freeze({ snapshot, store, auditors, auditorKind: original.modelConfiguration === undefined ? "scripted_auditors" : "model_auditors", policy: Object.freeze({ name: overrides.consensusPolicy, quorum: 2, minimumIndependentGroupsForHighRisk: 2 }), maximumRounds: overrides.maximumRounds, criticEnabled: overrides.criticEnabled,
+      variantSearchEnabled: replayGraph.nodes.some(({ id }) => id === VARIANT_SEARCH_NODE_ID) });
     const { runner, close } = this.#runner(store, context, findings, original.modelConfiguration, original.checkpointPolicy);
     const handle = runner.start(replayGraph, { ...definition.config, runId });
     this.#track(runId, handle, close);
@@ -568,6 +572,7 @@ export class Orchestrator {
       auditorKind: storedContext.modelConfiguration === undefined ? "scripted_auditors" : "model_auditors",
       policy: Object.freeze({ name: storedContext.consensusPolicy, quorum: 2, minimumIndependentGroupsForHighRisk: 2 }),
       maximumRounds: storedContext.maximumRounds, criticEnabled: storedContext.criticEnabled,
+      variantSearchEnabled: definition.graph.nodes.some(({ id }) => id === VARIANT_SEARCH_NODE_ID),
     });
     const sourceStore = storedContext.replaySourceRunId === undefined ? undefined : new RunStore(this.#runsDirectory, storedContext.replaySourceRunId);
     const modelReplay = sourceStore !== undefined && (storedContext.modelConfiguration?.mode === "feature" || storedContext.modelConfiguration?.mode === "testing");
@@ -637,7 +642,8 @@ export class Orchestrator {
     const events = await store.loadEvents();
     const last = [...events].reverse().find((event): event is Extract<RunEvent, { t: "run_transition" }> => event.t === "run_transition");
     const state = live?.state ?? last?.state ?? "CREATED";
-    if (last === undefined && live === undefined) throw new Error(`RUN_ABSENT:${runId}`);
+    // An absent run is a missing resource. Observed (UI inventory, October 25, 2026): the run page read it as a 500.
+    if (last === undefined && live === undefined) throw Object.assign(new Error(`RUN_ABSENT:${runId}`), { statusCode: 404 });
     const workflow = last === undefined ? undefined : (await store.definitions().load(runId)).graph;
     const checkpoints: RunCheckpointResource[] = [];
     const stored = last === undefined ? undefined : await store.loadContext();
@@ -915,7 +921,7 @@ export class Orchestrator {
       for (const event of history.slice(cursor)) yield event;
       cursor = history.length;
       if (live === undefined) {
-        if (cursor === 0) throw new Error(`RUN_ABSENT:${runId}`);
+        if (cursor === 0) throw Object.assign(new Error(`RUN_ABSENT:${runId}`), { statusCode: 404 });
         return;
       }
       await Promise.race([delay(50), live.result.then(() => undefined, () => undefined)]);
@@ -1214,6 +1220,10 @@ export class Orchestrator {
             if (models !== undefined && !context.criticEnabled) await models.handoff();
             return { tasks: produced.tasks.length, acceptedIssues: produced.acceptedIssueIds.length };
           }
+          if (node.id === VARIANT_SEARCH_NODE_ID) {
+            if (models === undefined) throw new Error("VARIANT_SEARCH_REQUIRES_MODEL_AUDIT");
+            return await models.searchVariants(signal);
+          }
           if (node.id === "critic") {
             const issues = await readStage<CanonicalIssueSet>(store, "canonical-issues");
             const reviewed = models === undefined ? await critique(context, await readStage<Plan>(store, "plan-ir"), issues) : await models.critique(await readStage<PlanIR>(store, "plan-ir"), issues, signal);
@@ -1325,8 +1335,9 @@ function assertRuntimeConfiguration(config: RunConfig, registered: Readonly<Reco
   if (Object.keys(config.models).length > 0) {
     if (config.workflow["modelExecution"] === undefined) throw new Error("RUNTIME_MODEL_EXECUTION_CONFIGURATION_REQUIRED");
     const graph = resolveGraph();
-    validateModelAudit(config, auditorIdsFor(graph), graph.nodes.some(({ id }) => id === "critic"));
+    validateModelAudit(config, auditorIdsFor(graph), graph.nodes.some(({ id }) => id === "critic"), graph.nodes.some(({ id }) => id === VARIANT_SEARCH_NODE_ID));
   }
+  if (config.mode === "audit" && Object.keys(config.models).length === 0 && config.workflow["variantSearch"] === true) throw new Error("VARIANT_SEARCH_REQUIRES_MODEL_AUDIT");
   if (config.workflow["preset"] !== undefined && typeof config.workflow["preset"] !== "string") throw new Error("INVALID_WORKFLOW_PRESET");
   resolveGraph();
 }

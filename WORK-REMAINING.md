@@ -88,6 +88,13 @@ From the research review; each decides a cut or a build.
 - **The premise check** (built October 25, `premise-check.ts`): whether agents run `check-premises.mjs` before each
   task, act on `<not_found>` (16 of 2,132 on nextra, most of them library names), and need fewer workarounds for
   moved lines (201 moved over nextra's fixes).
+- **The variant search** (built October 25, `workflow.variantSearch`, off at every depth): replay it on the six
+  finished runs (beachflag, rokavatar, raquelsblog, commentanywhere, nextra, rokbot) with
+  `tooling/variant-replay/replay.mjs`, Sonnet 5.5 · high searching (`--searcher-copy` from a Claude Code profile),
+  Gemini 3.8 Flash high where the run had three finders. How many variants it proposes, how many survive validation
+  and the duplicate check, how many verification confirms and how many of those are real (nextra's 14 defects found
+  while fixing are a check), and what the search and the checking of its proposals cost in tokens and minutes. That
+  decides whether a depth turns it on, and the batch size (`VARIANT_SEARCH_SEEDS_PER_BATCH`, six for now).
 - **The verifier's required reason:** how often an answer leaves it out and costs a repair.
 - **A Sonnet second look at medium reports Opus leaves unsettled:** build it as an option, off by default; it decided
   6 of 7 rightly on nextra, at about 28K tokens a question.
@@ -109,15 +116,25 @@ browser suite passes in Linux. Step one is done (October 25): an inventory of ev
 research report, kept outside the repository in the experiments folder's `ui-2026-10-25`, and the mockups the owner
 chooses from ("arbitra UI Mockups": start, watch, issues, plan and results, and the words). The owner chose A for
 every screen (October 25), with Watch's stages drawn as a graph whose lines into the running stage move, saving the
-plan as the Summary's first action, and the Lighter lineup at medium and low effort. The build has started on the
-`ui` branch: the run page first, then Issues, Plan and Results; New run is built (October 25) as one page: the project,
-a card per depth with what each step runs and what a run will use, the steps with their switches, what to read, what
-goes into the plan, and this computer, checked as it is filled in. Defects the inventory
-found, fixed in the rebuild: an absent run answers `RUN_API_500`; Workflows opens on an `UNAUTHORIZED_CHANGE` refusal;
-the report's copy button is announced as "copy run id"; saving the plan twice writes a second folder; Overview and
-Issues scroll sideways on a phone; the check says "ready to start" above a refused snapshot; a failed run offers a
-resume that cannot help; a whole-repository audit's graph shows "Diff scope" and a "Disagreement" loop with no review
-rounds; the repository field starts on the server's own folder; and depth means effort, against spec §16.4. It owns:
+plan as the Summary's first action, and the Lighter lineup at medium and low effort. The build is on the `ui` branch:
+the run page first, then Issues, Plan and Results, then New run. Issues, Plan and Results
+were built on October 25: the issues grouped by verdict (confirmed, unsettled, rejected, not checked), most severe
+first, each with its place, who found it and who checked it by model and effort (the checker read from the run's model
+attempts, so balanced's Sonnet checks show as Sonnet), "variant of" when an issue carries `variantOf`, and its
+evidence, the check's reason, a second opinion and dissent one click down; the plan in its saved folder's order of work
+(questions first, tasks with their model, "after" and "same files as", the unsure reports after the tasks, from a
+read-only outline route that shares the export's rules), with the Summary's save card and, once saved, how much of what
+the prompts name the premise check did not find; and each issue's result from `results.json`, the tasks' issues apart
+from the reports checked after them. Fixed by that build: an absent run answered `RUN_API_500` (now 404); saving the
+plan twice wrote a second folder (the Plan tab had its own save button); Issues scrolled sideways on a phone; a
+whole-repository audit's records showed "Diff scope" and a "Disagreement" loop with no review rounds; and the Summary
+said the plan checks unsettled issues first, when the saved plan checks them after its tasks. The report's copy button
+was already named for the report. New run was built the same day as one page: the project, a card per depth with what each step runs and what a run
+will use, the steps with their switches (the variant search among them), what to read, what goes into the plan, and
+this computer, checked as it is filled in. Fixed by it: the check said "ready to start" above a refused snapshot; the
+repository field started on the server's own folder; and depth meant effort, against spec §16.4. Still open from the
+inventory: Workflows opens on an `UNAUTHORIZED_CHANGE` refusal; Overview scrolls sideways on a phone; and a failed
+run offers a resume that cannot help. It owns:
 
 - Whether a run's critic ran or was "not required", which the run page does not show.
 - **New run, left for later:** what a run will use as a share of each vendor's five-hour and weekly windows (the app
@@ -145,14 +162,13 @@ rounds; the repository field starts on the server's own folder; and depth means 
   model's tier saves (lowering its effort saves about 2%). OpenAI's mid tier today is GPT-6 Luna (Terra is the older
   GPT-5.6), at 1/20 of Sol's Codex credits. Built: effort words low to max for every Claude and
   OpenAI model, an effort for finding on its own, `workflow.critic` (off by default) in place of the depth rule,
-  `roles.mediumVerifier` and `roles.merger`, depth presets in New run that write models and efforts, and finder
-  presets named by count. Left: the measured runs that set the defaults; `arbitra replay` still turns the critic on;
+  `roles.mediumVerifier` and `roles.merger`, depth presets in New run that write models and efforts, finder
+  presets named by count, and the variant search (`workflow.variantSearch`, off; Gemini searches when it is a
+  finder, else Sonnet 5.5 · high). Left: the measured runs that set the defaults; `arbitra replay` still turns the critic on;
   the renamed presets' browser tests have not run.
 - **Compare the right pairs for duplicates** (*before veritra*): cross-auditor pairs first, same-answer pairs last (1
   merge in 332), a higher ceiling when batched, and TF-IDF neighbours in other files (the export's version found 4 of
   nextra's 5 overlaps).
-- **A variant sweep after verification** (owner: yes, an optional step; after the depths lane, on Gemini when chosen): check each confirmed defect's siblings (same callee,
-  handler family or flag). It runs after verification, so the six finished runs can test it first.
 - **Re-audit only what changed:** a later run on the same project audits the diff since the last run and the files
   that import it, and carries forward the issues still present. Builds on "Memory across runs". Owner: wanted, later.
 - **Boundary units from a channel map:** socket events, routes and fetch paths, WHIP/WHEP and environment keys found

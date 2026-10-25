@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { compile } from "@arbitra/core/prompt/compiler.js";
+import { compile, PromptTextLimitError } from "@arbitra/core/prompt/compiler.js";
 import { CanonicalHarnessAdapter, TOOL_TURN_LIMIT_REACHED } from "@arbitra/harness/canonical/adapter.js";
 import type { HarnessEvent } from "@arbitra/harness/adapter.js";
 import { CANONICAL_HARNESS_PROFILE, CANONICAL_TESTING_HARNESS_PROFILE } from "@arbitra/harness/profile.js";
@@ -61,7 +61,9 @@ export class ModelHarness {
   /** The size a request is admitted by: its prompt at the run's bytes a token, plus the whole output allowance.
    * Discovery passes one byte a token: the size of a unit is how finely the audit reads, not what would fit. */
   estimateInitialTokens(input: ModelActivityRequest<unknown>, bytesPerToken = inputBytesPerToken(this.config).usual): number {
-    const { profile, initialMessages, tools } = prepareModelInput(input, this.config, this.testing);
+    const prepared = measurable(input, this.config, this.testing);
+    if (prepared === undefined) return Number.MAX_SAFE_INTEGER;
+    const { profile, initialMessages, tools } = prepared;
     return promptTokens(Buffer.byteLength(JSON.stringify({ messages: initialMessages, tools }), "utf8"), bytesPerToken, profile.transport) + requestCeiling(this.config, input);
   }
 
@@ -76,7 +78,9 @@ export class ModelHarness {
 
   /** The same request counted at the rate for input a call must carry whole. */
   estimateRequiredTokens(input: ModelActivityRequest<unknown>): number {
-    const { profile, initialMessages, tools } = prepareModelInput(input, this.config, this.testing);
+    const prepared = measurable(input, this.config, this.testing);
+    if (prepared === undefined) return Number.MAX_SAFE_INTEGER;
+    const { profile, initialMessages, tools } = prepared;
     return promptTokens(Buffer.byteLength(JSON.stringify({ messages: initialMessages, tools }), "utf8"), inputBytesPerToken(this.config).required, profile.transport) + requestCeiling(this.config, input);
   }
 
@@ -244,4 +248,12 @@ function prepareModelInput(input: ModelActivityRequest<unknown>, config: RunConf
     });
     const initialMessages = compiled === undefined ? input.messages : [{ role: "user" as const, content: compiled.text }];
     return { profile, execution, tools, compiled, initialMessages, discovery };
+}
+
+/** A request prepared to be measured; none when a message is over the compiler's limit, so the prompt never fits and
+ * the stage that sized it splits it. Observed live (veritra, a 227-task plan of 1.4 MB): the critic's sizing measured
+ * the whole plan and the run failed there, before a smaller part was tried. */
+function measurable(input: ModelActivityRequest<unknown>, config: RunConfig, testing?: TestingToolExtension) {
+  try { return prepareModelInput(input, config, testing); }
+  catch (error) { if (error instanceof PromptTextLimitError) return undefined; throw error; }
 }

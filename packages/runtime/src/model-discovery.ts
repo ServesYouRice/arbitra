@@ -1,7 +1,7 @@
 import type { SourceFinding } from "@arbitra/schemas/finding.js";
 import { modelDiscoveryResultSchema } from "@arbitra/schemas/model-results.js";
 import { redactSecrets } from "@arbitra/security/redaction";
-import { validateFindings } from "@arbitra/workflow/nodes/validate-findings.js";
+import { validateFindings, type RejectionStore, type ValidationResult } from "@arbitra/workflow/nodes/validate-findings.js";
 import type { ModelActivities, ModelActivityRequest } from "./model-activities.js";
 import type { RepositorySnapshot, SourceFile } from "./repository.js";
 import type { RunStore } from "./run-store.js";
@@ -84,11 +84,38 @@ async function discoverScopeWithModel(options: ScopeOptions): Promise<readonly S
   const discovery = await (options.limited ?? ((call) => call()))(() => activities.invoke(request));
   const findings = discovery.findings;
   const reads = activities.readsBeyondSource?.(discoveryActivityId(options)) ?? null;
+  const unitPaths = new Set(snapshot.files.map(({ path }) => path));
+  const { validation, accepted, quoteRejections, widenedLocations, quoteBlocksRemoved } = await groundFindings({ actorId: auditorId, findings, snapshot: options.repository.snapshot, unitPaths, reads,
+    persistRejection: async (rejection) => (await store.publish(`discovery-rejection-${artifactAuditorId}-${findings.findIndex(({ sourceFindingId }) => sourceFindingId === rejection.finding.sourceFindingId)}`, rejection, auditorId)).artifactId });
+  const readBeyondUnit = reads === null ? undefined : unitReads(reads, unitPaths, accepted);
+  await store.publish(`discovery-validation-${artifactAuditorId}`, { summaries: validation.summaries, quoteRejections, ...(widenedLocations.length === 0 ? {} : { widenedLocations }), ...(quoteBlocksRemoved.length === 0 ? {} : { quoteBlocksRemoved }), acceptedCount: accepted.length, rejectedCount: validation.rejected.length + quoteRejections.length,
+    truncated: discovery.truncated, unexaminedDueToBudget: discovery.unexaminedDueToBudget, limitations: discovery.limitations, ...(readBeyondUnit === undefined ? {} : { readBeyondUnit }) }, auditorId);
+  await store.publish(`findings-${artifactAuditorId}`, accepted, auditorId);
+  await options.units?.complete(unit, accepted);
+  return accepted;
+}
 
+/** Findings of one call as validation and grounding leave them, with what each check refused or changed. */
+export interface GroundedFindings<F extends SourceFinding> {
+  readonly validation: ValidationResult;
+  readonly accepted: readonly F[];
+  readonly quoteRejections: readonly string[];
+  readonly widenedLocations: readonly { readonly sourceFindingId: string; readonly locationId: string; readonly from: readonly [number, number]; readonly to: readonly [number, number] }[];
+  readonly quoteBlocksRemoved: readonly string[];
+}
+
+/**
+ * Checks the findings of one call against the snapshot, as discovery checks its own: each cited range exists and lies
+ * within what the call was exposed to (its own files whole, and the lines its tools delivered from any other file), and
+ * each quotation is an exact excerpt of its cited lines as the model was shown them, masked. A rejected finding is
+ * persisted through `persistRejection`. The variant search checks what it proposes the same way.
+ */
+export async function groundFindings<F extends SourceFinding>(options: { readonly actorId: string; readonly findings: readonly F[]; readonly snapshot: RepositorySnapshot; readonly unitPaths: ReadonlySet<string>; readonly reads: ReadsBeyondUnit | null;
+  readonly persistRejection: RejectionStore["persistRejection"] }): Promise<GroundedFindings<F>> {
+  const { actorId, findings, reads, unitPaths } = options;
   // A finding may cite its unit's files, and the lines its tools delivered from any other file of the snapshot; both
   // are checked against the snapshot alike. Lines of another file it never read lie outside its exposure.
-  const whole = options.repository.snapshot;
-  const unitPaths = new Set(snapshot.files.map(({ path }) => path));
+  const whole = options.snapshot;
   const byPath = new Map(whole.files.map((file) => [file.path, file]));
   const readRanges = (reads?.reads ?? []).flatMap(({ path, startLine, endLine }) => {
     const file = byPath.get(path);
@@ -100,16 +127,13 @@ async function discoverScopeWithModel(options: ScopeOptions): Promise<readonly S
     for (const read of [...(reads?.reads ?? [])].filter((item) => item.path === path).sort((a, b) => a.startLine - b.startLine)) if (read.startLine <= next && read.endLine >= next) next = read.endLine + 1;
     return next > range.endLine;
   };
-  const validation = await validateFindings(findings.map((finding) => ({ auditorId, finding, repairCount: 1 as const })), {
+  const validation = await validateFindings(findings.map((finding) => ({ auditorId: actorId, finding, repairCount: 1 as const })), {
     files: Object.fromEntries(whole.files.map((file) => [file.path, { lineCount: file.lines.length, lineStartBytes: file.lineStartBytes, byteLength: file.byteLength }])),
   }, {
-    [auditorId]: { nodeId: auditorId, ranges: [...snapshot.files.map((file) => ({ path: file.path, start: 0, end: file.byteLength })), ...readRanges] },
-  }, { rejectionStore: { async persistRejection(rejection) {
-    const artifact = await store.publish(`discovery-rejection-${artifactAuditorId}-${findings.findIndex(({ sourceFindingId }) => sourceFindingId === rejection.finding.sourceFindingId)}`, rejection, auditorId);
-    return artifact.artifactId;
-  } } });
+    [actorId]: { nodeId: actorId, ranges: [...whole.files.filter(({ path }) => unitPaths.has(path)).map((file) => ({ path: file.path, start: 0, end: file.byteLength })), ...readRanges] },
+  }, { rejectionStore: { persistRejection: options.persistRejection } });
   const acceptedIds = new Set(validation.accepted.map(({ finding }) => finding.sourceFindingId));
-  const accepted: SourceFinding[] = [];
+  const accepted: F[] = [];
   const quoteRejections: string[] = [];
   const widenedLocations: { sourceFindingId: string; locationId: string; from: [number, number]; to: [number, number] }[] = [];
   const quoteBlocksRemoved: string[] = [];
@@ -149,12 +173,7 @@ async function discoverScopeWithModel(options: ScopeOptions): Promise<readonly S
     if (prose !== finding) quoteBlocksRemoved.push(finding.sourceFindingId);
     accepted.push({ ...prose, evidence: evidenceAsInSource, locations });
   }
-  const readBeyondUnit = reads === null ? undefined : unitReads(reads, unitPaths, accepted);
-  await store.publish(`discovery-validation-${artifactAuditorId}`, { summaries: validation.summaries, quoteRejections, ...(widenedLocations.length === 0 ? {} : { widenedLocations }), ...(quoteBlocksRemoved.length === 0 ? {} : { quoteBlocksRemoved }), acceptedCount: accepted.length, rejectedCount: validation.rejected.length + quoteRejections.length,
-    truncated: discovery.truncated, unexaminedDueToBudget: discovery.unexaminedDueToBudget, limitations: discovery.limitations, ...(readBeyondUnit === undefined ? {} : { readBeyondUnit }) }, auditorId);
-  await store.publish(`findings-${artifactAuditorId}`, accepted, auditorId);
-  await options.units?.complete(unit, accepted);
-  return accepted;
+  return { validation, accepted, quoteRejections, widenedLocations, quoteBlocksRemoved };
 }
 
 /**
@@ -163,7 +182,7 @@ async function discoverScopeWithModel(options: ScopeOptions): Promise<readonly S
  * dropped; a field that held nothing else keeps it. Observed live (nextra, October 23): all 92 of Sol's findings
  * opened their problem with one, 44% of that text, and every claim, verification question and plan carried it.
  */
-function withoutLeadingQuotes(finding: SourceFinding): SourceFinding {
+function withoutLeadingQuotes<F extends SourceFinding>(finding: F): F {
   const strip = (text: string): string => { const rest = text.replace(/^\s*<quotes>[\s\S]*?<\/quotes>\s*/u, ""); return rest.length === 0 ? text : rest; };
   const fields = ["problem", "productionImpact", "trigger", "recommendedFix", "verification"] as const;
   if (fields.every((field) => strip(finding[field]) === finding[field])) return finding;

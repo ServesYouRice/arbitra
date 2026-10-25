@@ -4,8 +4,26 @@ import type { RunEvent } from "./sse.js";
 import type { WorkflowJson } from "../graph/layout.js";
 
 export type { RunProgress } from "@arbitra/schemas/run-progress.js";
-/** A folder a run's plan was saved to in its project (`GET /handoff/runs/:id`). */
-export interface SavedPlan { readonly directory: string; readonly relative: string; readonly savedAt: string }
+/** What a plan's premise check found when it was saved: the things its prompts name, how many the code lacked, and in how many prompts. */
+export interface PremiseSummary { readonly named: number; readonly notFound: number; readonly prompts: number }
+/** A folder a run's plan was saved to in its project (`GET /handoff/runs/:id`); `premises` is null for a folder saved before plans carried the check. */
+export interface SavedPlan { readonly directory: string; readonly relative: string; readonly savedAt: string; readonly premises?: PremiseSummary | null }
+/** The order of work a saved plan follows, as its README gives it (`GET /handoff/runs/:id/outline`). */
+export interface PlanOutline {
+  readonly questions: readonly { readonly id: string; readonly question: string; readonly blocking: boolean }[];
+  readonly tasks: readonly { readonly id: string; readonly title: string; readonly tier: "frontier" | "balanced" | "fast"; readonly folder: string; readonly after: readonly string[]; readonly sameFilesAs: readonly string[]; readonly issues: readonly string[] }[];
+  readonly checks: readonly { readonly candidateId: string; readonly title: string; readonly severity: string }[];
+  readonly checksFolder: string;
+  readonly alsoFound: number;
+  readonly unverified: number;
+}
+/** What the executing agent wrote in the saved plan's results.json, entry by entry (`GET /handoff/runs/:id/results`). */
+export interface PlanResultRecord {
+  readonly directory: string; readonly relative: string; readonly modifiedAt: string;
+  readonly summary: { readonly issues: number; readonly reported: number; readonly results: Readonly<Record<string, number>>; readonly provenByFailingTest: number; readonly notProvenByTest: number; readonly checkedEndToEnd: number; readonly foundWhileFixing: { readonly reported: number; readonly provenByFailingTest: number } };
+  readonly issues: readonly { readonly issue: string; readonly title: string | null; readonly severity: string | null; readonly task: string | null; readonly result: string | null; readonly failedBefore: boolean | null; readonly test: string | null; readonly proof: string | null; readonly checkedEndToEnd: boolean | null }[];
+  readonly foundWhileFixing: readonly { readonly title: string; readonly severity: string | null; readonly where: string | null; readonly result: string | null; readonly failedBefore: boolean | null; readonly test: string | null; readonly proof: string | null }[];
+}
 /** How often a working run's progress is read again: a stage's parts land every few minutes, its clock every second. */
 export const PROGRESS_POLL_MS = 5_000;
 
@@ -16,7 +34,7 @@ export interface RequirementsCheckpointResource { readonly kind: "requirements";
 export interface PlanQuestionsCheckpointResource { readonly kind: "plan-questions"; readonly checkpointId: "plan-questions"; readonly version: string; readonly status: "pending" | "answered"; readonly questions: readonly { readonly id: string; readonly question: string; readonly blastRadius: string }[] }
 export type CheckpointResource = HumanCheckpointResource | RequirementsCheckpointResource | PlanQuestionsCheckpointResource;
 export interface RunResource { readonly runId: string; readonly state: string; readonly resumable: boolean; readonly checkpoints: readonly CheckpointResource[]; readonly eventsCursor?: string; readonly preservedArtifacts?: number; readonly workflow?: WorkflowJson; /** Present when the run executes a saved operator-authored graph. */ readonly workflowGraph?: { readonly id: string; readonly version: string; readonly executedVersion: string } }
-export interface EstimateResource { readonly estimate: { readonly files: number; readonly lines: number; readonly nodes: number; readonly auditors: number; readonly providerCalls: number | null; readonly costUsd: number | null; readonly currency: string | null; readonly basis: string };
+export interface EstimateResource { readonly estimate: { readonly files: number; readonly lines: number; readonly nodes: number; readonly auditors: number; readonly variantSearch?: boolean; readonly providerCalls: number | null; readonly costUsd: number | null; readonly currency: string | null; readonly basis: string };
   /** Every file the scope reads before its leave-outs: its lines, whether it is a test, and whether the scope leaves it
    * out. `complete` is false when the scope without its leave-outs is more than a run reads; only the files read are
    * listed then. Absent from an older server. */
@@ -80,7 +98,11 @@ export class RunApi {
   /** Where this run's plan was saved in its project, newest first. */
   savedPlans(runId: string): Promise<{ readonly saved: readonly SavedPlan[] }> { return this.request(`/handoff/runs/${encodeURIComponent(runId)}`); }
   /** Writes the plan into the project as prompts, on the operator's request only; a run never writes to it. */
-  savePlan(runId: string): Promise<{ readonly directory: string; readonly files: readonly string[] }> { return this.request(`/handoff/runs/${encodeURIComponent(runId)}`, { method: "POST" }); }
+  savePlan(runId: string): Promise<{ readonly directory: string; readonly files: readonly string[]; readonly premises?: PremiseSummary }> { return this.request(`/handoff/runs/${encodeURIComponent(runId)}`, { method: "POST" }); }
+  /** The plan's order of work as its saved folder follows it, read from the run's records. */
+  planOutline(runId: string): Promise<PlanOutline> { return this.request(`/handoff/runs/${encodeURIComponent(runId)}/outline`); }
+  /** What the executing agent recorded in the saved plan's results.json; null until it has. */
+  planResults(runId: string): Promise<{ readonly results: PlanResultRecord | null }> { return this.request(`/handoff/runs/${encodeURIComponent(runId)}/results`); }
   selectedRepository(): Promise<{ readonly repository: string }> { return this.request("/repositories/selected"); }
   /** Opens the system's folder dialog on this machine (the control plane's); null when it was cancelled. */
   pickRepository(): Promise<{ readonly path: string | null }> { return this.request("/repositories/pick", { method: "POST", body: "{}" }); }

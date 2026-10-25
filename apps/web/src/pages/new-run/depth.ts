@@ -8,8 +8,8 @@ import { MODEL_CATALOG, modelSettings } from "./model-catalog.js";
  * each vendor's own effort word, and nothing else. Every step runs at every depth; the plan critic is a switch of its
  * own, off by default, and two or three finders is a choice of its own. Decided by the owner on October 25, 2026 from
  * the research in arbitra-experiments/depth-2026-10-25. Critical and high issues are always checked by the strongest
- * checker (Opus). Gemini is only ever the optional third finder, at high at every depth: it is never given a core step
- * (checking, second opinion, merging, planning, the critic).
+ * checker (Opus). Gemini is only ever given optional work, at high at every depth: the third finder, and the variant
+ * search when it is switched on. It is never given a core step (checking, second opinion, merging, planning, the critic).
  */
 export type Depth = "deep" | "balanced" | "cheap";
 export type FinderCount = 2 | 3;
@@ -101,7 +101,35 @@ export function withDepth(draft: Draft, depth: Depth): Draft {
     for (const [path, value] of modelSettings(model)) next = setIn(next, ["models", alias, ...path], value);
   }
   next = setIn(next, ["workflow", "modelExecution", "roles"], { ...preset.roles });
-  return setIn(next, ["workflow", "modelExecution", "stageEffort"], { discovery: discoveryEffort(preset.discovery, findersOf(next)), ...preset.efforts });
+  next = setIn(next, ["workflow", "modelExecution", "stageEffort"], { discovery: discoveryEffort(preset.discovery, findersOf(next)), ...preset.efforts });
+  return searching(next) ? withVariantSearch(next, true) : next;
+}
+
+/** The profile that searches for variants on a lineup without Gemini: Sonnet 5.5, on the first finder's CLI. */
+const VARIANT_SEARCHER = "variant-searcher";
+/** The variant search's effort at every depth, whichever model searches. */
+export const VARIANT_SEARCH_EFFORT: Level = "high";
+const searching = (draft: Draft) => getIn(draft, ["workflow", "variantSearch"]) === true;
+
+/**
+ * The draft with the variant search on or off (`workflow.variantSearch`). On a subscription audit the searcher is
+ * Gemini 3.8 Flash, the third finder, when Gemini is in the lineup, else Sonnet 5.5 on Claude Code, a profile of its
+ * own, at high at every depth: the search only proposes, and what it proposes is checked like any finding, so it is
+ * work the owner gives Gemini freely (October 25, 2026). Switched off, the searcher and its profile go. Any other
+ * configuration only switches the step and names its searcher under roles.
+ */
+export function withVariantSearch(draft: Draft, on: boolean): Draft {
+  let next = setIn(draft, ["workflow", "variantSearch"], on);
+  if (!isSubscriptionAudit(draft)) return next;
+  const gemini = transportOf(next, "auditor-c") === "antigravity-cli";
+  const sonnet = MODEL_CATALOG["claude-code-cli"]?.find(({ modelId }) => modelId === SONNET);
+  if (on && !gemini && sonnet !== undefined) {
+    let profile: Draft = record(record(next["models"])["auditor-a"]);
+    for (const [path, value] of modelSettings(sonnet)) profile = setIn(profile, path, value);
+    next = setIn(setIn(next, ["models", VARIANT_SEARCHER], profile), ["workflow", "modelExecution", "modelEndpoints", VARIANT_SEARCHER], record(execution(next)["modelEndpoints"])["auditor-a"]);
+  } else next = setIn(setIn(next, ["models", VARIANT_SEARCHER], undefined), ["workflow", "modelExecution", "modelEndpoints", VARIANT_SEARCHER], undefined);
+  next = setIn(next, ["workflow", "modelExecution", "roles", "variantSearcher"], on ? gemini ? "auditor-c" : VARIANT_SEARCHER : undefined);
+  return setIn(next, ["workflow", "modelExecution", "stageEffort", "variantSearch"], on ? VARIANT_SEARCH_EFFORT : undefined);
 }
 
 /** Finding's effort: one level when every finder shares it, else one per finder; Gemini, the third, always high. */
@@ -141,7 +169,8 @@ export function withFinders(draft: Draft, count: FinderCount): Draft {
     next = setIn(next, ["workflow", "modelExecution", "endpoints"], kept);
     for (const provider of new Set(endpoints.map(({ providerId }) => providerId))) if (!kept.some(({ providerId }) => providerId === provider)) next = setIn(next, ["workflow", "modelExecution", "rateLimits", provider], undefined);
   }
-  return withFinderEfforts(next, count);
+  const adjusted = withFinderEfforts(next, count);
+  return searching(adjusted) ? withVariantSearch(adjusted, true) : adjusted;
 }
 
 /** Every per-profile effort without the third finder, or with it at high for finding issues. */

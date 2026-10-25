@@ -8,7 +8,7 @@ import { featureExecutionSchema } from "@arbitra/schemas/feature-execution.js";
 import { testingExecutionSchema } from "@arbitra/schemas/testing.js";
 import { verificationExecutionSchema, type VerificationExecution } from "@arbitra/schemas/verification-execution.js";
 import { concreteWritePath } from "@arbitra/security/write-partitions";
-import { auditorIdsFor, graphForPreset, withCritic } from "./graphs.js";
+import { auditorIdsFor, graphForPreset, VARIANT_SEARCH_NODE_ID, withCritic, withVariantSearch } from "./graphs.js";
 import { mergerProfile, secondOpinionProfile } from "./audit-roles.js";
 import { stageEffort, type EffortStage } from "./stage-effort.js";
 import type { TestSandbox } from "./test-sandbox.js";
@@ -69,11 +69,15 @@ export function graphForConfiguration(config: RunConfig, registered: Readonly<Re
   const graph = preset !== undefined && Object.hasOwn(registered, preset) ? registered[preset] as RunnerGraph : graphForPreset(preset ?? (config.mode === "feature" ? "feature-simple" : config.mode === "testing" ? testingPreset : undefined));
   if ((graph.id === "feature-simple") !== (config.mode === "feature")) throw new Error("WORKFLOW_PRESET_MODE_MISMATCH");
   if ((graph.id === "testing-plan" || graph.id === "testing-execute") !== (config.mode === "testing") || config.mode === "testing" && graph.id !== testingPreset) throw new Error("WORKFLOW_PRESET_MODE_MISMATCH");
+  if (config.mode !== "audit") return graph;
   // The plan critic is a switch (`workflow.critic`), off by default: a critic role or the audit depth no longer turns
-  // it on. Switched on or off, it adds or removes the critic after any audit graph's planner.
+  // it on. Switched on or off, it adds or removes the critic after any audit graph's planner. The variant search is a
+  // switch the same way (`workflow.variantSearch`), off by default until it is measured, between verification and the
+  // planner.
   const critic = config.workflow["critic"];
-  if (config.mode === "audit" && typeof critic === "boolean") return withCritic(graph, critic);
-  return graph;
+  const variants = config.workflow["variantSearch"];
+  const reviewed = typeof critic === "boolean" ? withCritic(graph, critic) : graph;
+  return typeof variants === "boolean" ? withVariantSearch(reviewed, variants) : reviewed;
 }
 
 export interface ConfigurationPreflightOptions {
@@ -101,6 +105,9 @@ export function configurationDiagnostics(config: RunConfig, options: Configurati
   }
   if (!modelBacked && config.workflow["incremental"] !== undefined) {
     diagnostics.push(error("INCREMENTAL_REQUIRES_MODEL_AUDIT", "workflow.incremental", "Incremental reuse saves model work, and a scripted Audit makes no model calls. Configure model profiles and workflow.modelExecution, or remove workflow.incremental."));
+  }
+  if (!modelBacked && config.workflow["variantSearch"] === true) {
+    diagnostics.push(error("VARIANT_SEARCH_REQUIRES_MODEL_AUDIT", "workflow.variantSearch", "The variant search asks a model where else a confirmed issue occurs, and a scripted Audit makes no model calls. Configure model profiles and workflow.modelExecution, or set workflow.variantSearch to false."));
   }
   if (!modelBacked) return Object.freeze(diagnostics);
   const execution = executionOf(config, diagnostics);
@@ -238,6 +245,7 @@ function auditStageProfiles(config: RunConfig, graph: RunnerGraph, execution: Pr
     pairs.push(["revision", roles.planner]);
     if (roles.critiqueChecker !== undefined) pairs.push(["critiqueCheck", roles.critiqueChecker]);
   }
+  if (graph.nodes.some(({ id }) => id === VARIANT_SEARCH_NODE_ID) && roles.variantSearcher !== undefined) pairs.push(["variantSearch", roles.variantSearcher]);
   return pairs.filter(([, id]) => Object.hasOwn(config.models, id));
 }
 
@@ -256,6 +264,9 @@ function auditDiagnostics(config: RunConfig, graph: RunnerGraph | undefined, exe
     diagnostics.push(error("MODEL_EXECUTION_ROLES_REQUIRED", "workflow.modelExecution.roles", `Model Audit needs explicit roles: planner and verifier${criticEnabled ? ", and critic for this preset" : ""}. Each names a configured profile ID; nothing is selected implicitly.`));
   } else if (criticEnabled && roles.critic === undefined) {
     diagnostics.push(error("MODEL_CRITIC_PROFILE_REQUIRED", "workflow.modelExecution.roles.critic", `Preset ${graph.id} runs a plan critic. Set roles.critic to a configured profile, preferably from a different independenceGroup than roles.planner.`));
+  }
+  if (roles !== undefined && graph.nodes.some(({ id }) => id === VARIANT_SEARCH_NODE_ID) && roles.variantSearcher === undefined) {
+    diagnostics.push(error("MODEL_VARIANT_SEARCHER_PROFILE_REQUIRED", "workflow.modelExecution.roles.variantSearcher", "workflow.variantSearch is on, so a model looks for the confirmed issues' variants. Set roles.variantSearcher to a configured profile (New run uses Gemini 3.8 Flash when Gemini is a finder, else Sonnet 5.5), or set workflow.variantSearch to false."));
   }
   // Critical and high issues go to the verifier, so it should be the strongest checker the run names.
   const strong = roles === undefined ? undefined : config.models[roles.verifier];

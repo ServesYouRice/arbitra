@@ -2,6 +2,7 @@ import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { PinnedProtocol } from "@arbitra/protocols/registry.js";
 import { runConfigSchema } from "@arbitra/schemas/config.js";
 import type { HttpClient, HttpRequest, TransportMessage } from "@arbitra/providers/transport-contract.js";
 import type { RequirementsContract } from "@arbitra/workflow/nodes/requirements/index.js";
@@ -53,6 +54,17 @@ describe("durable canonical model harness", () => {
     expect(await harness.invoke({ ...request(), activityId: "auditor-a/review" })).toEqual({ answer: "ok" });
     expect((requests[0]?.body as { max_output_tokens: number }).max_output_tokens).toBe(300);
     expect(harness.estimateInitialTokens({ ...request(), activityId: "auditor-a/other" }) - new ModelHarness(new ModelActivities(store, config, { client: { send }, credential: () => "fixture-credential" }), config, snapshot, store).estimateInitialTokens({ ...request(), activityId: "auditor-a/other" })).toBe(300 - 500);
+  });
+
+  it("measures a request over the prompt compiler's limit as never fitting, so the stage that sized it splits it", async () => {
+    // Observed live (veritra): the critic's sizing measured a 1.4 MB plan whole, and the compiler's refusal failed the run.
+    const { create } = await setup(0);
+    const protocolAsset = { protocolId: "plan-critic", protocolVersion: "1.0.0", protocolHash: "0".repeat(64), content: "Review the plan." } as unknown as PinnedProtocol;
+    const sized = (content: string) => ({ ...request(), activityId: "auditor-a/review", protocolAsset, messages: [{ role: "system" as const, content: "Review." }, { role: "user" as const, content }] });
+    const harness = create();
+    expect(harness.estimateInitialTokens(sized("x".repeat(1_000)))).toBeLessThan(10_000);
+    expect(harness.estimateInitialTokens(sized("x".repeat(1_048_577)))).toBe(Number.MAX_SAFE_INTEGER);
+    expect(harness.estimateRequiredTokens(sized("x".repeat(1_048_577)))).toBe(Number.MAX_SAFE_INTEGER);
   });
 
   it("masks a quoted secret in source that a request carries as JSON, in what it sends and what it stores", async () => {

@@ -60,6 +60,24 @@ export const SEVERITIES = ["critical", "high", "medium", "low", "informational"]
 export type Severity = typeof SEVERITIES[number];
 export function severityWord(severity: string): string { return severity === "informational" ? "info" : severity; }
 
+/** What the check decided about an issue, in its four words, in the order the Issues tab groups them. */
+export const VERDICTS = ["confirmed", "unsettled", "rejected", "not checked"] as const;
+export type Verdict = typeof VERDICTS[number];
+
+/** How strong a model a task needs, in the words the plan uses: the planner's `frontier` is the strongest model. */
+export const TIER_WORDS: Readonly<Record<string, string>> = Object.freeze({ frontier: "strongest", balanced: "mid", fast: "light" });
+export function tierWord(tier: string): string { return TIER_WORDS[tier] ?? tier; }
+
+/** How a check that is not a model's question read the code, as a person says it. */
+const CHECK_METHODS: Readonly<Record<string, string>> = Object.freeze({
+  cited_lines: "arbitra reading the cited lines", symbol_or_call_path: "arbitra following the call path", dependency_or_import_path: "arbitra following the imports",
+  route_config_middleware: "arbitra reading the routes and middleware", bounded_deterministic_check: "a deterministic check", allowlisted_safe_test: "running an allowed test",
+});
+export function checkMethodWords(method: string | null): string | null { return method === null ? null : CHECK_METHODS[method] ?? null; }
+
+/** What came of an issue the executing agent worked on, as recorded in results.json. */
+export const RESULT_WORDS: Readonly<Record<string, string>> = Object.freeze({ fixed: "Fixed", no_change_needed: "No change needed", not_reproducible: "Not reproducible", blocked: "Blocked" });
+
 /** What a failure means for the person: what happened, what to do, and whether resuming can help. */
 export interface FailureWords { readonly what: string; readonly todo: string; readonly resumable: boolean }
 

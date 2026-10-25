@@ -9,7 +9,7 @@ export function isPlannable(issue: { readonly disposition: string }): boolean { 
 type VerificationOutcome = "CONFIRMED" | "REJECTED" | "STILL_NEEDS_VERIFICATION";
 interface Evidence { readonly id: string; readonly text: string; readonly locationIds: readonly string[] }
 interface Vote { readonly authorId: string; readonly disposition: "accept" | "reject" | "needs_verification"; readonly citedEvidenceIds: readonly string[]; readonly reason: string }
-interface BoardCandidate { readonly candidateId: string; readonly claim: { readonly title: string; readonly description: string }; readonly sourceFindingIds: readonly string[]; readonly severity: Severity; readonly blocker: boolean; readonly counterEvidence: readonly Evidence[]; readonly remediationSupplements?: readonly string[]; readonly verificationSupplements?: readonly string[] }
+interface BoardCandidate { readonly candidateId: string; readonly claim: { readonly title: string; readonly description: string }; readonly sourceFindingIds: readonly string[]; readonly severity: Severity; readonly blocker: boolean; readonly counterEvidence: readonly Evidence[]; readonly remediationSupplements?: readonly string[]; readonly verificationSupplements?: readonly string[]; readonly variantOf?: string }
 interface CandidateConsensus { readonly candidateId: string; readonly outcome: ConsensusOutcome; readonly supportCount: number; readonly reviewDenominator: number; readonly dissent: readonly Vote[]; readonly coverage: { readonly reviewedBy: readonly string[]; readonly missingReviewers: readonly string[] }; readonly reason: string }
 export interface CanonicalisationBoard { readonly candidates: Readonly<Record<string, BoardCandidate>>; readonly consensus: { readonly auditorCount: number; readonly candidates: readonly CandidateConsensus[] } }
 /** `claim` and `sourceFindingIds`, when given, replace the candidate's: a rejected merge whose findings were then
@@ -31,6 +31,8 @@ export interface CanonicalIssue {
   /** Why the verifier answered as it did. Absent when it gave no reason, and in issue sets written before it was asked for one. */
   readonly verificationReason?: string;
   readonly coverage: { readonly reviewedBy: readonly string[]; readonly missingReviewers: readonly string[] }; readonly singleSource: boolean;
+  /** The confirmed issue this one repeats elsewhere in the repository, when the variant search proposed it. */
+  readonly variantOf?: string;
 }
 export interface CanonicalIssueSet {
   readonly schemaVersion: 1; readonly issues: readonly CanonicalIssue[]; readonly minorityFindingIds: readonly string[];
@@ -73,6 +75,7 @@ export function canonicaliseIssues(board: CanonicalisationBoard, verification: r
       ...(verification?.reason === undefined ? {} : { verificationReason: verification.reason }),
       coverage: Object.freeze({ reviewedBy: Object.freeze([...consensus.coverage.reviewedBy].sort()), missingReviewers: Object.freeze([...consensus.coverage.missingReviewers].sort()) }),
       singleSource,
+      ...(candidate.variantOf === undefined ? {} : { variantOf: candidate.variantOf }),
     });
   });
   for (const id of verificationById.keys()) if (!Object.hasOwn(board.candidates, id)) throw new Error(`ORPHAN_CANONICAL_VERIFICATION:${id}`);
@@ -84,18 +87,41 @@ export function canonicaliseIssues(board: CanonicalisationBoard, verification: r
     ...(coverage.suppressionCandidates.length > 0 ? [`suppression_candidates:${coverage.suppressionCandidates.length}`] : []),
     ...(coverage.unexaminedSurfaces.length > 0 ? [`unexamined_surfaces:${coverage.unexaminedSurfaces.length}`] : []),
     ...(incompleteReview ? ["incomplete_peer_review_coverage"] : []),
-    ...(issues.some(({ disposition }) => disposition === "verified_single_source") ? [`single_source_issues_planned_without_second_auditor:${issues.filter(({ disposition }) => disposition === "verified_single_source").length}`] : []),
+    ...singleSourcePlanned(issues),
   ])].sort();
-  const minorityFindingIds = issues.filter((issue) => (issue.severity === "critical" || issue.severity === "high") && !isPlannable(issue) && issue.supportCount > 0).map(({ candidateId }) => candidateId);
-  const sourceFindingCount = new Set(issues.flatMap(({ sourceFindingIds }) => sourceFindingIds)).size;
   return Object.freeze({
     schemaVersion: 1,
     issues: Object.freeze(issues),
-    minorityFindingIds: Object.freeze(minorityFindingIds),
+    minorityFindingIds: Object.freeze(minorityOf(issues)),
     coverage: Object.freeze({ complete, securityCoverage: Object.freeze({ ...coverage.securityCoverage }), suppressionCandidates: Object.freeze([...coverage.suppressionCandidates]), unexaminedSurfaces: Object.freeze([...coverage.unexaminedSurfaces]) }),
     limitations: Object.freeze(limitations),
-    summary: Object.freeze({ auditorCount: board.consensus.auditorCount, sourceFindingCount, acceptedCount: issues.filter(({ disposition }) => disposition === "accepted").length, rejectedCount: issues.filter(({ disposition }) => disposition === "rejected").length, unresolvedCount: issues.filter(({ disposition }) => disposition === "needs_verification" || disposition === "non_consensus").length, singleSourceCount: issues.filter(({ singleSource: value }) => value).length }),
+    summary: summaryOf(issues, board.consensus.auditorCount),
   });
+}
+
+/**
+ * The set with more issues after it, such as the variants the search proposed and verification confirmed. The set's
+ * coverage stays as it was; its counts, its retained minority and the limitation that counts planned single-source
+ * issues are taken again over every issue, and `limitations` are added to its own.
+ */
+export function withAddedIssues(set: CanonicalIssueSet, added: readonly CanonicalIssue[], limitations: readonly string[]): CanonicalIssueSet {
+  const known = new Set(set.issues.map(({ candidateId }) => candidateId));
+  for (const { candidateId } of added) { if (known.has(candidateId)) throw new Error(`DUPLICATE_CANONICAL_ISSUE:${candidateId}`); known.add(candidateId); }
+  const issues = [...set.issues, ...added];
+  return Object.freeze({ ...set, issues: Object.freeze(issues), minorityFindingIds: Object.freeze(minorityOf(issues)),
+    limitations: Object.freeze([...new Set([...set.limitations.filter((limitation) => !limitation.startsWith(`${SINGLE_SOURCE_PLANNED_COUNT}:`)), ...limitations, ...singleSourcePlanned(issues)])].sort()),
+    summary: summaryOf(issues, set.summary.auditorCount) });
+}
+
+const SINGLE_SOURCE_PLANNED_COUNT = "single_source_issues_planned_without_second_auditor";
+function singleSourcePlanned(issues: readonly CanonicalIssue[]): readonly string[] {
+  const count = issues.filter(({ disposition }) => disposition === "verified_single_source").length;
+  return count === 0 ? [] : [`${SINGLE_SOURCE_PLANNED_COUNT}:${count}`];
+}
+function minorityOf(issues: readonly CanonicalIssue[]): readonly string[] { return issues.filter((issue) => (issue.severity === "critical" || issue.severity === "high") && !isPlannable(issue) && issue.supportCount > 0).map(({ candidateId }) => candidateId); }
+function summaryOf(issues: readonly CanonicalIssue[], auditorCount: number): CanonicalIssueSet["summary"] {
+  const sourceFindingCount = new Set(issues.flatMap(({ sourceFindingIds }) => sourceFindingIds)).size;
+  return Object.freeze({ auditorCount, sourceFindingCount, acceptedCount: issues.filter(({ disposition }) => disposition === "accepted").length, rejectedCount: issues.filter(({ disposition }) => disposition === "rejected").length, unresolvedCount: issues.filter(({ disposition }) => disposition === "needs_verification" || disposition === "non_consensus").length, singleSourceCount: issues.filter(({ singleSource: value }) => value).length });
 }
 
 function uniqueById<T extends { readonly candidateId: string }>(values: readonly T[], error: string): Map<string, T> { const result = new Map<string, T>(); for (const value of values) { if (result.has(value.candidateId)) throw new Error(`${error}:${value.candidateId}`); result.set(value.candidateId, value); } return result; }

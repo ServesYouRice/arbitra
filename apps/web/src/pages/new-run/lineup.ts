@@ -1,4 +1,5 @@
 import { effortFor, modelName, PLACEHOLDER_PREFIX, record } from "../run/models.js";
+import { withVariantSearch } from "./depth.js";
 import { getIn, graphOf, setIn, type Draft } from "./draft.js";
 
 /**
@@ -54,6 +55,10 @@ export const STEPS: readonly Step[] = Object.freeze([
   { id: "second-opinion", name: "Second opinion", explain: "Before a critical or high issue is rejected, a model of another vendor is asked; if the two disagree, the issue stays unsettled.",
     toggle: { on: (draft: Draft) => getIn(draft, ["verification", "secondOpinion"]) === "severe_rejections", set: (draft: Draft, on: boolean) => setIn(draft, ["verification", "secondOpinion"], on ? "severe_rejections" : undefined) },
     models: (draft: Draft) => [modelAt(draft, roles(draft)["secondOpinion"] ?? roles(draft)["critic"], "secondOpinion")] },
+  { id: "variant-search", name: "Search for variants", explain: "For each confirmed issue, a model looks for the same defect elsewhere in the project; each place it proposes is checked like any issue. New and not measured yet, so off by default.",
+    toggle: { on: (draft: Draft) => getIn(draft, ["workflow", "variantSearch"]) === true, set: withVariantSearch },
+    applies: (draft: Draft) => graphOf(draft) === null && modelBacked(draft),
+    models: (draft: Draft) => [modelAt(draft, roles(draft)["variantSearcher"], "variantSearch")] },
   { id: "plan", name: "Write the plan", explain: "Turns the confirmed issues into tasks, each with a prompt a coding agent can carry out.",
     models: (draft: Draft) => [modelAt(draft, roles(draft)["planner"], "planner")] },
   { id: "critic", name: "Review the plan", explain: "A model of the other vendor reads the plan, each blocking point it raises is checked, and the plan is revised once.",

@@ -34,6 +34,7 @@ export function modelProfiles(config: Readonly<Record<string, unknown>>): readon
     bind(audit["planner"], { label: "planner", node: "planner" });
     bind(audit["critic"], { label: "critic", node: "critic" });
     bind(audit["critiqueChecker"], { label: "critique check", node: "critic", stage: "critiqueCheck" });
+    bind(audit["variantSearcher"], { label: "variant searcher", node: "variant-search", stage: "variantSearch" });
   }
   if (config["mode"] === "feature") {
     const feature = record(record(workflow["feature"])["roles"]);
@@ -68,7 +69,7 @@ export function modelName(modelId: string): string {
 }
 function capitalise(word: string): string { return word.charAt(0).toUpperCase() + word.slice(1); }
 
-type EffortStage = "discovery" | "clustering" | "peerReview" | "verification" | "secondOpinion" | "critiqueCheck" | "planner" | "critic" | "revision";
+type EffortStage = "discovery" | "clustering" | "peerReview" | "verification" | "secondOpinion" | "critiqueCheck" | "variantSearch" | "planner" | "critic" | "revision";
 /**
  * The effort a stage asks of a profile, in the vendor's own word: the stage's `stageEffort` (one level, or one per
  * profile), else verification's for the second opinion and the critique check, else the audit depth's (fast low,
@@ -88,7 +89,7 @@ export function effortFor(config: Readonly<Record<string, unknown>>, alias: stri
   return slug ?? level;
 }
 
-const ROLE_STAGES: readonly string[] = ["discovery", "clustering", "verification", "secondOpinion", "critiqueCheck", "planner", "critic"];
+const ROLE_STAGES: readonly string[] = ["discovery", "clustering", "verification", "secondOpinion", "critiqueCheck", "variantSearch", "planner", "critic"];
 /** The effort a role runs at (an auditor at finding's effort, a later stage at its own), or null for another role. */
 export function roleEffort(config: Readonly<Record<string, unknown>>, alias: string, node: string): string | null {
   const stage = node.startsWith("auditor-") ? "discovery" : node;
@@ -107,11 +108,52 @@ export function modelNodeLabels(config: Readonly<Record<string, unknown>> | null
   // A model whose ID names its thinking level (Gemini 3.8 Flash high) already says its effort.
   const label = (profile: ModelProfileSummary, stage: EffortStage) => LEVEL_IN_ID.test(profile.modelId) ? modelName(profile.modelId) : `${modelName(profile.modelId)} · ${effortFor(config, profile.alias, stage)}`;
   for (const profile of profiles) if (profile.alias.startsWith("auditor-")) labels.set(profile.alias, label(profile, "discovery"));
-  for (const [node, role, stage] of [["planner", "planner", "planner"], ["verification", "verifier", "verification"], ["critic", "critic", "critic"]] as const) {
+  for (const [node, role, stage] of [["planner", "planner", "planner"], ["verification", "verifier", "verification"], ["critic", "critic", "critic"], ["variant-search", "variantSearcher", "variantSearch"]] as const) {
     const profile = name(roles[role]);
     if (profile !== undefined) labels.set(node, label(profile, stage));
   }
   return labels;
+}
+
+/** A profile's model at a stage's effort, such as `GPT-6.1 Sol · high`; null for an alias the configuration does not bind. */
+export function profileLabel(config: Readonly<Record<string, unknown>> | null, alias: string, stage: EffortStage): string | null {
+  const profile = config === null ? undefined : modelProfiles(config).find((candidate) => candidate.alias === alias);
+  if (config === null || profile === undefined) return null;
+  return LEVEL_IN_ID.test(profile.modelId) ? modelName(profile.modelId) : `${modelName(profile.modelId)} · ${effortFor(config, alias, stage)}`;
+}
+
+/**
+ * A recorded model attempt's model and effort in the model's own word: the level arbitra applied (`effortResolved`) as
+ * the run's profile for that model sends it, so a stored profile that sends Opus "xhigh" for "high" reads "xhigh".
+ */
+export function attemptLabel(config: Readonly<Record<string, unknown>> | null, modelId: string, level: string | null): string {
+  if (LEVEL_IN_ID.test(modelId) || level === null) return modelName(modelId);
+  const profile = Object.values(record(config?.["models"])).map(record).find((candidate) => candidate["modelId"] === modelId);
+  const params = record(record(record(profile?.["effort"])["params"])[level]);
+  const vendor = params["effort"] ?? params["reasoning_effort"];
+  return `${modelName(modelId)} · ${typeof vendor === "string" ? vendor : level}`;
+}
+
+/** Who the configuration has check an issue of this severity: the verifier a critical or high one, the medium verifier (when named) the others. */
+export function configuredChecker(config: Readonly<Record<string, unknown>> | null, severity: string): string | null {
+  const roles = record(record(record(config?.["workflow"])["modelExecution"])["roles"]);
+  const alias = severity === "critical" || severity === "high" ? roles["verifier"] : roles["mediumVerifier"] ?? roles["verifier"];
+  return typeof alias === "string" ? profileLabel(config, alias, "verification") : null;
+}
+
+/**
+ * The lineup's models of one strength (`frontier`, `balanced`, `fast`) that the run trusted with checking, merging,
+ * planning or reviewing, by name, for "such as …". A model that only found issues is left out: the owner keeps
+ * Gemini to optional finding and does not trust it with the core roles (October 25, 2026).
+ */
+export function modelsOfTier(config: Readonly<Record<string, unknown>> | null, tier: string): readonly string[] {
+  return config === null ? [] : [...new Set(modelProfiles(config).filter(({ capabilityTier, placeholder, roles }) => capabilityTier === tier && !placeholder && roles.some(({ node }) => !node.startsWith("auditor-")))
+    .map(({ modelId }) => modelName(modelId)))];
+}
+
+/** Names as a sentence lists them: "A", "A and B", "A, B and C". */
+export function listWords(names: readonly string[]): string {
+  return names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names.at(-1) ?? ""}`;
 }
 
 export function record(value: unknown): Readonly<Record<string, unknown>> {

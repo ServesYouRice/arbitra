@@ -17,7 +17,8 @@ import { RUN_ARTIFACT_KINDS, useRunArtifact } from "../../views/issue-board/run-
 import { Handoff, Outcome, Planning, useTestingView } from "../../views/testing/TestingView.js";
 import { criticWords, runTime, stageNotes, stageTimes, stepModels, type CritiqueRecord, type PreflightRecord } from "./facts.js";
 import { notificationsSupported, useNotifyChoice } from "./notify.js";
-import { record } from "./models.js";
+import { configuredChecker, record } from "./models.js";
+import { PlanCard } from "./PlanCard.js";
 import { reportText } from "./RunReport.js";
 import { StageGraph, stageViews } from "./StageGraph.js";
 
@@ -205,41 +206,6 @@ function AuditDone(props: SummaryProps): ReactElement {
   </>;
 }
 
-/** The plan comes first, with saving it into the project as the page's one primary action; once saved, where and what next. */
-function PlanCard({ runId, plan, questions }: { readonly runId: string; readonly plan: PersistedPlan; readonly questions: number }): ReactElement {
-  const { runs } = useApis();
-  const [version, setVersion] = useState(0);
-  const saved = useLoaded(`saved-plans:${runId}`, () => runs.savedPlans(runId), version);
-  const [saving, setSaving] = useState<{ readonly busy: boolean; readonly failure: string | null }>({ busy: false, failure: null });
-  const latest = saved.value?.saved[0] ?? null;
-  const save = (): void => {
-    setSaving({ busy: true, failure: null });
-    void runs.savePlan(runId).then(() => { setSaving({ busy: false, failure: null }); setVersion((value) => value + 1); },
-      (cause: unknown) => setSaving({ busy: false, failure: cause instanceof Error ? cause.message : String(cause) }));
-  };
-  const request = latest === null ? "" : `Work through ${latest.relative}/README.md in this project, one task at a time, as its AGENTS.md says.${questions > 0 ? " Ask me its questions first." : ""}`;
-  return <section aria-labelledby="plan-card-title" className="plan-card" data-saved={latest !== null}>
-    <h2 className="plan-card__title" id="plan-card-title">The plan is ready · {counted(plan.tasks.length, "task")} for {counted(plan.acceptedIssueIds.length, "issue")}</h2>
-    {latest === null ? <>
-      <p className="prose">Save it into the project: a folder with one prompt per task, sorted by the model each needs, and a README your coding agent follows.</p>
-      <div className="actions">
-        <button className="button button--primary" disabled={saving.busy} type="button" onClick={save}>{saving.busy ? "Saving the plan" : "Save the plan into the project"}</button>
-        <Link className="more-link" to={{ page: "run", runId, tab: "plan", item: null }}>Read it first</Link>
-      </div>
-      {saving.failure === null ? <p className="note">{saved.loading && saved.value === null ? "Checking whether it was saved before." : "Not saved yet. Nothing in the project changes until you save."}</p>
-        : <p className="state" data-state="degraded" role="alert">The plan was not saved: {saving.failure}. Nothing in the project changed.</p>}
-    </> : <>
-      <p className="plan-card__saved"><span>Saved in the project</span> <code>{latest.relative}</code></p>
-      <p className="prose">Next: open the project in Claude Code or Codex and ask it to work through <code>{latest.relative}/README.md</code>.{questions > 0 ? ` Answer the ${counted(questions, "question")} it asks first: they are decisions only you can make.` : ""}</p>
-      <div className="actions">
-        <CopyButton label="Copy that request" text={request} />
-        <Link className="more-link" to={{ page: "run", runId, tab: "plan", item: null }}>Read the plan</Link>
-      </div>
-      <p className="note">Saved {formatTime(latest.savedAt)}.{(saved.value?.saved.length ?? 0) > 1 ? ` ${saved.value?.saved.length ?? 0} copies are in .arbitra/plans; this is the newest.` : ""}</p>
-    </>}
-  </section>;
-}
-
 /** Gate reasons the Summary says in its own words: work for the person, and what a source-only audit cannot see. */
 const KNOWN_GATE_REASONS = new Set(["unresolved_issues", "blocking_plan_questions", "blocking_critic_feedback", "degraded_coverage", "degraded_critic_coverage"]);
 
@@ -247,7 +213,8 @@ const KNOWN_GATE_REASONS = new Set(["unresolved_issues", "blocking_plan_question
 function NeedsYou({ runId, questions, confirmed, reasons }: { readonly runId: string; readonly questions: number; readonly confirmed: ConfirmedYield | null; readonly reasons: readonly string[] }): ReactElement {
   const items: { readonly text: string; readonly tab: RunTab; readonly action: string }[] = [
     ...(questions > 0 ? [{ text: `${counted(questions, "question")} only you can answer, before the tasks`, tab: "plan" as const, action: "Answer" }] : []),
-    ...(confirmed !== null && confirmed.unsettled > 0 ? [{ text: `${counted(confirmed.unsettled, "issue")} the check could not settle: the plan checks them first`, tab: "issues" as const, action: "See them" }] : []),
+    // The saved plan checks them after its tasks (plan-export.ts): most such reports do not hold.
+    ...(confirmed !== null && confirmed.unsettled > 0 ? [{ text: `${counted(confirmed.unsettled, "issue")} the check could not settle: the plan checks them after its tasks`, tab: "issues" as const, action: "See them" }] : []),
     ...(reasons.includes("blocking_critic_feedback") ? [{ text: "An objection to the plan that its revision does not answer", tab: "plan" as const, action: "Read it" }] : []),
     // Any other reason the gate failed is not work the plan names: it is said as recorded, in words.
     ...reasons.filter((code) => !KNOWN_GATE_REASONS.has(code)).map((code) => ({ text: `The gate did not pass: ${gateReasonLabel(code)}`, tab: "how-it-ran" as const, action: "See how it ran" })),
@@ -303,7 +270,7 @@ export function RanFacts({ runId, mode, overview, progress, confirmed, critique,
       <div><dt>tokens</dt><dd>{scripted ? "none: scripted detectors call no model" : tokensUsed === null ? "not recorded" : `${tokenWords(tokensUsed)}${confirmed?.tokensPerConfirmed == null ? "" : ` · ${tokenWords(confirmed.tokensPerConfirmed)} per confirmed issue`}${(progress?.tokens.callsWithoutUsage ?? 0) > 0 ? ` · ${counted(progress?.tokens.callsWithoutUsage ?? 0, "call")} reported none` : ""}`}</dd></div>
       {mode !== "audit" ? null : scripted ? <div><dt>found issues</dt><dd>scripted detectors, no model calls</dd></div> : <>
         {auditors.length === 0 ? null : <div><dt>found issues</dt><dd>{auditors.join(", ")}</dd></div>}
-        {models.has("verification") ? <div><dt>checked them</dt><dd>{models.get("verification")}</dd></div> : null}
+        {models.has("verification") ? <div><dt>checked them</dt><dd>{checkers(overview)}</dd></div> : null}
         {models.has("planner") ? <div><dt>wrote the plan</dt><dd>{models.get("planner")}</dd></div> : null}
         {hasCritic ? <div><dt>reviewed the plan</dt><dd>{[models.get("critic"), critique === null ? null : criticWords(critique)].filter(Boolean).join(" · ") || "recorded no review"}</dd></div> : null}
       </>}
@@ -313,6 +280,14 @@ export function RanFacts({ runId, mode, overview, progress, confirmed, critique,
       <Link className="more-link" to={{ page: "run", runId, tab: "how-it-ran", item: null }}>How it ran, in full</Link>
     </div>}
   </section>;
+}
+
+/** Who checks the issues: one model, or (with `roles.mediumVerifier`) the strong one for the severe issues and another for the rest. */
+function checkers(overview: RunOverview | null): string {
+  const configuration = overview?.configuration ?? null;
+  const severe = configuredChecker(configuration, "critical");
+  const rest = configuredChecker(configuration, "medium");
+  return severe === rest || rest === null ? severe ?? "not recorded" : `${severe ?? "not recorded"} for critical and high issues, ${rest} for the rest`;
 }
 
 /** A finished Feature or Testing run: what it produced, as today, and how it ran. */

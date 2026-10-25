@@ -3,8 +3,8 @@ import { controlPlaneCore } from "@arbitra/runtime/control-plane-core.js";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { detectEnvironment, type DetectedEnvironment } from "@arbitra/runtime/environment.js";
-import { exportPlan, savedPlans } from "@arbitra/runtime/plan-export.js";
 import { pickFolder } from "./folder-picker.js";
+import { registerHandoffRoutes } from "./handoff.js";
 import { runReport } from "@arbitra/runtime/run-report.js";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -46,10 +46,8 @@ export async function serve(): Promise<{ readonly url: string }> {
     if (request.query.refresh === "1") environment = detectEnvironment();
     return { build, ...await environment };
   });
-  // Writes a run's plan into its repository as prompts, on the operator's explicit request only.
-  app.post<{ Params: { runId: string } }>("/handoff/runs/:runId", async (request) => exportPlan(orchestrator, request.params.runId));
-  // Where the plan was saved before, read from the project, so the run page can say so after a reload. Writes nothing.
-  app.get<{ Params: { runId: string } }>("/handoff/runs/:runId", async (request) => savedPlans(orchestrator, request.params.runId));
+  // Writes a run's plan into its repository as prompts on the operator's explicit request only, and reads it back.
+  registerHandoffRoutes(app, orchestrator);
   app.post("/repositories/pick", async () => ({ path: await pickFolder("Choose the project folder for arbitra to read") }));
   app.get<{ Params: { runId: string } }>("/diagnostics/runs/:runId", async (request, reply) => {
     const text = await runReport(orchestrator, request.params.runId, await environment.catch(() => null), build);

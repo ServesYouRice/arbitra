@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canonicaliseIssues, isPlannable, type CanonicalisationBoard } from "../../src/nodes/canonical-issues.js";
+import { canonicaliseIssues, isPlannable, withAddedIssues, type CanonicalisationBoard } from "../../src/nodes/canonical-issues.js";
 
 const candidate = (candidateId = "C-1", severity: "high" | "medium" = "high") => ({ candidateId, claim: { title: "Unsafe premise", description: "The premise is contradicted by the repository." }, sourceFindingIds: [`F-${candidateId}`], severity, blocker: false, counterEvidence: [{ id: "E-counter", text: "A guard exists on one route.", locationIds: ["L-2"] }] });
 const consensus = (overrides: Partial<CanonicalisationBoard["consensus"]["candidates"][number]> = {}): CanonicalisationBoard["consensus"]["candidates"][number] => ({ candidateId: "C-1", outcome: "accepted", supportCount: 2, reviewDenominator: 3, dissent: [{ authorId: "auditor-c", disposition: "reject", citedEvidenceIds: ["E-counter"], reason: "A route guard is counter-evidence." }], coverage: { reviewedBy: ["auditor-a", "auditor-b", "auditor-c"], missingReviewers: [] }, reason: "Evidence-backed acceptance met policy.", ...overrides });
@@ -63,5 +63,23 @@ describe("canonical issue projection", () => {
     const artifact = canonicaliseIssues({ candidates: { "C-1": candidateWithTranscript }, consensus: { auditorCount: 3, candidates: [consensus()] } }, [], coverage);
     expect(JSON.stringify(artifact)).not.toContain("must not escape");
     expect(JSON.stringify(artifact)).not.toContain("rawTranscript");
+  });
+
+  it("carries a variant's provenance onto its issue, and an issue the finders reported reads as before", () => {
+    const artifact = canonicaliseIssues({ candidates: { "C-1": candidate(), "V-1": { ...candidate("V-1"), variantOf: "C-1" } }, consensus: { auditorCount: 3, candidates: [consensus(), consensus({ candidateId: "V-1" })] } }, [], coverage);
+    expect(artifact.issues.map((issue) => [issue.candidateId, issue.variantOf])).toEqual([["C-1", undefined], ["V-1", "C-1"]]);
+    expect(Object.hasOwn(artifact.issues[0] ?? {}, "variantOf")).toBe(false);
+  });
+
+  it("adds issues to a set and counts the set again, with the limitations derived from its issues", () => {
+    const one = (candidateId: string) => consensus({ candidateId, outcome: "single_source", reviewDenominator: 1, supportCount: 1, dissent: [], coverage: { reviewedBy: ["auditor-a"], missingReviewers: [] } });
+    const base = canonicaliseIssues({ candidates: { "C-1": candidate(), "C-2": candidate("C-2") }, consensus: { auditorCount: 1, candidates: [one("C-1"), one("C-2")] } }, [{ candidateId: "C-1", outcome: "CONFIRMED" }], { ...coverage, limitations: ["auditor_kind:model_auditors"] });
+    const variants = canonicaliseIssues({ candidates: { "V-1": { ...candidate("V-1"), variantOf: "C-1" } }, consensus: { auditorCount: 1, candidates: [one("V-1")] } }, [{ candidateId: "V-1", outcome: "CONFIRMED" }], coverage);
+    const joined = withAddedIssues(base, variants.issues, ["variant_search_issues_added:1"]);
+    expect(joined.issues.map(({ candidateId }) => candidateId)).toEqual(["C-1", "C-2", "V-1"]);
+    expect(joined.summary).toEqual({ ...base.summary, sourceFindingCount: 3, singleSourceCount: 3 });
+    expect(joined.limitations).toEqual(["auditor_kind:model_auditors", "single_source_issues_planned_without_second_auditor:2", "variant_search_issues_added:1"]);
+    expect(joined.coverage).toEqual(base.coverage);
+    expect(() => withAddedIssues(base, base.issues.slice(0, 1), [])).toThrow("DUPLICATE_CANONICAL_ISSUE:C-1");
   });
 });

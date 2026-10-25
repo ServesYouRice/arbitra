@@ -231,13 +231,15 @@ matches it. Browser evidence is in [`docs/qa/p16/`](qa/p16/README.md).
              ├─ ◆ auditor B ─┼─ ■ validate ─ ■ cluster ─ ■ issue board
              └─ ◆ auditor C ─┘
    ─ ◆ peer review (↻ bounded) ─ ◇ converged? ─ ▣ verification ─ ■ canonical issues
+   ─ ◇ variants on? ─ ◆ variant search ─ ▣ verification of variants ─ ■ canonical issues
    ─ ◆ planner ─ ◇ critic on? ─ ◆ critic ─ ■ renderer
 ```
 
 This is the logical pipeline. The executable `audit-three-finders` graph is preflight, three
-auditors, one consensus loop, a verification subgraph and the planner, with the critic after
-it when `workflow.critic` is `true` ([`graphs.ts`](../packages/runtime/src/graphs.ts)); the
-other stages run inside those nodes' executors.
+auditors, one consensus loop, a verification subgraph and the planner, with the variant search
+between verification and the planner when `workflow.variantSearch` is `true`, and the critic
+after the planner when `workflow.critic` is `true` ([`graphs.ts`](../packages/runtime/src/graphs.ts));
+the other stages run inside those nodes' executors.
 
 **Routing.** No shipped pipeline scores repository complexity or task difficulty: the
 preset decides how many auditors run, and the planner writes each task's routing.
@@ -339,6 +341,72 @@ made it an option on October 25, 2026, because on the scored runs its items were
 20 real on nextra) but it caught 1 of the 21 plan errors met when the plan was carried out, and
 its revision added errors. The tier rule above (a critic at or above the planner, else skipped
 and recorded) still holds when it is on.
+
+### Variant search
+
+`workflow.variantSearch: true` (off by default at every depth, until it is measured) puts a
+`variant-search` node, shown as "Searching for variants", between verification and the planner of
+any audit graph (`withVariantSearch` in [`graphs.ts`](../packages/runtime/src/graphs.ts), as
+`withCritic` adds the critic); a stored run keeps the graph it started with. For each issue
+verification confirmed at or above the plan's minimum severity (`planScope.minimumSeverity`), it
+looks for the same defect elsewhere in the repository, and the variants verification then
+confirms join the issue set (`searchVariants` in
+[`model-pipeline.ts`](../packages/runtime/src/model-pipeline.ts), the parts without a model in
+[`variant-search.ts`](../packages/runtime/src/variant-search.ts)):
+
+- **Batches.** The confirmed issues of one module (of one file, for a file in none) go together,
+  up to six a call (`VARIANT_SEARCH_SEEDS_PER_BATCH`, not measured yet) while the files they cite
+  stay within 60,000 characters and the call fits. A call that does not fit, or stops at the output
+  ceiling, goes on as two halves. Up to `maximumParallelCalls` calls are in flight.
+- **What the searcher reads.** `roles.variantSearcher`, at `stageEffort.variantSearch`, gets each
+  issue's claim, findings and cited evidence, the files they cite, the repository index, every
+  place the run already reports (`alreadyReported`) and the read-only snapshot tools. These read
+  the issues' files freely and any other file up to 65,536 bytes a call, within the scope's
+  exclusions and with secrets masked, as discovery's reads are. It is asked for other places with
+  the same defect: a sibling handler of the same family, another call to the same callee used the
+  same wrong way, the same flag or configuration value read the same wrong way, or copied code. It
+  answers in the audit's finding shape, each finding naming its issue in `variantOf` (protocol
+  `variant-search` 1.0.0).
+- **It only proposes.** Each proposal goes through discovery's evidence validation
+  (`groundFindings`: every range in the snapshot and in what the call read, every quotation exact).
+  One whose every place beside its issue's own overlaps the places of one existing candidate
+  (accepted, rejected, unverified or below the plan) is that candidate again and is dropped;
+  `variant-search-duplicates` records it with that candidate's disposition, so a rejected issue is
+  not brought back. So is one that restates its issue, or repeats an earlier variant. The rest are
+  verified as every candidate is: critical and high by `roles.verifier`, the others by
+  `roles.mediumVerifier` when set, with the second opinion before a severe rejection and
+  `verification.belowPlanScope` as configured. Nothing tells the verifier a candidate is a variant:
+  its ID is named as clustering names any candidate, and `variantOf` is not in the question.
+- **What joins.** The variants verification confirms join the canonical issue set with `variantOf`
+  (their source findings are `variant-search/<batch>/…`), so the planner plans them and the export
+  lists them like any other issue; their consensus is that of a run without review rounds. The issue set records `variant_search_issues_added:N`, and
+  `variant_search_batches_unanswered:N` when a batch got no usable answer (declined, still invalid
+  after its repairs, or too large even alone); the run goes on either way. The search's own records
+  hold the rest: `variant-search` (its counts), `variant-search-batch-<id>`,
+  `variant-search-rejection-*`, and `variant-verification-results`, `-operations` and `-metrics`.
+- **Resume.** The issue set the search started from (`variant-search-base`), its batches and each
+  batch's validated result are stored, so a resumed run does not search a finished batch again and
+  never searches its own additions; verification answers are durable activities, as everywhere.
+- **Cost.** Every call comes out of the run's token budget and limits. The estimate counts the step
+  and says the run searches (`variantSearch: true`), with no figure for it: it is not measured yet.
+
+To measure it on a finished run without running the audit again, build (`pnpm build`) and run
+`node tooling/variant-replay/replay.mjs <run directory> <output directory>`
+([`variant-replay.ts`](../packages/runtime/src/variant-replay.ts)). It copies the run's verified
+issue set, source findings, verification results and pinned protocols into a new store under the
+output directory and runs only the search and the verification of what it proposes; the stored
+run is only read. `--searcher <profile>` names the profile that searches, `--searcher-copy
+auditor-a:claude-sonnet-5-5` adds one as a copy of a profile with another model, `--effort` sets
+the search's effort, `--config` replaces the model configuration and `--repository` reads a
+checkout of the run's commit. The files the run read must still match; files an earlier build did
+not read are left out. It prints the search's counts and the tokens of the search and of the
+verification.
+
+This departs from the specification on purpose (decided October 25, 2026): the canonical Audit
+graph (spec §8.1) has no model step between verification and the planner, and every issue there
+comes from an independent auditor's findings (§16.3, §17.1). A variant comes from one model that
+read the confirmed issues, so it is never counted as an auditor's (its findings are namespaced
+`variant-search`) and no peer reviews it; verification decides it.
 
 ## Feature mode
 
@@ -888,6 +956,11 @@ then used only as the default model for a second opinion (`verification.secondOp
 `roles.secondOpinion` names one. An Audit replay can add the critic (`criticEnabled`; the CLI's
 `replay <run-id>` sets it unless `--no-critic` is given). Every shipped template leaves the
 critic off.
+
+No preset has a variant search either: `workflow.variantSearch: true` adds it between the
+verification and the planner of any audit preset; the subscription templates set it `false` and the
+others leave it out ([Variant search](#variant-search)). An Audit replay keeps its source's graph, the variant search
+included; `tooling/variant-replay/replay.mjs` runs the search alone on a finished run.
 
 `pnpm run validate:examples` parses the schema-only examples and model-backed templates
 with `runConfigSchema`, checks the templates against runtime preflight, and runs negative

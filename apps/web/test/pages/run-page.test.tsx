@@ -34,7 +34,8 @@ describe("the run page", () => {
     const needs = screen.getByRole("region", { name: "Needs you" });
     expect(within(needs).getAllByRole("link").map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
       ["1 question only you can answer, before the tasksAnswer →", "/?run=run-1&view=plan"],
-      ["20 issues the check could not settle: the plan checks them firstSee them →", "/?run=run-1&view=issues"],
+      // The saved plan checks them after its tasks (plan-export.ts): most such reports do not hold.
+      ["20 issues the check could not settle: the plan checks them after its tasksSee them →", "/?run=run-1&view=issues"],
     ]);
     const issues = await screen.findByRole("region", { name: "Issues · 415 found" });
     expect([...issues.querySelectorAll(".verdict")].map((cell) => cell.textContent)).toEqual(["126confirmed · 1 critical, 21 high, 104 medium", "20unsettled · the check could not settle them",
@@ -111,7 +112,8 @@ describe("the run page", () => {
     // A stage opens its records beside the page.
     fireEvent.click(within(stages).getByRole("button", { name: /^Find issues · running · 1:05 · Opus/u }));
     await waitFor(() => expect(address().get("item")).toBe("node:auditor-a"));
-    expect(await screen.findByRole("complementary", { name: "details · Auditor A" })).toBeTruthy();
+    // The stage keeps its step name and model in its records (no "Auditor A").
+    expect(await screen.findByRole("complementary", { name: "details · Find issues · Opus 5.5 · xhigh" })).toBeTruthy();
   });
 
   it("follows the run's own events when its progress cannot be read, and says so", async () => {
@@ -135,9 +137,9 @@ describe("the run page", () => {
     // Observed in Firefox: the rows drew first, the header then grew by two lines, and a
     // click aimed at the first issue landed on the filters that moved into its place.
     expect(screen.getByText("loading the run")).toBeTruthy();
-    expect(screen.queryByRole("region", { name: "issue board" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "issues" })).toBeNull();
     release();
-    expect(await screen.findByRole("region", { name: "issue board" })).toBeTruthy();
+    expect(await screen.findByRole("region", { name: "issues" })).toBeTruthy();
     expect(screen.getByText(/scripted detectors, no model calls/u)).toBeTruthy();
     expect(screen.getByRole("heading", { level: 1, name: "fixture · audit" })).toBeTruthy();
   });
@@ -147,7 +149,7 @@ describe("the run page", () => {
     stubControlPlane({ "GET /runs/run-1": resource(), "GET /runs/run-1/overview": () => new Response("{}", { status: 503 }), ...artifactRoutes("run-1") });
     visit("?run=run-1&view=issues");
     render(<App />);
-    expect(await screen.findByRole("region", { name: "issue board" })).toBeTruthy();
+    expect(await screen.findByRole("region", { name: "issues" })).toBeTruthy();
     const problem = screen.getByText(/^The run's settings could not be read/u).closest(".problem") as HTMLElement;
     expect(problem.dataset.state).toBe("degraded");
     // The recorded code is one click down, not in the sentence.
@@ -163,7 +165,7 @@ describe("the run page", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Role check missing on update" }));
     await waitFor(() => expect(address().get("item")).toBe("issue:issue-1"));
     const details = await screen.findByRole("complementary", { name: "details · issue issue-1" });
-    expect((await within(details).findByText("reviewer-c · reject · the guard runs in middleware")).dataset.state).toBe("dissent");
+    expect((await within(details).findByText("reviewer-c rejected it: the guard runs in middleware")).closest("[data-state]")?.getAttribute("data-state")).toBe("dissent");
     expect(within(details).getByText("Any authenticated user can change another user's role.").dataset.state).toBe("tainted");
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("complementary", { name: /^details/u })).toBeNull());
@@ -248,22 +250,6 @@ describe("the run page", () => {
     expect(within(records).getAllByRole("link").map((link) => link.textContent)).toEqual(["← How it ran", "Activity", "Evaluation"]);
     expect(within(screen.getByRole("navigation", { name: "run views" })).getByRole("link", { name: "How it ran" }).getAttribute("aria-current")).toBe("page");
     expect(await screen.findByRole("region", { name: "trace browser" })).toBeTruthy();
-  });
-
-  it("says a plan is not carried out yet, and reads its results again on request", async () => {
-    stubBrowser();
-    let carried = false;
-    const calls = stubControlPlane({ "GET /runs/run-1": resource(), "GET /runs/run-1/overview": overview(), ...artifactRoutes("run-1"),
-      "GET /runs/run-1/metrics": () => metrics({ planResults: carried ? { issues: 146, reported: 146, provenByFailingTest: 115, notProvenByTest: 16, checkedEndToEnd: 12, results: { fixed: 130, no_change_needed: 15, not_reproducible: 1, blocked: 0 }, foundWhileFixing: { reported: 14, provenByFailingTest: 9 } } : null }) });
-    visit("?run=run-1&view=results");
-    render(<App />);
-    expect(await screen.findByRole("heading", { name: "Not carried out yet" })).toBeTruthy();
-    expect(screen.getByText(/it records each issue's result in/u).textContent).toContain("results.json");
-    carried = true;
-    fireEvent.click(screen.getByRole("button", { name: "Read results again" }));
-    expect(await screen.findByRole("heading", { name: "Results · 146 issues reported of 146" })).toBeTruthy();
-    expect([...document.querySelectorAll(".verdict")].map((cell) => cell.textContent)).toEqual(["130fixed, of 146", "115proven by a test that failed first", "15no change needed", "14more defects found while fixing"]);
-    expect(calls.filter((call) => call === "GET /runs/run-1/metrics")).toHaveLength(2);
   });
 
   it("puts a blocked run's decision above every tab and resumes only once nothing is left to decide", async () => {
@@ -362,7 +348,7 @@ describe("the run page", () => {
     stubControlPlane({ "GET /runs/run-1": resource(), "GET /runs/run-1/overview": overview(), "GET /runs/run-1/traces*": EMPTY_TRACES, ...artifactRoutes("run-1", { "findings-auditor-a": [] }, { "findings-auditor-a": "auditor-a" }) });
     visit("?run=run-1&view=activity&item=node:auditor-a");
     render(<App />);
-    const details = await screen.findByRole("complementary", { name: "details · Auditor A" });
+    const details = await screen.findByRole("complementary", { name: "details · Find issues" });
     expect(await within(details).findByText("scripted detector · this node makes no model call")).toBeTruthy();
     expect(within(details).queryByRole("region", { name: "model attempts" })).toBeNull();
     expect(await within(details).findByRole("button", { name: "findings-auditor-a" })).toBeTruthy();
@@ -429,12 +415,13 @@ describe("the run page", () => {
 
   it("says so in words when the run cannot be opened, with the recorded error one click down", async () => {
     stubBrowser();
-    stubControlPlane({ "GET /runs/run-9": () => json({ statusCode: 500, error: "REQUEST_FAILED", message: "RUN_ABSENT:run-9" }, 500) });
+    // The control plane answers an absent run with 404 (it answered 500 until October 25, 2026).
+    stubControlPlane({ "GET /runs/run-9": () => json({ statusCode: 404, error: "REQUEST_FAILED", message: "RUN_ABSENT:run-9" }, 404) });
     visit("?run=run-9");
     render(<App />);
     expect(await screen.findByRole("heading", { name: "This run could not be opened" })).toBeTruthy();
     expect(screen.getByText(/^No run with this ID is recorded by this arbitra\./u)).toBeTruthy();
-    expect(screen.getByText(/RUN_ABSENT:run-9 \(RUN_API_500\)/u).closest("details")).not.toBeNull();
+    expect(screen.getByText(/RUN_ABSENT:run-9 \(RUN_API_404\)/u).closest("details")).not.toBeNull();
     expect(screen.getByRole("link", { name: "Back to all runs" }).getAttribute("href")).toBe("/");
   });
 });

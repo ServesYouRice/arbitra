@@ -28,6 +28,13 @@ export const modelDiscoveryResultSchema = z.object({
   limitations: z.array(z.string().min(1)),
 }).strict();
 
+/** What the variant search proposes: findings of the audit's own shape, each naming the confirmed issue it repeats
+ * elsewhere (`variantOf`). It only proposes; every finding is validated and verified like a discovery finding. */
+export const modelVariantSearchResultSchema = z.object({
+  findings: sourceFindingSchema.extend({ variantOf: z.string().min(1) }).strict().array().max(40),
+  limitations: z.array(z.string().min(1)),
+}).strict();
+
 export const modelTurnResultSchema = z.object({
   text: z.string().nullable(),
   toolCalls: z.array(z.object({ id: z.string().min(1), name: z.string().min(1), arguments: z.unknown(), providerState: z.unknown().optional() }).strict()),

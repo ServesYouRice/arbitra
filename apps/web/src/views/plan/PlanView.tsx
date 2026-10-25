@@ -1,32 +1,11 @@
 import "./plan.css";
-import { useMemo, useState, type ReactElement } from "react";
+import { useMemo, type ReactElement } from "react";
 import { ArtifactApi } from "../../api/artifacts.js";
 import type { PersistedFinding, PersistedIssueSet } from "../issue-board/model.js";
 import { RUN_ARTIFACT_KINDS, useRunArtifact, type RunArtifact } from "../issue-board/run-artifacts.js";
 import type { PersistedCritique, PersistedPlan, TraceGraph, TraceLevel } from "./traceability.js";
 
 export interface PlanData { readonly plan: RunArtifact<PersistedPlan>; readonly critique: RunArtifact<PersistedCritique>; readonly graph: TraceGraph | null }
-
-/**
- * Writes the plan into the project as prompts (`.arbitra/plans/...`), grouped by the model tier each task suits, on
- * request only: a run itself never writes to the repository.
- */
-export function SavePlan({ runId }: { readonly runId: string }): ReactElement {
-  const [state, setState] = useState<{ readonly busy: boolean; readonly result: string | null; readonly failed: boolean }>({ busy: false, result: null, failed: false });
-  const save = (): void => {
-    setState({ busy: true, result: null, failed: false });
-    void fetch(`/handoff/runs/${encodeURIComponent(runId)}`, { method: "POST" }).then(async (response) => {
-      const body = await response.json() as { directory?: string; files?: readonly string[]; message?: string; error?: string };
-      if (!response.ok || body.directory === undefined) throw new Error(body.message ?? body.error ?? `HTTP ${response.status}`);
-      setState({ busy: false, result: `saved ${body.files?.length ?? 0} files to ${body.directory}`, failed: false });
-    }).catch((error: unknown) => setState({ busy: false, result: `not saved · ${error instanceof Error ? error.message : String(error)}`, failed: true }));
-  };
-  return <div className="plan-save">
-    <button className="button" disabled={state.busy} type="button" onClick={save}>save the plan into the project as prompts</button>
-    <span className="note"> one prompt per task, grouped by the model it suits, in .arbitra/plans/ of the audited folder</span>
-    {state.result === null ? null : <p className="state" data-state={state.failed ? "degraded" : "verified"} role="status">{state.result}</p>}
-  </div>;
-}
 
 /** The plan and what it traces back to: the canonical issues and their source findings, when the run has them. */
 export function usePlan(api: ArtifactApi, runId: string | null, refreshKey: unknown): PlanData {
@@ -53,7 +32,6 @@ export function PlanView({ runId, api = SHARED_ARTIFACT_API, refreshKey = null, 
   const isSelected = (level: TraceLevel, id: string): boolean => selected?.level === level && selected.id === id;
   return <section aria-label="plan" className="plan-view">
     <h2 className="panel-title">plan</h2>
-    {runId === null ? null : <SavePlan runId={runId} />}
     <p className="plan-title">{value.title} · mode {value.mode} · {value.acceptedIssueIds.length} planned canonical issues · {value.tasks.length} tasks</p>
     <p className="state" data-state={value.premiseReport.status === "positive" ? "verified" : value.premiseReport.status === "negative" ? "refuted" : "unexamined"}>premise · {value.premiseReport.status} · {value.premiseReport.interpretation}{value.premiseReport.limitations.length === 0 ? "" : ` · ${value.premiseReport.limitations.join(" · ")}`}</p>
     {questions.length === 0 ? null : <section aria-labelledby="questions-title" className="plan-section">

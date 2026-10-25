@@ -44,7 +44,7 @@ describe("configuration drafts", () => {
 
   it("names each mode's model roles where the runtime reads them", () => {
     expect(roleSlots(SCRIPTED_AUDIT)).toEqual([]);
-    expect(roleSlots(template("subscription-audit").config).map(({ path }) => path.join("."))).toEqual(["workflow.modelExecution.roles.planner", "workflow.modelExecution.roles.verifier", "workflow.modelExecution.roles.mediumVerifier", "workflow.modelExecution.roles.critic"]);
+    expect(roleSlots(template("subscription-audit").config).map(({ path }) => path.join("."))).toEqual(["workflow.modelExecution.roles.planner", "workflow.modelExecution.roles.verifier", "workflow.modelExecution.roles.mediumVerifier", "workflow.modelExecution.roles.critic", "workflow.modelExecution.roles.variantSearcher"]);
     expect(roleSlots(template("subscription-feature-interactive").config).map(({ label, multiple }) => `${label}${multiple ? "[]" : ""}`)).toEqual(["requirements", "exploration", "planner", "reviewers[]", "critic"]);
     expect(roleSlots(template("testing-execute").config).map(({ label }) => label)).toEqual(["analyst", "planner", "fast writer", "balanced writer", "frontier writer"]);
     expect(roleSlots(template("testing-plan").config).map(({ label }) => label)).toEqual(["analyst", "planner"]);
@@ -179,7 +179,7 @@ describe("the new-run page", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "add a third finder" }));
     expect(screen.getByRole("radio", { name: "Cheap" }).closest("label")?.textContent).toContain("Gemini 3.8 Flash · high");
     const steps = screen.getByRole("list", { name: "steps" });
-    expect(within(steps).getAllByRole("listitem").map((item) => item.querySelector(".step__name")?.textContent)).toEqual(["Find issuesalways", "Merge duplicates", "Review roundrecommended off", "Check each issuealways", "Second opinion", "Write the planalways", "Review the planrecommended off"]);
+    expect(within(steps).getAllByRole("listitem").map((item) => item.querySelector(".step__name")?.textContent)).toEqual(["Find issuesalways", "Merge duplicates", "Review roundrecommended off", "Check each issuealways", "Second opinion", "Search for variants", "Write the planalways", "Review the planrecommended off"]);
     expect(steps.textContent).toContain("it caught 1 of the 21 plan errors met when the plan was carried out");
     expect(checked("Review the plan")).toBe(false);
     fireEvent.click(screen.getByRole("checkbox", { name: "Review the plan" }));
@@ -189,6 +189,25 @@ describe("the new-run page", () => {
     const sent = bodies[0]?.config ?? {};
     expect([sent["auditDepth"], getIn(sent, ["workflow", "preset"]), getIn(sent, ["workflow", "critic"]), getIn(sent, ["models", "auditor-c", "modelId"]), getIn(sent, ["models", "auditor-a", "modelId"]), getIn(sent, ["workflow", "modelExecution", "planScope", "minimumSeverity"])])
       .toEqual(["cheap", "audit-three-finders", true, "gemini-3.8-flash-high", "claude-sonnet-5-5", "high"]);
+  });
+
+  it("offers the variant search as a step, off by default, with Sonnet searching or Gemini when it is a finder", async () => {
+    stubBrowser();
+    const bodies: Body[] = [];
+    stubControlPlane({ ...BASE_ROUTES, "POST /preflight": ({ body }: { body: Body }) => { bodies.push(body); return READY; } });
+    visit("?page=new-run&from=template:subscription-audit");
+    render(<App />);
+    await screen.findByRole("radio", { name: "Deep" });
+    expect(checked("Search for variants")).toBe(false);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Search for variants" }));
+    project("/work/fixture");
+    await waitFor(() => expect(bodies).toHaveLength(1), AFTER_CHECK);
+    const sent = bodies[0]?.config ?? {};
+    expect([getIn(sent, ["workflow", "variantSearch"]), getIn(sent, ["workflow", "modelExecution", "roles", "variantSearcher"]), getIn(sent, ["models", "variant-searcher", "modelId"]), getIn(sent, ["workflow", "modelExecution", "stageEffort", "variantSearch"])])
+      .toEqual([true, "variant-searcher", "claude-sonnet-5-5", "high"]);
+    fireEvent.click(screen.getByRole("checkbox", { name: "add a third finder" }));
+    await waitFor(() => expect(getIn(bodies.at(-1)?.config ?? {}, ["workflow", "modelExecution", "roles", "variantSearcher"])).toBe("auditor-c"), AFTER_CHECK);
+    expect(getIn(bodies.at(-1)?.config ?? {}, ["models", "variant-searcher"])).toBeUndefined();
   });
 
   it("says in words why the project cannot be read, keeps the code one click down, and does not call it ready", async () => {

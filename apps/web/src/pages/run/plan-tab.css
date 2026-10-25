@@ -1,0 +1,39 @@
+/* The Plan tab: the hand-over card, then the questions, the tasks in order and the checks after them. */
+.plan-questions { display: grid; margin: 0; padding: 0; list-style: none; background: var(--surface); border: var(--hairline) solid var(--line); }
+.plan-questions > li { padding: var(--s3) var(--s4); color: var(--ink); overflow-wrap: anywhere; }
+.plan-questions > li + li { border-block-start: var(--hairline) solid var(--line-soft); }
+.plan-questions--open > li { overflow-wrap: anywhere; }
+
+/* The three strengths a task can need, side by side, and under one another on a phone. */
+.tiers { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--hairline); margin: 0; padding: 0; list-style: none; background: var(--line); border: var(--hairline) solid var(--line); }
+.tier { display: grid; gap: var(--s1); padding: var(--s3) var(--s4); background: var(--surface); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); }
+.tier__name { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.tier__hint { color: var(--body); overflow-wrap: anywhere; }
+
+.plan-tasks-list { display: grid; margin: 0; padding: 0; list-style: none; background: var(--surface); border: var(--hairline) solid var(--line); }
+.plan-task { display: grid; grid-template-columns: 2.5rem auto minmax(0, 1fr) auto; align-items: baseline; gap: var(--s1) var(--s3); min-height: var(--row-h); padding: var(--s2) var(--s4); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); }
+.plan-task + .plan-task { border-block-start: var(--hairline) solid var(--line-soft); }
+.plan-task[data-selected="true"] { background: var(--sunken); }
+.plan-task__n { color: var(--mute); font-variant-numeric: tabular-nums; }
+.plan-task__id { color: var(--body); white-space: nowrap; }
+.plan-task__title { min-width: 0; min-height: auto; padding: 0; border: 0; background: none; color: var(--ink); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); text-align: start; text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; cursor: pointer; }
+.plan-task__facts { color: var(--mute); text-align: end; overflow-wrap: anywhere; }
+
+.plan-checks { display: grid; margin: 0; padding: 0; list-style: none; background: var(--surface); border: var(--hairline) solid var(--line); }
+.plan-checks > li { display: grid; grid-template-columns: 5rem minmax(0, 1fr); gap: var(--s3); padding: var(--s2) var(--s4); border-inline-start: var(--stripe) solid var(--body); font: 400 var(--t-micro)/var(--lh-tight) var(--font-data); overflow-wrap: anywhere; }
+.plan-checks > li + li { border-block-start: var(--hairline) solid var(--line-soft); }
+.plan-checks__severity { color: var(--mute); }
+.plan-review > ul { padding-block: var(--s2); }
+.plan-review li { overflow-wrap: anywhere; }
+
+@media (max-width: 700px) {
+  .plan-task { grid-template-columns: 2rem minmax(0, 1fr); padding: var(--s2) var(--s3); }
+  .plan-task__id { grid-column: 2; }
+  .plan-task__title, .plan-task__facts { grid-column: 2; text-align: start; }
+  .plan-checks > li { grid-template-columns: minmax(0, 1fr); gap: var(--s1); padding: var(--s2) var(--s3); }
+  .plan-questions > li, .tier { padding: var(--s2) var(--s3); }
+}
+@media (forced-colors: active) {
+  .plan-questions, .tiers, .plan-tasks-list, .plan-task, .plan-checks, .plan-checks > li { border-color: CanvasText; }
+  .plan-task[data-selected="true"] { outline: var(--stripe) solid Highlight; }
+}

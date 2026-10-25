@@ -36,7 +36,11 @@ describe("a lineup, step by step, as model and effort", () => {
   it("lists every step with its switch, the plan review recommended off and why, and adds a step as one entry", () => {
     const two = template("subscription-audit");
     expect(stepsOf(two).map(({ step, on }) => [step.name, on])).toEqual([["Find issues", null], ["Merge duplicates", true], ["Review round", false], ["Check each issue", null],
-      ["Second opinion", true], ["Write the plan", null], ["Review the plan", false]]);
+      ["Second opinion", true], ["Search for variants", false], ["Write the plan", null], ["Review the plan", false]]);
+    const variants = STEPS.find(({ id }) => id === "variant-search");
+    if (variants?.toggle === undefined) throw new Error("the variant search has no switch");
+    const searching = variants.toggle.set(two, true);
+    expect([variants.toggle.on(searching), stepsOf(searching).find(({ step }) => step.id === "variant-search")?.models]).toEqual([true, ["Sonnet 5.5 · high"]]);
     const critic = STEPS.find(({ id }) => id === "critic");
     expect(critic?.toggle?.recommendOff).toMatch(/caught 1 of the 21 plan errors/u);
     if (critic?.toggle === undefined) throw new Error("the plan review has no switch");
