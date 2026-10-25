@@ -9,10 +9,11 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
 
 ## State
 
-- **Releases:** v0.3.0 (October 25, 0468674: the Windows exe and the source zip) is the latest. Work continues on
-  `main`; [`TESTERS.md`](TESTERS.md) is the testers' guide.
-- **Break, October 25 to 31:** v0.3.0 goes to friends to test; their reports arrive as GitHub issues or as a run's
-  copied report. Work resumes after the Claude weekly reset on October 31, at the top of the order below.
+- **Releases:** v0.3.1 (October 25, 2de2587: the Windows exe and the source zip) is the latest: 0.3.0 plus an older
+  arbitra on the port no longer opened in its place, Send to the developer, and the Linux launcher no longer
+  rebuilding at every start. Work continues on `main`; [`TESTERS.md`](TESTERS.md) is the testers' guide.
+- **Break, October 25 to 31:** v0.3.1 goes to friends to test; their reports arrive as GitHub issues (Send to the
+  developer) or as a run's copied report. Work resumes after the Claude weekly reset on October 31, at the top of the order below.
 - **Default lineup:** New run starts on Claude Code and Codex (`subscription-audit`: two finders at depth deep, no
   peer-review round, plan critic off); balanced and cheap depths, a third finder and the critic are separate
   choices in New run (October 25). Gemini is only ever the opt-in third finder, labelled with Google's terms. The Feature templates still use Antigravity as
@@ -30,8 +31,9 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
 
 ## Order of work
 
-1. **Testers' reports on v0.3.0:** a defect is shown by a failing test, fixed on `main` and released as 0.3.x; a
-   request goes into the lists below.
+1. **Testers' reports on v0.3.1:** a defect is shown by a failing test, fixed on `main` and released as 0.3.x; a
+   request goes into the lists below. Also: the exe's window prints five Ajv "strict mode: use allowUnionTypes"
+   lines at start (since 0.3.0 at least), which mean nothing to a tester.
 2. **veritra's plan,** after the reset on October 31: re-export run `run-e5546c4c` on the current build, carry its 227
    tasks out on veritra's `dev` branch (never `main`), count what the prompts did not cover, and take the export,
    premise-check and write-scope measurements under "Measure on the next runs".
