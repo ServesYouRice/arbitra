@@ -45,7 +45,9 @@ const DETECTORS: readonly Detector[] = [
     // joined by "_", which is a word character (found by arbitra's audit of itself, October 19, 2026).
     // A quote may be escaped: a prompt carries whole files as JSON strings, in which `password = "..."` reads
     // `password = \"...\"`, and such a secret reached the model unmasked (found October 25, 2026).
-    expression: new RegExp(`\\b${SECRET_NAME}(?:\\\\*["'])?\\s*[:=]\\s*(?:\\\\*["'])?([^\\s"']{11,}[^\\s"'\\\\])["']?`, "giud"),
+    // The pattern takes at most 256 characters of a value, so a value scanned again from its start costs a bounded
+    // amount; a longer value that is masked is masked to its end.
+    expression: new RegExp(`\\b${SECRET_NAME}(?:\\\\*["'])?\\s*[:=]\\s*(?:\\\\*["'])?([^\\s"']{11,255}[^\\s"'\\\\])["']?`, "giud"),
     secretGroup: 1,
   },
   {
@@ -68,29 +70,73 @@ const DETECTORS: readonly Detector[] = [
  */
 const CODE_REFERENCE = /^[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*(?:\([^()]*\))?[,;)\]}]*$/u;
 const CODE_CALL = /^[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*[([]/u;
-function readsAsCode(secret: string, before: string): boolean {
+/** `whole` is false for a value longer than the pattern takes, which reads as code only by its call or index. */
+function readsAsCode(secret: string, before: string, whole: boolean): boolean {
   if (/["']$/u.test(before)) return false;
   const call = CODE_CALL.exec(secret);
   if (call !== null && !/[0-9]/u.test(call[0])) return true;
-  return !/[0-9]/u.test(secret) && CODE_REFERENCE.test(secret) && /[.(]/u.test(secret);
+  return whole && !/[0-9]/u.test(secret) && CODE_REFERENCE.test(secret) && /[.(]/u.test(secret);
 }
+
+/*
+ * Where an assigned value ends. The pattern takes every character up to a space or a quote, so in JSON text a value
+ * ran on over an escaped line break into the next line, and anywhere it took the delimiters after it. Found by
+ * arbitra's audit of itself (October 19, 2026): masked values merged two source lines and took a statement's
+ * semicolon, and the auditors reported a syntax error the source does not have. A value ends before an escaped line
+ * break or tab, in a query string before the next `&` or `#`, and without a trailing `;`, `,` or a closing bracket
+ * it does not open. A cut that would leave fewer than 12 characters, too few to be taken for a secret, or a value
+ * ending in a backslash, is not made, so the rule still errs toward masking.
+ */
+const MINIMUM_SECRET = 12;
+function cutAt(value: string, inQuery: boolean): number {
+  for (const { index } of value.matchAll(inQuery ? /\\+[nrt]|[&#]/gu : /\\+[nrt]/gu)) if (index >= MINIMUM_SECRET && value[index - 1] !== "\\") return index;
+  return value.length;
+}
+/** At the end of a value the pattern took, whether the value goes on: the pattern stopped at its limit. */
+const GOES_ON = /\\*[^\s"'\\]/uy;
+const VALUE_END = /[\s"']|\\+[nrt]/gu;
+const VALUE_END_IN_QUERY = /[\s"'&#]|\\+[nrt]/gu;
+function runOn(text: string, from: number, inQuery: boolean): number {
+  const end = inQuery ? VALUE_END_IN_QUERY : VALUE_END;
+  end.lastIndex = from;
+  return end.exec(text)?.index ?? text.length;
+}
+function withoutTrailingDelimiters(value: string): string {
+  const unopened = new Map(([[")", "("], ["]", "["], ["}", "{"]] as const).map(([close, open]) => [close as string, value.split(close).length - value.split(open).length]));
+  let end = value.length;
+  while (end > MINIMUM_SECRET && value[end - 2] !== "\\") {
+    const last = value.charAt(end - 1);
+    const excess = unopened.get(last) ?? 0;
+    if (last !== ";" && last !== "," && excess <= 0) break;
+    if (excess > 0) unopened.set(last, excess - 1);
+    end -= 1;
+  }
+  return value.slice(0, end);
+}
+
+const MARKER = /^\[REDACTED:(?:aws_access_key|api_token|github_token|bearer_token|assigned_secret|private_key)\]$/u;
 
 export function redactSecrets(text: string): RedactionResult {
   const matches: Array<{ kind: SecretKind; start: number; end: number }> = [];
   for (const detector of DETECTORS) {
     const expression = new RegExp(detector.expression);
     for (let match = expression.exec(text); match !== null; match = expression.exec(text)) {
-      const secret = match[detector.secretGroup];
+      const captured = match[detector.secretGroup];
       const start = match.indices?.[detector.secretGroup]?.[0];
-      if (secret === undefined || start === undefined) continue;
-      if (/^\[REDACTED:(?:aws_access_key|api_token|github_token|bearer_token|assigned_secret|private_key)\]$/u.test(secret)
-        || detector.kind === "assigned_secret" && readsAsCode(secret, text.slice(match.index, start))) {
-        // A value left in place is scanned again from its start: `connect(password=...)` reads as code and holds a
-        // secret, and in JSON text a value runs on over an escaped line break into the next line.
-        if (detector.kind === "assigned_secret") expression.lastIndex = Math.max(start, match.index + 1);
-        continue;
-      }
-      matches.push({ kind: detector.kind, start, end: start + secret.length });
+      if (captured === undefined || start === undefined) continue;
+      if (detector.kind !== "assigned_secret") { matches.push({ kind: detector.kind, start, end: start + captured.length }); continue; }
+      const inQuery = /[?&]/u.test(text.charAt(match.index - 1));
+      const cut = cutAt(captured, inQuery);
+      GOES_ON.lastIndex = start + cut;
+      const longer = cut === captured.length && GOES_ON.test(text);
+      let secret = longer ? captured : withoutTrailingDelimiters(captured.slice(0, cut));
+      const left = MARKER.test(secret) || readsAsCode(secret, text.slice(match.index, start), !longer);
+      if (!left && longer) secret = withoutTrailingDelimiters(text.slice(start, runOn(text, start + cut, inQuery)).replace(/\\+$/u, ""));
+      // Scanning resumes after the part masked, so what a cut leaves is scanned like any text, and at the start of a
+      // value left in place: `connect(password=...)` reads as code and holds a secret, and in JSON text a value
+      // left in place can run on over an escaped line break into the next line.
+      expression.lastIndex = left ? Math.max(start, match.index + 1) : start + secret.length;
+      if (!left) matches.push({ kind: detector.kind, start, end: start + secret.length });
     }
   }
   matches.sort((left, right) => left.start - right.start || right.end - left.end);

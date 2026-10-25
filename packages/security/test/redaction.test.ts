@@ -35,7 +35,7 @@ describe("secret redaction", () => {
     const once = redactSecrets(stored);
     expect(once.text).not.toContain("gw7KeyForTheGateway");
     const lines = (JSON.parse((JSON.parse(once.text) as { text: string }).text) as { lines: { text: string }[] }).lines;
-    expect(lines.map(({ text }) => text)).toEqual(["    apiKey: [REDACTED:assigned_secret]", "    clock,"]);
+    expect(lines.map(({ text }) => text)).toEqual(["    apiKey: [REDACTED:assigned_secret],", "    clock,"]);
     // A marker followed by an escaped quote is not a secret again.
     expect(redactSecrets(once.text)).toMatchObject({ text: once.text, redactions: [] });
   });
@@ -61,6 +61,8 @@ describe("secret redaction", () => {
       "    token = production_client.get(\"/safety/capability\").json()[\"token\"]",
       "const sessionToken = crypto.randomBytes(32).toString(\"hex\");",
       "token = request.headers[TOKEN_HEADER]",
+      // Found by arbitra's audit of itself (October 19, 2026): this line of the redactor reached the auditors masked.
+      "      const secret = match[detector.secretGroup];",
     ]) expect(redactSecrets(code)).toMatchObject({ text: code, redactions: [] });
     for (const secret of [
       "token: 'plainLongSecretValue'",
@@ -83,6 +85,38 @@ describe("secret redaction", () => {
     ]) {
       const encoded = JSON.stringify({ path: "app.py", content: source });
       for (const text of [source, encoded, JSON.stringify({ text: encoded })]) expect(redactSecrets(text).text).not.toContain("hunter2isNotSecret");
+    }
+  });
+
+  it("ends a masked value at an escaped line break, so JSON-encoded source keeps its lines", () => {
+    // Found by arbitra's audit of itself (October 19, 2026): the masked value took the escaped line break and the
+    // next line with it, and auditors reported a syntax error the source does not have.
+    const source = ["password=hunter2isNotSecret", "next_line = 1", "  const token = env.JOBWELL_ADMIN_TOKEN;", "  return token;"];
+    const once = JSON.stringify({ path: "app.py", content: source.join("\n") });
+    const twice = JSON.stringify({ text: once });
+    const content = (text: string) => (JSON.parse(text) as { content: string }).content.split("\n");
+    const redacted = { once: redactSecrets(once).text, twice: redactSecrets(twice).text };
+    expect(content(redacted.once)).toEqual(["password=[REDACTED:assigned_secret]", ...source.slice(1)]);
+    expect(content((JSON.parse(redacted.twice) as { text: string }).text)).toEqual(content(redacted.once));
+    for (const text of Object.values(redacted)) expect(redactSecrets(text)).toMatchObject({ text, redactions: [] });
+  });
+
+  it("leaves the delimiters after a masked value in place", () => {
+    // Found by arbitra's audit of itself (October 19, 2026): the masked value took a statement's semicolon, a
+    // closing brace and the rest of a query string with it.
+    for (const [line, masked] of [
+      ["token=abcdefghijklmnop;", "token=[REDACTED:assigned_secret];"],
+      ["const grant = { token: abcdefghijklmnop1};", "const grant = { token: [REDACTED:assigned_secret]};"],
+      ["connect(password=hunter2isNotSecret, retries=3)", "connect(password=[REDACTED:assigned_secret], retries=3)"],
+      ["password = getSecretV2(x);", "password = [REDACTED:assigned_secret];"],
+      ["https://example.test/cb?token=abcdefghijklmnop&next=/home", "https://example.test/cb?token=[REDACTED:assigned_secret]&next=/home"],
+      ["https://example.test/cb?token=abcdefghijklmnop&api_key=hunter2isNotSecret", "https://example.test/cb?token=[REDACTED:assigned_secret]&api_key=[REDACTED:assigned_secret]"],
+      // A cut that would leave too little to be a secret masks the whole value, as before.
+      ["https://example.test/cb?token=abc&next=/home", "https://example.test/cb?token=[REDACTED:assigned_secret]"],
+      ["password=abcdefghijk);", "password=[REDACTED:assigned_secret];"],
+    ] as const) {
+      expect(redactSecrets(line).text).toBe(masked);
+      expect(redactSecrets(masked)).toMatchObject({ text: masked, redactions: [] });
     }
   });
 
