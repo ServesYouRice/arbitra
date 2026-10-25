@@ -19,7 +19,7 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
   were real, 118 shown by a failing test, and 14 more defects were found while fixing. P20 is closed on its pilot
   (October 19); its held-out set stays unrun by design.
 - **Clear now, October 25:** the dependency advisories, the self-audit's open defects and the small items, in 16
-  lanes, each defect shown by a failing test first (afb494f to 2d37c15). Two were product defects found on the way:
+  lanes, each defect shown by a failing test first (afb494f to 26af136). Two were product defects found on the way:
   arbitra could not start an npm-installed Claude Code (`claude.cmd`) as the native Testing writer on Windows, and a
   quoted secret in source carried as JSON reached the model unmasked. The full check now passes on Windows, the
   native-harness suites included.
@@ -40,7 +40,6 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
 
 Small defects the October 25 lanes found and did not fix, each to be shown by a failing test first.
 
-- **Redaction is super-linear on long runs of hyphens or underscores** (1 MB of `a-a-a-…` took 449 s): in progress.
 - **A symbolic link pointing outside the root in a `working_tree` diff fails the whole snapshot**; the repository walk
   skips such links silently.
 - **An event whose sync failed after a full write is kept**, so a retry records it twice.
