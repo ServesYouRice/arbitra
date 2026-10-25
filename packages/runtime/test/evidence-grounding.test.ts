@@ -41,6 +41,19 @@ it("matches a quote copied from the composed form the prompt shows, and keeps th
   expect(anchorLineEvidence(evidence(2, 2, "const label = \"cafe\";"), decomposed)).toBeNull();
 });
 
+it("matches a quotation of a line with a secret as the model was shown it, and keeps the secret masked", () => {
+  // Found by arbitra's audit of itself (October 19, 2026): the model sees such a line masked, and its reply is masked again.
+  const settings = { ...file, lines: ["// settings", "const apiKey = \"hunter2isNotSecret\";", "}"] };
+  const shown = "const apiKey = \"[REDACTED:assigned_secret]\";";
+  expect(anchorLineEvidence(evidence(2, 2, shown), settings)).toEqual(evidence(2, 2, shown));
+  expect(anchorLineEvidence(evidence(3, 3, shown), settings)).toEqual(evidence(2, 2, shown));
+  expect(widenToQuote({ startLine: 3, endLine: 3 }, shown, settings)).toEqual({ startLine: 2, endLine: 3 });
+  expect(widenToQuote({ startLine: 1, endLine: 1 }, "apiKey = \"[REDACTED:assigned_secret]\"", settings)).toEqual({ startLine: 1, endLine: 2 });
+  // A marker where the file holds no secret is still refused.
+  expect(anchorLineEvidence(evidence(1, 1, "// [REDACTED:assigned_secret]"), settings)).toBeNull();
+  expect(widenToQuote({ startLine: 1, endLine: 1 }, "// [REDACTED:assigned_secret]", settings)).toBeNull();
+});
+
 it("widens a cited range to its one nearby quotation and never elsewhere", () => {
   // Observed live: the quote starts with the doc comment one line above the cited function.
   expect(widenToQuote({ startLine: 4, endLine: 6 }, lines.slice(2, 6).join("\n"), file)).toEqual({ startLine: 3, endLine: 6 });

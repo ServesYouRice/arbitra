@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runConfigSchema } from "@arbitra/schemas/config.js";
 import type { HttpClient, HttpRequest, TransportMessage } from "@arbitra/providers/transport-contract.js";
+import type { RequirementsContract } from "@arbitra/workflow/nodes/requirements/index.js";
+import { validateFeatureExploration } from "../src/feature-exploration.js";
 import { ModelActivities } from "../src/model-activities.js";
 import { discoverWithModel } from "../src/model-discovery.js";
 import { isModelOutputRejection, ModelHarness } from "../src/model-harness.js";
@@ -64,6 +66,22 @@ describe("durable canonical model harness", () => {
     expect(sent).toContain("[REDACTED:assigned_secret]");
     const stored = await Promise.all((await readdir(root, { recursive: true, withFileTypes: true })).filter((entry) => entry.isFile()).map((entry) => readFile(join(entry.parentPath, entry.name), "utf8")));
     for (const text of [sent, ...stored]) { expect(text).not.toContain("hunter2isNotSecret"); expect(text).not.toContain("gw7KeyForTheGateway"); }
+  });
+
+  it("grounds a quotation of a line holding a secret, which the reply's masking would otherwise make impossible", async () => {
+    // Found by arbitra's audit of itself (October 19, 2026): a reply's strings are masked before validation, so even
+    // a word-for-word quotation of such a line never equalled the snapshot.
+    const { create, send, requests } = await setup(0);
+    const root = directories.at(-1) ?? "";
+    const settings = { root: "fixture", files: [{ path: "settings.ts", lines: ["export const timeoutMs = 5_000;", "export const apiKey = \"hunter2isNotSecret\";"], lineStartBytes: [0, 32], byteLength: 76 }] };
+    const requirements: RequirementsContract = { schemaVersion: 1, featureRequest: "Rotate the key", assumptions: [{ id: "ASM", statement: "One key at a time", confidence: "high" }], ambiguities: [], acceptance: [{ id: "ACC", assertion: "The key rotates" }], outOfScope: [], decision: { mode: "automatic", acceptedDefaults: [] } };
+    const reply = { summary: "The key is read from settings", preflight: { affectedSurfaces: [{ id: "settings", paths: ["settings.ts"], riskCategories: ["security"], relevantTo: ["ACC"] }], securitySensitiveSurfaceCount: 1, migrationInvolvement: false, architectureBreadth: 1, testingComplexity: 1 },
+      evidence: [{ surfaceId: "settings", path: "settings.ts", startLine: 2, endLine: 2, text: "export const apiKey = \"hunter2isNotSecret\";" }], limitations: [] };
+    send.mockImplementation(async (value) => { requests.push(value); return { status: 200, headers: {}, body: { output_text: JSON.stringify(reply), usage: { input_tokens: 10, output_tokens: 10 } } }; });
+    const explored = await create().invoke({ ...request(), activityId: "auditor-a/review", schema: { parse: (value: unknown) => validateFeatureExploration(value, requirements, settings) } });
+    expect(explored.evidence).toEqual([{ ...reply.evidence[0], text: "export const apiKey = \"[REDACTED:assigned_secret]\";" }]);
+    const stored = await Promise.all((await readdir(root, { recursive: true, withFileTypes: true })).filter((entry) => entry.isFile()).map((entry) => readFile(join(entry.parentPath, entry.name), "utf8")));
+    for (const text of stored) expect(text).not.toContain("hunter2isNotSecret");
   });
 
   it("re-asks once after a reply fails validation, durably, and fails with the original error when repairs are exhausted", async () => {
