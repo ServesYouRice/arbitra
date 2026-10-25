@@ -58,6 +58,8 @@ export const HTTP_ROUTE_SCHEMAS = Object.freeze({
   "POST /runs": { body: runBody, response: jsonResponse },
   "GET /runs/:id": { params: idParams, response: jsonResponse },
   "GET /runs/:id/overview": { params: idParams, response: jsonResponse },
+  // Read-only: what the run has done so far (`RunProgress` in run-progress.ts).
+  "GET /runs/:id/progress": { params: idParams, response: jsonResponse },
   "POST /runs/:id/resume": { params: idParams, response: jsonResponse },
   "GET /runs/:id/events": { params: idParams },
   "POST /runs/:id/cancel": { params: idParams, response: jsonResponse },

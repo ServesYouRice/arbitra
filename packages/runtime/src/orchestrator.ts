@@ -62,6 +62,8 @@ import { workflowGraphReferenceSchema, workflowGraphSaveRequestSchema, workflowG
 import { authoredTemplates, boundedRounds, runnerGraphOf, validateAuthoredGraph, type AuthoredGraphValidation } from "./authored-graphs.js";
 import type { WorkflowGraph } from "@arbitra/workflow/graph-schema.js";
 import { PROJECT_COMMANDS_KIND, projectCommands } from "./project-commands.js";
+import { digestArtifact, needsDigest, summariseProgress, type ArtifactDigest } from "./run-progress.js";
+import type { RunProgress } from "@arbitra/schemas/run-progress.js";
 
 /** A run's executed graph identity: the saved version it references and the version of what actually ran. */
 export interface RunWorkflowGraphIdentity extends WorkflowGraphReference { readonly executedVersion: string }
@@ -174,6 +176,8 @@ export class Orchestrator {
   readonly #testSandbox: TestSandbox | undefined;
   readonly #graphs: Readonly<Record<string, RunnerGraph>>;
   readonly #gatePolicies: GatePolicyRegistry;
+  /** What the progress read takes from each artifact, by run and artifact ID; artifacts never change once written. */
+  readonly #digests = new Map<string, ArtifactDigest>();
 
   constructor(options: OrchestratorOptions = {}) {
     this.repository = resolve(options.repository ?? process.cwd());
@@ -964,6 +968,31 @@ export class Orchestrator {
     }
   }
 
+  /**
+   * What the run has done so far, from its own records: each stage's status and working time, the parts each auditor
+   * has read, the issues found before any check, the tokens used and the calls started again after their time limit.
+   * The run page reads this while the run works; each artifact it needs is read once.
+   */
+  async progress(runId: string): Promise<RunProgress> {
+    await this.#requireRun(runId);
+    const store = new RunStore(this.#runsDirectory, runId);
+    const [status, context, events, descriptors, traces] = await Promise.all([this.status(runId), store.loadContext(), store.loadEvents(), store.listArtifacts(), loadActivityTraces(this.#runsDirectory, runId)]);
+    const byId = new Map(descriptors.map((descriptor) => [descriptor.artifactId, descriptor]));
+    if (this.#digests.size > MAXIMUM_DIGESTS) this.#digests.clear();
+    const digest = async ({ artifactId }: { readonly artifactId: string }): Promise<ArtifactDigest> => {
+      const key = `${runId}\u0000${artifactId}`;
+      const known = this.#digests.get(key);
+      if (known !== undefined) return known;
+      const descriptor = byId.get(artifactId);
+      const value = descriptor === undefined || !needsDigest(descriptor.kind) ? { kind: "other" as const } : digestArtifact(descriptor.kind, await store.artifacts.get<unknown>(descriptor.ref), descriptor.nodeId ?? null);
+      this.#digests.set(key, value);
+      return value;
+    };
+    // arbitra-determinism: allow -- the read time lets the page count a running stage's time on, at the composition boundary
+    const now = new Date().toISOString();
+    return summariseProgress({ runId, state: status.state, live: this.#isLive(runId), now, events, graph: status.workflow, configuration: context.modelConfiguration, descriptors, digest, traces });
+  }
+
   async modelTraces(runId: string) {
     await this.#requireRun(runId);
     return loadActivityTraces(this.#runsDirectory, runId);
@@ -1238,6 +1267,8 @@ function withoutRef(descriptor: ArtifactDescriptor): PublicArtifact {
   return Object.freeze({ artifactId: descriptor.artifactId, kind: descriptor.kind, mediaType: descriptor.mediaType, bytes: descriptor.bytes, redacted: descriptor.redacted, nodeId: descriptor.nodeId });
 }
 
+/** Artifact digests the progress read keeps before it starts again; one large run holds a few thousand. */
+const MAXIMUM_DIGESTS = 50_000;
 /** How many runs the run list reads at once. */
 const LIST_CONCURRENCY = 8;
 /** Seven days covers a weekly allowance; a reset further away is left to the operator. */

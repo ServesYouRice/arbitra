@@ -1575,6 +1575,44 @@ describe("composed model audits", () => {
     expect(events.map(({ at }) => at ?? "")).toEqual(events.map(({ at }) => at ?? "").sort());
   });
 
+  it("tells what a run is doing while its auditors work: the stage, since when, and nothing found yet", async () => {
+    const setup = await fixture();
+    let sent: () => void = () => {};
+    const dispatched = new Promise<void>((resolve) => { sent = resolve; });
+    setup.blockDiscovery(sent);
+    const core = setup.create(); const resource = await core.start(setup.config);
+    await dispatched;
+    const progress = await core.progress(resource.runId);
+    expect(progress).toMatchObject({ runId: resource.runId, state: "DISCOVERY_RUNNING", live: true, found: { total: 0 }, tokens: { limit: 1_000_000 }, restarted: { afterTimeout: 0, timeoutMs: 30_000 } });
+    expect(progress.stages.map(({ nodeId, status }) => `${nodeId} ${status}`)).toEqual(["preflight done", "auditor-a running", "auditor-b running", "auditor-c running", "consensus waiting", "verification waiting", "planner waiting", "critic waiting"]);
+    for (const stage of progress.stages.filter(({ nodeId }) => nodeId.startsWith("auditor-"))) expect(Date.parse(stage.runningSince ?? "")).not.toBeNaN();
+    expect(progress.run.runningSince).not.toBeNull();
+    expect(progress.auditors.map(({ auditorId, modelId, partsRead, finished }) => [auditorId, modelId, partsRead, finished])).toEqual([["auditor-a", "auditor-a", 0, false], ["auditor-b", "auditor-b", 0, false], ["auditor-c", "auditor-c", 0, false]]);
+    await core.cancel(resource.runId);
+    const stopped = await core.progress(resource.runId);
+    expect(stopped.live).toBe(false);
+    expect(stopped.run.runningSince).toBeNull();
+    expect(stopped.stages.filter(({ status }) => status === "stopped").map(({ nodeId }) => nodeId)).toEqual(["auditor-a", "auditor-b", "auditor-c"]);
+  });
+
+  it("tells what a finished run did: each stage's time and tokens, the parts read and every issue found", async () => {
+    const { create, config } = await fixture();
+    const core = create();
+    const result = await core.run(config);
+    expect(result.state).toBe("COMPLETED");
+    const progress = await core.progress(result.runId);
+    expect(progress.stages.every(({ status, elapsedMs, endedAt }) => status === "done" && elapsedMs !== null && endedAt !== null)).toBe(true);
+    expect(progress.run).toMatchObject({ runningSince: null, endedAt: expect.any(String) });
+    expect(progress.auditors.map(({ partsRead, findings, finished }) => [partsRead, findings, finished])).toEqual([[1, 1, true], [1, 1, true], [1, 1, true]]);
+    expect(progress.found).toMatchObject({ total: 3, bySeverity: { high: 3 } });
+    expect(progress.found.items.map(({ title, path, line }) => `${title} ${path}:${line}`)).toEqual(["Null value a.ts:1", "Null value a.ts:1", "Null value a.ts:1"]);
+    // Every fixture call reports 10 input and 20 output tokens.
+    const traces = await core.modelTraces(result.runId);
+    expect(progress.tokens.used).toBe(traces.length * 30);
+    expect(progress.stages.reduce((total, { calls }) => total + calls, 0)).toBe(traces.length);
+    expect(progress.stages.find(({ nodeId }) => nodeId === "consensus")?.calls).toBeGreaterThan(0);
+  });
+
   it("cancels active model calls even if HTTP clients ignore cancellation", async () => {
     const fixture_ = await fixture();
     let sent: () => void = () => {};

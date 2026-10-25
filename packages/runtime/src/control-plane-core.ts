@@ -80,6 +80,10 @@ export function controlPlaneCore(orchestrator: Orchestrator) {
       artifact: (id: string, artifactId: string) => orchestrator.artifact(id, artifactId),
     },
 
+    progress: {
+      read: (runId: string) => orchestrator.progress(runId),
+    },
+
     traces: {
       list: (runId: string, query: unknown) => orchestrator.traces(runId, query),
       detail: (runId: string, traceId: string) => orchestrator.trace(runId, traceId),

@@ -12,6 +12,7 @@ import { TESTING_ROUTE_INVENTORY } from "../src/routes/testing.js";
 import { INCREMENTAL_ROUTE_INVENTORY } from "../src/routes/incremental.js";
 import { WORKFLOW_ROUTE_INVENTORY } from "../src/routes/workflows.js";
 import { BATCH_ROUTE_INVENTORY } from "../src/routes/batches.js";
+import { PROGRESS_ROUTE_INVENTORY, registerProgressRoutes } from "../src/routes/progress.js";
 import { ROUTE_INVENTORY } from "../src/routes/inventory.js";
 import { HTTP_ROUTE_SCHEMAS } from "@arbitra/schemas/http-control-plane";
 
@@ -22,7 +23,7 @@ describe("localhost control plane contracts", () => {
     expect(server.routes.map(({ method, url }) => [method, url])).toEqual(ROUTE_INVENTORY);
     expect(server.listenOptions).toEqual({ host: "127.0.0.1", port: 4178 }); expect(DEFAULT_SERVER_HOST).toBe("127.0.0.1");
     expect(JSON.stringify(ROUTE_INVENTORY)).not.toMatch(/websocket|ws:/iu);
-    expect(Object.keys(HTTP_ROUTE_SCHEMAS).sort()).toEqual([...ROUTE_INVENTORY, ...EVALUATION_ROUTE_INVENTORY, ...TRACE_ROUTE_INVENTORY, ...REQUIREMENTS_ROUTE_INVENTORY, ...REPLAY_ROUTE_INVENTORY, ...TESTING_ROUTE_INVENTORY, ...WORKFLOW_ROUTE_INVENTORY, ...INCREMENTAL_ROUTE_INVENTORY, ...BATCH_ROUTE_INVENTORY].map(([method, url]) => `${method} ${url}`).sort());
+    expect(Object.keys(HTTP_ROUTE_SCHEMAS).sort()).toEqual([...ROUTE_INVENTORY, ...EVALUATION_ROUTE_INVENTORY, ...TRACE_ROUTE_INVENTORY, ...REQUIREMENTS_ROUTE_INVENTORY, ...REPLAY_ROUTE_INVENTORY, ...TESTING_ROUTE_INVENTORY, ...WORKFLOW_ROUTE_INVENTORY, ...INCREMENTAL_ROUTE_INVENTORY, ...BATCH_ROUTE_INVENTORY, ...PROGRESS_ROUTE_INVENTORY].map(([method, url]) => `${method} ${url}`).sort());
     expect(assertLoopbackHost("::1")).toBe("::1");
     expect(() => assertLoopbackHost("0.0.0.0")).toThrow("NON_LOOPBACK_SERVER_HOST");
     await expect(startServer(fakeServer(), core(), HTTP_ROUTE_SCHEMAS, { host: "localhost" })).rejects.toThrow("NON_LOOPBACK_SERVER_HOST");
@@ -62,6 +63,21 @@ describe("localhost control plane contracts", () => {
       service.configurations.list = async () => [{ value: secret }];
       await expect(invoke(server, "GET", "/configurations", {})).rejects.toThrow("HTTP_SECRET_EGRESS_BLOCKED");
     }
+  });
+
+  it("serves a run's progress read-only from the shared core, through the outbound secret guard", async () => {
+    const server = fakeServer(); const read: string[] = [];
+    let progress: unknown = { runId: "run-1", found: { items: [{ title: "Null value" }] } };
+    registerProgressRoutes(server, { read: async (id) => { read.push(id); return progress; } }, HTTP_ROUTE_SCHEMAS);
+    expect(server.routes.map(({ method, url }) => `${method} ${url}`)).toEqual(["GET /runs/:id/progress"]);
+    expect(await invoke(server, "GET", "/runs/:id/progress", { params: { id: "run-1" } })).toEqual(progress);
+    expect(read).toEqual(["run-1"]);
+    // A finding title is model text, so a credential in one never leaves the control plane.
+    progress = { found: { items: [{ title: "key sk-abcdefghijklmnop in config" }] } };
+    await expect(invoke(server, "GET", "/runs/:id/progress", { params: { id: "run-1" } })).rejects.toThrow("HTTP_SECRET_EGRESS_BLOCKED");
+    const app = buildServer({ ...core(), progress: { read: async (id) => ({ runId: id }) } });
+    try { expect((await app.inject({ method: "GET", url: "/runs/run-2/progress" })).json()).toEqual({ runId: "run-2" }); }
+    finally { await app.close(); }
   });
 
   it("applies the outbound secret guard to SSE frames", async () => {
