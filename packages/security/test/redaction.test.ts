@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { describe, expect, it } from "vitest";
 
 import { assembleRedactedContext, maskPrivateKeyBlocks, redactNamedValue, redactSecrets } from "../src/redaction.js";
@@ -126,6 +128,20 @@ describe("secret redaction", () => {
       const started = performance.now();
       redactSecrets(text);
       expect(performance.now() - started).toBeLessThan(2_000);
+    }
+  });
+
+  it("masks in time linear in the text on long runs of a name's characters", () => {
+    // A name's prefix was sought from every word boundary: 100 KB of `a-a-a-…` took 3.5 s to mask, and 1 MB 449 s.
+    const encoded = Array.from({ length: 12_000 }, (_, index) => createHash("sha256").update(String(index)).digest("base64url")).join("");
+    for (const run of ["a-".repeat(50_000), encoded]) for (const [text, masked] of [
+      [`${run} token=hunter2isNotSecret`, `${run} token=[REDACTED:assigned_secret]`],
+      [`${run}_token=hunter2isNotSecret`, `${run}_token=[REDACTED:assigned_secret]`],
+      [`${run}-token: short`, `${run}-token: short`],
+    ] as const) {
+      const started = performance.now();
+      expect(redactSecrets(text).text).toBe(masked);
+      expect(performance.now() - started).toBeLessThan(500);
     }
   });
 

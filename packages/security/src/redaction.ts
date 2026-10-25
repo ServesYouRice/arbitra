@@ -27,9 +27,24 @@ interface Detector {
   readonly secretGroup: number;
 }
 
+/** The word a name that holds a secret ends in. */
+const SECRET_WORD = "(?:api[_-]?key|secret(?:[_-]?access)?[_-]?key|secret|passw(?:or)?d|passphrase|token)";
 /** A name that holds a secret, with any prefix: `password`, `DB_PASSWORD`, `AWS_SECRET_ACCESS_KEY`, `clientSecret`. */
-const SECRET_NAME = "[A-Za-z0-9_-]*?(?:api[_-]?key|secret(?:[_-]?access)?[_-]?key|secret|passw(?:or)?d|passphrase|token)";
-const SECRET_FIELD = new RegExp(`^${SECRET_NAME}$`, "iu");
+const SECRET_FIELD = new RegExp(`^[A-Za-z0-9_-]*?${SECRET_WORD}$`, "iu");
+const NAME_CHARACTER = /[A-Za-z0-9_-]/iu;
+const WORD_BOUNDARY = /\b/giu;
+/**
+ * Where the name that ends in the word at `word` starts, as `\b[A-Za-z0-9_-]*?` tried from `from` on finds it: at the
+ * first word boundary after which only a name's characters lead to the word, or -1. The flags are the pattern's, so
+ * the class and `\b` read every character as the pattern did.
+ */
+function nameStart(text: string, word: number, from: number): number {
+  let start = word;
+  while (start > from && NAME_CHARACTER.test(text.charAt(start - 1))) start -= 1;
+  WORD_BOUNDARY.lastIndex = start;
+  const boundary = WORD_BOUNDARY.exec(text)?.index ?? -1;
+  return boundary <= word ? boundary : -1;
+}
 
 const DETECTORS: readonly Detector[] = [
   { kind: "aws_access_key", expression: /\b(AKIA[0-9A-Z]{16})\b/gud, secretGroup: 1 },
@@ -43,11 +58,14 @@ const DETECTORS: readonly Detector[] = [
     // was lost with it, and the stored artifact no longer parsed.
     // A name may carry a prefix (DB_PASSWORD, AWS_SECRET_ACCESS_KEY, clientSecret): `\b` alone fails inside a name
     // joined by "_", which is a word character (found by arbitra's audit of itself, October 19, 2026).
+    // The pattern finds the word a name ends in, and the name's start is sought back from it: a lazy prefix tried
+    // from every word boundary scanned a long run of a name's characters once per boundary, and 100 KB of `a-a-a-…`
+    // took 3.5 s to mask, 1 MB 449 s (found October 25, 2026).
     // A quote may be escaped: a prompt carries whole files as JSON strings, in which `password = "..."` reads
     // `password = \"...\"`, and such a secret reached the model unmasked (found October 25, 2026).
     // The pattern takes at most 256 characters of a value, so a value scanned again from its start costs a bounded
     // amount; a longer value that is masked is masked to its end.
-    expression: new RegExp(`\\b${SECRET_NAME}(?:\\\\*["'])?\\s*[:=]\\s*(?:\\\\*["'])?([^\\s"']{11,255}[^\\s"'\\\\])["']?`, "giud"),
+    expression: new RegExp(`${SECRET_WORD}(?:\\\\*["'])?\\s*[:=]\\s*(?:\\\\*["'])?([^\\s"']{11,255}[^\\s"'\\\\])["']?`, "giud"),
     secretGroup: 1,
   },
   {
@@ -123,12 +141,15 @@ export function redactSecrets(text: string): RedactionResult {
   const matches: Array<{ kind: SecretKind; start: number; end: number }> = [];
   for (const detector of DETECTORS) {
     const expression = new RegExp(detector.expression);
-    for (let match = expression.exec(text); match !== null; match = expression.exec(text)) {
+    for (let from = 0, match = expression.exec(text); match !== null; from = expression.lastIndex, match = expression.exec(text)) {
       const captured = match[detector.secretGroup];
       const start = match.indices?.[detector.secretGroup]?.[0];
       if (captured === undefined || start === undefined) continue;
       if (detector.kind !== "assigned_secret") { matches.push({ kind: detector.kind, start, end: start + captured.length }); continue; }
-      const inQuery = /[?&]/u.test(text.charAt(match.index - 1));
+      // A name starts at a word boundary at or after where this scan began; a word with none before it ends no name.
+      const name = nameStart(text, match.index, from);
+      if (name < 0) { expression.lastIndex = match.index + 1; continue; }
+      const inQuery = /[?&]/u.test(text.charAt(name - 1));
       const cut = cutAt(captured, inQuery);
       GOES_ON.lastIndex = start + cut;
       const longer = cut === captured.length && GOES_ON.test(text);
