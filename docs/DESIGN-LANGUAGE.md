@@ -127,9 +127,11 @@ A run page reads top to bottom:
   far`, then the parts read, the issues found and not checked yet, the tokens against the
   limit), the stages as boxes joined by lines, with stages that run side by side stacked and
   the lines into a running stage moving (still under `prefers-reduced-motion`), and what has
-  been found so far. When it stopped: what happened and what to do, in words. When it is
-  done: the plan first, with saving it into the project as the page's one primary action,
-  then what needs the person, the issues by verdict, and how it ran.
+  been found so far. When it stopped: what happened and what to do, in words: start again,
+  fix something on this computer and resume, resume now, or update arbitra and then resume.
+  When it is done: the plan first, with saving it into the project as the page's one primary
+  action, then what needs the person, the issues by verdict, and how it ran, which says
+  whether the plan was reviewed (also when Review the plan was off).
 - **Details panel.** Whatever is selected (a node, an issue, a plan step, a model attempt,
   an artifact), shown from the run's own records. It sits beside the tab, 360–440px, behind
   a 1px hairline, and exists only while something is selected. Below 1180px it is a modal

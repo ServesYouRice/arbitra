@@ -47,6 +47,43 @@ describe("the run page", () => {
     expect(main().textContent).not.toMatch(/COMPLETED|unresolved_issues|degraded_coverage|canonical issue/u);
   });
 
+  // Review the plan is a switch, off by default since October 25, 2026: a run without it showed nothing about a review.
+  it("says on a finished audit's Summary that its plan was not reviewed when Review the plan was off", async () => {
+    stubBrowser();
+    const unreviewed = Object.fromEntries(Object.entries(ARTIFACT_CONTENT).filter(([kind]) => kind !== "critic-feedback"));
+    stubControlPlane({ "GET /runs/run-1": resource(), "GET /runs/run-1/overview": modelOverview(), "GET /runs/run-1/progress": finishedProgress(), "GET /runs/run-1/metrics": metrics(),
+      "GET /handoff/runs/run-1": { saved: [] }, ...artifactRoutes("run-1", unreviewed) });
+    visit("?run=run-1");
+    render(<App />);
+    const ran = await screen.findByRole("region", { name: "How it ran" });
+    expect(fact(ran, "wrote the plan")).toBe("Opus 5.5 · high");
+    expect(fact(ran, "reviewed the plan")).toBe("no: Review the plan was off for this run");
+  });
+
+  it("says a review the run did not need did not happen, from the review's record, and names no reviewer", async () => {
+    stubBrowser();
+    const calls = stubControlPlane({ "GET /runs/run-1": resource({ workflow: BALANCED_WORKFLOW }), "GET /runs/run-1/overview": modelOverview(), "GET /runs/run-1/progress": finishedProgress(), "GET /runs/run-1/metrics": metrics(),
+      "GET /handoff/runs/run-1": { saved: [] }, ...artifactRoutes("run-1", { ...ARTIFACT_CONTENT,
+        "critic-result": { status: "not_required", requirement: { required: false, reasons: [] }, degradedReviewCoverage: false, criticCalls: 0, citedSourceLeftOut: [] },
+        "critic-feedback": { summary: "critic not_required", items: [] } }) });
+    visit("?run=run-1");
+    render(<App />);
+    const ran = await screen.findByRole("region", { name: "How it ran" });
+    await waitFor(() => expect(fact(ran, "reviewed the plan")).toBe("no: not needed for this run"));
+    expect(calls).toContain(`GET /runs/run-1/artifacts/${encodeURIComponent("artifact:critic-result")}`);
+  });
+
+  it("names the model that reviewed the plan and what it found", async () => {
+    stubBrowser();
+    stubControlPlane({ "GET /runs/run-1": resource({ workflow: BALANCED_WORKFLOW }), "GET /runs/run-1/overview": modelOverview(), "GET /runs/run-1/progress": finishedProgress(), "GET /runs/run-1/metrics": metrics(),
+      "GET /handoff/runs/run-1": { saved: [] }, ...artifactRoutes("run-1", { ...ARTIFACT_CONTENT,
+        "critic-result": { status: "completed", requirement: { required: true, reasons: ["switched_on"] }, degradedReviewCoverage: false, criticCalls: 1, citedSourceLeftOut: [] } }) });
+    visit("?run=run-1");
+    render(<App />);
+    const ran = await screen.findByRole("region", { name: "How it ran" });
+    await waitFor(() => expect(fact(ran, "reviewed the plan")).toBe("GPT-6.1 Sol · high · 1 objection"));
+  });
+
   it("saves the plan into the project on request, then says where it went and what to do next", async () => {
     stubBrowser();
     const saved: { directory: string; relative: string; savedAt: string }[] = [];
