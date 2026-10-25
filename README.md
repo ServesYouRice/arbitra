@@ -11,8 +11,8 @@ machine during a run is on one page: [privacy](docs/privacy.md).
 ## What it found on real projects
 
 The maintainer's own projects, October 2026, each a single run with Claude Opus 5.5, GPT-6.1 Sol and Gemini 3.8
-Flash, the last on the two-auditor default without Gemini. "Confirmed" means the verifier model found the defect in
-the source; lower-severity reports are listed but not checked.
+Flash, the last two on the two-auditor default without Gemini. "Confirmed" means the verifier model found the defect
+in the source; lower-severity reports are listed but not checked.
 
 | Project | Lines | Confirmed issues | Time | Tokens | Tokens per confirmed issue |
 |---|---|---|---|---|---|
@@ -21,6 +21,7 @@ the source; lower-severity reports are listed but not checked.
 | A comments service (commentanywhere) | 11,719 | 51 (1 critical, 7 high) | 40 min | 7.5M | 146K |
 | A screen-sharing app ([nextra](https://github.com/ServesYouRice/nextra)) | 38,967 | 126 (1 critical, 21 high) | 105 min | 26.8M | 213K |
 | A desktop automation app (Python and React) | 26,100 | 102 (10 high) | 71 min | 15.8M | 155K |
+| A server with mobile clients (Go, Dart, Rust) | 103,575 | 256 (36 high) | about 5 h 25 | 70.0M | 273K |
 
 The first two ran with a peer-review round between the auditors, which later versions leave out.
 
@@ -29,8 +30,8 @@ could get the host's operator rights) and for a high one (one malformed message 
 led to a test that failed on the unchanged code and passed after the fix
 ([nextra 2.1.6](https://github.com/ServesYouRice/nextra/commit/40a7e0a)). The other issues have not been carried out yet.
 
-**What it costs and what it is not:** a run can use a third of a Claude Max five-hour window, so start with a small
-project. A confirmed issue is a model's reading of the code, not a test, until a plan is carried out. Gemini is
+**What it costs and what it is not:** a project of 39,000 lines used about a third of a Claude Max five-hour window,
+and the largest above ran through more than one window, so start with a small project. A confirmed issue is a model's reading of the code, not a test, until a plan is carried out. Gemini is
 optional: Google's terms do not support driving its CLI from another application on consumer plans.
 
 Whether models from several vendors find defects one model misses is a question arbitra measures and publishes,
@@ -43,9 +44,13 @@ and guarded Testing execution**, alongside scripted Audit. Start with
 [`docs/setup.md`](docs/setup.md): it walks through model-backed templates for every mode,
 endpoint and role binding, and the preflight checks that run before any spend.
 
-- **Audit** runs independent discovery, bounded review, verification, planning and
-  criticism. It can reuse unchanged work from a prior run (`--incremental`) and can run
-  operator-authored workflow graphs saved from the web editor.
+- **Audit** runs independent discovery, merging of duplicates, verification of every issue
+  the plan acts on, and planning, at a depth (deep, balanced or cheap) that sets each step's
+  model and effort. A review round between the finders, a critic of the plan and a search for
+  variants of the confirmed issues are switches, off by default. The saved plan checks its
+  own premises before each task (`check-premises.mjs`). It can reuse unchanged work from a
+  prior run (`--incremental`) and can run operator-authored workflow graphs saved from the
+  web editor.
 - **Feature** runs durable requirements checkpoints, risk-directed review, planning and an
   exportable implementation handoff; see [`docs/workflows.md`](docs/workflows.md#feature-mode).
 - **Testing** plans from grounded risk analysis and, when explicitly authorized, executes in
@@ -77,8 +82,9 @@ work is [deferred](#deferred-to-a-later-phase-the-paid-api-bundle). See the
   projects were made harder until one Opus run missed defects, which favours a panel with other vendors in it. The
   held-out part (9 projects, 63 defects) has not been run
   ([completion plan](docs/completion-plan.md#p20--stress-test-the-premise-on-a-hard-benchmark)).
-- **Real projects:** the [table above](#what-it-found-on-real-projects). Across the four runs, issues only one model
-  found: Opus 88, Sol 47, Gemini 7, for Gemini's 1 to 2 million discovery tokens a run. Single runs are not a
+- **Real projects:** the [table above](#what-it-found-on-real-projects). Across the six runs, confirmed issues only
+  one model found: Opus 266, Sol 112, and Gemini 7 on the four runs it was in, for its 1 to 2 million discovery tokens
+  a run. Single runs are not a
   measurement of the vendors; every run's report and Evaluation tab show these numbers, so they add up across projects.
 
 "Confirmed" means a verifier model found the defect in the source. Proof by execution comes from carrying out the
@@ -126,14 +132,16 @@ interfaces call it — the CLI through `orchestratorCore`, the control plane thr
 ```bash
 pnpm build                                  # both entrypoints run from dist/
 
-node apps/cli/dist/src/bin.js audit --preset audit-three-finders --module packages/tools  # scripted detectors, no models (models: `run <config>`); --full: up to 400 source files
+node apps/cli/dist/src/bin.js audit --preset audit-three-finders --module packages/tools  # scripted detectors, no models (models: `run <config>`); --full: up to 1,000 source files
 node apps/server/dist/src/serve.js          # the app and its control plane on 127.0.0.1:4178
 pnpm --filter @arbitra/web dev              # for UI work: a dev server on 127.0.0.1:4173, proxied to the control plane
 ```
 
-With the control plane up, the UI opens on the list of runs. **New run** prepares a
-configuration from a template or a saved one, lists what the template leaves to fill in,
-checks it with the orchestrator's preflight and estimate, then saves and starts it.
+With the control plane up, the UI opens on the list of runs. **New run** is one page: the
+project, a card per depth with the model and effort of every step and a measured estimate,
+the steps with their switches and models, what to read, what goes into the plan, and the
+CLIs found on this computer, checked with the orchestrator's preflight as it is filled in.
+Other lineups (saved ones, API keys, Feature and Testing) are one choice away.
 **Workflows** is the graph editor. A run's page shows its state in words, what executed it
 (models, or scripted detectors that make no model call) and any decision it waits on, then
 the tabs its mode has: Summary (while it works, the stage it is in and for how long, what it
