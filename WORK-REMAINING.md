@@ -132,8 +132,10 @@ rounds; the repository field starts on the server's own folder; and depth means 
 ## Need design
 
 - **Depths and steps (owner's design, October 25; the first changes are building):** Gemini, when chosen, runs at
-  high at every depth and takes work that would otherwise spend Opus or Sol: the owner says many people have it at
-  little cost and unused, while Opus and Sol must be used sparingly. Deep, balanced and cheap differ only in models
+  high at every depth, since many people have it at little cost and unused while Opus and Sol must be used
+  sparingly, but only on optional work (the third finder, the variant search), never a core role: the owner does not
+  trust it with checking, merging or planning. Balanced and cheap send medium issues to Sonnet 5.5 · high and keep
+  Opus 5.5 · high for critical and high ones (owner, October 25). Deep, balanced and cheap differ only in models
   and efforts: deep has frontier models (Opus 5.5, GPT-6.1 Sol) at xhigh and high, balanced the same models at low and
   medium, cheap mid-tier models (Sonnet 5.5, OpenAI's mid tier) at about medium. Two or three finding models is a
   separate choice. Every step from finding issues to the planner is available at every depth and can be switched off;
