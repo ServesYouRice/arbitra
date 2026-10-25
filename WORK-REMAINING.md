@@ -9,8 +9,8 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
 
 ## State
 
-- **Releases:** v0.2.2 and `checkpoint-2` (October 24, 847878b) are the latest. Work continues on `main`;
-  [`TESTERS.md`](TESTERS.md) is the testers' guide.
+- **Releases:** v0.3.0 (October 25, 0468674: the Windows exe and the source zip) is the latest. Work continues on
+  `main`; [`TESTERS.md`](TESTERS.md) is the testers' guide.
 - **Default lineup:** New run starts on Claude Code and Codex (`subscription-audit`: two finders at depth deep, no
   peer-review round, plan critic off); balanced and cheap depths, a third finder and the critic are separate
   choices in New run (October 25). Gemini is only ever the opt-in third finder, labelled with Google's terms. The Feature templates still use Antigravity as
@@ -37,7 +37,7 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
 2. **Small builds before the next real runs** ("Need design", marked *before veritra*).
 3. **The next real runs:** veritra and nananananana, once their current development settles. Audit both on the current
    build, carry out one plan with the new export, and take the measurements under "Measure on the next runs".
-4. **UI phase**, on its own branch, alongside the veritra audit; the owner reviews it.
+4. **UI phase**: built on the `ui` branch, merged into `main` and released in 0.3.0; the owner's review goes on.
 5. **Improvements the measurements support** (the rest of "Need design").
 6. **P21**, the completion report and the docs reconciled with the final build, then a release.
 
