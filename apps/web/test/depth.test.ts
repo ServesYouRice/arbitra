@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { runConfigSchema } from "@arbitra/schemas/config.js";
 import { DEPTHS, findersOf, withDepth, withFinders, type Depth, type FinderCount } from "../src/pages/new-run/depth.js";
 import { getIn, type Draft } from "../src/pages/new-run/draft.js";
 import { TEMPLATES } from "../src/pages/new-run/templates.js";
@@ -72,11 +71,9 @@ describe("depth presets", () => {
     }
   });
 
-  it("writes configurations the schema accepts, each stage at a level its profile supports", () => {
+  it("asks every profile for a level it supports at every step (the examples gate runs full preflight on each)", () => {
     for (const depth of DEPTH_NAMES) for (const count of [2, 3] as FinderCount[]) {
       const config = withFinders(withDepth(template("subscription-audit"), depth), count);
-      const parsed = runConfigSchema.safeParse(config);
-      expect(parsed.error?.issues ?? [], `${depth} ${count}`).toEqual([]);
       const models = record(config["models"]);
       for (const [stage, value] of Object.entries(record(getIn(config, ["workflow", "modelExecution", "stageEffort"])))) {
         const levels = typeof value === "string" ? Object.keys(models).map((alias) => [alias, value] as const) : Object.entries(record(value));
