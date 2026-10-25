@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, readFile, rm, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -22,14 +22,41 @@ describe("ActivityJournal", () => {
         events.push("open");
         return {
           async write() { events.push("write"); },
+          async stat() { return { size: 0 }; },
           async sync() { events.push("fsync"); },
           async close() { events.push("close"); },
         };
       },
+      async truncate() { events.push("truncate"); },
     };
     const journal = new ActivityJournal("run/journal.jsonl", { fileSystem, fsyncPolicy: "always" });
     await journal.append({ t: "attempt_start", id: "a", attempt: 1 }, "expensive");
     expect(events).toEqual(["mkdir", "open", "write", "fsync", "close"]);
+  });
+
+  it.each(["write", "sync"] as const)("leaves nothing of an append whose %s fails, so a retry records it once", async (failing) => {
+    // A write that fails partway leaves a prefix of the record, and a sync that fails leaves all of it.
+    const directory = await makeTemporaryDirectory();
+    const path = join(directory, "journal.jsonl");
+    let fail = true;
+    const fileSystem: JournalFileSystem = {
+      mkdir: (target, options) => mkdir(target, options),
+      async open(target, flags) {
+        const handle = await open(target, flags);
+        return {
+          async write(data) { if (!fail || failing !== "write") return handle.write(data); await handle.write(data.subarray(0, 12)); throw Object.assign(new Error("ENOSPC: no space left on device, write"), { code: "ENOSPC" }); },
+          async sync() { if (fail && failing === "sync") throw Object.assign(new Error("EIO: i/o error, fsync"), { code: "EIO" }); await handle.sync(); },
+          stat: () => handle.stat(), close: () => handle.close(),
+        };
+      },
+      truncate: (target, length) => truncate(target, length),
+    };
+    const journal = new ActivityJournal(path, { fileSystem, fsyncPolicy: "always" });
+    const record: JournalRecord = { t: "attempt_start", id: "a", attempt: 1 };
+    await expect(journal.append(record)).rejects.toThrow(failing === "write" ? "ENOSPC" : "EIO");
+    fail = false;
+    await journal.append(record);
+    expect(await loadJournal(path)).toEqual({ records: [record], truncatedBytes: 0 });
   });
 });
 

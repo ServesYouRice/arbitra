@@ -5,20 +5,27 @@ import { describe, expect, it, vi } from "vitest";
 
 import { RunStore } from "../src/run-store.js";
 
-// While `failingWrites` is above zero, each write to an event log lands a prefix of the record and then fails, as a
-// write to a full disk can.
-const partial = vi.hoisted(() => ({ failingWrites: 0 }));
+// While `failingWrites` is above zero, each append to an event log fails: by default its write lands a prefix of the
+// record and then fails, as a write to a full disk can; with `failing` set to "sync", the whole record lands and the
+// sync after it fails.
+const partial = vi.hoisted(() => ({ failingWrites: 0, failing: "write" as "write" | "sync" }));
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
   const open = (async (...args: Parameters<typeof actual.open>) => {
     const handle = await actual.open(...args);
     if (partial.failingWrites === 0 || !String(args[0]).endsWith("events.jsonl")) return handle;
     partial.failingWrites -= 1;
+    const failing = partial.failing;
     const writeFile = async (data: string): Promise<void> => {
+      if (failing === "sync") return handle.writeFile(data);
       await handle.writeFile(data.slice(0, 12));
       throw Object.assign(new Error("ENOSPC: no space left on device, write"), { code: "ENOSPC" });
     };
-    return { writeFile, sync: () => handle.sync(), close: () => handle.close() } as unknown as typeof handle;
+    const sync = async (): Promise<void> => {
+      if (failing === "sync") throw Object.assign(new Error("EIO: i/o error, fsync"), { code: "EIO" });
+      return handle.sync();
+    };
+    return { writeFile, sync, stat: () => handle.stat(), close: () => handle.close() } as unknown as typeof handle;
   }) as typeof actual.open;
   return { ...actual, open };
 });
@@ -34,6 +41,20 @@ describe("run store paths", () => {
       await store.appendEvent({ t: "run_transition", runId: store.runId, state: "CANCELLED" });
       expect((await store.loadEvents()).map((event) => event.t === "run_transition" ? event.state : event.t)).toEqual(["CREATED", "CANCELLED"]);
     } finally { partial.failingWrites = 0; await rm(directory, { recursive: true, force: true }); }
+  });
+  it("records an event once when its append is retried after the record was written whole and its sync failed", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "arbitra-run-sync-"));
+    try {
+      const store = new RunStore(directory, "run-sync");
+      await store.appendEvent({ t: "run_transition", runId: store.runId, state: "CREATED" });
+      partial.failing = "sync"; partial.failingWrites = 1;
+      const event = { t: "run_transition", runId: store.runId, state: "DISCOVERY_RUNNING", at: "2026-10-25T12:00:00.000Z" } as const;
+      await expect(store.appendEvent(event, "expensive")).rejects.toThrow("EIO");
+      // The failed append left nothing behind for a reader, and the retry records the event once.
+      expect(await store.loadEvents()).toHaveLength(1);
+      await store.appendEvent(event, "expensive");
+      expect((await store.loadEvents()).map((recorded) => recorded.t === "run_transition" ? recorded.state : recorded.t)).toEqual(["CREATED", "DISCOVERY_RUNNING"]);
+    } finally { partial.failingWrites = 0; partial.failing = "write"; await rm(directory, { recursive: true, force: true }); }
   });
   it("recovers an incomplete event tail and redacts artifacts before writing them", async () => {
     const directory = await mkdtemp(join(tmpdir(), "arbitra-run-durable-"));

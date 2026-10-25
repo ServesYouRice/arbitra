@@ -73,6 +73,8 @@ export class RunStore {
   #indexWrites: Promise<unknown> = Promise.resolve();
   #eventWrites: Promise<unknown> = Promise.resolve();
   #eventsReady = false;
+  // The event log's length before an append that failed and could not be cut back at once; the next append cuts it.
+  #eventsUndo: number | null = null;
 
   constructor(rootDirectory: string, runId: string) {
     if (!RUN_ID_PATTERN.test(runId)) throw new TypeError("INVALID_RUN_ID");
@@ -120,18 +122,23 @@ export class RunStore {
     const event: RunEvent = given.at === undefined ? { ...given, at: new Date().toISOString() } : given;
     const write = this.#eventWrites.then(async () => {
       await mkdir(this.directory, { recursive: true });
+      if (this.#eventsUndo !== null) { await truncate(this.#events, this.#eventsUndo); this.#eventsUndo = null; }
       if (!this.#eventsReady) {
         const existing = await readOptional(this.#events);
         if (existing !== null && !existing.endsWith("\n")) await truncate(this.#events, Buffer.byteLength(existing.slice(0, existing.lastIndexOf("\n") + 1), "utf8"));
         this.#eventsReady = true;
       }
       const file = await open(this.#events, "a");
-      try { await file.writeFile(`${JSON.stringify(event)}\n`, "utf8"); if (durability === "expensive") await file.sync(); }
+      let start: number | undefined;
+      try { start = (await file.stat()).size; await file.writeFile(`${JSON.stringify(event)}\n`, "utf8"); if (durability === "expensive") await file.sync(); }
       catch (error) {
-        // A write that fails partway leaves a prefix of the record, so the next append trims the tail first. Appended
-        // onto it, the next record would make one malformed line that reads as committed (arbitra's audit of itself,
-        // October 19, 2026).
-        this.#eventsReady = false;
+        // A failed append is cut back to where it began, so the caller, told it failed, can retry it. A write that
+        // fails partway leaves a prefix of the record, onto which the next record would make one malformed line that
+        // reads as committed (arbitra's audit of itself, October 19, 2026); a sync that fails after a full write leaves
+        // the whole record, which a retry would record twice. The cut goes by path: Windows refuses to truncate through
+        // a handle opened to append. A cut that fails too is made before the next append.
+        const length = start;
+        if (length !== undefined) await truncate(this.#events, length).catch(() => { this.#eventsUndo = length; });
         throw error;
       } finally { await file.close(); }
     });
