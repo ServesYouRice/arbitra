@@ -9,7 +9,9 @@ export interface RequirementsCheckpointResource { readonly kind: "requirements";
 export interface PlanQuestionsCheckpointResource { readonly kind: "plan-questions"; readonly checkpointId: "plan-questions"; readonly version: string; readonly status: "pending" | "answered"; readonly questions: readonly { readonly id: string; readonly question: string; readonly blastRadius: string }[] }
 export type CheckpointResource = HumanCheckpointResource | RequirementsCheckpointResource | PlanQuestionsCheckpointResource;
 export interface RunResource { readonly runId: string; readonly state: string; readonly resumable: boolean; readonly checkpoints: readonly CheckpointResource[]; readonly eventsCursor?: string; readonly preservedArtifacts?: number; readonly workflow?: WorkflowJson; /** Present when the run executes a saved operator-authored graph. */ readonly workflowGraph?: { readonly id: string; readonly version: string; readonly executedVersion: string } }
-export interface EstimateResource { readonly estimate: { readonly files: number; readonly lines: number; readonly nodes: number; readonly auditors: number; readonly providerCalls: number | null; readonly costUsd: number | null; readonly currency: string | null; readonly basis: string }; readonly gate: string }
+export interface EstimateResource { readonly estimate: { readonly files: number; readonly lines: number; readonly nodes: number; readonly auditors: number; readonly providerCalls: number | null; readonly costUsd: number | null; readonly currency: string | null; readonly basis: string };
+  /** Files that look generated, vendored or minified, each with its reason: suggestions for the scope's leave-outs. */
+  readonly suggestedLeaveOut?: readonly { readonly path: string; readonly lines: number; readonly reason: string }[]; readonly gate: string }
 
 /** One run in the run list, as the orchestrator read it from the run's own records. */
 export interface RunListItem {

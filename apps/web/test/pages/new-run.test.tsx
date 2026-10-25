@@ -132,6 +132,27 @@ describe("the new-run page", () => {
     expect(await screen.findByText("the configuration changed after this check · check it again")).toBeTruthy();
   });
 
+  it("lists the files that look generated, and leaves them out in one click", async () => {
+    stubBrowser();
+    const bodies: { config: { scope: Record<string, unknown> } }[] = [];
+    const suggestedLeaveOut = [{ path: "mobile/lib/storage/db.g.dart", lines: 7227, reason: "its first lines say: // GENERATED CODE - DO NOT MODIFY BY HAND" },
+      { path: "mobile/lib/l10n/app_localizations.dart", lines: 3981, reason: "written by flutter gen-l10n, as mobile/l10n.yaml sets" }];
+    stubControlPlane({ ...BASE_ROUTES, "POST /preflight": ({ body }: { body: { config: { scope: Record<string, unknown> } } }) => { bodies.push(body); return { ...READY, estimate: { ...READY.estimate, suggestedLeaveOut } }; } });
+    visit("?page=new-run&from=template:subscription-audit");
+    render(<App />);
+    fireEvent.change(await screen.findByRole("textbox", { name: "excluded paths" }), { target: { value: "docs" } });
+    fireEvent.click(screen.getByRole("button", { name: "check configuration" }));
+    const result = await screen.findByRole("region", { name: "check result" });
+    expect(result.textContent).toContain("2 files · 11208 lines look generated, vendored or minified");
+    expect(within(within(result).getByRole("list", { name: "suggested leave-outs" })).getAllByRole("listitem").map(({ textContent }) => textContent))
+      .toEqual(["mobile/lib/storage/db.g.dart · 7227 lines · its first lines say: // GENERATED CODE - DO NOT MODIFY BY HAND", "mobile/lib/l10n/app_localizations.dart · 3981 lines · written by flutter gen-l10n, as mobile/l10n.yaml sets"]);
+    fireEvent.click(within(result).getByRole("button", { name: "leave them out" }));
+    expect((screen.getByRole("textbox", { name: "excluded paths" }) as HTMLTextAreaElement).value).toBe("docs\nmobile/lib/storage/db.g.dart\nmobile/lib/l10n/app_localizations.dart");
+    expect(await screen.findByText("the configuration changed after this check · check it again")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "check configuration" }));
+    await waitFor(() => expect(bodies.at(-1)?.config.scope["exclude"]).toEqual(["docs", "mobile/lib/storage/db.g.dart", "mobile/lib/l10n/app_localizations.dart"]));
+  });
+
   it("re-asks a rejected merged issue place by place only across files unless told to ask at every place", async () => {
     // Observed (P20 pilot): re-asking every place took 10 to 16% of a panel's tokens and confirmed 7 of 50, none a planted defect.
     stubBrowser();

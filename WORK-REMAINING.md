@@ -62,8 +62,8 @@ From the research review; each decides a cut or a build.
 
 - **The plan critic, scored ([real-project runs](docs/qa/real-runs.md#the-plan-critic-scored-october-25)):** 18 of 20
   items real, 1 of 21 plan errors execution met, and the revision wrote errors of its own, for 11.5 to 17% of a run.
-  For the owner to decide: drop the critic and revision from the default and keep them as an option. The spec makes
-  the critic mandatory for deep audits and critical or high security issues (§3.7, §20.6).
+  Decided (owner, October 25): off by default and an option at every depth, built with "Depths and steps" below,
+  although the spec makes the critic mandatory for deep audits and critical or high security issues (§3.7, §20.6).
 - **Test the rejections by running code, once:** an agent tries to write a failing test for nextra's 13 severe and 10
   random medium rejections (about 2.8M tokens). None real: drop the second opinion before rejecting a severe issue (it
   agreed 20 of 22 times). Two or more real: build the execution rung.
@@ -128,6 +128,14 @@ rounds; the repository field starts on the server's own folder; and depth means 
 
 ## Need design
 
+- **Depths and steps (owner's design, October 25; research running):** deep, balanced and cheap differ only in models
+  and efforts: deep has frontier models (Opus 5.5, GPT-6.1 Sol) at xhigh and high, balanced the same models at low and
+  medium, cheap mid-tier models (Sonnet 5.5, OpenAI's mid tier) at about medium. Two or three finding models is a
+  separate choice. Every step from finding issues to the planner is available at every depth and can be switched off;
+  a step is recommended off only where the runs showed its value is weak (the plan critic). Examples: deep with Opus
+  and Sol only, balanced with all three models and every step. The defaults are then set from measured runs on a
+  project smaller than veritra, with strong models at low and medium effort among them (this also answers the
+  cheaper-checks item below). Replaces today's depth-as-effort, against spec §16.4.
 - **Let discovery read across its unit** (*before veritra*): tools may read the whole snapshot, every unit gets a file
   and symbol index, and the prompt says to read the caller, callee or other side. Only 8 of nextra's 97 discovery calls
   used a tool; 52 limitations say a caller was "not supplied".
@@ -144,14 +152,15 @@ rounds; the repository field starts on the server's own folder; and depth means 
   and `linguist-vendored`, `vendor/` and `third_party/`, and generator settings (`l10n.yaml`'s output), as
   suggestions for the scope, never applied silently.
 - **Re-audit only what changed:** a later run on the same project audits the diff since the last run and the files
-  that import it, and carries forward the issues still present. Builds on "Memory across runs".
+  that import it, and carries forward the issues still present. Builds on "Memory across runs". Owner: wanted, later.
 - **Boundary units from a channel map:** socket events, routes and fetch paths, WHIP/WHEP and environment keys found
   without a model; one unit per channel with both sides' handlers. First check, free: does the map join the files of
   nextra's four client–server misses.
 - **Severity from stated preconditions** (reachability, the login or action needed, the impact), mapped by code and
   answered again by the verifier, so the plan's scope uses a verified level. Severity is the weakest step today.
 - **Hand the verifier its context:** callers, definitions and imports up front, file reads reused across questions on
-  one file (a question costs about 74K input tokens for under 1K of output).
+  one file (a question costs about 74K input tokens for under 1K of output). Owner: measure it later on a project
+  smaller than veritra.
 - **Review each fix from another vendor:** root cause or guard, a variant the test misses, a new defect.
 - **Memory across runs:** stable issue fingerprints, disproved claims as prior evidence, fixed issues found again
   marked reopened.
