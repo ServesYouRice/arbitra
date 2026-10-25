@@ -1,5 +1,5 @@
-import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { existsSync, type Dirent } from "node:fs";
+import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { deriveEnvelope, intersectScope, isTestFile, type Envelope } from "@arbitra/security/envelope";
 import { isPlannable } from "@arbitra/workflow/nodes/canonical-issues.js";
@@ -182,6 +182,29 @@ export async function exportPlan(orchestrator: Orchestrator, runId: string): Pro
     await writeFile(join(directory, path), content, { encoding: "utf8", flag: "wx" });
   }
   return { directory, files: [...files.keys()].map((path) => relative(overview.repository ?? "", join(directory, path))) };
+}
+
+/** One folder a run's plan was saved to: where, as a path in the project, and when it was last written. */
+export interface SavedPlan { readonly directory: string; readonly relative: string; readonly savedAt: string }
+
+/**
+ * The folders this run's plan was saved to in its project, newest first, read from the project itself: saving again
+ * writes a new folder beside the earlier one (`-2`, `-3`), and a folder someone deleted is no longer listed. The run
+ * page reads this so a saved plan reads as saved after a reload. Nothing is written.
+ */
+export async function savedPlans(orchestrator: Pick<Orchestrator, "overview">, runId: string): Promise<{ readonly saved: readonly SavedPlan[] }> {
+  const { repository } = await orchestrator.overview(runId);
+  if (repository === null) return { saved: [] };
+  const plans = join(repository, ".arbitra", "plans");
+  const name = new RegExp(`^\\d{4}-\\d{2}-\\d{2}-${runId.replace(/^run-/u, "").slice(0, 8).replace(/[^A-Za-z0-9]/gu, "")}(?:-\\d+)?$`, "u");
+  let entries: readonly Dirent[];
+  try { entries = await readdir(plans, { withFileTypes: true }); }
+  catch { return { saved: [] }; }
+  const saved = await Promise.all(entries.filter((entry) => entry.isDirectory() && name.test(entry.name)).map(async (entry): Promise<SavedPlan> => {
+    const directory = join(plans, entry.name);
+    return { directory, relative: relative(repository, directory).replaceAll("\\", "/"), savedAt: (await stat(directory)).mtime.toISOString() };
+  }));
+  return { saved: saved.sort((a, b) => b.savedAt.localeCompare(a.savedAt) || b.directory.localeCompare(a.directory)) };
 }
 
 /** Instructions for a coding agent working through the folder, after Anthropic's guidance for agentic work: one task at a time, verify before moving on, keep state in a file. */

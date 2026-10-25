@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { SHARED_WRITE_ORDER_NOTE } from "@arbitra/workflow/nodes/planner/traceability.js";
 import { expect, it } from "vitest";
 import type { Orchestrator } from "../src/orchestrator.js";
-import { exportPlan } from "../src/plan-export.js";
+import { exportPlan, savedPlans } from "../src/plan-export.js";
 import { planResults } from "../src/plan-results.js";
 
 const task = (id: string, capability: "frontier" | "balanced" | "fast", dependsOn: string[] = []) => ({
@@ -242,5 +242,27 @@ it("gives each prompt the files its issues' modules allow, never the plan's own 
     const feature = await exportPlan(orchestrator, "run-12345678-abcd");
     expect(await readFile(join(feature.directory, "prompts", "1-strong-model", "01-TASK-1.md"), "utf8")).not.toContain("<write_scope>");
     expect(await readFile(join(feature.directory, "AGENTS.md"), "utf8")).not.toContain("write_scope");
+  } finally { await rm(repository, { recursive: true, force: true }); }
+});
+
+it("lists the folders a run's plan was saved to, newest first, and none for a run never saved", async () => {
+  const repository = await mkdtemp(join(tmpdir(), "arbitra-plan-saved-"));
+  try {
+    const content = { "plan-ir": { title: "Plan", tasks: [task("TASK-1", "frontier")], unresolvedQuestions: [] }, "canonical-issues": { issues: [{ candidateId: "C-1", severity: "high", disposition: "accepted", claim: { title: "A defect", description: "It breaks." } }] } };
+    const orchestrator = {
+      overview: async () => ({ repository, workflowId: "audit-deep" }), repositoryMatches: async () => true, modules: async () => [],
+      artifacts: async () => Object.keys(content).map((kind) => ({ kind, artifactId: kind })),
+      artifact: async (_runId: string, id: keyof typeof content) => ({ content: JSON.stringify(content[id]) }),
+    } as unknown as Orchestrator;
+    expect(await savedPlans(orchestrator, "run-12345678-abcd")).toEqual({ saved: [] });
+    const first = await exportPlan(orchestrator, "run-12345678-abcd");
+    const second = await exportPlan(orchestrator, "run-12345678-abcd");
+    // Another run's plan in the same project is not this run's.
+    await exportPlan(orchestrator, "run-87654321-abcd");
+    const { saved } = await savedPlans(orchestrator, "run-12345678-abcd");
+    expect(new Set(saved.map(({ directory }) => directory))).toEqual(new Set([first.directory, second.directory]));
+    expect(saved.every(({ relative }) => /^\.arbitra\/plans\/\d{4}-\d{2}-\d{2}-12345678(-2)?$/u.test(relative))).toBe(true);
+    expect(saved.map(({ savedAt }) => savedAt)).toEqual(saved.map(({ savedAt }) => savedAt).sort().reverse());
+    expect(await savedPlans({ overview: async () => ({ repository: null }) } as unknown as Orchestrator, "run-12345678-abcd")).toEqual({ saved: [] });
   } finally { await rm(repository, { recursive: true, force: true }); }
 });
