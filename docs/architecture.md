@@ -223,7 +223,7 @@ single-file app). It reads its settings from the environment:
 | `ARBITRA_PORT` | `4178` | Port, 1 to 65535 |
 | `ARBITRA_REPOSITORY` | the working directory | Repository a run reads when it names none; run state goes in its `.runs/` |
 | `ARBITRA_WEB_DIST` | `apps/web/dist` | Web build to serve if its `index.html` exists; empty serves none |
-| `ARBITRA_BUILD` | the short Git commit, else `tooling/launch/build-id` | Build named in the diagnostics |
+| `ARBITRA_BUILD` | the short Git commit, else `tooling/launch/build-id` | Build named in the diagnostics and recorded with each run it starts |
 
 It also registers four routes directly. They have no schema entry and do not pass
 `assertNoSecretEgress`; the loopback check and the error handler still apply.

@@ -1,4 +1,6 @@
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { probeCliReadiness, type CliProbe } from "@arbitra/providers/transports/cli/probe.js";
 import { CLI_TRANSPORT_SUPPORT } from "@arbitra/providers/transports/cli/support.js";
 
@@ -31,6 +33,21 @@ export interface DetectedEnvironment {
   readonly clis: readonly DetectedCli[];
   /** Which API keys are set in arbitra's environment; never their values. */
   readonly apiKeys: Readonly<Record<string, boolean>>;
+}
+
+/**
+ * The arbitra build this process runs, as the diagnostics and a run's recorded versions name it: ARBITRA_BUILD (the
+ * single-file app names its release there), else the short Git commit of the checkout at `root`, else the commit Git
+ * wrote into tooling/launch/build-id when it made a download's archive. Null when none of them says.
+ */
+export function arbitraBuild(root: string): string | null {
+  const named = process.env["ARBITRA_BUILD"];
+  if (named !== undefined) return named;
+  try { return execFileSync("git", ["-C", root, "rev-parse", "--short", "HEAD"], { encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "ignore"] }).trim(); }
+  catch {
+    try { const id = readFileSync(join(root, "tooling", "launch", "build-id"), "utf8").trim(); return id.startsWith("$Format") ? null : `${id}, from a download`; }
+    catch { return null; }
+  }
 }
 
 export type ModelLister = (transport: string, executable: string) => Promise<readonly { readonly id: string; readonly name: string }[] | null>;

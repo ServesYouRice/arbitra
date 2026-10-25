@@ -201,6 +201,20 @@ describe("the run page", () => {
     expect(screen.queryByRole("button", { name: "Resume" })).toBeNull();
   });
 
+  it("says plainly that a resume cannot reuse work an earlier version recorded, names the version the run started on, and offers no resume", async () => {
+    // Observed live (veritra, October 25): after a code change, the resume failed with the bare code MODEL_ACTIVITY_INPUT_CHANGED.
+    stubBrowser();
+    const reason = "ModelActivityInputChangedError: MODEL_ACTIVITY_INPUT_CHANGED:critic/review/797dd4a3c05400e1756dbd7b/turn-0: the request this version of arbitra makes for critic/review/797dd4a3c05400e1756dbd7b/turn-0 differs from the one the run recorded, so the run cannot reuse that work. Resume it with the arbitra version it started on, \"45ed1d2 (2026-10-24), from a download\", or start a new run.";
+    stubControlPlane({ "GET /runs/run-1": resource({ state: "FAILED", resumable: true }), "GET /runs/run-1/overview": overview({ state: "FAILED", reason, gate: null }), "GET /runs/run-1/progress": finishedProgress({ state: "FAILED" }), ...artifactRoutes("run-1", {}) });
+    visit("?run=run-1");
+    render(<App />);
+    const failed = await screen.findByRole("region", { name: "The run failed" });
+    expect(within(failed).getByText("This version of arbitra asks for the work of reviewing the plan differently from the version the run started on, so it cannot reuse what the run recorded there.")).toBeTruthy();
+    expect(within(failed).getByText("It started on arbitra 45ed1d2 (2026-10-24), from a download. Resume it with that version, or start a new run. Resuming it with this version would stop the same way.")).toBeTruthy();
+    expect(within(failed).getByText(reason).closest("details")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Resume" })).toBeNull();
+  });
+
   it("offers resume for a failure that resuming can help, and keeps the error one click down", async () => {
     stubBrowser();
     const calls = stubControlPlane({ "GET /runs/run-1": resource({ state: "FAILED", resumable: true }), "GET /runs/run-1/overview": overview({ state: "FAILED", reason: "ProviderInvocationFailure: Provider openai failed after 3 attempts (TIMEOUT: Provider stage timed out after 900000ms)", gate: null }),

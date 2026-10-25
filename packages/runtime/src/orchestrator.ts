@@ -89,6 +89,11 @@ export interface OrchestratorOptions {
   readonly gatePolicies?: GatePolicyRegistry;
   /** The clock recorded on saved workflow graph versions (ISO-8601). */
   readonly now?: () => string;
+  /**
+   * The arbitra build this process runs (`arbitraBuild`). Each run records the build it starts on with its environment
+   * versions, so a resume on another build that cannot reuse the run's recorded work names the one to resume it with.
+   */
+  readonly build?: string;
 }
 
 export interface PreflightReport {
@@ -183,8 +188,10 @@ export class Orchestrator {
   readonly #gatePolicies: GatePolicyRegistry;
   /** What the progress read takes from each artifact, by run and artifact ID; artifacts never change once written. */
   readonly #digests = new Map<string, ArtifactDigest>();
+  readonly #build: string | undefined;
 
   constructor(options: OrchestratorOptions = {}) {
+    this.#build = options.build;
     this.repository = resolve(options.repository ?? process.cwd());
     const state = resolve(options.stateDirectory ?? resolve(this.repository, ".runs"));
     this.#runsDirectory = resolve(state, "runs");
@@ -323,7 +330,7 @@ export class Orchestrator {
     await store.saveContext(storedContext);
     if (identity !== undefined) await store.publish(SNAPSHOT_IDENTITY_KIND, identity);
     if (contract !== undefined) await store.publish(INCREMENTAL_CONTRACT_KIND, contract);
-    if (cliVersions.size > 0) await store.publish(ENVIRONMENT_VERSIONS_KIND, { cli: Object.fromEntries(cliVersions) });
+    await this.#recordVersions(store, cliVersions);
     // Plans name the project's own test and check commands; they are read once, with the snapshot.
     if (modelConfiguration !== undefined && (validated.mode === "audit" || validated.mode === "feature")) await store.publish(PROJECT_COMMANDS_KIND, { commands: await projectCommands(snapshot) });
     const units: AuditUnitOptions | undefined = identity === undefined ? undefined : { identity, ...(contract === undefined || base === undefined ? {} : { seed: new IncrementalSeed(base.store, store, contract) }) };
@@ -433,7 +440,8 @@ export class Orchestrator {
     }
     const { graph } = await this.#assertRunnable(config);
     // Regenerated stages dispatch models and may run checks: same environment gate as `start`.
-    const environment = await environmentDiagnostics(config, { ...this.#environmentOptions(), includeWarnings: false });
+    const cliVersions = new Map<string, string | null>();
+    const environment = await environmentDiagnostics(config, { ...this.#environmentOptions(), includeWarnings: false, cliVersions });
     if (environment.some(({ severity }) => severity === "error")) throw new PreflightError(environment);
     const checkpointPolicy = checkpointPolicyOf(config);
     const snapshot = await snapshotRepository(original.repository, SNAPSHOT_FILE_LIMIT, { scope: config.scope, ...testingSnapshotOptions(config) });
@@ -455,6 +463,7 @@ export class Orchestrator {
     const store = new RunStore(this.#runsDirectory, runId);
     await store.saveContext({ repository: original.repository, repositoryDigest, scope: config.scope, replaySourceRunId: sourceRunId, consensusPolicy: config.consensusPolicy,
       maximumRounds: config.maxConsensusRounds, criticEnabled: graph.nodes.some(({ id }) => id === "critic"), modelConfiguration: config, ...(checkpointPolicy === undefined ? {} : { checkpointPolicy }) });
+    await this.#recordVersions(store, cliVersions);
     // Pin the exact protocol bytes the decisions were made against into the new run.
     const protocols = new ModelProtocols(store, config.protocols);
     for (const [id, pin] of targetPins) {
@@ -496,6 +505,7 @@ export class Orchestrator {
     if (runId === sourceRunId) throw new Error("REPLAY_MUST_CREATE_NEW_RUN");
     const store = new RunStore(this.#runsDirectory, runId);
     await store.saveContext({ ...original, replaySourceRunId: sourceRunId, consensusPolicy: overrides.consensusPolicy, maximumRounds: overrides.maximumRounds, criticEnabled: overrides.criticEnabled });
+    await this.#recordVersions(store, new Map());
     await store.publish("replay-source", { sourceRunId, overrides, ...(changes.configuration === undefined ? {} : { configurationReplaced: true }), ...(changes.repository === undefined ? {} : { repository }), reusedArtifacts: (await source.listArtifacts()).filter(({ kind }) => auditors.some(({ auditorId }) => kind === `findings-${auditorId}`)).map(({ artifactId, ref }) => ({ artifactId, hash: ref.hash })) });
     if (original.modelConfiguration !== undefined) {
       for (const artifact of (await source.listArtifacts()).filter(({ kind }) => kind.startsWith("model-protocol-"))) {
@@ -594,6 +604,14 @@ export class Orchestrator {
     const handle = runner.resume(runId);
     this.#track(runId, handle, close);
     return Object.freeze({ runId, state: handle.state, resumable: true, checkpoints: Object.freeze([]), preservedArtifacts: (await store.listArtifacts()).length });
+  }
+
+  /**
+   * The versions a run starts on: arbitra's build and each subscription CLI's. A resume on another build whose recorded
+   * model work it would ask for differently names the build from here (`ModelActivityInputChangedError`).
+   */
+  async #recordVersions(store: RunStore, cli: ReadonlyMap<string, string | null>): Promise<void> {
+    if (cli.size > 0 || this.#build !== undefined) await store.publish(ENVIRONMENT_VERSIONS_KIND, { ...(this.#build === undefined ? {} : { arbitra: this.#build }), cli: Object.fromEntries(cli) });
   }
 
   /**

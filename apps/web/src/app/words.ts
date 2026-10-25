@@ -78,6 +78,15 @@ export function checkMethodWords(method: string | null): string | null { return 
 /** What came of an issue the executing agent worked on, as recorded in results.json. */
 export const RESULT_WORDS: Readonly<Record<string, string>> = Object.freeze({ fixed: "Fixed", no_change_needed: "No change needed", not_reproducible: "Not reproducible", blocked: "Blocked" });
 
+/** The step a model activity belongs to, as the run is doing it, from the stage its ID starts with: "reviewing the plan". */
+function activityStep(activityId: string): string {
+  const stage = activityId.split("/")[0] ?? "";
+  if (stage.startsWith("auditor-")) return "finding issues";
+  const steps: Readonly<Record<string, string>> = { "peer-review": "merging duplicates", "peer-conflict": "merging duplicates", "semantic-clustering": "merging duplicates",
+    verification: "checking each issue", "variant-search": "searching for variants", planner: "writing the plan", critic: "reviewing the plan", "critique-check": "reviewing the plan" };
+  return steps[stage] ?? stage;
+}
+
 /** What a failure means for the person: what happened, what to do, and whether resuming can help. */
 export interface FailureWords { readonly what: string; readonly todo: string; readonly resumable: boolean }
 
@@ -91,6 +100,13 @@ export function failureWords(reason: string | null): FailureWords {
   const files = /REPOSITORY_FILE_LIMIT_EXCEEDED:(\d+)/u.exec(text);
   if (files !== null) return { what: `The project has more than ${Number(files[1]).toLocaleString("en")} source files, more than one run reads.`, todo: "Start a new audit that reads some folders of the project, or leaves some out. Resuming this run would stop the same way.", resumable: false };
   if (/RUN_REPOSITORY_CHANGED/u.test(text)) return { what: "The project's files changed after the run read them, so the run cannot go on from where it stopped.", todo: "Put the files back as they were to resume, or start a new audit of the project as it is now.", resumable: false };
+  // Observed live (veritra, October 25, 2026): after a code change, a resume refused every recorded critic batch.
+  const changed = /MODEL_ACTIVITY_INPUT_CHANGED:([^\s:]+)/u.exec(text);
+  if (changed !== null) {
+    const startedOn = /version it started on, "((?:[^"\\]|\\.)*)"/u.exec(text)?.[1];
+    return { what: `This version of arbitra asks for the work of ${activityStep(changed[1] ?? "")} differently from the version the run started on, so it cannot reuse what the run recorded there.`,
+      todo: `${startedOn === undefined ? "Resume it with the arbitra version it started on" : `It started on arbitra ${startedOn}. Resume it with that version`}, or start a new run. Resuming it with this version would stop the same way.`, resumable: false };
+  }
   if (/MODEL_IDENTITY_PLACEHOLDER/u.test(text)) return { what: "A model in the lineup is a placeholder, not a model this machine can run.", todo: "Start a new audit with a model chosen for each step.", resumable: false };
   if (/PROVIDER_CREDENTIAL_MISSING/u.test(text)) return { what: "A model's API key is not set on this machine.", todo: "Set the key, restart arbitra, then resume the run.", resumable: true };
   if (/ProviderUsageLimitError|usage limit|usage allowance/iu.test(text)) return { what: "A model's usage limit was reached.", todo: "Resume the run once the limit has reset. Everything it has done is kept.", resumable: true };

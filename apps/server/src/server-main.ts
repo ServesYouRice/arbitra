@@ -1,8 +1,7 @@
 import { Orchestrator } from "@arbitra/runtime/orchestrator.js";
 import { controlPlaneCore } from "@arbitra/runtime/control-plane-core.js";
-import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { detectEnvironment, type DetectedEnvironment } from "@arbitra/runtime/environment.js";
+import { existsSync } from "node:fs";
+import { arbitraBuild, detectEnvironment, type DetectedEnvironment } from "@arbitra/runtime/environment.js";
 import { pickFolder } from "./folder-picker.js";
 import { registerHandoffRoutes } from "./handoff.js";
 import { runReport } from "@arbitra/runtime/run-report.js";
@@ -24,23 +23,20 @@ export async function serve(): Promise<{ readonly url: string }> {
   const port = Number(process.env["ARBITRA_PORT"] ?? DEFAULT_SERVER_PORT);
   if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) throw new RangeError(`INVALID_SERVER_PORT:${process.env["ARBITRA_PORT"]}`);
 
-  const orchestrator = new Orchestrator({ repository: process.env["ARBITRA_REPOSITORY"] ?? process.cwd() });
+  const here = (): string => dirname(fileURLToPath(import.meta.url));
+  // The build this server runs, named in the diagnostics and the run report, and recorded with each run it starts, so a
+  // resume on another build that cannot reuse the run's work can say which one it started on.
+  const recorded = arbitraBuild(join(here(), "..", "..", "..", ".."));
+  const build = recorded ?? "unknown";
+  const orchestrator = new Orchestrator({ repository: process.env["ARBITRA_REPOSITORY"] ?? process.cwd(), ...(recorded === null ? {} : { build: recorded }) });
   const app = buildServer(controlPlaneCore(orchestrator));
   // The built web app is served from the same address when it exists (`pnpm build` makes it); ARBITRA_WEB_DIST names
   // another build, and an empty value leaves the control plane alone, as for the Vite dev server.
-  const here = (): string => dirname(fileURLToPath(import.meta.url));
   const webRoot = resolve(process.env["ARBITRA_WEB_DIST"] ?? join(here(), "..", "..", "..", "web", "dist"));
   const withWeb = process.env["ARBITRA_WEB_DIST"] !== "" && existsSync(join(webRoot, "index.html"));
   if (withWeb) serveWebApp(app, webRoot);
 
   // What a tester's machine can run, and a run's plain-text report to copy and send (see packages/runtime).
-  // A zip download has no Git history; Git wrote the commit into tooling/launch/build-id when it made the archive.
-  // The single-file app names its build in ARBITRA_BUILD.
-  const archived = (root: string): string => { try { const id = readFileSync(join(root, "tooling", "launch", "build-id"), "utf8").trim(); return id.startsWith("$Format") ? "unknown" : `${id}, from a download`; } catch { return "unknown"; } };
-  const build = process.env["ARBITRA_BUILD"] ?? (() => {
-    const root = join(here(), "..", "..", "..", "..");
-    try { return execFileSync("git", ["-C", root, "rev-parse", "--short", "HEAD"], { encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { return archived(root); }
-  })();
   let environment: Promise<DetectedEnvironment> = detectEnvironment();
   app.get<{ Querystring: { refresh?: string } }>("/diagnostics/environment", async (request) => {
     if (request.query.refresh === "1") environment = detectEnvironment();

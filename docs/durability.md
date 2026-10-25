@@ -111,7 +111,11 @@ resumed half would not be comparable to the first:
   token limit, the redacted messages, effort, response mode, tools, harness identity, source
   paths and any explicit output ceiling or advisor (`packages/runtime/src/model-activities.ts`).
   A resumed activity whose request no longer matches fails with `MODEL_ACTIVITY_INPUT_CHANGED`
-  instead of reusing an answer to a different request or paying for a second one.
+  instead of reusing an answer to a different request or paying for a second one. On a resume
+  this means the build changed: the failure names the activity and says to resume with the
+  arbitra version the run started on, or start a new run. Each run records that version
+  (`arbitra` in `environment-versions`, from `ARBITRA_BUILD` or the checkout's commit), and
+  the message names it; the run page says the same in words and offers no resume.
 
 ## Checkpoints
 

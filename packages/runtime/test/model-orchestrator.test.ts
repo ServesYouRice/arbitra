@@ -9,6 +9,7 @@ import { BUILTIN_TRANSPORT_FACTORIES, type TransportFactory, type TransportFacto
 import { Orchestrator } from "../src/orchestrator.js";
 import { controlPlaneCore } from "../src/control-plane-core.js";
 import { orchestratorCore } from "../src/cli-core.js";
+import { ModelActivities, type ModelActivityRequest } from "../src/model-activities.js";
 import { taskOutline } from "../src/planner-context.js";
 import type { PlannerBrief, PlannerTaskOutline } from "@arbitra/schemas/planner-composition.js";
 import type { TestSandbox } from "../src/test-sandbox.js";
@@ -280,7 +281,7 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
       : { output_text: text, usage: { input_tokens: 10, output_tokens: 20 } };
     return { status: 200, headers: {}, body: response };
   };
-  const create = (testSandbox?: TestSandbox, providerOptions: TransportFactoryOptions & { readonly factories?: Readonly<Record<string, TransportFactory>> } = {}) => new Orchestrator({ repository: directory, stateDirectory: join(directory, ".runs"), providerOptions: { client: { send }, credential: () => "fixture-credential", ...providerOptions }, ...(testSandbox === undefined ? {} : { testSandbox }) });
+  const create = (testSandbox?: TestSandbox, providerOptions: TransportFactoryOptions & { readonly factories?: Readonly<Record<string, TransportFactory>> } = {}, build?: string) => new Orchestrator({ repository: directory, stateDirectory: join(directory, ".runs"), providerOptions: { client: { send }, credential: () => "fixture-credential", ...providerOptions }, ...(testSandbox === undefined ? {} : { testSandbox }), ...(build === undefined ? {} : { build }) });
   return { directory, create, config, requests, verificationInputs, plannerContexts, plannerReads, reviewInputs, packedChecks, criticIssueIds, verificationFlight, mergedListedPair: () => mergedListedPair, failRevisionPatch: (value: boolean) => { failRevisionPatch = value; }, failExpansion: (value: boolean) => { failExpansion = value; }, failCritic: (value: boolean) => { failCritic = value; }, quotaCritic: (until: string) => { quotaUntil = until; }, failVerification: (value: boolean) => { failVerification = value; }, blockDiscovery: (callback: () => void) => { blockDiscovery = callback; } };
 }
 
@@ -1025,6 +1026,31 @@ describe("composed model audits", () => {
     expect((await resumed.wait(result.runId)).state).toBe("COMPLETED");
     expect(fixture_.requests.filter(({ stage }) => stage === "discovery")).toHaveLength(3);
     expect(fixture_.requests.filter(({ stage }) => stage !== "verification")).toHaveLength(completedCalls + 2);
+  });
+
+  it("fails a resume whose recorded model work this build would ask for differently with the activity, the build it started on and what to do", async () => {
+    // Observed live (veritra, October 25): after a code change that altered one sentence every critic batch carries, the
+    // resume refused every recorded batch, and the run's reason was the bare code MODEL_ACTIVITY_INPUT_CHANGED.
+    const fixture_ = await fixture();
+    fixture_.failVerification(true);
+    const result = await fixture_.create(undefined, {}, "45ed1d2").run(fixture_.config);
+    expect(result.state).toBe("FAILED");
+    const started = fixture_.create();
+    const versions = (await started.artifacts(result.runId)).find(({ kind }) => kind === "environment-versions");
+    expect(JSON.parse((await started.artifact(result.runId, versions?.artifactId ?? "") as { content: string }).content)).toMatchObject({ arbitra: "45ed1d2" });
+    fixture_.failVerification(false);
+    // A later build words each verification request differently.
+    const invoke = ModelActivities.prototype.invoke;
+    const reworded = vi.spyOn(ModelActivities.prototype, "invoke").mockImplementation(function <T>(this: ModelActivities, input: ModelActivityRequest<T>) {
+      return invoke.call(this, input.activityId.startsWith("verification/") ? { ...input, messages: [...input.messages, { role: "user", content: "One sentence more." }] } : input) as Promise<T>;
+    });
+    try {
+      const resumed = fixture_.create(undefined, {}, "9f3c2aa");
+      await resumed.resume(result.runId);
+      expect((await resumed.wait(result.runId)).state).toBe("FAILED");
+      const { reason } = await resumed.overview(result.runId);
+      expect(reason).toMatch(/MODEL_ACTIVITY_INPUT_CHANGED:verification\/\S+: the request this version of arbitra makes for verification\/\S+ differs from the one the run recorded, so the run cannot reuse that work\. Resume it with the arbitra version it started on, "45ed1d2", or start a new run\./u);
+    } finally { reworded.mockRestore(); }
   });
 
   it("honors a zero verification question budget and rejects invalid limits", async () => {

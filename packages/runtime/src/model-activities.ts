@@ -17,6 +17,7 @@ import type { ProtocolIdentity } from "@arbitra/protocols/versioning.js";
 import type { PinnedProtocol } from "@arbitra/protocols/registry.js";
 import type { ModelActivityTraceRecord } from "@arbitra/persistence/trace.js";
 import { batchLaneFor, runStoreBatchBackend, validateBatchLanes } from "./model-batch-lane.js";
+import { ENVIRONMENT_VERSIONS_KIND } from "./preflight.js";
 
 export interface ModelActivityRequest<T> {
   readonly activityId: string;
@@ -179,6 +180,7 @@ export class ModelActivities {
     const key = `model-activity-${hash(input.activityId)}`;
     const inflight = this.#inflight.get(key);
     if (inflight !== undefined) {
+      // Two requests under one activity in one process: a stage's own fault, not work recorded by another build.
       if (inflight.fingerprint !== fingerprint) throw new Error("MODEL_ACTIVITY_INPUT_CHANGED");
       return input.schema.parse(await inflight.promise);
     }
@@ -206,7 +208,7 @@ export class ModelActivities {
     if (profile === undefined) throw new Error("TRACE_PROFILE_ABSENT");
     const existing = await this.read(key) as { fingerprint?: unknown; value?: unknown } | null;
     if (existing !== null) {
-      if (existing.fingerprint !== fingerprint && existing.fingerprint !== legacy) throw new Error("MODEL_ACTIVITY_INPUT_CHANGED");
+      if (existing.fingerprint !== fingerprint && existing.fingerprint !== legacy) throw await this.#inputChanged(input.activityId);
       return input.schema.parse(existing.value);
     }
     // A paid answer is saved, then its trace, then the mapping above. When the mapping write fails, or the process
@@ -245,7 +247,7 @@ export class ModelActivities {
     // Record identity before spend so a failed or interrupted activity cannot be
     // resumed with a different prompt/profile under the same durable activity ID.
     const identity = await this.read(`${key}-input`) as { fingerprint?: unknown } | null;
-    if (identity !== null && identity.fingerprint !== fingerprint && identity.fingerprint !== legacy) throw new Error("MODEL_ACTIVITY_INPUT_CHANGED");
+    if (identity !== null && identity.fingerprint !== fingerprint && identity.fingerprint !== legacy) throw await this.#inputChanged(input.activityId);
     const requestArtifact = await this.store.publish(`${key}-input`, { activityId: input.activityId, fingerprint, protocol: input.protocol, modelProfileId: input.modelProfileId, messages, tools: input.tools ?? [] });
     const maximumOutputTokens = input.maximumOutputTokens ?? outputCeiling(this.#config, input.modelProfileId);
     // UTF-8 bytes at the run's rate provide an admission estimate, not actual token usage. Input admitted as
@@ -362,6 +364,12 @@ export class ModelActivities {
     return { usage: trace.terminal.tokenUsage, outcome: trace.terminal.outcome };
   }
 
+  /** The refusal of a recorded activity this build asks for differently, with the build the run recorded at its start. */
+  async #inputChanged(activityId: string): Promise<ModelActivityInputChangedError> {
+    const started = await this.read(ENVIRONMENT_VERSIONS_KIND) as { arbitra?: unknown } | null;
+    return new ModelActivityInputChangedError(activityId, typeof started?.arbitra === "string" ? started.arbitra : null);
+  }
+
   /** The answer a trace of this request recorded as validated, when its saved copy is intact and of the same request. */
   async #validatedOutput(trace: ActivityTraceArtifact | null, fingerprint: string, legacy: string): Promise<{ readonly value: unknown } | null> {
     const ref = trace?.terminal?.outputArtifactRef;
@@ -376,6 +384,19 @@ export class ModelActivities {
   private async read(kind: string): Promise<unknown> {
     const artifact = (await this.store.listArtifacts()).find((item) => item.kind === kind);
     return artifact === undefined ? null : JSON.parse((await this.store.readArtifact(artifact.artifactId)).content) as unknown;
+  }
+}
+
+/**
+ * A recorded activity whose request this build of arbitra makes differently. The refusal stands: the record answers
+ * another request, and asking again would pay for the work twice. The message says which activity, and to resume with
+ * the build the run started on (named when the run recorded it) or start a new run. Observed live (veritra, October
+ * 25, 2026): a change to one sentence every critic batch carries failed the resume with the bare code.
+ */
+export class ModelActivityInputChangedError extends Error {
+  constructor(readonly activityId: string, readonly startedOn: string | null) {
+    super(`MODEL_ACTIVITY_INPUT_CHANGED:${activityId}: the request this version of arbitra makes for ${activityId} differs from the one the run recorded, so the run cannot reuse that work. Resume it with the arbitra version it started on,${startedOn === null ? "" : ` ${JSON.stringify(startedOn)},`} or start a new run.`);
+    this.name = "ModelActivityInputChangedError";
   }
 }
 
