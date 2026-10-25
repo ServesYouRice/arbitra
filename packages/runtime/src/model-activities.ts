@@ -5,9 +5,9 @@ import { ProviderRegistry, type TransportFactoryOptions } from "@arbitra/provide
 import { RateLimitScheduler } from "@arbitra/providers/scheduler.js";
 import { DurableTokenBudget } from "@arbitra/providers/token-budget.js";
 import { ContinuationStateStore } from "@arbitra/providers/continuation/store.js";
-import { ProviderBudgetSuspendedError, ProviderInvocationFailure, type InvocationTrace, type TraceSink } from "@arbitra/providers/runtime.js";
+import { ProviderBudgetSuspendedError, ProviderInvocationFailure, ProviderTimeLimitError, type InvocationTrace, type TraceSink } from "@arbitra/providers/runtime.js";
 import { BatchItemFailedError, BatchLane, type BatchResolution, type BatchSubmissionRecord, type BatchSubmissionView } from "@arbitra/providers/batch/lane.js";
-import { inputBytesPerToken, ModelOutputLimitError, outputCeiling, requestCeiling } from "./context-budget.js";
+import { inputBytesPerToken, ModelOutputLimitError, ModelTimeLimitError, outputCeiling, requestCeiling } from "./context-budget.js";
 import type { TransportMessage, TransportTool } from "@arbitra/providers/transport-contract.js";
 import { runConfigSchema, type RunConfig } from "@arbitra/schemas/config.js";
 import { providerExecutionSchema } from "@arbitra/schemas/provider-execution.js";
@@ -50,6 +50,9 @@ export interface ModelActivityRequest<T> {
    * as its stage sizes a first attempt, so optional source gives way to what is appended (an output repair's reason
    * and rejected reply). Without it, a repair is the request's own messages with `appended` added. */
   readonly refit?: (appended: readonly TransportMessage[], activityId: string) => Promise<{ readonly messages: readonly TransportMessage[]; readonly admittedAsRequired: boolean }>;
+  /** Never part of the identity: the stage that composed this request splits it when a call of it runs past the time
+   * limit (`timeoutMs`), so that call is not sent again whole; it fails with ModelTimeLimitError. */
+  readonly splitOnTimeLimit?: boolean;
   /** Traced only, never part of the identity: the output repairs this call starts. The harness sets 1 on the first
    * turn of a repair (`/repair-N`), so a sum over traces counts repairs, not the turns they took. */
   readonly repairCount?: number;
@@ -259,7 +262,7 @@ export class ModelActivities {
       const invocation = {
         activityId: input.activityId, modelProfileId: input.modelProfileId, estimatedTokens,
         maximumRetries: this.#execution.maximumRetries, timeoutMs: this.#execution.timeoutMs,
-        signal: input.signal, ...(input.effort === undefined ? {} : { effort: input.effort }),
+        signal: input.signal, ...(input.effort === undefined ? {} : { effort: input.effort }), ...(input.splitOnTimeLimit === true ? { retryTimeouts: false } : {}),
       };
       const request = { messages, maximumOutputTokens, ...(input.tools === undefined ? {} : { tools: input.tools }) };
       // Only explicitly configured (model, node) pairs use the batch lane; tool-bearing
@@ -285,6 +288,8 @@ export class ModelActivities {
       failure = error;
       // A response cut at the output ceiling is incomplete, not merely malformed.
       if (error instanceof ProviderInvocationFailure && error.causeCode === "OUTPUT_LIMIT" || error instanceof BatchItemFailedError && error.code === "OUTPUT_LIMIT") throw new ModelOutputLimitError(input.activityId);
+      // A call past its time limit that the provider did not send again: the stage that made it splits it.
+      if (error instanceof ProviderTimeLimitError) throw new ModelTimeLimitError(input.activityId);
       throw error;
     } finally {
       const traces = this.#traces.get(input.activityId) ?? [];

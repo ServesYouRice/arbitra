@@ -91,6 +91,18 @@ export function outputLimitKind(activityId: string): string {
 }
 
 /**
+ * A call of this activity ran past its time limit (`timeoutMs`), and its stage splits it rather than send it again
+ * whole (`splitOnTimeLimit`). The activity is recorded as time-limited, so a resumed run splits it the same way.
+ */
+export class ModelTimeLimitError extends Error {
+  constructor(readonly activityId: string) { super(`MODEL_TIME_LIMIT_REACHED:${activityId}`); this.name = "ModelTimeLimitError"; }
+}
+
+export function timeLimitKind(activityId: string): string {
+  return `model-time-limit-${createHash("sha256").update(activityId).digest("hex").slice(0, 32)}`;
+}
+
+/**
  * The provider or the model declined to answer this activity (a content filter, a policy refusal). The activity
  * is recorded as refused, so a resumed run does not ask again; a stage that can go on without this one answer
  * records the gap instead of failing the run.

@@ -11,7 +11,7 @@ import { redactSecrets } from "@arbitra/security/redaction";
 import { boundModelHistory } from "./model-history.js";
 import { withinStringBudget } from "./model-context.js";
 import { promptByteLimit } from "@arbitra/providers/transports/cli/dialects.js";
-import { inputBytesPerToken, isModelOutputRejection, ModelOutputLimitError, ModelRefusalError, outputLimitKind, refusalKind, requestCeiling } from "./context-budget.js";
+import { inputBytesPerToken, isModelOutputRejection, ModelOutputLimitError, ModelRefusalError, ModelTimeLimitError, outputLimitKind, refusalKind, requestCeiling, timeLimitKind } from "./context-budget.js";
 import { ModelActivities, parsePromptJson, type ModelActivityRequest } from "./model-activities.js";
 import type { TransportMessage } from "@arbitra/providers/transport-contract.js";
 import { snapshotTools, SNAPSHOT_TOOLS, type ReadsBeyondUnit } from "./snapshot-tools.js";
@@ -35,8 +35,14 @@ export class ModelHarness {
 
   /** Whether this durable activity previously stopped at the output ceiling. */
   async outputLimited(activityId: string): Promise<boolean> {
-    this.#outputLimited ??= this.store.listArtifacts().then((artifacts) => new Set(artifacts.map(({ kind }) => kind).filter((kind) => kind.startsWith("model-output-limit-") || kind.startsWith("model-refusal-"))));
+    this.#outputLimited ??= this.store.listArtifacts().then((artifacts) => new Set(artifacts.map(({ kind }) => kind).filter((kind) => kind.startsWith("model-output-limit-") || kind.startsWith("model-refusal-") || kind.startsWith("model-time-limit-"))));
     return (await this.#outputLimited).has(outputLimitKind(activityId));
+  }
+
+  /** Whether a call of this durable activity ran past the time limit before, and its stage splits it instead. */
+  async timeLimited(activityId: string): Promise<boolean> {
+    await this.outputLimited(activityId);
+    return (await (this.#outputLimited ?? Promise.resolve(new Set<string>()))).has(timeLimitKind(activityId));
   }
 
   /** Whether this activity, or a repair of it, answered only after it was told its tool turns were spent. */
@@ -94,6 +100,8 @@ export class ModelHarness {
         // marked, so the stage that composed it splits it. Observed live (P20 pilot): only the repair was marked,
         // and every resume replayed the rejected reply and failed at the same repair.
         if (error instanceof ModelOutputLimitError && attempt !== input) { await this.markOutputLimited(input, error.activityId); throw new ModelOutputLimitError(input.activityId); }
+        // So does a repair that runs past the time limit: a resume splits the activity rather than repair it again.
+        if (error instanceof ModelTimeLimitError && attempt !== input) { await this.markTimeLimited(input.activityId, error.activityId); throw new ModelTimeLimitError(input.activityId); }
         // A refused repair means the provider declines what this activity sends: the activity itself is marked.
         if (error instanceof ModelRefusalError && attempt !== input) { await this.markRefused(input.activityId, error.refusal); throw new ModelRefusalError(input.activityId, error.refusal); }
         if (!(error instanceof ModelOutputRejectedError)) throw error;
@@ -121,9 +129,12 @@ export class ModelHarness {
     // Never repeat spend on an activity already known to exceed the output ceiling.
     if (await this.outputLimited(input.activityId)) throw new ModelOutputLimitError(input.activityId);
     if (await this.refused(input.activityId)) throw new ModelRefusalError(input.activityId, "recorded before this process");
+    // Nor send whole again an activity its stage splits after a call of it ran past the time limit.
+    if (await this.timeLimited(input.activityId)) throw new ModelTimeLimitError(input.activityId);
     try { return await this.invokeTurns(input); }
     catch (error) {
       if (error instanceof ModelRefusalError) { await this.markRefused(input.activityId, error.refusal); throw error; }
+      if (error instanceof ModelTimeLimitError) { await this.markTimeLimited(input.activityId, error.activityId); throw new ModelTimeLimitError(input.activityId); }
       if (!(error instanceof ModelOutputLimitError)) throw error;
       await this.markOutputLimited(input, error.activityId);
       throw new ModelOutputLimitError(input.activityId);
@@ -134,6 +145,12 @@ export class ModelHarness {
     const activityId = input.activityId;
     await this.store.publish(outputLimitKind(activityId), { activityId, turnActivityId, maximumOutputTokens: requestCeiling(this.config, input) }, activityId);
     (await (this.#outputLimited ?? Promise.resolve(new Set<string>()))).add(outputLimitKind(activityId));
+  }
+
+  private async markTimeLimited(activityId: string, turnActivityId: string): Promise<void> {
+    const execution = providerExecutionSchema.parse(this.config.workflow["modelExecution"]);
+    await this.store.publish(timeLimitKind(activityId), { activityId, turnActivityId, timeoutMs: execution.timeoutMs }, activityId);
+    (await (this.#outputLimited ?? Promise.resolve(new Set<string>()))).add(timeLimitKind(activityId));
   }
 
   private async markRefused(activityId: string, refusal: string): Promise<void> {

@@ -50,11 +50,6 @@ Small defects the October 25 lanes found and did not fix, each to be shown by a 
 - **An event whose sync failed after a full write is kept**, so a retry records it twice.
 - **After the operator answers a question the critic's revision could not settle**, the gate still reports
   `blocking_critic_feedback`.
-- **Discovery calls run past the 15-minute call limit and start again from nothing:** 7 of veritra's first 36 (4 of
-  22 Opus, 3 of 14 Sol), 9 turns without an answer in the whole run (4 Opus, 5 Sol, counting the stop at Codex's usage limit), none in the six
-  earlier runs; Opus wrote 33K tokens a call against nextra's 23K, up to 67.5K. Each costs
-  a slot for 15 minutes and the tokens already spent. Take the durations from the finished run, then size the limit
-  or the units from them, or split a unit that times out as one that stops at the output ceiling.
 - **The planner's `audit_mode_is_read_only` constraint makes sections ask whether they may write** (two questions in
   each nextra plan): reword it.
 - **`filesNotToTouch` globs do not subtract from `likelyFiles` globs**, and a bare `.` in `likelyFiles` covers nothing.
@@ -98,6 +93,9 @@ From the research review; each decides a cut or a build.
   and the duplicate check, how many verification confirms and how many of those are real (nextra's 14 defects found
   while fixing are a check), and what the search and the checking of its proposals cost in tokens and minutes. That
   decides whether a depth turns it on, and the batch size (`VARIANT_SEARCH_SEEDS_PER_BATCH`, six for now).
+- **Discovery units split at the time limit** (built October 25, `timeLimitSplits`): how many units split, whether a
+  part ran past the limit again (it is then sent again whole), and the minutes and tokens against veritra's 8 calls
+  sent again whole.
 - **The verifier's required reason:** how often an answer leaves it out and costs a repair.
 - **A Sonnet second look at medium reports Opus leaves unsettled:** build it as an option, off by default; it decided
   6 of 7 rightly on nextra, at about 28K tokens a question.

@@ -21,6 +21,8 @@ export interface ModelInvocation {
   readonly timeoutMs: number;
   readonly signal: AbortSignal;
   readonly effort?: EffortLevel;
+  /** False: a call past `timeoutMs` is not sent again, since its caller sends less work (see ProviderInvocationContext). */
+  readonly retryTimeouts?: boolean;
 }
 
 export interface ModelInvocationResult {
@@ -70,6 +72,7 @@ export class ModelPool {
       maximumRetries: invocation.maximumRetries,
       timeoutMs: invocation.timeoutMs,
       signal: invocation.signal,
+      ...(invocation.retryTimeouts === undefined ? {} : { retryTimeouts: invocation.retryTimeouts }),
     });
     return Object.freeze({ response, modelProfileId: model.id, endpointId: binding.id,
       providerId: binding.providerId, transport: binding.transport, modelId: profile.modelId, effort });
