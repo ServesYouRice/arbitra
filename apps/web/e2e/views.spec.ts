@@ -112,10 +112,10 @@ test.describe("run tabs", () => {
     // reaches every control. That is the platform's keyboard model, not a skipped control.
     const next = browserName === "webkit" && process.platform === "darwin" ? "Alt+Tab" : "Tab";
     const runId = await createRun(request, "feature-blocked");
-    await open(page, runId, "overview");
-    const tabs = ["Overview", "Requirements", "Plan", "Activity", "Evaluation"];
+    await open(page, runId, "summary");
+    const tabs = ["Summary", "Requirements", "Plan", "How it ran"];
     await expect(page.getByRole("navigation", { name: "run views" }).getByRole("link")).toHaveText(tabs);
-    await viewTab(page, "Overview").focus();
+    await viewTab(page, "Summary").focus();
     for (const [index, label] of tabs.entries()) {
       if (index > 0) await page.keyboard.press(next);
       await expect(viewTab(page, label)).toBeFocused();
@@ -140,9 +140,17 @@ test.describe("run tabs", () => {
       await page.waitForLoadState("networkidle");
       expect(await accessibilityAudit(page), label).toEqual([]);
     }
-    // The graph's recorded stages are reachable and selectable from the stage list.
-    await viewTab(page, "Activity").focus();
+    // The records are one keyboard step down from How it ran, and each passes the same audit.
+    await viewTab(page, "How it ran").focus();
     await page.keyboard.press("Enter");
+    for (const record of ["Evaluation", "Activity"]) {
+      await page.getByRole("region", { name: "Records" }).getByRole("link", { name: record, exact: true }).or(page.getByRole("navigation", { name: "records" }).getByRole("link", { name: record, exact: true })).first().focus();
+      await page.keyboard.press("Enter");
+      await expect(page.getByRole("navigation", { name: "records" }).getByRole("link", { name: record, exact: true })).toHaveAttribute("aria-current", "page");
+      await page.waitForLoadState("networkidle");
+      expect(await accessibilityAudit(page), record).toEqual([]);
+    }
+    // The graph's recorded stages are reachable and selectable from the stage list.
     const stages = page.getByRole("list", { name: "live run stages" });
     await stages.getByRole("button", { name: /expand Requirements, exploration and planning/u }).press("Enter");
     const stage = stages.getByRole("button", { name: /Requirements draft/u });

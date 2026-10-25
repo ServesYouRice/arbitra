@@ -1,14 +1,14 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
-import { createRun, expectInert, open, shot, stateChip, viewTab } from "./support.js";
+import { createRun, expectInert, open, openRecord, shot, stateChip, viewTab } from "./support.js";
 
 test.describe("Testing execution review", () => {
   test("authority review, plan versus execution and verified change download", async ({ page, request }, testInfo) => {
     const runId = await createRun(request, "testing-pass");
     await open(page, runId, "execution");
     const view = page.getByRole("region", { name: "testing execution" });
-    await expect(stateChip(page)).toHaveText("finished COMPLETED");
+    await expect(stateChip(page)).toHaveText("done");
     await expect(page.getByText("gate passed").first()).toBeVisible();
     await expect(view.getByLabel("write partitions")).toContainText("tests/001.test.ts");
     await expect(view.getByLabel("check bindings")).toContainText("/usr/bin/node --test tests/001.test.ts");
@@ -58,7 +58,7 @@ test.describe("Testing execution review", () => {
     expect(payload.changeSet.files.find(({ path }) => path === "tests/001.test.ts")?.content).toBe("test('001 repaired', () => {});\n");
 
     // The execution subgraph expands into the stages this run recorded, keyboard first.
-    await viewTab(page, "Activity").click();
+    await openRecord(page, "Activity");
     const stages = page.getByRole("list", { name: "live run stages" });
     const expand = stages.getByRole("button", { name: "expand Guarded test execution · 6 recorded stages" });
     await expand.focus();
@@ -71,14 +71,16 @@ test.describe("Testing execution review", () => {
     await expect(stages.locator("li[data-stage-of='execute']")).toHaveCount(0);
   });
 
-  test("the overview states the Testing result and offers the verified handoff", async ({ page, request }) => {
+  test("the Summary states the Testing result and offers the verified handoff", async ({ page, request }) => {
     const runId = await createRun(request, "testing-pass");
-    await open(page, runId, "overview");
-    const summary = page.getByRole("region", { name: "tests" });
+    await open(page, runId, "summary");
+    const summary = page.getByRole("region", { name: "Tests" });
     await expect(summary.getByText("execution · passed")).toBeVisible();
     await expect(summary.getByText(/^verified change set · 1 files/u)).toBeVisible();
     await expect(summary.getByRole("button", { name: "download verified change set" })).toBeVisible();
-    await expect(page.getByRole("region", { name: "how it ran" }).getByRole("table", { name: "model profiles" })).toContainText("analyst, planner");
+    await viewTab(page, "How it ran").click();
+    await page.getByText("Model profiles", { exact: true }).click();
+    await expect(page.getByRole("table", { name: "model profiles" })).toContainText("analyst, planner");
   });
 
   test("a no-work result stays explicit", async ({ page, request }, testInfo) => {

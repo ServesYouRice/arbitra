@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type APIRequestContext, type Locator, type Page, type TestInfo } from "@playwright/test";
-import { accessibilityAudit, expectInert, stateChip, viewTab } from "./support.js";
+import { accessibilityAudit, expectInert, openRecord, stateChip, viewTab } from "./support.js";
 
 /**
  * Browser acceptance for operator-authored workflow graphs (completion plan P16).
@@ -252,13 +252,13 @@ test.describe("workflow canvas editing", () => {
     await page.getByLabel("repository path").fill(repository);
     await page.getByLabel("configuration name").fill(`run-${project}`);
     await page.getByRole("button", { name: "save and start" }).click();
-    await expect(stateChip(page)).toHaveText("waiting for your decision BLOCKED");
+    await expect(stateChip(page)).toHaveText("needs you");
     const runId = new URL(page.url()).searchParams.get("run") ?? "";
     expect(runId).toMatch(/^run-/u);
     const banner = page.getByRole("region", { name: "This run is waiting for your decision" });
     await expect(banner).toContainText("checkpoint · signoff");
     await expect(banner).toContainText("Plan the accepted issues? <img src=x");
-    await viewTab(page, "Activity").click();
+    await openRecord(page, "Activity");
     const identity = page.getByLabel("executed graph identity");
     await expect(identity).toHaveText(`executes ${graphId} @ ${version} · executed graph matches the saved version`);
     await expect(page.getByRole("list", { name: "live run stages" })).toContainText("◫ human · New human");
@@ -274,7 +274,7 @@ test.describe("workflow canvas editing", () => {
     await banner.getByRole("button", { name: "approve" }).click();
     await expect(banner.getByText("checkpoint signoff · approved")).toBeVisible();
     await banner.getByRole("button", { name: "resume run" }).click();
-    await expect(stateChip(page)).toHaveText("finished COMPLETED");
+    await expect(stateChip(page)).toHaveText("done");
     const status = await (await request.get(`/runs/${runId}`)).json() as { state: string; workflowGraph: unknown; workflow: unknown };
     expect(status).toMatchObject({ state: "COMPLETED", workflowGraph: { id: graphId, version, executedVersion: version }, workflow: record.graph });
     // An old link to the graph view lands on the activity tab.
@@ -283,7 +283,7 @@ test.describe("workflow canvas editing", () => {
     await expect(page.getByRole("list", { name: "live run stages" })).toContainText("◫ human · New human");
     await viewTab(page, "Issues").click();
     await expect(page.getByRole("region", { name: "issue board" }).getByText(/^\d+ of \d+ canonical issues shown$/u)).toBeVisible();
-    await viewTab(page, "Activity").click();
+    await openRecord(page, "Activity");
     await shot(page, testInfo, "editor-06-saved-graph-completed");
   });
 });

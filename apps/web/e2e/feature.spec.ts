@@ -8,7 +8,7 @@ test.describe("Feature contract controls", () => {
     await open(page, runId, "requirements");
     const view = page.getByRole("region", { name: "feature contract" });
     const banner = page.getByRole("region", { name: "This run is waiting for your decision" });
-    await expect(stateChip(page)).toHaveText("waiting for your decision BLOCKED");
+    await expect(stateChip(page)).toHaveText("needs you");
     await expect(banner).toContainText("1 proposed default needs your approval: migration.");
     await expect(view.getByText("approval pending")).toBeVisible();
     // Model-authored contract text is shown literally and does nothing.
@@ -35,15 +35,15 @@ test.describe("Feature contract controls", () => {
     await expect(view.getByText("accepted by operator")).toBeVisible();
     // Approval did not resume anything; a reload shows the durable decision on a still-blocked run.
     await page.reload();
-    await expect(stateChip(page)).toHaveText("waiting for your decision BLOCKED");
+    await expect(stateChip(page)).toHaveText("needs you");
     await expect(view.getByText("accepted by operator")).toBeVisible();
     await expect(banner).toContainText("No proposed default is waiting for approval.");
 
     await banner.getByRole("button", { name: "resume run" }).click();
-    await expect(stateChip(page)).toHaveText("finished COMPLETED");
+    await expect(stateChip(page)).toHaveText("done");
     await expect(view.getByText("plan gate · passed")).toBeVisible();
     await page.reload();
-    await expect(stateChip(page)).toHaveText("finished COMPLETED");
+    await expect(stateChip(page)).toHaveText("done");
     const [download] = await Promise.all([page.waitForEvent("download"), view.getByRole("button", { name: "download implementation handoff" }).click()]);
     expect(download.suggestedFilename()).toBe(`${runId}-implementation.json`);
     const tree = JSON.parse(await readFile(await download.path(), "utf8")) as Record<string, string>;
@@ -64,7 +64,7 @@ test.describe("Feature contract controls", () => {
     // Independent review stays unresolved; the model proposal is shown but not applied.
     await expect(view.getByRole("heading", { name: "model revision proposal · not applied" })).toBeVisible();
     await expect(view.getByLabel("proposed changes")).toContainText("migration · proposedDefault · Keep sessions → Keep sessions (revised)");
-    await expect(stateChip(page)).toHaveText("waiting for your decision BLOCKED");
+    await expect(stateChip(page)).toHaveText("needs you");
     await expect(banner).toContainText("A model revision proposal is waiting to be applied or set aside.");
     await shot(page, testInfo, "feature-04-revision-proposal");
     await view.getByRole("button", { name: "apply proposal" }).click();
@@ -76,7 +76,7 @@ test.describe("Feature contract controls", () => {
     await view.getByRole("button", { name: "approve selected defaults" }).click();
     await expect(view.getByText("accepted by operator")).toBeVisible();
     await banner.getByRole("button", { name: "resume run" }).click();
-    await expect(stateChip(page)).toHaveText("finished COMPLETED");
+    await expect(stateChip(page)).toHaveText("done");
     await expect(view.getByRole("button", { name: "download implementation handoff" })).toBeVisible();
     await expectInert(page);
   });

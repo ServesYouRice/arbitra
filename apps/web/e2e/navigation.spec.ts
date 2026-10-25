@@ -13,21 +13,22 @@ test.describe("finding, starting and reading runs", () => {
     await page.goto("/");
     const table = page.getByRole("table", { name: "runs" });
     const row = table.getByRole("row").filter({ has: page.getByRole("link", { name: `open run ${runId}` }) });
-    await expect(row).toContainText("finished COMPLETED");
+    await expect(row.locator(".chip")).toHaveText("done");
     await expect(row).toContainText("scripted detectors, no model calls");
     await expect(row).toContainText(/done · (?:needs you|coverage has limits)/u);
     expect(await accessibilityAudit(page)).toEqual([]);
     await shot(page, testInfo, "navigation-01-run-list");
     await row.getByRole("link", { name: `open run ${runId}` }).click();
-    await expect(page.getByRole("heading", { level: 1, name: "Audit run · audit-deep" })).toBeVisible();
-    await expect(page.getByRole("region", { name: "result" })).toContainText("coverage is incomplete");
+    await expect(page.getByRole("heading", { level: 1, name: /^audit-\d+ · audit$/u })).toBeVisible();
+    // The plan to save into the project leads the Summary, as the page's one primary action.
+    await expect(page.getByRole("region", { name: /^The plan is ready · / }).getByRole("button", { name: "Save the plan into the project" })).toBeVisible();
     await viewTab(page, "Issues").click();
     await expect(page).toHaveURL(new RegExp(`\\?run=${runId}&view=issues$`, "u"));
     await page.locator(".issue-row__title").first().click();
     await expect(page).toHaveURL(/item=issue%3A/u);
     // The back button walks tabs, not selections: a selection replaces its tab's entry.
     await page.goBack();
-    await expect(viewTab(page, "Overview")).toHaveAttribute("aria-current", "page");
+    await expect(viewTab(page, "Summary")).toHaveAttribute("aria-current", "page");
     await expect(page.getByRole("complementary", { name: /^details/u })).toHaveCount(0);
     await page.goForward();
     await expect(viewTab(page, "Issues")).toHaveAttribute("aria-current", "page");
@@ -57,8 +58,8 @@ test.describe("finding, starting and reading runs", () => {
     await shot(page, testInfo, "navigation-02-new-run-checked");
     await page.getByLabel("configuration name").fill(`smoke-${testInfo.project.name}`);
     await page.getByRole("button", { name: "save and start" }).click();
-    await expect(page.getByRole("heading", { level: 1, name: "Audit run · audit-deep" })).toBeVisible();
-    await expect(stateChip(page)).toHaveText("finished COMPLETED");
+    await expect(page.getByRole("heading", { level: 1, name: / · audit$/u })).toBeVisible();
+    await expect(stateChip(page)).toHaveText("done");
     // The server records the real path (on macOS /var is /private/var), so compare its unique tail.
     await expect(page.locator(".run-header__meta")).toContainText(repository.split("/").slice(-2).join("/"));
   });
@@ -81,11 +82,46 @@ test.describe("finding, starting and reading runs", () => {
     await expect(open.getByRole("listitem")).toHaveCount(4);
   });
 
+  test("a working run's Summary watches it: the step in words, the stages, and a moving line that stays still under reduced motion", async ({ page, request }, testInfo) => {
+    const runId = await createRun(request, "feature-slow");
+    await open(page, runId, "summary");
+    await expect(stateChip(page)).toHaveText("running");
+    await expect(page.getByRole("region", { name: "now" })).toContainText("Requirements, exploration and planning");
+    const stages = page.getByRole("group", { name: "stages" });
+    await expect(stages.getByRole("button")).toHaveCount(3);
+    await expect(stages.locator(".stage[aria-current='step']")).toHaveCount(1);
+    const line = stages.locator(".stage-edge[data-flow='live'] line").first();
+    await expect.poll(() => line.evaluate((element) => getComputedStyle(element).animationName)).toBe("stage-flow");
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await expect.poll(() => line.evaluate((element) => getComputedStyle(element).animationName)).toBe("none");
+    expect(await accessibilityAudit(page)).toEqual([]);
+    await shot(page, testInfo, "navigation-05-watching");
+    // A stage opens its records beside the page.
+    await stages.locator(".stage[aria-current='step']").click();
+    await expect(page.getByRole("complementary", { name: /^details · / })).toBeVisible();
+  });
+
+  test("every place of a run's page fits a 390 px phone without sideways scrolling", async ({ page, request }, testInfo) => {
+    const runId = await createRun(request, "audit");
+    await page.setViewportSize({ width: 390, height: 844 });
+    for (const view of ["summary", "issues", "plan", "results", "how-it-ran", "activity", "evaluation"]) {
+      await open(page, runId, view);
+      await page.waitForLoadState("networkidle");
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), view).toBe(0);
+    }
+    // On a phone the stages run top to bottom.
+    await open(page, runId, "how-it-ran");
+    await expect(page.locator(".stage-edge__down").first()).toBeVisible();
+    await expect(page.locator(".stage-edge__across").first()).toBeHidden();
+    await open(page, runId, "summary");
+    await shot(page, testInfo, "navigation-06-phone-summary");
+  });
+
   for (const width of [1100, 800]) {
     test(`no control is covered at ${width}px, and the details panel is a drawer there`, async ({ page, request }, testInfo) => {
       const runId = await createRun(request, "audit");
       await page.setViewportSize({ width, height: 900 });
-      for (const view of ["overview", "issues", "activity"]) {
+      for (const view of ["summary", "issues", "how-it-ran", "activity"]) {
         await open(page, runId, view);
         await page.waitForLoadState("networkidle");
         expect(await coveredControls(page), `${view} at ${width}px`).toEqual([]);

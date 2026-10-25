@@ -12,11 +12,18 @@ export async function createRun(request: APIRequestContext, scenario: string): P
   return ((await response.json()) as { runId: string }).runId;
 }
 
-/** Open a run's page on one tab (`overview`, `issues`, `plan`, `requirements`, `execution`, `activity`, `evaluation`). */
+/** Open a run's page on one place (`summary`, `issues`, `plan`, `results`, `how-it-ran`, `requirements`, `execution`, or the records `activity`, `evaluation`). */
 export async function open(page: Page, runId: string, view: string): Promise<void> {
   await guard(page);
-  await page.goto(view === "overview" ? `/?run=${encodeURIComponent(runId)}` : `/?run=${encodeURIComponent(runId)}&view=${view}`);
+  await page.goto(view === "summary" ? `/?run=${encodeURIComponent(runId)}` : `/?run=${encodeURIComponent(runId)}&view=${view}`);
   await expect(page.getByRole("navigation", { name: "run views" })).toBeVisible();
+}
+
+/** Open one of the run's records, one click down from How it ran, as a person reaches them. */
+export async function openRecord(page: Page, label: "Activity" | "Evaluation"): Promise<void> {
+  await viewTab(page, "How it ran").click();
+  await page.getByRole("region", { name: "Records" }).getByRole("link", { name: label, exact: true }).click();
+  await expect(page.getByRole("navigation", { name: "records" }).getByRole("link", { name: label, exact: true })).toHaveAttribute("aria-current", "page");
 }
 
 /** Model text in these runs tries to set a global and open dialogs; both must stay inert. */
@@ -44,7 +51,7 @@ export function viewTab(page: Page, label: string) {
   return page.getByRole("navigation", { name: "run views" }).getByRole("link", { name: label, exact: true });
 }
 
-/** The run's state chip in the page header: its words, then the recorded state code. */
+/** The run's state chip in the page header: the state in words; the recorded code is in How it ran's details. */
 export function stateChip(page: Page) {
   return page.locator(".run-header__title .chip");
 }
