@@ -1173,6 +1173,33 @@ describe("composed model audits", () => {
     expect(verificationInputs.length).toBeGreaterThan(0);
   });
 
+  it("checks critical and high issues with the verifier and the others with the medium verifier", async () => {
+    // A cheap audit checks medium issues with Sonnet; a critical or high one always goes to the strongest checker.
+    const { create, config, requests, verificationInputs } = await fixture({ largePeerContext: true, severities: ["medium", "high", "low", "critical"] });
+    const roles = (config.workflow["modelExecution"] as { roles: Record<string, string> }).roles;
+    roles["mediumVerifier"] = "auditor-a";
+    const core = create(); const result = await core.run(config);
+    expect(result.state).toBe("COMPLETED");
+    const canonical = (await core.artifacts(result.runId)).find(({ kind }) => kind === "canonical-issues");
+    const severity = new Map((JSON.parse((await core.artifact(result.runId, canonical?.artifactId ?? "") as { content: string }).content) as { issues: { candidateId: string; severity: string }[] }).issues.map(({ candidateId, severity: level }) => [candidateId, level]));
+    const asked = requests.filter(({ stage }) => stage === "verification").map(({ url }, index) => [severity.get(verificationInputs[index]?.candidateId ?? ""), url.includes("auditor-b") ? "verifier" : url.includes("auditor-a") ? "medium verifier" : url] as const);
+    expect(new Set(asked.map(([level]) => level))).toEqual(new Set(["critical", "high", "medium", "low"]));
+    expect(asked.every(([level, checker]) => checker === (level === "critical" || level === "high" ? "verifier" : "medium verifier")), JSON.stringify(asked)).toBe(true);
+  });
+
+  it("merges duplicates with the merger, else with the verifier", async () => {
+    const usual = await fixture({ ambiguousClustering: true });
+    await usual.create().run(usual.config);
+    expect(usual.requests.filter(({ stage }) => stage === "clustering").map(({ url }) => url.includes("auditor-b"))).toContain(true);
+    const { create, config, requests } = await fixture({ ambiguousClustering: true });
+    (config.workflow["modelExecution"] as { roles: Record<string, string> }).roles["merger"] = "auditor-c";
+    const result = await create().run(config);
+    expect(result.state).toBe("COMPLETED");
+    const merged = requests.filter(({ stage }) => stage === "clustering");
+    expect(merged.length).toBeGreaterThan(0);
+    expect(merged.every(({ url }) => url.includes("auditor-c"))).toBe(true);
+  });
+
   it.each([["one", "high"], ["two", "low"]] as const)("keeps an issue in the plan's scope unless two reviewers lower it below: lowered by %s", async (lowered, severity) => {
     // Observed live (rokavatar): 25 issues found at medium or higher were lowered to low by one reviewer each, so they
     // were neither verified nor planned.

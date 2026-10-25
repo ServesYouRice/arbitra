@@ -79,6 +79,16 @@ describe("configuration preflight", () => {
     expect(configurationDiagnostics(config as unknown as RunConfig).filter(({ code }) => code.startsWith("MODEL_EFFORT"))).toEqual([]);
   });
 
+  it("warns when the medium verifier outranks the verifier, which checks the critical and high issues", async () => {
+    const config = mutable(await template("subscription-audit"));
+    (config.models["auditor-a"] as Record<string, unknown>)["capabilityTier"] = "balanced";
+    execution(config)["roles"] = { ...(execution(config)["roles"] as object), verifier: "auditor-a", mediumVerifier: "auditor-b" };
+    const warned = configurationDiagnostics(config as unknown as RunConfig).filter(({ code }) => code === "MODEL_VERIFIER_WEAKER_THAN_MEDIUM_VERIFIER");
+    expect(warned).toEqual([expect.objectContaining({ severity: "warning", path: "workflow.modelExecution.roles.verifier" })]);
+    execution(config)["roles"] = { ...(execution(config)["roles"] as object), verifier: "auditor-b", mediumVerifier: "auditor-a" };
+    expect(configurationDiagnostics(config as unknown as RunConfig).map(({ code }) => code)).not.toContain("MODEL_VERIFIER_WEAKER_THAN_MEDIUM_VERIFIER");
+  });
+
   it("refuses a spend limit the runtime would ignore and flags other unenforced sections", async () => {
     const config = mutable(await template("audit-mixed-providers"));
     config["budgets"] = { maximumCostUsd: 5 };

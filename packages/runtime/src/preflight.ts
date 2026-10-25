@@ -9,7 +9,7 @@ import { testingExecutionSchema } from "@arbitra/schemas/testing.js";
 import { verificationExecutionSchema, type VerificationExecution } from "@arbitra/schemas/verification-execution.js";
 import { concreteWritePath } from "@arbitra/security/write-partitions";
 import { AUDIT_BALANCED_GRAPH, auditorIdsFor, graphForPreset, withCritic } from "./graphs.js";
-import { secondOpinionProfile } from "./audit-roles.js";
+import { mergerProfile, secondOpinionProfile } from "./audit-roles.js";
 import { stageEffort, type EffortStage } from "./stage-effort.js";
 import type { TestSandbox } from "./test-sandbox.js";
 import { validateBatchLanes } from "./model-batch-lane.js";
@@ -228,8 +228,9 @@ function auditStageProfiles(config: RunConfig, graph: RunnerGraph, execution: Pr
   const pairs: (readonly [EffortStage, string])[] = auditors.map((id) => ["discovery", id] as const);
   if (config.maxConsensusRounds > 0) pairs.push(...auditors.map((id) => ["peerReview", id] as const));
   if (roles === undefined) return pairs;
-  if (execution.maximumClusteringPairs !== 0) pairs.push(["clustering", roles.verifier]);
+  if (execution.maximumClusteringPairs !== 0) pairs.push(["clustering", mergerProfile(roles)]);
   pairs.push(["verification", roles.verifier], ["planner", roles.planner]);
+  if (roles.mediumVerifier !== undefined) pairs.push(["verification", roles.mediumVerifier]);
   const second = config.verification["secondOpinion"] === "severe_rejections" ? secondOpinionProfile(roles, auditors) : undefined;
   if (second !== undefined) pairs.push(["secondOpinion", second]);
   if (graph.nodes.some(({ id }) => id === "critic")) {
@@ -255,6 +256,12 @@ function auditDiagnostics(config: RunConfig, graph: RunnerGraph | undefined, exe
     diagnostics.push(error("MODEL_EXECUTION_ROLES_REQUIRED", "workflow.modelExecution.roles", `Model Audit needs explicit roles: planner and verifier${criticEnabled ? ", and critic for this preset" : ""}. Each names a configured profile ID; nothing is selected implicitly.`));
   } else if (criticEnabled && roles.critic === undefined) {
     diagnostics.push(error("MODEL_CRITIC_PROFILE_REQUIRED", "workflow.modelExecution.roles.critic", `Preset ${graph.id} runs a plan critic. Set roles.critic to a configured profile, preferably from a different independenceGroup than roles.planner.`));
+  }
+  // Critical and high issues go to the verifier, so it should be the strongest checker the run names.
+  const strong = roles === undefined ? undefined : config.models[roles.verifier];
+  const medium = roles?.mediumVerifier === undefined ? undefined : config.models[roles.mediumVerifier];
+  if (roles?.mediumVerifier !== undefined && strong !== undefined && medium !== undefined && TIER_RANK[medium.capabilityTier] > TIER_RANK[strong.capabilityTier]) {
+    diagnostics.push(warning("MODEL_VERIFIER_WEAKER_THAN_MEDIUM_VERIFIER", "workflow.modelExecution.roles.verifier", `roles.verifier (${roles.verifier}, ${strong.capabilityTier}) checks the critical and high issues and roles.mediumVerifier (${roles.mediumVerifier}, ${medium.capabilityTier}) the others, so the severe issues get the weaker checker. Swap them.`));
   }
   // Every stage asks each profile it calls for that stage's effort (stageEffort, else the depth's level).
   const refused = new Set<string>(); const unsent = new Set<string>();

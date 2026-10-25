@@ -41,7 +41,7 @@ import type { ModelActivityRequest } from "./model-activities.js";
 import type { TransportMessage } from "@arbitra/providers/transport-contract.js";
 import { expectedRecordCapacity, inputBytesPerToken, outputCeiling, requestCeiling, isCapacityError, PLAN_TASK_CHARACTERS_PER_OUTPUT_TOKEN, ModelOutputLimitError, ModelRefusalError, OUTPUT_TOKENS_PER_RECORD, outputRecordLimit, replanOnOutputLimit, stageBudget, type EffortStage } from "./context-budget.js";
 import { stageEffort } from "./stage-effort.js";
-import { secondOpinionProfile } from "./audit-roles.js";
+import { checkerProfile, mergerProfile, secondOpinionProfile } from "./audit-roles.js";
 import { agreedConflictResolution, conflictId, conflictResolutionView, independentConflicts, type ConflictResolutionVote } from "./model-conflict-resolution.js";
 import { sideBySide } from "./side-by-side.js";
 import { validateBatchLanes } from "./model-batch-lane.js";
@@ -198,7 +198,7 @@ export class ModelAuditPipeline {
       const { left, right, signals } = pair;
       const pairId = pairIdOf(pair);
       const decision = await this.call({
-        activityId: `semantic-clustering/${pairId}`, modelProfileId: this.#roles.verifier, signal,
+        activityId: `semantic-clustering/${pairId}`, modelProfileId: mergerProfile(this.#roles), signal,
         protocol: "semantic-clustering", stage: "clustering", instruction: "Classify the relationship between two validated findings. Merge only when source evidence establishes the same root cause and remediation. Shared symptoms, files, or vocabulary are insufficient. Explain the decision; when uncertain keep the findings separate.",
         input: { left: anonymous(left.finding, "left"), right: anonymous(right.finding, "right"), signals, repository: this.repository() }, sourceScope: "cited",
         schema: modelClusteringResultSchema, jsonSchema: modelClusteringResultSchema.toJSONSchema(),
@@ -223,7 +223,7 @@ export class ModelAuditPipeline {
         let result: ReturnType<typeof modelClusteringBatchResultSchema.parse>;
         try {
           result = await this.call({
-            activityId: `semantic-clustering/pairs-${createHash("sha256").update(JSON.stringify(batch.map(pairIdOf))).digest("hex").slice(0, 24)}`, modelProfileId: this.#roles.verifier, signal,
+            activityId: `semantic-clustering/pairs-${createHash("sha256").update(JSON.stringify(batch.map(pairIdOf))).digest("hex").slice(0, 24)}`, modelProfileId: mergerProfile(this.#roles), signal,
             protocol: "semantic-clustering", stage: "clustering", instruction: "Classify the relationship between the two findings of each listed pair. Judge every pair on its own. Merge only when source evidence establishes the same root cause and remediation. Shared symptoms, files, or vocabulary are insufficient. Return exactly one decision for every listed pairId, each with its relationship and an explanation; when uncertain keep the findings separate.",
             // A pair is judged on the files its two findings cite; the rest is a source tool call away.
             input: { findings: Object.fromEntries(batch.flatMap(({ left, right }) => [left.finding, right.finding]).map((finding) => [alias(finding), anonymous(finding, alias(finding))])), pairs: listed, repository: this.repository() }, sourceScope: "cited",
@@ -248,7 +248,7 @@ export class ModelAuditPipeline {
           decisions.set(pairIdOf(pair), { relationship: decision.relationship, inputTokens: null, outputTokens: null, cost: null });
         }
       };
-      const maximumPairs = outputRecordLimit(stageBudget(this.config, this.#roles.verifier).outputCapacity, OUTPUT_TOKENS_PER_RECORD.clusteringPair, "semantic-clustering");
+      const maximumPairs = outputRecordLimit(stageBudget(this.config, mergerProfile(this.#roles)).outputCapacity, OUTPUT_TOKENS_PER_RECORD.clusteringPair, "semantic-clustering");
       for (let start = 0; start < pairs.length; start += maximumPairs) await together(pairs.slice(start, start + maximumPairs));
       return { decisions: pairs.map((pair) => { const decision = decisions.get(pairIdOf(pair)); if (decision === undefined) throw new Error("CLUSTERING_DECISION_ABSENT"); return decision; }), calls };
     };
@@ -514,11 +514,15 @@ export class ModelAuditPipeline {
       return { present, real: (id: string) => real.get(id) ?? id };
     };
     const answerCeiling = (modelProfileId: string, questions = 1) => Math.min(VERIFICATION_OUTPUT_TOKENS * questions, outputCeiling(this.config, modelProfileId));
+    // A critical or high issue is checked by the verifier, the strongest checker; one below high by the medium verifier
+    // when the run names one (`roles.mediumVerifier`), so a cheap audit spends its strong model on the severe issues.
+    const checkerOf = (candidateId: string) => { const candidate = convergence.board.candidates[candidateId]; return checkerProfile(this.#roles, candidate === undefined ? "critical" : severityOf(candidate)); };
     const question = (request: ModelVerificationRequest, findings: readonly AuditFinding[] = convergence.candidateFindings[request.candidateId] ?? [], activityId = `verification/${request.candidateId}/question`) => {
       const names = neutralNames(); const presented = names.present(request, findings);
       const known = new Set(presented.request.context.citedContext.map(({ evidenceId }) => evidenceId));
-      return { activityId, modelProfileId: this.#roles.verifier, signal, protocol: "targeted-verification", stage: "verification" as const, sourceScope: "cited" as const,
-        instruction: VERIFICATION_INSTRUCTION, maximumOutputTokens: answerCeiling(this.#roles.verifier),
+      const checker = checkerOf(request.candidateId);
+      return { activityId, modelProfileId: checker, signal, protocol: "targeted-verification", stage: "verification" as const, sourceScope: "cited" as const,
+        instruction: VERIFICATION_INSTRUCTION, maximumOutputTokens: answerCeiling(checker),
         input: { request: presented.request, findings: presented.findings, executedChecks: executedChecks.get(request.candidateId), executionInterpretation, unresolvedPeerOperations: conflictsInvolving(operationConflicts, [request.candidateId]).map(conflictOutline), repository: this.repository() },
         schema: { parse(value: unknown) {
           const parsed = modelVerificationResultSchema.parse(value);
@@ -536,7 +540,9 @@ export class ModelAuditPipeline {
       const names = neutralNames(); const presented = requests.map((request) => names.present(request, convergence.candidateFindings[request.candidateId] ?? []));
       const known = new Map(presented.map(({ request }) => [request.candidateId, new Set(request.context.citedContext.map(({ evidenceId }) => evidenceId))]));
       const ids = requests.map(({ candidateId }) => candidateId);
-      return { activityId: `verification/group/${createHash("sha256").update(JSON.stringify(ids)).digest("hex").slice(0, 24)}/questions`, modelProfileId: this.#roles.verifier, signal, protocol: "targeted-verification", stage: "verification" as const, sourceScope: "cited" as const, maximumOutputTokens: answerCeiling(this.#roles.verifier, requests.length),
+      // A group shares one checker: questions are grouped only with others their checker answers.
+      const checker = checkerOf(ids[0] ?? "");
+      return { activityId: `verification/group/${createHash("sha256").update(JSON.stringify(ids)).digest("hex").slice(0, 24)}/questions`, modelProfileId: checker, signal, protocol: "targeted-verification", stage: "verification" as const, sourceScope: "cited" as const, maximumOutputTokens: answerCeiling(checker, requests.length),
         instruction: `Answer each of the verification questions supplied, one answer per candidateId, using the source, including control flow and counterexamples. The questions are asked together because their claims cite the same files; judge every claim on its own, from its own question, findings and evidence: one claim's answer settles nothing about another's. A finding says where a defect is, what triggers it and what goes wrong; judge that against the code, and treat a candidate's title as a label only. An exact quotation alone does not prove a defect. The source supplied is only the files the claims cite: read whatever else an answer depends on (a helper the cited code calls, a caller, a test) with the source tools before you answer. Answer STILL_NEEDS_VERIFICATION when an answer depends on what the source cannot show, such as runtime behaviour, configuration or code outside the repository: that answer is expected, not a failure. Cite only the evidence IDs supplied with that claim's own question. For each answer: ${VERIFICATION_REASON_RULE}`,
         input: { questions: presented.map(({ request, findings }) => ({ request, findings, executedChecks: executedChecks.get(request.candidateId), unresolvedPeerOperations: conflictsInvolving(operationConflicts, [request.candidateId]).map(conflictOutline) })),
           executionInterpretation, repository: this.repository() },
@@ -674,7 +680,7 @@ export class ModelAuditPipeline {
             for (const next of requests.slice(index + 1)) {
               if (group.length >= perCall) break;
               const nextFiles = pathsOf(next.candidateId);
-              if (taken.has(next.candidateId) || !nextFiles.some((path) => files.has(path))) continue;
+              if (taken.has(next.candidateId) || checkerOf(next.candidateId) !== checkerOf(first.candidateId) || !nextFiles.some((path) => files.has(path))) continue;
               const union = new Set([...files, ...nextFiles]);
               if ([...union].reduce((sum, path) => sum + (characters.get(path) ?? 0), 0) > VERIFICATION_GROUP_SOURCE_CHARACTERS || !await this.sendable(groupQuestion([...group, next]), false)) continue;
               group.push(next); taken.add(next.candidateId); nextFiles.forEach((path) => files.add(path));
