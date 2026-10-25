@@ -29,10 +29,11 @@ async function openEditor(page: Page): Promise<Locator> {
   await page.getByRole("navigation", { name: "main" }).getByRole("link", { name: "Workflows" }).click();
   // The region's name follows the graph ID, which the tests rename.
   const editor = page.getByRole("region", { name: /^workflow graph · editing /u });
-  await expect(editor.getByRole("heading", { name: "workflow graph · editing audit-three-finders" })).toBeVisible();
-  // The unchanged preset template is rejected by the server until it is renamed.
-  await expect(validation(editor)).toContainText("invalid · 1 diagnostic");
-  await expect(editor.getByRole("list", { name: "validation diagnostics" })).toContainText("UNAUTHORIZED_CHANGE · $.id");
+  // A preset's template keeps the shipped preset's ID, which the server refuses for a saved graph, so the editor opens
+  // it as a copy under an ID of its own: Workflows opens on a graph the server accepts, not on a refusal.
+  await expect(editor.getByRole("heading", { name: /^workflow graph · editing audit-three-finders-copy(-\d+)?$/u })).toBeVisible();
+  await expect(validation(editor)).toHaveText(/^valid · version [a-f0-9]{64} · configuration not checked/u);
+  await expect(editor.getByRole("list", { name: "validation diagnostics" })).toHaveCount(0);
   return editor;
 }
 

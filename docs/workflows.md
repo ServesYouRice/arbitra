@@ -213,7 +213,8 @@ node apps/cli/dist/src/bin.js workflow save <graph.json> [--parent=<version>] [-
 
 In the web app, the editor is the **Workflows** page (`?page=workflows`); a run's graph is
 read-only, on its Activity tab. The editor starts from a preset template or a saved version.
-You can add, remove and connect nodes of the six kinds, and its inspector edits each node
+A preset template opens as a copy under its own ID (`<preset>-copy`, or `-copy-2` and on when that
+ID is taken), because the server refuses a saved graph that takes a shipped preset's ID. You can add, remove and connect nodes of the six kinds, and its inspector edits each node
 and edge. It shows the server's diagnostics as you edit, checked against the configuration
 chosen above it. Undo and redo cover every edit, and saving creates a new version. Unsaved
 changes are marked. Leaving the page by a link or the back button, opening another graph or
