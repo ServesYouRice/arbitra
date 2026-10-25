@@ -199,6 +199,25 @@ describe("the run page", () => {
     expect(within(failed).getByText(reason).closest("details")).not.toBeNull();
     expect(document.querySelector(".run-header .chip")?.textContent).toBe("failed");
     expect(screen.queryByRole("button", { name: "Resume" })).toBeNull();
+    // Starting again is the way on: New audit opens with this run's settings, where the folders to read are chosen.
+    const again = screen.getByRole("link", { name: "New audit with these settings" });
+    expect(new URL(again.getAttribute("href") ?? "", "http://arbitra.test").searchParams.get("from")).toBe("run:run-1");
+  });
+
+  // veritra (October 25, 2026): "Error: Prompt free text exceeds 1 MiB." The page said to resume, which stopped the same way
+  // until a newer arbitra fixed the cause; the resume after the update went on from where the run stopped.
+  it("says a failure inside arbitra needs a newer arbitra before a resume, and keeps resume for after the update", async () => {
+    stubBrowser();
+    const reason = "Error: Prompt free text exceeds 1 MiB.";
+    stubControlPlane({ "GET /runs/run-1": resource({ state: "FAILED", resumable: true }), "GET /runs/run-1/overview": overview({ state: "FAILED", reason, gate: null }), "GET /runs/run-1/progress": finishedProgress({ state: "FAILED" }), ...artifactRoutes("run-1", {}) });
+    visit("?run=run-1");
+    render(<App />);
+    const failed = await screen.findByRole("region", { name: "The run failed" });
+    expect(within(failed).getByText("The run stopped on an error inside arbitra, not at a model.")).toBeTruthy();
+    expect(within(failed).getByText(/^Resuming with this version of arbitra stops the same way\. Update arbitra, then resume: what the run finished is kept\./u)).toBeTruthy();
+    expect(within(failed).getByText(reason).closest("details")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "New audit with these settings" })).toBeNull();
   });
 
   it("offers resume for a failure that resuming can help, and keeps the error one click down", async () => {

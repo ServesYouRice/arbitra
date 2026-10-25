@@ -113,7 +113,9 @@ A run page reads top to bottom:
 - **Header.** The project and the run's kind as the page title (`veritra · audit`), the
   state chip in words, and the one lifecycle action the state allows: cancel a working run,
   resume a stopped one when resuming can help, raise the token limit of one paused on it,
-  or start a new run like a finished one. Beneath it when it started, what executed it
+  or start a new run like a finished one, or like a failed one that resuming cannot help.
+  Whether it can help is read from the failure's recorded reason, since the server calls
+  every run that is not done resumable. Beneath it when it started, what executed it
   (models, or scripted detectors that make no model call) and how much of the project it read.
 - **Decision banner.** Present only while the run is blocked, above every tab, with the
   decisions themselves and the resume that follows them.

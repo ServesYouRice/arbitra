@@ -144,7 +144,7 @@ function Stopped(props: SummaryProps & { readonly state: string }): ReactElement
   const data = useStageData(props, Date.now());
   const why = reason ?? overview?.reason ?? null;
   const limit = record(record(overview?.configuration?.["workflow"])["modelExecution"])["maximumTokens"];
-  const note: ReactNode = state === "FAILED" ? <FailureNote reason={why} />
+  const note: ReactNode = state === "FAILED" ? <FailureNote reason={why} mode={props.mode} />
     : state === "SUSPENDED_RATE_LIMIT" ? <UsageLimitPause reason={why} />
     : state === "SUSPENDED_BUDGET" ? <Alert title="Paused at its token limit">The run reached its limit{typeof limit === "number" ? ` of ${limitWords(limit)} tokens` : ""}, with everything it has done kept. Raise the limit in the header to go on from where it stopped.</Alert>
     : state === "CANCELLED" ? <Alert title="Cancelled">The run was cancelled. What it finished is kept: resume it from the header to go on from where it stopped.</Alert>
@@ -169,8 +169,8 @@ function Alert({ title, tone = "degraded", children }: { readonly title: string;
 }
 
 /** What failed and what to do, plainly; the recorded reason one click down. */
-function FailureNote({ reason }: { readonly reason: string | null }): ReactElement {
-  const words = failureWords(reason);
+function FailureNote({ reason, mode }: { readonly reason: string | null; readonly mode: Mode }): ReactElement {
+  const words = failureWords(reason, mode);
   return <Alert title="The run failed" tone="refuted">
     <p className="prose">{words.what}</p>
     <p className="prose">{words.todo}</p>
