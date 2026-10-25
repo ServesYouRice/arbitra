@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { sourceFindingSchema } from "@arbitra/schemas/finding.js";
-import { ModelOutputLimitError, ModelRefusalError } from "../src/context-budget.js";
+import { ModelOutputLimitError, ModelRefusalError, ModelTimeLimitError } from "../src/context-budget.js";
 import type { ModelActivities, ModelActivityRequest } from "../src/model-activities.js";
 import { discoverWithModel, injectionWindows } from "../src/model-discovery.js";
 import { INSTRUCTION_SHAPED_TEXT_RULE } from "../src/prompt-conventions.js";
@@ -297,6 +297,42 @@ describe("independent model discovery", () => {
     expect(await artifact(store, "discovery-validation-auditor-a")).toMatchObject({ acceptedCount: 4, rejectedCount: 0, truncated: false, unexaminedDueToBudget: [], limitations: ["discovery_partitioned_context", "discovery_output_limit_split"] });
     expect((await artifact(store, "findings-auditor-a")).map(({ sourceFindingId }: { sourceFindingId: string }) => sourceFindingId)).toEqual(result.map(({ sourceFindingId }) => sourceFindingId));
     // The ceiling marker and the completed scopes are durable: a resumed discovery splits the same way without a call.
+    expect((await run()).map(({ sourceFindingId }) => sourceFindingId)).toEqual(result.map(({ sourceFindingId }) => sourceFindingId));
+    expect(spent).toHaveLength(3);
+  });
+
+  it("splits a unit whose call runs past the time limit as one that stops at the output ceiling, once, and repeats no call on resume", async () => {
+    // Observed live (veritra, October 25): 7 of the first 36 discovery calls ran past the 15-minute limit and were sent again whole.
+    const root = await mkdtemp(join(tmpdir(), "arbitra-discovery-time-limit-")); directories.push(root);
+    const store = new RunStore(root, "run-time-limit");
+    const files = ["a.ts", "b.ts", "c.ts", "d.ts"].map((path) => fileOf(path, ["const value = null;"]));
+    const durable = new Map<string, unknown>(); const marked = new Set<string>(); const spent: { paths: string[]; splits: boolean }[] = [];
+    const activities = {
+      async invoke<T>(input: ModelActivityRequest<T>): Promise<T> {
+        if (marked.has(input.activityId)) throw new ModelTimeLimitError(input.activityId);
+        if (!durable.has(input.activityId)) {
+          const payload = JSON.parse(input.messages.find(({ role }) => role === "user")?.content ?? "{}") as Payload;
+          spent.push({ paths: payload.files.map(({ path }) => path), splits: input.splitOnTimeLimit === true });
+          // Every unit of several files runs past the limit. One its stage splits is marked, as the harness marks it;
+          // any other is sent again by the provider and, here, answered.
+          if (payload.files.length > 1 && input.splitOnTimeLimit === true) { marked.add(input.activityId); throw new ModelTimeLimitError(input.activityId); }
+          const namespace = /Every sourceFindingId must start with (.+)\/ and be unique/u.exec(input.messages.find(({ role }) => role === "system")?.content ?? "")?.[1] ?? "";
+          durable.set(input.activityId, { findings: payload.files.map(({ path, lines }) => at(`${namespace}/${path.replace(/[^A-Za-z0-9]/gu, "-")}`, "CORRECTNESS", path, 1, 1, lines[0]?.text ?? "")), truncated: false, unexaminedDueToBudget: [], limitations: [] });
+        }
+        return input.schema.parse(durable.get(input.activityId));
+      },
+    };
+    const run = () => discoverWithModel({ auditorId: "auditor-a", modelProfileId: "model", snapshot: { root: "fixture", files }, activities, store, signal: new AbortController().signal });
+    const result = await run();
+    // The halves are not split again if they run past the limit too: a provider slow for every call costs one split.
+    expect(spent).toEqual([{ paths: ["a.ts", "b.ts", "c.ts", "d.ts"], splits: true }, { paths: ["a.ts", "b.ts"], splits: false }, { paths: ["c.ts", "d.ts"], splits: false }]);
+    expect(result.map(({ locations }) => locations[0]?.path)).toEqual(["a.ts", "b.ts", "c.ts", "d.ts"]);
+    const scopes = await artifact(store, "discovery-scopes-auditor-a") as { scopes: { scopeId: string; paths: string[] }[]; timeLimitSplits: { scopeId: string; into: string[] }[]; outputLimitSplits?: unknown };
+    expect(scopes.scopes.map(({ paths }) => paths)).toEqual([["a.ts", "b.ts"], ["c.ts", "d.ts"]]);
+    expect(scopes.timeLimitSplits).toEqual([{ scopeId: "whole", into: scopes.scopes.map(({ scopeId }) => scopeId) }]);
+    expect(scopes.outputLimitSplits).toBeUndefined();
+    expect(await artifact(store, "discovery-validation-auditor-a")).toMatchObject({ acceptedCount: 4, limitations: ["discovery_partitioned_context", "discovery_time_limit_split"] });
+    // The marker and the finished halves are durable: a resumed discovery splits the same way without a call.
     expect((await run()).map(({ sourceFindingId }) => sourceFindingId)).toEqual(result.map(({ sourceFindingId }) => sourceFindingId));
     expect(spent).toHaveLength(3);
   });

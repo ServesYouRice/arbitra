@@ -155,6 +155,17 @@ truncated. When they do not fit, the stage is recomposed:
   the same overlap. Each smaller unit is a durable activity of its own, so the split is the same
   after a restart. `discovery-scopes-<auditor>` lists every split (`outputLimitSplits`), and
   coverage carries `discovery_output_limit_split`.
+- **Smaller discovery units after the time limit** (October 25, 2026). A discovery call that
+  runs past `timeoutMs` is not sent again whole: the provider runtime returns it
+  (`ProviderTimeLimitError`), the harness records a durable `model-time-limit-*` marker and
+  throws `MODEL_TIME_LIMIT_REACHED:<activityId>`, and the unit is split as one that stopped at the
+  output ceiling. A call's time is its output, thinking included, at its model's rate (veritra:
+  9 ms a token for Opus 5.5, 35 for GPT-6.1 Sol), so a part takes about half as long; the 8 of
+  212 veritra calls that ran past 15 minutes held no more source than calls that finished, so
+  size alone does not foretell them. The parts are sent again as before if they run past the limit
+  too, so a provider that is slow for every call costs one split. A unit of one line, and an
+  injection follow-up, keep the provider's retries. `discovery-scopes-<auditor>` lists the splits
+  (`timeLimitSplits`), and coverage carries `discovery_time_limit_split`.
 - **Discovery reads beyond its unit** (production-audit 2.0.0, October 25, 2026). A unit audits
   its own files, and its tools read the whole snapshot with the same redaction and framing.
   Reads of other files share 64 KiB a call (`DISCOVERY_READ_BEYOND_UNIT_BYTES`): a read is cut at
@@ -199,6 +210,7 @@ activity ID, prompt and context artifact are unchanged.
 |---|---|---|
 | Discovery: file larger than budget | Whole file listed in `unexaminedDueToBudget` | Exact line windows; `file_context_split:<path>` limitation |
 | Discovery: call stops at the output ceiling | `MODEL_OUTPUT_LIMIT_REACHED:<auditor>/<scope>/discovery`; every resume failed at the same call | Smaller scopes, then line windows, over the same source; `discovery_output_limit_split` limitation |
+| Discovery: call runs past the time limit | Sent again whole, from nothing, up to `maximumRetries` times; then the run failed | Split once as at the output ceiling; `discovery_time_limit_split` limitation |
 | Audit peer review: candidate pair too large | `PEER_PAIR_CONTEXT_LIMIT_EXCEEDED` | Segmented pair check; merges from segments of one pair deduplicated |
 | Audit critic: record pair too large | `PEER_PAIR_CONTEXT_LIMIT_EXCEEDED` | Segmented pair check |
 | Audit peer/critic/planner/revision output | Truncation reported as malformed JSON | Per-record output batching, truncation detection, durable replanning |

@@ -32,6 +32,9 @@ const systemTimer: RuntimeTimer = {
 export interface ProviderInvocationContext {
   readonly activityId: string; readonly providerId: string; readonly transportId: string; readonly modelId: string;
   readonly estimatedTokens: number; readonly maximumRetries: number; readonly timeoutMs: number; readonly signal: AbortSignal;
+  /** False when the caller sends less work instead: a call that ran past `timeoutMs` and stopped is not sent again,
+   * and fails with ProviderTimeLimitError. Every other failure is retried as usual. Default true. */
+  readonly retryTimeouts?: boolean;
 }
 export interface ProviderRuntimeOptions {
   readonly transports: Readonly<Record<string, ProviderTransport>>;
@@ -60,6 +63,14 @@ export class ProviderInvocationFailure extends Error {
 export class ProviderUsageLimitError extends ProviderInvocationFailure {
   readonly state = "SUSPENDED_RATE_LIMIT" as const;
   constructor(message: string, attempts: number) { super(message, attempts, "QUOTA"); this.name = "ProviderUsageLimitError"; }
+}
+/**
+ * A call ran past its time limit, stopped, and was not sent again, because its caller sends less work instead
+ * (`retryTimeouts: false`). A retry sends the same work from nothing. Observed live (veritra, October 25, 2026): 8 of
+ * 212 discovery calls ran past 15 minutes, and each was sent again whole.
+ */
+export class ProviderTimeLimitError extends ProviderInvocationFailure {
+  constructor(message: string, attempts: number) { super(message, attempts, "TIMEOUT"); this.name = "ProviderTimeLimitError"; }
 }
 
 /** Sole production entrypoint to low-level provider transports. */
@@ -107,7 +118,7 @@ export class ProviderInvocationRuntime {
         return result;
       } catch (error) {
         lastError = error;
-        const retryable = error instanceof TransportError && error.retryable && attempt <= context.maximumRetries;
+        const retryable = !timeLimited(error, context) && error instanceof TransportError && error.retryable && attempt <= context.maximumRetries;
         // Release the reservation only when the attempt provably consumed nothing; otherwise it stays charged.
         const evidence = !dispatched ? { consumption: "none" as const, rule: "not_dispatched" } : error instanceof TransportError ? error.evidence : null;
         let released: string | undefined;
@@ -130,8 +141,15 @@ export class ProviderInvocationRuntime {
     // Transport messages are bounded and redacted at the source (providerErrorDetail).
     const detail = lastError instanceof TransportError ? `: ${lastError.message.slice(0, 300)}` : "";
     if (code === "QUOTA") throw new ProviderUsageLimitError(`Provider ${context.providerId} reached its usage limit (${code}${detail}); the run pauses with its completed work kept and goes on when resumed after the reset.`, attempts);
+    if (timeLimited(lastError, context)) throw new ProviderTimeLimitError(`Provider ${context.providerId}: the call ran past its time limit of ${context.timeoutMs} ms and stopped (${code}${detail}); it is not sent again, since its stage sends less work instead.`, attempts);
     throw new ProviderInvocationFailure(`Provider ${context.providerId} failed after ${attempts} attempt${attempts === 1 ? "" : "s"} (${code}${detail}); completed artifacts are preserved and the run may resume with degraded completeness.`, attempts, code);
   }
+}
+
+/** A call that ran past its time limit and stopped, whose caller sends less work instead of sending it again. A send
+ * still running after it was cancelled is not one: nothing starts beside it. */
+function timeLimited(error: unknown, context: ProviderInvocationContext): boolean {
+  return context.retryTimeouts === false && error instanceof TransportError && error.code === "TIMEOUT" && error.retryable;
 }
 
 function boundedTimerDelay(milliseconds: number): number {

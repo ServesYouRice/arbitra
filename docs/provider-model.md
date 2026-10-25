@@ -158,7 +158,10 @@ process immediately and fail the call.
 A transport translates; it does not decide policy. Budget, retry and scheduling live above
 it. A call its stage timeout aborts keeps its scheduler slot, and its retry waits, until the
 transport has stopped, for at most 30 seconds; a process tree it left running, or a call still
-running after that wait, fails it without a retry.
+running after that wait, fails it without a retry. A caller that sends less work instead
+(`retryTimeouts: false`, set for a discovery unit that can be split) gets a timed-out call that
+stopped back as `ProviderTimeLimitError`, not sent again: a retry sends the same work from
+nothing.
 
 The adapters use native wire formats, including tool-call history and tool-result IDs.
 The Responses adapter reads every text/refusal content block and uses

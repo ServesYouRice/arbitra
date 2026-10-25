@@ -78,6 +78,15 @@ export function checkMethodWords(method: string | null): string | null { return 
 /** What came of an issue the executing agent worked on, as recorded in results.json. */
 export const RESULT_WORDS: Readonly<Record<string, string>> = Object.freeze({ fixed: "Fixed", no_change_needed: "No change needed", not_reproducible: "Not reproducible", blocked: "Blocked" });
 
+/** The step a model activity belongs to, as the run is doing it, from the stage its ID starts with: "reviewing the plan". */
+function activityStep(activityId: string): string {
+  const stage = activityId.split("/")[0] ?? "";
+  if (stage.startsWith("auditor-")) return "finding issues";
+  const steps: Readonly<Record<string, string>> = { "peer-review": "merging duplicates", "peer-conflict": "merging duplicates", "semantic-clustering": "merging duplicates",
+    verification: "checking each issue", "variant-search": "searching for variants", planner: "writing the plan", critic: "reviewing the plan", "critique-check": "reviewing the plan" };
+  return steps[stage] ?? stage;
+}
+
 /** What a failure means for the person: what happened, what to do, and whether resuming can help. */
 export interface FailureWords { readonly what: string; readonly todo: string; readonly resumable: boolean }
 
@@ -109,6 +118,13 @@ export function failureWords(reason: string | null, mode: Mode = "audit"): Failu
   if (/MODEL_IDENTITY_PLACEHOLDER/u.test(text)) return { what: "A model in the lineup is a placeholder, not a model this computer can run.", todo: `Start a new ${run} with a model chosen for each step. ${AGAIN}`, resumable: false };
   if (/CLI_MODEL_UNAVAILABLE|CLI_ACCOUNT_INELIGIBLE/u.test(text)) return { what: "A model in the lineup is not offered to the account its CLI is signed in to.", todo: `Start a new ${run} with another model for that step. ${AGAIN}`, resumable: false };
   if (/CLI_EFFORT_PARAMETER_UNSUPPORTED/u.test(text)) return { what: "A model refused the effort the lineup gives it.", todo: `Start a new ${run} with another effort for that step. ${AGAIN}`, resumable: false };
+  // Observed live (veritra, October 25, 2026): after a code change, a resume refused every recorded critic batch.
+  const changed = /MODEL_ACTIVITY_INPUT_CHANGED:([^\s:]+)/u.exec(text);
+  if (changed !== null) {
+    const startedOn = /version it started on, "((?:[^"\\]|\\.)*)"/u.exec(text)?.[1];
+    return { what: `This version of arbitra asks for the work of ${activityStep(changed[1] ?? "")} differently from the version the run started on, so it cannot reuse what the run recorded there.`,
+      todo: `${startedOn === undefined ? "Resume it with the arbitra version it started on" : `It started on arbitra ${startedOn}. Resume it with that version`}, or start a new run. Resuming it with this version would stop the same way.`, resumable: false };
+  }
   // Fix it on this computer, then resume.
   if (/RUN_REPOSITORY_CHANGED/u.test(text)) return { what: "The project's files changed after the run read them, so the run cannot go on from where it stopped.", todo: `Put the files back as they were to resume, or start a new ${run} of the project as it is now.`, resumable: true };
   const signedOut = /CLI_NOT_LOGGED_IN: (.+?) is not signed in/u.exec(text);

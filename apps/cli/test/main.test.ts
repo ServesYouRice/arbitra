@@ -271,6 +271,9 @@ describe("CLI commands", () => {
 
   it.each([
     ["replay", ["run-a", "--consensus-policy", "full", "--max-rounds", "2", "--no-critic"], "replay:run-a:{\"consensusPolicy\":\"full\",\"maximumRounds\":2,\"criticEnabled\":false}"],
+    // Without a critic flag the replay keeps its source run's critic (the switch is off by default since October 25).
+    ["replay", ["run-a"], "replay:run-a:{\"consensusPolicy\":\"risk_weighted\",\"maximumRounds\":3}"],
+    ["replay", ["run-a", "--critic"], "replay:run-a:{\"consensusPolicy\":\"risk_weighted\",\"maximumRounds\":3,\"criticEnabled\":true}"],
     ["replay", ["run-a", "--request", "replay.json"], "replayRequest:run-a:replay.json"],
     ["diff", ["run-a", "run-b"], "diff:run-a:run-b"],
     ["trace", ["run-a"], "trace:run-a"],
@@ -293,6 +296,7 @@ describe("CLI commands", () => {
     [["replay", "run-a", "--unknown", "value"], "invalid_arguments:replay"],
     [["replay", "run-a", "--request"], "missing_value:--request"],
     [["replay", "run-a", "--request", "replay.json", "--no-critic"], "invalid_arguments:replay"],
+    [["replay", "run-a", "--critic", "--no-critic"], "invalid_arguments:replay"],
     [["diff", "run-a"], "invalid_arguments:diff"],
     [["trace", "run-a", "extra"], "invalid_arguments:trace"],
     [["export", "run-a", "--format", "html"], "invalid_export_format"],

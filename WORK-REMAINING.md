@@ -41,16 +41,6 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
 5. **Improvements the measurements support** (the rest of "Need design").
 6. **P21**, the completion report and the docs reconciled with the final build, then a release.
 
-## Clear now
-
-Small defects the October 25 lanes found and did not fix, each to be shown by a failing test first.
-
-- **Discovery calls run past the 15-minute call limit and start again from nothing:** 7 of veritra's first 36 (4 of
-  22 Opus, 3 of 14 Sol), 9 turns without an answer in the whole run (4 Opus, 5 Sol, counting the stop at Codex's usage limit), none in the six
-  earlier runs; Opus wrote 33K tokens a call against nextra's 23K, up to 67.5K. Each costs
-  a slot for 15 minutes and the tokens already spent. Take the durations from the finished run, then size the limit
-  or the units from them, or split a unit that times out as one that stops at the output ceiling.
-
 ## Measure first
 
 From the research review; each decides a cut or a build.
@@ -90,6 +80,9 @@ From the research review; each decides a cut or a build.
   and the duplicate check, how many verification confirms and how many of those are real (nextra's 14 defects found
   while fixing are a check), and what the search and the checking of its proposals cost in tokens and minutes. That
   decides whether a depth turns it on, and the batch size (`VARIANT_SEARCH_SEEDS_PER_BATCH`, six for now).
+- **Discovery units split at the time limit** (built October 25, `timeLimitSplits`): how many units split, whether a
+  part ran past the limit again (it is then sent again whole), and the minutes and tokens against veritra's 8 calls
+  sent again whole.
 - **The verifier's required reason:** how often an answer leaves it out and costs a repair.
 - **A Sonnet second look at medium reports Opus leaves unsettled:** build it as an option, off by default; it decided
   6 of 7 rightly on nextra, at about 28K tokens a question.
@@ -168,8 +161,8 @@ real runs' Summary and every other place measured 0 px at 390 px. It owns:
   OpenAI model, an effort for finding on its own, `workflow.critic` (off by default) in place of the depth rule,
   `roles.mediumVerifier` and `roles.merger`, depth presets in New run that write models and efforts, finder
   presets named by count, and the variant search (`workflow.variantSearch`, off; Gemini searches when it is a
-  finder, else Sonnet 5.5 · high). Left: the measured runs that set the defaults; `arbitra replay` still turns the critic on;
-  the renamed presets' browser tests have not run.
+  finder, else Sonnet 5.5 · high). Left: the measured runs that set the defaults; the renamed presets' browser tests
+  have not run.
 - **Compare the right pairs for duplicates** (*before veritra*): cross-auditor pairs first, same-answer pairs last (1
   merge in 332), a higher ceiling when batched, and TF-IDF neighbours in other files (the export's version found 4 of
   nextra's 5 overlaps).

@@ -1,11 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { RunConfig } from "@arbitra/schemas/config.js";
-import type { ReplayOverrides } from "@arbitra/core/replay/index.js";
 import type { ReplayRequest } from "@arbitra/schemas/replay.js";
 import type { BatchResolutionRequest } from "@arbitra/schemas/provider-execution.js";
 import { PLAN_QUESTIONS_CHECKPOINT_ID } from "@arbitra/schemas/checkpoint-policy.js";
-import type { Orchestrator } from "./orchestrator.js";
+import type { AuditReplayOverrides, Orchestrator } from "./orchestrator.js";
 import { PreflightError } from "./preflight.js";
 import { PRESET_ALIASES } from "./graphs.js";
 
@@ -166,7 +165,7 @@ export function orchestratorCore(orchestrator: Orchestrator) {
       return completed(runId, (await orchestrator.wait(runId)).state);
     },
 
-    async replay(runId: string, overrides: ReplayOverrides): Promise<CoreCommandResult> {
+    async replay(runId: string, overrides: AuditReplayOverrides): Promise<CoreCommandResult> {
       const replayed = await orchestrator.replay(runId, overrides);
       return completed(replayed.runId, replayed.state);
     },

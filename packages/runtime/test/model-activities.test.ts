@@ -63,6 +63,23 @@ describe("durable model activities", () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 
+  it("says which recorded activity no longer matches, and to resume with the version the run started on or start again", async () => {
+    // Observed live (veritra, October 25): a code change altered one sentence every critic batch carries, and the resume
+    // failed with the bare code MODEL_ACTIVITY_INPUT_CHANGED.
+    const reworded = (activityId: string) => ({ ...request(activityId), messages: [{ role: "user" as const, content: "Return a JSON answer, reworded." }] });
+    const unrecorded = await fixture();
+    await unrecorded.create().invoke(request("critic/review/batch-1"));
+    await expect(unrecorded.create().invoke(reworded("critic/review/batch-1"))).rejects.toThrow(/^MODEL_ACTIVITY_INPUT_CHANGED:critic\/review\/batch-1: the request this version of arbitra makes for critic\/review\/batch-1 differs from the one the run recorded, so the run cannot reuse that work\. Resume it with the arbitra version it started on, or start a new run\.$/u);
+    // The run recorded the build it started on: the message names it, for a finished call and for one that failed.
+    const { create, send, store } = await fixture();
+    await store.publish("environment-versions", { arbitra: "45ed1d2", cli: {} });
+    await create().invoke(request("critic/review/batch-1"));
+    await expect(create().invoke(reworded("critic/review/batch-1"))).rejects.toThrow(/^MODEL_ACTIVITY_INPUT_CHANGED:critic\/review\/batch-1: .* Resume it with the arbitra version it started on, "45ed1d2", or start a new run\.$/u);
+    send.mockResolvedValue({ status: 500, headers: {}, body: {} });
+    await expect(create().invoke(request("critic/review/batch-2"))).rejects.toThrow("Provider openai failed");
+    await expect(create().invoke(reworded("critic/review/batch-2"))).rejects.toThrow(/^MODEL_ACTIVITY_INPUT_CHANGED:critic\/review\/batch-2: .*"45ed1d2"/u);
+  });
+
   it("keeps failed attempts charged across restart and binds their original input", async () => {
     const { create, send } = await fixture(100);
     send.mockResolvedValue({ status: 500, headers: {}, body: {} });

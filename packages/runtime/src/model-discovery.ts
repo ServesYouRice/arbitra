@@ -9,7 +9,7 @@ import type { PinnedProtocol } from "@arbitra/protocols/registry.js";
 import { compareSemver } from "@arbitra/protocols/versioning.js";
 
 import { createHash } from "node:crypto";
-import { isModelOutputRejection, ModelOutputLimitError, ModelRefusalError } from "./context-budget.js";
+import { isModelOutputRejection, ModelOutputLimitError, ModelRefusalError, ModelTimeLimitError } from "./context-budget.js";
 import { allocateDiscoveryScopes } from "./discovery-scope.js";
 import { sharedLimit, sideBySide } from "./side-by-side.js";
 import { unframedQuote, widenToQuote } from "./evidence-grounding.js";
@@ -65,6 +65,8 @@ interface ScopeOptions extends DiscoveryOptions {
   readonly reportedInstructionShapedText?: readonly LineRange[];
   /** Holds the unit's model call to the allowance its audit shares. */
   readonly limited?: <R>(call: () => Promise<R>) => Promise<R>;
+  /** Set when the unit can be split: a call of it that runs past the time limit is split, not sent again whole. */
+  readonly splitOnTimeLimit?: boolean;
 }
 
 /** Lines shared by consecutive windows so short defects spanning a boundary stay whole. */
@@ -226,8 +228,11 @@ export async function assertDiscoveryResumable(store: RunStore, auditorIds: read
   assertDiscoveryProtocol(JSON.parse((await store.readArtifact(pin.artifactId)).content) as PinnedProtocol);
 }
 
-/** A discovery unit awaiting its call: a scope of whole files, or one exact line window of one file. */
-interface PendingUnit { readonly files: readonly SourceFile[]; readonly splitModules: readonly string[]; readonly window?: { readonly startLine: number; readonly endLine: number } }
+/**
+ * A discovery unit awaiting its call: a scope of whole files, or one exact line window of one file. `afterTimeLimit`
+ * marks a part of a unit whose call ran past the time limit, and the parts split from it in turn.
+ */
+interface PendingUnit { readonly files: readonly SourceFile[]; readonly splitModules: readonly string[]; readonly window?: { readonly startLine: number; readonly endLine: number }; readonly afterTimeLimit?: true }
 
 const byteSum = (files: readonly SourceFile[]) => files.reduce((sum, { byteLength }) => sum + byteLength, 0);
 
@@ -239,6 +244,21 @@ function unitScopeId(unit: PendingUnit): string {
 function stoppedAtOutputCeiling(error: unknown, options: ScopeOptions): boolean {
   const activityId = discoveryActivityId(options);
   return error instanceof ModelOutputLimitError && (error.activityId === activityId || error.activityId.startsWith(`${activityId}/`));
+}
+
+/** Whether this unit's own call, or a repair of its reply, ran past the time limit (now or before a resume). */
+function ranPastTimeLimit(error: unknown, options: ScopeOptions): boolean {
+  const activityId = discoveryActivityId(options);
+  return error instanceof ModelTimeLimitError && (error.activityId === activityId || error.activityId.startsWith(`${activityId}/`));
+}
+
+/**
+ * A unit that can be split is split when its call runs past the time limit, rather than sent again whole and from
+ * nothing. A part of a unit that did is sent again as before if it runs past the limit too, so a provider that is slow
+ * for every call costs one split, not a cascade of ever smaller calls each held for the whole limit.
+ */
+function splitsOnTimeLimit(snapshot: RepositorySnapshot, unit: PendingUnit): boolean {
+  return unit.afterTimeLimit !== true && splitOutputLimitedUnit(snapshot, unit) !== null;
 }
 
 /**
@@ -257,16 +277,18 @@ function declined(error: unknown, options: ScopeOptions): "provider_refused" | "
  * Observed live (P20 pilot, Opus 5.5 at xhigh): thinking counts as output, so a scope that
  * fits the input budget passed 64,000 output tokens, and no resume could finish the run.
  * Several files are packed module-first into scopes of at most half their bytes; one file or
- * window is halved by lines with the usual overlap. Null when one line is left.
+ * window is halved by lines with the usual overlap. Null when one line is left. A unit whose
+ * call ran past the time limit is split the same way, and its parts keep its `afterTimeLimit`.
  */
 function splitOutputLimitedUnit(snapshot: RepositorySnapshot, unit: PendingUnit): readonly PendingUnit[] | null {
+  const mark = unit.afterTimeLimit === true ? { afterTimeLimit: true as const } : {};
   if (unit.window === undefined && unit.files.length > 1) {
     const half = Math.ceil(byteSum(unit.files) / 2);
     // One file always fits, so a file larger than the half becomes a scope of its own.
     const allocation = allocateDiscoveryScopes({ ...snapshot, files: unit.files }, (files) => files.length === 1 || byteSum(files) <= half);
-    if (allocation.scopes.length > 1) return allocation.scopes.map(({ files, splitModules }) => ({ files, splitModules: [...new Set([...unit.splitModules, ...splitModules])] }));
+    if (allocation.scopes.length > 1) return allocation.scopes.map(({ files, splitModules }) => ({ files, splitModules: [...new Set([...unit.splitModules, ...splitModules])], ...mark }));
     const middle = Math.ceil(unit.files.length / 2);
-    return [unit.files.slice(0, middle), unit.files.slice(middle)].map((files) => ({ files, splitModules: unit.splitModules }));
+    return [unit.files.slice(0, middle), unit.files.slice(middle)].map((files) => ({ files, splitModules: unit.splitModules, ...mark }));
   }
   const file = unit.files[0];
   if (file === undefined) return null;
@@ -275,7 +297,7 @@ function splitOutputLimitedUnit(snapshot: RepositorySnapshot, unit: PendingUnit)
   if (count < 2) return null;
   const middle = startLine + Math.ceil(count / 2) - 1;
   const overlap = Math.min(DISCOVERY_WINDOW_OVERLAP_LINES, Math.floor((middle - startLine + 1) / 2));
-  return [{ startLine, endLine: middle }, { startLine: middle + 1 - overlap, endLine }].map((window) => ({ files: [file], splitModules: unit.splitModules, window }));
+  return [{ startLine, endLine: middle }, { startLine: middle + 1 - overlap, endLine }].map((window) => ({ files: [file], splitModules: unit.splitModules, window, ...mark }));
 }
 
 async function discoverPrimary(options: DiscoveryOptions): Promise<readonly SourceFinding[]> {
@@ -287,6 +309,8 @@ async function discoverPrimary(options: DiscoveryOptions): Promise<readonly Sour
   const outputLimitSplits: { scopeId: string; into: readonly string[] }[] = [];
   // Units the provider declined or whose reply stayed invalid, and the smaller units tried in their place.
   const declinedSplits: { scopeId: string; into: readonly string[] }[] = [];
+  // Units whose call ran past the time limit, and the smaller units that replaced each.
+  const timeLimitSplits: { scopeId: string; into: readonly string[] }[] = [];
   // Files too large for any scope are read as exact original-line windows, not skipped.
   const windowed: { path: string; windows: { startLine: number; endLine: number }[]; unexaminedLines: number[] }[] = [];
   // Set when the whole snapshot was declined: the pending units are then the parts of a declined unit.
@@ -295,15 +319,16 @@ async function discoverPrimary(options: DiscoveryOptions): Promise<readonly Sour
   let unsplit: Declined | undefined;
   if (maximum === undefined || byteSum(options.snapshot.files) <= maximum && estimate(discoveryRequest(options)) <= maximum) {
     if (maximum !== undefined) await options.store.publish(`discovery-scopes-${options.auditorId}`, { scopes: [{ scopeId: "whole", paths: options.snapshot.files.map(({ path }) => path), estimatedTokens: estimate(discoveryRequest(options)), splitModules: [] }], unallocatedPaths: [], maximumEstimatedTokens: maximum });
-    try { return await discoverScopeWithModel(options); }
+    const whole: PendingUnit = { files: options.snapshot.files, splitModules: [] };
+    try { return await discoverScopeWithModel({ ...options, ...(splitsOnTimeLimit(options.snapshot, whole) ? { splitOnTimeLimit: true } : {}) }); }
     catch (error) {
       const cause = declined(error, options);
-      const whole: PendingUnit = { files: options.snapshot.files, splitModules: [] };
-      const parts = stoppedAtOutputCeiling(error, options) || cause !== null ? splitOutputLimitedUnit(options.snapshot, whole) : null;
+      const timeLimited = ranPastTimeLimit(error, options);
+      const parts = stoppedAtOutputCeiling(error, options) || cause !== null ? splitOutputLimitedUnit(options.snapshot, whole) : timeLimited ? splitOutputLimitedUnit(options.snapshot, { ...whole, afterTimeLimit: true }) : null;
       if (parts === null && cause !== null) unsplit = { unit: whole, cause, error };
       else if (parts === null) throw error;
       else {
-        (cause === null ? outputLimitSplits : declinedSplits).push({ scopeId: "whole", into: parts.map(unitScopeId) });
+        (cause !== null ? declinedSplits : timeLimited ? timeLimitSplits : outputLimitSplits).push({ scopeId: "whole", into: parts.map(unitScopeId) });
         pending.push(...parts);
         wholeDeclined = cause !== null;
       }
@@ -324,7 +349,7 @@ async function discoverPrimary(options: DiscoveryOptions): Promise<readonly Sour
   }
   interface Audited { readonly scope: { scopeId: string; paths: readonly string[]; estimatedTokens: number | null; splitModules: readonly string[] }; readonly findings: readonly SourceFinding[]; readonly validation: ScopeValidation; readonly splitModules: readonly string[] }
   interface Declined { readonly unit: PendingUnit; readonly cause: "provider_refused" | "reply_rejected"; readonly error: unknown }
-  interface Outcome { readonly audited: readonly Audited[]; readonly splits: readonly { scopeId: string; into: readonly string[]; declined?: true }[];
+  interface Outcome { readonly audited: readonly Audited[]; readonly splits: readonly { scopeId: string; into: readonly string[]; declined?: true; timeLimited?: true }[];
     /** A part of a declined unit declined too, left for its caller to split again or record. */
     readonly deferred?: Declined }
   const concurrency = options.concurrency ?? 1;
@@ -338,12 +363,13 @@ async function discoverPrimary(options: DiscoveryOptions): Promise<readonly Sour
     const scope = { scopeId, paths: unit.files.map(({ path }) => path), estimatedTokens: null, splitModules: unit.splitModules, ...(window === undefined ? {} : { window }), declined: cause };
     return { audited: [{ scope, findings: [], validation: { rejectedCount: 0, truncated: false, unexaminedDueToBudget: surfaces.map((surface) => `discovery_${cause}:${surface}`), limitations: [`discovery_${cause}`] }, splitModules: unit.splitModules }], splits: [] };
   };
-  const replaced = async (unit: PendingUnit, parts: readonly PendingUnit[], cause: Declined["cause"] | null): Promise<Outcome> => {
+  const replaced = async (unit: PendingUnit, parts: readonly PendingUnit[], cause: Declined["cause"] | "output_limit" | "time_limit"): Promise<Outcome> => {
     // The parts take the place of their unit and are independent of each other, so they run side by side within
     // the same limit; with a limit of one they run one after another. Observed live (P20 pilot): Gemini passed its
     // output limit on 3 of 16 units, and halves audited in sequence made its audit 50 minutes of a panel run.
-    const inner = cause === null ? await sideBySide(parts, concurrency, (part) => audit(part)) : await retried(parts);
-    return { audited: inner.flatMap(({ audited }) => audited), splits: [{ scopeId: unitScopeId(unit), into: parts.map(unitScopeId), ...(cause === null ? {} : { declined: true as const }) }, ...inner.flatMap(({ splits }) => splits)] };
+    const limit = cause === "output_limit" || cause === "time_limit";
+    const inner = limit ? await sideBySide(parts, concurrency, (part) => audit(part)) : await retried(parts);
+    return { audited: inner.flatMap(({ audited }) => audited), splits: [{ scopeId: unitScopeId(unit), into: parts.map(unitScopeId), ...(!limit ? { declined: true as const } : cause === "time_limit" ? { timeLimited: true as const } : {}) }, ...inner.flatMap(({ splits }) => splits)] };
   };
   // A declined unit is tried again in smaller parts, which also finds the source the provider objects to:
   // several files as two scopes, one file as two line windows. A declined window is not split again.
@@ -362,7 +388,8 @@ async function discoverPrimary(options: DiscoveryOptions): Promise<readonly Sour
   const audit = async (unit: PendingUnit, partOfDeclined = false): Promise<Outcome> => {
     const { window } = unit;
     const scopeId = unitScopeId(unit);
-    const selected: ScopeOptions = { ...options, snapshot: { ...options.snapshot, files: unit.files }, scopeId, ...(window === undefined ? {} : { window }), limited };
+    const selected: ScopeOptions = { ...options, snapshot: { ...options.snapshot, files: unit.files }, scopeId, ...(window === undefined ? {} : { window }), limited,
+      ...(splitsOnTimeLimit(options.snapshot, unit) ? { splitOnTimeLimit: true } : {}) };
     let found: readonly SourceFinding[];
     try { found = await discoverScopeWithModel(selected); }
     catch (error) {
@@ -370,7 +397,17 @@ async function discoverPrimary(options: DiscoveryOptions): Promise<readonly Sour
       if (stoppedAtOutputCeiling(error, selected)) {
         const parts = splitOutputLimitedUnit(options.snapshot, unit);
         if (parts === null) throw error;
-        return replaced(unit, parts, null);
+        return replaced(unit, parts, "output_limit");
+      }
+      // A call's time is its output, thinking included, at its model's rate, so a part takes about half as long.
+      // Observed live (veritra, October 25, 2026): Opus 5.5 wrote discovery at 9 ms a token and GPT-6.1 Sol at 35
+      // (medians of 211 calls). 8 calls ran past 15 minutes on units no larger than ones that finished the first time,
+      // and each was sent again whole, from nothing; the second calls wrote 9,750 to 44,400 tokens. A unit's size does
+      // not foretell a slow call, so the parts are made once one is seen.
+      if (ranPastTimeLimit(error, selected)) {
+        const parts = splitOutputLimitedUnit(options.snapshot, { ...unit, afterTimeLimit: true });
+        if (parts === null) throw error;
+        return replaced(unit, parts, "time_limit");
       }
       const cause = declined(error, selected);
       if (cause === null) throw error;
@@ -385,8 +422,9 @@ async function discoverPrimary(options: DiscoveryOptions): Promise<readonly Sour
   const outcomes = unsplit !== undefined ? [await record(unsplit, "whole")] : wholeDeclined ? await retried(pending) : await sideBySide(pending, concurrency, (unit) => audit(unit));
   const audited = outcomes.flatMap((outcome) => outcome.audited);
   const splits = outcomes.flatMap((outcome) => outcome.splits);
-  outputLimitSplits.push(...splits.filter((split) => split.declined !== true));
+  outputLimitSplits.push(...splits.filter((split) => split.declined !== true && split.timeLimited !== true));
   declinedSplits.push(...splits.filter((split) => split.declined === true).map(({ scopeId, into }) => ({ scopeId, into })));
+  timeLimitSplits.push(...splits.filter((split) => split.timeLimited === true).map(({ scopeId, into }) => ({ scopeId, into })));
   const findings = audited.flatMap(({ findings: found }) => found);
   const scopes = audited.map(({ scope }) => scope);
   const coverage: { rejectedCount: number; truncated: boolean; unexaminedDueToBudget: string[]; limitations: string[] } = { rejectedCount: 0, truncated: false, unexaminedDueToBudget: [], limitations: [] };
@@ -401,8 +439,8 @@ async function discoverPrimary(options: DiscoveryOptions): Promise<readonly Sour
   // A single line larger than the whole budget is irreducible and stays explicit.
   const unexaminedLines = windowed.flatMap(({ path, unexaminedLines }) => unexaminedLines.map((line) => `${path}:${line}`));
   coverage.unexaminedDueToBudget.push(...unexaminedLines);
-  coverage.limitations.push(...(unsplit === undefined ? ["discovery_partitioned_context"] : []), ...[...lineSplitPaths].map((path) => `file_context_split:${path}`), ...(unexaminedLines.length === 0 ? [] : ["lines_exceed_discovery_context_budget"]), ...(outputLimitSplits.length === 0 ? [] : ["discovery_output_limit_split"]), ...(declinedSplits.length === 0 ? [] : ["discovery_declined_unit_split"]));
-  await options.store.publish(`discovery-scopes-${options.auditorId}`, { scopes, unallocatedPaths: [], windowedPaths: windowed.map(({ path, windows }) => ({ path, windows })), unexaminedLines, maximumEstimatedTokens: maximum ?? null, ...(outputLimitSplits.length === 0 ? {} : { outputLimitSplits }), ...(declinedSplits.length === 0 ? {} : { declinedSplits }) });
+  coverage.limitations.push(...(unsplit === undefined ? ["discovery_partitioned_context"] : []), ...[...lineSplitPaths].map((path) => `file_context_split:${path}`), ...(unexaminedLines.length === 0 ? [] : ["lines_exceed_discovery_context_budget"]), ...(outputLimitSplits.length === 0 ? [] : ["discovery_output_limit_split"]), ...(timeLimitSplits.length === 0 ? [] : ["discovery_time_limit_split"]), ...(declinedSplits.length === 0 ? [] : ["discovery_declined_unit_split"]));
+  await options.store.publish(`discovery-scopes-${options.auditorId}`, { scopes, unallocatedPaths: [], windowedPaths: windowed.map(({ path, windows }) => ({ path, windows })), unexaminedLines, maximumEstimatedTokens: maximum ?? null, ...(outputLimitSplits.length === 0 ? {} : { outputLimitSplits }), ...(timeLimitSplits.length === 0 ? {} : { timeLimitSplits }), ...(declinedSplits.length === 0 ? {} : { declinedSplits }) });
   const readsBeyondUnits = unitsReads(audited.map(({ validation }) => validation));
   await options.store.publish(`discovery-validation-${options.auditorId}`, { ...coverage, unexaminedDueToBudget: [...new Set(coverage.unexaminedDueToBudget)], acceptedCount: findings.length, limitations: [...new Set(coverage.limitations)], ...(readsBeyondUnits === undefined ? {} : { readsBeyondUnits }) });
   await options.store.publish(`findings-${options.auditorId}`, findings, options.auditorId);
@@ -593,6 +631,7 @@ function discoveryRequest(options: ScopeOptions): ModelActivityRequest<ReturnTyp
   const index = options.repository.index;
   return {
     activityId: discoveryActivityId(options), sourcePaths: snapshot.files.map(({ path }) => path), readBeyondSource: { maximumBytes: DISCOVERY_READ_BEYOND_UNIT_BYTES },
+    ...(options.splitOnTimeLimit === true ? { splitOnTimeLimit: true } : {}),
     modelProfileId, protocol: options.protocol === undefined ? PROTOCOL : `${options.protocol.protocolId}@${options.protocol.protocolVersion}`, signal,
     ...(options.protocol === undefined ? {} : { protocolAsset: options.protocol, outputSchema: modelDiscoveryResultSchema.toJSONSchema(), protocolIdentity: { protocolId: options.protocol.protocolId, protocolVersion: options.protocol.protocolVersion, protocolHash: options.protocol.protocolHash } }),
     ...(options.effort === undefined ? {} : { effort: options.effort }),

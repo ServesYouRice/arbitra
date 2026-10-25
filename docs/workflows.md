@@ -955,9 +955,10 @@ An Audit plan is criticised only when the executed graph has a `critic` node, an
 has one: `workflow.critic: true` adds it after the planner of any audit preset, `false` keeps
 it out. A critic role alone (`workflow.modelExecution.roles.critic`) does not turn it on; it is
 then used only as the default model for a second opinion (`verification.secondOpinion`) unless
-`roles.secondOpinion` names one. An Audit replay can add the critic (`criticEnabled`; the CLI's
-`replay <run-id>` sets it unless `--no-critic` is given). Every shipped template leaves the
-critic off.
+`roles.secondOpinion` names one. An Audit replay keeps its source run's critic unless it says
+otherwise: `criticEnabled` in the request (the CLI's `replay <run-id> --critic` or `--no-critic`)
+decides, else `workflow.critic` of a replacement `configuration`, else whether the source had
+one. Every shipped template leaves the critic off.
 
 No preset has a variant search either: `workflow.variantSearch: true` adds it between the
 verification and the planner of any audit preset; the subscription templates set it `false` and the

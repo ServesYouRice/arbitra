@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PinnedProtocol } from "@arbitra/protocols/registry.js";
 import { runConfigSchema } from "@arbitra/schemas/config.js";
-import type { HttpClient, HttpRequest, TransportMessage } from "@arbitra/providers/transport-contract.js";
+import { TransportError, type HttpClient, type HttpRequest, type TransportMessage } from "@arbitra/providers/transport-contract.js";
 import type { RequirementsContract } from "@arbitra/workflow/nodes/requirements/index.js";
 import { validateFeatureExploration } from "../src/feature-exploration.js";
 import { ModelActivities } from "../src/model-activities.js";
@@ -211,6 +211,32 @@ describe("durable canonical model harness", () => {
     expect(supplied).toEqual([["a.ts", "b.ts"], ["a.ts"], ["b.ts"]]);
     const scopes = (await store.listArtifacts()).find(({ kind }) => kind === "discovery-scopes-auditor-a");
     expect(JSON.parse((await store.readArtifact(scopes?.artifactId ?? "")).content)).toMatchObject({ scopes: [{ paths: ["a.ts"] }, { paths: ["b.ts"] }], outputLimitSplits: [{ scopeId: "whole" }] });
+    expect(await run()).toEqual([]);
+    expect(send).toHaveBeenCalledTimes(3);
+  });
+
+  it("splits a discovery unit whose call runs past the time limit instead of sending it again whole, with no repeated call after restart", async () => {
+    // Observed live (veritra, October 25): 8 discovery calls ran past the 15-minute limit; each was sent again whole,
+    // from nothing, and could run past it again.
+    const source = { root: "fixture", files: ["a.ts", "b.ts"].map((path) => ({ path, lines: ["const value = null;"], lineStartBytes: [0], byteLength: 19 })) };
+    const { send, store, config } = await setup(2, 0, 0, source);
+    const execution = config.workflow["modelExecution"] as Record<string, unknown>;
+    const limited = runConfigSchema.parse({ ...config, workflow: { ...config.workflow, modelExecution: { ...execution, timeoutMs: 100, maximumRetries: 2 } } });
+    const supplied: string[][] = [];
+    send.mockImplementation(async (value) => {
+      const paths = (value.body as { input: { role: string; content: string }[] }).input.filter(({ role }) => role === "user")
+        .flatMap(({ content }) => (JSON.parse(content) as { files?: { path: string }[] }).files?.map(({ path }) => path) ?? []);
+      supplied.push(paths);
+      // Two files take longer than the limit, and the call is cancelled; one file is answered at once.
+      if (paths.length > 1) return new Promise((_resolve, reject) => { value.signal.addEventListener("abort", () => reject(new TransportError("CANCELLED", "Provider request cancelled", false)), { once: true }); });
+      return { status: 200, headers: {}, body: { output_text: JSON.stringify({ findings: [], truncated: false, unexaminedDueToBudget: [], limitations: [] }), usage: { input_tokens: 10, output_tokens: 10 } } };
+    });
+    const create = () => new ModelHarness(new ModelActivities(store, limited, { client: { send }, credential: () => "fixture-credential" }), limited, source, store);
+    const run = () => discoverWithModel({ auditorId: "auditor-a", modelProfileId: "auditor-a", snapshot: source, activities: create(), store, signal: new AbortController().signal });
+    expect(await run()).toEqual([]);
+    expect(supplied).toEqual([["a.ts", "b.ts"], ["a.ts"], ["b.ts"]]);
+    const scopes = (await store.listArtifacts()).find(({ kind }) => kind === "discovery-scopes-auditor-a");
+    expect(JSON.parse((await store.readArtifact(scopes?.artifactId ?? "")).content)).toMatchObject({ scopes: [{ paths: ["a.ts"] }, { paths: ["b.ts"] }], timeLimitSplits: [{ scopeId: "whole" }] });
     expect(await run()).toEqual([]);
     expect(send).toHaveBeenCalledTimes(3);
   });

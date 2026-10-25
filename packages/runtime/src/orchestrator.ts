@@ -49,6 +49,9 @@ import { bundledProtocolControlPlane } from "@arbitra/protocols/bundled.js";
 import { hashProtocolBytes } from "@arbitra/protocols/versioning.js";
 import { decideStages, readReplayContract, REPLAY_CONTRACT_KIND, ReplaySeed, replayReport, stageIdentities, type ProtocolPin, type ReplayContract, type StageDecision } from "./replay-contracts.js";
 
+/** An Audit replay's policy. Without `criticEnabled` it keeps the critic of its source run (see `#startAuditReplay`). */
+export type AuditReplayOverrides = Omit<ReplayOverrides, "criticEnabled"> & { readonly criticEnabled?: boolean };
+
 /** A replay's new run, with the per-stage reuse decisions for Feature and Testing. */
 export interface ReplayResource {
   readonly runId: string;
@@ -86,6 +89,11 @@ export interface OrchestratorOptions {
   readonly gatePolicies?: GatePolicyRegistry;
   /** The clock recorded on saved workflow graph versions (ISO-8601). */
   readonly now?: () => string;
+  /**
+   * The arbitra build this process runs (`arbitraBuild`). Each run records the build it starts on with its environment
+   * versions, so a resume on another build that cannot reuse the run's recorded work names the one to resume it with.
+   */
+  readonly build?: string;
 }
 
 export interface PreflightReport {
@@ -180,8 +188,10 @@ export class Orchestrator {
   readonly #gatePolicies: GatePolicyRegistry;
   /** What the progress read takes from each artifact, by run and artifact ID; artifacts never change once written. */
   readonly #digests = new Map<string, ArtifactDigest>();
+  readonly #build: string | undefined;
 
   constructor(options: OrchestratorOptions = {}) {
+    this.#build = options.build;
     this.repository = resolve(options.repository ?? process.cwd());
     const state = resolve(options.stateDirectory ?? resolve(this.repository, ".runs"));
     this.#runsDirectory = resolve(state, "runs");
@@ -320,7 +330,7 @@ export class Orchestrator {
     await store.saveContext(storedContext);
     if (identity !== undefined) await store.publish(SNAPSHOT_IDENTITY_KIND, identity);
     if (contract !== undefined) await store.publish(INCREMENTAL_CONTRACT_KIND, contract);
-    if (cliVersions.size > 0) await store.publish(ENVIRONMENT_VERSIONS_KIND, { cli: Object.fromEntries(cliVersions) });
+    await this.#recordVersions(store, cliVersions);
     // Plans name the project's own test and check commands; they are read once, with the snapshot.
     if (modelConfiguration !== undefined && (validated.mode === "audit" || validated.mode === "feature")) await store.publish(PROJECT_COMMANDS_KIND, { commands: await projectCommands(snapshot) });
     const units: AuditUnitOptions | undefined = identity === undefined ? undefined : { identity, ...(contract === undefined || base === undefined ? {} : { seed: new IncrementalSeed(base.store, store, contract) }) };
@@ -384,7 +394,7 @@ export class Orchestrator {
    * Create a new run from a saved one and wait for it. Each mode has its own replay
    * contract (see `startReplay`); the source run is only read.
    */
-  async replay(sourceRunId: string, request: ReplayOverrides | ReplayRequest): Promise<{ readonly runId: string; readonly state: RunState }> {
+  async replay(sourceRunId: string, request: AuditReplayOverrides | ReplayRequest): Promise<{ readonly runId: string; readonly state: RunState }> {
     const started = await this.startReplay(sourceRunId, request);
     const handle = this.#live.get(started.runId);
     return Object.freeze({ runId: started.runId, state: handle === undefined ? (await this.status(started.runId)).state as RunState : await handle.result });
@@ -410,7 +420,7 @@ export class Orchestrator {
         if (sourceMode === "feature") throw Object.assign(new Error("FEATURE_AUDIT_REPLAY_NOT_SUPPORTED"), { statusCode: 409 });
         if (sourceMode === "testing") throw Object.assign(new Error("TESTING_AUDIT_REPLAY_NOT_SUPPORTED"), { statusCode: 409 });
         const { consensusPolicy, maximumRounds, criticEnabled, configuration, repository } = request;
-        return await this.#startAuditReplay(sourceRunId, source, original, { consensusPolicy, maximumRounds, criticEnabled },
+        return await this.#startAuditReplay(sourceRunId, source, original, { consensusPolicy, maximumRounds, ...(criticEnabled === undefined ? {} : { criticEnabled }) },
           { ...(configuration === undefined ? {} : { configuration }), ...(repository === undefined ? {} : { repository }) });
       }
       if (request.mode !== sourceMode) throw Object.assign(new Error(`REPLAY_MODE_MISMATCH:${sourceMode}:${request.mode}`), { statusCode: 409 });
@@ -430,7 +440,8 @@ export class Orchestrator {
     }
     const { graph } = await this.#assertRunnable(config);
     // Regenerated stages dispatch models and may run checks: same environment gate as `start`.
-    const environment = await environmentDiagnostics(config, { ...this.#environmentOptions(), includeWarnings: false });
+    const cliVersions = new Map<string, string | null>();
+    const environment = await environmentDiagnostics(config, { ...this.#environmentOptions(), includeWarnings: false, cliVersions });
     if (environment.some(({ severity }) => severity === "error")) throw new PreflightError(environment);
     const checkpointPolicy = checkpointPolicyOf(config);
     const snapshot = await snapshotRepository(original.repository, SNAPSHOT_FILE_LIMIT, { scope: config.scope, ...testingSnapshotOptions(config) });
@@ -452,6 +463,7 @@ export class Orchestrator {
     const store = new RunStore(this.#runsDirectory, runId);
     await store.saveContext({ repository: original.repository, repositoryDigest, scope: config.scope, replaySourceRunId: sourceRunId, consensusPolicy: config.consensusPolicy,
       maximumRounds: config.maxConsensusRounds, criticEnabled: graph.nodes.some(({ id }) => id === "critic"), modelConfiguration: config, ...(checkpointPolicy === undefined ? {} : { checkpointPolicy }) });
+    await this.#recordVersions(store, cliVersions);
     // Pin the exact protocol bytes the decisions were made against into the new run.
     const protocols = new ModelProtocols(store, config.protocols);
     for (const [id, pin] of targetPins) {
@@ -469,12 +481,16 @@ export class Orchestrator {
     return Object.freeze({ runId, sourceRunId, mode, state: handle.state, stages, execution });
   }
 
-  async #startAuditReplay(sourceRunId: string, source: RunStore, sourceContext: StoredRunContext, overrides: ReplayOverrides, changes: { readonly configuration?: RunConfig; readonly repository?: string } = {}): Promise<ReplayResource> {
+  async #startAuditReplay(sourceRunId: string, source: RunStore, sourceContext: StoredRunContext, requested: AuditReplayOverrides, changes: { readonly configuration?: RunConfig; readonly repository?: string } = {}): Promise<ReplayResource> {
     const repository = changes.repository === undefined ? sourceContext.repository : resolve(changes.repository);
     const snapshot = await snapshotRepository(repository, SNAPSHOT_FILE_LIMIT, { scope: sourceContext.scope });
     if (snapshotDigest(snapshot) !== sourceContext.repositoryDigest) throw new Error(`RUN_REPOSITORY_CHANGED:${sourceRunId}`);
     const definition = await source.definitions().load(sourceRunId);
     const original: StoredRunContext = { ...sourceContext, repository, ...(changes.configuration === undefined ? {} : { modelConfiguration: await this.#replayConfiguration(sourceContext, definition.graph, changes.configuration) }) };
+    // The plan critic is a switch, off by default since October 25, 2026. A replay that does not set it follows the
+    // replacement configuration's `workflow.critic`, else its source run, which had the critic or not.
+    const switched = changes.configuration?.workflow["critic"];
+    const overrides: ReplayOverrides = { ...requested, criticEnabled: requested.criticEnabled ?? (typeof switched === "boolean" ? switched : sourceContext.criticEnabled) };
     const replayGraph = withCritic(definition.graph, overrides.criticEnabled);
     if (original.workflowGraph !== undefined) {
       // A replay of a saved graph executes that exact version; it cannot edit it.
@@ -489,6 +505,7 @@ export class Orchestrator {
     if (runId === sourceRunId) throw new Error("REPLAY_MUST_CREATE_NEW_RUN");
     const store = new RunStore(this.#runsDirectory, runId);
     await store.saveContext({ ...original, replaySourceRunId: sourceRunId, consensusPolicy: overrides.consensusPolicy, maximumRounds: overrides.maximumRounds, criticEnabled: overrides.criticEnabled });
+    await this.#recordVersions(store, new Map());
     await store.publish("replay-source", { sourceRunId, overrides, ...(changes.configuration === undefined ? {} : { configurationReplaced: true }), ...(changes.repository === undefined ? {} : { repository }), reusedArtifacts: (await source.listArtifacts()).filter(({ kind }) => auditors.some(({ auditorId }) => kind === `findings-${auditorId}`)).map(({ artifactId, ref }) => ({ artifactId, hash: ref.hash })) });
     if (original.modelConfiguration !== undefined) {
       for (const artifact of (await source.listArtifacts()).filter(({ kind }) => kind.startsWith("model-protocol-"))) {
@@ -587,6 +604,14 @@ export class Orchestrator {
     const handle = runner.resume(runId);
     this.#track(runId, handle, close);
     return Object.freeze({ runId, state: handle.state, resumable: true, checkpoints: Object.freeze([]), preservedArtifacts: (await store.listArtifacts()).length });
+  }
+
+  /**
+   * The versions a run starts on: arbitra's build and each subscription CLI's. A resume on another build whose recorded
+   * model work it would ask for differently names the build from here (`ModelActivityInputChangedError`).
+   */
+  async #recordVersions(store: RunStore, cli: ReadonlyMap<string, string | null>): Promise<void> {
+    if (cli.size > 0 || this.#build !== undefined) await store.publish(ENVIRONMENT_VERSIONS_KIND, { ...(this.#build === undefined ? {} : { arbitra: this.#build }), cli: Object.fromEntries(cli) });
   }
 
   /**

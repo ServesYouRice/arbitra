@@ -107,6 +107,25 @@ describe("provider invocation runtime", () => {
     expect(traces).toHaveBeenCalledWith(expect.objectContaining({ attempt: 1, outcome: "retry", errorCode: "TIMEOUT" }));
   });
 
+  it("does not send a call that ran past its time limit again when its caller sends less work instead", async () => {
+    // Observed live (veritra, October 25): a discovery unit past the 15-minute limit was sent again whole, from nothing.
+    const send = vi.fn((_request: unknown, signal: AbortSignal) => new Promise<TransportResponse>((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(new TransportError("CANCELLED", "Provider request cancelled", false)), { once: true });
+    }));
+    const traces = vi.fn();
+    const runtime = new ProviderInvocationRuntime({ transports: { fixture: { id: "fixture", send } }, scheduler: scheduler(), budget: { reserve: () => ({ allowed: true }), recordActual() {} },
+      continuation: new ContinuationStateStore({ async save() {}, async load() { return null; } }, { enabled: false, now: () => 0 }), traces: { record: traces }, timer: stageTimer() });
+    await expect(runtime.invoke(request(), context({ maximumRetries: 2, timeoutMs: 20, retryTimeouts: false }))).rejects.toMatchObject({
+      name: "ProviderTimeLimitError", causeCode: "TIMEOUT", attempts: 1, message: expect.stringContaining("ran past its time limit of 20 ms") as unknown,
+    });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(traces).toHaveBeenCalledWith(expect.objectContaining({ attempt: 1, outcome: "failed", errorCode: "TIMEOUT" }));
+    // Every other call is sent again as before.
+    send.mockClear();
+    await expect(runtime.invoke(request(), context({ maximumRetries: 2, timeoutMs: 20 }))).rejects.toMatchObject({ name: "ProviderInvocationFailure", causeCode: "TIMEOUT", attempts: 3 });
+    expect(send).toHaveBeenCalledTimes(3);
+  });
+
   it("fails a timed-out call without a retry when its CLI left processes running", async () => {
     const send = vi.fn((_request: unknown, signal: AbortSignal) => new Promise<TransportResponse>((_resolve, reject) => {
       signal.addEventListener("abort", () => setTimeout(() => reject(new TransportError("HTTP", "CLI_PROCESS_TREE_NOT_TERMINATED: Claude Code left processes running (process 4242 and its descendants)", false)), 10));

@@ -5,9 +5,9 @@ import { ProviderRegistry, type TransportFactoryOptions } from "@arbitra/provide
 import { RateLimitScheduler } from "@arbitra/providers/scheduler.js";
 import { DurableTokenBudget } from "@arbitra/providers/token-budget.js";
 import { ContinuationStateStore } from "@arbitra/providers/continuation/store.js";
-import { ProviderBudgetSuspendedError, ProviderInvocationFailure, type InvocationTrace, type TraceSink } from "@arbitra/providers/runtime.js";
+import { ProviderBudgetSuspendedError, ProviderInvocationFailure, ProviderTimeLimitError, type InvocationTrace, type TraceSink } from "@arbitra/providers/runtime.js";
 import { BatchItemFailedError, BatchLane, type BatchResolution, type BatchSubmissionRecord, type BatchSubmissionView } from "@arbitra/providers/batch/lane.js";
-import { inputBytesPerToken, ModelOutputLimitError, outputCeiling, requestCeiling } from "./context-budget.js";
+import { inputBytesPerToken, ModelOutputLimitError, ModelTimeLimitError, outputCeiling, requestCeiling } from "./context-budget.js";
 import type { TransportMessage, TransportTool } from "@arbitra/providers/transport-contract.js";
 import { runConfigSchema, type RunConfig } from "@arbitra/schemas/config.js";
 import { providerExecutionSchema } from "@arbitra/schemas/provider-execution.js";
@@ -17,6 +17,7 @@ import type { ProtocolIdentity } from "@arbitra/protocols/versioning.js";
 import type { PinnedProtocol } from "@arbitra/protocols/registry.js";
 import type { ModelActivityTraceRecord } from "@arbitra/persistence/trace.js";
 import { batchLaneFor, runStoreBatchBackend, validateBatchLanes } from "./model-batch-lane.js";
+import { ENVIRONMENT_VERSIONS_KIND } from "./preflight.js";
 
 export interface ModelActivityRequest<T> {
   readonly activityId: string;
@@ -50,6 +51,9 @@ export interface ModelActivityRequest<T> {
    * as its stage sizes a first attempt, so optional source gives way to what is appended (an output repair's reason
    * and rejected reply). Without it, a repair is the request's own messages with `appended` added. */
   readonly refit?: (appended: readonly TransportMessage[], activityId: string) => Promise<{ readonly messages: readonly TransportMessage[]; readonly admittedAsRequired: boolean }>;
+  /** Never part of the identity: the stage that composed this request splits it when a call of it runs past the time
+   * limit (`timeoutMs`), so that call is not sent again whole; it fails with ModelTimeLimitError. */
+  readonly splitOnTimeLimit?: boolean;
   /** Traced only, never part of the identity: the output repairs this call starts. The harness sets 1 on the first
    * turn of a repair (`/repair-N`), so a sum over traces counts repairs, not the turns they took. */
   readonly repairCount?: number;
@@ -176,6 +180,7 @@ export class ModelActivities {
     const key = `model-activity-${hash(input.activityId)}`;
     const inflight = this.#inflight.get(key);
     if (inflight !== undefined) {
+      // Two requests under one activity in one process: a stage's own fault, not work recorded by another build.
       if (inflight.fingerprint !== fingerprint) throw new Error("MODEL_ACTIVITY_INPUT_CHANGED");
       return input.schema.parse(await inflight.promise);
     }
@@ -203,7 +208,7 @@ export class ModelActivities {
     if (profile === undefined) throw new Error("TRACE_PROFILE_ABSENT");
     const existing = await this.read(key) as { fingerprint?: unknown; value?: unknown } | null;
     if (existing !== null) {
-      if (existing.fingerprint !== fingerprint && existing.fingerprint !== legacy) throw new Error("MODEL_ACTIVITY_INPUT_CHANGED");
+      if (existing.fingerprint !== fingerprint && existing.fingerprint !== legacy) throw await this.#inputChanged(input.activityId);
       return input.schema.parse(existing.value);
     }
     // A paid answer is saved, then its trace, then the mapping above. When the mapping write fails, or the process
@@ -242,7 +247,7 @@ export class ModelActivities {
     // Record identity before spend so a failed or interrupted activity cannot be
     // resumed with a different prompt/profile under the same durable activity ID.
     const identity = await this.read(`${key}-input`) as { fingerprint?: unknown } | null;
-    if (identity !== null && identity.fingerprint !== fingerprint && identity.fingerprint !== legacy) throw new Error("MODEL_ACTIVITY_INPUT_CHANGED");
+    if (identity !== null && identity.fingerprint !== fingerprint && identity.fingerprint !== legacy) throw await this.#inputChanged(input.activityId);
     const requestArtifact = await this.store.publish(`${key}-input`, { activityId: input.activityId, fingerprint, protocol: input.protocol, modelProfileId: input.modelProfileId, messages, tools: input.tools ?? [] });
     const maximumOutputTokens = input.maximumOutputTokens ?? outputCeiling(this.#config, input.modelProfileId);
     // UTF-8 bytes at the run's rate provide an admission estimate, not actual token usage. Input admitted as
@@ -259,7 +264,7 @@ export class ModelActivities {
       const invocation = {
         activityId: input.activityId, modelProfileId: input.modelProfileId, estimatedTokens,
         maximumRetries: this.#execution.maximumRetries, timeoutMs: this.#execution.timeoutMs,
-        signal: input.signal, ...(input.effort === undefined ? {} : { effort: input.effort }),
+        signal: input.signal, ...(input.effort === undefined ? {} : { effort: input.effort }), ...(input.splitOnTimeLimit === true ? { retryTimeouts: false } : {}),
       };
       const request = { messages, maximumOutputTokens, ...(input.tools === undefined ? {} : { tools: input.tools }) };
       // Only explicitly configured (model, node) pairs use the batch lane; tool-bearing
@@ -285,6 +290,8 @@ export class ModelActivities {
       failure = error;
       // A response cut at the output ceiling is incomplete, not merely malformed.
       if (error instanceof ProviderInvocationFailure && error.causeCode === "OUTPUT_LIMIT" || error instanceof BatchItemFailedError && error.code === "OUTPUT_LIMIT") throw new ModelOutputLimitError(input.activityId);
+      // A call past its time limit that the provider did not send again: the stage that made it splits it.
+      if (error instanceof ProviderTimeLimitError) throw new ModelTimeLimitError(input.activityId);
       throw error;
     } finally {
       const traces = this.#traces.get(input.activityId) ?? [];
@@ -357,6 +364,12 @@ export class ModelActivities {
     return { usage: trace.terminal.tokenUsage, outcome: trace.terminal.outcome };
   }
 
+  /** The refusal of a recorded activity this build asks for differently, with the build the run recorded at its start. */
+  async #inputChanged(activityId: string): Promise<ModelActivityInputChangedError> {
+    const started = await this.read(ENVIRONMENT_VERSIONS_KIND) as { arbitra?: unknown } | null;
+    return new ModelActivityInputChangedError(activityId, typeof started?.arbitra === "string" ? started.arbitra : null);
+  }
+
   /** The answer a trace of this request recorded as validated, when its saved copy is intact and of the same request. */
   async #validatedOutput(trace: ActivityTraceArtifact | null, fingerprint: string, legacy: string): Promise<{ readonly value: unknown } | null> {
     const ref = trace?.terminal?.outputArtifactRef;
@@ -371,6 +384,19 @@ export class ModelActivities {
   private async read(kind: string): Promise<unknown> {
     const artifact = (await this.store.listArtifacts()).find((item) => item.kind === kind);
     return artifact === undefined ? null : JSON.parse((await this.store.readArtifact(artifact.artifactId)).content) as unknown;
+  }
+}
+
+/**
+ * A recorded activity whose request this build of arbitra makes differently. The refusal stands: the record answers
+ * another request, and asking again would pay for the work twice. The message says which activity, and to resume with
+ * the build the run started on (named when the run recorded it) or start a new run. Observed live (veritra, October
+ * 25, 2026): a change to one sentence every critic batch carries failed the resume with the bare code.
+ */
+export class ModelActivityInputChangedError extends Error {
+  constructor(readonly activityId: string, readonly startedOn: string | null) {
+    super(`MODEL_ACTIVITY_INPUT_CHANGED:${activityId}: the request this version of arbitra makes for ${activityId} differs from the one the run recorded, so the run cannot reuse that work. Resume it with the arbitra version it started on,${startedOn === null ? "" : ` ${JSON.stringify(startedOn)},`} or start a new run.`);
+    this.name = "ModelActivityInputChangedError";
   }
 }
 
