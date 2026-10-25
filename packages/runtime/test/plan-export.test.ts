@@ -1,6 +1,7 @@
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { SHARED_WRITE_ORDER_NOTE } from "@arbitra/workflow/nodes/planner/traceability.js";
 import { expect, it } from "vitest";
 import type { Orchestrator } from "../src/orchestrator.js";
@@ -74,7 +75,8 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
     const readme = await readFile(join(first.directory, "README.md"), "utf8");
     expect(readme).toMatch(/^# Plan · 3 tasks for 2 issues\n\n- Section one\n- Section two\n/u);
     // A wait the run added only so that edits to one file land in turn is a merge hint, not an order of work.
-    expect(readme).toContain("2. `TASK-2` Fix TASK-2 · 3-fast-model · after TASK-1\n3. `TASK-3` Fix TASK-3 · 2-balanced-model · same files as TASK-1\n");
+    // TASK-3's issue says fetchAll retries, and the project has no fetchAll: the README counts it.
+    expect(readme).toContain("2. `TASK-2` Fix TASK-2 · 3-fast-model · after TASK-1\n3. `TASK-3` Fix TASK-3 · 2-balanced-model · same files as TASK-1 · 1 not found\n");
     const balanced = await readFile(join(first.directory, "prompts", "2-balanced-model", "03-TASK-3.md"), "utf8");
     expect(balanced).not.toContain("<done_before_this>");
     expect(balanced).toContain("<shares_files_with>\nNothing here waits for these tasks; they edit the same files.");
@@ -135,7 +137,7 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
     expect(readme).toContain("`questions.md` lists 1 more open question the plan went ahead on with a default.");
     expect(await readFile(join(first.directory, "questions.md"), "utf8")).toContain("- **Q-2**: Which colour? Default if unanswered: blue.");
     const agents = await readFile(join(first.directory, "AGENTS.md"), "utf8");
-    expect(agents).toContain("7. Do not change anything in this folder except PROGRESS.md and results.json.");
+    expect(agents).toContain("7. Do not change anything in this folder except PROGRESS.md and results.json; check-premises.mjs reads premises.json as the plan saved it.");
     expect(agents).toContain("5. Run the checks yourself: each prompt's commands and the project's own commands below build, test or lint the project; read each before running it");
     expect(agents).toContain("A defect you find while fixing that no issue names goes under `foundWhileFixing`");
     expect(agents).toContain("Leave them until every task is done");
@@ -242,5 +244,111 @@ it("gives each prompt the files its issues' modules allow, never the plan's own 
     const feature = await exportPlan(orchestrator, "run-12345678-abcd");
     expect(await readFile(join(feature.directory, "prompts", "1-strong-model", "01-TASK-1.md"), "utf8")).not.toContain("<write_scope>");
     expect(await readFile(join(feature.directory, "AGENTS.md"), "utf8")).not.toContain("write_scope");
+  } finally { await rm(repository, { recursive: true, force: true }); }
+});
+
+// A project where some of what a prompt names is there, some at other lines, and some never was.
+const ROLLBACK = ["export function createTransaction(obs) {", "  const steps = [];", "  return {", "    async request(type, data) { steps.push({ type, data }); return obs.call(type, data); },",
+  "    async rollback() { for (const step of steps.reverse()) await obs.call('Undo' + step.type); return []; },", "  };", "}", "",
+  "export async function configure(obs, writeEncoderSettings, settings) {", "  const written = await writeEncoderSettings({ settings });", "  const applied = written?.applied === true;", "  return { applied };", "}", ""].join("\n");
+const SERVER = ["app.post('/api/encoder-settings', (req, res) => res.json({ ok: true }));", "socket.on('obs-encoder-settings', (data, callback) => callback({ ok: true }));", ""].join("\n");
+async function premiseProject() {
+  const repository = await mkdtemp(join(tmpdir(), "arbitra-plan-premises-"));
+  await mkdir(join(repository, "src"));
+  await writeFile(join(repository, "src", "rollback.js"), ROLLBACK);
+  await writeFile(join(repository, "server.js"), SERVER);
+  const rollback = { ...task("TASK-1", "balanced"), scope: { likelyFiles: ["src/rollback.js"] }, readFirst: ["src/rollback.js", "test/rollback.test.js"],
+    context: [
+      "Lines 10-11 of src/rollback.js: `const written = await writeEncoderSettings({ settings }); const applied = written?.applied === true;`",
+      "`createTransaction` keeps its steps in order, and `undoAll()` replays them.",
+      "The restore endpoint gives back the previous file.",
+      "POST /api/encoder-settings writes the file, and the `obs-encoder-settings` event asks the host first.",
+      "Quoted: `await transaction.restore(previous);`",
+      "src/legacy/rollback.js holds the old rollback."],
+    implementationGuidance: ["Add registerUndo(label, fn) to the transaction.", "Call registerUndo once writeEncoderSettings succeeds."] };
+  const content = {
+    "plan-ir": { title: "Rollback", tasks: [rollback], unresolvedQuestions: [] },
+    "canonical-issues": { issues: [{ candidateId: "C-1", severity: "medium", disposition: "accepted", claim: { title: "The encoder file is not rolled back", description: "configure() writes the file before later steps can fail." } }] },
+  };
+  const orchestrator = { overview: async () => ({ repository, workflowId: "audit-balanced" }), repositoryMatches: async () => true, modules: async () => [],
+    artifacts: async () => Object.keys(content).map((kind) => ({ kind, artifactId: kind })), artifact: async (_runId: string, id: keyof typeof content) => ({ content: JSON.stringify(content[id]) }) } as unknown as Orchestrator;
+  return { repository, orchestrator };
+}
+
+it("marks in each prompt what it names that the code lacks, counts it in the README, and makes checking it the first step", async () => {
+  // Observed live (nextra, October 24, 2026): a task rested on a restore endpoint that did not exist, and quoted code was
+  // stale in most prompts once earlier tasks had landed; the plan critic caught none of it.
+  const { repository, orchestrator } = await premiseProject();
+  try {
+    const { directory, files } = await exportPlan(orchestrator, "run-12345678-abcd");
+    const folder = basename(directory);
+    expect(files).toEqual(expect.arrayContaining([expect.stringMatching(/check-premises\.mjs$/u), expect.stringMatching(/premises\.json$/u)]));
+    const prompt = await readFile(join(directory, "prompts", "2-balanced-model", "01-TASK-1.md"), "utf8");
+    const notFound = /<not_found>\n([\s\S]*?)\n<\/not_found>/u.exec(prompt)?.[1] ?? "";
+    expect(notFound).toContain("arbitra could not find these in the project's code when it saved this plan");
+    expect(notFound).toContain("- route \"restore endpoint\": no HTTP route or socket event in the code has that name");
+    expect(notFound).toContain("- name `undoAll`: not in the code");
+    expect(notFound).toContain("- quote `await transaction.restore(previous);`: not in the code");
+    expect(notFound).toContain("- file `src/legacy/rollback.js`: no such file");
+    // What is there is not marked, nor what the steps add, nor a file the task creates (it is under <new_files>).
+    expect(notFound).not.toMatch(/writeEncoderSettings|createTransaction|encoder-settings|registerUndo|rollback\.test\.js/u);
+    expect(notFound.split("\n").filter((line) => line.startsWith("- "))).toHaveLength(4);
+    expect(prompt).toContain(`<steps>\n1. Before anything else, run \`node .arbitra/plans/${folder}/check-premises.mjs TASK-1\` from the repository root.`);
+    expect(prompt).toContain("2. Add registerUndo(label, fn) to the transaction.\n3. Call registerUndo once writeEncoderSettings succeeds.\n</steps>");
+    const readme = await readFile(join(directory, "README.md"), "utf8");
+    expect(readme).toContain("1. `TASK-1` Fix TASK-1 · 2-balanced-model · 4 not found\n");
+    expect(readme).toMatch(/## Premise check\n\nEach prompt's first step runs `node \.arbitra\/plans\/[^/]+\/check-premises\.mjs <task id>`/u);
+    expect(readme).toMatch(/When the plan was saved, \d+ of the \d+ things the prompts name were found in the code\. 4 were not, in 1 prompt: each is marked in its prompt under `<not_found>`/u);
+    expect(await readFile(join(directory, "AGENTS.md"), "utf8")).toContain(`Before you start it, run \`node .arbitra/plans/${folder}/check-premises.mjs <task id>\``);
+    // The data the script needs: each premise as named, and where it was when the plan was saved.
+    const data = JSON.parse(await readFile(join(directory, "premises.json"), "utf8")) as { folder: string; prompts: Record<string, { file: string; premises: unknown[] }> };
+    expect(data.folder).toBe(folder);
+    expect(data.prompts["TASK-1"]?.file).toBe("prompts/2-balanced-model/01-TASK-1.md");
+    expect(data.prompts["TASK-1"]?.premises).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "quote", flagged: false, saved: expect.objectContaining({ place: { path: "src/rollback.js", start: 10, end: 11 } }) }),
+      expect.objectContaining({ kind: "symbol", text: "createTransaction", saved: expect.objectContaining({ place: { path: "src/rollback.js", start: 1, end: 1 } }) }),
+      expect.objectContaining({ kind: "route", text: "POST /api/encoder-settings", flagged: false }),
+      expect.objectContaining({ kind: "event", text: "obs-encoder-settings", saved: expect.objectContaining({ place: { path: "server.js", start: 2, end: 2 } }) }),
+      expect.objectContaining({ kind: "symbol", text: "registerUndo", creates: true, flagged: false })]));
+  } finally { await rm(repository, { recursive: true, force: true }); }
+});
+
+it("ships a script that re-checks a prompt's premises against the working tree and prints what moved, what is gone and what was never found", async () => {
+  const { repository, orchestrator } = await premiseProject();
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: repository, windowsHide: true, stdio: "ignore" });
+  try {
+    git("init", "-q");
+    const { directory } = await exportPlan(orchestrator, "run-12345678-abcd");
+    const script = join(directory, "check-premises.mjs");
+    const run = (cwd: string, ...args: string[]) => {
+      const result = spawnSync(process.execPath, [script, ...args], { cwd, encoding: "utf8", windowsHide: true });
+      return { status: result.status, out: result.stdout };
+    };
+    // As saved: nothing moved; what was never found is listed, and the exit status says so.
+    const saved = run(repository, "TASK-1");
+    expect(saved.status).toBe(1);
+    expect(saved.out).toContain("Premise check for TASK-1 (prompts/2-balanced-model/01-TASK-1.md)");
+    expect(saved.out).not.toContain("Moved since");
+    expect(saved.out).toContain("Never found, not when the plan was saved and not now (4):\n  name `undoAll`: not in the code\n  route \"restore endpoint\": no HTTP route or socket event in the code has that name\n");
+    // An earlier task moves the quoted code down three lines, drops the socket event and adds the missing name.
+    await writeFile(join(repository, "src", "rollback.js"), `// one\n// two\n// three\n${ROLLBACK}export function undoAll() {}\n`);
+    await writeFile(join(repository, "server.js"), `${SERVER.split("\n")[0] ?? ""}\n`);
+    const later = run(join(repository, "src"), "task-1");
+    expect(later.status).toBe(1);
+    expect(later.out).toContain("Moved since the plan was saved (4): the same code, now at these lines.");
+    expect(later.out).toContain("  quote `const written = await writeEncoderSettings({ settings }); const applied = written?.appl...`: now src/rollback.js:13-14 (was src/rollback.js:10-11)");
+    expect(later.out).toContain("  name `createTransaction`: now src/rollback.js:4 (was src/rollback.js:1)");
+    expect(later.out).toContain("Gone since the plan was saved (1): changed or removed, by an earlier task or another change.\n  event `obs-encoder-settings`: was server.js:2; no string in the code has this name");
+    expect(later.out).toContain("In the code now, not when the plan was saved (1): an earlier task or this one added it.\n  name `undoAll`: src/rollback.js:17");
+    expect(later.out).toContain("Never found, not when the plan was saved and not now (3):");
+    // Machine-readable, and every prompt at once.
+    const json = JSON.parse(run(repository, "TASK-1", "--json").out) as { prompts: { comparisons: unknown[] }[] };
+    expect(json.prompts[0]?.comparisons).toEqual(expect.arrayContaining([expect.objectContaining({ kind: "symbol", text: "createTransaction", change: "moved", now: { path: "src/rollback.js", start: 4, end: 4 } })]));
+    expect(run(repository, "--all").out).toContain("TASK-1: 4 moved, 1 gone, 3 never found, 1 new,");
+    expect(run(repository, "TASK-9")).toEqual({ status: 2, out: "check-premises: this plan has no prompt called TASK-9. Use a task id such as TASK-1.\n" });
+    // A large plan's premises run past the 1 MB a code file may have and still be read (nextra's 125 prompts took 456 KB).
+    const data = JSON.parse(await readFile(join(directory, "premises.json"), "utf8")) as { prompts: Record<string, unknown> };
+    await writeFile(join(directory, "premises.json"), JSON.stringify({ ...data, prompts: { ...data.prompts, "TASK-2": { file: "prompts/x.md", hints: [], premises: Array.from({ length: 6_000 }, (_, index) => ({ kind: "symbol", text: `name${index}`.padEnd(200, "x"), role: "premise", saved: { status: "missing", place: null }, flagged: true })) } } }));
+    expect(run(repository, "TASK-1").out).toContain("Premise check for TASK-1");
   } finally { await rm(repository, { recursive: true, force: true }); }
 });
