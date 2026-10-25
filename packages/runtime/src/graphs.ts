@@ -7,7 +7,8 @@ const node = (id: string, kind: RunnerNode["kind"], label: string): RunnerNode =
  * web app draws that stored graph, not a picture of a different pipeline.
  *
  * The audit presets are named by how many finders they run. The plan critic is not part of any of them: it is a
- * switch of its own (`workflow.critic`), off by default, that adds the critic after the planner.
+ * switch of its own (`workflow.critic`), off by default, that adds the critic after the planner. So is the variant
+ * search (`workflow.variantSearch`), which goes between verification and the planner.
  */
 export const AUDIT_THREE_FINDERS_GRAPH: RunnerGraph = Object.freeze({
   schemaVersion: 1,
@@ -115,6 +116,26 @@ export function graphForPreset(preset: string | undefined): RunnerGraph {
 /** The auditors a preset's graph actually dispatches, so discovery never runs blind. */
 export function auditorIdsFor(graph: RunnerGraph): readonly string[] {
   return Object.freeze(graph.nodes.filter(({ id, kind }) => kind === "model" && id.startsWith("auditor-")).map(({ id }) => id));
+}
+
+/** The node of the optional variant search; a run shows it as "Searching for variants". */
+export const VARIANT_SEARCH_NODE_ID = "variant-search";
+
+/**
+ * The variant search switch (`workflow.variantSearch`) changes the executable graph as the critic's does: the search
+ * goes between any graph's verification and its planner, so the planner plans the variants verification confirms.
+ */
+export function withVariantSearch(graph: RunnerGraph, enabled: boolean): RunnerGraph {
+  const present = graph.nodes.some(({ id }) => id === VARIANT_SEARCH_NODE_ID);
+  if (present === enabled) return graph;
+  if (!enabled) {
+    const kept = graph.edges.filter(({ from, to }) => from !== VARIANT_SEARCH_NODE_ID && to !== VARIANT_SEARCH_NODE_ID);
+    return { ...graph, nodes: graph.nodes.filter(({ id }) => id !== VARIANT_SEARCH_NODE_ID), edges: [...kept, { id: "verification-planner", from: "verification", to: "planner" }] };
+  }
+  const at = graph.nodes.findIndex(({ id }) => id === "verification");
+  if (at < 0 || !graph.edges.some(({ from, to }) => from === "verification" && to === "planner")) throw new Error("VARIANT_SEARCH_REQUIRES_VERIFICATION_AND_PLANNER");
+  return { ...graph, nodes: [...graph.nodes.slice(0, at + 1), node(VARIANT_SEARCH_NODE_ID, "model", "Searching for variants"), ...graph.nodes.slice(at + 1)],
+    edges: [...graph.edges.filter(({ from, to }) => !(from === "verification" && to === "planner")), { id: "verification-variant-search", from: "verification", to: VARIANT_SEARCH_NODE_ID }, { id: "variant-search-planner", from: VARIANT_SEARCH_NODE_ID, to: "planner" }] };
 }
 
 /** The critic switch and replay overrides change the executable graph: the critic follows any graph's planner. */

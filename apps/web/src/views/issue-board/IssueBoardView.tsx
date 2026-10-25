@@ -88,6 +88,7 @@ function IssueRowView({ row, selected, onSelect }: { readonly row: IssueRow; rea
       <span className="state" data-state={consensusToken(row.consensusState, !notPeerReviewed(row))}>{consensusLabel(row)}{notPeerReviewed(row) ? "" : ` · ${row.supportCount} of ${row.reviewDenominator} support`}</span>
       <span className="state" data-state={verificationToken(row.verificationOutcome)}>{verificationLabel(row)}</span>
       <span className="issue-row__location">{location === undefined ? "no location recorded" : `${location.path}:${location.startLine}-${location.endLine}`}{row.locations.length > 1 ? ` · ${row.locations.length - 1} more` : ""}</span>
+      {row.variantOf === null ? null : <span className="issue-row__variant">variant of {row.variantOf}</span>}
     </p>
     {row.dissent.length === 0 ? null : <p className="issue-row__dissent state" data-state="dissent">dissent · {row.dissent.map(({ authorId, disposition, reason }) => `${authorId} ${disposition}: ${reason}`).join(" · ")}</p>}
   </li>;

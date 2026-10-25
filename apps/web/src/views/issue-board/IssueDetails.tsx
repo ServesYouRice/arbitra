@@ -18,6 +18,7 @@ export function IssueDetails({ api, runId, candidateId, refreshKey = null }: { r
     <p className="state prose" data-state="tainted">{row.title}</p>
     <dl className="facts">
       <div><dt>severity</dt><dd>{row.severity}{row.blocker ? " · production blocker" : ""}</dd></div>
+      {row.variantOf === null ? null : <div><dt>variant of</dt><dd>{row.variantOf}</dd></div>}
       <div><dt>consensus</dt><dd className="state" data-state={consensusToken(row.consensusState, !notPeerReviewed(row))}>{consensusLabel(row)}{notPeerReviewed(row) ? "" : ` · ${row.supportCount} of ${row.reviewDenominator} reviewers support it`}</dd></div>
       <div><dt>verification</dt><dd className="state" data-state={verificationToken(row.verificationOutcome)}>{verificationLabel(row)}</dd></div>
       {row.verificationReason === null ? null : <div><dt>verifier&apos;s reason</dt><dd className="state prose" data-state="tainted">{row.verificationReason}</dd></div>}

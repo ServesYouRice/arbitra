@@ -68,7 +68,8 @@ the six kinds in `packages/schemas/src/glyphs.ts` — the taxonomy is closed, an
 `packages/workflow/src/node-kinds.ts` and `graph-schema.ts` enforce it.
 
 The executable `audit-three-finders` graph ([`graphs.ts`](../packages/runtime/src/graphs.ts)), with the plan critic switched on (`workflow.critic`), has eight
-nodes; the other Audit stages run inside their executors (see [Audit mode](workflows.md#audit-mode)):
+nodes, and nine with the variant search switched on too (`workflow.variantSearch`); the other Audit stages run
+inside their executors (see [Audit mode](workflows.md#audit-mode)):
 
 ```text
 ■ preflight            snapshot summary; a model run resolves its protocol assets
@@ -76,6 +77,8 @@ nodes; the other Audit stages run inside their executors (see [Audit mode](workf
 ↻ consensus            validate findings, cluster, issue board, bounded peer review
 ▣ verification         ladder (live runs: rungs inconclusive), one model question last;
                        canonical issues with support count, review denominator, dissent, coverage
+◆ variant search       when switched on: proposes other places with a confirmed issue's defect,
+                       validated and verified like any candidate before they join the issues
 ◆ planner              Validation Contract, Task DAG, capability routing
 ◆ critic               when switched on: reads the plan against the issues it has to resolve
 ```

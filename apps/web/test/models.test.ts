@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effortFor, modelName, modelNodeLabels } from "../src/pages/run/models.js";
+import { effortFor, modelName, modelNodeLabels, modelProfiles } from "../src/pages/run/models.js";
 import { MODEL_CATALOG, modelSettings } from "../src/pages/new-run/model-catalog.js";
 
 describe("models as people name them", () => {
@@ -25,6 +25,15 @@ describe("models as people name them", () => {
     expect(effortFor(config, "checker", "verification")).toBe("high");
     // A stage the configuration leaves out runs at the depth's level: medium at cheap.
     expect(effortFor(config, "auditor-a", "planner")).toBe("medium");
+  });
+
+  it("binds the variant searcher to its own node and labels the node with its model", () => {
+    const words = { params: Object.fromEntries(["low", "medium", "high", "xhigh", "max"].map((level) => [level, { effort: level }])) };
+    const config = { mode: "audit", auditDepth: "deep", models: { "auditor-a": { modelId: "claude-opus-5-5", effort: words }, "variant-searcher": { modelId: "claude-sonnet-5-5", effort: words } },
+      workflow: { variantSearch: true, modelExecution: { roles: { planner: "auditor-a", verifier: "auditor-a", variantSearcher: "variant-searcher" }, stageEffort: { variantSearch: "high" } } } };
+    expect(modelProfiles(config).find(({ alias }) => alias === "variant-searcher")?.roles).toEqual([{ label: "variant searcher", node: "variant-search", stage: "variantSearch" }]);
+    expect(effortFor(config, "variant-searcher", "variantSearch")).toBe("high");
+    expect(modelNodeLabels(config).get("variant-search")).toBe("Sonnet 5.5 · high");
   });
 });
 

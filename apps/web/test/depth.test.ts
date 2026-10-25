@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DEPTHS, findersOf, withDepth, withFinders, type Depth, type FinderCount } from "../src/pages/new-run/depth.js";
-import { getIn, type Draft } from "../src/pages/new-run/draft.js";
+import { DEPTHS, findersOf, withDepth, withFinders, withVariantSearch, type Depth, type FinderCount } from "../src/pages/new-run/depth.js";
+import { getIn, setIn, type Draft } from "../src/pages/new-run/draft.js";
 import { TEMPLATES } from "../src/pages/new-run/templates.js";
 import { effortFor, modelName, record } from "../src/pages/run/models.js";
 
@@ -58,22 +58,45 @@ describe("depth presets", () => {
     expect(findersOf(withDepth(withFinders(two, 3), "cheap"))).toBe(3);
   });
 
-  it("gives Gemini only the optional third finder, never checking, a second opinion, merging, planning or the critic", () => {
+  it("gives Gemini only optional work, the third finder and the variant search, never checking, a second opinion, merging, planning or the critic", () => {
     // The owner, October 25, 2026: only work that is optional or usually not worth spending on goes to Gemini.
-    for (const depth of DEPTH_NAMES) for (const count of [2, 3] as const) {
-      const config = withFinders(withDepth(template("subscription-audit"), depth), count);
+    for (const depth of DEPTH_NAMES) for (const count of [2, 3] as const) for (const variants of [false, true]) {
+      const config = withVariantSearch(withFinders(withDepth(template("subscription-audit"), depth), count), variants);
       const geminiProfiles = Object.entries(record(config["models"])).filter(([, profile]) => record(profile)["transport"] === "antigravity-cli").map(([alias]) => alias);
       expect(geminiProfiles, `${depth} ${count}`).toEqual(count === 3 ? ["auditor-c"] : []);
-      expect(Object.values(roles(config)).filter((alias) => geminiProfiles.includes(String(alias))), `${depth} ${count}`).toEqual([]);
+      // The variant searcher only proposes places, which are checked like any finding: the one role Gemini may take.
+      const core = Object.entries(roles(config)).filter(([role]) => role !== "variantSearcher").map(([, alias]) => alias);
+      expect(core.filter((alias) => geminiProfiles.includes(String(alias))), `${depth} ${count}`).toEqual([]);
       const efforts = record(getIn(config, ["workflow", "modelExecution", "stageEffort"]));
-      for (const [stage, value] of Object.entries(efforts)) if (typeof value === "object" && stage !== "discovery") expect(Object.keys(record(value))).not.toContain("auditor-c");
+      for (const [stage, value] of Object.entries(efforts)) if (typeof value === "object" && stage !== "discovery" && stage !== "variantSearch") expect(Object.keys(record(value))).not.toContain("auditor-c");
       if (count === 3) expect([getIn(config, ["models", "auditor-c", "modelId"]), effortFor(config, "auditor-c", "discovery")]).toEqual(["gemini-3.8-flash-high", "high"]);
     }
   });
 
+  it("searches for variants with Gemini when it is a finder, else with Sonnet 5.5, at high at every depth, and only when switched on", () => {
+    const two = template("subscription-audit");
+    const searcher = (config: Draft) => { const alias = String(roles(config)["variantSearcher"]); return `${modelName(String(getIn(config, ["models", alias, "modelId"])))} · ${effortFor(config, alias, "variantSearch")}`; };
+    expect([getIn(two, ["workflow", "variantSearch"]), roles(two)["variantSearcher"]]).toEqual([false, undefined]);
+    for (const depth of DEPTH_NAMES) for (const count of [2, 3] as const) {
+      const on = withVariantSearch(withFinders(withDepth(two, depth), count), true);
+      expect(getIn(on, ["workflow", "variantSearch"]), `${depth} ${count}`).toBe(true);
+      expect(searcher(on), `${depth} ${count}`).toBe(count === 3 ? "Gemini 3.8 Flash high · high" : "Sonnet 5.5 · high");
+      // The choice holds whichever is chosen first, and switched off leaves the configuration as it was.
+      expect(withFinders(withDepth(withVariantSearch(two, true), depth), count), `${depth} ${count}`).toEqual(on);
+      expect(withVariantSearch(on, false), `${depth} ${count}`).toEqual(withFinders(withDepth(two, depth), count));
+    }
+    // The Sonnet searcher is a profile of its own on Claude Code, beside the finders; with Gemini it is not needed.
+    const sonnet = withVariantSearch(two, true);
+    expect([getIn(sonnet, ["models", "variant-searcher", "transport"]), getIn(sonnet, ["workflow", "modelExecution", "modelEndpoints", "variant-searcher"])]).toEqual(["claude-code-cli", "claude-code"]);
+    expect(getIn(withFinders(sonnet, 3), ["models", "variant-searcher"])).toBeUndefined();
+    // A configuration that is not Claude Code and Codex only switches the step; its searcher is named under roles.
+    const api = template("audit-mixed-providers");
+    expect(withVariantSearch(api, true)).toEqual(setIn(api, ["workflow", "variantSearch"], true));
+  });
+
   it("asks every profile for a level it supports at every step (the examples gate runs full preflight on each)", () => {
-    for (const depth of DEPTH_NAMES) for (const count of [2, 3] as FinderCount[]) {
-      const config = withFinders(withDepth(template("subscription-audit"), depth), count);
+    for (const depth of DEPTH_NAMES) for (const count of [2, 3] as FinderCount[]) for (const variants of [false, true]) {
+      const config = withVariantSearch(withFinders(withDepth(template("subscription-audit"), depth), count), variants);
       const models = record(config["models"]);
       for (const [stage, value] of Object.entries(record(getIn(config, ["workflow", "modelExecution", "stageEffort"])))) {
         const levels = typeof value === "string" ? Object.keys(models).map((alias) => [alias, value] as const) : Object.entries(record(value));

@@ -206,7 +206,7 @@ credentials and continuation state. Roles are always named explicitly:
 | Mode | Where | Required |
 |---|---|---|
 | Audit | `models` keys | `auditor-a`, `auditor-b` (and `auditor-c` for `audit-three-finders`) — the preset's finders |
-| Audit | `workflow.modelExecution.roles` | `planner`, `verifier`; `critic` when `workflow.critic` is `true`. Optional: `mediumVerifier`, `merger`, `secondOpinion`, `critiqueChecker` (see [Depths, finders and the plan critic](#depths-finders-and-the-plan-critic)) |
+| Audit | `workflow.modelExecution.roles` | `planner`, `verifier`; `critic` when `workflow.critic` is `true`; `variantSearcher` when `workflow.variantSearch` is `true`. Optional: `mediumVerifier`, `merger`, `secondOpinion`, `critiqueChecker` (see [Depths, finders and the plan critic](#depths-finders-and-the-plan-critic)) |
 | Feature | `workflow.feature.roles` | `requirements`, `exploration`, `planner`; `reviewers` (two or more distinct `independenceGroup`s) and `critic` (independent of the planner) for anything above low risk |
 | Testing | `workflow.testing.roles` | `analyst` (capability tier `frontier`), `planner` |
 | Testing execute | `workflow.testing.execution.models` | `fast`, `balanced`, `frontier` writers — tool-capable and at or above that tier |
@@ -364,6 +364,17 @@ An audit has three separate choices, each one setting in the configuration:
   check of its blocking items (`roles.critiqueChecker`) and one revision after the planner, at
   every depth. A critic role alone no longer turns it on. A saved workflow graph decides its own
   critic, so the switch is refused beside `workflow.graph`.
+- **The variant search** (`workflow.variantSearch`: `true` or `false`, off unless set, at every
+  depth, until it is measured) adds a step between verification and the planner:
+  `roles.variantSearcher` looks for other places with the defect of each confirmed issue at or
+  above the plan's minimum severity, and each place it proposes is validated, checked against the
+  issues already reported and verified like any candidate (see
+  [workflows](workflows.md#variant-search)). Preflight requires the role when the switch is on
+  (`MODEL_VARIANT_SEARCHER_PROFILE_REQUIRED`) and refuses the switch on a scripted Audit
+  (`VARIANT_SEARCH_REQUIRES_MODEL_AUDIT`) and beside `workflow.graph`. In **New run** it is the
+  "search for variants" box. With three finders Gemini searches: the searcher only proposes, so this
+  is the one step beside finding that Gemini is given. With two, a `variant-searcher` profile
+  (Sonnet 5.5 on Claude Code) is added, and switching the search off removes it.
 
 What each depth writes, in each vendor's own effort word:
 
@@ -378,6 +389,7 @@ What each depth writes, in each vendor's own effort word:
 | Plan (`planner`, `revision`; `planner`) | Opus `high` | Opus `medium` | Sonnet `high` |
 | Review the plan, when switched on (`critic`; `critic`) | Sol `high` | Sol `medium` | Luna `high` |
 | Check the review's items (`critiqueCheck`; `critiqueChecker`) | Opus `high` | Opus `medium` | Sonnet `high` |
+| Search for variants, when switched on (`variantSearch`; `variantSearcher`) | Sonnet 5.5 `high`; Gemini 3.8 Flash high with three finders | the same | the same |
 
 Balanced and cheap add profiles beside the finders, on the same CLIs: `medium-checker` (Sonnet,
 balanced), `checker` (Opus) and `second-opinion` (Sol, cheap). Choosing deep again removes them.
@@ -386,7 +398,7 @@ The research behind the table is in `arbitra-experiments/depth-2026-10-25`; only
 measured on real projects so far.
 
 **`stageEffort`** sets each step's effort: `discovery`, `clustering`, `peerReview`,
-`verification`, `secondOpinion`, `critiqueCheck`, `planner`, `critic` and `revision`, each
+`verification`, `secondOpinion`, `critiqueCheck`, `variantSearch`, `planner`, `critic` and `revision`, each
 `low`, `medium`, `high`, `xhigh` or `max`, or one per profile where the models of one step differ
 (`"discovery": { "auditor-a": "high", "auditor-b": "max", "auditor-c": "high" }`). The second
 opinion and the critique check follow `verification` when they are left out; any other step left
@@ -401,13 +413,16 @@ strongest checker the run names. `roles.mediumVerifier`, when set, checks the is
 higher tier than the verifier (`MODEL_VERIFIER_WEAKER_THAN_MEDIUM_VERIFIER`). `roles.merger`, when
 set, decides whether two findings are one issue; otherwise the verifier does.
 
-Two of these depart from the specification on purpose (decided October 25, 2026): depth was
+Three of these depart from the specification on purpose (decided October 25, 2026): depth was
 defined as how far the auditors' reading overlaps (spec §16.4), and arbitra already has every
 finder read the whole scope at every depth, so depth is now models and efforts; and the critic
 was mandatory at depth deep and for critical or high security issues (spec §3.7, §20.6), and is
 now a switch, off by default, because on the scored runs it caught 1 of 21 plan errors and its
 revision added errors. When it is on, §20.6's rule that the critic is at or above the planner's
-tier, or skipped and recorded, still holds.
+tier, or skipped and recorded, still holds. Third, the variant search is a model step the canonical
+Audit graph does not have (spec §8.1), which adds issues no independent auditor reported (§16.3,
+§17.1): they are namespaced `variant-search`, never counted as an auditor's, and verified like any
+candidate, but no peer reviews them.
 
 ### Source scope
 
@@ -667,7 +682,8 @@ See [Feature mode](workflows.md#feature-mode) for revision and the equivalent HT
 | `SECURITY_SETTINGS_NOT_ENFORCED`, `CONTEXT_POLICIES_NOT_ENFORCED` | configuration (warning) | Set the section to `{}`; exclude paths with `scope.exclude` or narrow `scope` |
 | `UNKNOWN_WORKFLOW_PRESET`, `WORKFLOW_PRESET_MODE_MISMATCH` | configuration | Use a preset that executes the configured mode |
 | `RUNTIME_MODEL_EXECUTION_CONFIGURATION_REQUIRED` | configuration | Add `workflow.modelExecution`, or remove all profiles for a scripted Audit |
-| `MODEL_PROFILE_REQUIRED:<id>`, `MODEL_EXECUTION_ROLES_REQUIRED`, `MODEL_CRITIC_PROFILE_REQUIRED` | configuration | Add the named auditor profile or Audit role (`roles.critic` is needed only when `workflow.critic` is `true`) |
+| `MODEL_PROFILE_REQUIRED:<id>`, `MODEL_EXECUTION_ROLES_REQUIRED`, `MODEL_CRITIC_PROFILE_REQUIRED`, `MODEL_VARIANT_SEARCHER_PROFILE_REQUIRED` | configuration | Add the named auditor profile or Audit role (`roles.critic` is needed only when `workflow.critic` is `true`, `roles.variantSearcher` only when `workflow.variantSearch` is `true`) |
+| `VARIANT_SEARCH_REQUIRES_MODEL_AUDIT` | configuration | The variant search asks a model; configure model profiles, or set `workflow.variantSearch` to `false` |
 | `MODEL_VERIFIER_WEAKER_THAN_MEDIUM_VERIFIER` | configuration (warning) | Critical and high issues go to `roles.verifier`: make it the stronger of the two checkers |
 | `FEATURE_EXECUTION_CONFIGURATION_REQUIRED`, `FEATURE_MODEL_PROFILE_REQUIRED:<id>` | configuration | Add `workflow.feature` or the named profile |
 | `FEATURE_REVIEW_INDEPENDENCE_REQUIRED`, `FEATURE_CRITIC_INDEPENDENCE_REQUIRED` | configuration | Use reviewers/critic from distinct `independenceGroup`s |

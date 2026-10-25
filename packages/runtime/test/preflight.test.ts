@@ -77,6 +77,39 @@ describe("configuration preflight", () => {
     expect(runConfigSchema.safeParse({ ...(await template("feature-automatic")), workflow: { ...(await template("feature-automatic")).workflow, critic: true } }).error?.issues.map(({ path }) => path.join("."))).toEqual(["workflow.critic"]);
   });
 
+  it("searches for variants only when switched on, between verification and the planner, with a searcher named for it", async () => {
+    const graph = (config: Mutable | RunConfig) => graphForConfiguration(config as unknown as RunConfig);
+    const nodes = (config: Mutable | RunConfig) => graph(config).nodes.map(({ id }) => id);
+    const edges = (config: Mutable | RunConfig) => graph(config).edges.map(({ from, to }) => `${from}>${to}`);
+    const config = mutable(await template("subscription-audit"));
+    // Off by default at every depth: the template says so, and a configuration that leaves it out runs as before.
+    expect(config.workflow["variantSearch"]).toBe(false);
+    expect(nodes(config)).not.toContain("variant-search");
+    delete config.workflow["variantSearch"];
+    expect(nodes(config)).toEqual(["preflight", "auditor-a", "auditor-b", "consensus", "verification", "planner"]);
+    config.workflow["variantSearch"] = true;
+    expect(nodes(config)).toEqual(["preflight", "auditor-a", "auditor-b", "consensus", "verification", "variant-search", "planner"]);
+    expect(graph(config).nodes.find(({ id }) => id === "variant-search")).toMatchObject({ kind: "model", label: "Searching for variants" });
+    expect(edges(config)).toEqual(expect.arrayContaining(["verification>variant-search", "variant-search>planner"]));
+    expect(edges(config)).not.toContain("verification>planner");
+    // With the critic on as well, the critic still follows the planner; every audit preset can search.
+    config.workflow["critic"] = true;
+    expect(nodes(config).slice(-3)).toEqual(["variant-search", "planner", "critic"]);
+    for (const preset of ["diff-review", "diff-fast", "audit-three-finders"]) expect(nodes({ ...config, workflow: { ...config.workflow, preset } })).toContain("variant-search");
+    // A searcher is needed only when the search is switched on, and its effort is checked against it like any stage's.
+    expect(configurationDiagnostics(config as unknown as RunConfig)).toEqual([expect.objectContaining({ code: "MODEL_VARIANT_SEARCHER_PROFILE_REQUIRED", path: "workflow.modelExecution.roles.variantSearcher" })]);
+    config.models["searcher"] = { ...config.models["auditor-a"], effort: { supported: ["low", "medium", "high"], collapse: {}, params: { low: { effort: "low" }, medium: { effort: "medium" }, high: { effort: "high" } } } };
+    (execution(config)["modelEndpoints"] as Record<string, string>)["searcher"] = "claude-code";
+    execution(config)["roles"] = { ...(execution(config)["roles"] as object), variantSearcher: "searcher" };
+    execution(config)["stageEffort"] = { ...(execution(config)["stageEffort"] as object), variantSearch: "high" };
+    expect(codes(configurationDiagnostics(config as unknown as RunConfig))).toEqual([]);
+    execution(config)["stageEffort"] = { ...(execution(config)["stageEffort"] as object), variantSearch: "max" };
+    expect(codes(configurationDiagnostics(config as unknown as RunConfig))).toEqual(["MODEL_EFFORT_UNSUPPORTED:searcher"]);
+    // A scripted audit makes no model calls, so it has no search to run.
+    const scripted = runConfigSchema.parse({ ...config, models: {}, workflow: { variantSearch: true } });
+    expect(codes(configurationDiagnostics(scripted))).toEqual(["VARIANT_SEARCH_REQUIRES_MODEL_AUDIT"]);
+  });
+
   it("checks each stage's effort against the profile it calls, and warns when a CLI would be sent no effort", async () => {
     const config = mutable(await template("subscription-audit"));
     const bare = { supported: ["low", "medium", "high"], collapse: { xhigh: "high" }, params: {} };

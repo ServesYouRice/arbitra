@@ -88,6 +88,13 @@ From the research review; each decides a cut or a build.
 - **The premise check** (built October 25, `premise-check.ts`): whether agents run `check-premises.mjs` before each
   task, act on `<not_found>` (16 of 2,132 on nextra, most of them library names), and need fewer workarounds for
   moved lines (201 moved over nextra's fixes).
+- **The variant search** (built October 25, `workflow.variantSearch`, off at every depth): replay it on the six
+  finished runs (beachflag, rokavatar, raquelsblog, commentanywhere, nextra, rokbot) with
+  `tooling/variant-replay/replay.mjs`, Sonnet 5.5 · high searching (`--searcher-copy` from a Claude Code profile),
+  Gemini 3.8 Flash high where the run had three finders. How many variants it proposes, how many survive validation
+  and the duplicate check, how many verification confirms and how many of those are real (nextra's 14 defects found
+  while fixing are a check), and what the search and the checking of its proposals cost in tokens and minutes. That
+  decides whether a depth turns it on, and the batch size (`VARIANT_SEARCH_SEEDS_PER_BATCH`, six for now).
 - **The verifier's required reason:** how often an answer leaves it out and costs a repair.
 - **A Sonnet second look at medium reports Opus leaves unsettled:** build it as an option, off by default; it decided
   6 of 7 rightly on nextra, at about 28K tokens a question.
@@ -152,14 +159,13 @@ rounds; the repository field starts on the server's own folder; and depth means 
   model's tier saves (lowering its effort saves about 2%). OpenAI's mid tier today is GPT-6 Luna (Terra is the older
   GPT-5.6), at 1/20 of Sol's Codex credits. Built: effort words low to max for every Claude and
   OpenAI model, an effort for finding on its own, `workflow.critic` (off by default) in place of the depth rule,
-  `roles.mediumVerifier` and `roles.merger`, depth presets in New run that write models and efforts, and finder
-  presets named by count. Left: the measured runs that set the defaults; `arbitra replay` still turns the critic on;
+  `roles.mediumVerifier` and `roles.merger`, depth presets in New run that write models and efforts, finder
+  presets named by count, and the variant search (`workflow.variantSearch`, off; Gemini searches when it is a
+  finder, else Sonnet 5.5 · high). Left: the measured runs that set the defaults; `arbitra replay` still turns the critic on;
   the renamed presets' browser tests have not run.
 - **Compare the right pairs for duplicates** (*before veritra*): cross-auditor pairs first, same-answer pairs last (1
   merge in 332), a higher ceiling when batched, and TF-IDF neighbours in other files (the export's version found 4 of
   nextra's 5 overlaps).
-- **A variant sweep after verification** (owner: yes, an optional step; after the depths lane, on Gemini when chosen): check each confirmed defect's siblings (same callee,
-  handler family or flag). It runs after verification, so the six finished runs can test it first.
 - **Re-audit only what changed:** a later run on the same project audits the diff since the last run and the files
   that import it, and carries forward the issues still present. Builds on "Memory across runs". Owner: wanted, later.
 - **Boundary units from a channel map:** socket events, routes and fetch paths, WHIP/WHEP and environment keys found
