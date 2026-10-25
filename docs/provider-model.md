@@ -456,7 +456,8 @@ that the review had not rejected.
 - **One critic, one revision.** The critic reads the revised plan again only when
   `review.recheckRevisedPlan` is true. Otherwise `critic-feedback` keeps the critique and adds
   a `revision` record: which blocking items the revision resolved and which it could not revise.
-  Only an item it could not revise still fails the gate; its question is in the plan.
+  Only an item it could not revise still fails the gate; its question is in the plan, and once the
+  operator answers it (interactive checkpoints), the answered plan settles the item.
 - **Tasks that write the same files are ordered by the run, not by a repair.** A plan or a
   revision that leaves two such tasks unordered is not refused: the later task (by id) waits for
   the nearest earlier one ([task IR](task-ir.md)). Observed: the refusal named the missing edges,

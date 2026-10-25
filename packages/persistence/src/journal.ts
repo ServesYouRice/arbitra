@@ -1,4 +1,4 @@
-import { mkdir, open } from "node:fs/promises";
+import { mkdir, open, truncate } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import type { ArtifactRef } from "./artifact-store.js";
@@ -38,12 +38,14 @@ export type JournalRecord = AttemptStartRecord | AttemptErrorRecord | ActivityEn
 
 export interface JournalFileHandle extends Fsyncable {
   write(data: Uint8Array): Promise<unknown>;
+  stat(): Promise<{ readonly size: number }>;
   close(): Promise<void>;
 }
 
 export interface JournalFileSystem {
   mkdir(path: string, options: { recursive: true }): Promise<unknown>;
   open(path: string, flags: "a"): Promise<JournalFileHandle>;
+  truncate(path: string, length: number): Promise<void>;
 }
 
 export interface ActivityJournalOptions {
@@ -51,7 +53,7 @@ export interface ActivityJournalOptions {
   readonly fsyncPolicy?: FsyncPolicy;
 }
 
-const nodeFileSystem: JournalFileSystem = { mkdir, open };
+const nodeFileSystem: JournalFileSystem = { mkdir, open, truncate };
 
 export class ActivityJournal {
   readonly fsyncPolicy: FsyncPolicy;
@@ -69,9 +71,18 @@ export class ActivityJournal {
     validateRecord(record);
     await this.#fileSystem.mkdir(dirname(this.#path), { recursive: true });
     const handle = await this.#fileSystem.open(this.#path, "a");
+    let start: number | undefined;
     try {
+      start = (await handle.stat()).size;
       await handle.write(new TextEncoder().encode(`${canonicalJson(record)}\n`));
       await fsync(handle, this.fsyncPolicy, durability);
+    } catch (error) {
+      // A failed append is cut back to where it began, so the caller, told it failed, can retry it: a write that fails
+      // partway leaves a prefix that the next record would join into one malformed line, and a sync that fails after a
+      // full write leaves the whole record, which a retry would record twice. The cut goes by path, since Windows
+      // refuses to truncate through a handle opened to append; a failed cut leaves the error as it was.
+      if (start !== undefined) await this.#fileSystem.truncate(this.#path, start).catch(() => undefined);
+      throw error;
     } finally {
       await handle.close();
     }

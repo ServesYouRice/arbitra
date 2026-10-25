@@ -118,6 +118,30 @@ describe("shared write scope ordering", () => {
     expect(validateTraceability({ ...excluded, tasks: [{ ...requiredAt(excluded.tasks, 0), filesNotToTouch: ["./src/**/*.ts"] }, requiredAt(excluded.tasks, 1)] })).toEqual([]);
   });
 
+  it("reads a bare '.' in likelyFiles as the whole repository", async () => {
+    // '.' met no file at all, so a task that names the whole repository went unordered beside every other.
+    const unordered = await sharedWriteCheck();
+    for (const [left, right] of [[".", "src/auth.ts"], ["./", "src/auth.ts"], [".", "."], [".", "src/**/*.ts"], [".", "*.md"]] as const) {
+      expect(unordered(left, right), `${left} / ${right}`).toBe(true); expect(unordered(right, left), `${right} / ${left}`).toBe(true);
+    }
+  });
+
+  it("subtracts filesNotToTouch from likelyFiles as the files it covers", async () => {
+    // filesNotToTouch subtracted only an entry of the same text, so 'src/generated/**' left 'src/**' writing the
+    // generated files, and the tasks writing them were ordered as if it did. An exclusion takes away what it covers and no more.
+    const unordered = await sharedWriteCheck();
+    const subtracted: readonly (readonly [string, string])[] = [
+      ["src/** - src/generated/**", "src/generated/types.ts"], ["src/**/*.ts - src/generated", "src/generated/types.ts"], [". - docs", "docs/guide.md"],
+      ["src/** - **/*.test.ts", "src/auth.test.ts"], ["src/** - src/auth.ts", "src/auth.ts"], ["src/auth.ts", "src/** - src/auth.ts"], ["src/** - src/*.ts", "src/*.ts"],
+      ["src/** - src/{auth,session}.ts", "src/session.ts"], ["src/auth.ts", ". - ."],
+    ];
+    for (const [left, right] of subtracted) { expect(unordered(left, right), `${left} / ${right}`).toBe(false); expect(unordered(right, left), `${right} / ${left}`).toBe(false); }
+    const overlapping: readonly (readonly [string, string])[] = [
+      ["src/** - src/generated/**", "src/auth.ts"], [".", "src/a.ts - docs"], ["src/** - src/*.test.ts", "src/*.ts"], ["src/** - **/*.test.ts", "src/auth.ts"],
+    ];
+    for (const [left, right] of overlapping) { expect(unordered(left, right), `${left} / ${right}`).toBe(true); expect(unordered(right, left), `${right} / ${left}`).toBe(true); }
+  });
+
   it("orders the tasks a plan leaves unordered on the same files, so no repair has to write the plan again", async () => {
     // Observed live (P20 pilot): a plan for 45 issues was refused for such pairs and written a second time.
     const base = (await planSchema()).parse(plan()); const first = requiredAt(base.tasks, 0);
@@ -186,6 +210,18 @@ function plan() {
   return { schemaVersion: 1, id: "PLAN-1", title: "Premise fixture remediation", mode: "audit", reasoningOutcome: "Fix the authorization boundary first.", implementationStrategy: ["Enforce authenticated role checks and add regression coverage."], dependencies: [], acceptedIssueIds: ["C-1"], unresolvedQuestions: [] as Array<{ id: string; question: string; blocking: boolean; blastRadius: "low" | "medium" | "high" }>, validationContract: { schemaVersion: 1, validation: [{ id: "VAL-001", assertion: "Support headers cannot bypass authorization.", evidence: ["authorization regression test"] }] }, tasks: [{ schemaVersion: 1, id: "TASK-001", title: "Close authorization bypass", goal: { objective: "Enforce authorization", doneWhen: ["Header cannot bypass"], stopWhen: ["Regression passes"], blockedWhen: ["Identity unavailable"] }, addresses: { issues: ["C-1"], validation: ["VAL-001"], requirements: [] as string[] }, routing: { capability: "frontier", effort: "high", advisor: null, advisorMaxUses: null, reason: ["securitySensitivity:4"] }, dependencies: { dependsOn: [], blocks: [], conflictsWith: [] }, scope: { likelyFiles: ["src/auth.ts", "test/auth.test.ts"], components: ["authorization"], interfaces: ["authorize"] }, filesNotToTouch: [], readFirst: ["src/auth.ts"], context: [] as string[], invariants: ["Deny by default"], outOfScope: ["Identity redesign"], implementationGuidance: ["Keep tests with behavior"], acceptanceCriteria: ["Bypass rejected"], verification: { preconditions: [], commands: [{ command: "pnpm test", expectedExitCode: 0, executionPolicy: "derived_repository_script" }], checks: ["Regression is deterministic"] }, rollbackPlan: ["Revert guard"], escalateIf: ["Identity source ambiguous"], expectedEvidence: ["test output"], estimatedTurns: 2 }], taskGraph: [], traceability: { issueToValidation: [{ issueId: "C-1", validationIds: ["VAL-001"] }], requirementLinks: { schemaVersion: 1, links: [] as Array<{ requirementId: string; validationIds: string[]; taskIds: string[] }> } }, routingRecommendations: [{ taskId: "TASK-001", capability: "frontier", effort: "high", reason: ["securitySensitivity:4"] }], rolloutConcerns: [], migrationConcerns: [], premiseReport: { status: "positive", interpretation: "smoke_test_only_not_proof", limitations: ["One fixture is not proof."] } };
 }
 function requiredAt<T>(values: readonly T[], index: number): T { const value = values[index]; if (value === undefined) throw new RangeError(`Missing test value at index ${index}`); return value; }
+/** Whether two unordered tasks are refused as writing the same files. Each side reads "likely file - file not to touch". */
+async function sharedWriteCheck(): Promise<(left: string, right: string) => boolean> {
+  const base = (await planSchema()).parse(plan()); const first = requiredAt(base.tasks, 0);
+  const task = (id: string, side: string) => {
+    const [likely = "", excluded] = side.split(" - ");
+    return { ...first, id, dependencies: { dependsOn: [], blocks: [], conflictsWith: [] }, scope: { ...first.scope, likelyFiles: [likely] }, filesNotToTouch: excluded === undefined ? [] : [excluded] };
+  };
+  return (left, right) => {
+    const tasks = [task("TASK-001", left), task("TASK-002", right)];
+    return validateTraceability({ ...base, tasks, taskGraph: [], routingRecommendations: tasks.map(({ id }) => ({ taskId: id })) }).some(({ code }) => code === "SHARED_WRITE_SCOPE_UNORDERED");
+  };
+}
 
 describe("planner self-references", () => {
   it("drops only a task's references to itself before validation", () => {

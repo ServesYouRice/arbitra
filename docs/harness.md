@@ -274,7 +274,8 @@ the run goes on and the plan says what is missing:
 
 - A revision item: the plan keeps its tasks, the item's resolution says it was not revised, a
   blocking question `revision-<round>.<call>/not-revised/<item>` names it, and
-  `planner-revision-composition` lists it under `notRevisedCritiqueItemIds`. A call's patch that
+  `planner-revision-composition` lists it under `notRevisedCritiqueItemIds`. Without a recheck,
+  the item fails the gate until the operator answers that question. A call's patch that
   is valid on its own but cannot be joined with an earlier call of its round (a dependency
   cycle across both) leaves its items open the same way.
 - A task expansion: it is asked for once more in its scoped form. If that stops at the ceiling

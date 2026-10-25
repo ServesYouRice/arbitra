@@ -4,7 +4,7 @@ import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 import { deriveEnvelope, intersectScope, isTestFile, type Envelope } from "@arbitra/security/envelope";
 import { isPlannable } from "@arbitra/workflow/nodes/canonical-issues.js";
-import { SHARED_WRITE_ORDER_NOTE } from "@arbitra/workflow/nodes/planner/traceability.js";
+import { scopeEntryCovers, SHARED_WRITE_ORDER_NOTE } from "@arbitra/workflow/nodes/planner/traceability.js";
 import type { Orchestrator } from "./orchestrator.js";
 import { premiseKit, premiseScript, type PremiseData, type PremiseSource, type SavedPremise } from "./premise-check.js";
 import { PROJECT_COMMANDS_KIND, type ProjectCommand } from "./project-commands.js";
@@ -434,16 +434,20 @@ function prompt(task: ExportTask, issues: ReadonlyMap<string, ExportIssue>, all:
 function writeScope(envelope: Envelope, { issues, likely, excluded }: { readonly issues: number; readonly likely: readonly string[]; readonly excluded: readonly string[] }, exists: (path: string) => boolean): string {
   const ask = "ask the person you are working with before changing any file.";
   if (envelope.paths.length === 0) return issues === 0 ? `This task fixes no issue the audit found, so no file comes with it: ${ask}` : `The audit recorded no place in the code for the issues here, so no file comes with this work: ${ask}`;
+  // filesNotToTouch takes away every file it covers, by folder or glob, as the shared-write check reads it. The
+  // envelope alone takes away a path, `folder/` and `folder/**` only, so a prompt listed as files to change, or to ask
+  // about, ones its constraints said not to touch.
+  const untouched = [...excluded, ...envelope.paths.filter((path) => excluded.some((entry) => scopeEntryCovers(entry, path)))];
   // Tests are open anywhere, so a folder's are counted, not named. Measured on nextra's plan (October 25, 2026): the
   // modules of 53 of its 105 tasks held 120 files, 76 of them tests.
   const folders = new Map<string, { readonly names: string[]; tests: number }>();
-  for (const path of intersectScope({ writeScope: envelope.paths, filesNotToTouch: excluded }, envelope).granted) {
+  for (const path of intersectScope({ writeScope: envelope.paths, filesNotToTouch: untouched }, envelope).granted) {
     const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ".";
     const entry = folders.get(folder) ?? { names: [], tests: 0 };
     if (isTestFile(path)) entry.tests += 1; else entry.names.push(path.slice(path.lastIndexOf("/") + 1));
     folders.set(folder, entry);
   }
-  const outside = intersectScope({ writeScope: likely.filter((path) => CONCRETE_PATH.test(path)), filesNotToTouch: excluded }, envelope, { exists }).displayedOnly;
+  const outside = intersectScope({ writeScope: likely.filter((path) => CONCRETE_PATH.test(path) && !excluded.some((entry) => scopeEntryCovers(entry, path))), filesNotToTouch: untouched }, envelope, { exists }).displayedOnly;
   return [`Change only these files, listed by folder, and ${TEST_FILES}. Add other new files only to these folders, not at the repository root, and nothing in a folder or with a name that starts with a dot. ${SCOPE_ORIGIN} Any other change needs the approval of the person you are working with: ask before making it.`,
     ...(folders.size === 0 ? ["- none"] : [...folders].sort(([a], [b]) => a.localeCompare(b)).map(([folder, { names, tests }]) => `- ${folder === "." ? "the repository root" : `${folder}/`}: ${
       [...names, ...(tests === 0 ? [] : [`${names.length === 0 ? "" : "and "}${tests} test ${tests === 1 ? "file" : "files"}`])].join(", ")}`)),

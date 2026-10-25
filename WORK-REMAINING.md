@@ -45,19 +45,11 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
 
 Small defects the October 25 lanes found and did not fix, each to be shown by a failing test first.
 
-- **A symbolic link pointing outside the root in a `working_tree` diff fails the whole snapshot**; the repository walk
-  skips such links silently.
-- **An event whose sync failed after a full write is kept**, so a retry records it twice.
-- **After the operator answers a question the critic's revision could not settle**, the gate still reports
-  `blocking_critic_feedback`.
 - **Discovery calls run past the 15-minute call limit and start again from nothing:** 7 of veritra's first 36 (4 of
   22 Opus, 3 of 14 Sol), 9 turns without an answer in the whole run (4 Opus, 5 Sol, counting the stop at Codex's usage limit), none in the six
   earlier runs; Opus wrote 33K tokens a call against nextra's 23K, up to 67.5K. Each costs
   a slot for 15 minutes and the tokens already spent. Take the durations from the finished run, then size the limit
   or the units from them, or split a unit that times out as one that stops at the output ceiling.
-- **The planner's `audit_mode_is_read_only` constraint makes sections ask whether they may write** (two questions in
-  each nextra plan): reword it.
-- **`filesNotToTouch` globs do not subtract from `likelyFiles` globs**, and a bare `.` in `likelyFiles` covers nothing.
 
 ## Measure first
 

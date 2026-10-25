@@ -11,6 +11,7 @@ import { plannerNode, type PlannerInput } from "@arbitra/workflow/nodes/planner/
 import { criticNode, type StructuredCritique } from "@arbitra/workflow/nodes/critic/node.js";
 import type { CriticProfile } from "@arbitra/workflow/nodes/critic/selection.js";
 import { AUDITOR_KIND, runAuditor, type AuditFinding, type AuditorProfile } from "./auditors.js";
+import { AUDIT_PLAN_CONSTRAINT } from "./prompt-conventions.js";
 import type { RepositorySnapshot } from "./repository.js";
 import type { RunStore } from "./run-store.js";
 
@@ -274,7 +275,7 @@ export async function plan(context: AuditContext, issues: CanonicalIssueSet): Pr
     projectContext: { root: context.snapshot.root, fileCount: context.snapshot.files.length },
     canonicalIssues: Object.freeze(accepted.map(({ candidateId, disposition, claim, sourceFindingIds }) => Object.freeze({ candidateId, disposition, claim, sourceFindingIds }))),
     repositoryContext: Object.freeze([]),
-    constraints: Object.freeze(["audit_mode_is_read_only"]),
+    constraints: Object.freeze([AUDIT_PLAN_CONSTRAINT]),
     workflowGoal: "Resolve every accepted canonical issue without changing behaviour.",
     premiseReport: accepted.some(({ disposition }) => disposition === "verified_single_source") ? Object.freeze({ ...SCRIPTED_PREMISE_REPORT, limitations: Object.freeze([...SCRIPTED_PREMISE_REPORT.limitations, SINGLE_SOURCE_PLANNED_LIMITATION]) }) : SCRIPTED_PREMISE_REPORT,
   });
