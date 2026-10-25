@@ -90,6 +90,11 @@ export const runConfigSchema = z.object({
       if (typeof workflow["critic"] !== "boolean") context.addIssue({ code: "custom", path: ["critic"], message: "Expected true or false" });
       else if (workflow["graph"] !== undefined) context.addIssue({ code: "custom", path: ["critic"], message: "A saved workflow graph decides its own critic" });
     }
+    // `variantSearch: true` looks for the confirmed issues' variants after verification, before planning; off unless set.
+    if (workflow["variantSearch"] !== undefined) {
+      if (typeof workflow["variantSearch"] !== "boolean") context.addIssue({ code: "custom", path: ["variantSearch"], message: "Expected true or false" });
+      else if (workflow["graph"] !== undefined) context.addIssue({ code: "custom", path: ["variantSearch"], message: "A saved workflow graph decides its own steps" });
+    }
     if (workflow["modelExecution"] === undefined) return;
     const result = providerExecutionSchema.safeParse(workflow["modelExecution"]);
     if (!result.success) for (const issue of result.error.issues) context.addIssue({ ...issue, path: ["modelExecution", ...issue.path] });
@@ -104,6 +109,7 @@ export const runConfigSchema = z.object({
   // Operator-authored graphs dispatch through the Audit executors; Feature and Testing keep their presets.
   if (config.workflow["graph"] !== undefined && config.mode !== "audit") context.addIssue({ code: "custom", path: ["workflow", "graph"], message: "Saved workflow graphs require audit mode" });
   if (config.workflow["critic"] !== undefined && config.mode !== "audit") context.addIssue({ code: "custom", path: ["workflow", "critic"], message: "The plan critic switch applies only to Audit runs; a Feature names its critic in workflow.feature.roles" });
+  if (config.workflow["variantSearch"] !== undefined && config.mode !== "audit") context.addIssue({ code: "custom", path: ["workflow", "variantSearch"], message: "The variant search applies only to Audit runs" });
   if (config.workflow["testing"] !== undefined) {
     const testing = testingExecutionSchema.safeParse(config.workflow["testing"]);
     if (config.mode !== "testing") context.addIssue({ code: "custom", path: ["workflow", "testing"], message: "Testing settings require testing mode" });
