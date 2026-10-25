@@ -536,7 +536,8 @@ declined; a declined window, or parts all declined, are left unexamined for that
 (`discovery-declined-*`, limitation `discovery_provider_refused`), since a cause in no one part (a fixed prompt
 the provider refuses) declines every smaller part too. A unit whose reply stays invalid after its repairs is
 treated the same way (`discovery_reply_rejected`). A declined review batch contributes nothing and counts as rejected
-review output, and an auditor whose provider declines a conflict, or whose answer stays invalid after its
+review output, as does a review of one candidate that stops at the output ceiling (a larger batch that stops
+there is halved), and an auditor whose provider declines a conflict, or whose answer stays invalid after its
 repairs or stops at the output ceiling, casts no vote (`peer-conflict-unanswered-*`), so that conflict stays
 unresolved.
 Exact and structural matches still resolve without model calls. Unclassified pairs remain

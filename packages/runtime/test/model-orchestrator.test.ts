@@ -16,7 +16,7 @@ import type { TestSandbox } from "../src/test-sandbox.js";
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
-async function fixture(options: { secondFile?: boolean; revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: boolean; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; conflictFault?: "invalid" | "output_limit"; ambiguousClustering?: boolean; oversizedRepository?: boolean; packedReviewSource?: boolean; planQuestion?: boolean; verifierContextTokens?: number; invalidVerification?: boolean; invalidGroupVerification?: boolean; unanimousReview?: boolean; verificationByPlace?: boolean; holdingPlaces?: readonly string[]; placeBesideMerge?: boolean; severities?: readonly string[]; critiqueVerdict?: "HOLDS" | "DOES_NOT_HOLD"; lowerSeverity?: "one" | "two"; severeRejection?: "REJECTED" | "CONFIRMED"; revisionQuestion?: boolean; depth?: "fast" | "balanced" | "deep"; finding?: { readonly severity?: string; readonly category?: string } } = {}) {
+async function fixture(options: { secondFile?: boolean; revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: true | "every"; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; conflictFault?: "invalid" | "output_limit"; ambiguousClustering?: boolean; oversizedRepository?: boolean; packedReviewSource?: boolean; planQuestion?: boolean; verifierContextTokens?: number; invalidVerification?: boolean; invalidGroupVerification?: boolean; unanimousReview?: boolean; verificationByPlace?: boolean; holdingPlaces?: readonly string[]; placeBesideMerge?: boolean; severities?: readonly string[]; critiqueVerdict?: "HOLDS" | "DOES_NOT_HOLD"; lowerSeverity?: "one" | "two"; severeRejection?: "REJECTED" | "CONFIRMED"; revisionQuestion?: boolean; depth?: "fast" | "balanced" | "deep"; finding?: { readonly severity?: string; readonly category?: string } } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "arbitra-model-run-")); directories.push(directory);
   const manyIssues = options.largePeerContext === true || options.largePlannerContext === true;
   await writeFile(join(directory, "a.ts"), "const value = null;\n".repeat(manyIssues || options.placeBesideMerge === true ? 4 : options.ambiguousClustering === true ? 3 : 1), "utf8");
@@ -144,8 +144,8 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
     } else if (system.startsWith("Review every")) {
       requests.push({ stage: "review", url: request.url });
       const input = JSON.parse(user) as { round: number; candidates: Record<string, { candidateId: string; sources: { findingRef: string; evidence: { id: string }[] }[] }> };
-      // One reviewer's reply to more than one candidate stops at the output ceiling (the OpenAI Responses shape).
-      if (options.reviewOutputLimit === true && request.url.includes("auditor-a") && Object.keys(input.candidates).length > 1) return { status: 200, headers: {}, body: { status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, output_text: '{"operations":', usage: { input_tokens: 10, output_tokens: 2_000 } } };
+      // One reviewer's reply to more than one candidate, or to any, stops at the output ceiling (the OpenAI Responses shape).
+      if (options.reviewOutputLimit !== undefined && request.url.includes("auditor-a") && Object.keys(input.candidates).length > (options.reviewOutputLimit === "every" ? 0 : 1)) return { status: 200, headers: {}, body: { status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, output_text: '{"operations":', usage: { input_tokens: 10, output_tokens: 2_000 } } };
       expect(user).not.toMatch(/auditor-[abc]/u);
       output = { operations: Object.values(input.candidates).map(({ candidateId, sources }, index) => ({ operationId: `new:vote-${index}`, candidateId, authorId: "self", round: input.round, type: request.url.includes("auditor-b") && options.unanimousReview !== true ? "reject" : "accept", citedEvidenceIds: sources.flatMap(({ evidence }) => evidence.map(({ id }) => id)), reason: "Fixture review of supplied evidence" })), locations: [], findings: [] };
       if (options.largePlannerContext === true && input.round === 1 && request.url.includes("auditor-a")) {
@@ -679,6 +679,35 @@ describe("composed model audits", () => {
     const resumed = create(); await resumed.resume(result.runId);
     expect((await resumed.wait(result.runId)).state).toBe("COMPLETED");
     expect(requests.filter(({ stage }) => stage === "review")).toHaveLength(reviews);
+  });
+
+  it.each([1, 4])("records a review of one candidate that stops at the output ceiling as a rejected review, and goes on (%i calls at a time)", async (parallel) => {
+    // A batch of one candidate cannot be halved: the stop was replanned, the replanned review could not be sent, and the
+    // run failed with PEER_CANDIDATE_CONTEXT_LIMIT_EXCEEDED.
+    const { create, config, requests, failVerification } = await fixture({ largePeerContext: true, packedPeerContext: true, reviewOutputLimit: "every" });
+    if (parallel > 1) (config.workflow["modelExecution"] as { maximumParallelCalls?: number }).maximumParallelCalls = parallel;
+    failVerification(true);
+    const core = create(); const result = await core.run(config);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    // The run stops at verification, after peer review has finished for every reviewer.
+    expect(result.state, JSON.stringify(events.at(-1))).toBe("FAILED");
+    expect(requests.some(({ stage }) => stage === "verification"), JSON.stringify(events.at(-1))).toBe(true);
+    const artifacts = await core.artifacts(result.runId);
+    const read = async (kind: string) => { const descriptor = artifacts.find((entry) => entry.kind === kind); if (descriptor === undefined) throw new Error(`ARTIFACT_ABSENT:${kind}`); return JSON.parse((await core.artifact(result.runId, descriptor.artifactId) as { content: string }).content) as unknown; };
+    expect((await read("peer-review-batches-1-auditor-a") as { kind: string; candidateIds: string[] }[]).filter(({ kind }) => kind === "review").map(({ candidateIds }) => candidateIds.length)).toEqual([1, 1, 1, 1]);
+    const rejected = await Promise.all(artifacts.filter(({ kind }) => kind.startsWith("peer-review-rejected-")).map(({ kind }) => read(kind) as Promise<{ round: number; auditorId: string; reason: string }>));
+    expect(rejected.filter(({ round, auditorId }) => round === 1 && auditorId === "auditor-a")).toHaveLength(4);
+    expect(rejected.every(({ auditorId, reason }) => auditorId === "auditor-a" && reason.startsWith("MODEL_OUTPUT_LIMIT_REACHED:peer-review/"))).toBe(true);
+    const reviews = requests.filter(({ stage }) => stage === "review").length;
+    failVerification(false);
+    const resumed = create(); await resumed.resume(result.runId);
+    expect((await resumed.wait(result.runId)).state).toBe("COMPLETED");
+    // The stopped reviews are not asked again, and the report shows the gap.
+    expect(requests.filter(({ stage }) => stage === "review")).toHaveLength(reviews);
+    const canonical = (await core.artifacts(result.runId)).find(({ kind }) => kind === "canonical-issues");
+    const value = JSON.parse((await core.artifact(result.runId, canonical?.artifactId ?? "") as { content: string }).content) as { limitations: string[]; coverage: { complete: boolean } };
+    expect(value.limitations).toContain(`peer_review_output_rejected:${rejected.length}`);
+    expect(value.coverage.complete).toBe(false);
   });
 
   it.each([1, 4])("packs the pair checks between review batches into one call and applies the merge it returns (%i calls at a time)", async (parallel) => {

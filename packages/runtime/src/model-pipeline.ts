@@ -308,13 +308,18 @@ export class ModelAuditPipeline {
         const limitKind = `peer-review-batch-limits-${round}-${auditorId}`;
         const stored = (await context.store.listArtifacts()).find(({ kind }) => kind === limitKind);
         const limits: { review: number; mergeCheck: number } = { review: maximumCandidates, mergeCheck: maximumCandidates, ...(stored === undefined ? {} : JSON.parse((await context.store.readArtifact(stored.artifactId)).content) as { review: number; mergeCheck: number }) };
+        // A review of one candidate cannot be halved. One that stopped at the ceiling counts as a rejected review and
+        // stays planned as its own batch, so a replanned or resumed reviewer plans the same batches; its call then
+        // fails at once from the durable record. Replanned, it could not be sent and failed the run
+        // (PEER_CANDIDATE_CONTEXT_LIMIT_EXCEEDED).
+        const stoppedAlone = async (part: PeerReviewBatch) => part.kind === "review" && part.candidateIds.length === 1 && await this.#activities.outputLimited(requestFor(part).input.activityId);
         // Replanning after an output-limited batch reuses every completed durable batch.
         const returned = await replanOnOutputLimit(async () => {
           // A review batch carries the source its candidates cite: a reviewer cannot check a claim against a file
           // it was not given. Observed live (P20 pilot): batches were packed with candidates until 3 of 53 files
           // were left, and the reviewers answered "needs verification" as often as "accept".
           const parts = await peerReviewBatches(candidateIds, (part) => this.sendable(requestFor(part).input, false, part.kind === "review"),
-            Math.min(maximumCandidates, limits.review), Math.min(maximumCandidates, limits.mergeCheck), (part) => this.sendable(requestFor(part).input, true), execution.review?.crossBatchMergeChecks === true);
+            Math.min(maximumCandidates, limits.review), Math.min(maximumCandidates, limits.mergeCheck), async (part) => await this.sendable(requestFor(part).input, true) || await stoppedAlone(part), execution.review?.crossBatchMergeChecks === true);
           await context.store.publish(`peer-review-batches-${round}-${auditorId}`, parts);
           // The batches of one reviewer are independent: each presents its own candidates against the same board.
           // Up to maximumParallelCalls are in flight at a time and the replies are taken in batch order, so the
@@ -331,9 +336,10 @@ export class ModelAuditPipeline {
                 limits[kind] = Math.min(limits[kind], Math.max(part.kind === "review" ? 1 : 2, Math.floor(part.candidateIds.length / 2)));
                 await context.store.publish(limitKind, limits);
               }
-              if (!isModelOutputRejection(error) && !(error instanceof ModelRefusalError)) throw error;
-              // One reviewer's reply that stays invalid after its repairs, or that its provider declined to
-              // give, contributes nothing to the board; it is durable and reported as degraded review coverage.
+              if (!isModelOutputRejection(error) && !(error instanceof ModelRefusalError) && !(error instanceof ModelOutputLimitError && await stoppedAlone(part))) throw error;
+              // One reviewer's reply that stays invalid after its repairs, that its provider declined to give, or
+              // that stopped at the ceiling for one candidate contributes nothing to the board; it is durable and
+              // reported as degraded review coverage.
               await context.store.publish(`peer-review-rejected-${createHash("sha256").update(input.activityId).digest("hex").slice(0, 24)}`, { round, auditorId, scopeId: scopeId ?? null, activityId: input.activityId, reason: (error as Error).message.slice(0, 1_000) });
               return null;
             }
