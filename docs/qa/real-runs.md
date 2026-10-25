@@ -209,6 +209,16 @@ nextra's `.arbitra/dev-notes/` (`log.md`, `followups.md`, `results/`).
     (`related_reports`, TF-IDF cosine of title and description at 0.35). On nextra: 24 prompts, 16 pairs; it
     finds 4 of the 5 overlaps the agents met (all but TASK-048's half covered by TASK-043, at 0.30), and the
     other pairs are related work in the same code. Location overlap did worse (2 of 5, with 48 pairs).
+- **Premise check (October 25),** no model: the export looks up what each prompt names (paths, symbols, routes and
+  socket events, quoted code, cited lines) in the project's code, marks what it cannot find under `<not_found>` and
+  counts it in the README; `check-premises.mjs` in the folder looks again before each task and prints what moved, what
+  is gone and what was never found (`packages/runtime/src/premise-check.ts`). Re-exporting nextra's run: of 2,132
+  things the prompts state about the code, 2,116 were found and 16 were not, in 11 prompts. The restore endpoint is one
+  (TASK-083); 8 are library, platform or H.264 field names outside the project, 4 example values, 2 names a context
+  line gives as if they existed, 1 a described command. Names a task's steps add are not counted. At the audited
+  commit no quote sat at other lines; run against nextra's `dev` history at the parent of each of 106 fix commits, 88
+  prompts had something moved, 51 had quoted or cited lines moved (201 of them) and 7 had something gone. Not caught,
+  as expected: check 19's wrong file (it exists) and the four behavioural premises.
 
 ### Unsure reports
 

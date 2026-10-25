@@ -506,7 +506,8 @@ defects, security issues among them. Remove that line to commit plans on purpose
 
 | File | Contents |
 |---|---|
-| `README.md` | Blocking questions to answer first, the order of work, the unsure reports to check after it, model tiers |
+| `README.md` | Blocking questions to answer first, the premise check's counts, the order of work (with how many things each prompt names were not found), the unsure reports to check after it, model tiers |
+| `check-premises.mjs`, `premises.json` | The premise check, plain Node with no dependencies (`packages/runtime/src/premise-check.ts`). The export looked up everything each prompt names (file paths, symbols, HTTP routes and socket events, quoted code, cited lines) in the project's code and saved where each was; a prompt lists what it could not find under `<not_found>`. Each prompt's first step runs `node .arbitra/plans/<folder>/check-premises.mjs TASK-012`, which looks them up again in the working tree it is run in (a git worktree too) and prints what moved since the save (with the new lines), what is gone and what was never found; `--all` and `--json` cover every prompt or give JSON |
 | `AGENTS.md`, `CLAUDE.md` | How a coding agent works through the folder; `CLAUDE.md` points Claude Code at `AGENTS.md` |
 | `PROGRESS.md` | A checklist with one line per task, then an optional section with one line per unsure report |
 | `prompts/1-strong-model/`, `prompts/2-balanced-model/`, `prompts/3-fast-model/` | One self-contained prompt per task, in the folder of the capability tier the planner chose for it. In an Audit plan each has a `<write_scope>`: the files its task may change and the folders it may add files to, taken from the modules its issues cite rather than from the plan (see [the write envelope](security.md)), and the plan's likely files that fall outside it; `AGENTS.md` asks for the person's approval before any other change |
