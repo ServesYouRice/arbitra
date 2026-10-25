@@ -77,8 +77,8 @@ function validateTaskGraph(plan: TraceablePlan): TraceabilityDiagnostic[] {
   return diagnostics;
 }
 
-/** Tasks whose write scopes (likelyFiles minus filesNotToTouch; a directory covers its files)
- * overlap must be ordered by a dependency path (observed live: two tasks shared files and were
+/** Tasks whose write scopes (likelyFiles minus what filesNotToTouch covers; a directory covers its files, and '.' is
+ * the whole repository) overlap must be ordered by a dependency path (observed live: two tasks shared files and were
  * related only by conflictsWith). `edges` maps a task to the tasks that wait for it. */
 export type WriteScopedTask = Pick<TraceablePlan["tasks"][number], "id" | "dependencies" | "scope" | "filesNotToTouch">;
 export function validateSharedWriteOrder(tasks: readonly WriteScopedTask[], edges: ReadonlyMap<string, ReadonlySet<string>>): TraceabilityDiagnostic[] {
@@ -95,7 +95,7 @@ export function validateSharedWriteOrder(tasks: readonly WriteScopedTask[], edge
     if (left.task.id === right.task.id) continue;
     const [first, second] = left.task.id.localeCompare(right.task.id) <= 0 ? [left, right] : [right, left];
     const key = JSON.stringify([first.task.id, second.task.id]); if (seen.has(key)) continue; seen.add(key);
-    const shared = [...first.paths].filter(([path]) => [...second.paths.keys()].some((other) => covers(path, other))).map(([, original]) => original);
+    const shared = sharedWrites(first, second);
     if (shared.length === 0 || reachable(first.task.id).has(second.task.id) || reachable(second.task.id).has(first.task.id)) continue;
     if (diagnostics.length >= 10) { omitted += 1; continue; }
     diagnostics.push(diagnostic("SHARED_WRITE_SCOPE_UNORDERED", `tasks[${second.index}].dependencies.dependsOn`, `Tasks ${first.task.id} and ${second.task.id} both write ${shared.slice(0, 5).join(", ")} (scope.likelyFiles) but neither depends on the other; conflictsWith does not order tasks. Order them: add ${first.task.id} to ${second.task.id}.dependencies.dependsOn and {"from":"${first.task.id}","to":"${second.task.id}"} to taskGraph (reverse both if ${second.task.id} must land first), or merge the two tasks. Do not drop a file a task must edit from its likelyFiles.`));
@@ -112,14 +112,34 @@ export function dependencyEdges(tasks: readonly WriteScopedTask[], taskGraph: Tr
   for (const { from, to } of [...taskGraph, ...extra]) add(from, to);
   return edges;
 }
-/** Each task's write scope by normalised path, with the path as the plan wrote it; tasks that write nothing are left out. */
-function writeScopes<TTask extends WriteScopedTask>(tasks: readonly TTask[]): { readonly task: TTask; readonly index: number; readonly paths: Map<string, string> }[] {
-  const normalise = (path: string) => path.trim().replaceAll("\\", "/").replace(/^\.\//u, "").replace(/\/\*\*$/u, "").replace(/\/+$/u, "").toLowerCase();
+interface WriteScope<TTask> { readonly task: TTask; readonly index: number; readonly paths: Map<string, string>; readonly excluded: readonly string[] }
+/** Each task's write scope by normalised entry, with the entry as the plan wrote it, less the entries its filesNotToTouch
+ * covers whole, and those exclusions; tasks that write nothing are left out. filesNotToTouch took away only an entry of
+ * the same text before, so 'src/generated/**' left 'src/**' writing the generated files. */
+function writeScopes<TTask extends WriteScopedTask>(tasks: readonly TTask[]): WriteScope<TTask>[] {
   return tasks.map((task, index) => {
-    const excluded = new Set((task.filesNotToTouch ?? []).map(normalise));
-    const paths = new Map<string, string>(); for (const path of task.scope?.likelyFiles ?? []) { const key = normalise(path); if (key !== "" && !excluded.has(key) && !paths.has(key)) paths.set(key, path); }
-    return { task, index, paths };
+    const excluded = (task.filesNotToTouch ?? []).map(scopeKey).filter((key) => key !== "");
+    const paths = new Map<string, string>(); for (const path of task.scope?.likelyFiles ?? []) { const key = scopeKey(path); if (key !== "" && !excluded.some((exclusion) => within(key, exclusion)) && !paths.has(key)) paths.set(key, path); }
+    return { task, index, paths, excluded };
   }).filter(({ paths }) => paths.size > 0);
+}
+/** The entries of `first` that can name a file `second` writes too: a pair of entries counts unless a filesNotToTouch of
+ * either task covers one of them whole, since then that task writes none of their common files. */
+function sharedWrites<TTask>(first: WriteScope<TTask>, second: WriteScope<TTask>): string[] {
+  const excluded = [...first.excluded, ...second.excluded];
+  return [...first.paths].filter(([path]) => [...second.paths.keys()].some((other) => covers(path, other) && !excluded.some((exclusion) => within(path, exclusion) || within(other, exclusion)))).map(([, original]) => original);
+}
+/** A write-scope entry as it is compared: '/' separators, no leading './', trailing '/' or '/**', lower case. A bare '.'
+ * (or './') names the whole repository, `**`: it covered no file before. An empty entry names nothing. */
+function scopeKey(path: string): string {
+  const key = path.trim().replaceAll("\\", "/").replace(/^\.\//u, "").replace(/\/\*\*$/u, "").replace(/\/+$/u, "").toLowerCase();
+  return key === "." || key === "" && path.trim() !== "" ? "**" : key;
+}
+/** Whether a write-scope entry (a file, a folder, a glob, or '.' for the whole repository) covers the file at `path`, as
+ * the shared-write check reads likelyFiles and filesNotToTouch. */
+export function scopeEntryCovers(entry: string, path: string): boolean {
+  const key = scopeKey(entry);
+  return key !== "" && within(scopeKey(path), key);
 }
 /**
  * Whether two normalised write-scope entries can name a common file. A plain path covers what is under it. An entry with
@@ -137,12 +157,42 @@ const GLOB = /[*?[{]/u;
 /** A directory covers its files, so an entry whose name has no extension ends in `**` (one with an extension is a file:
  * 'src/*.ts' must not meet 'src/app.css'); a pattern without a slash ('*.md') may sit at any depth. */
 function scopeSegments(pattern: string): string[] { return [...(pattern.includes("/") ? [] : ["**"]), ...pattern.split("/"), ...(/[^/]\.[^./]+$/u.test(pattern) ? [] : ["**"])]; }
-/** `{a,b}` as its alternatives; past 64 alternatives a group is widened to `*`. */
-function expandBraces(pattern: string, limit = 64): string[] {
+/** `{a,b}` as its alternatives; past 64 alternatives a group is widened to `*`, or, without `widen`, left out: an
+ * exclusion read wider than it is written would take away writes it does not name. */
+function expandBraces(pattern: string, limit = 64, widen = true): string[] {
   const group = /\{([^{}]*)\}/u.exec(pattern); if (group === null) return [pattern];
   const alternatives = (group[1] ?? "").split(",");
-  if (alternatives.length > limit) return expandBraces(pattern.replace(group[0], () => "*"), limit);
-  return alternatives.flatMap((alternative) => expandBraces(pattern.replace(group[0], () => alternative), Math.floor(limit / alternatives.length)));
+  if (alternatives.length > limit) return widen ? expandBraces(pattern.replace(group[0], () => "*"), limit) : [];
+  return alternatives.flatMap((alternative) => expandBraces(pattern.replace(group[0], () => alternative), Math.floor(limit / alternatives.length), widen));
+}
+/**
+ * Whether every file the normalised entry `inner` can name is one `outer` names too: how an exclusion takes away a
+ * likely file or glob. It answers yes only when sure, so a doubtful case still counts as a write. A plain entry is
+ * anchored at the root, and covers what is under it unless its name has an extension; a glob is read as `covers` reads it.
+ */
+function within(inner: string, outer: string): boolean {
+  const segments = (entry: string) => GLOB.test(entry) ? scopeSegments(entry) : [...entry.split("/"), ...(/[^/]\.[^./]+$/u.test(entry) ? [] : ["**"])];
+  const outers = expandBraces(outer, 64, false).map(segments);
+  return expandBraces(inner).every((alternative) => { const parts = segments(alternative); return outers.some((candidate) => segmentsWithin(parts, candidate)); });
+}
+/** Whether every path the segments `inner` match is one the segments `outer` match (`**` is any number of segments). */
+function segmentsWithin(inner: readonly string[], outer: readonly string[]): boolean {
+  const memo = new Map<number, boolean>();
+  const fits = (i: number, j: number): boolean => {
+    const key = i * (outer.length + 1) + j; const known = memo.get(key); if (known !== undefined) return known;
+    const a = inner[i]; const b = outer[j];
+    const result = b === "**" ? fits(i, j + 1) || (a !== undefined && fits(i + 1, j))
+      : a === undefined || b === undefined ? a === undefined && b === undefined
+      : a !== "**" && segmentWithin(a, b) && fits(i + 1, j + 1);
+    memo.set(key, result); return result;
+  };
+  return fits(0, 0);
+}
+/** Whether every name the segment `inner` matches is one `outer` matches: the same text, `*`, or a name without wildcards
+ * that `outer` matches. A character class (`[…]`) in `outer` is read only as its own text. */
+function segmentWithin(inner: string, outer: string): boolean {
+  if (inner === outer || outer === "*") return true;
+  return !/[*?[]/u.test(inner) && !outer.includes("[") && segmentMeet(inner, outer);
 }
 /** Whether path segments with `**` (any number of segments) can match the same path. */
 function segmentsMeet(left: readonly string[], right: readonly string[]): boolean {
@@ -201,7 +251,7 @@ export function withSharedWritesOrdered<TPlan extends { readonly mode: Traceable
     if (second.task.dependencies === undefined) continue;
     // The nearest earlier writer first, so the writers of one file form a chain and not every pair.
     for (const first of writers.slice(0, position).reverse()) {
-      const shared = [...first.paths].filter(([path]) => [...second.paths.keys()].some((other) => covers(path, other))).map(([, original]) => original);
+      const shared = sharedWrites(first, second);
       if (first.task.id === second.task.id || shared.length === 0) continue;
       if (reaches(first.task.id, second.task.id) || reaches(second.task.id, first.task.id)) continue;
       edges.get(first.task.id)?.add(second.task.id); added.push({ from: first.task.id, to: second.task.id, paths: shared });

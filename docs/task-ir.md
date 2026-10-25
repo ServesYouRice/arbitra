@@ -26,9 +26,10 @@ The planner writes these links, and `packages/workflow/src/nodes/planner/traceab
 rather than emitting a plan where a task maps to no assertion or an accepted issue is
 covered by no task. In Audit and Feature plans, two tasks whose write scopes overlap must
 also be ordered by a dependency path (`SHARED_WRITE_SCOPE_UNORDERED`; a directory covers its
-files, and a glob in `likelyFiles` such as `src/**/*.ts` or `packages/*/package.json` counts as
-the files it can match, doubtful cases as an overlap): a handoff renders only
-`dependsOn` and `blocks`, and `conflictsWith` orders nothing. Testing execution serialises
+files, a bare `.` is the whole repository, and a glob in `likelyFiles` such as `src/**/*.ts` or
+`packages/*/package.json` counts as the files it can match, doubtful cases as an overlap; an
+entry of `filesNotToTouch`, whether a file, a folder or a glob, takes away what it covers whole):
+a handoff renders only `dependsOn` and `blocks`, and `conflictsWith` orders nothing. Testing execution serialises
 shared writes itself, so its plans are exempt. The run adds the orders a plan leaves out
 (`withSharedWritesOrdered`, applied to every plan, outline and revision a model returns): the
 later task by id waits for the nearest earlier one that writes the same files, in its

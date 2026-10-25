@@ -109,7 +109,8 @@ modules that hold them, never from the plan. The modules are the ones discovery 
 (`modulePartition` in `packages/runtime/src/discovery-scope.ts`): import-connected files, each
 other file alone, and each test in the module of the source it tests, read from the run's
 repository and scope when the plan is saved (when it can no longer be read, the cited files
-alone). The plan's `filesNotToTouch` only subtracts. Two kinds of file are open by rule: a test
+alone). The plan's `filesNotToTouch` only subtracts: a saved plan's prompts leave out every file
+it covers, by name, folder or glob. Two kinds of file are open by rule: a test
 file anywhere (by name, such as `a.test.ts`, `test_a.py` or `a_test.go`; not a setup file such as
 `conftest.py`), since each defect is proven with a test first and a project often reaches a module
 from tests no import ties to it, and a new file in a folder of the envelope other than the repository

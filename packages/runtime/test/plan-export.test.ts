@@ -269,6 +269,33 @@ it("gives each prompt the files its issues' modules allow, never the plan's own 
   } finally { await rm(repository, { recursive: true, force: true }); }
 });
 
+it("leaves out of a prompt's write scope every file its filesNotToTouch covers, by folder or by glob", async () => {
+  // Only an exact path, `folder/` or `folder/**` was taken away, so a prompt listed as files to change the ones its
+  // constraints said not to touch.
+  const repository = await mkdtemp(join(tmpdir(), "arbitra-plan-untouched-"));
+  try {
+    const files = ["src/app.ts", "src/app.gen.ts", "src/generated/types.ts", "src/session.ts", "src/view.tsx"];
+    for (const path of files) {
+      await mkdir(join(repository, path, ".."), { recursive: true });
+      await writeFile(join(repository, path), "export {};\n");
+    }
+    // A likely file outside the modules that the task must not touch is not offered to ask about either.
+    const untouched = { ...task("TASK-1", "frontier"), scope: { likelyFiles: ["src/app.ts", "build/out.js"] }, filesNotToTouch: ["src/generated", "src/*.gen.ts", "src/{session,view}.ts*", "build"] };
+    const content: Record<string, unknown> = {
+      "plan-ir": { title: "Fixes", tasks: [untouched], unresolvedQuestions: [] },
+      "canonical-issues": { issues: [{ candidateId: "C-1", severity: "high", disposition: "accepted", sourceFindingIds: ["auditor-a/F-1"], claim: { title: "A defect", description: "It breaks." } }] },
+      "source-findings": [{ sourceFindingId: "auditor-a/F-1", locations: [{ id: "L-1", path: "src/app.ts", startLine: 1, endLine: 1 }] }],
+    };
+    const orchestrator = {
+      overview: async () => ({ repository, workflowId: "audit-deep" }), repositoryMatches: async () => true, modules: async () => [{ id: "src", files }],
+      artifacts: async () => Object.keys(content).map((kind) => ({ kind, artifactId: kind })),
+      artifact: async (_runId: string, id: string) => ({ content: JSON.stringify(content[id]) }),
+    } as unknown as Orchestrator;
+    const { directory } = await exportPlan(orchestrator, "run-12345678-abcd");
+    expect(await readFile(join(directory, "prompts", "1-strong-model", "01-TASK-1.md"), "utf8")).toContain("ask before making it.\n- src/: app.ts\n</write_scope>");
+  } finally { await rm(repository, { recursive: true, force: true }); }
+});
+
 it("lists the folders a run's plan was saved to, newest first, and none for a run never saved", async () => {
   const repository = await mkdtemp(join(tmpdir(), "arbitra-plan-saved-"));
   try {
