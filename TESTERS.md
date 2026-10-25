@@ -61,7 +61,7 @@ arbitra. Then go on at [Run an audit](#run-an-audit).
    of 39,000 lines took 105 minutes and 27 million (about a third of a Claude Max 20x five-hour window, most of the
    tokens being Claude's); without Gemini a run uses somewhat less. Start with a small project and mind your plans'
    usage.
-5. When it finishes, the run page leads with **the plan**: **save the plan into the project as prompts** writes a
+5. When it finishes, the run page's Summary leads with **the plan**: **Save the plan into the project** writes a
    `.arbitra/plans/` folder into your project, which Git ignores: it lists every open issue, so keep it out of a public
    repository until they are fixed. It has one ready-to-paste prompt per fix, sorted by the kind of model
    each suits, and an `AGENTS.md` a coding agent follows: open the project in Claude Code or Codex and ask it to
@@ -69,13 +69,13 @@ arbitra. Then go on at [Run an audit](#run-an-audit).
    can make. Reports the models could not settle are listed apart, after the tasks, with prompts under
    `prompts/4-unsure` that ask a strong model to decide whether the defect is real and fix it only if a test shows
    it. Most such reports do not hold, so they are optional. Each prompt asks for a test that fails
-   before the fix, and the agent records each issue's result in `results.json`; the run's report and **Evaluation**
+   before the fix, and the agent records each issue's result in `results.json`; the run's report and **Results**
    tab then show how many defects a failing test proved and how many were fixed. The **Issues** tab lists everything
    found, including the smaller issues the plan leaves out, and how each was checked.
 
 ## If something goes wrong
 
-If a run pauses at its token limit, its page offers **raise to … and resume**: it goes on from where it stopped and
+If a run pauses at its token limit, its page offers **Raise to … and resume**: it goes on from where it stopped and
 keeps everything it has done. If a run reaches a usage limit of one of your plans, it pauses and keeps everything too;
 when the plan says when the limit resets, arbitra resumes the run by itself a minute later while it stays open.
 Otherwise resume it from the run's page once the limit has reset.

@@ -246,8 +246,11 @@ selected item are a link and the back button walks them:
 
 - **Runs** (`pages/RunsPage.tsx`) lists `GET /runs`, newest first, and polls while a run is
   active. Blocked runs are counted first, because they do nothing until someone acts.
-- **Run** (`pages/run/`) has a header with the state in words and code, the one lifecycle
-  action the state allows, what executed the run and its gate; a decision banner above every
+- **Run** (`pages/run/`) has a header with the state in words (its code is in How it ran's
+  details and the report), the one lifecycle action the state allows and what executed the
+  run; a Summary that watches a working run from `GET /runs/:id/progress` (stage, time per
+  stage, parts read per finding model, issues found so far, tokens, calls restarted after a
+  timeout) and leads a finished Audit with its plan to save; a decision banner above every
   tab while the run is blocked, holding the human-checkpoint decisions, one answer field per
   blocking question an interactive Audit's plan left open, a link to requirements awaiting
   approval, and the resume that follows them; the tabs the run's mode can fill; and one

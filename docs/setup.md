@@ -513,7 +513,7 @@ defects, security issues among them. Remove that line to commit plans on purpose
 Each task prompt asks for a test that fails on the current code before the fix. arbitra reads
 `results.json` back from the run's newest saved folder (`packages/runtime/src/plan-results.ts`)
 and reports how many issues were reported, how many a failing test proved, and the count of
-each result: on an Audit's Evaluation tab and in the run report. A run without a plan is
+each result: on an Audit's Results tab (and its Evaluation record) and in the run report. A run without a plan is
 refused with HTTP 409 (`RUN_HAS_NO_PLAN`), as is a run with no recorded repository
 (`RUN_REPOSITORY_UNKNOWN`).
 

@@ -134,13 +134,16 @@ pnpm --filter @arbitra/web dev              # for UI work: a dev server on 127.0
 With the control plane up, the UI opens on the list of runs. **New run** prepares a
 configuration from a template or a saved one, lists what the template leaves to fill in,
 checks it with the orchestrator's preflight and estimate, then saves and starts it.
-**Workflows** is the graph editor. A run's page shows its state, the gate, what executed it
+**Workflows** is the graph editor. A run's page shows its state in words, what executed it
 (models, or scripted detectors that make no model call) and any decision it waits on, then
-the tabs its mode has: Overview, Issues or Requirements, Plan, Execution (Testing),
-Activity (the graph, every model attempt and every artifact) and Evaluation. Every place is
-an address: `?run=<id>&view=<tab>&item=<kind>:<id>` opens a run on a tab with an issue, node,
-plan step, attempt or artifact selected, and the older `?view=graph|feature|testing|traces`
-links still land on the matching tab. Missing usage and cost remain labelled unavailable.
+the tabs its mode has: Summary (while it works, the stage it is in and for how long, what it
+has read and found and the tokens; when done, the plan to save into the project first),
+Issues or Requirements, Plan, Results or Execution, and How it ran, with the run's records,
+Activity (the graph, every model attempt and every artifact) and Evaluation, one click
+down. Every place is an address: `?run=<id>&view=<tab>&item=<kind>:<id>` opens a run on a
+tab with an issue, node, plan step, attempt or artifact selected, and the older
+`?view=overview|graph|feature|testing|traces` links still land on the matching place.
+Missing usage and cost remain labelled unavailable.
 
 **With `models: {}`, the auditors are deterministic detectors.**
 They produce real, evidence-grounded findings — every one cites a repository path and line

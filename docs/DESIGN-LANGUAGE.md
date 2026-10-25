@@ -29,7 +29,9 @@ Nothing here is a mood choice. Every rule below traces to a property of the prod
 ## The five rules
 
 - **R1 — Evidentiary, not persuasive.** Every screen is a record of what happened. If a
-  pixel makes a result feel more certain than it is, remove it.
+  pixel makes a result feel more certain than it is, remove it. A record is read in words
+  first; its recorded codes are kept in the details and the report (see "Emphasis without
+  hue").
 - **R2 — Colour is semantic.** Six hues, one meaning each. Decorative use of a hue steals
   from the meaning it carries elsewhere. Enforced by `no-raw-color.cjs`.
 - **R3 — The taxonomy is the icon set.** Six node glyphs, six state marks, nothing else.
@@ -108,14 +110,24 @@ one job, and each addressable:
 
 A run page reads top to bottom:
 
-- **Header.** Mode and workflow as the page title, the state chip, and the one lifecycle
-  action the state allows (cancel, or resume). Beneath it the run ID, repository, times,
-  what executed it (models, or scripted detectors that make no model call) and the gate.
+- **Header.** The project and the run's kind as the page title (`veritra · audit`), the
+  state chip in words, and the one lifecycle action the state allows: cancel a working run,
+  resume a stopped one when resuming can help, raise the token limit of one paused on it,
+  or start a new run like a finished one. Beneath it when it started, what executed it
+  (models, or scripted detectors that make no model call) and how much of the project it read.
 - **Decision banner.** Present only while the run is blocked, above every tab, with the
   decisions themselves and the resume that follows them.
-- **Tabs.** Only those the mode can fill. Audit: Overview · Issues · Plan · Activity ·
-  Evaluation. Feature: Overview · Requirements · Plan · Activity · Evaluation. Testing:
-  Overview · Plan · Execution · Activity · Evaluation.
+- **Tabs.** Only those the mode can fill. Audit: Summary · Issues · Plan · Results · How it
+  ran. Feature: Summary · Requirements · Plan · How it ran. Testing: Summary · Plan ·
+  Execution · How it ran. The run's **records**, Activity (the executed graph, every model
+  call and artifact) and Evaluation, are one click down from How it ran, never removed.
+- **Summary.** While the run works, a status line in words (`Finding issues · 1 h 05 so
+  far`, then the parts read, the issues found and not checked yet, the tokens against the
+  limit), the stages as boxes joined by lines, with stages that run side by side stacked and
+  the lines into a running stage moving (still under `prefers-reduced-motion`), and what has
+  been found so far. When it stopped: what happened and what to do, in words. When it is
+  done: the plan first, with saving it into the project as the page's one primary action,
+  then what needs the person, the issues by verdict, and how it ran.
 - **Details panel.** Whatever is selected (a node, an issue, a plan step, a model attempt,
   an artifact), shown from the run's own records. It sits beside the tab, 360–440px, behind
   a 1px hairline, and exists only while something is selected. Below 1180px it is a modal
@@ -135,9 +147,31 @@ R2 leaves no hue for "look here", so emphasis is weight, fill and the neutral in
   Brass is never navigation.
 - **Waiting on the operator** (a blocked run, a pending approval) is an `--ink` stripe and
   the human-checkpoint glyph ◫. It is not a seventh state: it says whose move it is.
-- **Every state is words and code.** A chip reads `waiting for your decision BLOCKED`; a gate
-  reason reads `coverage is incomplete degraded_coverage`. The words are a reading aid; the
-  code is the record.
+- **Words on the main line, codes in the details.** A chip reads `needs you`; a gate reason
+  reads `coverage is incomplete`. The recorded code (`BLOCKED`, `degraded_coverage`) stays
+  where someone checking the record looks for it: the run's details (How it ran's recorded
+  codes, the details panel, the records) and the copied report. An error says what happened
+  and what to do first, and what the server recorded is one click down. Revised October 25,
+  2026: with a code beside every state and error, a failed run read
+  `failed · REPOSITORY_FILE_LIMIT_EXCEEDED:400` and a running one `running CREATED`.
+- **One word per idea.** Every screen uses the same word for the same thing: the one in the
+  table's second column, and no other on a main line. The run page takes its words from
+  `apps/web/src/app/words.ts`.
+
+| Idea | On screen |
+|---|---|
+| The models and roles of a run | lineup |
+| How hard a model thinks | effort, in the model's own word: `Opus 5.5 · xhigh` |
+| How strong a model a task needs | strongest · mid · light |
+| The steps | find issues · merge duplicates · check each issue · write the plan · review the plan |
+| What a model reports | issue, with one or more places |
+| What the check decided | confirmed · unsettled · rejected · not checked |
+| Models still disagree after a review round | disputed |
+| A run's state | running · paused for usage · needs you · done · failed (and cancelled) |
+| Where a model runs | runs through Claude Code / Codex / Antigravity |
+| Stopping for a person | ask me before … |
+| The spend cap | stop at … tokens |
+| The plan's parts | question · check · task · prompt |
 - **Prose is sans; data is mono.** Model-authored text and explanations use the body face;
   identifiers, counts and paths use the data face. Hashes are cut to eight characters on
   screen, with the full value one hover away.
