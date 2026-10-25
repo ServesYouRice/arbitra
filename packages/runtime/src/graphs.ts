@@ -6,10 +6,13 @@ const node = (id: string, kind: RunnerNode["kind"], label: string): RunnerNode =
 /**
  * The executable graphs behind the shipped presets. A run stores the graph it walks, and the
  * web app draws that stored graph, not a picture of a different pipeline.
+ *
+ * The audit presets are named by how many finders they run. The plan critic is not part of any of them: it is a
+ * switch of its own (`workflow.critic`), off by default, that adds the critic after the planner.
  */
-export const AUDIT_DEEP_GRAPH: RunnerGraph = Object.freeze({
+export const AUDIT_THREE_FINDERS_GRAPH: RunnerGraph = Object.freeze({
   schemaVersion: 1,
-  id: "audit-deep",
+  id: "audit-three-finders",
   entryNodeId: "preflight",
   nodes: Object.freeze([
     node("preflight", "deterministic", "Preflight"),
@@ -19,7 +22,6 @@ export const AUDIT_DEEP_GRAPH: RunnerGraph = Object.freeze({
     node("consensus", "loop", "Consensus"),
     node("verification", "subgraph", "Verification"),
     node("planner", "model", "Planner"),
-    node("critic", "model", "Critic"),
   ]),
   edges: Object.freeze([
     Object.freeze({ id: "p-a", from: "preflight", to: "auditor-a" }),
@@ -30,7 +32,6 @@ export const AUDIT_DEEP_GRAPH: RunnerGraph = Object.freeze({
     Object.freeze({ id: "c-c", from: "auditor-c", to: "consensus" }),
     Object.freeze({ id: "consensus-verification", from: "consensus", to: "verification" }),
     Object.freeze({ id: "verification-planner", from: "verification", to: "planner" }),
-    Object.freeze({ id: "planner-critic", from: "planner", to: "critic" }),
   ]),
 });
 
@@ -60,7 +61,7 @@ export const DIFF_REVIEW_GRAPH: RunnerGraph = Object.freeze({
   ]),
 });
 
-export const AUDIT_BALANCED_GRAPH: RunnerGraph = Object.freeze({ ...DIFF_REVIEW_GRAPH, id: "audit-balanced" });
+export const AUDIT_TWO_FINDERS_GRAPH: RunnerGraph = Object.freeze({ ...DIFF_REVIEW_GRAPH, id: "audit-two-finders" });
 export const DIFF_FAST_GRAPH: RunnerGraph = Object.freeze({
   ...DIFF_REVIEW_GRAPH, id: "diff-fast",
   nodes: Object.freeze(DIFF_REVIEW_GRAPH.nodes.filter(({ id }) => id !== "auditor-b")),
@@ -75,8 +76,8 @@ export const FEATURE_GRAPH: RunnerGraph = Object.freeze({
 });
 
 export const PRESET_GRAPHS: Readonly<Record<string, RunnerGraph>> = Object.freeze({
-  "audit-deep": AUDIT_DEEP_GRAPH,
-  "audit-balanced": AUDIT_BALANCED_GRAPH,
+  "audit-three-finders": AUDIT_THREE_FINDERS_GRAPH,
+  "audit-two-finders": AUDIT_TWO_FINDERS_GRAPH,
   "diff-review": DIFF_REVIEW_GRAPH,
   "diff-fast": DIFF_FAST_GRAPH,
   "feature-simple": FEATURE_GRAPH,
@@ -90,10 +91,25 @@ export const PRESET_GRAPHS: Readonly<Record<string, RunnerGraph>> = Object.freez
   }),
 });
 
+/**
+ * Earlier names of the audit presets, which named a finder count as a depth. Saved configurations that name them run
+ * the preset of that count; a stored run keeps the graph it started with (its id and its critic, if it had one), so it
+ * still shows and resumes as it was. Neither alias brings a critic: `audit-deep` had one built in, and now the critic
+ * is the `workflow.critic` switch.
+ */
+export const PRESET_ALIASES: Readonly<Record<string, string>> = Object.freeze({ "audit-balanced": "audit-two-finders", "audit-deep": "audit-three-finders" });
+
+/** Every preset name a configuration may use, aliases included; none of them can be taken by a registered graph. */
+export const PRESET_NAMES: readonly string[] = Object.freeze([...Object.keys(PRESET_GRAPHS), ...Object.keys(PRESET_ALIASES)]);
+
+/** The preset an audit runs when its configuration names none. */
+export const DEFAULT_AUDIT_PRESET = "audit-three-finders";
+
 export function graphForPreset(preset: string | undefined): RunnerGraph {
-  const name = preset ?? "audit-deep";
+  const named = preset ?? DEFAULT_AUDIT_PRESET;
+  const name = Object.hasOwn(PRESET_ALIASES, named) ? PRESET_ALIASES[named] as string : named;
   const graph = Object.hasOwn(PRESET_GRAPHS, name) ? PRESET_GRAPHS[name] : undefined;
-  if (graph === undefined) throw new Error(`UNKNOWN_WORKFLOW_PRESET:${name}`);
+  if (graph === undefined) throw new Error(`UNKNOWN_WORKFLOW_PRESET:${named}`);
   return graph;
 }
 
@@ -114,7 +130,7 @@ export function auditStageState(node: RunnerNode): RunState | undefined {
   return undefined;
 }
 
-/** Replay overrides and a balanced audit's critic role change the executable graph, including presets without a critic. */
+/** The critic switch and replay overrides change the executable graph: the critic follows any graph's planner. */
 export function withCritic(graph: RunnerGraph, enabled: boolean): RunnerGraph {
   const present = graph.nodes.some(({ id }) => id === "critic");
   if (present === enabled) return graph;

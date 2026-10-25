@@ -8,6 +8,9 @@ import { RUN_CONFIG_FIELD_INVENTORY, runConfigSchema, type RunConfig } from "../
 import { providerExecutionSchema } from "../packages/schemas/src/provider-execution.js";
 import { testingExecutionSchema } from "../packages/schemas/src/testing.js";
 import { configurationDiagnostics } from "../packages/runtime/src/preflight.js";
+import { DEPTHS, withDepth, withFinders } from "../apps/web/src/pages/new-run/depth.js";
+import { setIn } from "../apps/web/src/pages/new-run/draft.js";
+import { TEMPLATES } from "../apps/web/src/pages/new-run/templates.js";
 
 /**
  * The documentation gate for `examples/`.
@@ -181,6 +184,16 @@ describe("model-backed templates", () => {
         expect(testing.execution.verification.execution.image).toBe(`replace-with-your-local-test-image@sha256:${"0".repeat(64)}`);
         expect(testing.execution.authorization.partitions.flatMap(({ paths }) => paths).every((path) => /\.test\.[a-z]+$/u.test(path))).toBe(true);
       }
+    }
+  });
+
+  it("passes runtime preflight at every New run depth and finder count, critic on or off, sending each CLI an effort word", () => {
+    const base = TEMPLATES.find(({ id }) => id === "subscription-audit")?.config;
+    if (base === undefined) throw new Error("NO_SUBSCRIPTION_TEMPLATE");
+    for (const depth of Object.keys(DEPTHS) as (keyof typeof DEPTHS)[]) for (const count of [2, 3] as const) for (const critic of [false, true]) {
+      const config = runConfigSchema.parse(setIn(withFinders(withDepth(base, depth), count), ["workflow", "critic"], critic));
+      const diagnostics = configurationDiagnostics(config);
+      expect(diagnostics.filter(({ severity, code }) => severity === "error" || code.startsWith("MODEL_")), `${depth} ${count} critic ${String(critic)}`).toEqual([]);
     }
   });
 

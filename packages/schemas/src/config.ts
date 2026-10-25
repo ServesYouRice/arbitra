@@ -29,7 +29,10 @@ export const runConfigSchema = z.object({
   schemaVersion: z.literal(RUN_CONFIG_SCHEMA_VERSION),
   mode: z.enum(["audit", "feature", "testing"]),
   scope: runScopeSchema,
-  auditDepth: z.enum(["fast", "balanced", "deep"]),
+  /** The depth preset a configuration was written at: deep, balanced or cheap differ only in models and efforts (New
+   * run writes them). A stage without its own `stageEffort` runs at the depth's level: deep high, fast low, otherwise
+   * medium. `fast`, the earlier low-effort depth, is still read so stored runs and saved configurations load. */
+  auditDepth: z.enum(["fast", "cheap", "balanced", "deep"]),
   consensusPolicy: z.enum(["full", "risk_weighted", "minimal"]),
   maxConsensusRounds: z.number().int().min(0).max(3),
   verification: jsonObjectSchema.superRefine((verification, context) => {
@@ -82,6 +85,11 @@ export const runConfigSchema = z.object({
       if (!graph.success) for (const issue of graph.error.issues) context.addIssue({ ...issue, path: ["graph", ...issue.path] });
       if (workflow["preset"] !== undefined) context.addIssue({ code: "custom", path: ["graph"], message: "A saved workflow graph and a preset are exclusive" });
     }
+    // `critic: true` reviews an Audit's plan with the critic after the planner; off unless set, at every depth.
+    if (workflow["critic"] !== undefined) {
+      if (typeof workflow["critic"] !== "boolean") context.addIssue({ code: "custom", path: ["critic"], message: "Expected true or false" });
+      else if (workflow["graph"] !== undefined) context.addIssue({ code: "custom", path: ["critic"], message: "A saved workflow graph decides its own critic" });
+    }
     if (workflow["modelExecution"] === undefined) return;
     const result = providerExecutionSchema.safeParse(workflow["modelExecution"]);
     if (!result.success) for (const issue of result.error.issues) context.addIssue({ ...issue, path: ["modelExecution", ...issue.path] });
@@ -95,6 +103,7 @@ export const runConfigSchema = z.object({
   if (config.workflow["incremental"] !== undefined && config.mode !== "audit") context.addIssue({ code: "custom", path: ["workflow", "incremental"], message: "Incremental reuse applies only to Audit runs" });
   // Operator-authored graphs dispatch through the Audit executors; Feature and Testing keep their presets.
   if (config.workflow["graph"] !== undefined && config.mode !== "audit") context.addIssue({ code: "custom", path: ["workflow", "graph"], message: "Saved workflow graphs require audit mode" });
+  if (config.workflow["critic"] !== undefined && config.mode !== "audit") context.addIssue({ code: "custom", path: ["workflow", "critic"], message: "The plan critic switch applies only to Audit runs; a Feature names its critic in workflow.feature.roles" });
   if (config.workflow["testing"] !== undefined) {
     const testing = testingExecutionSchema.safeParse(config.workflow["testing"]);
     if (config.mode !== "testing") context.addIssue({ code: "custom", path: ["workflow", "testing"], message: "Testing settings require testing mode" });
@@ -115,6 +124,9 @@ export const runConfigSchema = z.object({
   const endpoints = new Map(execution.endpoints.map((endpoint) => [endpoint.id, endpoint]));
   for (const [role, id] of Object.entries(execution.roles ?? {})) {
     if (id !== undefined && !Object.hasOwn(config.models, id)) context.addIssue({ code: "custom", path: ["workflow", "modelExecution", "roles", role], message: "Unknown model profile" });
+  }
+  for (const [stage, value] of Object.entries(execution.stageEffort ?? {})) {
+    if (typeof value === "object") for (const id of Object.keys(value)) if (!Object.hasOwn(config.models, id)) context.addIssue({ code: "custom", path: ["workflow", "modelExecution", "stageEffort", stage, id], message: "Unknown model profile" });
   }
   for (const [id, model] of Object.entries(config.models)) {
     const endpointId = Object.hasOwn(execution.modelEndpoints, id) ? execution.modelEndpoints[id] : undefined;

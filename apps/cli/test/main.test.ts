@@ -236,7 +236,8 @@ describe("CLI commands", () => {
     const help = captureIo(); const asked = await runCli(["audit", "--help"], core, help.io);
     expect(asked.exit).toBe(0);
     expect(core.calls).toEqual([]);
-    expect(help.stdout.join("")).toContain("usage: arbitra audit [--preset audit-balanced|audit-deep|diff-fast|diff-review]");
+    expect(help.stdout.join("")).toContain("usage: arbitra audit [--preset audit-two-finders|audit-three-finders|diff-fast|diff-review]");
+    expect(help.stdout.join("")).toContain("audit-balanced and audit-deep, the earlier names of the two- and three-finder presets, still work");
     expect(help.stdout.join("")).toContain("scripted detectors: no model is configured and none is called");
     expect(help.stdout.join("")).toContain("arbitra run <config>");
     const missing = captureIo(); const refused = await runCli(["audit", "--preset", "audit-deep"], core, missing.io);

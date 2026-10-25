@@ -14,7 +14,7 @@ import { promptByteLimit } from "@arbitra/providers/transports/cli/dialects.js";
 import { inputBytesPerToken, isModelOutputRejection, ModelOutputLimitError, ModelRefusalError, outputLimitKind, refusalKind, requestCeiling } from "./context-budget.js";
 import { ModelActivities, parsePromptJson, type ModelActivityRequest } from "./model-activities.js";
 import type { TransportMessage } from "@arbitra/providers/transport-contract.js";
-import { snapshotTools, SNAPSHOT_TOOLS } from "./snapshot-tools.js";
+import { snapshotTools, SNAPSHOT_TOOLS, type ReadsBeyondUnit } from "./snapshot-tools.js";
 import type { RepositorySnapshot } from "./repository.js";
 import type { RunStore } from "./run-store.js";
 import type { TestingToolExtension } from "./testing-tools.js";
@@ -26,6 +26,8 @@ export class ModelHarness {
   #outputLimited: Promise<Set<string>> | undefined;
   // Activities answered only after their tool turns were spent. Rebuilt on resume: durable turns replay through the loop.
   readonly #toolTurnsSpent = new Set<string>();
+  // What each activity allowed to read beyond its source read there, rebuilt on resume the same way.
+  readonly #readsBeyondSource = new Map<string, ReadsBeyondUnit>();
   constructor(private readonly activities: ModelActivities, private readonly config: RunConfig, private readonly snapshot: RepositorySnapshot, private readonly store: RunStore, private readonly testing?: TestingToolExtension) {}
 
   /** Closes the transports of the activities this harness drives, once the run that owns them settles. */
@@ -40,6 +42,14 @@ export class ModelHarness {
   /** Whether this activity, or a repair of it, answered only after it was told its tool turns were spent. */
   toolTurnsSpent(activityId: string): boolean {
     return [...this.#toolTurnsSpent].some((id) => id === activityId || id.startsWith(`${activityId}/repair-`));
+  }
+
+  /** What an activity with `readBeyondSource`, and its repairs, read outside its source paths; null if it had none. */
+  readsBeyondSource(activityId: string): ReadsBeyondUnit | null {
+    const entries = [...this.#readsBeyondSource].filter(([id]) => id === activityId || id.startsWith(`${activityId}/repair-`)).map(([, reads]) => reads);
+    const [first] = entries;
+    if (first === undefined) return null;
+    return { maximumBytes: first.maximumBytes, bytes: entries.reduce((sum, { bytes }) => sum + bytes, 0), reads: entries.flatMap(({ reads }) => reads), refused: entries.reduce((sum, { refused }) => sum + refused, 0) };
   }
 
   /** Whether the provider or model declined this durable activity before; it is not asked again. */
@@ -133,7 +143,9 @@ export class ModelHarness {
     const key = createHash("sha256").update(input.activityId).digest("hex");
     if (compiled !== undefined) await this.store.publish(`compiled-prompt-${key}`, { text: compiled.text, provenance: compiled.provenance, breakpoints: compiled.breakpoints }, input.activityId);
     const allowedPaths = input.sourcePaths === undefined ? null : new Set(input.sourcePaths);
+    const beyond = input.readBeyondSource;
     const toolSet = allowedPaths === null ? snapshotTools(this.snapshot, this.store, input.activityId)
+      : beyond !== undefined ? snapshotTools(this.snapshot, this.store, input.activityId, undefined, undefined, { unitPaths: allowedPaths, maximumBytes: beyond.maximumBytes })
       : snapshotTools({ ...this.snapshot, files: this.snapshot.files.filter(({ path }) => allowedPaths.has(path)) }, this.store, input.activityId, undefined, new Set(this.snapshot.files.map(({ path }) => path)));
     const maximumContext = Math.min(execution.maximumContextTokens ?? 128_000, profile.limits.contextTokens ?? Number.POSITIVE_INFINITY);
     const events: HarnessEvent[] = [];
@@ -153,7 +165,7 @@ export class ModelHarness {
         // a call left unrun because the tool turns were spent.
         repairCount: context.turn === 0 ? input.repairCount ?? 0 : 0,
         toolCallErrors: events.filter((event) => event.type === "tool_result" && event.turn === context.turn - 1 && !event.result.ok && event.result.error?.code !== "ZERO_RESULTS" && event.result.error?.code !== TOOL_TURN_LIMIT_REACHED).length,
-        harnessIdentity: { id: harnessProfile.id, version: harnessProfile.version, policyHash: createHash("sha256").update(JSON.stringify({ policy: harnessProfile.policy, sourcePaths: input.sourcePaths === undefined ? null : [...input.sourcePaths].sort(), historyPolicy: "archive-complete-exchanges-v1", maximumContext, ...(this.testing === undefined ? {} : { testingWritePolicy: this.testing.policyIdentity }) })).digest("hex") },
+        harnessIdentity: { id: harnessProfile.id, version: harnessProfile.version, policyHash: createHash("sha256").update(JSON.stringify({ policy: harnessProfile.policy, sourcePaths: input.sourcePaths === undefined ? null : [...input.sourcePaths].sort(), historyPolicy: "archive-complete-exchanges-v1", maximumContext, ...(this.testing === undefined ? {} : { testingWritePolicy: this.testing.policyIdentity }), ...(beyond === undefined ? {} : { readBeyondSource: beyond }) })).digest("hex") },
       });
     } }, harnessProfile);
     const prompt = compiled ?? { text: JSON.stringify(initialMessages), hash: createHash("sha256").update(JSON.stringify(initialMessages)).digest("hex") };
@@ -179,8 +191,10 @@ export class ModelHarness {
       if (error instanceof Error && error.message.startsWith("HARNESS_TOOL_LOOP_LIMIT:")) Object.assign(error, { modelOutputRejected: true });
       throw error;
     } finally {
+      const readsBeyondSource = toolSet.readsBeyondUnit();
+      if (readsBeyondSource !== null) this.#readsBeyondSource.set(input.activityId, readsBeyondSource);
       await this.store.publish(`harness-${key}`, { activityId: input.activityId, profile: harnessProfile, events,
-        inspection: toolSet.footprints.inspection(input.activityId), exposure: toolSet.footprints.exposure(input.activityId) }, input.activityId);
+        inspection: toolSet.footprints.inspection(input.activityId), exposure: toolSet.footprints.exposure(input.activityId), ...(readsBeyondSource === null ? {} : { readsBeyondSource }) }, input.activityId);
     }
   }
 }
@@ -215,8 +229,10 @@ function prepareModelInput(input: ModelActivityRequest<unknown>, config: RunConf
     const overrides = config.promptOverrides[input.protocolAsset?.protocolId ?? input.protocol];
     if (overrides !== undefined && (typeof overrides !== "object" || overrides === null || Array.isArray(overrides)
       || Object.entries(overrides).some(([key, value]) => !["before", "after"].includes(key) || typeof value !== "string"))) throw new Error("INVALID_PROTOCOL_PROMPT_OVERRIDE");
-    const contextArtifacts = input.messages.filter(({ role }) => role !== "system").map(({ content }, index) => ({ sourceId: `${input.activityId}:input-${index}`, content }));
     const discovery = input.activityId.endsWith("/discovery");
+    // A discovery unit's input opens with what every unit of the run shares (the repository index), so its label names
+    // no unit: the prompts of all the units then start with the same text, which a provider can read from its cache.
+    const contextArtifacts = input.messages.filter(({ role }) => role !== "system").map(({ content }, index) => ({ sourceId: discovery ? `discovery:input-${index}` : `${input.activityId}:input-${index}`, content }));
     const compiled = input.protocolAsset === undefined ? undefined : compile({
       protocol: input.protocolAsset, outputSchema: input.outputSchema ?? {}, toolDefinitions: tools,
       projectContext: { mode: config.mode },

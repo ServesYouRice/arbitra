@@ -5,8 +5,9 @@ import type { RunStore } from "./run-store.js";
 
 /** The versions an Audit uses for a protocol its run does not select. Every stage that predicts or pins an Audit's
  * protocols (the run itself, an incremental audit's reuse, a replay) reads this one map, or they disagree on what an
- * unselected protocol is. The critic asks only what code cannot check from 1.1.0 (October 14, 2026). */
-export const AUDIT_PROTOCOL_DEFAULTS: Readonly<Record<string, string>> = Object.freeze({ "plan-critic": "1.1.0" });
+ * unselected protocol is. The critic asks only what code cannot check from 1.1.0 (October 14, 2026); discovery reads
+ * beyond its unit from production-audit 2.0.0 (October 25, 2026), and refuses to resume a run pinned earlier. */
+export const AUDIT_PROTOCOL_DEFAULTS: Readonly<Record<string, string>> = Object.freeze({ "plan-critic": "1.1.0", "production-audit": "2.0.0" });
 
 /**
  * Pins trusted bytes once per run. Restarts and replays read the recorded content. `selections` are the run's own

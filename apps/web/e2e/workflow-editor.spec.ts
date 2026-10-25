@@ -29,7 +29,7 @@ async function openEditor(page: Page): Promise<Locator> {
   await page.getByRole("navigation", { name: "main" }).getByRole("link", { name: "Workflows" }).click();
   // The region's name follows the graph ID, which the tests rename.
   const editor = page.getByRole("region", { name: /^workflow graph · editing /u });
-  await expect(editor.getByRole("heading", { name: "workflow graph · editing audit-deep" })).toBeVisible();
+  await expect(editor.getByRole("heading", { name: "workflow graph · editing audit-three-finders" })).toBeVisible();
   // The unchanged preset template is rejected by the server until it is renamed.
   await expect(validation(editor)).toContainText("invalid · 1 diagnostic");
   await expect(editor.getByRole("list", { name: "validation diagnostics" })).toContainText("UNAUTHORIZED_CHANGE · $.id");
@@ -212,7 +212,7 @@ test.describe("workflow canvas editing", () => {
 
     // Unauthorized control-plane, write and shipped-preset changes are refused by the server itself.
     const templates = (await (await request.get("/workflows")).json() as { templates: { id: string; nodes: { id: string; config?: unknown }[] }[] }).templates;
-    const preset = templates.find(({ id }) => id === "audit-deep");
+    const preset = templates.find(({ id }) => id === "audit-three-finders");
     const unchanged = await request.post("/workflows", { data: { graph: preset } });
     expect(unchanged.status()).toBe(422);
     expect(await unchanged.json()).toMatchObject({ message: "WORKFLOW_GRAPH_INVALID:UNAUTHORIZED_CHANGE" });

@@ -23,7 +23,7 @@ export interface ModelActivityRequest<T> {
   readonly modelProfileId: string;
   readonly messages: readonly TransportMessage[];
   readonly signal: AbortSignal;
-  readonly effort?: "low" | "medium" | "high" | "xhigh";
+  readonly effort?: "low" | "medium" | "high" | "xhigh" | "max";
   /** Protocol/schema version is part of the durable request identity. */
   readonly protocol: string;
   readonly protocolIdentity?: ProtocolIdentity;
@@ -33,6 +33,9 @@ export interface ModelActivityRequest<T> {
   readonly protocolAsset?: PinnedProtocol;
   readonly outputSchema?: unknown;
   readonly sourcePaths?: readonly string[];
+  /** With `sourcePaths`: the tools may also read every other file of the snapshot, up to this many bytes a call.
+   * Part of the identity through the harness policy. */
+  readonly readBeyondSource?: { readonly maximumBytes: number };
   readonly harnessIdentity?: { readonly id: string; readonly version: string; readonly policyHash: string };
   /** Per-request output reserve; defaults to the run's configured reserve. Part of the identity. */
   readonly maximumOutputTokens?: number;

@@ -9,13 +9,14 @@ import type { RunEvent, RunState } from "@arbitra/core/runner/events.js";
 import { runConfigSchema, type RunConfig } from "@arbitra/schemas/config.js";
 import { DEFAULT_AUDITORS, type AuditFinding } from "./auditors.js";
 import type { CanonicalIssueSet } from "@arbitra/workflow/nodes/canonical-issues.js";
-import { AUDIT_DEEP_GRAPH, auditorIdsFor, auditStageState, PRESET_GRAPHS, withCritic } from "./graphs.js";
+import { AUDIT_THREE_FINDERS_GRAPH, auditorIdsFor, auditStageState, PRESET_NAMES, withCritic } from "./graphs.js";
 import { assertNoPreflightErrors, configurationDiagnostics, ENVIRONMENT_VERSIONS_KIND, environmentDiagnostics, graphForConfiguration, PreflightError, type ConfigurationPreflightOptions, type PreflightDiagnostic } from "./preflight.js";
 import { DockerTestSandbox } from "./test-sandbox.js";
 import { canonicalise, converge, critique, discover, plan, preflight, readStage, verify, type AuditContext, type ConvergenceResult, type Plan } from "./pipeline.js";
 import { suggestLeaveOuts } from "./generated-files.js";
 import { defaultGit, SNAPSHOT_FILE_LIMIT, snapshotRepository, type RepositorySnapshot } from "./repository.js";
 import { modulePartition } from "./discovery-scope.js";
+import { assertDiscoveryResumable } from "./model-discovery.js";
 import { listRunIds, RunStore, type ArtifactDescriptor, type StoredRunContext } from "./run-store.js";
 import { ModelAuditPipeline, validateModelAudit, type AuditUnitOptions } from "./model-pipeline.js";
 import { captureSnapshotIdentity, INCREMENTAL_CONTRACT_KIND, incrementalReport, incrementalRequestOf, IncrementalSeed, planIncrementalAudit, readIncrementalArtifact, SNAPSHOT_IDENTITY_KIND, type IncrementalContract, type SnapshotIdentity } from "./incremental-audit.js";
@@ -192,7 +193,7 @@ export class Orchestrator {
     this.#providerOptions = options.providerOptions ?? {};
     this.#testSandbox = options.testSandbox;
     for (const id of Object.keys(options.graphs ?? {})) {
-      if (Object.hasOwn(PRESET_GRAPHS, id)) throw new Error(`DUPLICATE_WORKFLOW_PRESET:${id}`);
+      if (PRESET_NAMES.includes(id)) throw new Error(`DUPLICATE_WORKFLOW_PRESET:${id}`);
       if (options.graphs?.[id]?.id !== id) throw new Error(`WORKFLOW_PRESET_ID_MISMATCH:${id}`);
     }
     this.#graphs = Object.freeze({ ...options.graphs });
@@ -557,6 +558,8 @@ export class Orchestrator {
     // Resuming a replay run continues that run under the contract it was created with; it
     // never re-decides reuse from the current configuration.
     const seed = modelReplay && sourceStore !== undefined ? new ReplaySeed(sourceStore, store, await resumableReplayContract(store, storedContext)) : undefined;
+    // A discovery left unfinished under an earlier production-audit is refused here, before the run starts again.
+    if (storedContext.modelConfiguration?.mode === "audit" && reused === undefined) await assertDiscoveryResumable(store, context.auditors.map(({ auditorId }) => auditorId));
     const units = storedContext.modelConfiguration?.mode === "audit" && reused === undefined ? await this.#resumeUnits(store, snapshot, storedContext.repositoryDigest) : undefined;
     const { runner, close } = this.#runner(store, context, reused, storedContext.modelConfiguration, storedContext.checkpointPolicy, seed, units);
     const handle = runner.resume(runId);
@@ -749,7 +752,7 @@ export class Orchestrator {
   }
 
   #validateGraph(graph: unknown, authorize: readonly WorkflowGraphAuthorization[], configuration?: RunConfig): AuthoredGraphValidation {
-    return validateAuthoredGraph(graph, { gatePolicies: this.#gatePolicies, authorize, reservedIds: [...Object.keys(PRESET_GRAPHS), ...Object.keys(this.#graphs)], ...(configuration === undefined ? {} : { configuration }) });
+    return validateAuthoredGraph(graph, { gatePolicies: this.#gatePolicies, authorize, reservedIds: [...PRESET_NAMES, ...Object.keys(this.#graphs)], ...(configuration === undefined ? {} : { configuration }) });
   }
 
   /** Saved graphs by ID with their versions, and an editable template of each Audit preset. */
@@ -1261,7 +1264,7 @@ export class Orchestrator {
   }
 }
 
-export { AUDIT_DEEP_GRAPH, type RunnerGraph };
+export { AUDIT_THREE_FINDERS_GRAPH, type RunnerGraph };
 
 /** The store's content-addressed ref stays internal; callers address artifacts by id. */
 export type PublicArtifact = Omit<ArtifactDescriptor, "ref">;

@@ -39,12 +39,28 @@
         "supported": [
           "low",
           "medium",
-          "high"
+          "high",
+          "xhigh",
+          "max"
         ],
-        "collapse": {
-          "xhigh": "high"
-        },
-        "params": {}
+        "collapse": {},
+        "params": {
+          "low": {
+            "effort": "low"
+          },
+          "medium": {
+            "effort": "medium"
+          },
+          "high": {
+            "effort": "high"
+          },
+          "xhigh": {
+            "effort": "xhigh"
+          },
+          "max": {
+            "effort": "max"
+          }
+        }
       },
       "quirks": {
         "systemPromptSupport": "full",
@@ -89,12 +105,28 @@
         "supported": [
           "low",
           "medium",
-          "high"
+          "high",
+          "xhigh",
+          "max"
         ],
-        "collapse": {
-          "xhigh": "high"
-        },
-        "params": {}
+        "collapse": {},
+        "params": {
+          "low": {
+            "effort": "low"
+          },
+          "medium": {
+            "effort": "medium"
+          },
+          "high": {
+            "effort": "high"
+          },
+          "xhigh": {
+            "effort": "xhigh"
+          },
+          "max": {
+            "effort": "max"
+          }
+        }
       },
       "quirks": {
         "systemPromptSupport": "full",
@@ -168,7 +200,8 @@
     "mode": "canonical"
   },
   "workflow": {
-    "preset": "audit-deep",
+    "preset": "audit-three-finders",
+    "critic": false,
     "modelExecution": {
       "endpoints": [
         {
@@ -201,6 +234,7 @@
       "roles": {
         "planner": "auditor-a",
         "verifier": "auditor-a",
+        "secondOpinion": "auditor-b",
         "critic": "auditor-b",
         "critiqueChecker": "auditor-a"
       },
@@ -208,12 +242,19 @@
       "maximumContextTokens": 1000000,
       "estimatedBytesPerToken": 2,
       "stageEffort": {
+        "discovery": {
+          "auditor-a": "xhigh",
+          "auditor-b": "xhigh",
+          "auditor-c": "high"
+        },
         "clustering": "low",
-        "peerReview": "medium",
-        "verification": "medium",
-        "planner": "medium",
-        "critic": "medium",
-        "revision": "medium"
+        "peerReview": "high",
+        "verification": "high",
+        "secondOpinion": "high",
+        "critiqueCheck": "high",
+        "planner": "high",
+        "critic": "high",
+        "revision": "high"
       },
       "maximumTokens": 40000000,
       "timeoutMs": 900000,

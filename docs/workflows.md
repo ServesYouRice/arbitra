@@ -231,26 +231,39 @@ matches it. Browser evidence is in [`docs/qa/p16/`](qa/p16/README.md).
              ├─ ◆ auditor B ─┼─ ■ validate ─ ■ cluster ─ ■ issue board
              └─ ◆ auditor C ─┘
    ─ ◆ peer review (↻ bounded) ─ ◇ converged? ─ ▣ verification ─ ■ canonical issues
-   ─ ◆ planner ─ ◇ critic required? ─ ◆ critic ─ ■ renderer
+   ─ ◆ planner ─ ◇ critic on? ─ ◆ critic ─ ■ renderer
 ```
 
-This is the logical pipeline. The executable `audit-deep` graph is preflight, three
-auditors, one consensus loop, a verification subgraph, planner and critic
-([`graphs.ts`](../packages/runtime/src/graphs.ts)); the other stages run inside those
-nodes' executors.
+This is the logical pipeline. The executable `audit-three-finders` graph is preflight, three
+auditors, one consensus loop, a verification subgraph and the planner, with the critic after
+it when `workflow.critic` is `true` ([`graphs.ts`](../packages/runtime/src/graphs.ts)); the
+other stages run inside those nodes' executors.
 
 **Routing.** No shipped pipeline scores repository complexity or task difficulty: the
 preset decides how many auditors run, and the planner writes each task's routing.
 
-**Depth.** `auditDepth` (`fast`, `balanced`, `deep`) sets the effort of discovery (`low`,
-`medium`, `high`), and of the stages after it unless `stageEffort` sets theirs
-(`packages/runtime/src/model-pipeline.ts`); preflight checks that every auditor and role
-profile supports that effort or collapses it explicitly (`packages/runtime/src/preflight.ts`).
-At depth `deep` a model audit's plan critic always reads the plan; below it, only when the
-plan resolves a critical issue or a high security issue (see "Planner and critic" below).
-Depth does not change how the source is divided: `allocateDiscoveryScopes`
+**Depth.** `auditDepth` (`deep`, `balanced`, `cheap`) names a preset of models and
+efforts: depths differ in nothing else, and every step runs at every depth. New run writes a
+depth's models, roles and per-step efforts (`workflow.modelExecution.stageEffort`, in each
+vendor's own effort word); the table is in [setup](setup.md#depths-finders-and-the-plan-critic).
+Each model call asks for its step's effort, for its profile
+(`packages/runtime/src/stage-effort.ts`); a step the configuration leaves out runs at the
+depth's level (`deep` `high`, `fast`, the earlier low-effort depth, `low`, otherwise `medium`),
+so stored runs ask for what they asked for when they started. Preflight checks each step's
+level against the profile it calls (`packages/runtime/src/preflight.ts`). The number of
+finders is its own choice (the preset), and so is the plan critic (`workflow.critic`). Depth
+does not change how the source is divided: `allocateDiscoveryScopes`
 (`packages/runtime/src/discovery-scope.ts`, called from `model-discovery.ts`) packs whole
-modules, then whole files, into scopes that fit the discovery budget.
+modules, then whole files, into scopes that fit the discovery budget, and every finder reads
+the whole scope at every depth. That departs on purpose from spec §16.4, where depth was how
+far the auditors' reading overlapped (decided October 25, 2026).
+
+**Checking by severity.** A critical or high issue is checked by `roles.verifier`, the
+strongest checker; one below high by `roles.mediumVerifier` when the run names one (balanced
+and cheap check medium issues with Sonnet 5.5), else by the verifier. Questions are grouped
+(`maxQuestionsPerCall`) only with others the same checker answers. `roles.merger`, when set,
+decides whether two findings are one issue (cheap merges with Sonnet); otherwise the verifier
+does.
 
 **Validation before opinion.** `packages/workflow/src/nodes/validate-findings.ts` rejects a
 finding whose evidence range does not exist in the snapshot, before any model is asked
@@ -317,10 +330,15 @@ Contract, Task DAG and capability routing (see [`task-ir.md`](task-ir.md)).
 records `kind: "skipped"` with `reason: "no_available_critic_at_or_above_planner_capability"`
 when none qualifies — a skipped critic is a recorded degradation, not a silent absence.
 `nodes/revision.ts` revises only on blocking critique. The critic runs only when the
-executed graph has a `critic` node (see [Presets](#presets)), and in a model audit only when
-`nodes/critic/required.ts` finds it required: at `auditDepth: deep`, or when a planned issue
-is critical, or high with a `SECURITY` or `PROMPT_INJECTION` source finding. Otherwise
-`critic-result` records `status: "not_required"` and no critic call is made.
+executed graph has a `critic` node, which `workflow.critic: true` adds after any audit graph's
+planner (see [Presets](#presets)); it is off by default at every depth. A switched-on critic
+reads the plan at every depth: `critic-result` records `switched_on`, and beside it
+`critical_issue` or `high_security_issue` when a planned issue would once have required it.
+Spec §3.7 and §20.6 made the critic mandatory at depth deep and for those issues; the owner
+made it an option on October 25, 2026, because on the scored runs its items were precise (18 of
+20 real on nextra) but it caught 1 of the 21 plan errors met when the plan was carried out, and
+its revision added errors. The tier rule above (a critic at or above the planner, else skipped
+and recorded) still holds when it is on.
 
 ## Feature mode
 
@@ -783,7 +801,11 @@ and findings artifact) and whether the findings equal the base's.
 Units are allocated on the current snapshot in the same way as in a full run. A small
 repository that fits one context is a single unit per auditor, so any change regenerates
 that auditor's discovery; partial reuse comes from partitioned discovery. Only a
-byte-identical unit is reused, so reused findings always cite unchanged bytes.
+byte-identical unit is reused, so reused findings always cite unchanged bytes. Since
+production-audit 2.0.0 every unit carries the index of the whole repository, which any
+change to a file's line count or symbols changes; a unit the run reuses is sent the index
+its base sent (`discovery-index-<auditor>`), so its request stays the base's. A unit that
+read another file is regenerated (`footprint_outside_unit`).
 `baseFindingLineage` re-anchors each base finding by exact content only:
 
 - `unchanged`
@@ -846,23 +868,26 @@ modes, `testing-plan` and `testing-execute` live in
 
 | Preset | Mode | Runtime shape |
 |---|---|---|
-| `audit-balanced` | audit | Two auditors, bounded consensus, verification, planner, and critic when `roles.critic` is set |
-| `audit-deep` | audit | Three auditors, bounded consensus, verification, planner and critic |
+| `audit-two-finders` | audit | Two auditors, bounded consensus, verification and planner (earlier name `audit-balanced`) |
+| `audit-three-finders` | audit | Three auditors, bounded consensus, verification and planner (earlier name `audit-deep`) |
 | `diff-fast` | audit | One auditor, deterministic verification and planner; no peer review |
 | `diff-review` | audit | Two auditors, bounded review, verification and planner |
 | `feature-simple` | feature | Requirements, exploration, risk-directed review, planning/revision and handoff |
 | `testing-plan` | testing | Inventory, grounded risk/gap selection, planner and handoff; no execution |
 | `testing-execute` | testing | Planning, guarded writer/check/finalization stages and verified change handoff |
 
-An Audit plan is criticised only when the executed graph has a `critic` node. `audit-deep`
-always has one, and `audit-balanced` has one when `workflow.modelExecution.roles.critic` is
-set. `diff-review` and `diff-fast` run no plan critique even when that role is set; it is then
-used only as the default model for a second opinion (`verification.secondOpinion`). An Audit replay
-can add the critic (`criticEnabled`; the CLI's `replay <run-id>` sets it unless `--no-critic`
-is given). A model audit's critic node reads the plan at depth `deep`, and below it only for a
-critical or high security issue (see "Planner and critic" under [Audit mode](#audit-mode)); the
-shipped model-backed templates with a critic (`subscription-audit`, `subscription-audit-gemini`,
-`audit-mixed-providers`) all run at depth `deep`.
+The audit presets are named by how many finders they run. `audit-balanced` and `audit-deep`,
+their earlier names, still resolve to the same graphs and stay reserved, so saved
+configurations load and run; a run stored before the rename keeps the graph it started with
+(its ID, and its critic if it had one), so it shows and resumes as it was.
+
+An Audit plan is criticised only when the executed graph has a `critic` node, and no preset
+has one: `workflow.critic: true` adds it after the planner of any audit preset, `false` keeps
+it out. A critic role alone (`workflow.modelExecution.roles.critic`) does not turn it on; it is
+then used only as the default model for a second opinion (`verification.secondOpinion`) unless
+`roles.secondOpinion` names one. An Audit replay can add the critic (`criticEnabled`; the CLI's
+`replay <run-id>` sets it unless `--no-critic` is given). Every shipped template leaves the
+critic off.
 
 `pnpm run validate:examples` parses the schema-only examples and model-backed templates
 with `runConfigSchema`, checks the templates against runtime preflight, and runs negative

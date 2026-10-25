@@ -1,10 +1,12 @@
-import { existsSync, type Dirent } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, readdirSync, readFileSync, statSync, type Dirent } from "node:fs";
 import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { basename, join, relative } from "node:path";
 import { deriveEnvelope, intersectScope, isTestFile, type Envelope } from "@arbitra/security/envelope";
 import { isPlannable } from "@arbitra/workflow/nodes/canonical-issues.js";
 import { SHARED_WRITE_ORDER_NOTE } from "@arbitra/workflow/nodes/planner/traceability.js";
 import type { Orchestrator } from "./orchestrator.js";
+import { premiseKit, premiseScript, type PremiseData, type PremiseSource, type SavedPremise } from "./premise-check.js";
 import { PROJECT_COMMANDS_KIND, type ProjectCommand } from "./project-commands.js";
 import { ENVIRONMENT_VERSIONS_KIND } from "./preflight.js";
 
@@ -48,6 +50,12 @@ const SEVERITIES = ["informational", "low", "medium", "high", "critical"];
 const UNSURE = "4-unsure";
 /** The executor's report, one entry per issue, which arbitra reads back (`plan-results.ts`). */
 export const RESULTS_FILE = "results.json";
+// The premise check shipped with a plan (`premise-check.ts`): the script and the premises it re-resolves.
+export const PREMISE_SCRIPT = "check-premises.mjs";
+export const PREMISE_DATA = "premises.json";
+// Observed live (nextra, October 24, 2026): prompts rested on a restore endpoint that did not exist, and their line
+// numbers and quoted code were stale once earlier tasks had landed. The plan critic caught none of it.
+const NOT_FOUND = "arbitra could not find these in the project's code when it saved this plan, so what this prompt says about them may be wrong. For each, find the real code it means; if there is none, the premise is false: say so in results.json's proof and in your report, and do not build the fix on it.";
 export const RESULT_VALUES = ["fixed", "not_reproducible", "no_change_needed", "blocked"] as const;
 // An existing test can pin the defect itself. Observed live (nextra, October 24, 2026): an agent stopped as blocked
 // on "never edit an existing test"; 12 later items changed such a test as little as kept its intent, and cited it.
@@ -105,7 +113,8 @@ export async function exportPlan(orchestrator: Orchestrator, runId: string): Pro
   // What changed since the audit read the project, and text in it that reads like instructions to a model: the
   // executing agent reads the same files.
   const notes: string[] = [];
-  if (!await orchestrator.repositoryMatches(runId)) notes.push("The project's files changed after the audit read them, so a line a prompt cites may have moved: find the code it quotes before editing.");
+  const matched = await orchestrator.repositoryMatches(runId);
+  if (!matched) notes.push("The project's files changed after the audit read them, so a line a prompt cites may have moved: find the code it quotes before editing.");
   for (const entry of artifacts.filter(({ kind }) => kind === ENVIRONMENT_VERSIONS_KIND)) {
     const value = await orchestrator.artifact(runId, entry.artifactId) as { content?: string };
     const changed = typeof value.content === "string" ? (JSON.parse(value.content) as { changedOnResume?: Readonly<Record<string, { from: string | null; to: string | null }>> }).changedOnResume ?? {} : {};
@@ -145,14 +154,42 @@ export async function exportPlan(orchestrator: Orchestrator, runId: string): Pro
     const issue = issues.get(id);
     return issue === undefined ? [] : [{ id, accepted: accepted(issue), locations: (issue.sourceFindingIds ?? []).flatMap((finding) => located.get(finding) ?? []).map(({ path }) => ({ path })) }];
   }), modules), { issues: ids.length, likely: task?.scope.likelyFiles ?? [], excluded: task?.filesNotToTouch ?? [] }, exists);
+  // What each prompt names in the code (files, names, routes, socket events, quoted code, cited lines), looked up now;
+  // the script saved beside the prompts looks them up again before each task, in the code as it is then.
+  const folder = basename(directory);
+  const kit = premiseKit();
+  const code = kit.indexRepository(repository, kit.nodeIo({ execFileSync, readdirSync, readFileSync, statSync }, join));
+  const places = (ids: readonly string[]) => ids.flatMap((id) => (issues.get(id)?.sourceFindingIds ?? []).flatMap((finding) => located.get(finding) ?? []).map(({ path }) => path));
+  const hintsFor = (paths: readonly string[]) => [...new Set(paths)].filter((path) => code.fileSet.has(path));
+  const taskFile = (task: ExportTask, index: number) => join("prompts", TIERS[task.routing.capability].folder, `${String(index + 1).padStart(2, "0")}-${task.id}.md`);
+  const checkFile = (issue: ExportIssue, index: number) => join("prompts", UNSURE, `${String(index + 1).padStart(2, "0")}-${issue.candidateId}.md`);
+  const looked = new Map<string, { readonly file: string; readonly hints: readonly string[]; readonly premises: readonly SavedPremise[] }>();
+  ordered.forEach((task, index) => {
+    const hints = hintsFor([...task.readFirst, ...task.scope.likelyFiles, ...places(task.addresses.issues)]);
+    looked.set(task.id, { file: taskFile(task, index), hints, premises: kit.check(kit.extract(taskSources(task, issues)), code, hints) });
+  });
+  unsettled.forEach((issue, index) => {
+    const hints = hintsFor(places([issue.candidateId]));
+    looked.set(issue.candidateId, { file: checkFile(issue, index), hints, premises: kit.check(kit.extract(checkSources(issue)), code, hints) });
+  });
+  const settled = kit.settle(new Map([...looked].map(([id, { premises }]) => [id, premises])));
+  const premisesOf = (id: string) => ({ command: `node .arbitra/plans/${folder}/${PREMISE_SCRIPT} ${id}`, notFound: (settled.get(id) ?? []).filter(({ flagged }) => flagged).map(kit.notFoundLine) });
   // A report to check is not accepted, but the places it cites were checked against the code like an accepted one's,
   // and its prompt allows a fix only once a test or a run shows the defect.
-  unsettled.forEach((issue, index) => files.set(join("prompts", UNSURE, `${String(index + 1).padStart(2, "0")}-${issue.candidateId}.md`), checkPrompt(issue, related.get(issue.candidateId) ?? [], scoped([issue.candidateId], () => true))));
+  unsettled.forEach((issue, index) => files.set(checkFile(issue, index), checkPrompt(issue, related.get(issue.candidateId) ?? [], scoped([issue.candidateId], () => true), premisesOf(issue.candidateId))));
   const cited = { validation: new Map((plan.validationContract?.validation ?? []).map((entry) => [entry.id, entry])), questions: new Map(plan.unresolvedQuestions.map((entry) => [entry.id, entry])),
     links: new Map((plan.traceability?.issueToValidation ?? []).map(({ issueId, validationIds }) => [issueId, validationIds])) };
-  ordered.forEach((task, index) => files.set(join("prompts", TIERS[task.routing.capability].folder, `${String(index + 1).padStart(2, "0")}-${task.id}.md`),
-    prompt(task, issues, plan.tasks, cited, { related: [...new Set(task.addresses.issues.flatMap((id) => related.get(id) ?? []))], exists, scope: scoped(task.addresses.issues, isPlannable, task) })));
-  files.set("README.md", readme(plan, ordered, runId, overview.workflowId ?? "unknown", { unsettled, unverified, alsoFound: alsoFound.length, kept, notes }));
+  ordered.forEach((task, index) => files.set(taskFile(task, index),
+    prompt(task, issues, plan.tasks, cited, { related: [...new Set(task.addresses.issues.flatMap((id) => related.get(id) ?? []))], exists, scope: scoped(task.addresses.issues, isPlannable, task), premises: premisesOf(task.id) })));
+  const all = [...settled.values()].flat();
+  const premiseCounts = { script: `.arbitra/plans/${folder}/${PREMISE_SCRIPT}`, found: all.filter(({ saved }) => saved.status === "found").length, notFound: all.filter(({ flagged }) => flagged).length,
+    elsewhere: all.filter(({ kind, saved, expected }) => (kind === "quote" || kind === "lines") && saved.status === "found" && expected !== undefined && expected.start > 0 && saved.place !== null && (saved.place.path !== expected.path || saved.place.start > expected.end || saved.place.end < expected.start)).length,
+    byPrompt: new Map([...settled].map(([id, premises]) => [id, premises.filter(({ flagged }) => flagged).length])) };
+  files.set(PREMISE_SCRIPT, premiseScript());
+  const data: PremiseData = { version: 1, run: runId, folder, savedAt: new Date().toISOString(), repositoryMatched: matched,
+    prompts: Object.fromEntries([...looked].map(([id, { file, hints }]) => [id, { file: file.replace(/\\/gu, "/"), hints, premises: settled.get(id) ?? [] }])) };
+  files.set(PREMISE_DATA, `${JSON.stringify(data)}\n`);
+  files.set("README.md", readme(plan, ordered, runId, overview.workflowId ?? "unknown", { unsettled, unverified, alsoFound: alsoFound.length, kept, notes, premises: premiseCounts }));
   const openQuestions = plan.unresolvedQuestions.filter(({ blocking }) => !blocking);
   if (openQuestions.length > 0) files.set("questions.md", ["# Open questions", "",
     "Not blocking: the plan went ahead on each one's default. Answer one to change what the tasks that cite it do; each prompt repeats the questions it depends on.", "",
@@ -162,7 +199,7 @@ export async function exportPlan(orchestrator: Orchestrator, runId: string): Pro
     ...alsoFound.map((issue) => `## ${issue.claim.title}\n\n${issue.severity} · ${issue.candidateId}\n\n${issue.claim.description}\n`)].join("\n"));
   // A coding agent opened on the project, or on this folder alone, finds its instructions here; CLAUDE.md points
   // Claude Code at the same file.
-  files.set("AGENTS.md", agents(ordered, unsettled.length, (await read<{ readonly commands: readonly ProjectCommand[] }>(PROJECT_COMMANDS_KIND))?.commands ?? [], canonical !== null));
+  files.set("AGENTS.md", agents(ordered, unsettled.length, (await read<{ readonly commands: readonly ProjectCommand[] }>(PROJECT_COMMANDS_KIND))?.commands ?? [], canonical !== null, premiseCounts.script));
   files.set("CLAUDE.md", "Read AGENTS.md in this folder and follow it.\n");
   files.set("PROGRESS.md", ["# Progress", "", "Tick a task when it is done and verified; note anything left open under it.", "",
     ...ordered.map((task, index) => `- [ ] ${String(index + 1).padStart(2, "0")} \`${task.id}\` ${task.title}`), "",
@@ -208,18 +245,19 @@ export async function savedPlans(orchestrator: Pick<Orchestrator, "overview">, r
 }
 
 /** Instructions for a coding agent working through the folder, after Anthropic's guidance for agentic work: one task at a time, verify before moving on, keep state in a file. */
-function agents(ordered: readonly ExportTask[], checks: number, commands: readonly ProjectCommand[], scoped: boolean): string {
+function agents(ordered: readonly ExportTask[], checks: number, commands: readonly ProjectCommand[], scoped: boolean, script: string): string {
   return ["# Working through this plan", "",
     "This folder is a plan to fix defects found in the project it sits in. It was written by arbitra, which audited the project with several models and checked each finding against the code.", "",
     "How to work:", "",
     "1. Read README.md for the order of work and any questions to answer first. If a question is marked as blocking, ask the person you are working with before starting the tasks it affects.",
     "2. Take the first unticked task in PROGRESS.md and open its prompt under `prompts/`. Follow that prompt; it says what to read, what not to change, and how to check the result.",
+    `   Before you start it, run \`node ${script} <task id>\` (\`TASK-012\`, or an unsure report's issue id) from the repository root. It looks up what the prompt names (files, names, routes, socket events, quoted code and cited lines) in the code as it is now, and prints what moved since the plan was saved (with the new lines), what is gone, and what was never found. Work from the code it shows. In a git worktree of the project this folder is absent (Git ignores it): run the main checkout's copy from the worktree, and it checks the worktree.`,
     ...(checks === 0 ? [] : [`   The items under "Unsure" in PROGRESS.md (prompts in \`prompts/${UNSURE}\`) are reports the audit could not settle, and most do not hold. Leave them until every task is done, take them only if the person you are working with wants them, and treat each as a claim to test: if no test or run shows the defect, change nothing.`]),
     "3. Do one task at a time. Prove each defect before fixing it: a test that fails on the current code for the reason the issue gives. If an existing test asserts the defective behaviour, change it as little as keeps its intent and name it in results.json; never weaken or remove a test only to make a check pass.",
     `4. A prompt is a starting point, not a script. ${CLAIMS_TO_CHECK}`,
     `5. Run the checks yourself: each prompt's commands and the project's own commands below build, test or lint the project; ${ASK_FIRST}. ${END_TO_END} Unit tests alone can pass a fix that does not work. Verify the task as its prompt says before you tick it in PROGRESS.md; if a check fails, stop and report instead of guessing.`,
     `6. Record each issue's result in ${RESULTS_FILE} as you finish it: ${RESULT_VALUES.map((value) => `\`${value}\``).join(", ")}, whether its test failed before the fix, the test, the proof (the failing output, or why no test could show it), and whether the fix was checked end to end. A defect you find while fixing that no issue names goes under \`foundWhileFixing\`, proven the same way.`,
-    `7. Do not change anything in this folder except PROGRESS.md and ${RESULTS_FILE}.`,
+    `7. Do not change anything in this folder except PROGRESS.md and ${RESULTS_FILE}; ${PREMISE_SCRIPT} reads ${PREMISE_DATA} as the plan saved it.`,
     ...(scoped ? [`8. Keep to each prompt's \`<write_scope>\`: the files its task may change and the folders it may add files to, and ${TEST_FILES}. ${SCOPE_ORIGIN} Changing or adding any other file needs the approval of the person you are working with: ask first, naming the file and why.`] : []), "",
     "The prompt folders say which kind of model each task suits:", "",
     ...Object.values(TIERS).map(({ folder, model, why }) => `- \`${folder}\`: ${model}, for ${why}.`),
@@ -232,7 +270,10 @@ function agents(ordered: readonly ExportTask[], checks: number, commands: readon
 
 interface SeverityKept { readonly candidateId: string; readonly foundAs: string; readonly loweredTo: string; readonly by: string; readonly reason: string }
 
-function readme(plan: ExportPlan, ordered: readonly ExportTask[], runId: string, workflow: string, { unsettled, unverified, alsoFound, kept, notes }: { readonly unsettled: readonly ExportIssue[]; readonly unverified: number; readonly alsoFound: number; readonly kept: readonly (SeverityKept & { readonly title: string })[]; readonly notes: readonly string[] }): string {
+interface PremiseCounts { readonly script: string; readonly found: number; readonly notFound: number; readonly elsewhere: number; readonly byPrompt: ReadonlyMap<string, number> }
+function readme(plan: ExportPlan, ordered: readonly ExportTask[], runId: string, workflow: string, { unsettled, unverified, alsoFound, kept, notes, premises }: { readonly unsettled: readonly ExportIssue[]; readonly unverified: number; readonly alsoFound: number; readonly kept: readonly (SeverityKept & { readonly title: string })[]; readonly notes: readonly string[]; readonly premises: PremiseCounts }): string {
+  const marked = [...premises.byPrompt.values()].filter((count) => count > 0).length;
+  const notFound = (id: string) => { const count = premises.byPrompt.get(id) ?? 0; return count === 0 ? "" : ` · ${count} not found`; };
   const blocking = plan.unresolvedQuestions.filter(({ blocking: isBlocking }) => isBlocking);
   // A plan written in sections carries every section's title joined into one; it reads as a summary, not a heading.
   const fixes = new Set(ordered.flatMap((task) => task.addresses.issues)).size;
@@ -247,21 +288,29 @@ function readme(plan: ExportPlan, ordered: readonly ExportTask[], runId: string,
       ...kept.map(({ candidateId, title, foundAs, loweredTo, by, reason }) => `- \`${candidateId}\` ${title}: found as ${foundAs}; ${by} proposed ${loweredTo}: ${reason.replace(/\s+/gu, " ").slice(0, 400)}`), ""]),
     ...(alsoFound === 0 ? [] : [`\`also-found.md\` lists ${alsoFound} more ${alsoFound === 1 ? "issue" : "issues"} the reviewers agreed ${alsoFound === 1 ? "is" : "are"} real but no task fixes.`, ""]),
     ...(unverified === 0 ? [] : [`${unverified} lower-severity ${unverified === 1 ? "issue was" : "issues were"} left unverified and ${unverified === 1 ? "is" : "are"} not planned; the run's issue board lists them.`, ""]),
+    "## Premise check", "",
+    `Each prompt's first step runs \`node ${premises.script} <task id>\`. It looks up what the prompt names (files, names, routes, socket events, quoted code and cited lines) in the code as it is then, and prints what moved since the plan was saved (with the new lines), what is gone and what was never found: earlier tasks move code, and a prompt's premise can be wrong.`, "",
+    `When the plan was saved, ${premises.found} of the ${premises.found + premises.notFound} things the prompts name were found in the code${premises.elsewhere === 0 ? "" : ` (${premises.elsewhere} ${premises.elsewhere === 1 ? "quote was" : "quotes were"} at other lines than the prompt gives; the script prints where)`}. ${premises.notFound === 0 ? "Nothing a prompt names was missing." : `${premises.notFound} ${premises.notFound === 1 ? "was" : "were"} not, in ${marked} ${marked === 1 ? "prompt" : "prompts"}: each is marked in its prompt under \`<not_found>\` and counted in the order below. The executing agent finds the real code or reports the premise false.`} Names a prompt's steps add, and files it creates, are not counted.`, "",
     "## Order of work", "",
     "A task marked \"after\" builds on that task's change. \"Same files as\" only means both edit a file: such tasks can be done side by side (one agent each in its own git worktree, say) and merged one after the other.", "",
     ...ordered.map((task, index) => {
       const waits = orderOnly(task);
       const after = task.dependencies.dependsOn.filter((id) => !waits.has(id));
-      return `${index + 1}. \`${task.id}\` ${task.title} · ${TIERS[task.routing.capability].folder}${after.length === 0 ? "" : ` · after ${after.join(", ")}`}${waits.size === 0 ? "" : ` · same files as ${[...waits.keys()].join(", ")}`}`;
+      return `${index + 1}. \`${task.id}\` ${task.title} · ${TIERS[task.routing.capability].folder}${after.length === 0 ? "" : ` · after ${after.join(", ")}`}${waits.size === 0 ? "" : ` · same files as ${[...waits.keys()].join(", ")}`}${notFound(task.id)}`;
     }), "",
     ...(unsettled.length === 0 ? [] : ["## Unsure: check after the tasks, if at all", "",
       `The audit could not settle ${unsettled.length === 1 ? "this report" : `these ${unsettled.length} reports`}: ${whyUnsettled(unsettled)}, and the verifier could not decide from the code it was shown. They are not part of the work above, and most such reports do not hold. ${UNSURE_RATE} Each prompt in \`prompts/${UNSURE}\` asks a strong model to decide whether the defect is real, by reading the code and running it where that helps, and to fix it only if a test or a run shows it. They are listed most severe first.`, "",
-      ...unsettled.map((issue, index) => `${index + 1}. \`${issue.candidateId}\` ${issue.claim.title} · ${issue.severity}`), ""]),
+      ...unsettled.map((issue, index) => `${index + 1}. \`${issue.candidateId}\` ${issue.claim.title} · ${issue.severity}${notFound(issue.candidateId)}`), ""]),
     "## Model tiers", "", ...Object.values(TIERS).map(({ folder, model, why }) => `- \`${folder}\`: ${model}, for ${why}.`), ""].join("\n");
 }
 
+interface PromptPremiseCheck { readonly command: string; readonly notFound: readonly string[] }
+/** The first step of every prompt: look up what it names in the code as it is now. */
+const premiseStep = ({ command }: PromptPremiseCheck): string => `Before anything else, run \`${command}\` from the repository root. It looks up what this prompt names in the code as it is now and prints what moved since the plan was saved (with the new lines), what is gone and what was never found. Work from the code it shows: line numbers below may be stale.`;
+const notFoundSection = ({ notFound }: PromptPremiseCheck): string[] => notFound.length === 0 ? [] : [`<not_found>\n${NOT_FOUND}\n${notFound.map((line) => `- ${line}`).join("\n")}\n</not_found>`, ""];
+
 function prompt(task: ExportTask, issues: ReadonlyMap<string, ExportIssue>, all: readonly ExportTask[], cited: { readonly validation: ReadonlyMap<string, ExportValidation>; readonly questions: ReadonlyMap<string, ExportQuestion>; readonly links: ReadonlyMap<string, readonly string[]> },
-  { related, exists, scope }: { readonly related: readonly string[]; readonly exists: (path: string) => boolean; readonly scope: string | null }): string {
+  { related, exists, scope, premises }: { readonly related: readonly string[]; readonly exists: (path: string) => boolean; readonly scope: string | null; readonly premises: PromptPremiseCheck }): string {
   const tier = TIERS[task.routing.capability];
   // The plan's validation contract and open questions, for the ids this task cites. Observed live (nextra, October
   // 24, 2026): 79 of 105 prompts named checks such as "VAL-003 tests exist and pass", and 47 named questions such as
@@ -297,12 +346,13 @@ function prompt(task: ExportTask, issues: ReadonlyMap<string, ExportIssue>, all:
     ...(waits.size === 0 ? [] : [section("shares_files_with", `Nothing here waits for these tasks; they edit the same files. If one runs side by side with this one, merge one after the other and expect conflicts in those files.\n${list([...waits].map(([id, files]) => `${titled(id)} (both edit ${files})`))}`), ""]),
     section("read_first", list(paths.filter((path) => !created.includes(path)))), "",
     ...(created.length === 0 ? [] : [section("new_files", `Not in the repository when the plan was saved; this task or an earlier one creates them:\n${list(created)}`), ""]),
+    ...notFoundSection(premises),
     ...(scope === null ? [] : [section("write_scope", scope), ""]),
     ...(related.length === 0 ? [] : [section("related_reports", `${RELATED_NOTE}\n${list(related)}`), ""]),
     section("context", list(task.context.filter((line) => !line.startsWith("resolves:") && !waits.has(orderNote(line)?.from ?? "")))), "",
     section("constraints", `Do not change:\n${list([...task.filesNotToTouch, ...task.outOfScope])}\n\nKeep true:\n${list(task.invariants)}`), "",
     ...(task.addresses.issues.length === 0 ? [] : [section("reproduce_first", `For ${task.addresses.issues.length === 1 ? "the issue" : "each issue"} this task fixes (${task.addresses.issues.map((id) => `\`${id}\``).join(", ")}): ${REPRODUCE_FIRST}`), ""]),
-    section("steps", task.implementationGuidance.length === 0 ? "- Make the smallest change that meets the success criteria." : task.implementationGuidance.map((step, index) => `${index + 1}. ${step}`).join("\n")), "",
+    section("steps", [premiseStep(premises), ...task.implementationGuidance.length === 0 ? ["Make the smallest change that meets the success criteria."] : task.implementationGuidance].map((step, index) => `${index + 1}. ${step}`).join("\n")), "",
     ...(questions.length === 0 ? [] : [section("open_questions", `If the person you are working with has answered one, follow the answer; otherwise take the default it states.\n${questions.join("\n")}`), ""]),
     ...(checks.length === 0 ? [] : [section("validation", checks.join("\n")), ""]),
     section("success_criteria", list([...task.goal.doneWhen, ...task.acceptanceCriteria])), "",
@@ -400,7 +450,7 @@ function unsettledIssues(issues: readonly ExportIssue[], tasks: readonly ExportT
 }
 
 /** A prompt to settle one issue the audit left open: decide whether it holds, from the code and by running it, then fix it if it does. */
-function checkPrompt(issue: ExportIssue, related: readonly string[], scope: string | null): string {
+function checkPrompt(issue: ExportIssue, related: readonly string[], scope: string | null, premises: PromptPremiseCheck): string {
   const section = (tag: string, body: string) => `<${tag}>\n${body}\n</${tag}>`;
   const views = (issue.dissent ?? []).map(({ authorId, disposition, reason }) => `- ${authorId} (${disposition.replace(/_/gu, " ")}): ${reason.replace(/\s+/gu, " ").slice(0, 1_200)}`);
   // What the source could not show, in the verifier's words, so the check starts there instead of in its tool trace.
@@ -412,12 +462,35 @@ function checkPrompt(issue: ExportIssue, related: readonly string[], scope: stri
     ...(verifier === null ? [] : [section("what_the_verifier_said", verifier), ""]),
     ...(related.length === 0 ? [] : [section("related_reports", `${RELATED_NOTE}\n${related.map((item) => `- ${item}`).join("\n")}`), ""]),
     ...(scope === null ? [] : [section("write_scope", scope), ""]),
-    section("steps", ["1. Read the code the claim names, and what it calls, until you can say whether the claim holds.",
-      "2. Where reading cannot decide it, run the smallest check that can: an existing test, a short script, or the command the claim depends on. Ask before running anything that changes data or reaches the network.",
-      "3. If the claim does not hold, change nothing and say why, citing the lines or the output that decide it.",
-      "4. If it holds, make the smallest fix, add a test that fails without it, and run the project's checks."].join("\n")), "",
+    ...notFoundSection(premises),
+    section("steps", [`1. ${premiseStep(premises)}`, "2. Read the code the claim names, and what it calls, until you can say whether the claim holds.",
+      "3. Where reading cannot decide it, run the smallest check that can: an existing test, a short script, or the command the claim depends on. Ask before running anything that changes data or reaches the network.",
+      "4. If the claim does not hold, change nothing and say why, citing the lines or the output that decide it.",
+      "5. If it holds, make the smallest fix, add a test that fails without it, and run the project's checks."].join("\n")), "",
     section("success_criteria", "- A clear verdict, holds or does not hold, with the lines or output that decide it.\n- If it holds: the fix and its test, with the project's checks passing."), "",
     `When you finish, record the result in ${RESULTS_FILE} (\`no_change_needed\` when the claim does not hold), and report the verdict, what you changed, and how you checked it.`, ""].join("\n");
+}
+
+/**
+ * The text a task's prompt is built from, for the premise check: what states how the code is (its issues' claims, the
+ * context, the files to read, the constraints) apart from what describes the change, whose new names are no fault.
+ */
+function taskSources(task: ExportTask, issues: ReadonlyMap<string, ExportIssue>): PremiseSource[] {
+  const premise = (text: string): PremiseSource => ({ text, role: "premise" });
+  const waits = orderOnly(task);
+  return [
+    ...task.addresses.issues.flatMap((id) => { const issue = issues.get(id); return issue === undefined ? [] : [premise(issue.claim.title), premise(issue.claim.description)]; }),
+    ...task.context.filter((line) => !line.startsWith("resolves:") && !waits.has(orderNote(line)?.from ?? "")).map(premise),
+    ...[...task.readFirst, ...task.scope.likelyFiles].map((text): PremiseSource => ({ text, role: "premise", list: true })),
+    ...[...task.filesNotToTouch, ...task.outOfScope, ...task.invariants, ...task.verification.preconditions].map(premise),
+    ...[task.title, task.goal.objective, ...task.goal.doneWhen, ...task.implementationGuidance, ...task.acceptanceCriteria, ...task.verification.checks, ...task.rollbackPlan]
+      .map((text): PremiseSource => ({ text, role: "change" })),
+  ];
+}
+/** The text an unsure report's prompt is built from: the claim and what the reviewers and the verifier said of it. */
+function checkSources(issue: ExportIssue): PremiseSource[] {
+  return [issue.claim.title, issue.claim.description, ...(issue.dissent ?? []).map(({ reason }) => reason), ...issue.verificationReason === undefined ? [] : [issue.verificationReason]]
+    .map((text): PremiseSource => ({ text, role: "premise" }));
 }
 
 /** One entry per issue the plan fixes or asks to check, for the executor to fill in. */

@@ -44,10 +44,15 @@ describe("subscription template smoke checks", () => {
     const value = result.value as { runId: string; state: string };
     expect(value.state).toBe("COMPLETED");
     const artifacts = await f.orchestrator().artifacts(value.runId);
-    expect(artifacts.map(({ kind }) => kind)).toEqual(expect.arrayContaining(["plan-ir", "critic-result"]));
-    // The default Audit runs at depth deep, so its plan critic reads the plan whatever the issues found.
-    const review = artifacts.find(({ kind }) => kind === "critic-result");
-    expect(JSON.parse((await f.orchestrator().artifact(value.runId, review?.artifactId ?? "") as { content: string }).content)).toMatchObject({ status: "completed", requirement: { reasons: expect.arrayContaining(["deep_mode"]) as unknown } });
+    // The default Audit is deep with two finders and the plan critic off: the plan is written and not reviewed.
+    expect(artifacts.map(({ kind }) => kind)).toContain("plan-ir");
+    expect(artifacts.map(({ kind }) => kind)).not.toContain("critic-result");
+    expect(f.provider.calls.map(({ stage }) => stage)).not.toContain("audit-critic");
+    // Each CLI is sent deep's effort for the stage, in its own word: find at xhigh, check and plan at high.
+    const efforts = (stage: string) => [...new Set(f.provider.calls.filter((call) => call.stage === stage).map(({ protocol, effort }) => `${protocol} ${effort ?? "none"}`))].sort();
+    expect(efforts("discovery")).toEqual(["claude-code-cli xhigh", "codex-cli xhigh"]);
+    expect(efforts("verification")).toEqual(["claude-code-cli high"]);
+    expect(efforts("audit-planner")).toEqual(["claude-code-cli high"]);
     // The planner was given the project's own test command, read from its package.json.
     const commands = artifacts.find(({ kind }) => kind === "repository-commands");
     expect(JSON.parse((await f.orchestrator().artifact(value.runId, commands?.artifactId ?? "") as { content: string }).content)).toEqual({ commands: [{ purpose: "test", command: "npm run test", directory: "", sourcePath: "package.json", source: "vitest run" }] });

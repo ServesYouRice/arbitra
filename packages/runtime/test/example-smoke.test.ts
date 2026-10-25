@@ -64,7 +64,8 @@ describe("model-backed template smoke checks", () => {
     for (const call of f.provider.calls) exercised.add(call.protocol);
     const stages = new Set(f.provider.calls.map(({ stage }) => stage));
     for (const stage of ["discovery", "review", "audit-planner"]) expect(stages).toContain(stage);
-    if (name === "audit-mixed-providers") expect(stages).toContain("audit-critic");
+    // The plan critic is off by default in every template; model-orchestrator.test.ts runs it on these wire protocols.
+    expect(stages).not.toContain("audit-critic");
     expect(await readFile(join(f.root, "src", "session.ts"), "utf8")).toBe(`${SMOKE_SOURCE}\n`);
   }, 60_000);
 

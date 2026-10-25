@@ -32,14 +32,23 @@ describe("configuration preflight", () => {
     expect(codes(configurationDiagnostics(await template(name)))).toEqual([]);
   });
 
+  it.each(["subscription-audit", "subscription-audit-gemini"])("has %s send Claude Code and Codex an effort word at every stage", async (name) => {
+    // The templates' profiles sent no effort words, so a model named in them by hand ran at the CLI's own default.
+    expect(configurationDiagnostics(await template(name)).filter(({ code }) => code.startsWith("MODEL_EFFORT"))).toEqual([]);
+  });
+
   it("names missing Audit roles and the preset's auditor profiles", async () => {
     const config = mutable(await template("audit-mixed-providers"));
     delete execution(config)["roles"];
     expect(codes(configurationDiagnostics(config as unknown as RunConfig))).toEqual(["MODEL_EXECUTION_ROLES_REQUIRED"]);
     execution(config)["roles"] = { planner: "auditor-a", verifier: "auditor-b" };
+    // A critic is needed only when it is switched on.
+    expect(configurationDiagnostics(config as unknown as RunConfig)).toEqual([]);
+    config.workflow["critic"] = true;
     const critic = configurationDiagnostics(config as unknown as RunConfig);
     expect(critic).toEqual([expect.objectContaining({ code: "MODEL_CRITIC_PROFILE_REQUIRED", path: "workflow.modelExecution.roles.critic" })]);
     const balanced = mutable(await template("audit-compatible-chat"));
+    // The three-finder preset's earlier name still runs three finders.
     balanced.workflow["preset"] = "audit-deep";
     execution(balanced)["roles"] = { planner: "auditor-a", verifier: "auditor-b", critic: "auditor-b" };
     expect(configurationDiagnostics(balanced as unknown as RunConfig)).toEqual([expect.objectContaining({ code: "MODEL_PROFILE_REQUIRED:auditor-c", path: "models.auditor-c" })]);
@@ -47,13 +56,53 @@ describe("configuration preflight", () => {
     expect(codes(configurationDiagnostics(balanced as unknown as RunConfig))).toEqual(["RUNTIME_MODEL_EXECUTION_CONFIGURATION_REQUIRED"]);
   });
 
-  it("runs a balanced audit's plan critic only when a critic role is set", async () => {
+  it("reviews the plan only when the critic is switched on, whatever roles the configuration names", async () => {
     const nodes = (config: Mutable | RunConfig) => graphForConfiguration(config as unknown as RunConfig).nodes.map(({ id }) => id);
-    expect(nodes(await template("subscription-audit"))).toEqual(["preflight", "auditor-a", "auditor-b", "consensus", "verification", "planner", "critic"]);
-    expect(nodes(await template("audit-compatible-chat"))).not.toContain("critic");
-    const diff = mutable(await template("subscription-audit"));
-    diff.workflow["preset"] = "diff-review";
-    expect(nodes(diff)).not.toContain("critic");
+    // A critic role no longer switches the critic on; the template names one so that the switch alone turns it on.
+    const config = mutable(await template("subscription-audit"));
+    delete config.workflow["critic"];
+    expect((execution(config)["roles"] as { critic?: string }).critic).toBeDefined();
+    expect(nodes(config)).toEqual(["preflight", "auditor-a", "auditor-b", "consensus", "verification", "planner"]);
+    config.workflow["critic"] = true;
+    expect(nodes(config)).toEqual(["preflight", "auditor-a", "auditor-b", "consensus", "verification", "planner", "critic"]);
+    for (const preset of ["diff-review", "diff-fast"]) expect(nodes({ ...config, workflow: { ...config.workflow, preset } })).toContain("critic");
+    // Switched off, a preset that names a critic node leaves it out.
+    const deep = mutable(await template("audit-mixed-providers"));
+    deep.workflow["critic"] = false;
+    expect(nodes(deep)).not.toContain("critic");
+    expect(codes(configurationDiagnostics(deep as unknown as RunConfig))).toEqual([]);
+    // The switch is an Audit setting, and a saved graph decides its own critic.
+    expect(runConfigSchema.safeParse({ ...config, workflow: { ...config.workflow, critic: "yes" } }).success).toBe(false);
+    expect(runConfigSchema.safeParse({ ...config, workflow: { graph: { id: "saved", version: "a".repeat(64) }, critic: true } }).error?.issues.map(({ path }) => path.join("."))).toEqual(["workflow.critic"]);
+    expect(runConfigSchema.safeParse({ ...(await template("feature-automatic")), workflow: { ...(await template("feature-automatic")).workflow, critic: true } }).error?.issues.map(({ path }) => path.join("."))).toEqual(["workflow.critic"]);
+  });
+
+  it("checks each stage's effort against the profile it calls, and warns when a CLI would be sent no effort", async () => {
+    const config = mutable(await template("subscription-audit"));
+    const bare = { supported: ["low", "medium", "high"], collapse: { xhigh: "high" }, params: {} };
+    const words = { supported: ["low", "medium", "high", "xhigh", "max"], collapse: {}, params: Object.fromEntries(["low", "medium", "high", "xhigh", "max"].map((level) => [level, { effort: level }])) };
+    (config.models["auditor-a"] as Record<string, unknown>)["effort"] = bare;
+    (config.models["auditor-b"] as Record<string, unknown>)["effort"] = { ...bare, params: { high: { effort: "high" } } };
+    execution(config)["stageEffort"] = { discovery: { "auditor-a": "high", "auditor-b": "max" }, verification: "high", planner: "high" };
+    const diagnostics = configurationDiagnostics(config as unknown as RunConfig);
+    // auditor-b finds issues at max, which it neither supports nor collapses; the depth's level would have passed.
+    expect(codes(diagnostics)).toEqual(["MODEL_EFFORT_UNSUPPORTED:auditor-b"]);
+    expect(diagnostics.find(({ code }) => code === "MODEL_EFFORT_UNSUPPORTED:auditor-b")?.message).toContain("Stage discovery requests effort \"max\"");
+    // auditor-a supports high but sends Claude Code nothing for it, so the CLI would run its own default.
+    expect(diagnostics.filter(({ code }) => code.startsWith("MODEL_EFFORT_NOT_SENT")).map(({ code, path }) => [code, path])).toEqual([["MODEL_EFFORT_NOT_SENT:auditor-a", "models.auditor-a.effort.params"]]);
+    (config.models["auditor-a"] as Record<string, unknown>)["effort"] = words;
+    (config.models["auditor-b"] as Record<string, unknown>)["effort"] = words;
+    expect(configurationDiagnostics(config as unknown as RunConfig).filter(({ code }) => code.startsWith("MODEL_EFFORT"))).toEqual([]);
+  });
+
+  it("warns when the medium verifier outranks the verifier, which checks the critical and high issues", async () => {
+    const config = mutable(await template("subscription-audit"));
+    (config.models["auditor-a"] as Record<string, unknown>)["capabilityTier"] = "balanced";
+    execution(config)["roles"] = { ...(execution(config)["roles"] as object), verifier: "auditor-a", mediumVerifier: "auditor-b" };
+    const warned = configurationDiagnostics(config as unknown as RunConfig).filter(({ code }) => code === "MODEL_VERIFIER_WEAKER_THAN_MEDIUM_VERIFIER");
+    expect(warned).toEqual([expect.objectContaining({ severity: "warning", path: "workflow.modelExecution.roles.verifier" })]);
+    execution(config)["roles"] = { ...(execution(config)["roles"] as object), verifier: "auditor-b", mediumVerifier: "auditor-a" };
+    expect(configurationDiagnostics(config as unknown as RunConfig).map(({ code }) => code)).not.toContain("MODEL_VERIFIER_WEAKER_THAN_MEDIUM_VERIFIER");
   });
 
   it("refuses a spend limit the runtime would ignore and flags other unenforced sections", async () => {

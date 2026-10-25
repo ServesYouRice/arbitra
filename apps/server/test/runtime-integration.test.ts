@@ -37,7 +37,8 @@ describe("real HTTP runtime integration", () => {
       expect(frames).toContain('"state":"COMPLETED"');
       expect(frames.endsWith("event: end\ndata: {}\n\n")).toBe(true);
       const resource = await (await request(`/runs/${started.runId}`)).json();
-      expect(resource).toMatchObject({ runId: started.runId, state: "COMPLETED", resumable: false, workflow: { id: "audit-balanced" } });
+      // audit-balanced is the two-finder preset's earlier name: the run executes, and is listed under, its graph.
+      expect(resource).toMatchObject({ runId: started.runId, state: "COMPLETED", resumable: false, workflow: { id: "audit-two-finders" } });
       const artifacts = await (await request(`/runs/${started.runId}/artifacts`)).json() as Array<{ artifactId: string; kind: string; redacted: boolean }>;
       expect(artifacts.every(({ redacted }) => redacted)).toBe(true);
       const canonical = artifacts.find(({ kind }) => kind === "canonical-issues");
@@ -78,7 +79,7 @@ describe("real HTTP runtime integration", () => {
       const started = await (await request("/runs", { configurationId: saved.id })).json() as { runId: string };
       await (await request(`/runs/${started.runId}/events`)).text();
       const listed = await (await request("/runs")).json() as { createdAt: string; updatedAt: string }[];
-      expect(listed).toEqual([expect.objectContaining({ runId: started.runId, state: "COMPLETED", reason: null, mode: "audit", workflowId: "audit-balanced", repository: root, executor: "scripted",
+      expect(listed).toEqual([expect.objectContaining({ runId: started.runId, state: "COMPLETED", reason: null, mode: "audit", workflowId: "audit-two-finders", repository: root, executor: "scripted",
         replayOf: null, pendingDecisions: 0, gate: { status: "failed", reasons: expect.arrayContaining(["degraded_coverage"]) }, problem: null })]);
       expect(Date.parse(listed[0]?.createdAt ?? "")).toBeLessThanOrEqual(Date.parse(listed[0]?.updatedAt ?? ""));
       // A finished run is not executed by this process, and its entry is reused until its files change.

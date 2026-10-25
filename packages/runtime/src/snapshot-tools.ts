@@ -15,13 +15,31 @@ export const SNAPSHOT_TOOLS: readonly HarnessToolDefinition[] = [
   { name: "artifact_read", description: "Read only a tool-output artifact produced by this activity.", inputSchema: { type: "object", properties: { ref: { type: "string" } }, required: ["ref"], additionalProperties: false } },
 ];
 
+/** A call that audits some files of the snapshot and may read the rest: what it read beyond them, under its budget. */
+export interface BeyondUnitPolicy { readonly unitPaths: ReadonlySet<string>; readonly maximumBytes: number }
+export interface ReadsBeyondUnit {
+  readonly maximumBytes: number;
+  /** Bytes of tool results that carried files outside the unit. */
+  readonly bytes: number;
+  /** Each read of a file outside the unit, as the whole lines it delivered. */
+  readonly reads: readonly { readonly path: string; readonly startLine: number; readonly endLine: number; readonly bytes: number }[];
+  /** Reads refused because the budget was spent. */
+  readonly refused: number;
+}
+export const READ_BUDGET_SPENT = "READ_BUDGET_SPENT";
+
 /**
  * `repositoryPaths` names every file of the repository when `snapshot` holds only the files a call was given, so a
  * read of another file says that it exists outside the call. Observed live (P20 pilot): told only
  * PATH_NOT_IN_SNAPSHOT, a discovery unit wrote that two files of the repository were not in it, after 62,000 more
  * tokens of reasoning about them.
+ *
+ * With `beyondUnit`, `snapshot` is the whole snapshot and every file of it can be read: reads of files outside the
+ * unit share `beyondUnit.maximumBytes`, a read is cut at whole lines to what is left, and once it is spent such reads
+ * are refused. Searches and listings cover the whole snapshot; they deliver paths and line numbers only, within the
+ * activity's byte budget like every result.
  */
-export function snapshotTools(snapshot: RepositorySnapshot, store: RunStore, activityId: string, maximumBytes = 128_000, repositoryPaths?: ReadonlySet<string>): { runtime: HarnessToolRuntime; footprints: FootprintRecorder; archive(content: string): Promise<string> } {
+export function snapshotTools(snapshot: RepositorySnapshot, store: RunStore, activityId: string, maximumBytes = 128_000, repositoryPaths?: ReadonlySet<string>, beyondUnit?: BeyondUnitPolicy): { runtime: HarnessToolRuntime; footprints: FootprintRecorder; archive(content: string): Promise<string>; readsBeyondUnit(): ReadsBeyondUnit | null } {
   const byPath = new Map(snapshot.files.map((file) => [file.path, file]));
   const selected = (scope?: string) => snapshot.files.filter(({ path }) => scope === undefined || scope === "." || path === scope || path.startsWith(`${scope.replace(/\/$/u, "")}/`));
   const read: ReadRepository["readFile"] = async (path) => {
@@ -69,8 +87,43 @@ export function snapshotTools(snapshot: RepositorySnapshot, store: RunStore, act
       return value.content;
     },
   } });
-  return { footprints, archive, runtime: { async invoke(name, args, context) {
+  const beyond = { bytes: 0, refused: 0, reads: [] as { path: string; startLine: number; endLine: number; bytes: number }[] };
+  const readsBeyondUnit = (): ReadsBeyondUnit | null => beyondUnit === undefined ? null : { maximumBytes: beyondUnit.maximumBytes, bytes: beyond.bytes, reads: beyond.reads.map((read) => ({ ...read })), refused: beyond.refused };
+  return { footprints, archive, readsBeyondUnit, runtime: { async invoke(name, args, context) {
     if (!Object.hasOwn(names, name)) return { ok: false, summary: "Tool unavailable", content: "Only declared snapshot tools are available.", artifact: null, truncated: false, trust: "untrusted", error: { code: "TOOL_NOT_ALLOWED", message: "Only declared snapshot tools are available." } };
-    return registry.invoke(names[name as keyof typeof names], args, { nodeId: context.nodeId, protect: context.protect });
+    const tool = names[name as keyof typeof names];
+    const path = typeof args === "object" && args !== null && !Array.isArray(args) ? (args as Record<string, unknown>)["path"] : undefined;
+    const file = tool === "repo.readFile" && typeof path === "string" && beyondUnit !== undefined && !beyondUnit.unitPaths.has(path) ? byPath.get(path) : undefined;
+    if (beyondUnit === undefined || file === undefined) return registry.invoke(tool, args, { nodeId: context.nodeId, protect: context.protect });
+    const remaining = Math.max(0, beyondUnit.maximumBytes - beyond.bytes);
+    // A read is cut at whole lines to what is left, so one whose first line does not fit delivers nothing whole.
+    const first = (args as Record<string, unknown>)["startLine"];
+    const firstLine = file.lines[(typeof first === "number" && Number.isInteger(first) && first >= 1 ? first : 1) - 1];
+    if (firstLine !== undefined && Buffer.byteLength(firstLine) + 1 > remaining) {
+      beyond.refused += 1;
+      const message = `${READ_BUDGET_SPENT}: this call has read ${beyond.bytes} bytes of files outside its unit, and ${remaining} of its budget of ${beyondUnit.maximumBytes} are left, less than the first line asked for. Conclude from what you have read, and name what you could not read as a limitation.`;
+      return { ok: false, summary: message, content: "", artifact: null, truncated: false, trust: "untrusted", error: { code: READ_BUDGET_SPENT, message } };
+    }
+    const before = footprints.exposure(context.nodeId).ranges.length;
+    const result = await registry.invoke(tool, args, { nodeId: context.nodeId, protect: context.protect, maxCallBytes: remaining });
+    if (!result.ok) return result;
+    beyond.bytes += Buffer.byteLength(result.content);
+    const delivered = deliveredLines(file.lines, footprints.exposure(context.nodeId).ranges.slice(before).filter((range) => range.source === "repository" && range.path === file.path));
+    if (delivered !== null) beyond.reads.push({ path: file.path, ...delivered, bytes: Buffer.byteLength(result.content) });
+    return result;
   } } };
+}
+
+/** The whole lines a read delivered, from its exposure in the bytes of the text the tools read (lines joined by "\n"). */
+function deliveredLines(lines: readonly string[], ranges: readonly { readonly start: number; readonly end: number }[]): { startLine: number; endLine: number } | null {
+  const range = ranges[0];
+  if (range === undefined) return null;
+  let offset = 0; let startLine = 0; let endLine = 0;
+  for (const [index, line] of lines.entries()) {
+    if (offset >= range.end) break;
+    const end = offset + Buffer.byteLength(line);
+    if (offset >= range.start && end <= range.end) { if (startLine === 0) startLine = index + 1; endLine = index + 1; }
+    offset = end + 1;
+  }
+  return startLine === 0 ? null : { startLine, endLine };
 }

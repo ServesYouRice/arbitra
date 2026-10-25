@@ -41,8 +41,8 @@ export function inputBytesPerToken(config: RunConfig): { readonly usual: number;
   return { usual, required: Math.max(usual, REQUIRED_INPUT_BYTES_PER_TOKEN) };
 }
 
-/** The checking stages whose effort a run may set apart from the audit's (`stageEffort`). */
-export type EffortStage = "clustering" | "peerReview" | "verification" | "planner" | "critic" | "revision";
+/** The model stages whose effort a run may set on its own (`stageEffort`). */
+export type { EffortStage } from "./stage-effort.js";
 
 /** Conservative output reserves for stages that must emit one decision per supplied
  * record. They size batches before spend; truncation is still detected afterwards.

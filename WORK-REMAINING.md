@@ -11,9 +11,9 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
 
 - **Releases:** v0.2.2 and `checkpoint-2` (October 24, 847878b) are the latest. Work continues on `main`;
   [`TESTERS.md`](TESTERS.md) is the testers' guide.
-- **Default lineup:** New run starts on Claude Code and Codex (`subscription-audit`, audit-balanced at depth deep, no
-  peer-review round, Sol as plan critic and Opus checking its critique); Gemini is the opt-in
-  `subscription-audit-gemini` template, labelled with Google's terms. The Feature templates still use Antigravity as
+- **Default lineup:** New run starts on Claude Code and Codex (`subscription-audit`: two finders at depth deep, no
+  peer-review round, plan critic off); balanced and cheap depths, a third finder and the critic are separate
+  choices in New run (October 25). Gemini is only ever the opt-in third finder, labelled with Google's terms. The Feature templates still use Antigravity as
   their second reviewer behind the same warning.
 - **Evidence:** six real projects audited; nextra's plan carried out on its `dev` branch: all 126 confirmed issues
   were real, 118 shown by a failing test, and 14 more defects were found while fixing. P20 is closed on its pilot
@@ -60,10 +60,6 @@ Small defects the October 25 lanes found and did not fix, each to be shown by a 
 
 From the research review; each decides a cut or a build.
 
-- **The plan critic, scored ([real-project runs](docs/qa/real-runs.md#the-plan-critic-scored-october-25)):** 18 of 20
-  items real, 1 of 21 plan errors execution met, and the revision wrote errors of its own, for 11.5 to 17% of a run.
-  Decided (owner, October 25): off by default and an option at every depth, built with "Depths and steps" below,
-  although the spec makes the critic mandatory for deep audits and critical or high security issues (§3.7, §20.6).
 - **Test the rejections by running code, once:** an agent tries to write a failing test for nextra's 13 severe and 10
   random medium rejections (about 2.8M tokens). None real: drop the second opinion before rejecting a severe issue (it
   agreed 20 of 22 times). Two or more real: build the execution rung.
@@ -80,10 +76,18 @@ From the research review; each decides a cut or a build.
 
 ## Measure on the next runs
 
+- **Discovery reading beyond its unit** (production-audit 2.0.0): audit nextra again from
+  `arbitra-experiments\checkouts\nextra` with run ccd3ccea's lineup, after a cheap shakedown of the reads. Does it
+  find the client that never sends the operator token, and the other client–server misses; how many calls read
+  beyond their unit (8 of 97 before) and how many limitations say "not supplied" (52); what the index costs in
+  units and tokens (13 KB a unit on nextra) and how much of it the cache serves.
 - **Test files packed with their source:** whether claims about production code that cite only tests go away, and
   what the 9% more discovery units cost.
 - **The new export:** how many workarounds the executing agents still need, against nextra's stale lines, wrong
   premises and false waits; and how often a prompt's `<write_scope>` was too narrow.
+- **The premise check** (built October 25, `premise-check.ts`): whether agents run `check-premises.mjs` before each
+  task, act on `<not_found>` (16 of 2,132 on nextra, most of them library names), and need fewer workarounds for
+  moved lines (201 moved over nextra's fixes).
 - **The verifier's required reason:** how often an answer leaves it out and costs a repair.
 - **A Sonnet second look at medium reports Opus leaves unsettled:** build it as an option, off by default; it decided
   6 of 7 rightly on nextra, at about 28K tokens a question.
@@ -131,9 +135,11 @@ rounds; the repository field starts on the server's own folder; and depth means 
 
 ## Need design
 
-- **Depths and steps (owner's design, October 25; the first changes are building):** Gemini, when chosen, runs at
-  high at every depth and takes work that would otherwise spend Opus or Sol: the owner says many people have it at
-  little cost and unused, while Opus and Sol must be used sparingly. Deep, balanced and cheap differ only in models
+- **Depths and steps (owner's design, October 25; presets, effort words and the critic switch built the same day):** Gemini, when chosen, runs at
+  high at every depth, since many people have it at little cost and unused while Opus and Sol must be used
+  sparingly, but only on optional work (the third finder, the variant search), never a core role: the owner does not
+  trust it with checking, merging or planning. Balanced and cheap send medium issues to Sonnet 5.5 · high and keep
+  Opus 5.5 · high for critical and high ones (owner, October 25). Deep, balanced and cheap differ only in models
   and efforts: deep has frontier models (Opus 5.5, GPT-6.1 Sol) at xhigh and high, balanced the same models at low and
   medium, cheap mid-tier models (Sonnet 5.5, OpenAI's mid tier) at about medium. Two or three finding models is a
   separate choice. Every step from finding issues to the planner is available at every depth and can be switched off;
@@ -144,20 +150,16 @@ rounds; the repository field starts on the server's own folder; and depth means 
   the experiments folder's `depth-2026-10-25`): today's default is already deep; nothing lower has run on a real
   project. Effort is the lever where output dominates (finding, planning); checking is 99% input, so there only the
   model's tier saves (lowering its effort saves about 2%). OpenAI's mid tier today is GPT-6 Luna (Terra is the older
-  GPT-5.6), at 1/20 of Sol's Codex credits. Needed first: effort words for Sonnet, Haiku and Luna (they run at the
-  CLI's default today), an effort for finding on its own, an explicit critic switch in place of the depth rule
-  (`model-pipeline.ts:920`), depth presets that write models and efforts, and finder presets named by count (not
-  `audit-balanced` and `audit-deep`).
-- **Let discovery read across its unit** (owner: go; building October 25): tools may read the whole snapshot, every unit gets a file
-  and symbol index, and the prompt says to read the caller, callee or other side. Only 8 of nextra's 97 discovery calls
-  used a tool; 52 limitations say a caller was "not supplied".
+  GPT-5.6), at 1/20 of Sol's Codex credits. Built: effort words low to max for every Claude and
+  OpenAI model, an effort for finding on its own, `workflow.critic` (off by default) in place of the depth rule,
+  `roles.mediumVerifier` and `roles.merger`, depth presets in New run that write models and efforts, and finder
+  presets named by count. Left: the measured runs that set the defaults; `arbitra replay` still turns the critic on;
+  the renamed presets' browser tests have not run.
 - **Compare the right pairs for duplicates** (*before veritra*): cross-auditor pairs first, same-answer pairs last (1
   merge in 332), a higher ceiling when batched, and TF-IDF neighbours in other files (the export's version found 4 of
   nextra's 5 overlaps).
 - **A variant sweep after verification** (owner: yes, an optional step; after the depths lane, on Gemini when chosen): check each confirmed defect's siblings (same callee,
   handler family or flag). It runs after verification, so the six finished runs can test it first.
-- **Check each prompt's premises at export** (owner: yes; building October 25, with a script in the plan folder): resolve every path, symbol and quote a task names, and
-  mark the ones that do not resolve.
 - **Re-audit only what changed:** a later run on the same project audits the diff since the last run and the files
   that import it, and carries forward the issues still present. Builds on "Memory across runs". Owner: wanted, later.
 - **Boundary units from a channel map:** socket events, routes and fetch paths, WHIP/WHEP and environment keys found

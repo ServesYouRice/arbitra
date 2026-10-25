@@ -4,29 +4,31 @@ import { setIn, type Draft } from "./draft.js";
  * The models arbitra knows to work on each transport, offered as choices so a model ID cannot be mistyped. Choosing
  * one also sets the profile's family, capability tier, limits and effort words. A model not listed can still be named
  * ("another model ID"), and the full configuration stays editable as JSON. The first entry of each list is the
- * recommended one: the setting the benchmark runs used, except Gemini, which runs at high thinking here
- * (the runs used medium only to shorten them).
+ * recommended one: the model the benchmark runs used, and Gemini at high thinking (the runs used medium only to
+ * shorten them).
  */
 export interface CatalogModel {
   readonly modelId: string; readonly family: string; readonly tier: "frontier" | "balanced" | "fast"; readonly note: string;
   readonly limits?: { readonly contextTokens: number; readonly maxOutputTokens: number };
-  /** The vendor's effort word for each of arbitra's levels, where it differs from the level's own name. */
-  readonly effortParams?: Readonly<Record<string, { readonly effort: string }>>;
+  /** The effort words the model's CLI accepts for it; each level is sent as its own word. None for a model whose
+   * words are not known, or whose effort is part of its model ID (Gemini through the Antigravity CLI). */
+  readonly efforts?: readonly string[];
 }
 
-/** Opus and Sol take one step more than arbitra's level names: an audit at "high" runs at the vendor's xhigh. */
-const ONE_STEP_UP = { low: { effort: "medium" }, medium: { effort: "high" }, high: { effort: "xhigh" } } as const;
+/** What Claude Code 2.1.310 (`--effort`) and Codex 0.162.1 (`model_reasoning_effort`) accept for these models. Codex
+ * also has `minimal` and `ultra`; arbitra uses neither (ultra delegates to sub-agents a tool-less call cannot use). */
+const CLI_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 
 const CLAUDE: readonly CatalogModel[] = [
-  { modelId: "claude-opus-5-5", family: "claude", tier: "frontier", note: "strongest, slowest", limits: { contextTokens: 320_000, maxOutputTokens: 128_000 }, effortParams: ONE_STEP_UP },
-  { modelId: "claude-sonnet-5-5", family: "claude", tier: "balanced", note: "balanced" },
-  { modelId: "claude-haiku-5-5", family: "claude", tier: "fast", note: "fast, light on usage" },
+  { modelId: "claude-opus-5-5", family: "claude", tier: "frontier", note: "strongest, slowest", limits: { contextTokens: 320_000, maxOutputTokens: 128_000 }, efforts: CLI_EFFORTS },
+  { modelId: "claude-sonnet-5-5", family: "claude", tier: "balanced", note: "balanced", efforts: CLI_EFFORTS },
+  { modelId: "claude-haiku-5-5", family: "claude", tier: "fast", note: "fast, light on usage", efforts: CLI_EFFORTS },
   { modelId: "claude-sonnet-5", family: "claude", tier: "balanced", note: "previous Sonnet" },
   { modelId: "claude-haiku-4-5-20251001", family: "claude", tier: "fast", note: "previous Haiku" },
 ];
 const OPENAI: readonly CatalogModel[] = [
-  { modelId: "gpt-6.1-sol", family: "gpt", tier: "frontier", note: "strongest", limits: { contextTokens: 312_000, maxOutputTokens: 64_000 }, effortParams: ONE_STEP_UP },
-  { modelId: "gpt-6-luna", family: "gpt", tier: "balanced", note: "faster, lighter on usage" },
+  { modelId: "gpt-6.1-sol", family: "gpt", tier: "frontier", note: "strongest", limits: { contextTokens: 312_000, maxOutputTokens: 64_000 }, efforts: CLI_EFFORTS },
+  { modelId: "gpt-6-luna", family: "gpt", tier: "balanced", note: "faster, lighter on usage", efforts: CLI_EFFORTS },
   { modelId: "gpt-5.6-luna", family: "gpt", tier: "balanced", note: "previous Luna" },
 ];
 const GEMINI_LIMITS = { contextTokens: 240_000, maxOutputTokens: 65_536 } as const;
@@ -80,10 +82,16 @@ export function withStrongestOffered(config: Draft, offered: OfferedModels): Dra
   return result;
 }
 
-/** What choosing a model writes into its profile: a model without known limits or effort words resets them. */
+/**
+ * What choosing a model writes into its profile. A model with known effort words supports each of them and sends each
+ * as itself, so a stage at "high" reaches the CLI as `high`. A model without known limits or effort words resets them:
+ * it keeps the levels the profile declares and sends no effort (preflight warns that the CLI's default applies).
+ */
 export function modelSettings(model: CatalogModel): readonly (readonly [readonly string[], unknown])[] {
+  const effort: readonly [readonly string[], unknown] = model.efforts === undefined ? [["effort", "params"], {}]
+    : [["effort"], { supported: [...model.efforts], collapse: {}, params: Object.fromEntries(model.efforts.map((word) => [word, { effort: word }])) }];
   return [[["modelId"], model.modelId], [["family"], model.family], [["capabilityTier"], model.tier],
-    [["limits"], model.limits ?? { contextTokens: null, maxOutputTokens: null }], [["effort", "params"], model.effortParams ?? {}]];
+    [["limits"], model.limits ?? { contextTokens: null, maxOutputTokens: null }], effort];
 }
 
 /** A configuration with the recommended model in every profile that still holds a placeholder model ID. */

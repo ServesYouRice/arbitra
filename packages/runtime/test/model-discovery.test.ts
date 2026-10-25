@@ -464,7 +464,8 @@ describe("independent model discovery", () => {
     expect(followUpCalls.length).toBeGreaterThan(1);
     expect(new Set(followUpCalls.flatMap(({ payload }) => payload.files[0]?.lines.map(({ line }) => line) ?? [])).size).toBe(300);
     expect(followUpCalls.every(({ payload }) => payload.reportedInstructionShapedText?.length === 10)).toBe(true);
-    expect(result.filter(({ category }) => category === "SECURITY").map(({ locations }) => locations[0]?.startLine)).toEqual([280]);
+    // Consecutive windows share 20 lines, so a line in the overlap is found by both.
+    expect([...new Set(result.filter(({ category }) => category === "SECURITY").map(({ locations }) => locations[0]?.startLine))]).toEqual([280]);
     const { followUps } = await artifact(store, "discovery-injection-follow-ups-auditor-a") as { followUps: { startLine: number; endLine: number; status: string }[] };
     expect(followUps.length).toBe(followUpCalls.length);
     expect(followUps.every(({ status }) => status === "examined")).toBe(true);
