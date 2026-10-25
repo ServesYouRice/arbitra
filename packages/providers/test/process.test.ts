@@ -77,3 +77,11 @@ describe("native process trees", () => {
     expect(result.treeTerminated).toBe(!pids.some(alive));
   });
 });
+
+describe("native process start", () => {
+  it("reports a spawn that Node refuses at once as a spawn error, not a rejection", async () => {
+    // Windows refuses a `.cmd` without a shell by throwing (EINVAL); a NUL byte in the path is refused the same way everywhere.
+    await expect(runNativeProcess({ executable: `${process.execPath}\0`, arguments: [], cwd: process.cwd(), environment: {}, stdin: "", timeoutMs: 5_000, maximumOutputBytes: 1_000,
+      signal: new AbortController().signal, onLine: () => undefined })).resolves.toMatchObject({ pid: null, stopped: "spawn_error", treeTerminated: true });
+  });
+});

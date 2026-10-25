@@ -57,7 +57,11 @@ export function runNativeProcess(request: NativeProcessRequest): Promise<NativeP
   return new Promise((resolveResult) => {
     const posix = process.platform !== "win32";
     const startedAt = Date.now();
-    const child = spawn(request.executable, [...request.arguments], { cwd: request.cwd, env: { ...request.environment }, shell: false, windowsHide: true, detached: posix, stdio: ["pipe", "pipe", "pipe"] });
+    // Some refusals throw at once rather than emit `error`: on Windows a `.cmd` or `.bat` without a shell is EINVAL
+    // (Node's CVE-2024-27980 fix), observed live with npm's `claude.cmd` (October 25, 2026).
+    let child: ReturnType<typeof spawn>;
+    try { child = spawn(request.executable, [...request.arguments], { cwd: request.cwd, env: { ...request.environment }, shell: false, windowsHide: true, detached: posix, stdio: ["pipe", "pipe", "pipe"] }); }
+    catch { resolveResult({ pid: null, exitCode: null, exitSignal: null, stopped: "spawn_error", violation: null, stdout: "", stderr: "", treeTerminated: true }); return; }
     const pid = child.pid ?? null;
     let stopped: NativeProcessStop | null = null; let violation: unknown = null;
     child.on("error", () => { if (stopped === null) stopped = "spawn_error"; });
