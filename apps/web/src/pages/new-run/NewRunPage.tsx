@@ -198,7 +198,7 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
     <Section title="check and start" id="start-run">
       {open.length === 0 ? null : <div className="state" data-state="attention"><p>{open.length === 1 ? "1 value still needs filling in" : `${open.length} values still need filling in`}:</p><ul aria-label="placeholders to fill in" className="plain-list">{open.map((path) => <li key={path}><code>{path}</code></li>)}</ul></div>}
       <div className="actions"><button className="button" disabled={busy !== null} type="button" onClick={() => { void runCheck(); }}>{busy === "checking" ? "checking" : "check configuration"}</button></div>
-      {check === null ? null : <CheckResult result={check.result} stale={stale} limit={getIn(draft, TOKEN_LIMIT)} onUseLimit={(value) => { autoLimit.current = value; edit(TOKEN_LIMIT, value); }} />}
+      {check === null ? null : <CheckResult result={check.result} stale={stale} limit={getIn(draft, TOKEN_LIMIT)} onUseLimit={(value) => { autoLimit.current = value; edit(TOKEN_LIMIT, value); }} onLeaveOut={(paths) => { const excluded = record(draft["scope"])["exclude"]; edit(["scope", "exclude"], [...new Set([...(Array.isArray(excluded) ? excluded.map(String) : []), ...paths])]); }} />}
       <label className="field">save as<input aria-label="configuration name" value={name} onChange={(event) => setName(event.target.value)} /></label>
       <p className="field__hint">{updating ? `Saving updates the saved configuration “${loaded?.name ?? ""}”.` : "Saving creates a new saved configuration under this name."} A run always starts from a saved configuration.</p>
       <div className="actions">
@@ -490,10 +490,11 @@ function AdvancedSection({ draft, edit, setDraft }: { readonly draft: Draft; rea
 
 const TOKEN_LIMIT = ["workflow", "modelExecution", "maximumTokens"] as const;
 
-function CheckResult({ result, stale, limit, onUseLimit }: { readonly result: PreflightResult; readonly stale: boolean; readonly limit: unknown; readonly onUseLimit: (value: number) => void }): ReactElement {
+function CheckResult({ result, stale, limit, onUseLimit, onLeaveOut }: { readonly result: PreflightResult; readonly stale: boolean; readonly limit: unknown; readonly onUseLimit: (value: number) => void; readonly onLeaveOut: (paths: readonly string[]) => void }): ReactElement {
   const errors = result.diagnostics.filter(({ severity }) => severity === "error");
   const warnings = result.diagnostics.filter(({ severity }) => severity === "warning");
   const estimate = result.estimate?.estimate ?? null;
+  const suggested = result.estimate?.suggestedLeaveOut ?? [];
   return <div aria-label="check result" className="check" role="region">
     {stale ? <p className="state" data-state="unexamined">the configuration changed after this check · check it again</p> : null}
     <p className="state" data-state={result.ready ? "verified" : "refuted"}>{result.ready ? "ready to start" : !result.valid ? `not valid · ${errors.length} ${errors.length === 1 ? "problem" : "problems"} in the configuration` : `valid, but this machine is not ready · ${errors.length} ${errors.length === 1 ? "problem" : "problems"}`}</p>
@@ -504,6 +505,8 @@ function CheckResult({ result, stale, limit, onUseLimit }: { readonly result: Pr
     </li>)}</ul>}
     {estimate === null ? result.estimateError === null ? null : <p className="state" data-state="degraded">estimate unavailable · {result.estimateError}</p> : <dl aria-label="estimate" className="facts">
       <div><dt>files read</dt><dd>{estimate.files} files · {estimate.lines} lines</dd></div>
+      {suggested.length === 0 ? null : <div><dt>generated files</dt><dd>{suggested.length} {suggested.length === 1 ? "file" : "files"} · {suggested.reduce((total, { lines }) => total + lines, 0)} lines look generated, vendored or minified <button className="link-button" type="button" onClick={() => onLeaveOut(suggested.map(({ path }) => path))}>leave them out</button>
+        <ul aria-label="suggested leave-outs" className="plain-list">{suggested.map(({ path, lines, reason }) => <li key={path}><code>{path}</code> · {lines} lines · {reason}</li>)}</ul></dd></div>}
       <div><dt>workflow</dt><dd>{estimate.nodes} steps · {estimate.auditors} auditors</dd></div>
       <div><dt>model calls</dt><dd>{estimate.providerCalls === null ? "not known before the run" : estimate.providerCalls}</dd></div>
       {typeof limit !== "number" ? null : <div><dt>token limit</dt><dd>{tokens(limit)}{recommendedTokenLimit(estimate.lines, estimate.auditors) === limit ? " · set for this project's size" : <> · {tokens(recommendedTokenLimit(estimate.lines, estimate.auditors))} recommended for this size <button className="link-button" type="button" onClick={() => onUseLimit(recommendedTokenLimit(estimate.lines, estimate.auditors))}>use it</button></>}</dd></div>}

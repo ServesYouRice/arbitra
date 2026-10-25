@@ -55,7 +55,7 @@ interface Group { readonly id: string; readonly files: readonly SourceFile[] }
 /** A module's files in packing order, each source file in a bundle with the tests placed beside it. */
 interface BundledGroup { readonly id: string; readonly bundles: readonly (readonly SourceFile[])[] }
 
-const TEST_PATH = /(?:^|\/)(?:test|tests|__tests__|spec)\/|\.(?:test|spec)\.[cm]?[jt]sx?$|(?:^|\/)test_[^/]+\.py$|_test\.(?:py|go|rb)$|_spec\.rb$/u;
+const TEST_PATH = /(?:^|\/)(?:test|tests|__tests__|spec)\/|\.(?:test|spec)\.[cm]?[jt]sx?$|(?:^|\/)test_[^/]+\.py$|_test\.(?:py|go|rb|dart)$|_spec\.rb$/u;
 
 /**
  * Moves each test file next to the source it tests, so a discovery unit holds both. Observed live (five real runs,
@@ -93,15 +93,61 @@ function testedStem(path: string): string {
   return posix.basename(path).replace(/\.(?:test|spec)(?=\.[^.]+$)/u, "").replace(/\.[^.]+$/u, "").replace(/^test_|_(?:test|spec)$/u, "").toLowerCase();
 }
 
-/** Repository-internal imports of each file: relative JavaScript and TypeScript imports, and Python imports. */
+/** Repository-internal imports of each file: relative JavaScript and TypeScript imports, and Python and Dart imports. */
 function importsOf(snapshot: RepositorySnapshot): ReadonlyMap<string, readonly string[]> {
   const contents = snapshot.files.map(({ path, lines }) => ({ path, content: lines.join("\n") }));
   const result = new Map(resolvedImports(contents));
   const paths = new Set(snapshot.files.map(({ path }) => path));
+  const dart = dartImports(contents.filter(({ path }) => path.endsWith(".dart")), paths);
   for (const { path, content } of contents) {
-    if (!path.endsWith(".py")) continue;
-    const targets = pythonImports(path, content, paths);
+    const targets = path.endsWith(".py") ? pythonImports(path, content, paths) : dart.get(path) ?? [];
     if (targets.length > 0) result.set(path, [...new Set([...(result.get(path) ?? []), ...targets])].sort());
+  }
+  return result;
+}
+
+/**
+ * The files each Dart file imports or exports: relative URIs against its folder, and `package:<name>/<path>` against
+ * the `lib/` of the nearest folder above it that has one, for the names that are that package's own. The package's
+ * name is in `pubspec.yaml`, which the snapshot does not read, so a name counts as the package's own when most paths
+ * its files import under it are in that `lib/`: not all, since a scope may leave out generated files the app imports,
+ * and `package:flutter/services.dart` beside an app's `lib/services.dart` is not, its files import Flutter's other
+ * libraries too.
+ */
+function dartImports(files: readonly { readonly path: string; readonly content: string }[], paths: ReadonlySet<string>): ReadonlyMap<string, readonly string[]> {
+  const uris = new Map(files.map(({ path, content }) => [path, [...content.matchAll(/^[ \t]*(?:import|export)[ \t]+['"]([^'"]+)['"]/gmu)].map((match) => match[1] ?? "")]));
+  const packageRoot = (path: string): string | null => {
+    const parts = posix.dirname(path).split("/").filter((part) => part !== ".");
+    for (let length = parts.length; length >= 0; length -= 1) {
+      const root = parts.slice(0, length).join("/");
+      const lib = root === "" ? "lib/" : `${root}/lib/`;
+      if ([...paths].some((candidate) => candidate.startsWith(lib))) return root;
+    }
+    return null;
+  };
+  const roots = new Map([...uris.keys()].map((path) => [path, packageRoot(path)]));
+  const imported = new Map<string, Map<string, Set<string>>>();
+  for (const [path, list] of uris) for (const uri of list) {
+    const match = /^package:(\w+)\/(.+)$/u.exec(uri);
+    const root = roots.get(path);
+    if (match === null || root === null || root === undefined) continue;
+    const names = imported.get(root) ?? new Map<string, Set<string>>();
+    names.set(match[1] ?? "", (names.get(match[1] ?? "") ?? new Set()).add(match[2] ?? ""));
+    imported.set(root, names);
+  }
+  const inLib = (root: string, rest: string) => posix.join(root, "lib", rest);
+  const own = new Map([...imported].map(([root, names]) => [root, new Set([...names].filter(([, rests]) => [...rests].filter((rest) => paths.has(inLib(root, rest))).length * 2 > rests.size).map(([name]) => name))]));
+  const result = new Map<string, readonly string[]>();
+  for (const [path, list] of uris) {
+    const root = roots.get(path) ?? null;
+    const targets = list.flatMap((uri) => {
+      const match = /^package:(\w+)\/(.+)$/u.exec(uri);
+      if (match !== null) return root !== null && own.get(root)?.has(match[1] ?? "") === true ? [inLib(root, match[2] ?? "")] : [];
+      if (uri.includes(":")) return [];
+      const target = posix.normalize(posix.join(posix.dirname(path), uri));
+      return paths.has(target) && target !== path ? [target] : [];
+    });
+    if (targets.length > 0) result.set(path, [...new Set(targets)].sort());
   }
   return result;
 }

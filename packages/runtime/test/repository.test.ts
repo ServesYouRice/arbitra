@@ -177,4 +177,15 @@ describe("runtime repository snapshots", () => {
       await expect(snapshotRepository(root, 0)).rejects.toThrow("INVALID_MAXIMUM_FILES");
     } finally { await rm(root, { recursive: true, force: true }); }
   });
+
+  it("reads a medium project whole by default", async () => {
+    // veritra (October 25, 2026) has 427 source files, and the limit of 400 refused it.
+    const root = await mkdtemp(join(tmpdir(), "arbitra-snapshot-default-limit-"));
+    try {
+      await Promise.all(Array.from({ length: 1_000 }, (_, index) => writeFile(join(root, `m${index}.ts`), "export {};\n")));
+      expect((await snapshotRepository(root)).files).toHaveLength(1_000);
+      await writeFile(join(root, "one-more.ts"), "export {};\n");
+      await expect(snapshotRepository(root)).rejects.toThrow("REPOSITORY_FILE_LIMIT_EXCEEDED:1000");
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
 });

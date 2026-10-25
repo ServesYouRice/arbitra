@@ -13,7 +13,8 @@ import { AUDIT_DEEP_GRAPH, auditorIdsFor, auditStageState, PRESET_GRAPHS, withCr
 import { assertNoPreflightErrors, configurationDiagnostics, ENVIRONMENT_VERSIONS_KIND, environmentDiagnostics, graphForConfiguration, PreflightError, type ConfigurationPreflightOptions, type PreflightDiagnostic } from "./preflight.js";
 import { DockerTestSandbox } from "./test-sandbox.js";
 import { canonicalise, converge, critique, discover, plan, preflight, readStage, verify, type AuditContext, type ConvergenceResult, type Plan } from "./pipeline.js";
-import { defaultGit, snapshotRepository, type RepositorySnapshot } from "./repository.js";
+import { suggestLeaveOuts } from "./generated-files.js";
+import { defaultGit, SNAPSHOT_FILE_LIMIT, snapshotRepository, type RepositorySnapshot } from "./repository.js";
 import { modulePartition } from "./discovery-scope.js";
 import { listRunIds, RunStore, type ArtifactDescriptor, type StoredRunContext } from "./run-store.js";
 import { ModelAuditPipeline, validateModelAudit, type AuditUnitOptions } from "./model-pipeline.js";
@@ -218,7 +219,7 @@ export class Orchestrator {
   async estimate(config: RunConfig, repository = this.repository): Promise<unknown> {
     const validated = this.configurations.validate(config);
     const { graph } = await this.#assertRunnable(validated);
-    const snapshot = await snapshotRepository(resolve(repository), 400, { scope: validated.scope, ...testingSnapshotOptions(validated) });
+    const snapshot = await snapshotRepository(resolve(repository), SNAPSHOT_FILE_LIMIT, { scope: validated.scope, ...testingSnapshotOptions(validated) });
     return Object.freeze({
       estimate: Object.freeze({
         files: snapshot.files.length,
@@ -230,6 +231,7 @@ export class Orchestrator {
         currency: null,
         basis: Object.keys(validated.models).length > 0 ? "configured_models_cost_unknown_without_pricing_and_outputs" : "scripted_auditors_make_no_provider_calls",
       }),
+      suggestedLeaveOut: await suggestLeaveOuts(snapshot),
       gate: "clear",
     });
   }
@@ -276,7 +278,7 @@ export class Orchestrator {
     const runId = this.#newRunId();
     const store = new RunStore(this.#runsDirectory, runId);
     const selectedRepository = resolve(repository);
-    const snapshot = await snapshotRepository(selectedRepository, 400, { scope: validated.scope, ...testingSnapshotOptions(validated) });
+    const snapshot = await snapshotRepository(selectedRepository, SNAPSHOT_FILE_LIMIT, { scope: validated.scope, ...testingSnapshotOptions(validated) });
     const modelConfiguration = Object.keys(validated.models).length > 0 ? validated : undefined;
     const checkpointPolicy = checkpointPolicyOf(validated);
     // A saved graph's identity is fixed in the run context, and its loop's explicit
@@ -410,7 +412,7 @@ export class Orchestrator {
     const environment = await environmentDiagnostics(config, { ...this.#environmentOptions(), includeWarnings: false });
     if (environment.some(({ severity }) => severity === "error")) throw new PreflightError(environment);
     const checkpointPolicy = checkpointPolicyOf(config);
-    const snapshot = await snapshotRepository(original.repository, 400, { scope: config.scope, ...testingSnapshotOptions(config) });
+    const snapshot = await snapshotRepository(original.repository, SNAPSHOT_FILE_LIMIT, { scope: config.scope, ...testingSnapshotOptions(config) });
     const repositoryDigest = snapshotDigest(snapshot);
     const mode = request.mode;
     const targetPins = new Map<string, ProtocolPin>();
@@ -448,7 +450,7 @@ export class Orchestrator {
 
   async #startAuditReplay(sourceRunId: string, source: RunStore, sourceContext: StoredRunContext, overrides: ReplayOverrides, changes: { readonly configuration?: RunConfig; readonly repository?: string } = {}): Promise<ReplayResource> {
     const repository = changes.repository === undefined ? sourceContext.repository : resolve(changes.repository);
-    const snapshot = await snapshotRepository(repository, 400, { scope: sourceContext.scope });
+    const snapshot = await snapshotRepository(repository, SNAPSHOT_FILE_LIMIT, { scope: sourceContext.scope });
     if (snapshotDigest(snapshot) !== sourceContext.repositoryDigest) throw new Error(`RUN_REPOSITORY_CHANGED:${sourceRunId}`);
     const definition = await source.definitions().load(sourceRunId);
     const original: StoredRunContext = { ...sourceContext, repository, ...(changes.configuration === undefined ? {} : { modelConfiguration: await this.#replayConfiguration(sourceContext, definition.graph, changes.configuration) }) };
@@ -534,7 +536,7 @@ export class Orchestrator {
     if (!previous.resumable) throw new Error(`RUN_NOT_RESUMABLE:${runId}`);
     const store = new RunStore(this.#runsDirectory, runId);
     const storedContext = maximumTokens === undefined ? await store.loadContext() : await raisedTokenLimit(store, await store.loadContext(), maximumTokens);
-    const snapshot = await snapshotRepository(storedContext.repository, 400, { scope: storedContext.scope, ...testingSnapshotOptions(storedContext.modelConfiguration) });
+    const snapshot = await snapshotRepository(storedContext.repository, SNAPSHOT_FILE_LIMIT, { scope: storedContext.scope, ...testingSnapshotOptions(storedContext.modelConfiguration) });
     if (snapshotDigest(snapshot) !== storedContext.repositoryDigest) throw new Error(`RUN_REPOSITORY_CHANGED:${runId}`);
     if (storedContext.modelConfiguration !== undefined) await this.#recordEnvironmentChange(store, storedContext.modelConfiguration);
     const definition = await store.definitions().load(runId);
@@ -581,7 +583,7 @@ export class Orchestrator {
   async repositoryMatches(runId: string): Promise<boolean> {
     await this.#requireRun(runId);
     const context = await new RunStore(this.#runsDirectory, runId).loadContext();
-    try { return snapshotDigest(await snapshotRepository(context.repository, 400, { scope: context.scope, ...testingSnapshotOptions(context.modelConfiguration) })) === context.repositoryDigest; }
+    try { return snapshotDigest(await snapshotRepository(context.repository, SNAPSHOT_FILE_LIMIT, { scope: context.scope, ...testingSnapshotOptions(context.modelConfiguration) })) === context.repositoryDigest; }
     catch { return false; }
   }
 
@@ -589,7 +591,7 @@ export class Orchestrator {
   async modules(runId: string): Promise<readonly { readonly id: string; readonly files: readonly string[] }[]> {
     await this.#requireRun(runId);
     const context = await new RunStore(this.#runsDirectory, runId).loadContext();
-    try { return modulePartition(await snapshotRepository(context.repository, 400, { scope: context.scope, ...testingSnapshotOptions(context.modelConfiguration) })); }
+    try { return modulePartition(await snapshotRepository(context.repository, SNAPSHOT_FILE_LIMIT, { scope: context.scope, ...testingSnapshotOptions(context.modelConfiguration) })); }
     catch { return []; }
   }
 
@@ -858,7 +860,7 @@ export class Orchestrator {
     const store = new RunStore(this.#runsDirectory, runId);
     const context = await store.loadContext();
     if (context.modelConfiguration?.mode !== "feature") throw new Error("FEATURE_RUN_REQUIRED");
-    const snapshot = await snapshotRepository(context.repository, 400, { scope: context.scope });
+    const snapshot = await snapshotRepository(context.repository, SNAPSHOT_FILE_LIMIT, { scope: context.scope });
     if (snapshotDigest(snapshot) !== context.repositoryDigest) throw new Error(`RUN_REPOSITORY_CHANGED:${runId}`);
     return new FeaturePipeline(store, context.modelConfiguration, snapshot, this.#providerOptions);
   }

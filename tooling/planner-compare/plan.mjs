@@ -22,7 +22,7 @@ if (source === undefined || output === undefined || !["whole", "sections"].inclu
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const load = (path) => import(pathToFileURL(join(root, path)).href);
 const { RunStore } = await load("packages/runtime/dist/src/run-store.js");
-const { snapshotRepository } = await load("packages/runtime/dist/src/repository.js");
+const { SNAPSHOT_FILE_LIMIT, snapshotRepository } = await load("packages/runtime/dist/src/repository.js");
 const { ModelAuditPipeline } = await load("packages/runtime/dist/src/model-pipeline.js");
 
 const context = JSON.parse(readFileSync(join(source, "context.json"), "utf8"));
@@ -45,7 +45,7 @@ const store = new RunStore(output, runId);
 await store.saveContext({ ...context, criticEnabled: false, modelConfiguration: config });
 for (const kind of ["source-findings", "peer-operation-conflicts"]) await store.publish(kind, stage(kind));
 const issues = stage("canonical-issues");
-const snapshot = await snapshotRepository(context.repository, 400, { scope: context.scope });
+const snapshot = await snapshotRepository(context.repository, SNAPSHOT_FILE_LIMIT, { scope: context.scope });
 const auditors = Object.keys(config.models).filter((id) => id.startsWith("auditor-")).map((auditorId) => ({ auditorId, independenceGroup: config.models[auditorId].independenceGroup, ruleIds: [] }));
 const pipeline = new ModelAuditPipeline({ snapshot, store, auditors, auditorKind: "model_auditors", policy: { name: context.consensusPolicy, quorum: 2, minimumIndependentGroupsForHighRisk: 2 }, maximumRounds: context.maximumRounds, criticEnabled: false },
   config, { credential: (name) => process.env[name], liveDispatch: true });
