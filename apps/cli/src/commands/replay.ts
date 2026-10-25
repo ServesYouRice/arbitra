@@ -1,13 +1,15 @@
 import type { CoreCommandResult } from "../core.js";
 
 export interface ReplayCommandPort {
-  replay(runId: string, overrides: { readonly consensusPolicy: "full" | "risk_weighted" | "minimal"; readonly maximumRounds: 0 | 1 | 2 | 3; readonly criticEnabled: boolean }): Promise<CoreCommandResult>;
+  replay(runId: string, overrides: { readonly consensusPolicy: "full" | "risk_weighted" | "minimal"; readonly maximumRounds: 0 | 1 | 2 | 3; readonly criticEnabled?: boolean }): Promise<CoreCommandResult>;
   /** A mode-specific replay request file; the same JSON body `POST /runs/:id/replay` accepts. */
   replayRequest?(runId: string, requestPath: string): Promise<CoreCommandResult>;
 }
 
 /**
- * `replay <run-id> [--consensus-policy P] [--max-rounds N] [--no-critic]` replays an Audit run.
+ * `replay <run-id> [--consensus-policy P] [--max-rounds N] [--critic | --no-critic]` replays an Audit run. Without a
+ * critic flag it keeps the source run's critic: the critic is a switch, off by default since October 25, 2026, and a
+ * replay that turned it on by itself reviewed plans the source never had reviewed.
  * `replay <run-id> --request <file>` replays any mode from an explicit request; Feature and
  * Testing replays require it, because Testing execution needs fresh write authority.
  */
@@ -23,14 +25,18 @@ export async function executeReplay(core: ReplayCommandPort, argv: readonly stri
   }
   let consensusPolicy: "full" | "risk_weighted" | "minimal" = "risk_weighted";
   let maximumRounds: 0 | 1 | 2 | 3 = 3;
-  let criticEnabled = true;
+  let criticEnabled: boolean | undefined;
   const seen = new Set<string>();
   for (let index = 0; index < options.length; index += 1) {
     const name = options[index];
     if (name === undefined) return invalid("invalid_arguments:replay");
     if (seen.has(name)) return invalid("duplicate_option:replay");
     seen.add(name);
-    if (name === "--no-critic") { criticEnabled = false; continue; }
+    if (name === "--critic" || name === "--no-critic") {
+      if (criticEnabled !== undefined) return invalid("invalid_arguments:replay");
+      criticEnabled = name === "--critic";
+      continue;
+    }
     const value = options[index + 1];
     if (value === undefined || value.startsWith("--")) return invalid(`missing_value:${name}`);
     index += 1;
@@ -43,7 +49,7 @@ export async function executeReplay(core: ReplayCommandPort, argv: readonly stri
       maximumRounds = parsed;
     } else return invalid("invalid_arguments:replay");
   }
-  return core.replay(runId, { consensusPolicy, maximumRounds, criticEnabled });
+  return core.replay(runId, { consensusPolicy, maximumRounds, ...(criticEnabled === undefined ? {} : { criticEnabled }) });
 }
 
 function invalid(reason: string): CoreCommandResult { return { disposition: "system_failure", reasons: [reason], value: null }; }

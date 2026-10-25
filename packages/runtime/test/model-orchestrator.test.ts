@@ -1060,6 +1060,36 @@ describe("composed model audits", () => {
     expect(requests.filter(({ stage }) => stage === "planner")).toHaveLength(3);
   });
 
+  it("replays with its source run's critic unless the request or a replacement configuration switches it", async () => {
+    // The critic became a switch, off by default, on October 25, 2026; a replay still turned it on unless told not to.
+    const { create, config, requests } = await fixture();
+    const core = create();
+    const critics = () => requests.filter(({ stage }) => stage === "critic").length;
+    // The fixture switches the critic on; its replay keeps it.
+    const reviewed = await core.run(config);
+    expect(reviewed.state).toBe("COMPLETED");
+    let before = critics();
+    expect((await core.replay(reviewed.runId, { consensusPolicy: "risk_weighted", maximumRounds: 0 })).state).toBe("COMPLETED");
+    expect(critics()).toBeGreaterThan(before);
+    const plain = runConfigSchema.parse({ ...config, workflow: { ...config.workflow, critic: false } });
+    const unreviewed = await core.run(plain);
+    expect(unreviewed.state).toBe("COMPLETED");
+    before = critics();
+    const kept = await core.replay(unreviewed.runId, { consensusPolicy: "risk_weighted", maximumRounds: 0 });
+    expect(kept.state).toBe("COMPLETED");
+    expect(critics()).toBe(before);
+    expect(await core.overview(kept.runId)).toMatchObject({ criticEnabled: false });
+    // A replacement configuration that switches it on turns it on, and the request's own switch wins over the source's.
+    const switched = await core.replay(unreviewed.runId, { mode: "audit", consensusPolicy: "risk_weighted", maximumRounds: 0, configuration: runConfigSchema.parse({ ...plain, workflow: { ...plain.workflow, critic: true } }) });
+    expect(switched.state).toBe("COMPLETED");
+    expect(critics()).toBeGreaterThan(before);
+    expect(await core.overview(switched.runId)).toMatchObject({ criticEnabled: true });
+    before = critics();
+    const refused = await core.replay(reviewed.runId, { consensusPolicy: "risk_weighted", maximumRounds: 0, criticEnabled: false });
+    expect(refused.state).toBe("COMPLETED");
+    expect(critics()).toBe(before);
+  });
+
   it("replays the stages after discovery with another verifier, from an identical checkout, and keeps what made discovery", async () => {
     const { create, config, requests, directory } = await fixture();
     const core = create(); const source = await core.run(config);

@@ -14,7 +14,11 @@ export const auditReplayRequestSchema = z.strictObject({
   consensusPolicy: z.enum(["full", "risk_weighted", "minimal"]),
   // 0 skips peer review: the design audit's experiment 11 (cluster, verify, deduplicate, rank), run on recorded discovery.
   maximumRounds: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]),
-  criticEnabled: z.boolean(),
+  /**
+   * Whether the replay reviews its plan with the critic. Omitted, it follows `workflow.critic` of the replacement
+   * `configuration` when that sets it, else the source run, which had the critic or not.
+   */
+  criticEnabled: z.boolean().optional(),
   /**
    * Replaces the source configuration for every stage after discovery: other roles (a cheaper verifier, say),
    * efforts, verification settings or limits. It keeps the source's mode, scope, preset and auditor profiles, since

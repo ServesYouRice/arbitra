@@ -49,6 +49,9 @@ import { bundledProtocolControlPlane } from "@arbitra/protocols/bundled.js";
 import { hashProtocolBytes } from "@arbitra/protocols/versioning.js";
 import { decideStages, readReplayContract, REPLAY_CONTRACT_KIND, ReplaySeed, replayReport, stageIdentities, type ProtocolPin, type ReplayContract, type StageDecision } from "./replay-contracts.js";
 
+/** An Audit replay's policy. Without `criticEnabled` it keeps the critic of its source run (see `#startAuditReplay`). */
+export type AuditReplayOverrides = Omit<ReplayOverrides, "criticEnabled"> & { readonly criticEnabled?: boolean };
+
 /** A replay's new run, with the per-stage reuse decisions for Feature and Testing. */
 export interface ReplayResource {
   readonly runId: string;
@@ -384,7 +387,7 @@ export class Orchestrator {
    * Create a new run from a saved one and wait for it. Each mode has its own replay
    * contract (see `startReplay`); the source run is only read.
    */
-  async replay(sourceRunId: string, request: ReplayOverrides | ReplayRequest): Promise<{ readonly runId: string; readonly state: RunState }> {
+  async replay(sourceRunId: string, request: AuditReplayOverrides | ReplayRequest): Promise<{ readonly runId: string; readonly state: RunState }> {
     const started = await this.startReplay(sourceRunId, request);
     const handle = this.#live.get(started.runId);
     return Object.freeze({ runId: started.runId, state: handle === undefined ? (await this.status(started.runId)).state as RunState : await handle.result });
@@ -410,7 +413,7 @@ export class Orchestrator {
         if (sourceMode === "feature") throw Object.assign(new Error("FEATURE_AUDIT_REPLAY_NOT_SUPPORTED"), { statusCode: 409 });
         if (sourceMode === "testing") throw Object.assign(new Error("TESTING_AUDIT_REPLAY_NOT_SUPPORTED"), { statusCode: 409 });
         const { consensusPolicy, maximumRounds, criticEnabled, configuration, repository } = request;
-        return await this.#startAuditReplay(sourceRunId, source, original, { consensusPolicy, maximumRounds, criticEnabled },
+        return await this.#startAuditReplay(sourceRunId, source, original, { consensusPolicy, maximumRounds, ...(criticEnabled === undefined ? {} : { criticEnabled }) },
           { ...(configuration === undefined ? {} : { configuration }), ...(repository === undefined ? {} : { repository }) });
       }
       if (request.mode !== sourceMode) throw Object.assign(new Error(`REPLAY_MODE_MISMATCH:${sourceMode}:${request.mode}`), { statusCode: 409 });
@@ -469,12 +472,16 @@ export class Orchestrator {
     return Object.freeze({ runId, sourceRunId, mode, state: handle.state, stages, execution });
   }
 
-  async #startAuditReplay(sourceRunId: string, source: RunStore, sourceContext: StoredRunContext, overrides: ReplayOverrides, changes: { readonly configuration?: RunConfig; readonly repository?: string } = {}): Promise<ReplayResource> {
+  async #startAuditReplay(sourceRunId: string, source: RunStore, sourceContext: StoredRunContext, requested: AuditReplayOverrides, changes: { readonly configuration?: RunConfig; readonly repository?: string } = {}): Promise<ReplayResource> {
     const repository = changes.repository === undefined ? sourceContext.repository : resolve(changes.repository);
     const snapshot = await snapshotRepository(repository, SNAPSHOT_FILE_LIMIT, { scope: sourceContext.scope });
     if (snapshotDigest(snapshot) !== sourceContext.repositoryDigest) throw new Error(`RUN_REPOSITORY_CHANGED:${sourceRunId}`);
     const definition = await source.definitions().load(sourceRunId);
     const original: StoredRunContext = { ...sourceContext, repository, ...(changes.configuration === undefined ? {} : { modelConfiguration: await this.#replayConfiguration(sourceContext, definition.graph, changes.configuration) }) };
+    // The plan critic is a switch, off by default since October 25, 2026. A replay that does not set it follows the
+    // replacement configuration's `workflow.critic`, else its source run, which had the critic or not.
+    const switched = changes.configuration?.workflow["critic"];
+    const overrides: ReplayOverrides = { ...requested, criticEnabled: requested.criticEnabled ?? (typeof switched === "boolean" ? switched : sourceContext.criticEnabled) };
     const replayGraph = withCritic(definition.graph, overrides.criticEnabled);
     if (original.workflowGraph !== undefined) {
       // A replay of a saved graph executes that exact version; it cannot edit it.

@@ -171,8 +171,8 @@ run offers a resume that cannot help. It owns:
   OpenAI model, an effort for finding on its own, `workflow.critic` (off by default) in place of the depth rule,
   `roles.mediumVerifier` and `roles.merger`, depth presets in New run that write models and efforts, finder
   presets named by count, and the variant search (`workflow.variantSearch`, off; Gemini searches when it is a
-  finder, else Sonnet 5.5 · high). Left: the measured runs that set the defaults; `arbitra replay` still turns the critic on;
-  the renamed presets' browser tests have not run.
+  finder, else Sonnet 5.5 · high). Left: the measured runs that set the defaults; the renamed presets' browser tests
+  have not run.
 - **Compare the right pairs for duplicates** (*before veritra*): cross-auditor pairs first, same-answer pairs last (1
   merge in 332), a higher ceiling when batched, and TF-IDF neighbours in other files (the export's version found 4 of
   nextra's 5 overlaps).
