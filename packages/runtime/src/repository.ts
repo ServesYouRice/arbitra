@@ -1,4 +1,4 @@
-import { readdir } from "node:fs/promises";
+import { lstat, readdir } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { join, relative, sep } from "node:path";
@@ -194,7 +194,11 @@ async function snapshotDiff(guard: RepositoryPathGuard, scope: RunScope, maximum
   const names = await git.run(guard.root, ["diff", "--name-only", "--relative", "--diff-filter=ACMR", "-z", ...target, "--"]);
   // The working tree's changes include files never added, which `git diff` does not list; ignored ones stay out.
   const untracked = mode === "working_tree" ? await git.run(guard.root, ["ls-files", "--others", "--exclude-standard", "-z"]) : "";
-  const paths = [...new Set(`${names}\0${untracked}`.split("\0").filter((path) => path !== "" && eligible(path)))].sort();
+  const listed = [...new Set(`${names}\0${untracked}`.split("\0").filter((path) => path !== "" && eligible(path)))].sort();
+  // The working tree is read from disk, where a listed path can be a symbolic link or lie inside one: Git for Windows
+  // lists the files inside a junction. Such a path is left out, as the repository walk leaves out every link, rather
+  // than failing the snapshot when the link points outside the root.
+  const paths = revision === null ? (await Promise.all(listed.map(async (path) => await plainFile(guard.root, path) ? [path] : []))).flat() : listed;
   if (paths.length > maximumFiles) throw new Error(`REPOSITORY_FILE_LIMIT_EXCEEDED:${maximumFiles}`);
   const files = await Promise.all(paths.map(async (path) => {
     guard.resolve(path);
@@ -202,6 +206,16 @@ async function snapshotDiff(guard: RepositoryPathGuard, scope: RunScope, maximum
     return sourceFile(path, text);
   }));
   return Object.freeze({ root: guard.root, files: Object.freeze(files) });
+}
+
+/** Whether `path` is a regular file reached through directories only, none of them a link (a junction is one). */
+async function plainFile(root: string, path: string): Promise<boolean> {
+  const parts = path.split("/");
+  for (let index = 1; index <= parts.length; index += 1) {
+    const entry = await lstat(join(root, ...parts.slice(0, index)));
+    if (entry.isSymbolicLink() || !(index === parts.length ? entry.isFile() : entry.isDirectory())) return false;
+  }
+  return true;
 }
 
 function validateRevision(value: string): void {

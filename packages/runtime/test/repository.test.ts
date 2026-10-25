@@ -91,6 +91,24 @@ describe("runtime repository snapshots", () => {
       expect(snapshot.files.map(({ path, lines }) => `${path}: ${lines[0] ?? ""}`)).toEqual(["added.ts: never added", "tracked.ts: working"]);
     } finally { await rm(root, { recursive: true, force: true }); }
   });
+  it("leaves a symbolic link out of a working-tree diff, as the repository walk does, instead of failing the snapshot", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbitra-git-link-"));
+    const outside = await mkdtemp(join(tmpdir(), "arbitra-git-link-outside-"));
+    const execute = promisify(execFile);
+    const git = async (...args: string[]) => (await execute("git", ["-C", root, ...args], { encoding: "utf8", windowsHide: true })).stdout.trim();
+    try {
+      await git("init");
+      await writeFile(join(root, "tracked.ts"), "original\n");
+      await git("add", ".");
+      await git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "-c", "commit.gpgsign=false", "commit", "-m", "original");
+      await Promise.all([writeFile(join(root, "tracked.ts"), "working\n"), writeFile(join(outside, "secret.ts"), "export const secret = 'outside';\n")]);
+      // A junction needs no Windows developer mode. Git for Windows lists the file inside it, Git elsewhere the link.
+      await symlink(outside, join(root, "linked.ts"), "junction");
+      const snapshot = await snapshotRepository(root, 5, { scope: { kind: "diff", diffMode: "working_tree" } });
+      expect(snapshot.files.map(({ path, lines }) => `${path}: ${lines[0] ?? ""}`)).toEqual(["tracked.ts: working"]);
+      expect(JSON.stringify(snapshot)).not.toContain("outside");
+    } finally { await Promise.all([rm(root, { recursive: true, force: true }), rm(outside, { recursive: true, force: true })]); }
+  });
   it("reads single-file components, shell scripts and C sources, and leaves content and data out", async () => {
     const root = await mkdtemp(join(tmpdir(), "arbitra-snapshot-kinds-"));
     try {
