@@ -118,7 +118,7 @@ export function auditorIdsFor(graph: RunnerGraph): readonly string[] {
   return Object.freeze(graph.nodes.filter(({ id, kind }) => kind === "model" && id.startsWith("auditor-")).map(({ id }) => id));
 }
 
-/** The node of the optional variant search, and the label a running run shows for it. */
+/** The node of the optional variant search; a run shows it as "Searching for variants". */
 export const VARIANT_SEARCH_NODE_ID = "variant-search";
 
 /**

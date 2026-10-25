@@ -95,10 +95,9 @@ export const providerExecutionSchema = z.object({
    * `effort.params` sends it: finding issues (`discovery`), merging duplicates (`clustering`), peer review, checking
    * issues (`verification`), the second opinion before a severe rejection, the check of a blocking critique
    * (`critiqueCheck`), the search for variants of confirmed issues (`variantSearch`), the plan, the plan critic and
-   * the plan's revision. A stage's value is one level, or one per
-   * profile (`{ "auditor-a": "high", "auditor-b": "max" }`). The second opinion and the critique check follow
-   * `verification` when they are left out; any other stage left out (or a profile its map leaves out) runs at the
-   * level of the audit depth. */
+   * the plan's revision. A stage's value is one level, or one per profile (`{ "auditor-a": "high", "auditor-b": "max" }`).
+   * The second opinion and the critique check follow `verification` when they are left out; any other stage left out
+   * (or a profile its map leaves out) runs at the level of the audit depth. */
   stageEffort: z.object(Object.fromEntries(EFFORT_STAGES.map((stage) => [stage, stageEffortLevel])) as Record<EffortStage, typeof stageEffortLevel>).partial().strict().optional(),
   /** Checks beyond one pass of each review stage. All are off unless set: candidates of different peer-review
    * batches are not compared for a merge, plan records of different critic batches are not compared, and the
