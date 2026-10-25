@@ -17,7 +17,9 @@ import type { TestSandbox } from "../src/test-sandbox.js";
  * preflight, durable stages and handoff publication — never model quality.
  */
 export type WireProtocol = "openai-responses" | "openai-chat" | "anthropic-messages" | "gemini-native" | "claude-code-cli" | "codex-cli" | "gemini-cli" | "antigravity-cli";
-export interface SmokeCall { readonly stage: string; readonly protocol: WireProtocol; readonly url: string }
+/** `effort` is the word a subscription CLI was given on its command line (Claude Code `--effort`, Codex
+ * `model_reasoning_effort`, the Antigravity CLI `--effort`), when it was given one. */
+export interface SmokeCall { readonly stage: string; readonly protocol: WireProtocol; readonly url: string; readonly effort?: string }
 
 export const SMOKE_SOURCE = "export const sessionVersion = 1;";
 export const SMOKE_TEST = "test('existing', () => {});";
@@ -95,10 +97,10 @@ export async function smokeProvider(options: { highImpactAmbiguity?: boolean; ro
       return { status: 200, headers: {}, body: encode(protocol, output) };
     } },
   };
-  const cli = options.root === undefined ? undefined : await smokeCli(options.root, (protocol, system, user, body) => {
+  const cli = options.root === undefined ? undefined : await smokeCli(options.root, (protocol, system, user, body, effort) => {
     const decoded = decodeCompiled(system, user);
     const stage = stageOf(decoded.system);
-    calls.push({ stage, protocol, url: `cli://${protocol}` });
+    calls.push({ stage, protocol, url: `cli://${protocol}`, ...(effort === undefined ? {} : { effort }) });
     return respond(stage, decoded.input, decoded.system, body);
   });
   if (cli !== undefined) Object.assign(providerOptions, { cli });
@@ -207,7 +209,7 @@ function encode(protocol: WireProtocol, output: unknown): unknown {
  * and each model call in the vendor's own event format. Emulated tool calls use the same
  * envelope a real CLI's model returns, so the canonical harness's tool loop is exercised.
  */
-async function smokeCli(root: string, answer: (protocol: WireProtocol, system: string, user: string, body: string) => unknown) {
+async function smokeCli(root: string, answer: (protocol: WireProtocol, system: string, user: string, body: string, effort: string | undefined) => unknown) {
   const bin = join(root, "cli-bin"); const home = join(root, "cli-home");
   await mkdir(bin, { recursive: true }); await mkdir(join(home, ".gemini"), { recursive: true });
   // The Gemini CLI has no status command; a cached Google login is its readiness evidence.
@@ -244,7 +246,9 @@ async function smokeCli(root: string, answer: (protocol: WireProtocol, system: s
     const sessionId = resumed ?? (vendor === "claude" ? after("--session-id") ?? "smoke" : `smoke-${started}`);
     const asked = resumed === undefined ? { instruction, user: first?.[2] ?? stdin } : sessions.get(resumed) ?? { instruction, user: stdin };
     sessions.set(sessionId, asked);
-    const output = answer(protocol, asked.instruction, asked.user, stdin.includes("<<<BEGIN tool-result") ? "\"role\":\"tool\"" : "");
+    const reasoning = args.find((value) => value.startsWith("model_reasoning_effort="));
+    const effort = vendor === "codex" ? reasoning === undefined ? undefined : JSON.parse(reasoning.slice("model_reasoning_effort=".length)) as string : after("--effort");
+    const output = answer(protocol, asked.instruction, asked.user, stdin.includes("<<<BEGIN tool-result") ? "\"role\":\"tool\"" : "", effort);
     const call = (output as { toolCall?: { name: string; arguments: unknown } }).toolCall;
     const text = JSON.stringify(call === undefined ? output : { toolCalls: [{ name: call.name, arguments: call.arguments }] });
     const lines = vendor === "claude" ? [{ type: "system", subtype: "init", session_id: sessionId, tools: [], mcp_servers: [], apiKeySource: "none" }, { type: "result", is_error: false, result: text, session_id: sessionId, usage: { input_tokens: 20, output_tokens: 30 } }]

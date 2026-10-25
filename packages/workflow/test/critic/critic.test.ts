@@ -14,7 +14,7 @@ const mapped: CritiqueItem = { id: "CRIT-1", category: "weak_verification", bloc
 describe("critic requirement and capability selection", () => {
   it.each([
     "hasCriticalIssue", "hasHighSecurityIssue", "schemaOrDatabaseMigration", "deploymentArchitectureChange",
-    "authenticationRedesign", "majorCrossServiceChange", "largeTaskGraph", "deepMode",
+    "authenticationRedesign", "majorCrossServiceChange", "largeTaskGraph", "deepMode", "switchedOn",
   ] as const)("makes %s independently mandatory", (condition) => {
     expect(criticRequired({ [condition]: true })).toMatchObject({ required: true, reasons: [expect.any(String)] });
   });

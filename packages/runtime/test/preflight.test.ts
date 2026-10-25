@@ -52,13 +52,25 @@ describe("configuration preflight", () => {
     expect(codes(configurationDiagnostics(balanced as unknown as RunConfig))).toEqual(["RUNTIME_MODEL_EXECUTION_CONFIGURATION_REQUIRED"]);
   });
 
-  it("runs a balanced audit's plan critic only when a critic role is set", async () => {
+  it("reviews the plan only when the critic is switched on, whatever roles the configuration names", async () => {
     const nodes = (config: Mutable | RunConfig) => graphForConfiguration(config as unknown as RunConfig).nodes.map(({ id }) => id);
-    expect(nodes(await template("subscription-audit"))).toEqual(["preflight", "auditor-a", "auditor-b", "consensus", "verification", "planner", "critic"]);
-    expect(nodes(await template("audit-compatible-chat"))).not.toContain("critic");
-    const diff = mutable(await template("subscription-audit"));
-    diff.workflow["preset"] = "diff-review";
-    expect(nodes(diff)).not.toContain("critic");
+    // A critic role no longer switches the critic on; the template names one so that the switch alone turns it on.
+    const config = mutable(await template("subscription-audit"));
+    delete config.workflow["critic"];
+    expect((execution(config)["roles"] as { critic?: string }).critic).toBeDefined();
+    expect(nodes(config)).toEqual(["preflight", "auditor-a", "auditor-b", "consensus", "verification", "planner"]);
+    config.workflow["critic"] = true;
+    expect(nodes(config)).toEqual(["preflight", "auditor-a", "auditor-b", "consensus", "verification", "planner", "critic"]);
+    for (const preset of ["diff-review", "diff-fast"]) expect(nodes({ ...config, workflow: { ...config.workflow, preset } })).toContain("critic");
+    // Switched off, a preset that names a critic node leaves it out.
+    const deep = mutable(await template("audit-mixed-providers"));
+    deep.workflow["critic"] = false;
+    expect(nodes(deep)).not.toContain("critic");
+    expect(codes(configurationDiagnostics(deep as unknown as RunConfig))).toEqual([]);
+    // The switch is an Audit setting, and a saved graph decides its own critic.
+    expect(runConfigSchema.safeParse({ ...config, workflow: { ...config.workflow, critic: "yes" } }).success).toBe(false);
+    expect(runConfigSchema.safeParse({ ...config, workflow: { graph: { id: "saved", version: "a".repeat(64) }, critic: true } }).error?.issues.map(({ path }) => path.join("."))).toEqual(["workflow.critic"]);
+    expect(runConfigSchema.safeParse({ ...(await template("feature-automatic")), workflow: { ...(await template("feature-automatic")).workflow, critic: true } }).error?.issues.map(({ path }) => path.join("."))).toEqual(["workflow.critic"]);
   });
 
   it("checks each stage's effort against the profile it calls, and warns when a CLI would be sent no effort", async () => {

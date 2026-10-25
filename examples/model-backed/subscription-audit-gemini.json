@@ -201,6 +201,7 @@
   },
   "workflow": {
     "preset": "audit-deep",
+    "critic": false,
     "modelExecution": {
       "endpoints": [
         {

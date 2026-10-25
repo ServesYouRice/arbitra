@@ -8,7 +8,7 @@ import { featureExecutionSchema } from "@arbitra/schemas/feature-execution.js";
 import { testingExecutionSchema } from "@arbitra/schemas/testing.js";
 import { verificationExecutionSchema, type VerificationExecution } from "@arbitra/schemas/verification-execution.js";
 import { concreteWritePath } from "@arbitra/security/write-partitions";
-import { AUDIT_BALANCED_GRAPH, auditorIdsFor, graphForPreset, withCritic } from "./graphs.js";
+import { auditorIdsFor, graphForPreset, withCritic } from "./graphs.js";
 import { mergerProfile, secondOpinionProfile } from "./audit-roles.js";
 import { stageEffort, type EffortStage } from "./stage-effort.js";
 import type { TestSandbox } from "./test-sandbox.js";
@@ -69,12 +69,12 @@ export function graphForConfiguration(config: RunConfig, registered: Readonly<Re
   const graph = preset !== undefined && Object.hasOwn(registered, preset) ? registered[preset] as RunnerGraph : graphForPreset(preset ?? (config.mode === "feature" ? "feature-simple" : config.mode === "testing" ? testingPreset : undefined));
   if ((graph.id === "feature-simple") !== (config.mode === "feature")) throw new Error("WORKFLOW_PRESET_MODE_MISMATCH");
   if ((graph.id === "testing-plan" || graph.id === "testing-execute") !== (config.mode === "testing") || config.mode === "testing" && graph.id !== testingPreset) throw new Error("WORKFLOW_PRESET_MODE_MISMATCH");
-  // A balanced audit has its plan reviewed when the configuration names a critic, as audit-deep always does.
-  if (graph === AUDIT_BALANCED_GRAPH && criticRoleOf(config) !== undefined) return withCritic(graph, true);
+  // The plan critic is a switch (`workflow.critic`), off by default: a critic role or the audit depth no longer turns
+  // it on. Switched on or off, it adds or removes the critic after any audit graph's planner.
+  const critic = config.workflow["critic"];
+  if (config.mode === "audit" && typeof critic === "boolean") return withCritic(graph, critic);
   return graph;
 }
-
-const criticRoleOf = (config: RunConfig): unknown => (config.workflow["modelExecution"] as { roles?: { critic?: unknown } } | undefined)?.roles?.critic;
 
 export interface ConfigurationPreflightOptions {
   /** Operator-registered graphs dispatched by preset ID. */

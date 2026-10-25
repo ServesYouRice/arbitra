@@ -920,12 +920,14 @@ export class ModelAuditPipeline {
         return { summary: responses.map(({ summary }) => summary).join("\n\n"), items: responses.flatMap(({ items }) => items) };
       } },
     });
-    // A critic node makes a critic available; whether the plan needs it follows the run's depth and the issues it plans
-    // (spec §20.6): below depth deep, a critical issue or a high security issue. critic-result records the reasons.
+    // A critic node is there because the run switched the critic on (`workflow.critic`), and a switched-on critic reads
+    // the plan at every depth. Spec §20.6 required it at depth deep and for a critical or high security issue; the
+    // owner made it an option, off by default, on the scored runs (October 25, 2026: precise, but it caught 1 of 21
+    // plan errors and its revision added errors). critic-result still records the issues that would have required it.
     const categories = new Map((await readStage<readonly AuditFinding[]>(this.context.store, "source-findings")).map(({ sourceFindingId, category }) => [sourceFindingId, category]));
     const security = (ids: readonly string[]) => ids.some((id) => ["SECURITY", "PROMPT_INJECTION"].includes(categories.get(id) ?? ""));
     const result = await critic.run({ plan, validationContract: plan.validationContract, canonicalIssues: planned, necessaryContext: this.repository().map(({ path, content }) => ({ ref: path, content, trust: "repo" })) }, {
-      requirement: { deepMode: this.config.auditDepth === "deep", hasCriticalIssue: planned.some(({ severity }) => severity === "critical"),
+      requirement: { switchedOn: true, hasCriticalIssue: planned.some(({ severity }) => severity === "critical"),
         hasHighSecurityIssue: planned.some(({ severity, sourceFindingIds }) => severity === "high" && security(sourceFindingIds)) },
       planner: { id: this.#roles.planner, capability: plannerProfile.capabilityTier, independenceGroup: plannerProfile.independenceGroup },
       pool: [{ id: criticId, capability: criticProfile.capabilityTier, independenceGroup: criticProfile.independenceGroup, available: true }],

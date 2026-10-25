@@ -182,7 +182,7 @@ function HowItRan({ overview }: { readonly overview: RunOverview | null }): Reac
       <div><dt>scope</dt><dd>{overview.scope.kind}{scope === "" ? "" : ` · ${scope}`}</dd></div>
       {overview.mode === "audit" ? <>
         <div><dt>peer review</dt><dd>{overview.consensusPolicy.replace("_", "-")} · up to {overview.maximumRounds} {overview.maximumRounds === 1 ? "round" : "rounds"}</dd></div>
-        <div><dt>critic</dt><dd>{overview.criticEnabled ? "reviews the plan at depth deep or for a critical or high security issue" : "not in this workflow"}</dd></div>
+        <div><dt>critic</dt><dd>{overview.criticEnabled ? "on · reviews the plan" : "off · the plan is not reviewed"}</dd></div>
       </> : null}
       <div><dt>checkpoints</dt><dd>{overview.checkpointMode ?? "none in this workflow"}</dd></div>
       {overview.workflowGraph === null ? null : <div><dt>saved graph</dt><dd>{overview.workflowGraph.id} @ {overview.workflowGraph.version}</dd></div>}

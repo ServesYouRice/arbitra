@@ -82,6 +82,11 @@ export const runConfigSchema = z.object({
       if (!graph.success) for (const issue of graph.error.issues) context.addIssue({ ...issue, path: ["graph", ...issue.path] });
       if (workflow["preset"] !== undefined) context.addIssue({ code: "custom", path: ["graph"], message: "A saved workflow graph and a preset are exclusive" });
     }
+    // `critic: true` reviews an Audit's plan with the critic after the planner; off unless set, at every depth.
+    if (workflow["critic"] !== undefined) {
+      if (typeof workflow["critic"] !== "boolean") context.addIssue({ code: "custom", path: ["critic"], message: "Expected true or false" });
+      else if (workflow["graph"] !== undefined) context.addIssue({ code: "custom", path: ["critic"], message: "A saved workflow graph decides its own critic" });
+    }
     if (workflow["modelExecution"] === undefined) return;
     const result = providerExecutionSchema.safeParse(workflow["modelExecution"]);
     if (!result.success) for (const issue of result.error.issues) context.addIssue({ ...issue, path: ["modelExecution", ...issue.path] });
@@ -95,6 +100,7 @@ export const runConfigSchema = z.object({
   if (config.workflow["incremental"] !== undefined && config.mode !== "audit") context.addIssue({ code: "custom", path: ["workflow", "incremental"], message: "Incremental reuse applies only to Audit runs" });
   // Operator-authored graphs dispatch through the Audit executors; Feature and Testing keep their presets.
   if (config.workflow["graph"] !== undefined && config.mode !== "audit") context.addIssue({ code: "custom", path: ["workflow", "graph"], message: "Saved workflow graphs require audit mode" });
+  if (config.workflow["critic"] !== undefined && config.mode !== "audit") context.addIssue({ code: "custom", path: ["workflow", "critic"], message: "The plan critic switch applies only to Audit runs; a Feature names its critic in workflow.feature.roles" });
   if (config.workflow["testing"] !== undefined) {
     const testing = testingExecutionSchema.safeParse(config.workflow["testing"]);
     if (config.mode !== "testing") context.addIssue({ code: "custom", path: ["workflow", "testing"], message: "Testing settings require testing mode" });

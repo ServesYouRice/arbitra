@@ -565,22 +565,25 @@ describe("composed model audits", () => {
     expect(gate.reasons).not.toContain("blocking_critic_feedback");
   });
 
-  it("runs the plan critic at depth deep or for a critical or high security issue, and otherwise records it as not required", async () => {
-    // A critic node makes a critic available; the run's depth and the planned issues decide whether it reads the plan
-    // (spec §20.6), and critic-result records why.
+  it("runs a switched-on plan critic at every depth, and none when it is switched off", { timeout: 30_000 }, async () => {
+    // Depth no longer decides the critic (a deliberate departure from spec §3.7 and §20.6, made October 25, 2026, on
+    // the scored runs): switched on, it reads the plan at every depth; critic-result records the issues that would
+    // once have required it.
     const cases = [
-      { depth: "balanced", finding: {}, status: "not_required", reasons: [] },
-      { depth: "deep", finding: {}, status: "completed", reasons: ["deep_mode"] },
-      { depth: "balanced", finding: { severity: "critical" }, status: "completed", reasons: ["critical_issue"] },
-      { depth: "balanced", finding: { category: "SECURITY" }, status: "completed", reasons: ["high_security_issue"] },
+      { depth: "balanced", finding: {}, critic: true, status: "completed", reasons: ["switched_on"] },
+      { depth: "fast", finding: {}, critic: true, status: "completed", reasons: ["switched_on"] },
+      { depth: "balanced", finding: { severity: "critical" }, critic: true, status: "completed", reasons: ["switched_on", "critical_issue"] },
+      { depth: "balanced", finding: { category: "SECURITY" }, critic: true, status: "completed", reasons: ["switched_on", "high_security_issue"] },
+      { depth: "deep", finding: { severity: "critical" }, critic: false, status: null, reasons: null },
     ] as const;
-    for (const { depth, finding, status, reasons } of cases) {
+    for (const { depth, finding, critic, status, reasons } of cases) {
       const { create, config, requests } = await fixture({ depth, finding });
+      config.workflow["critic"] = critic;
       const core = create(); const result = await core.run(config);
       expect(result.state).toBe("COMPLETED");
       const descriptor = (await core.artifacts(result.runId)).find(({ kind }) => kind === "critic-result");
-      const recorded = JSON.parse((await core.artifact(result.runId, descriptor?.artifactId ?? "") as { content: string }).content) as { status: string; requirement: { reasons: string[] }; degradedReviewCoverage: boolean };
-      expect({ depth, finding, status: recorded.status, reasons: recorded.requirement.reasons, degraded: recorded.degradedReviewCoverage }).toEqual({ depth, finding, status, reasons, degraded: false });
+      const recorded = descriptor === undefined ? null : JSON.parse((await core.artifact(result.runId, descriptor.artifactId) as { content: string }).content) as { status: string; requirement: { reasons: string[] }; degradedReviewCoverage: boolean };
+      expect({ depth, finding, status: recorded?.status ?? null, reasons: recorded?.requirement.reasons ?? null, degraded: recorded?.degradedReviewCoverage ?? false }).toEqual({ depth, finding, status, reasons, degraded: false });
       expect(requests.filter(({ stage }) => stage === "critic")).toHaveLength(status === "completed" ? 1 : 0);
       expect((await core.gate(result.runId)).reasons).not.toContain("degraded_critic_coverage");
     }
