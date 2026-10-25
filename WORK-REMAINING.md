@@ -110,28 +110,21 @@ research report, kept outside the repository in the experiments folder's `ui-202
 chooses from ("arbitra UI Mockups": start, watch, issues, plan and results, and the words). The owner chose A for
 every screen (October 25), with Watch's stages drawn as a graph whose lines into the running stage move, saving the
 plan as the Summary's first action, and the Lighter lineup at medium and low effort. The build has started on the
-`ui` branch: the run page first, then Issues, Plan and Results, then New run once the depths are settled. Defects the inventory
+`ui` branch: the run page first, then Issues, Plan and Results; New run is built (October 25) as one page: the project,
+a card per depth with what each step runs and what a run will use, the steps with their switches, what to read, what
+goes into the plan, and this computer, checked as it is filled in. Defects the inventory
 found, fixed in the rebuild: an absent run answers `RUN_API_500`; Workflows opens on an `UNAUTHORIZED_CHANGE` refusal;
 the report's copy button is announced as "copy run id"; saving the plan twice writes a second folder; Overview and
 Issues scroll sideways on a phone; the check says "ready to start" above a refused snapshot; a failed run offers a
 resume that cannot help; a whole-repository audit's graph shows "Diff scope" and a "Disagreement" loop with no review
 rounds; the repository field starts on the server's own folder; and depth means effort, against spec §16.4. It owns:
 
-- "Balanced" and "deep" name two settings: the workflow (two or three auditors) and the audit depth (effort).
-- The owner's drag-and-drop "slots" idea for settings, audited against a preset with a lineup card and a plain role
-  list, not assumed.
-- How models are found and chosen, which the setup barely says.
 - Whether a run's critic ran or was "not required", which the run page does not show.
-- **What a run will use, before it starts:** an estimate in each vendor's five-hour and weekly windows from the
-  measured 600 to 700 tokens a line, with its basis, and the lines and share of the estimate per folder, each folder
-  one tick to leave out. Today the check says "not known before the run" and "no pricing is configured".
-- **Suggested leave-outs:** generated, vendored and minified files ticked with their reason, each one untickable
-  (veritra: 20,000 lines left out by hand, 16% of what would be read). The detection is built (12bbaf6) and today's check lists them with one "leave them out".
-- **Tests: audit them or leave them out,** with this project's test lines and their share of the estimate. Default on:
-  on four runs 6 to 15% of confirmed issues cited only tests (all medium, mostly tests that cannot catch the defect
-  they are named for), for about 4 to 7% of a run's tokens in units holding only tests.
-- **What goes into the plan:** critical and high only, or medium too (`planScope.minimumSeverity`). Medium issues
-  are 77 to 91% of verification questions, and verification about 55% of a run.
+- **New run, left for later:** what a run will use as a share of each vendor's five-hour and weekly windows (the app
+  does not know the person's plan; today it shows tokens per vendor and a time range from the measured runs); a
+  switch for checking each issue, which the runtime does not have; the variant search as one entry in the steps list
+  once `workflow.variantSearch` lands; and estimates for balanced and cheap, which say "not measured yet" until a run
+  of each is measured.
 
 ## Need design
 

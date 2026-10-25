@@ -105,7 +105,7 @@ one job, and each addressable:
 |---|---|---|
 | Runs | `/` | Every recorded run: its state, what ran it, its gate, the repository it read |
 | Run | `?run=<id>&view=<tab>&item=<kind>:<id>` | One run: header, the decisions it waits on, the tabs its mode has, one details panel |
-| New run | `?page=new-run&from=<start>` | One configuration: filled in, checked by the orchestrator's preflight, saved, started |
+| New run | `?page=new-run&from=<lineup>` | One lineup on one page: the project, how thorough (a card per depth, with each step's model and effort and what a run will use, from measured runs), the steps, what to read and what goes into the plan; checked by the orchestrator's preflight as it is filled in, saved when started |
 | Workflows | `?page=workflows` | The workflow graph editor |
 
 A run page reads top to bottom:
