@@ -64,17 +64,19 @@ export function modelName(modelId: string): string {
 }
 function capitalise(word: string): string { return word.charAt(0).toUpperCase() + word.slice(1); }
 
-type EffortStage = "discovery" | "peerReview" | "verification" | "planner" | "critic";
+type EffortStage = "discovery" | "clustering" | "peerReview" | "verification" | "secondOpinion" | "critiqueCheck" | "planner" | "critic" | "revision";
 /**
- * The effort a stage asks of a profile, in the vendor's own word: the stage's `stageEffort`, else the audit depth's
- * (fast: low, balanced: medium, deep: high), translated by the profile's `effort.params` (deep runs Opus at "xhigh").
- * Discovery always follows the depth. A model whose ID carries its effort (`gemini-3.8-flash-medium`) shows the level.
+ * The effort a stage asks of a profile, in the vendor's own word: the stage's `stageEffort` (one level, or one per
+ * profile), else verification's for the second opinion and the critique check, else the audit depth's (fast low,
+ * deep high, otherwise medium), as the profile's `effort.params` sends it (a stored run's profile may send Opus
+ * "xhigh" for "high"). A model whose ID carries its effort (`gemini-3.8-flash-medium`) shows the level.
  */
 export function effortFor(config: Readonly<Record<string, unknown>>, alias: string, stage: EffortStage): string {
   const depth = config["auditDepth"];
   const byDepth = depth === "fast" ? "low" : depth === "deep" ? "high" : "medium";
-  const configured = stage === "discovery" ? undefined : record(record(record(config["workflow"])["modelExecution"])["stageEffort"])[stage];
-  const level = typeof configured === "string" ? configured : byDepth;
+  const stages = record(record(record(config["workflow"])["modelExecution"])["stageEffort"]);
+  const levelOf = (name: string): string | undefined => { const value = stages[name]; const own = typeof value === "string" ? value : record(value)[alias]; return typeof own === "string" ? own : undefined; };
+  const level = levelOf(stage) ?? (stage === "secondOpinion" || stage === "critiqueCheck" ? levelOf("verification") : undefined) ?? byDepth;
   const params = record(record(record(record(config["models"])[alias])["effort"])["params"])[level];
   const vendor = record(params)["effort"] ?? record(params)["reasoning_effort"];
   if (typeof vendor === "string") return vendor;
@@ -82,7 +84,7 @@ export function effortFor(config: Readonly<Record<string, unknown>>, alias: stri
   return slug ?? level;
 }
 
-/** The effort a role runs at (an auditor at the audit's depth, a later stage at its own), or null for another role. */
+/** The effort a role runs at (an auditor at finding's effort, a later stage at its own), or null for another role. */
 export function roleEffort(config: Readonly<Record<string, unknown>>, alias: string, node: string): string | null {
   const stage = node.startsWith("auditor-") ? "discovery" : node;
   return stage === "discovery" || stage === "verification" || stage === "planner" || stage === "critic" ? effortFor(config, alias, stage) : null;

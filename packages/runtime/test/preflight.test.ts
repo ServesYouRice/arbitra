@@ -32,6 +32,11 @@ describe("configuration preflight", () => {
     expect(codes(configurationDiagnostics(await template(name)))).toEqual([]);
   });
 
+  it.each(["subscription-audit", "subscription-audit-gemini"])("has %s send Claude Code and Codex an effort word at every stage", async (name) => {
+    // The templates' profiles sent no effort words, so a model named in them by hand ran at the CLI's own default.
+    expect(configurationDiagnostics(await template(name)).filter(({ code }) => code.startsWith("MODEL_EFFORT"))).toEqual([]);
+  });
+
   it("names missing Audit roles and the preset's auditor profiles", async () => {
     const config = mutable(await template("audit-mixed-providers"));
     delete execution(config)["roles"];
