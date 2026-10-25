@@ -282,7 +282,7 @@ test.describe("workflow canvas editing", () => {
     await expect(page.getByLabel("executed graph identity")).toHaveText(`executes ${graphId} @ ${version} · executed graph matches the saved version`);
     await expect(page.getByRole("list", { name: "live run stages" })).toContainText("◫ human · New human");
     await viewTab(page, "Issues").click();
-    await expect(page.getByRole("region", { name: "issue board" }).getByText(/^\d+ of \d+ canonical issues shown$/u)).toBeVisible();
+    await expect(page.getByRole("region", { name: "issues" }).getByText(/^\d+ issues? · \d+ confirmed · \d+ unsettled · \d+ rejected · \d+ not checked$/u)).toBeVisible();
     await openRecord(page, "Activity");
     await shot(page, testInfo, "editor-06-saved-graph-completed");
   });

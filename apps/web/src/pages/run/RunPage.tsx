@@ -12,25 +12,26 @@ import type { WorkflowNode } from "../../graph/GraphView.js";
 import { recordedStages } from "../../graph/recorded-stages.js";
 import { EvaluationView } from "../../views/evaluation/EvaluationView.js";
 import { FeatureView } from "../../views/feature/FeatureView.js";
-import { IssueBoardView } from "../../views/issue-board/IssueBoardView.js";
-import { IssueDetails } from "../../views/issue-board/IssueDetails.js";
 import { RUN_ARTIFACT_KINDS, useRunArtifact } from "../../views/issue-board/run-artifacts.js";
-import { PlanView } from "../../views/plan/PlanView.js";
 import { TraceDetails } from "../../views/plan/TraceDetails.js";
 import { TestingView } from "../../views/testing/TestingView.js";
 import { AttemptDetails } from "../../views/traces/TraceView.js";
-import { ActivityTab } from "./ActivityTab.js";
+import { ActivityTab, recordLabel } from "./ActivityTab.js";
 import { DecisionBanner } from "./DecisionBanner.js";
 import { DetailsPanel } from "./DetailsPanel.js";
-import type { PreflightRecord } from "./facts.js";
+import { stepModels, type PreflightRecord } from "./facts.js";
 import { HowItRanTab } from "./HowItRanTab.js";
+import { IssuePanel } from "./IssuePanel.js";
+import { IssuesTab } from "./IssuesTab.js";
 import { NodeDetails } from "./NodeDetails.js";
 import { useNoticeOnStop } from "./notify.js";
+import { PlanTab, RecordedPlan } from "./PlanTab.js";
 import { ResultsTab } from "./ResultsTab.js";
 import { RunHeader } from "./RunHeader.js";
 import { parseSelection, selectionItem, type Selection } from "./selection.js";
 import { SummaryTab } from "./SummaryTab.js";
 import { placesFor, RECORD_TABS, TAB_LABELS, tabsFor } from "./tabs.js";
+import { TaskPanel } from "./TaskPanel.js";
 
 /**
  * One run: what and where in the header, anything it waits on in the banner, then its tabs. Summary leads; the
@@ -83,24 +84,27 @@ export function RunPage({ runId, tab, item }: { readonly runId: string; readonly
   const content = !settled ? <p role="status">loading the run</p>
     : current === "summary" ? <SummaryTab runId={runId} mode={mode} run={resource} overview={overview.value} artifacts={artifacts} progress={progress} events={events} reason={reason} refreshKey={`${refreshKey}:${version}`} selectedNode={selectedNode} onSelectNode={selectNode} />
     : current === "issues" ? listing.loaded && !has(RUN_ARTIFACT_KINDS.canonicalIssues) ? <NotYet runId={runId} state={state ?? overview.value?.state ?? null} what="issues" />
-      : <IssueBoardView api={apis.artifacts} runId={runId} refreshKey={refreshKey} selectedId={selection?.kind === "issue" ? selection.id : null} onSelect={(id) => select({ kind: "issue", id })} />
+      : <IssuesTab runId={runId} overview={overview.value} artifacts={artifacts} refreshKey={refreshKey} selectedId={selection?.kind === "issue" ? selection.id : null} onSelect={(id) => select({ kind: "issue", id })} />
     : current === "plan" ? listing.loaded && !has(RUN_ARTIFACT_KINDS.plan) ? <NotYet runId={runId} state={state ?? overview.value?.state ?? null} what="plan" />
-      : <PlanView api={apis.artifacts} runId={runId} refreshKey={refreshKey} selected={selection?.kind === "trace" ? selection : null} onSelect={(level, id) => select({ kind: "trace", level, id })} />
+      : mode === "audit" ? <PlanTab runId={runId} overview={overview.value} artifacts={artifacts} refreshKey={refreshKey} selectedTask={selection?.kind === "trace" && selection.level === "task" ? selection.id : null} onSelectTask={(id) => select({ kind: "trace", level: "task", id })} />
+      : <RecordedPlan runId={runId} refreshKey={refreshKey} selected={selection?.kind === "trace" ? selection : null} onSelect={(level, id) => select({ kind: "trace", level, id })} />
     : current === "results" ? <ResultsTab runId={runId} planned={has(RUN_ARTIFACT_KINDS.plan)} />
     : current === "how-it-ran" ? <HowItRanTab runId={runId} mode={mode} run={resource} overview={overview.value} progress={progress} events={events} artifacts={artifacts} refreshKey={`${refreshKey}:${version}`} selectedNode={selectedNode} onSelectNode={selectNode} />
     : current === "requirements" ? <FeatureView api={apis.requirements} artifactApi={apis.artifacts} runId={runId} run={resource} artifacts={artifacts} refreshKey={`${refreshKey}:${version}`} onDecided={refresh} />
     : current === "execution" ? <TestingView api={apis.testing} artifactApi={apis.artifacts} runId={runId} run={resource} artifacts={artifacts} refreshKey={refreshKey} />
-    : <Records runId={runId} current={current}>{current === "activity" ? <ActivityTab runId={runId} run={resource} events={events} artifacts={artifacts} overview={overview.value} selection={selection} onSelect={select} /> : <EvaluationView api={apis.evaluation} runId={runId} />}</Records>;
+    : <Records runId={runId} current={current}>{current === "activity" ? <ActivityTab runId={runId} mode={mode} run={resource} events={events} artifacts={artifacts} overview={overview.value} selection={selection} onSelect={select} /> : <EvaluationView api={apis.evaluation} runId={runId} />}</Records>;
 
   const details = selection === null || !settled ? null : (() => {
     const close = (): void => select(null);
     if (selection.kind === "node") {
       const node = findNode(resource, artifacts, selection.id);
-      return <DetailsPanel title={node === null ? `node ${selection.id}` : node.label} onClose={close}>
+      return <DetailsPanel title={node === null ? `node ${selection.id}` : recordLabel(node, mode, stepModels(overview.value))} onClose={close}>
         {node === null ? <p className="state" data-state="unexamined">node {selection.id} is not in this run's graph</p> : <NodeDetails key={node.id} runId={runId} node={node} overview={overview.value} events={events} artifacts={artifacts} onSelect={select} />}
       </DetailsPanel>;
     }
-    if (selection.kind === "issue") return <DetailsPanel title={`issue ${selection.id}`} onClose={close}><IssueDetails key={selection.id} api={apis.artifacts} runId={runId} candidateId={selection.id} refreshKey={refreshKey} /></DetailsPanel>;
+    if (selection.kind === "issue") return <DetailsPanel title={`issue ${selection.id}`} onClose={close}><IssuePanel key={selection.id} runId={runId} candidateId={selection.id} overview={overview.value} artifacts={artifacts} refreshKey={refreshKey} /></DetailsPanel>;
+    // An Audit's task opens in plain words; the traceability chain stays for Feature and Testing plans, and old links.
+    if (selection.kind === "trace" && selection.level === "task" && mode === "audit") return <DetailsPanel title={`task ${selection.id}`} onClose={close}><TaskPanel key={selection.id} runId={runId} taskId={selection.id} refreshKey={refreshKey} /></DetailsPanel>;
     if (selection.kind === "trace") return <DetailsPanel title={`${selection.level} ${selection.id}`} onClose={close}><TraceDetails api={apis.artifacts} runId={runId} level={selection.level} id={selection.id} refreshKey={refreshKey} onSelect={(level, id) => select({ kind: "trace", level, id })} /></DetailsPanel>;
     if (selection.kind === "attempt") return <DetailsPanel title={`model attempt ${selection.id}`} onClose={close}><AttemptDetails key={selection.id} api={apis.traces} runId={runId} traceId={selection.id} /></DetailsPanel>;
     return <DetailsPanel title="artifact" onClose={close}><ArtifactView key={selection.id} api={apis.artifacts} runId={runId} artifactId={selection.id} /></DetailsPanel>;

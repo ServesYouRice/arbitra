@@ -2,8 +2,8 @@ import type { TraceArtifact, TraceEntry, TracePage } from "@arbitra/schemas/trac
 export type TraceFilters = Partial<Record<"nodeId" | "modelId" | "protocolId" | "outcome" | "activity", string>>;
 export class TraceApi {
   constructor(private readonly baseUrl = "") {}
-  async list(runId: string, filters: TraceFilters, offset = 0): Promise<TracePage> {
-    const query = new URLSearchParams({ offset: String(offset), limit: "25" });
+  async list(runId: string, filters: TraceFilters, offset = 0, limit = 25): Promise<TracePage> {
+    const query = new URLSearchParams({ offset: String(offset), limit: String(limit) });
     for (const [key, value] of Object.entries(filters)) if (value) query.set(key, value);
     return this.request(`/runs/${encodeURIComponent(runId)}/traces?${query.toString()}`);
   }

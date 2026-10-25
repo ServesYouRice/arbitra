@@ -3,59 +3,69 @@ import { accessibilityAudit, createRun, expectInert, open, shot, viewTab } from 
 
 /** Visual, keyboard and accessibility QA of a run's tabs over real runs. */
 test.describe("run tabs", () => {
-  test("issue board filters, row selection and untrusted evidence in the details panel", async ({ page, request }, testInfo) => {
+  test("issues by verdict, found by file or words, opened from the keyboard with the finder's words marked untrusted", async ({ page, request }, testInfo) => {
     const runId = await createRun(request, "audit");
     await open(page, runId, "issues");
-    const board = page.getByRole("region", { name: "issue board" });
-    const count = board.getByText(/^\d+ of \d+ canonical issues shown$/u);
-    await expect(count).toBeVisible();
-    const total = Number(/of (\d+)/u.exec(await count.innerText())?.[1]);
+    const issues = page.getByRole("region", { name: "issues" });
+    await expect(issues.getByText(/^\d+ issues? · \d+ confirmed · \d+ unsettled · \d+ rejected · \d+ not checked$/u)).toBeVisible();
+    const verdicts = issues.getByRole("tablist", { name: "verdict" });
+    await expect(verdicts.getByRole("tab")).toHaveCount(4);
+    // The arrow keys move between the verdicts, as a tab list's do.
+    const current = verdicts.getByRole("tab", { selected: true });
+    const before = await current.innerText();
+    await current.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(verdicts.getByRole("tab", { selected: true })).not.toHaveText(before);
+    await page.keyboard.press("ArrowLeft");
+    await expect(verdicts.getByRole("tab", { selected: true })).toHaveText(before);
+    const group = issues.getByRole("tabpanel");
+    const rows = group.locator(".issue-row");
+    const total = await rows.count();
     expect(total).toBeGreaterThan(0);
-    const severities = await board.getByLabel("severity", { exact: true }).locator("option").allInnerTexts();
-    const severity = severities.find((value) => value !== "any");
-    if (severity === undefined) throw new Error("NO_SEVERITY_OPTION");
-    await board.getByLabel("severity", { exact: true }).selectOption(severity);
-    const filtered = Number(/^(\d+)/u.exec(await count.innerText())?.[1]);
-    expect(filtered).toBeGreaterThan(0);
-    expect(filtered).toBeLessThanOrEqual(total);
-    await expect(board.locator(".issue-row")).toHaveCount(filtered);
-    for (const row of await board.locator(".issue-row").all()) await expect(row.locator(".issue-row__severity")).toContainText(severity);
-    await board.getByRole("button", { name: "clear filters" }).click();
-    await expect(count).toHaveText(`${total} of ${total} canonical issues shown`);
-    // Keyboard: select the first issue; its full record opens beside the board and in the address.
-    await board.locator(".issue-row__title").first().focus();
+    // Find narrows the group to the issues whose title, words or places hold what is typed.
+    const place = (await rows.first().locator(".issue-row__place").innerText()).split(":")[0] ?? "";
+    await group.getByRole("searchbox", { name: "Find" }).fill(place);
+    await expect(group.getByText(/^\d+ of \d+ match$/u)).toBeVisible();
+    expect(await rows.count()).toBeGreaterThan(0);
+    expect(await rows.count()).toBeLessThanOrEqual(total);
+    await group.getByRole("searchbox", { name: "Find" }).fill("");
+    // Keyboard: select the first issue; its record opens beside the list and in the address.
+    await rows.first().locator(".issue-row__title").focus();
     await page.keyboard.press("Enter");
     const details = page.getByRole("complementary", { name: /^details · issue /u });
     await expect(details).toBeVisible();
     await expect(page).toHaveURL(/item=issue%3A/u);
-    const finding = details.getByRole("region", { name: "source findings" }).locator("summary").first();
-    await finding.click();
-    await expect(details.getByRole("list", { name: /^evidence for / }).first()).toBeVisible();
-    await expect(details.getByRole("region", { name: "claim" }).locator("[data-state='tainted']")).toBeVisible();
+    await expect(details.getByRole("region", { name: "evidence" })).toBeVisible();
+    await expect(details.getByRole("region", { name: "what was found" }).locator("[data-state='tainted']")).toBeVisible();
+    await expect(details.getByRole("region", { name: "the check" })).toBeVisible();
     await expectInert(page);
     expect(await accessibilityAudit(page)).toEqual([]);
-    await shot(page, testInfo, "views-01-issue-board");
+    await shot(page, testInfo, "views-01-issues");
     await page.keyboard.press("Escape");
     await expect(details).toHaveCount(0);
     await expect(page).not.toHaveURL(/item=/u);
   });
 
-  test("plan traceability is navigable from the keyboard", async ({ page, request }, testInfo) => {
+  test("the plan's tasks open one click down from the keyboard, and lead to the issues they fix", async ({ page, request }, testInfo) => {
     const runId = await createRun(request, "audit");
     await open(page, runId, "plan");
-    const plan = page.getByRole("region", { name: "plan" });
-    await expect(plan.getByText(/tasks and capability routing/iu)).toBeVisible();
-    await plan.getByRole("table", { name: "plan tasks" }).getByRole("button").first().focus();
+    const tasks = page.getByRole("region", { name: /Fix, in this order · \d+ tasks?$/u });
+    await expect(tasks).toBeVisible();
+    await tasks.locator(".plan-task__title").first().focus();
     await page.keyboard.press("Enter");
     const details = page.getByRole("complementary", { name: /^details · task /u });
-    await expect(details.getByLabel("traceability trail")).toBeVisible();
-    const forward = details.getByRole("region", { name: "forward links" }).getByRole("button").first();
-    await forward.focus();
-    await page.keyboard.press("Enter");
-    // Each step is the new selection, so the panel is now named for the node reached.
-    await expect(page.getByRole("complementary", { name: /^details · validation /u }).getByLabel("traceability trail").locator("li")).toHaveCount(2);
+    await expect(details).toBeVisible();
+    await expect(page).toHaveURL(/item=trace%3Atask%3A/u);
+    const fixes = details.getByRole("region", { name: "what it fixes" });
+    await expect(fixes).toBeVisible();
     expect(await accessibilityAudit(page)).toEqual([]);
-    await shot(page, testInfo, "views-02-plan-traceability");
+    await shot(page, testInfo, "views-02-plan-task");
+    const issue = fixes.getByRole("link").first();
+    if (await issue.count() === 0) return;
+    await issue.focus();
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/view=issues&item=issue%3A/u);
+    await expect(page.getByRole("complementary", { name: /^details · issue /u })).toBeVisible();
   });
 
   test("evaluation keeps unknown measurements unknown", async ({ page, request }, testInfo) => {

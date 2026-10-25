@@ -6,20 +6,32 @@ import { useApis } from "../../app/apis.js";
 import { artifactName, shortPath } from "../../app/format.js";
 import { GraphView } from "../../graph/GraphView.js";
 import { TraceView } from "../../views/traces/TraceView.js";
+import { stepName, type Mode } from "../../app/words.js";
 import { modelNodeLabels } from "./models.js";
 import type { Selection } from "./selection.js";
 
-function withModelLabels<T extends { readonly nodes: readonly { readonly id: string; readonly label: string }[] }>(workflow: T, configuration: Readonly<Record<string, unknown>> | null): T {
+/**
+ * A node's name in the records: an Audit's steps by their names ("Read the project", "Merge duplicates"), since a
+ * whole-project audit's graph is the diff graph's and its labels said "Diff scope" and "Disagreement" (UI inventory,
+ * October 25, 2026); other graphs keep their labels. A model node adds the model and effort that ran it.
+ */
+export function recordLabel(node: { readonly id: string; readonly kind: string; readonly label: string }, mode: Mode, models: ReadonlyMap<string, string>): string {
+  const model = models.get(node.id);
+  return `${stepName(node, mode)}${model === undefined ? "" : ` · ${model}`}`;
+}
+
+function withRecordLabels<T extends { readonly nodes: readonly { readonly id: string; readonly kind: string; readonly label: string }[] }>(workflow: T, mode: Mode, configuration: Readonly<Record<string, unknown>> | null): T {
   const labels = modelNodeLabels(configuration);
-  return labels.size === 0 ? workflow : { ...workflow, nodes: workflow.nodes.map((node) => labels.has(node.id) ? { ...node, label: `${node.label} · ${labels.get(node.id) ?? ""}` } : node) };
+  return { ...workflow, nodes: workflow.nodes.map((node) => ({ ...node, label: recordLabel(node, mode, labels) })) };
 }
 
 /**
  * What the run did, step by step: the executed graph with each node's status, every
  * recorded model attempt, and every persisted artifact. Each opens in the details panel.
  */
-export function ActivityTab({ runId, run, events, artifacts, overview, selection, onSelect }: {
+export function ActivityTab({ runId, mode, run, events, artifacts, overview, selection, onSelect }: {
   readonly runId: string;
+  readonly mode: Mode;
   readonly run: RunResource | null;
   readonly events: readonly RunEvent[];
   readonly artifacts: readonly ArtifactDescriptor[];
@@ -28,8 +40,8 @@ export function ActivityTab({ runId, run, events, artifacts, overview, selection
   readonly onSelect: (selection: Selection) => void;
 }): ReactElement {
   const { traces } = useApis();
-  // Model nodes read as the model and effort that ran them ("Auditor A · Opus 5.5 · xhigh"), not only their role.
-  const workflow = useMemo(() => run?.workflow === undefined ? undefined : withModelLabels(run.workflow, overview?.configuration ?? null), [run?.workflow, overview?.configuration]);
+  // Steps read by their names, and model nodes as the model and effort that ran them ("Find issues · Opus 5.5 · xhigh").
+  const workflow = useMemo(() => run?.workflow === undefined ? undefined : withRecordLabels(run.workflow, mode, overview?.configuration ?? null), [run?.workflow, mode, overview?.configuration]);
   return <div className="activity">
     {run?.workflow === undefined ? <p className="state" data-state="unexamined">{run === null ? "reading the run" : "no workflow recorded for this run"}</p>
       : <GraphView workflowJson={workflow ?? run.workflow} runEvents={events} artifacts={artifacts} selectedNodeId={selection?.kind === "node" ? selection.id : null} onSelect={(node) => onSelect({ kind: "node", id: node.id })} {...(run.workflowGraph === undefined ? {} : { identity: run.workflowGraph })} />}
