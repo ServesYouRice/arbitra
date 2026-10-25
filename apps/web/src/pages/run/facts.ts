@@ -48,7 +48,8 @@ export function runTime(progress: RunProgress | null, overview: RunOverview | nu
 
 /**
  * How long each step took, as recorded: "finding 53 min, checking 19 min, plan 26 min". Steps that ran side by side
- * (the finders) count once, as the longest of them. Null when the run's records carry no stage times.
+ * (the finders) count once, as the longest of them; steps under a minute are left out. Null when no step's time is
+ * recorded or every step took under a minute.
  */
 export function stageTimes(workflow: WorkflowJson, mode: Mode, progress: RunProgress | null, now: number): string | null {
   if (progress === null) return null;
@@ -56,7 +57,8 @@ export function stageTimes(workflow: WorkflowJson, mode: Mode, progress: RunProg
   for (const node of workflow.nodes) {
     const stage = progress.stages.find(({ nodeId }) => nodeId === node.id);
     const elapsed = stage === undefined || stage.status === "waiting" || stage.status === "reused" ? null : stageElapsed(stage, now);
-    if (elapsed === null) continue;
+    // A step of seconds (reading the project, most of all) says nothing beside steps of minutes.
+    if (elapsed === null || elapsed < 60_000) continue;
     const name = stepShort(node, mode);
     steps.set(name, Math.max(steps.get(name) ?? 0, elapsed));
   }

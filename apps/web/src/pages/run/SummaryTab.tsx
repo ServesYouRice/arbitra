@@ -302,7 +302,7 @@ export function RanFacts({ runId, mode, overview, progress, confirmed, critique,
         {hasCritic ? <div><dt>reviewed the plan</dt><dd>{[models.get("critic"), critique === null ? null : criticWords(critique)].filter(Boolean).join(" · ") || "recorded no review"}</dd></div> : null}
       </>}
     </dl>
-    {full ? null : <div className="actions">
+    {full ? null : <div className="summary-links">
       <CopyButton className="link-button more-link" label="Copy a report to send" read={() => reportText(runId)} />
       <Link className="more-link" to={{ page: "run", runId, tab: "how-it-ran", item: null }}>How it ran, in full</Link>
     </div>}

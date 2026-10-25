@@ -231,7 +231,7 @@ describe("the run page", () => {
     render(<App />);
     const facts = await screen.findByRole("region", { name: "Time, tokens and models" });
     await waitFor(() => expect(fact(facts, "tokens")).toBe("26.8M · 213K per confirmed issue"));
-    expect(fact(facts, "time")).toBe("1 h 45 · reading under a minute, finding 53 min, merging 4 min, checking 19 min, plan 26 min, review 2 min");
+    expect(fact(facts, "time")).toBe("1 h 45 · finding 53 min, merging 4 min, checking 19 min, plan 26 min, review 2 min");
     expect(fact(facts, "found issues")).toBe("Opus 5.5 · xhigh, GPT-6.1 Sol · xhigh");
     expect(fact(facts, "checked them")).toBe("Opus 5.5 · high");
     expect(fact(facts, "wrote the plan")).toBe("Opus 5.5 · high");

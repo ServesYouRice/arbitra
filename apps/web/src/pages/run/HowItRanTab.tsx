@@ -59,7 +59,7 @@ export function HowItRanTab({ runId, mode, run, overview, progress, events, arti
     </section>
     <section aria-labelledby="records-title" className="summary-section">
       <h2 className="panel-title" id="records-title">Records</h2>
-      <ul className="plain-list">
+      <ul className="plain-list records-list">
         <li><Link to={{ page: "run", runId, tab: "activity", item: null }}>Activity</Link> <span className="muted">· the executed graph, every model call and every recorded artifact</span></li>
         <li><Link to={{ page: "run", runId, tab: "evaluation", item: null }}>Evaluation</Link> <span className="muted">· what was checked against the source, per model, and the research measures</span></li>
       </ul>
