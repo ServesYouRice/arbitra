@@ -25,6 +25,9 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
   native-harness suites included.
 - **Research review, October 25:** every step checked against other labs, products and our own runs
   ([research](docs/research.md#12-the-review-of-october-25)). Its ideas are placed below.
+- **veritra, October 25:** audit running on 45ed1d2 (`run-e5546c4c`, 416 files, 103,575 lines of which about 40,000
+  are tests; generated files left out). The 400-file snapshot limit refused it and is now 1,000. The builds marked
+  *before veritra* were not in it, so this run is their baseline.
 
 ## Order of work
 
