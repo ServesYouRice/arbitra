@@ -139,11 +139,14 @@ said the plan checks unsettled issues first, when the saved plan checks them aft
 was already named for the report. New run was built the same day as one page: the project, a card per depth with what each step runs and what a run
 will use, the steps with their switches (the variant search among them), what to read, what goes into the plan, and
 this computer, checked as it is filled in. Fixed by it: the check said "ready to start" above a refused snapshot; the
-repository field started on the server's own folder; and depth meant effort, against spec §16.4. Still open from the
-inventory: Workflows opens on an `UNAUTHORIZED_CHANGE` refusal; Overview scrolls sideways on a phone; and a failed
-run offers a resume that cannot help. It owns:
+repository field started on the server's own folder; and depth meant effort, against spec §16.4. The inventory's last
+defects, fixed the same evening: Workflows opened on an `UNAUTHORIZED_CHANGE` refusal (a preset's template kept the
+shipped ID; it now opens as `<preset>-copy`); a failed run offered a resume that could not help (the recorded reason now
+decides: start again, fix this computer and resume, resume now, or update arbitra and then resume, as veritra's four
+stops needed); and the run page did not say whether the plan was reviewed (How it ran, on the Summary too, now says it,
+also when Review the plan was off). Overview no longer scrolls sideways on a phone: on the rebuilt pages the three
+real runs' Summary and every other place measured 0 px at 390 px. It owns:
 
-- Whether a run's critic ran or was "not required", which the run page does not show.
 - **New run, left for later:** what a run will use as a share of each vendor's five-hour and weekly windows (the app
   does not know the person's plan; today it shows tokens per vendor and a time range from the measured runs); a
   switch for checking each issue, which the runtime does not have; estimates for balanced and cheap, which say "not
