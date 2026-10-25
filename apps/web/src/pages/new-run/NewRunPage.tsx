@@ -16,7 +16,7 @@ import { DEFAULT_START, SCRIPTED_AUDIT, TEMPLATES } from "./templates.js";
 
 const PRESET_SHAPES: Readonly<Record<string, string>> = Object.freeze({
   "audit-deep": "Three independent auditors, bounded peer review, verification, a planner and a critic.",
-  "audit-balanced": "Two independent auditors, bounded peer review, verification, a planner, and a critic when one is set.",
+  "audit-balanced": "Two independent auditors, bounded peer review, verification, a planner, and, when one is set, a critic at depth deep or for a critical or high security issue.",
   "diff-review": "Two independent auditors over a diff, bounded review, verification and a planner.",
   "diff-fast": "One auditor over a diff, deterministic verification and a planner; no peer review, so every issue stays single-source.",
 });
@@ -257,7 +257,7 @@ function AuditFields({ draft, edit, setDraft, listing }: { readonly draft: Draft
         <select aria-label="audit depth" value={String(draft["auditDepth"] ?? "balanced")} onChange={(event) => edit(["auditDepth"], event.target.value)}>{DEPTH.map(([key, text]) => <option key={key} value={key}>{key} · {text}</option>)}</select>
       </label>
     </div>
-    <p className="field__hint">Peer review: {CONSENSUS.find(([key]) => key === draft["consensusPolicy"])?.[1] ?? "unknown policy"}. Disputed issues get another round, up to the limit (0 to 3). Depth is the effort requested from auditor models{scripted ? "; scripted detectors ignore it" : ""}.</p>
+    <p className="field__hint">Peer review: {CONSENSUS.find(([key]) => key === draft["consensusPolicy"])?.[1] ?? "unknown policy"}. Disputed issues get another round, up to the limit (0 to 3). Depth is the effort requested from the models{scripted ? "; scripted detectors ignore it" : ". A model audit runs its plan critic at depth deep or when it plans a critical or high security issue, and otherwise records it as not required"}.</p>
     <label className="field">checkpoints
       <select aria-label="checkpoints" value={typeof checkpoints === "string" ? checkpoints : ""} onChange={(event) => edit(["workflow", "checkpoints"], event.target.value === "" ? undefined : { mode: event.target.value })}>
         <option value="">none</option><option value="interactive">interactive · stop for your decision</option><option value="automatic">automatic · decide from the configuration</option>

@@ -83,7 +83,7 @@ export function roleSlots(draft: Draft): readonly RoleSlot[] {
   return [
     { label: "planner", path: [...base, "planner"], multiple: false, optional: false, hint: "turns accepted issues into the plan" },
     { label: "verifier", path: [...base, "verifier"], multiple: false, optional: false, hint: "answers the single model question verification may ask" },
-    { label: "critic", path: [...base, "critic"], multiple: false, optional: true, hint: "reviews the plan; audit-deep requires one, and audit-balanced runs one when it is set" },
+    { label: "critic", path: [...base, "critic"], multiple: false, optional: true, hint: "reviews the plan at depth deep or when a critical or high security issue is planned; audit-deep requires one" },
   ];
 }
 
