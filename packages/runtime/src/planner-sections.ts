@@ -3,6 +3,7 @@ import { planIRSchema, type PlanIR, type UnresolvedQuestion } from "@arbitra/sch
 import { plannerQuestionGroupsSchema, type PlannerQuestionGroups } from "@arbitra/schemas/planner-composition.js";
 import type { PlannerInput } from "@arbitra/workflow/nodes/planner/node.js";
 import { validateTraceability, withSharedWritesOrdered } from "@arbitra/workflow/nodes/planner/traceability.js";
+import { isModelOutputRejection, ModelOutputLimitError, ModelRefusalError } from "./context-budget.js";
 import { sendable, type PlannerCompositionPort, type PlannerRecordSet, type PlannerStage } from "./planner-context.js";
 
 /**
@@ -69,10 +70,19 @@ export async function planInSections(input: PlannerInput, port: PlannerCompositi
   const asking = new Set(owners.values()).size < 2 ? undefined : questionsRequest(joined.unresolvedQuestions, owners, sections.map(digest));
   const asked = asking !== undefined && await sendable(port, asking) ? asking : undefined;
   const position = new Map(joined.unresolvedQuestions.map(({ id }, index) => [id, index]));
-  const groups = (asked === undefined ? [] : (asked.schema.parse(await port.call(asked)) as PlannerQuestionGroups).groups)
-    .map(({ questionIds, reason }) => ({ questionIds: [...questionIds].sort((left, right) => (position.get(left) ?? 0) - (position.get(right) ?? 0)), reason }));
+  // Asking once is an improvement, not a requirement: a grouping call that is declined, stops at the output ceiling
+  // or stays invalid after its repairs leaves every question as its section asked it, and the plan goes on.
+  let reply: PlannerQuestionGroups | undefined; let unanswered: { activityId: string; reason: string } | undefined;
+  if (asked !== undefined) {
+    try { reply = asked.schema.parse(await port.call(asked)) as PlannerQuestionGroups; }
+    catch (error) {
+      if (!(error instanceof ModelRefusalError) && !(error instanceof ModelOutputLimitError) && !isModelOutputRejection(error)) throw error;
+      unanswered = { activityId: asked.activityId, reason: (error as Error).message.slice(0, 1_000) };
+    }
+  }
+  const groups = (reply?.groups ?? []).map(({ questionIds, reason }) => ({ questionIds: [...questionIds].sort((left, right) => (position.get(left) ?? 0) - (position.get(right) ?? 0)), reason }));
   const plan = groups.length === 0 ? joined : withQuestionsMerged(joined, groups.map(({ questionIds }) => questionIds));
-  if (asked !== undefined) await port.publish("planner-question-groups", groups.map(({ questionIds: [questionId, ...merged], reason }) => ({ questionId, merged, reason })));
+  if (asked !== undefined) await port.publish("planner-question-groups", { groups: groups.map(({ questionIds: [questionId, ...merged], reason }) => ({ questionId, merged, reason })), ...(unanswered === undefined ? {} : { unanswered }) });
   const diagnostics = records.diagnostics(plan);
   if (diagnostics.length > 0) throw new Error(`PLANNER_SECTIONS_TRACEABILITY_INVALID:${diagnostics.map(({ code }) => code).join(",")}`);
   await port.publish("planner-composition", { kind: "sections_side_by_side", sections: sections.length, recordsPerSection: sections.map(({ length }) => length), logicalModelCalls: sections.length + (asked === undefined ? 0 : 1) });

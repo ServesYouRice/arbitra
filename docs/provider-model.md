@@ -477,7 +477,9 @@ that the review had not rejected.
   that different sections ask for one decision are asked once: a call reads the sections'
   questions alone and names the groups, and each group keeps its first question's id with
   every section's wording and the strictest blocking flag and blast radius, every reference
-  pointing at it. On nextra's 59 questions (October 24) it joined the three on which forwarded
+  pointing at it. A grouping call that is declined, stops at the output ceiling or stays
+  invalid after its repairs leaves every question as asked, records why in
+  `planner-question-groups`, and the plan goes on. On nextra's 59 questions (October 24) it joined the three on which forwarded
   headers to trust, the two blocking ones on how OBS setup may release a held encoder, and two
   on the read-only constraint, in 19 seconds; rules on shared words or shared issues also
   joined different questions in other sectioned plans, such as a repeated consume request

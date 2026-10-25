@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { planIRSchema, type PlanIR, type UnresolvedQuestion } from "@arbitra/schemas/plan.js";
 import type { PlannerBrief, PlannerOutline, PlannerOutlineLinks, PlannerQuestionGroups, PlannerTaskOutline } from "@arbitra/schemas/planner-composition.js";
 import type { PlannerInput } from "@arbitra/workflow/nodes/planner/node.js";
+import { ModelOutputLimitError, ModelRefusalError } from "../src/context-budget.js";
 import { auditPlannerRecords, planWithContext, taskOutline, type PlannerStage } from "../src/planner-context.js";
 
 async function fixture() {
@@ -432,10 +433,29 @@ describe("an audit plan written in sections side by side", () => {
     expect(plan.tasks.map(({ context }) => context[0])).toEqual([...Array(3).fill(`Waits for the answer to ${kept}.`), ...Array(2).fill(`Waits for ${kept}.`)]);
     expect(plan.tasks.map(({ acceptanceCriteria }) => acceptanceCriteria[0])).toEqual([...Array(3).fill(`VAL-001 holds once ${kept} is answered.`), ...Array(2).fill(`VAL-002 holds once ${kept} is answered.`)]);
     expect(JSON.stringify(plan)).not.toContain(merged);
-    expect(artifacts.get("planner-question-groups")).toEqual([{ questionId: kept, merged: [merged], reason: "Both ask which forwarded headers to trust." }]);
+    expect(artifacts.get("planner-question-groups")).toEqual({ groups: [{ questionId: kept, merged: [merged], reason: "Both ask which forwarded headers to trust." }] });
     expect(artifacts.get("planner-composition")).toMatchObject({ logicalModelCalls: 3 });
     // A group names questions of different sections, each once.
     expect(() => stage?.schema.parse({ groups: [{ questionIds: [merged, other], reason: "Same section." }] })).toThrow("PLANNER_QUESTION_GROUPS_INVALID");
     expect(() => stage?.schema.parse({ groups: [{ questionIds: [kept, "Q-9"], reason: "Unknown." }] })).toThrow("PLANNER_QUESTION_GROUPS_INVALID");
+  });
+
+  it.each([
+    ["stays invalid after its repairs", () => Object.assign(new Error("PLANNER_QUESTION_GROUPS_INVALID"), { modelOutputRejected: true }), "PLANNER_QUESTION_GROUPS_INVALID"],
+    ["is declined", () => new ModelRefusalError("planner/questions/x", "declined"), "MODEL_ACTIVITY_REFUSED:planner/questions/x"],
+    ["stops at the output ceiling", () => new ModelOutputLimitError("planner/questions/x"), "MODEL_OUTPUT_LIMIT_REACHED:planner/questions/x"],
+  ])("keeps every question when the call that groups them %s, and records why", async (_, failure, reason) => {
+    const { input, records, port, calls, artifacts } = await sections(undefined, () => { throw failure(); });
+    const plan = await planWithContext(input, { ...port, fits: async (stage) => /^planner\/(?:section|questions)\//u.test(stage.activityId) }, { records, recordsPerSection: 3 });
+    const stage = calls.find(({ activityId }) => activityId.startsWith("planner/questions/"));
+    expect(plan.unresolvedQuestions.map(({ id }) => id)).toEqual((stage?.input as { questions: { id: string }[] }).questions.map(({ id }) => id));
+    expect(plan.tasks.map(({ context }) => context[0])).toEqual([...Array(3).fill(`resolves:${plan.unresolvedQuestions[0]?.id}`), ...Array(2).fill(`resolves:${plan.unresolvedQuestions[1]?.id}`)]);
+    expect(artifacts.get("planner-question-groups")).toEqual({ groups: [], unanswered: { activityId: stage?.activityId, reason } });
+    expect(artifacts.get("planner-composition")).toMatchObject({ logicalModelCalls: 3 });
+  });
+
+  it("fails the plan on any other failure of the call that groups questions", async () => {
+    const { input, records, port } = await sections(undefined, () => { throw new Error("PROVIDER_UNAVAILABLE"); });
+    await expect(planWithContext(input, { ...port, fits: async (stage) => /^planner\/(?:section|questions)\//u.test(stage.activityId) }, { records, recordsPerSection: 3 })).rejects.toThrow("PROVIDER_UNAVAILABLE");
   });
 });
