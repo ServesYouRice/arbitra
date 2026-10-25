@@ -81,8 +81,8 @@ To pick it up:
 ## Status
 
 The full check (`pnpm run ci` and `pnpm build`) runs locally, on the development machine and in a clean
-`node:22` Linux container; no hosted CI is used. It last passed in Linux on October 23, 2026 at b69abda, with
-69 of 69 browser tests in Chromium, Firefox and WebKit.
+`node:22` Linux container; no hosted CI is used. It last passed in Linux on October 25, 2026 at 738a139, with
+69 of 69 browser tests in Chromium, Firefox and WebKit at 2d37c15, and on Windows with every suite.
 
 Live environments used so far:
 
