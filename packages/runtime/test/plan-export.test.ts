@@ -5,8 +5,8 @@ import { basename, join } from "node:path";
 import { SHARED_WRITE_ORDER_NOTE } from "@arbitra/workflow/nodes/planner/traceability.js";
 import { expect, it } from "vitest";
 import type { Orchestrator } from "../src/orchestrator.js";
-import { exportPlan, savedPlans } from "../src/plan-export.js";
-import { planResults } from "../src/plan-results.js";
+import { exportPlan, planOutline, savedPlans } from "../src/plan-export.js";
+import { planResultRecord, planResults } from "../src/plan-results.js";
 
 const task = (id: string, capability: "frontier" | "balanced" | "fast", dependsOn: string[] = []) => ({
   id, title: `Fix ${id}`, goal: { objective: `Objective of ${id}`, doneWhen: ["the defect is gone"] }, addresses: { issues: ["C-1"], validation: [] },
@@ -77,6 +77,15 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
     // A wait the run added only so that edits to one file land in turn is a merge hint, not an order of work.
     // TASK-3's issue says fetchAll retries, and the project has no fetchAll: the README counts it.
     expect(readme).toContain("2. `TASK-2` Fix TASK-2 · 3-fast-model · after TASK-1\n3. `TASK-3` Fix TASK-3 · 2-balanced-model · same files as TASK-1 · 1 not found\n");
+    // The run page shows the same order of work before and after saving: the questions first, the tasks in their
+    // order and folder, and the reports to check after them.
+    expect(await planOutline(orchestrator, "run-12345678-abcd")).toEqual({
+      questions: [{ id: "Q-1", question: "Which way?", blocking: true }, { id: "Q-2", question: "Which colour? Default if unanswered: blue.", blocking: false }],
+      tasks: [{ id: "TASK-1", title: "Fix TASK-1", tier: "frontier", folder: "1-strong-model", after: [], sameFilesAs: [], issues: ["C-1"] },
+        { id: "TASK-2", title: "Fix TASK-2", tier: "fast", folder: "3-fast-model", after: ["TASK-1"], sameFilesAs: [], issues: ["C-1"] },
+        { id: "TASK-3", title: "Fix TASK-3", tier: "balanced", folder: "2-balanced-model", after: [], sameFilesAs: ["TASK-1"], issues: ["C-5"] }],
+      checks: [{ candidateId: "C-2", title: "A disputed defect", severity: "medium" }], checksFolder: "4-unsure", alsoFound: 1, unverified: 1,
+    });
     const balanced = await readFile(join(first.directory, "prompts", "2-balanced-model", "03-TASK-3.md"), "utf8");
     expect(balanced).not.toContain("<done_before_this>");
     expect(balanced).toContain("<shares_files_with>\nNothing here waits for these tasks; they edit the same files.");
@@ -167,7 +176,20 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
     foundWhileFixing: [{ title: "The port search runs past 65535", failedBefore: true }, { title: "", failedBefore: true }, { title: "Untested", failedBefore: false }, 7] }));
     expect(await planResults(repository, "run-12345678-abcd")).toEqual({ directory: first.directory, issues: 3, reported: 2,
       results: { fixed: 1, not_reproducible: 0, no_change_needed: 1, blocked: 0 }, provenByFailingTest: 1, notProvenByTest: 1, checkedEndToEnd: 1, foundWhileFixing: { reported: 2, provenByFailingTest: 1 } });
+    // Each entry as the executor wrote it, for the run page: a result arbitra does not know is kept as written, and a
+    // field of the wrong type reads as not recorded.
+    const record = await planResultRecord(repository, "run-12345678-abcd");
+    expect(record?.summary).toEqual(await planResults(repository, "run-12345678-abcd"));
+    expect(record?.relative).toBe(`.arbitra/plans/${basename(first.directory)}`);
+    expect(Number.isNaN(Date.parse(record?.modifiedAt ?? ""))).toBe(false);
+    const none = { title: null, severity: null, task: null, test: null, proof: null, checkedEndToEnd: null };
+    expect(record?.issues).toEqual([{ ...none, issue: "C-2", result: "no_change_needed", failedBefore: false, proof: "The caller guards it." },
+      { ...none, issue: "C-1", result: "fixed", failedBefore: true, test: "test/a.test.ts", proof: "expected 1, got 2", checkedEndToEnd: true },
+      { ...none, issue: "C-9", result: "solved", failedBefore: null }]);
+    expect(record?.foundWhileFixing).toEqual([{ title: "The port search runs past 65535", severity: null, where: null, result: null, failedBefore: true, test: null, proof: null },
+      { title: "Untested", severity: null, where: null, result: null, failedBefore: false, test: null, proof: null }]);
     expect(await planResults(repository, "run-87654321-abcd")).toBeNull();
+    expect(await planResultRecord(repository, "run-87654321-abcd")).toBeNull();
   } finally { await rm(repository, { recursive: true, force: true }); }
 });
 
@@ -302,9 +324,16 @@ it("marks in each prompt what it names that the code lacks, counts it in the REA
   // stale in most prompts once earlier tasks had landed; the plan critic caught none of it.
   const { repository, orchestrator } = await premiseProject();
   try {
-    const { directory, files } = await exportPlan(orchestrator, "run-12345678-abcd");
+    const { directory, files, premises } = await exportPlan(orchestrator, "run-12345678-abcd");
     const folder = basename(directory);
     expect(files).toEqual(expect.arrayContaining([expect.stringMatching(/check-premises\.mjs$/u), expect.stringMatching(/premises\.json$/u)]));
+    // The counts the README states come back with the save, and with the saved folder after a reload, for the run page.
+    const named = Number(/When the plan was saved, \d+ of the (\d+) things the prompts name were found/u.exec(await readFile(join(directory, "README.md"), "utf8"))?.[1]);
+    expect(premises).toEqual({ named, notFound: 4, prompts: 1 });
+    expect((await savedPlans(orchestrator, "run-12345678-abcd")).saved.map((saved) => saved.premises)).toEqual([{ named, notFound: 4, prompts: 1 }]);
+    // A folder saved before the premise check has no counts, and says so rather than reading as nothing missing.
+    await mkdir(join(repository, ".arbitra", "plans", "2026-10-20-12345678"));
+    expect((await savedPlans(orchestrator, "run-12345678-abcd")).saved.find(({ relative }) => relative.endsWith("2026-10-20-12345678"))?.premises).toBeNull();
     const prompt = await readFile(join(directory, "prompts", "2-balanced-model", "01-TASK-1.md"), "utf8");
     const notFound = /<not_found>\n([\s\S]*?)\n<\/not_found>/u.exec(prompt)?.[1] ?? "";
     expect(notFound).toContain("arbitra could not find these in the project's code when it saved this plan");
@@ -372,5 +401,18 @@ it("ships a script that re-checks a prompt's premises against the working tree a
     const data = JSON.parse(await readFile(join(directory, "premises.json"), "utf8")) as { prompts: Record<string, unknown> };
     await writeFile(join(directory, "premises.json"), JSON.stringify({ ...data, prompts: { ...data.prompts, "TASK-2": { file: "prompts/x.md", hints: [], premises: Array.from({ length: 6_000 }, (_, index) => ({ kind: "symbol", text: `name${index}`.padEnd(200, "x"), role: "premise", saved: { status: "missing", place: null }, flagged: true })) } } }));
     expect(run(repository, "TASK-1").out).toContain("Premise check for TASK-1");
+  } finally { await rm(repository, { recursive: true, force: true }); }
+});
+
+it("masks a credential an executor's results quote before the run page reads them", async () => {
+  const repository = await mkdtemp(join(tmpdir(), "arbitra-plan-results-"));
+  try {
+    const folder = join(repository, ".arbitra", "plans", "2026-10-25-12345678");
+    await mkdir(folder, { recursive: true });
+    await writeFile(join(folder, "results.json"), JSON.stringify({ issues: [{ issue: "C-1", result: "fixed", failedBefore: true, proof: "the log printed sk-abcdefghijklmnopqrstuv as it failed" }],
+      foundWhileFixing: [{ title: "Token in a URL", where: "src/a.ts?token=sk-abcdefghijklmnopqrstuv", failedBefore: false }] }));
+    const record = await planResultRecord(repository, "run-12345678-abcd");
+    expect(record?.issues[0]?.proof).toContain("[REDACTED:");
+    expect(JSON.stringify(record)).not.toContain("sk-abcdefghijklmnop");
   } finally { await rm(repository, { recursive: true, force: true }); }
 });

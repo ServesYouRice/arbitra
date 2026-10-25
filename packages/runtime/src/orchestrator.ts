@@ -620,7 +620,8 @@ export class Orchestrator {
     const events = await store.loadEvents();
     const last = [...events].reverse().find((event): event is Extract<RunEvent, { t: "run_transition" }> => event.t === "run_transition");
     const state = live?.state ?? last?.state ?? "CREATED";
-    if (last === undefined && live === undefined) throw new Error(`RUN_ABSENT:${runId}`);
+    // An absent run is a missing resource. Observed (UI inventory, October 25, 2026): the run page read it as a 500.
+    if (last === undefined && live === undefined) throw Object.assign(new Error(`RUN_ABSENT:${runId}`), { statusCode: 404 });
     const workflow = last === undefined ? undefined : (await store.definitions().load(runId)).graph;
     const checkpoints: RunCheckpointResource[] = [];
     const stored = last === undefined ? undefined : await store.loadContext();
@@ -898,7 +899,7 @@ export class Orchestrator {
       for (const event of history.slice(cursor)) yield event;
       cursor = history.length;
       if (live === undefined) {
-        if (cursor === 0) throw new Error(`RUN_ABSENT:${runId}`);
+        if (cursor === 0) throw Object.assign(new Error(`RUN_ABSENT:${runId}`), { statusCode: 404 });
         return;
       }
       await Promise.race([delay(50), live.result.then(() => undefined, () => undefined)]);

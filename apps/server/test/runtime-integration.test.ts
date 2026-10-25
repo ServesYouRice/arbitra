@@ -93,6 +93,10 @@ describe("real HTTP runtime integration", () => {
       expect(await (await request(`/runs/${started.runId}/overview`)).json()).toMatchObject({ runId: started.runId, scope: { kind: "repository" }, consensusPolicy: "risk_weighted",
         maximumRounds: 2, checkpointMode: null, workflowGraph: null, configuration: null });
       expect((await request("/runs/run-absent/overview")).status).toBe(404);
+      // So is the run itself, which the run page reads first: observed (UI inventory, October 25, 2026), it answered 500.
+      const absent = await request("/runs/run-absent");
+      expect(absent.status).toBe(404);
+      expect(await absent.json()).toMatchObject({ message: "RUN_ABSENT:run-absent" });
     } finally { await app.close(); await rm(root, { recursive: true, force: true }); }
   });
 });
