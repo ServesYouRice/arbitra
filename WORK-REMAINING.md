@@ -11,9 +11,9 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
 
 - **Releases:** v0.2.2 and `checkpoint-2` (October 24, 847878b) are the latest. Work continues on `main`;
   [`TESTERS.md`](TESTERS.md) is the testers' guide.
-- **Default lineup:** New run starts on Claude Code and Codex (`subscription-audit`, audit-balanced at depth deep, no
-  peer-review round, Sol as plan critic and Opus checking its critique); Gemini is the opt-in
-  `subscription-audit-gemini` template, labelled with Google's terms. The Feature templates still use Antigravity as
+- **Default lineup:** New run starts on Claude Code and Codex (`subscription-audit`: two finders at depth deep, no
+  peer-review round, plan critic off); balanced and cheap depths, a third finder and the critic are separate
+  choices in New run (October 25). Gemini is only ever the opt-in third finder, labelled with Google's terms. The Feature templates still use Antigravity as
   their second reviewer behind the same warning.
 - **Evidence:** six real projects audited; nextra's plan carried out on its `dev` branch: all 126 confirmed issues
   were real, 118 shown by a failing test, and 14 more defects were found while fixing. P20 is closed on its pilot

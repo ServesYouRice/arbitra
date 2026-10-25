@@ -16,7 +16,7 @@ already have. It never changes your code.
     ChatGPT.
   - Optional, **Antigravity CLI** (Google AI plan): run `agy` once and sign in. Google's terms say using `agy` inside
     another application is not supported on Google AI Pro or Ultra and may get the account suspended, so arbitra
-    leaves Gemini out unless you choose the template that adds it.
+    leaves Gemini out unless you choose three finders (or the template that adds it).
 
   The default uses Claude Code and Codex together; one is enough to try it. Your code is sent to the vendors you choose
   and to no one else: [what leaves your machine](docs/privacy.md).
@@ -49,15 +49,22 @@ arbitra. Then go on at [Run an audit](#run-an-audit).
 
 1. Click **New run**. Under **Models**, check that the tools you have show as **ready**; if one does not, the line
    says what to do.
-2. New run opens on two auditors on the subscription CLIs with the recommended models and settings: Opus 5.5 and
-   GPT-6.1 Sol audit at xhigh; Opus then checks each issue the plan acts on against the code (a severe issue it
-   rejects is asked of a second model) and writes the plan, and Sol reviews it. The auditors do not review each
-   other's findings: in our tests that round cost about 40% of the tokens and added one or two issues. You can pick
-   another model for each from its list. To add Gemini as a third auditor, choose **Audit · Claude, GPT and Gemini**
-   under **starting point** (read Google's terms above first).
+2. New run opens on two finders on the subscription CLIs at depth **deep**: Opus 5.5 and GPT-6.1 Sol find issues at
+   xhigh; Opus then checks each issue the plan acts on against the code at high (a severe issue it rejects is asked
+   of Sol as well) and writes the plan. The finders do not review each other's findings: in our tests that round
+   cost about 40% of the tokens and added one or two issues. Three choices sit under **what to run**, each on its
+   own:
+   - **audit depth**: **balanced** finds with Opus and Sol at medium and checks medium issues with Sonnet 5.5;
+     **cheap** finds with Sonnet 5.5 and GPT-6 Luna and keeps Opus for the critical and high issues. Both use
+     less of your plans' usage; only deep has been measured on real projects so far.
+   - **finders**: three adds Gemini 3.8 Flash through the Antigravity CLI as an extra finder, and nothing else
+     (read Google's terms above first).
+   - **review the plan with a critic**: off by default; in our runs it rarely caught a plan error.
+
+   You can still pick another model for each profile from its list.
 3. Next to **repository path**, click **browse…** and choose the project folder you want audited (or paste its path).
 4. Click **check configuration**, then **save and start**. The check measures the project and sets the run's token
-   limit for its size. With Gemini added, a project of 11,700 lines took 40 minutes and 7.5 million tokens, and one
+   limit for its size. At depth deep with Gemini added (and the plan critic, then on), a project of 11,700 lines took 40 minutes and 7.5 million tokens, and one
    of 39,000 lines took 105 minutes and 27 million (about a third of a Claude Max 20x five-hour window, most of the
    tokens being Claude's); without Gemini a run uses somewhat less. Start with a small project and mind your plans'
    usage.

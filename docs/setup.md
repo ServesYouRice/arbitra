@@ -34,8 +34,8 @@ The model-backed templates:
 
 | Template | Mode / preset | Wire protocols | Credential variables |
 |---|---|---|---|
-| `audit-mixed-providers.json` | Audit / `audit-deep` (3 auditors, critic) | OpenAI Responses, Anthropic Messages, Gemini Native | `ARBITRA_OPENAI_API_KEY`, `ARBITRA_ANTHROPIC_API_KEY`, `ARBITRA_GEMINI_API_KEY` |
-| `audit-compatible-chat.json` | Audit / `audit-balanced`, module scope `src` | OpenAI Chat Completions (two compatible endpoints) | `ARBITRA_COMPATIBLE_API_KEY`, `ARBITRA_COMPATIBLE_B_API_KEY` |
+| `audit-mixed-providers.json` | Audit / `audit-three-finders` (3 finders, critic off) | OpenAI Responses, Anthropic Messages, Gemini Native | `ARBITRA_OPENAI_API_KEY`, `ARBITRA_ANTHROPIC_API_KEY`, `ARBITRA_GEMINI_API_KEY` |
+| `audit-compatible-chat.json` | Audit / `audit-two-finders`, module scope `src` | OpenAI Chat Completions (two compatible endpoints) | `ARBITRA_COMPATIBLE_API_KEY`, `ARBITRA_COMPATIBLE_B_API_KEY` |
 | `feature-interactive.json` | Feature / `feature-simple`, interactive | Responses, Messages, Gemini | OpenAI, Anthropic, Gemini variables |
 | `feature-automatic.json` | Feature / `feature-simple`, automatic | Messages, Chat Completions, Gemini | Anthropic, compatible, Gemini variables |
 | `testing-plan.json` | Testing / `testing-plan` (read-only) | Gemini, Chat Completions | Gemini, compatible variables |
@@ -47,8 +47,8 @@ with your own Claude, ChatGPT or Google subscription instead of API keys (see
 
 | Template | Mode / preset | Subscription CLIs |
 |---|---|---|
-| `subscription-audit.json` | Audit / `audit-balanced` (2 auditors, critic) | Claude Code, Codex |
-| `subscription-audit-gemini.json` | Audit / `audit-deep` (3 auditors, critic) | Claude Code, Codex, Antigravity CLI (Google's terms: see the [privacy](privacy.md) page) |
+| `subscription-audit.json` | Audit / `audit-two-finders`, depth deep, critic off ([depths](#depths-finders-and-the-plan-critic)) | Claude Code, Codex |
+| `subscription-audit-gemini.json` | Audit / `audit-three-finders`, depth deep, critic off; Gemini is only the third finder | Claude Code, Codex, Antigravity CLI (Google's terms: see the [privacy](privacy.md) page) |
 | `subscription-feature-interactive.json` | Feature, interactive | Claude Code (planner), Codex and Antigravity CLI (reviewers) |
 | `subscription-feature-automatic.json` | Feature, automatic | Claude Code (planner), Codex and Antigravity CLI (reviewers) |
 | `subscription-testing-plan.json` | Testing / `testing-plan` | Claude Code (analyst), Codex (planner) |
@@ -131,7 +131,7 @@ Without any configuration you can also run the scripted Audit, which uses determ
 detectors and no provider:
 
 ```bash
-node apps/cli/dist/src/bin.js audit --preset audit-balanced --module packages/tools
+node apps/cli/dist/src/bin.js audit --preset audit-two-finders --module packages/tools
 ```
 
 It exits `1` with `degraded_coverage` by design; see the [README](../README.md#running-it).
@@ -155,10 +155,14 @@ to start and dispatches nothing.
    enforces them before dispatch (tool use, output/context limits, effort collapse) and
    records requested and resolved effort on every trace. The template files' values are
    conservative starting points, not claims about any model: `limits` are `null` (unknown,
-   never treated as zero), `effort.supported` is `low`/`medium`/`high` with an explicit
-   `xhigh → high` collapse, and `effort.params` is empty, so no provider-specific effort field
-   is sent until you add one. In the web app, **New run** can fill a profile from its model
-   catalogue instead (below).
+   never treated as zero). In the subscription Audit templates the Claude Code and Codex
+   profiles support `low` to `max` and send each level as its own word
+   (`effort.params.high: { "effort": "high" }`), which both CLIs accept for their current
+   models; the other templates declare `low`/`medium`/`high` with an explicit `xhigh → high`
+   collapse and empty `effort.params`, so no provider-specific effort field is sent until you
+   add one. A Claude Code or Codex profile that sends no effort word for a level a stage asks
+   for runs at the CLI's own default, and preflight warns (`MODEL_EFFORT_NOT_SENT`). In the
+   web app, **New run** can fill a profile from its model catalogue instead (below).
 3. **Endpoints and credentials.** Adjust each `workflow.modelExecution.endpoints[]`
    `endpoint` URL (the compatible templates point at `http://127.0.0.1:8000/v1` and
    `:8001/v1`), then export each named `apiKeyEnvVar` in the shell that runs arbitra. The
@@ -202,8 +206,8 @@ credentials and continuation state. Roles are always named explicitly:
 
 | Mode | Where | Required |
 |---|---|---|
-| Audit | `models` keys | `auditor-a`, `auditor-b` (and `auditor-c` for `audit-deep`) — the preset's discovery nodes |
-| Audit | `workflow.modelExecution.roles` | `planner`, `verifier`; `critic` for presets with a critic |
+| Audit | `models` keys | `auditor-a`, `auditor-b` (and `auditor-c` for `audit-three-finders`) — the preset's finders |
+| Audit | `workflow.modelExecution.roles` | `planner`, `verifier`; `critic` when `workflow.critic` is `true`. Optional: `mediumVerifier`, `merger`, `secondOpinion`, `critiqueChecker` (see [Depths, finders and the plan critic](#depths-finders-and-the-plan-critic)) |
 | Feature | `workflow.feature.roles` | `requirements`, `exploration`, `planner`; `reviewers` (two or more distinct `independenceGroup`s) and `critic` (independent of the planner) for anything above low risk |
 | Testing | `workflow.testing.roles` | `analyst` (capability tier `frontier`), `planner` |
 | Testing execute | `workflow.testing.execution.models` | `fast`, `balanced`, `frontier` writers — tool-capable and at or above that tier |
@@ -254,8 +258,13 @@ For a separate Claude token instead of the host login, use
 `"auth": "oauth_token", "oauthTokenEnvVar": "ARBITRA_CLAUDE_CODE_OAUTH_TOKEN"`; the CLI then
 runs with an isolated home and configuration directory. Profiles bound to CLI endpoints use
 `structuredOutputDialect: "prompt_json"` and `historyPolicy: "verbatim"`; `effort.params` may
-carry `{ "effort": "high" }` (Claude Code, Codex and the Antigravity CLI) and
-`{ "thinkingTokens": N }` (Claude Code). Other effort fields are refused.
+carry `{ "effort": "<word>" }` and `{ "thinkingTokens": N }` (Claude Code). Other effort fields
+are refused. The words each CLI accepts: Claude Code 2.1 `--effort low|medium|high|xhigh|max`
+(Opus, Sonnet and Haiku 5.5); Codex `model_reasoning_effort` `minimal`, `low` to `max` (GPT-6.1
+Sol and GPT-6 Luna take `low` to `max`; `ultra`, which delegates to sub-agents, is not used);
+the Antigravity CLI `low|medium|high|max`, though arbitra names Gemini's thinking level in the
+model slug instead. arbitra's levels are these words (`low`, `medium`, `high`, `xhigh`, `max`),
+so a profile that sends each as itself makes the configuration say what the vendor receives.
 
 What each call does: it creates a fresh temporary directory, runs the CLI with an empty
 working directory and an allowlisted environment (`HOME`, `PATH`, temporary directories,
@@ -329,13 +338,77 @@ These limits are enforced:
 | `maximumRetries`, `timeoutMs`, `rateLimits` | Retry count, per-request timeout, per-provider pacing and concurrency. |
 | `maximumOutputRepairs` | Re-asks per model stage (0–3, default 0; the subscription Audit templates use 2, the other templates 1) after a reply fails output validation: unparsable JSON, schema, evidence grounding or plan traceability. Each re-ask is its own durable, budgeted activity that carries the rejection reason and the rejected reply as untrusted data. Provider failures, refusals and output-limit stops are never repaired. |
 | `verification.maxModelQuestionsPerRound` | Bound on targeted verification questions, the re-asks of a rejected merge's places, second opinions and a failed group's questions asked one at a time included. Unset, every candidate the review left undecided is asked about; 0 disables model verification. |
-| `estimatedBytesPerToken`, `stageEffort`, `review` | How calls after discovery are sized, the effort of each checking stage, and the checks beyond one pass of each review stage. See [one pass per review stage](provider-model.md#one-pass-per-review-stage). |
+| `estimatedBytesPerToken`, `stageEffort`, `review` | How calls after discovery are sized, the effort of each step (finding issues included; see [Depths, finders and the plan critic](#depths-finders-and-the-plan-critic)), and the checks beyond one pass of each review stage. See [one pass per review stage](provider-model.md#one-pass-per-review-stage). |
 | `verification.execution.maximumRuns`, Testing `maximumAttempts` | Sandbox check runs and writer attempts. |
 
 The `budgets` object (for example `maximumCostUsd`) is not enforced by the runtime, and
 monetary cost is reported as unknown. Preflight therefore refuses a model-backed run whose
 `budgets` is non-empty (`BUDGETS_NOT_ENFORCED`) rather than let it run under a cap that does
 nothing; a scripted Audit only gets a warning. Every shipped example leaves `budgets` empty.
+
+### Depths, finders and the plan critic
+
+An audit has three separate choices, each one setting in the configuration:
+
+- **Depth** (`auditDepth`: `deep`, `balanced` or `cheap`) is the models and the effort of every
+  step, and nothing else: every step runs at every depth. On a Claude Code and Codex audit,
+  choosing a depth in **New run** writes the models, the roles and `stageEffort` below; the
+  subscription templates are deep. `fast`, the earlier low-effort depth, is still read so stored
+  runs and saved configurations load.
+- **Finders** (`workflow.preset`): `audit-two-finders` (Claude and GPT) or `audit-three-finders`
+  (Gemini added through the Antigravity CLI). `audit-balanced` and `audit-deep`, their earlier
+  names, still work and run the same graphs; neither adds a critic. Gemini is only ever the
+  optional third finder, at high thinking at every depth (`gemini-3.8-flash-high`): no depth gives
+  it a check, a second opinion, a merge, the plan or the critic, and its findings are checked
+  like any other. It stays opt-in because of Google's terms (see the [privacy](privacy.md) page).
+- **The plan critic** (`workflow.critic`: `true` or `false`, off unless set) adds the critic, the
+  check of its blocking items (`roles.critiqueChecker`) and one revision after the planner, at
+  every depth. A critic role alone no longer turns it on. A saved workflow graph decides its own
+  critic, so the switch is refused beside `workflow.graph`.
+
+What each depth writes, in each vendor's own effort word:
+
+| Step (`stageEffort` key; role) | `deep` (the default) | `balanced` | `cheap` |
+|---|---|---|---|
+| Find (`discovery`; `auditor-a`, `auditor-b`) | Opus 5.5 `xhigh`, GPT-6.1 Sol `xhigh` | Opus `medium`, Sol `medium` | Sonnet 5.5 `high`, GPT-6 Luna `max` |
+| Third finder (optional; `auditor-c`) | Gemini 3.8 Flash high | Gemini 3.8 Flash high | Gemini 3.8 Flash high |
+| Merge duplicates (`clustering`; `merger`, else `verifier`) | Opus `low` | Opus `low` | Sonnet `medium` |
+| Check critical and high issues (`verification`; `verifier`) | Opus `high` | Opus `high` | Opus `high` |
+| Check medium issues (`verification`; `mediumVerifier`, else `verifier`) | Opus `high` | Sonnet `high` | Sonnet `high` |
+| Second opinion before rejecting a severe issue (`secondOpinion`) | Sol `high` | Sol `medium` | Sol `medium` |
+| Plan (`planner`, `revision`; `planner`) | Opus `high` | Opus `medium` | Sonnet `high` |
+| Review the plan, when switched on (`critic`; `critic`) | Sol `high` | Sol `medium` | Luna `high` |
+| Check the review's items (`critiqueCheck`; `critiqueChecker`) | Opus `high` | Opus `medium` | Sonnet `high` |
+
+Balanced and cheap add profiles beside the finders, on the same CLIs: `medium-checker` (Sonnet,
+balanced), `checker` (Opus) and `second-opinion` (Sol, cheap). Choosing deep again removes them.
+Peer review, off in the templates (`maxConsensusRounds: 0`), runs at `high` (`medium` at balanced).
+The research behind the table is in `arbitra-experiments/depth-2026-10-25`; only deep has been
+measured on real projects so far.
+
+**`stageEffort`** sets each step's effort: `discovery`, `clustering`, `peerReview`,
+`verification`, `secondOpinion`, `critiqueCheck`, `planner`, `critic` and `revision`, each
+`low`, `medium`, `high`, `xhigh` or `max`, or one per profile where the models of one step differ
+(`"discovery": { "auditor-a": "high", "auditor-b": "max", "auditor-c": "high" }`). The second
+opinion and the critique check follow `verification` when they are left out; any other step left
+out runs at the depth's level (`deep` `high`, `fast` `low`, otherwise `medium`). Each profile's
+`effort.params` turns the level into what its CLI receives; preflight checks every step's level
+against the profile it calls (`MODEL_EFFORT_UNSUPPORTED`) and warns when a Claude Code or Codex
+profile would send none (`MODEL_EFFORT_NOT_SENT`).
+
+**Checking by severity.** `roles.verifier` checks every critical and high issue: make it the
+strongest checker the run names. `roles.mediumVerifier`, when set, checks the issues below high
+(medium, and lower ones when `belowPlanScope` lets them be checked); preflight warns when it is a
+higher tier than the verifier (`MODEL_VERIFIER_WEAKER_THAN_MEDIUM_VERIFIER`). `roles.merger`, when
+set, decides whether two findings are one issue; otherwise the verifier does.
+
+Two of these depart from the specification on purpose (decided October 25, 2026): depth was
+defined as how far the auditors' reading overlaps (spec §16.4), and arbitra already has every
+finder read the whole scope at every depth, so depth is now models and efforts; and the critic
+was mandatory at depth deep and for critical or high security issues (spec §3.7, §20.6), and is
+now a switch, off by default, because on the scored runs it caught 1 of 21 plan errors and its
+revision added errors. When it is on, §20.6's rule that the critic is at or above the planner's
+tier, or skipped and recorded, still holds.
 
 ### Source scope
 
@@ -588,13 +661,15 @@ See [Feature mode](workflows.md#feature-mode) for revision and the equivalent HT
 | `SECURITY_SETTINGS_NOT_ENFORCED`, `CONTEXT_POLICIES_NOT_ENFORCED` | configuration (warning) | Set the section to `{}`; exclude paths with `scope.exclude` or narrow `scope` |
 | `UNKNOWN_WORKFLOW_PRESET`, `WORKFLOW_PRESET_MODE_MISMATCH` | configuration | Use a preset that executes the configured mode |
 | `RUNTIME_MODEL_EXECUTION_CONFIGURATION_REQUIRED` | configuration | Add `workflow.modelExecution`, or remove all profiles for a scripted Audit |
-| `MODEL_PROFILE_REQUIRED:<id>`, `MODEL_EXECUTION_ROLES_REQUIRED`, `MODEL_CRITIC_PROFILE_REQUIRED` | configuration | Add the named auditor profile or Audit role |
+| `MODEL_PROFILE_REQUIRED:<id>`, `MODEL_EXECUTION_ROLES_REQUIRED`, `MODEL_CRITIC_PROFILE_REQUIRED` | configuration | Add the named auditor profile or Audit role (`roles.critic` is needed only when `workflow.critic` is `true`) |
+| `MODEL_VERIFIER_WEAKER_THAN_MEDIUM_VERIFIER` | configuration (warning) | Critical and high issues go to `roles.verifier`: make it the stronger of the two checkers |
 | `FEATURE_EXECUTION_CONFIGURATION_REQUIRED`, `FEATURE_MODEL_PROFILE_REQUIRED:<id>` | configuration | Add `workflow.feature` or the named profile |
 | `FEATURE_REVIEW_INDEPENDENCE_REQUIRED`, `FEATURE_CRITIC_INDEPENDENCE_REQUIRED` | configuration | Use reviewers/critic from distinct `independenceGroup`s |
 | `TESTING_EXECUTION_CONFIGURATION_REQUIRED`, `TESTING_MODEL_PROFILE_REQUIRED:<id>` | configuration | Add `workflow.testing` or the named profile |
 | `TESTING_FRONTIER_ANALYST_REQUIRED` | configuration | Use a `frontier` profile as analyst |
 | `TESTING_TASK_MODEL_CONFIGURATION_INVALID` | configuration | Writer must exist, declare `supports.tools`, and meet its tier |
-| `MODEL_EFFORT_UNSUPPORTED:<id>` | configuration | Add the level to `effort.supported` or an explicit `effort.collapse` (warning for writer routing levels) |
+| `MODEL_EFFORT_UNSUPPORTED:<id>` | configuration | Add the level a stage asks for to `effort.supported` or an explicit `effort.collapse` (warning for writer routing levels) |
+| `MODEL_EFFORT_NOT_SENT:<id>` | configuration (warning) | A Claude Code or Codex profile sends no effort word for a level a stage asks for, so the CLI's default applies: add `effort.params.<level>: { "effort": "<level>" }` |
 | `TESTING_WRITE_PATH_INVALID`, `TESTING_WRITE_WITHOUT_VERIFICATION_CHECK` | configuration | Grant exact test file paths that a bound check covers |
 | `CHECKPOINT_POLICY_REQUIRED`, `GATE_POLICY_REQUIRED`, `UNKNOWN_GATE_POLICY`, `UNKNOWN_CHECKPOINT_NODE`, … | configuration | For graphs with gate/human nodes (including operator-registered graphs): set `workflow.checkpoints` and give every gate a known policy |
 | `BATCH_LANE_MODEL_PROFILE_REQUIRED`, other batch-lane codes | configuration | A `workflow.modelExecution.batch` lane must name a bound profile that declares `supports.batch`, on a transport with a batch driver |

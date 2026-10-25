@@ -126,7 +126,7 @@ interfaces call it — the CLI through `orchestratorCore`, the control plane thr
 ```bash
 pnpm build                                  # both entrypoints run from dist/
 
-node apps/cli/dist/src/bin.js audit --preset audit-deep --module packages/tools  # scripted detectors, no models (models: `run <config>`); --full: up to 400 source files
+node apps/cli/dist/src/bin.js audit --preset audit-three-finders --module packages/tools  # scripted detectors, no models (models: `run <config>`); --full: up to 400 source files
 node apps/server/dist/src/serve.js          # the app and its control plane on 127.0.0.1:4178
 pnpm --filter @arbitra/web dev              # for UI work: a dev server on 127.0.0.1:4173, proxied to the control plane
 ```
@@ -153,7 +153,7 @@ planning and critique, with durable usage accounting and resume. Its source-only
 security coverage is also reported degraded. A scripted run deliberately fails the CI quality gate
 with `degraded_coverage`, even when no findings are produced; that is not a process crash.
 
-Audit presets select three auditors (`audit-deep`), two (`audit-balanced` and
+Audit presets select three auditors (`audit-three-finders`, earlier `audit-deep`), two (`audit-two-finders`, earlier `audit-balanced`, and
 `diff-review`), or one (`diff-fast`). `diff-fast` skips peer review and verifies its
 single-source findings; the plan addresses the ones verification confirms, and says that no
 second auditor checked them. Repository, module, staged, working-tree and
