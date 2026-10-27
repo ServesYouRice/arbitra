@@ -14,9 +14,9 @@ const run = promisify(execFile);
 export const defect = (id: string): string => `export const ${id.replaceAll("-", "_")} = JSON.parse(input) as never; // DEFECT-${id}`;
 const padding = (name: string): string => Array.from({ length: 70 }, (_, index) => `// ${name} context line ${index} keeps this module large enough to need its own discovery scope.`).join("\n");
 
-/** A module whose defect lines sit after `offset` unrelated lines. */
-export function moduleSource(name: string, defects: readonly string[], options: { readonly offset?: number; readonly imports?: readonly string[] } = {}): string {
-  return [...(options.imports ?? []).map((path) => `import "${path}";`), ...Array.from({ length: options.offset ?? 0 }, (_, index) => `// ${name} inserted line ${index}`), ...defects.map(defect), padding(name), ""].join("\n");
+/** A module whose defect lines sit after `offset` unrelated lines. A fixture auditor reads each of `reads` through its tools before it answers. */
+export function moduleSource(name: string, defects: readonly string[], options: { readonly offset?: number; readonly imports?: readonly string[]; readonly reads?: readonly string[] } = {}): string {
+  return [...(options.imports ?? []).map((path) => `import "${path}";`), ...(options.reads ?? []).map((path) => `// READS ${path}`), ...Array.from({ length: options.offset ?? 0 }, (_, index) => `// ${name} inserted line ${index}`), ...defects.map(defect), padding(name), ""].join("\n");
 }
 
 export interface ProviderCall { readonly stage: string; readonly activity: string; readonly user: string }
@@ -52,8 +52,10 @@ export async function incrementalFixture(files: Readonly<Record<string, string>>
   });
   const calls: ProviderCall[] = [];
   const failing = new Set<string>();
+  // Discovery calls over a held path wait until it is released.
+  const held = new Map<string, Promise<void>>();
   const send = async (request: HttpRequest): Promise<HttpResponse> => {
-    const body = request.body as { input?: { role: string; content: string }[] };
+    const body = request.body as { input?: { role: string; content: string; type?: string }[] };
     let system = body.input?.find(({ role }) => role === "system")?.content ?? "";
     let user = body.input?.find(({ role }) => role === "user")?.content ?? "{}";
     if (user.startsWith('{"layer":"locked"')) {
@@ -70,7 +72,16 @@ export async function incrementalFixture(files: Readonly<Record<string, string>>
       stage = "discovery";
       const prefix = /Every sourceFindingId must start with (.+)\/ and be unique/u.exec(system)?.[1] ?? "";
       const input = JSON.parse(user) as { files: { path: string; lines: { line: number; text: string }[] }[] };
+      for (const [path, wait] of held) if (input.files.some((file) => file.path === path)) await wait;
       if ([...failing].some((path) => input.files.some((file) => file.path === path))) return { status: 503, headers: {}, body: {} };
+      // A unit that names a file to read asks for each one through the tools, then answers once every result is in.
+      const reads = input.files.flatMap(({ lines }) => lines.flatMap(({ text }) => /^\/\/ READS (\S+)$/u.exec(text)?.[1] ?? []));
+      const answered = (body.input ?? []).filter(({ type }) => type === "function_call_output").length;
+      const next = reads[answered];
+      if (next !== undefined) {
+        calls.push({ stage: "discovery", activity: `${model}:${input.files.map(({ path }) => path).join(",")}:read-${answered}`, user });
+        return { status: 200, headers: {}, body: { output: [{ type: "function_call", call_id: `read-${answered}`, name: "repo_read_file", arguments: JSON.stringify({ path: next }) }], usage: { input_tokens: 100, output_tokens: 10 } } };
+      }
       const marked = input.files.flatMap(({ path, lines }) => lines.filter(({ text }) => text.includes("// DEFECT-")).map(({ line, text }) => ({ path, line, text })));
       output = { findings: marked.map(({ path, line, text }, index) => {
         const name = /DEFECT-([\w-]+)/u.exec(text)?.[1] ?? "unknown";
@@ -108,5 +119,11 @@ export async function incrementalFixture(files: Readonly<Record<string, string>>
     return { status: 200, headers: {}, body: { output_text: JSON.stringify(output), usage: { input_tokens: 100, output_tokens: 10 } } };
   };
   const orchestrator = () => new Orchestrator({ repository: root, stateDirectory: join(root, ".runs"), providerOptions: { client: { send }, credential: () => "fixture-credential" } });
-  return { root, config, calls, write, git, fail: (path: string) => failing.add(path), recover: () => failing.clear(), orchestrator, cleanup: () => rm(root, { recursive: true, force: true }) };
+  /** Holds every discovery call over `path` until the returned release is called. */
+  const hold = (path: string): (() => void) => {
+    let release = (): void => undefined;
+    held.set(path, new Promise<void>((resolve) => { release = resolve; }));
+    return () => { held.delete(path); release(); };
+  };
+  return { root, config, calls, write, git, fail: (path: string) => failing.add(path), recover: () => failing.clear(), hold, orchestrator, cleanup: () => rm(root, { recursive: true, force: true }) };
 }

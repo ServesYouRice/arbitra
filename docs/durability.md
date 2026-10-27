@@ -105,7 +105,14 @@ resumed half would not be comparable to the first:
 - **Repository.** Resume, Audit replay and the Feature requirements operations take a new
   snapshot and compare its digest with the one the run recorded at start
   (`packages/runtime/src/orchestrator.ts`). A changed source fails with
-  `RUN_REPOSITORY_CHANGED:<runId>`.
+  `RUN_REPOSITORY_CHANGED:<runId>`, a 409 over HTTP, which says what to do and how many
+  files were changed, added and removed since the run recorded its `snapshot-identity`,
+  naming the first ten. For a model Audit the way on, short of putting the files back, is an
+  incremental audit with the run as its base, which reuses the discovery units it finished
+  (`POST /runs/:id/incremental`, or `run <config> --incremental <runId>`; see
+  [Incremental Audit](workflows.md#incremental-audit)). Observed live (October 27, 2026,
+  v0.3.1, macOS): the refusal was a bare code answered as a 500, and the five edited files
+  had to be found with `find -newer`.
 - **Model activity input.** Before any spend, a model activity records a fingerprint of its
   request: protocol and its identity, model profile, execution settings other than the run's
   token limit, the redacted messages, effort, response mode, tools, harness identity, source
@@ -170,10 +177,10 @@ worktree and makes its own sandbox runs. See
 
 ## Incremental Audit
 
-An incremental Audit is a new run that only reads its completed base. Its immutable
+An incremental Audit is a new run that only reads its base. Its immutable
 `incremental-contract` artifact is written before the run starts. The contract records:
 
-- the base's state;
+- the base's state (a base that had not completed gives only the discovery units it finished);
 - any fallback reasons;
 - the changed files and manifests;
 - the downstream stage decisions;
@@ -184,8 +191,9 @@ dispatches. A resumed incremental run reads both artifacts and reuses its own co
 activities first, so a crash never re-decides reuse or repays a completed unit. Reused
 outputs carry `replayedFrom`. Each lookup is recorded as `incremental-activity-<key>` with
 the base usage it saved, and reused outputs are not charged to the new run's token budget.
-Every model Audit also records `snapshot-identity` and per-unit `discovery-unit-<key>`
-records, so any completed run can serve as a base. See
+Every run records `snapshot-identity`, and every model Audit records a `discovery-unit-<key>`
+record as each unit finishes, so any Audit can serve as a base, also one that stopped
+partway. See
 [Incremental Audit](workflows.md#incremental-audit).
 
 ## Traces and the rebuildable index

@@ -792,19 +792,25 @@ exercised live.
 ## Incremental Audit
 
 An incremental Audit is a **new** model-backed Audit of the current snapshot that may reuse
-work from a completed earlier Audit, its *base*. Replay reuses work for the same snapshot.
+work from an earlier Audit, its *base*. Replay reuses work for the same snapshot.
 An incremental run reuses work from a base that audited a changed snapshot. It is off by
 default and is always requested explicitly:
 
 ```text
 node apps/cli/dist/src/bin.js run audit.json --incremental <base-run-id>
 POST /runs   {"configurationId": "…", "incremental": {"baseRunId": "<base-run-id>"}}
+POST /runs/<base-run-id>/incremental                       (the base's own settings and repository)
 workflow.incremental: {"baseRunId": "<base-run-id>"}      (in the saved configuration)
 ```
 
 The CLI flag and the HTTP field override the saved configuration's value. The request
-becomes part of the run's stored configuration. `node apps/cli/dist/src/bin.js incremental <run-id>`,
-`GET /runs/:id/incremental` and the run summary's `incremental` field report the outcome.
+becomes part of the run's stored configuration. `POST /runs/:id/incremental` takes no body:
+it starts a new Audit of the run's repository as it is now, with the configuration the run
+was created with and the run as its base, and returns once the run exists. The web UI offers
+it when a resume is refused because the project's files changed (see
+[resume checks](durability.md#resume-checks)). `node apps/cli/dist/src/bin.js incremental <run-id>`,
+`GET /runs/:id/incremental` and the run summary's `incremental` field (with the base's
+`baseState`) report the outcome.
 `scope.exclude` (repository-relative path prefixes) removes paths from the snapshot for
 any scope kind.
 
@@ -814,10 +820,22 @@ any scope kind.
 `INCREMENTAL_REQUIRES_MODEL_AUDIT` (a preflight error). `workflow.incremental` outside
 Audit mode fails schema validation. A malformed base ID returns 400.
 
+**A base that did not complete.** A base may have stopped before it completed: failed,
+cancelled, blocked, paused on its token limit or a usage limit, or left in a working state
+when its process stopped. Every model Audit records each discovery unit as the unit
+finishes, so such a base holds the units it finished. Only those are reused, under the same
+rules as a completed base's; every stage after discovery runs again in full, with the stage
+reason `base_run_not_completed:<state>`, and a unit the base never finished is
+`base_unit_absent`. The contract and the report record the base's state (`baseState`). No
+run ever mixes two snapshots: the new run audits the current snapshot, and the base is only
+read. Observed live (October 27, 2026, v0.3.1, macOS): a deep audit failed after ten hours
+with one finder's 32 units and another's 16 finished, five unrelated files were edited the
+next morning, and an incremental run from it was a full audit.
+
 **Fallback.** Some bases cannot establish safe reuse. The run is then a full audit, and
 the reasons are recorded in `fallbackReasons`:
 
-- `base_run_not_completed:<state>`
+- `base_run_live` (this arbitra is still running the base, so what it has finished is still growing)
 - `base_repository_differs`
 - `base_snapshot_identity_unavailable` (the base predates this feature)
 - `git_identity_unavailable`
@@ -827,7 +845,7 @@ the reasons are recorded in `fallbackReasons`:
   base that ran the same graph)
 - `base_workflow_graph_unavailable`
 
-**Snapshot identity.** Every model Audit records a `snapshot-identity` artifact before any
+**Snapshot identity.** Every run records a `snapshot-identity` artifact before any
 stage runs. It holds the SHA-256 of each snapshot file, the SHA-256 of each build or
 dependency manifest (`package.json`, lockfiles, `tsconfig.json`, `go.mod`, `Cargo.toml`
 and similar) in any ancestor directory of a snapshot file, and the Git `HEAD`. The run
@@ -838,9 +856,9 @@ and hotspots rank the changed paths when Git history is available. Paths from
 
 **Reuse unit.** The unit of reuse is one discovery activity: one auditor over one discovery
 scope or one exact line window. Every model Audit records a `discovery-unit-<auditor>-<scope>`
-artifact for each unit. The record holds the unit's identity, its cited line ranges and
-the harness inspection footprint (the files the model read through tools). The identity
-covers:
+artifact for each unit as the unit finishes. The record holds the unit's identity, its
+cited line ranges and the harness inspection footprint (the files the model read through
+tools). The identity covers:
 
 - the exact bytes of every file the unit was given or could read (its footprint);
 - the transitive repository-internal imports of those files;
@@ -858,8 +876,12 @@ names each component that changed:
 - `changed:footprint:<path>`, `changed:cited_lines:<path>:<a>-<b>`, `changed:imports:<path>`,
   `changed:manifests:<path>`
 - `changed:scope`, `changed:protocol`, `changed:model`, `changed:harness`, `changed:policy`
-- `base_unit_absent` (for example, allocation changed), `base_unit_identity_unavailable`
-- `base_footprint_unavailable`, `footprint_outside_unit:<path>`, `manifest_unverifiable:<path>`
+- `base_unit_absent` (for example, allocation changed, or a base that stopped did not finish
+  the unit), `base_unit_identity_unavailable`
+- `changed:read_beyond_unit:<path>` (a file the unit read through its tools beyond itself
+  changed or is gone)
+- `base_footprint_unavailable`, `footprint_outside_unit:<path>` (a read beyond the unit with
+  no base snapshot identity to compare it against), `manifest_unverifiable:<path>`
 
 A missing record or footprint never counts as equal. A reusable unit obtains its model
 outputs through the replay mechanism: each harness turn is reused only if its per-activity
@@ -874,8 +896,13 @@ that auditor's discovery; partial reuse comes from partitioned discovery. Only a
 byte-identical unit is reused, so reused findings always cite unchanged bytes. Since
 production-audit 2.0.0 every unit carries the index of the whole repository, which any
 change to a file's line count or symbols changes; a unit the run reuses is sent the index
-its base sent (`discovery-index-<auditor>`), so its request stays the base's. A unit that
-read another file is regenerated (`footprint_outside_unit`).
+its base sent (`discovery-index-<auditor>`), so its request stays the base's. Its tools
+read the whole snapshot, so most units read files beyond themselves. Each file a unit read
+beyond itself is compared by its bytes in the base's `snapshot-identity` and in this run's:
+a unit whose read file changed or is gone is regenerated (`changed:read_beyond_unit`), and
+one whose reads are all unchanged may be reused. Searches and listings also cover the
+whole snapshot; their results reach the model only in a later turn's request, so a changed
+result changes that turn's replay identity and the turn is asked afresh.
 `baseFindingLineage` re-anchors each base finding by exact content only:
 
 - `unchanged`
@@ -923,7 +950,14 @@ unit decisions; it never re-decides against the base.
   incremental run made 21 (6 discovery) and reused 4 discovery units. Downstream stages
   regenerated because the repository changed.
 - An interrupted incremental run resumed without repaying completed units.
-- A failed base and rewritten Git history fell back to a full audit.
+- A base that failed partway (each finder had finished two of its three units), with one
+  file edited after it, refused its resume naming the file (409). `startIncremental` then
+  reused each finder's finished unit over unchanged files, regenerated the edited unit and
+  the unfinished one, and ran every stage after discovery again, with the same issues as a
+  full audit.
+- A unit that read a file beyond itself was reused while that file was unchanged, and
+  regenerated, read and all, once it changed.
+- A base still running, and rewritten Git history, fell back to a full audit.
 - The CLI and HTTP cores made identical decisions.
 
 Live providers have not been exercised.

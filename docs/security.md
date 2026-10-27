@@ -50,7 +50,7 @@ one: the registry never looks there.
 | No path escapes the repository root | `packages/security/src/path-guard.ts` — `RepositoryPathGuard`, `resolveInsideRoot`, `PathOutsideRootError` |
 | The snapshot reads only source a person would commit | `packages/runtime/src/repository.ts` — files Git tracks or would track; `.git`, `node_modules`, `dist`, `build`, `coverage`, `.pnpm-store`, `.runs`, `.vite` and dot-directories other than `.github` are skipped; `scope.exclude` applies on top |
 | Private keys never leave a file whole | `repository.ts` masks private key blocks across lines before any later redaction |
-| A resumed run reads the same repository | the snapshot digest; resume refuses a changed repository with `RUN_REPOSITORY_CHANGED` (`packages/runtime/src/orchestrator.ts`) |
+| A resumed run reads the same repository | the snapshot digest; resume refuses a changed repository with `RUN_REPOSITORY_CHANGED` (409), naming the changed files from the run's snapshot identity (`packages/runtime/src/orchestrator.ts`) |
 
 Excluded directories are still walked before their files are dropped; that is an open item in
 [remaining work](../WORK-REMAINING.md).

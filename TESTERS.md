@@ -93,7 +93,10 @@ arbitra. Then go on at [Run an audit](#run-an-audit).
 If a run pauses at its token limit, its page offers **Raise to … and resume**: it goes on from where it stopped and
 keeps everything it has done. If a run reaches a usage limit of one of your plans, it pauses and keeps everything too;
 when the plan says when the limit resets, arbitra resumes the run by itself a minute later while it stays open.
-Otherwise resume it from the run's page once the limit has reset.
+Otherwise resume it from the run's page once the limit has reset. A stopped run resumes only on the files it read:
+if you edit the project meanwhile, **Resume** says which files changed, and offers **New audit that reuses what this run
+finished**: an audit of the project as it is now that reads again only the parts whose files changed or that the run
+had not finished, then merges duplicates, checks each issue and writes the plan afresh.
 
 On the run's Summary, click **Send to the developer**: it opens a GitHub issue filled in with the run's report, which
 you submit from your GitHub account (issues there are public). To send it with every plan you save, tick **Also send

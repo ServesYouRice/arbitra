@@ -99,4 +99,27 @@ describe("real HTTP runtime integration", () => {
       expect(await absent.json()).toMatchObject({ message: "RUN_ABSENT:run-absent" });
     } finally { await app.close(); await rm(root, { recursive: true, force: true }); }
   });
+
+  // Observed live (October 27, 2026, v0.3.1, macOS): POST /runs/<id>/resume → 500 {"error":"REQUEST_FAILED","message":"RUN_REPOSITORY_CHANGED:<id>"}
+  // after five files in a failed audit's scope were edited, and they had to be found with `find -newer`.
+  it("refuses to resume a run whose files changed with a 409 that names them", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbitra-http-changed-"));
+    const orchestrator = new Orchestrator({ repository: root });
+    const app = buildServer(controlPlaneCore(orchestrator));
+    const config = { schemaVersion: 1, mode: "audit", scope: { kind: "repository" }, auditDepth: "balanced", consensusPolicy: "risk_weighted", maxConsensusRounds: 2, verification: {}, models: {},
+      harness: { mode: "canonical" }, workflow: { preset: "audit-balanced" }, budgets: {}, security: {}, protocols: {}, promptOverrides: {}, contextPolicies: {} };
+    try {
+      await writeFile(join(root, "source.ts"), "export const value = true;\n");
+      const address = await app.listen({ host: "127.0.0.1", port: 0 });
+      // Cancelled at once, as the orchestrator's own resume test stops it: a run that is not done.
+      const started = await orchestrator.start(orchestrator.configurations.validate(config));
+      expect((await orchestrator.cancel(started.runId)).state).toBe("CANCELLED");
+      await writeFile(join(root, "source.ts"), "export const value = false;\n");
+      await writeFile(join(root, "added.ts"), "export const added = true;\n");
+      const refused = await fetch(`${address}/runs/${started.runId}/resume`, { method: "POST", signal: AbortSignal.timeout(10_000) });
+      expect(refused.status).toBe(409);
+      expect(await refused.json()).toEqual({ statusCode: 409, error: "REQUEST_FAILED",
+        message: `RUN_REPOSITORY_CHANGED:${started.runId}: the repository no longer holds the files the run read. Put them back as they were to resume it, or start a new run of the project as it is now. 2 files changed since the run read them (1 changed, 1 added): changed source.ts, added added.ts` });
+    } finally { await app.close(); await rm(root, { recursive: true, force: true }); }
+  });
 });

@@ -31,6 +31,8 @@ export const HTTP_ROUTE_SCHEMAS = Object.freeze({
   "POST /runs/:id/replay": { params: idParams, body: z.toJSONSchema(replayRequestSchema, { target: "draft-7", unrepresentable: "any" }), response: jsonResponse },
   "GET /runs/:id/replay": { params: idParams, response: jsonResponse },
   "GET /runs/:id/incremental": { params: idParams, response: jsonResponse },
+  // Bodiless: a new Audit with the run's own settings and the run as its incremental base.
+  "POST /runs/:id/incremental": { params: idParams, response: jsonResponse },
   "GET /runs/:id/batches": { params: idParams, response: jsonResponse },
   "POST /runs/:id/batches/:submissionId/resolve": { params: { ...idParams, required: ["id", "submissionId"], properties: { ...idParams.properties, submissionId: { type: "string", pattern: BATCH_SUBMISSION_ID_PATTERN.source } } }, body: z.toJSONSchema(batchResolutionRequestSchema, { target: "draft-7" }), response: jsonResponse },
   "GET /runs/:id/requirements": { params: idParams, response: jsonResponse },

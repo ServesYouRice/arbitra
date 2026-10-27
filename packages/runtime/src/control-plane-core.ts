@@ -105,6 +105,8 @@ export function controlPlaneCore(orchestrator: Orchestrator) {
 
     incremental: {
       report: (runId: string) => orchestrator.incrementalReport(runId),
+      // A new Audit of the project as it is now, with the run's own settings and the run as its base; returns once it exists.
+      start: (baseRunId: string) => orchestrator.startIncremental(baseRunId),
     },
 
     replay: {

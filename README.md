@@ -49,8 +49,8 @@ endpoint and role binding, and the preflight checks that run before any spend.
   model and effort. A review round between the finders, a critic of the plan and a search for
   variants of the confirmed issues are switches, off by default. The saved plan checks its
   own premises before each task (`check-premises.mjs`). It can reuse unchanged work from a
-  prior run (`--incremental`) and can run operator-authored workflow graphs saved from the
-  web editor.
+  prior run, also the finished part of one that stopped (`--incremental`), and can run
+  operator-authored workflow graphs saved from the web editor.
 - **Feature** runs durable requirements checkpoints, risk-directed review, planning and an
   exportable implementation handoff; see [`docs/workflows.md`](docs/workflows.md#feature-mode).
 - **Testing** plans from grounded risk analysis and, when explicitly authorized, executes in

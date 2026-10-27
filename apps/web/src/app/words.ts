@@ -149,5 +149,23 @@ export function failureWords(reason: string | null, mode: Mode = "audit"): Failu
   return { what: "The run stopped on an error inside arbitra, not at a model.", todo: "Resuming with this version of arbitra stops the same way. Update arbitra, then resume: what the run finished is kept. If the update does not fix it, copy the report below and send it to whoever helps you.", resumable: true };
 }
 
+/** The files a refusal names as changed since the run read them, and how many it names in all. */
+export interface ChangedFiles { readonly total: number; readonly files: readonly { readonly path: string; readonly change: "changed" | "added" | "removed" }[]; readonly more: number }
+
+/**
+ * The files a `RUN_REPOSITORY_CHANGED` refusal names (`… 5 files changed since the run read them (3 changed, 2 added):
+ * changed README.md, added scripts/new.sh and 3 more`), as the orchestrator words it; null when it names none. A
+ * control-plane error ends with its status (`(RUN_API_409)`), which is not part of the list.
+ */
+export function changedFiles(text: string | null): ChangedFiles | null {
+  const match = /RUN_REPOSITORY_CHANGED:[\s\S]*? (\d+) files? changed since the run read them \([^)]*\): ([\s\S]+?)(?: and (\d+) more)?(?: \(RUN_API_\d+\))?$/u.exec(text ?? "");
+  if (match === null) return null;
+  const files = (match[2] ?? "").split(/, (?=(?:changed|added|removed) )/u).flatMap((entry) => {
+    const named = /^(changed|added|removed) ([\s\S]+)$/u.exec(entry);
+    return named === null ? [] : [{ change: named[1] as "changed" | "added" | "removed", path: named[2] ?? "" }];
+  });
+  return { total: Number(match[1]), files, more: Number(match[3] ?? 0) };
+}
+
 /** A failed run reads plainly first: the code and message go in the details. */
 export function failureDetail(reason: string | null): string { return reason ?? "no reason recorded"; }

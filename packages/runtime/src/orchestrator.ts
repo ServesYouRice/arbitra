@@ -19,7 +19,7 @@ import { isTestPath, modulePartition } from "./discovery-scope.js";
 import { assertDiscoveryResumable } from "./model-discovery.js";
 import { listRunIds, RunStore, type ArtifactDescriptor, type StoredRunContext } from "./run-store.js";
 import { ModelAuditPipeline, validateModelAudit, type AuditUnitOptions } from "./model-pipeline.js";
-import { captureSnapshotIdentity, INCREMENTAL_CONTRACT_KIND, incrementalReport, incrementalRequestOf, IncrementalSeed, planIncrementalAudit, readIncrementalArtifact, SNAPSHOT_IDENTITY_KIND, type IncrementalContract, type SnapshotIdentity } from "./incremental-audit.js";
+import { captureSnapshotIdentity, INCREMENTAL_CONTRACT_KIND, incrementalReport, incrementalRequestOf, IncrementalSeed, planIncrementalAudit, readIncrementalArtifact, SNAPSHOT_IDENTITY_KIND, snapshotChanges, withIncrementalBase, type IncrementalContract, type SnapshotIdentity } from "./incremental-audit.js";
 import type { TestSandbox } from "./test-sandbox.js";
 import type { TransportFactoryOptions } from "@arbitra/providers/registry.js";
 import type { PlanIR } from "@arbitra/schemas/plan.js";
@@ -316,9 +316,10 @@ export class Orchestrator {
     const storedContext: StoredRunContext = Object.freeze({ repository: selectedRepository, repositoryDigest: snapshotDigest(snapshot), scope: validated.scope, consensusPolicy: validated.consensusPolicy,
       maximumRounds: authored === undefined ? validated.maxConsensusRounds : boundedRounds(graph, validated.maxConsensusRounds), criticEnabled: graph.nodes.some(({ id }) => id === "critic"),
       ...(modelConfiguration === undefined ? {} : { modelConfiguration }), ...(checkpointPolicy === undefined ? {} : { checkpointPolicy }), ...(authored === undefined ? {} : { workflowGraph: authored }) });
-    const identity = modelConfiguration?.mode === "audit" ? await captureSnapshotIdentity(snapshot, storedContext.repositoryDigest, defaultGit) : undefined;
+    // Every run records its files' hashes: an Audit's discovery units are decided against them, and a refused resume names the files that changed.
+    const identity = await captureSnapshotIdentity(snapshot, storedContext.repositoryDigest, defaultGit);
     // Reuse is decided against the base before the run exists; the run then only reads it.
-    const contract = base === undefined || identity === undefined || modelConfiguration === undefined ? undefined : await planIncrementalAudit({
+    const contract = base === undefined || modelConfiguration?.mode !== "audit" ? undefined : await planIncrementalAudit({
       base: base.store, baseState: base.state, baseContext: base.context, repository: selectedRepository, config: modelConfiguration, criticEnabled: storedContext.criticEnabled, snapshot, identity, git: defaultGit,
       // Reuse is bound to the executed graph: a saved graph reuses only from a base that ran the same graph.
       graph: { reference: authored ?? null, version: WorkflowGraphStore.versionOf(graph) }, baseGraph: await this.#executedGraphIdentity(base.store, base.context),
@@ -328,12 +329,12 @@ export class Orchestrator {
     });
     if (runId === contract?.baseRunId) throw new Error("INCREMENTAL_MUST_CREATE_NEW_RUN");
     await store.saveContext(storedContext);
-    if (identity !== undefined) await store.publish(SNAPSHOT_IDENTITY_KIND, identity);
+    await store.publish(SNAPSHOT_IDENTITY_KIND, identity);
     if (contract !== undefined) await store.publish(INCREMENTAL_CONTRACT_KIND, contract);
     await this.#recordVersions(store, cliVersions);
     // Plans name the project's own test and check commands; they are read once, with the snapshot.
     if (modelConfiguration !== undefined && (validated.mode === "audit" || validated.mode === "feature")) await store.publish(PROJECT_COMMANDS_KIND, { commands: await projectCommands(snapshot) });
-    const units: AuditUnitOptions | undefined = identity === undefined ? undefined : { identity, ...(contract === undefined || base === undefined ? {} : { seed: new IncrementalSeed(base.store, store, contract) }) };
+    const units: AuditUnitOptions | undefined = modelConfiguration?.mode !== "audit" ? undefined : { identity, ...(contract === undefined || base === undefined ? {} : { seed: new IncrementalSeed(base.store, store, contract) }) };
     const context: AuditContext = Object.freeze({
       snapshot,
       store,
@@ -358,7 +359,7 @@ export class Orchestrator {
 
   /**
    * The base of an incremental Audit. A request that cannot mean an incremental Audit fails
-   * before a run exists; a base that is merely not reusable (not completed, rewritten
+   * before a run exists; a base that is merely not reusable (still running here, rewritten
    * history, missing identities) is recorded and the run falls back to fresh work.
    */
   async #incrementalBase(baseRunId: string): Promise<{ readonly store: RunStore; readonly context: StoredRunContext; readonly state: string }> {
@@ -373,6 +374,16 @@ export class Orchestrator {
     if (mode !== "audit") throw Object.assign(new Error(`INCREMENTAL_BASE_MODE_MISMATCH:${mode}`), { statusCode: 409 });
     const state = this.#live.has(baseRunId) || this.#resuming.has(baseRunId) ? "RUNNING" : (await this.status(baseRunId)).state;
     return { store, context, state };
+  }
+
+  /**
+   * Start a new Audit of a run's project as it is now, with the run's own settings and the run as its incremental base,
+   * so it reuses the discovery the run finished: the way on for a run that stopped and whose files changed since.
+   */
+  async startIncremental(baseRunId: string): Promise<RunResource> {
+    const { context } = await this.#incrementalBase(baseRunId);
+    if (context.modelConfiguration === undefined) throw Object.assign(new Error("INCREMENTAL_BASE_MODE_MISMATCH:scripted_audit"), { statusCode: 409 });
+    return this.start(withIncrementalBase(context.modelConfiguration, { baseRunId }), context.repository);
   }
 
   /** Start a run and wait for it to finish. The CLI path; the UI uses `start`. */
@@ -463,6 +474,7 @@ export class Orchestrator {
     const store = new RunStore(this.#runsDirectory, runId);
     await store.saveContext({ repository: original.repository, repositoryDigest, scope: config.scope, replaySourceRunId: sourceRunId, consensusPolicy: config.consensusPolicy,
       maximumRounds: config.maxConsensusRounds, criticEnabled: graph.nodes.some(({ id }) => id === "critic"), modelConfiguration: config, ...(checkpointPolicy === undefined ? {} : { checkpointPolicy }) });
+    await store.publish(SNAPSHOT_IDENTITY_KIND, await captureSnapshotIdentity(snapshot, repositoryDigest, defaultGit));
     await this.#recordVersions(store, cliVersions);
     // Pin the exact protocol bytes the decisions were made against into the new run.
     const protocols = new ModelProtocols(store, config.protocols);
@@ -484,7 +496,7 @@ export class Orchestrator {
   async #startAuditReplay(sourceRunId: string, source: RunStore, sourceContext: StoredRunContext, requested: AuditReplayOverrides, changes: { readonly configuration?: RunConfig; readonly repository?: string } = {}): Promise<ReplayResource> {
     const repository = changes.repository === undefined ? sourceContext.repository : resolve(changes.repository);
     const snapshot = await snapshotRepository(repository, SNAPSHOT_FILE_LIMIT, { scope: sourceContext.scope });
-    if (snapshotDigest(snapshot) !== sourceContext.repositoryDigest) throw new Error(`RUN_REPOSITORY_CHANGED:${sourceRunId}`);
+    if (snapshotDigest(snapshot) !== sourceContext.repositoryDigest) throw await repositoryChanged(source, snapshot, "A replay reads the files its source read: put them back as they were, or pass a checkout that holds them as the repository.");
     const definition = await source.definitions().load(sourceRunId);
     const original: StoredRunContext = { ...sourceContext, repository, ...(changes.configuration === undefined ? {} : { modelConfiguration: await this.#replayConfiguration(sourceContext, definition.graph, changes.configuration) }) };
     // The plan critic is a switch, off by default since October 25, 2026. A replay that does not set it follows the
@@ -505,6 +517,7 @@ export class Orchestrator {
     if (runId === sourceRunId) throw new Error("REPLAY_MUST_CREATE_NEW_RUN");
     const store = new RunStore(this.#runsDirectory, runId);
     await store.saveContext({ ...original, replaySourceRunId: sourceRunId, consensusPolicy: overrides.consensusPolicy, maximumRounds: overrides.maximumRounds, criticEnabled: overrides.criticEnabled });
+    await store.publish(SNAPSHOT_IDENTITY_KIND, await captureSnapshotIdentity(snapshot, sourceContext.repositoryDigest, defaultGit));
     await this.#recordVersions(store, new Map());
     await store.publish("replay-source", { sourceRunId, overrides, ...(changes.configuration === undefined ? {} : { configurationReplaced: true }), ...(changes.repository === undefined ? {} : { repository }), reusedArtifacts: (await source.listArtifacts()).filter(({ kind }) => auditors.some(({ auditorId }) => kind === `findings-${auditorId}`)).map(({ artifactId, ref }) => ({ artifactId, hash: ref.hash })) });
     if (original.modelConfiguration !== undefined) {
@@ -576,7 +589,12 @@ export class Orchestrator {
     const store = new RunStore(this.#runsDirectory, runId);
     const storedContext = maximumTokens === undefined ? await store.loadContext() : await raisedTokenLimit(store, await store.loadContext(), maximumTokens);
     const snapshot = await snapshotRepository(storedContext.repository, SNAPSHOT_FILE_LIMIT, { scope: storedContext.scope, ...testingSnapshotOptions(storedContext.modelConfiguration) });
-    if (snapshotDigest(snapshot) !== storedContext.repositoryDigest) throw new Error(`RUN_REPOSITORY_CHANGED:${runId}`);
+    if (snapshotDigest(snapshot) !== storedContext.repositoryDigest) {
+      // A model Audit's finished discovery is not lost with it: a new run of the project as it is now reuses it.
+      throw await repositoryChanged(store, snapshot, storedContext.modelConfiguration?.mode === "audit" && storedContext.replaySourceRunId === undefined
+        ? `Put them back as they were to resume it, or start an incremental audit of the project as it is now with this run as its base (run <config> --incremental ${runId}), which reuses the discovery it finished.`
+        : "Put them back as they were to resume it, or start a new run of the project as it is now.");
+    }
     if (storedContext.modelConfiguration !== undefined) await this.#recordEnvironmentChange(store, storedContext.modelConfiguration);
     const definition = await store.definitions().load(runId);
     // A saved graph resumes as the exact version the run started with, never a later one.
@@ -912,7 +930,7 @@ export class Orchestrator {
     const context = await store.loadContext();
     if (context.modelConfiguration?.mode !== "feature") throw new Error("FEATURE_RUN_REQUIRED");
     const snapshot = await snapshotRepository(context.repository, SNAPSHOT_FILE_LIMIT, { scope: context.scope });
-    if (snapshotDigest(snapshot) !== context.repositoryDigest) throw new Error(`RUN_REPOSITORY_CHANGED:${runId}`);
+    if (snapshotDigest(snapshot) !== context.repositoryDigest) throw await repositoryChanged(store, snapshot, "Put them back as they were to go on with its requirements, or start a new feature run of the project as it is now.");
     return new FeaturePipeline(store, context.modelConfiguration, snapshot, this.#providerOptions);
   }
 
@@ -1105,7 +1123,7 @@ export class Orchestrator {
     };
     const incremental = await incrementalReport(store);
     return Object.freeze({ runId, ...parsed.summary, coverageComplete: parsed.coverage.complete, limitations: parsed.limitations, artifacts: descriptors.length,
-      ...(incremental === null ? {} : { incremental: { baseRunId: incremental.baseRunId, strategy: incremental.strategy, fallbackReasons: incremental.fallbackReasons, savedWork: incremental.savedWork, coverageDegraded: incremental.coverage.degradedVersusFullRun } }) });
+      ...(incremental === null ? {} : { incremental: { baseRunId: incremental.baseRunId, baseState: incremental.baseState, strategy: incremental.strategy, fallbackReasons: incremental.fallbackReasons, savedWork: incremental.savedWork, coverageDegraded: incremental.coverage.degradedVersusFullRun } }) });
   }
 
   /**
@@ -1391,6 +1409,24 @@ function schemaDiagnostics(failure: unknown): PreflightDiagnostic[] {
 
 function snapshotDigest(snapshot: RepositorySnapshot): string {
   return createHash("sha256").update(JSON.stringify(snapshot.files)).digest("hex");
+}
+
+/** Files a refusal names before it says how many more changed. */
+const CHANGED_FILES_NAMED = 10;
+
+/**
+ * The refusal of a run whose repository no longer holds the files it read (409): what to do, then how many files were
+ * changed, added and removed since the run recorded its snapshot identity, naming the first ten. Observed live (October
+ * 27, 2026, v0.3.1, macOS): five files of a ten-hour audit's scope were edited after it failed, its resume answered
+ * `500 {"error":"REQUEST_FAILED"}` with a bare `RUN_REPOSITORY_CHANGED:<id>`, and the files had to be found with `find -newer`.
+ */
+async function repositoryChanged(store: RunStore, snapshot: RepositorySnapshot, advice: string): Promise<Error> {
+  const identity = await readIncrementalArtifact<SnapshotIdentity>(store, SNAPSHOT_IDENTITY_KIND);
+  const changes = identity === null ? null : snapshotChanges(identity, snapshot);
+  const named = changes === null ? [] : [...changes.modified.map((path) => `changed ${path}`), ...changes.added.map((path) => `added ${path}`), ...changes.removed.map((path) => `removed ${path}`)];
+  const counts = changes === null ? [] : ([[changes.modified.length, "changed"], [changes.added.length, "added"], [changes.removed.length, "removed"]] as const).filter(([count]) => count > 0).map(([count, word]) => `${count} ${word}`);
+  const files = named.length === 0 ? "" : ` ${named.length} ${named.length === 1 ? "file" : "files"} changed since the run read them (${counts.join(", ")}): ${named.slice(0, CHANGED_FILES_NAMED).join(", ")}${named.length > CHANGED_FILES_NAMED ? ` and ${named.length - CHANGED_FILES_NAMED} more` : ""}`;
+  return Object.assign(new Error(`RUN_REPOSITORY_CHANGED:${store.runId}: the repository no longer holds the files the run read. ${advice}${files}`), { statusCode: 409 });
 }
 
 function testingSnapshotOptions(config: RunConfig | undefined) {

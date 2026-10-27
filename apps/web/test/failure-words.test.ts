@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { failureWords } from "../src/app/words.js";
+import { changedFiles, failureWords } from "../src/app/words.js";
 
 /** A provider failure as the runtime records it (`ProviderInvocationRuntime.invoke`). */
 const provider = (id: string, code: string, detail: string): string =>
@@ -55,5 +55,18 @@ describe("what a failure means for the person", () => {
     expect(upstream).toMatchObject({ what: "A model call failed: the model's service or its CLI did not answer as expected.", resumable: true });
     expect(upstream.todo).toMatch(/^Resume the run: it goes on from where it stopped/u);
     expect(failureWords(null)).toMatchObject({ what: "The run stopped on an error, and no reason was recorded.", resumable: true });
+  });
+
+  // Observed live (October 27, 2026, v0.3.1, macOS): the edited files had to be found with `find -newer`.
+  it("reads the files a refused resume names as changed, as the control plane answers it", () => {
+    const refusal = "RUN_REPOSITORY_CHANGED:run-1: the repository no longer holds the files the run read. Put them back as they were to resume it, or start an incremental audit of the project as it is now with this run as its base (run <config> --incremental run-1), which reuses the discovery it finished.";
+    expect(changedFiles(`${refusal} 3 files changed since the run read them (1 changed, 1 added, 1 removed): changed README.md, added docs/a, b.md, removed scripts/old.sh (RUN_API_409)`)).toEqual({ total: 3, more: 0,
+      files: [{ path: "README.md", change: "changed" }, { path: "docs/a, b.md", change: "added" }, { path: "scripts/old.sh", change: "removed" }] });
+    const many = Array.from({ length: 10 }, (_, index) => `changed src/${index}.ts`).join(", ");
+    expect(changedFiles(`Error: ${refusal} 14 files changed since the run read them (14 changed): ${many} and 4 more`)).toMatchObject({ total: 14, more: 4 });
+    expect(changedFiles(`${refusal} 14 files changed since the run read them (14 changed): ${many} and 4 more`)?.files).toHaveLength(10);
+    // A run recorded before arbitra kept its files' hashes names none.
+    expect(changedFiles(refusal)).toBeNull();
+    expect(failureWords(refusal)).toMatchObject({ what: "The project's files changed after the run read them, so the run cannot go on from where it stopped.", resumable: true });
   });
 });
