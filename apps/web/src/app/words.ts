@@ -3,6 +3,7 @@
  * the steps, the verdicts, how long something took, and what a failure means for the person. Recorded codes stay in
  * the details and the copied report.
  */
+import type { FinderCoverage } from "@arbitra/schemas/run-progress.js";
 
 export type Mode = "audit" | "feature" | "testing";
 export interface StepNode { readonly id: string; readonly kind: string; readonly label: string }
@@ -53,6 +54,26 @@ export function tokenWords(value: number): string {
 
 export function counted(count: number, one: string, many = `${one}s`): string {
   return `${count.toLocaleString("en")} ${count === 1 ? one : many}`;
+}
+
+/** Why a finder left a part of the project unread, as a person says it (the causes `discovery-declined-*` records). */
+const NOT_READ: Readonly<Record<string, (count: number) => string>> = Object.freeze({
+  provider_failed: (count: number) => `${counted(count, "call")} failed`,
+  provider_refused: (count: number) => `${count.toLocaleString("en")} declined by the provider`,
+  reply_rejected: (count: number) => `${count.toLocaleString("en")} with no usable reply`,
+});
+
+/**
+ * How much of the project a finished finder read: "27 of 32 parts read (5 not read: 3 calls failed, 2 with no usable
+ * reply)", or with `brief` "27 of 32 parts read, 5 not read". A finder that read 5 of 32 is not a third opinion.
+ */
+export function partsReadWords(coverage: FinderCoverage, brief = false): string {
+  const notRead = coverage.units - coverage.answered;
+  const read = `${coverage.answered.toLocaleString("en")} of ${counted(coverage.units, "part")} read`;
+  if (notRead === 0) return read;
+  if (brief) return `${read}, ${notRead.toLocaleString("en")} not read`;
+  const causes = Object.entries(coverage.notExamined).sort(([left], [right]) => left.localeCompare(right)).map(([cause, count]) => NOT_READ[cause]?.(count) ?? `${count.toLocaleString("en")} ${cause.replaceAll("_", " ")}`);
+  return `${read} (${notRead.toLocaleString("en")} not read: ${causes.join(", ")})`;
 }
 
 /** Severity words in severity order; the record says "informational", people say "info". */

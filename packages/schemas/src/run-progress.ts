@@ -33,11 +33,24 @@ export interface AuditorProgress {
   readonly modelId: string | null;
   /** Discovery units (parts of the project) whose findings are recorded. */
   readonly partsRead: number;
-  /** Units the model declined or answered unusably, recorded as unexamined. */
+  /** Units recorded as unexamined: the model declined them or answered unusably, or (once the auditor finished) their calls failed. */
   readonly partsDeclined: number;
   readonly findings: number;
   /** The auditor's whole discovery is recorded. */
   readonly finished: boolean;
+  /** Of the units a finished auditor sent, how many answered; null while it works and for a run that recorded no units. */
+  readonly coverage: FinderCoverage | null;
+}
+
+/**
+ * A finished finder's discovery units, from its record of them (`discovery-scopes-<auditor>`): every unit it sent, the
+ * parts of a split unit in its place, how many answered, and the rest by why each was left unexamined
+ * (`provider_failed`, `provider_refused`, `reply_rejected`). One finder at 5 of 32 is not a third opinion.
+ */
+export interface FinderCoverage {
+  readonly units: number;
+  readonly answered: number;
+  readonly notExamined: Readonly<Record<string, number>>;
 }
 
 export interface FoundIssue {

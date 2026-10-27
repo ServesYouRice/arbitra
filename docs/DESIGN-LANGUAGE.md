@@ -133,7 +133,9 @@ A run page reads top to bottom:
   fix something on this computer and resume, resume now, or update arbitra and then resume.
   When it is done: the plan first, with saving it into the project as the page's one primary
   action, then what needs the person, the issues by verdict, and how it ran, which says
-  whether the plan was reviewed (also when Review the plan was off).
+  whether the plan was reviewed (also when Review the plan was off) and how many of its parts
+  each finder read (`27 of 32 parts read (5 not read: 3 calls failed, 2 with no usable reply)`),
+  so a finder that read few does not pass for a whole opinion.
 - **Details panel.** Whatever is selected (a node, an issue, a plan step, a model attempt,
   an artifact), shown from the run's own records. It sits beside the tab, 360–440px, behind
   a 1px hairline, and exists only while something is selected. Below 1180px it is a modal

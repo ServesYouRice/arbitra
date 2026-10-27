@@ -1,7 +1,7 @@
 import type { RunEvent } from "@arbitra/core/runner/events.js";
 import type { RunnerGraph } from "@arbitra/core/runner/workflow-runner.js";
 import type { ModelActivityTraceRecord } from "@arbitra/persistence/trace.js";
-import { PROGRESS_SEVERITIES, type AuditorProgress, type FoundIssue, type ProgressSeverity, type ProgressTime, type RunProgress, type StageProgress } from "@arbitra/schemas/run-progress.js";
+import { PROGRESS_SEVERITIES, type AuditorProgress, type FinderCoverage, type FoundIssue, type ProgressSeverity, type ProgressTime, type RunProgress, type StageProgress } from "@arbitra/schemas/run-progress.js";
 
 /** States in which the run is not working: it finished, failed, waits on a person or on a limit. */
 const STOPPED = new Set(["COMPLETED", "FAILED", "BLOCKED", "CANCELLED", "SUSPENDED_BUDGET", "SUSPENDED_RATE_LIMIT"]);
@@ -10,6 +10,7 @@ const ACTIVITY_STAGES: Readonly<Record<string, string>> = Object.freeze({ "seman
 const UNIT_FINDINGS = /^findings-(.+)-((?:scope|window)-[0-9a-f]{24})$/u;
 const DECLINED_UNIT = /^discovery-declined-(.+)-((?:scope|window|whole)[0-9a-f-]*)$/u;
 const ACTIVITY_TRACE = /^model-activity-[0-9a-f]{64}-trace$/u;
+const SCOPES = "discovery-scopes-";
 
 export interface ProgressDescriptor { readonly artifactId: string; readonly kind: string; readonly nodeId?: string | null }
 
@@ -17,6 +18,7 @@ export interface ProgressDescriptor { readonly artifactId: string; readonly kind
 export type ArtifactDigest =
   | { readonly kind: "findings"; readonly items: readonly FoundIssue[] }
   | { readonly kind: "trace"; readonly activityId: string; readonly timedOutAndRetried: boolean }
+  | { readonly kind: "units"; readonly coverage: FinderCoverage | null }
   | { readonly kind: "other" };
 
 export interface ProgressInput {
@@ -35,7 +37,7 @@ export interface ProgressInput {
 
 /** The artifacts whose content the progress read needs; every other artifact is counted by its kind alone. */
 export function needsDigest(kind: string): boolean {
-  return kind.startsWith("findings-") || ACTIVITY_TRACE.test(kind);
+  return kind.startsWith("findings-") || ACTIVITY_TRACE.test(kind) || kind.startsWith(SCOPES);
 }
 
 /** Read the parts of an artifact the progress needs from its parsed content. */
@@ -45,6 +47,14 @@ export function digestArtifact(kind: string, content: unknown, nodeId: string | 
     const attempts = Array.isArray(value["attempts"]) ? value["attempts"].map(record) : [];
     return { kind: "trace", activityId: typeof value["activityId"] === "string" ? value["activityId"] : nodeId ?? kind,
       timedOutAndRetried: attempts.some((attempt) => attempt["outcome"] === "retry" && attempt["errorCode"] === "TIMEOUT") };
+  }
+  if (kind.startsWith(SCOPES)) {
+    // Each unit sent is one scope; a unit left unexamined says why (`declined`), and every other one answered.
+    const scopes = record(content)["scopes"];
+    if (!Array.isArray(scopes)) return { kind: "units", coverage: null };
+    const notExamined: Record<string, number> = {};
+    for (const scope of scopes.map(record)) if (typeof scope["declined"] === "string") notExamined[scope["declined"]] = (notExamined[scope["declined"]] ?? 0) + 1;
+    return { kind: "units", coverage: { units: scopes.length, answered: scopes.length - Object.values(notExamined).reduce((sum, count) => sum + count, 0), notExamined } };
   }
   if (kind.startsWith("findings-") && Array.isArray(content)) {
     const auditorId = nodeId ?? kind.slice("findings-".length);
@@ -84,8 +94,11 @@ export async function summariseProgress(input: ProgressInput): Promise<RunProgre
     const found = (await Promise.all(sources.map(async (descriptor) => { const digest = await input.digest(descriptor); return digest.kind === "findings" ? digest.items : []; }))).flat()
       .map((item) => ({ ...item, auditorId }));
     items.push(...found);
+    // The record of the units is final once the auditor finished: a whole-snapshot audit writes it before its one call.
+    const scopes = final === undefined ? undefined : input.descriptors.findLast(({ kind }) => kind === `${SCOPES}${auditorId}`);
+    const sent = scopes === undefined ? null : await input.digest(scopes);
     auditors.push({ auditorId, modelId: input.configuration?.models?.[auditorId]?.modelId ?? null, partsRead: units.length === 0 && final !== undefined ? 1 : units.length, partsDeclined: declined,
-      findings: found.length, finished: final !== undefined });
+      findings: found.length, finished: final !== undefined, coverage: sent?.kind === "units" ? sent.coverage : null });
   }
   const rank = (severity: ProgressSeverity): number => PROGRESS_SEVERITIES.indexOf(severity);
   const ordered = items.map((item, index) => ({ item, index })).sort((a, b) => rank(a.item.severity) - rank(b.item.severity) || a.index - b.index).map(({ item }) => item);

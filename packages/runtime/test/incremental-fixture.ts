@@ -73,7 +73,9 @@ export async function incrementalFixture(files: Readonly<Record<string, string>>
       const prefix = /Every sourceFindingId must start with (.+)\/ and be unique/u.exec(system)?.[1] ?? "";
       const input = JSON.parse(user) as { files: { path: string; lines: { line: number; text: string }[] }[] };
       for (const [path, wait] of held) if (input.files.some((file) => file.path === path)) await wait;
-      if ([...failing].some((path) => input.files.some((file) => file.path === path))) return { status: 503, headers: {}, body: {} };
+      // A failure every call of the finder would meet (refused credentials), so the run stops and a resume sends the unit
+      // again; one unit's server error is a gap its finder goes on without.
+      if ([...failing].some((path) => input.files.some((file) => file.path === path))) return { status: 401, headers: {}, body: {} };
       // A unit that names a file to read asks for each one through the tools, then answers once every result is in.
       const reads = input.files.flatMap(({ lines }) => lines.flatMap(({ text }) => /^\/\/ READS (\S+)$/u.exec(text)?.[1] ?? []));
       const answered = (body.input ?? []).filter(({ type }) => type === "function_call_output").length;

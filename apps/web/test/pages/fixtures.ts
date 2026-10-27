@@ -73,7 +73,7 @@ export function discoveryProgress(overrides: Partial<RunProgress> = {}): RunProg
     run: { elapsedMs: 0, runningSince: minutesAgo(66), startedAt: minutesAgo(66), endedAt: null },
     stages: [stage("preflight", "done", { elapsedMs: 60_000, endedAt: minutesAgo(65) }), stage("auditor-a", "running", { runningSince: minutesAgo(65), calls: 22, tokens: 2_000_000 }),
       stage("auditor-b", "running", { runningSince: minutesAgo(65), calls: 14, tokens: 1_400_000 }), stage("consensus", "waiting"), stage("verification", "waiting"), stage("planner", "waiting"), stage("critic", "waiting")],
-    auditors: [{ auditorId: "auditor-a", modelId: "claude-opus-5-5", partsRead: 22, partsDeclined: 0, findings: 190, finished: false }, { auditorId: "auditor-b", modelId: "gpt-6.1-sol", partsRead: 14, partsDeclined: 1, findings: 119, finished: false }],
+    auditors: [{ auditorId: "auditor-a", modelId: "claude-opus-5-5", partsRead: 22, partsDeclined: 0, findings: 190, finished: false, coverage: null }, { auditorId: "auditor-b", modelId: "gpt-6.1-sol", partsRead: 14, partsDeclined: 1, findings: 119, finished: false, coverage: null }],
     found: { total: 309, bySeverity: { critical: 0, high: 36, medium: 107, low: 158, informational: 8 },
       items: titles.map((title, index) => ({ title, severity: index < 4 ? "high" : "medium", path: `crypto/rust/src/mls.rs`, line: 100 + index, auditorId: index % 2 === 0 ? "auditor-a" : "auditor-b" })) },
     tokens: { used: 3_400_000, callsWithoutUsage: 0, limit: 65_000_000 },

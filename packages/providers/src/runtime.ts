@@ -50,10 +50,20 @@ export class ProviderBudgetSuspendedError extends Error {
   readonly state = "SUSPENDED_BUDGET" as const;
   constructor(readonly reason: string) { super(reason); this.name = "ProviderBudgetSuspendedError"; }
 }
+/**
+ * `causeCode` is the shared class of the last attempt's failure (`MALFORMED_RESPONSE`, `INVALID_REQUEST`); `transportCode`
+ * is the transport's own code that leads that failure (`CLI_AGENT_TOOL_USE_FORBIDDEN`, `CLI_MODEL_UNAVAILABLE`), or
+ * `HTTP_<status>` for a provider's HTTP refusal, so a caller tells failures of one class apart without reading the text.
+ */
 export class ProviderInvocationFailure extends Error {
   readonly degradedCompleteness = true;
   readonly resumable = true;
-  constructor(message: string, readonly attempts: number, readonly causeCode: string) { super(message); this.name = "ProviderInvocationFailure"; }
+  constructor(message: string, readonly attempts: number, readonly causeCode: string, readonly transportCode: string | null = null) { super(message); this.name = "ProviderInvocationFailure"; }
+}
+/** The code a transport leads its failure's message with (`CLI_MODEL_UNAVAILABLE: …`), or `HTTP_<status>` for `Provider HTTP <status>`. */
+function transportCode(error: TransportError): string | null {
+  const status = /^Provider HTTP (\d{3})\b/u.exec(error.message)?.[1];
+  return status !== undefined ? `HTTP_${status}` : /^([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)(?::|$)/u.exec(error.message)?.[1] ?? null;
 }
 /**
  * A provider's usage allowance is used up (a subscription's window, an account's credit). Waiting is the only fix, so
@@ -142,7 +152,7 @@ export class ProviderInvocationRuntime {
     const detail = lastError instanceof TransportError ? `: ${lastError.message.slice(0, 300)}` : "";
     if (code === "QUOTA") throw new ProviderUsageLimitError(`Provider ${context.providerId} reached its usage limit (${code}${detail}); the run pauses with its completed work kept and goes on when resumed after the reset.`, attempts);
     if (timeLimited(lastError, context)) throw new ProviderTimeLimitError(`Provider ${context.providerId}: the call ran past its time limit of ${context.timeoutMs} ms and stopped (${code}${detail}); it is not sent again, since its stage sends less work instead.`, attempts);
-    throw new ProviderInvocationFailure(`Provider ${context.providerId} failed after ${attempts} attempt${attempts === 1 ? "" : "s"} (${code}${detail}); completed artifacts are preserved and the run may resume with degraded completeness.`, attempts, code);
+    throw new ProviderInvocationFailure(`Provider ${context.providerId} failed after ${attempts} attempt${attempts === 1 ? "" : "s"} (${code}${detail}); completed artifacts are preserved and the run may resume with degraded completeness.`, attempts, code, lastError instanceof TransportError ? transportCode(lastError) : null);
   }
 }
 

@@ -158,6 +158,17 @@ describe("provider invocation runtime", () => {
     });
   });
 
+  it("names the transport's own code of the last failure beside its shared class", async () => {
+    // Observed live (October 27, 2026, agy 1.4.7): Gemini ran agy's run_command on all three attempts, and discovery could
+    // tell that MALFORMED_RESPONSE from any other only by reading the message.
+    const failing = (error: TransportError) => createRuntime({ id: "fixture", async send() { throw error; } }, scheduler()).invoke(request(), context({ maximumRetries: 2 }));
+    await expect(failing(new TransportError("MALFORMED_RESPONSE", "CLI_AGENT_TOOL_USE_FORBIDDEN: Antigravity CLI attempted a tool step (run_command); the CLI's own agent tools are disabled", true)))
+      .rejects.toMatchObject({ name: "ProviderInvocationFailure", causeCode: "MALFORMED_RESPONSE", transportCode: "CLI_AGENT_TOOL_USE_FORBIDDEN", attempts: 3 });
+    await expect(failing(new TransportError("HTTP", "Provider HTTP 404: model not found", false))).rejects.toMatchObject({ causeCode: "HTTP", transportCode: "HTTP_404" });
+    await expect(failing(new TransportError("INVALID_REQUEST", "TOOL_CALL_ID_REQUIRED", false))).rejects.toMatchObject({ transportCode: "TOOL_CALL_ID_REQUIRED" });
+    await expect(failing(new TransportError("AUTH", "Credential environment variable KEY is not set", false))).rejects.toMatchObject({ causeCode: "AUTH", transportCode: null });
+  });
+
   it("reports actual attempts and validates before touching the budget", async () => {
     const reserve = vi.fn(() => ({ allowed: true }));
     const transport: ProviderTransport = { id: "fixture", async send() { throw new TransportError("AUTH", "bad key", false); } };
