@@ -10,6 +10,12 @@ export function versionInRange(version: string, range: { readonly minimum: strin
   return compare(actual, minimum) >= 0 && compare(actual, below) < 0;
 }
 
+/** How two plain versions order (negative: `a` is older); null when either is not one. */
+export function compareVersions(a: string, b: string): number | null {
+  const left = parseSemanticVersion(a); const right = parseSemanticVersion(b);
+  return left === null || right === null ? null : compare(left, right);
+}
+
 function compare(a: readonly [number, number, number], b: readonly [number, number, number]): number {
   for (let index = 0; index < 3; index += 1) if ((a[index] ?? 0) !== (b[index] ?? 0)) return (a[index] ?? 0) - (b[index] ?? 0);
   return 0;

@@ -116,7 +116,7 @@ export function failureWords(reason: string | null, mode: Mode = "audit"): Failu
   const files = /REPOSITORY_FILE_LIMIT_EXCEEDED:(\d+)/u.exec(text);
   if (files !== null) return { what: `The project has more than ${Number(files[1]).toLocaleString("en")} source files, more than one run reads.`, todo: `Start a new ${run} that reads some folders of the project, or leaves some out. ${AGAIN}`, resumable: false };
   if (/MODEL_IDENTITY_PLACEHOLDER/u.test(text)) return { what: "A model in the lineup is a placeholder, not a model this computer can run.", todo: `Start a new ${run} with a model chosen for each step. ${AGAIN}`, resumable: false };
-  if (/CLI_MODEL_UNAVAILABLE|CLI_ACCOUNT_INELIGIBLE/u.test(text)) return { what: "A model in the lineup is not offered to the account its CLI is signed in to.", todo: `Start a new ${run} with another model for that step. ${AGAIN}`, resumable: false };
+  if (/CLI_ACCOUNT_INELIGIBLE/u.test(text)) return { what: "A model in the lineup is not offered to the account its CLI is signed in to.", todo: `Start a new ${run} with another model for that step. ${AGAIN}`, resumable: false };
   if (/CLI_EFFORT_PARAMETER_UNSUPPORTED/u.test(text)) return { what: "A model refused the effort the lineup gives it.", todo: `Start a new ${run} with another effort for that step. ${AGAIN}`, resumable: false };
   // Observed live (veritra, October 25, 2026): after a code change, a resume refused every recorded critic batch.
   const changed = /MODEL_ACTIVITY_INPUT_CHANGED:([^\s:]+)/u.exec(text);
@@ -133,6 +133,10 @@ export function failureWords(reason: string | null, mode: Mode = "audit"): Failu
   if (variable !== undefined || /PROVIDER_CREDENTIAL_MISSING/u.test(text)) return { what: "A model's API key is not set on this computer.", todo: `Set ${variable ?? "the key"}, restart arbitra, then resume the run. ${KEPT}`, resumable: true };
   if (/CLI_API_KEY_IN_USE/u.test(text)) return { what: "Claude Code used an API key where the lineup runs through its subscription, so nothing was sent.", todo: `Remove the key from the environment arbitra runs in, restart arbitra, then resume the run. ${KEPT}`, resumable: true };
   if (/CLI_NOT_INSTALLED|CLI_SPAWN_FAILED/u.test(text)) return { what: "A model's CLI could not be started on this computer.", todo: `Install it, or make it findable as the details say, then resume the run. ${KEPT}`, resumable: true };
+  // Observed live (October 26, 2026, macOS): the Codex CLI inside the ChatGPT app was too old for GPT-6.1 Sol, and the
+  // words said the account was not offered the model, when updating the CLI and resuming was the fix.
+  if (/CLI_TOO_OLD_FOR_MODEL/u.test(text)) return { what: "A model's CLI on this computer is too old for a model in the lineup.", todo: `Install the current version of that CLI (the details say how), then resume the run. ${KEPT}`, resumable: true };
+  if (/CLI_MODEL_UNAVAILABLE/u.test(text)) return { what: "A model's CLI refused a model in the lineup: the account's plan may not include it, or the CLI is older than the model.", todo: `Update that CLI (the details name it) and resume the run, or start a new ${run} with another model for that step. ${KEPT}`, resumable: true };
   if (/CLI_VERSION_UNSUPPORTED|CLI_VERSION_UNREADABLE/u.test(text)) return { what: "A model's CLI is a version arbitra does not support.", todo: `Install a version the details name, or update arbitra, then resume the run. ${KEPT}`, resumable: true };
   if (/\(AUTH: /u.test(text)) return { what: "A model's provider refused the sign-in or key on this computer.", todo: `Check the key or sign in again, restart arbitra, then resume the run. ${KEPT}`, resumable: true };
   const resource = /\b(ENOSPC|EMFILE|ENFILE|ENOMEM|EBUSY|EPERM|EACCES)\b/u.exec(text)?.[1];

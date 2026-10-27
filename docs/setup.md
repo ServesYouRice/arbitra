@@ -233,7 +233,14 @@ in a fresh process within `maximumRetries`.
 
 An executable override must be an absolute path. If it names a JavaScript entry point
 (`.js`, `.cjs`, `.mjs`, for example an npm package's `cli.js`), arbitra runs it with its own
-Node on every platform.
+Node on every platform. Without an override, of several copies of one CLI arbitra uses the newest
+supported one, and New run's This computer names the others. A model newer than a CLI copy is
+refused before any call (`CLI_TOO_OLD_FOR_MODEL`, also at preflight) where the oldest CLI that
+serves it is known: GPT-6.1 Sol needs Codex CLI 0.162.0 or later, and the copy inside the ChatGPT
+app on macOS can be older (0.158.0 on October 26, 2026); install the current CLI with
+`npm install -g @openai/codex`. Where no minimum is known, the service's refusal reads
+`CLI_MODEL_UNAVAILABLE` and names the CLI's version and path, since an old CLI and a plan without
+the model are refused alike.
 
 For Google, use `antigravity-cli` with a personal Google AI subscription (free, AI Pro or
 Ultra). Since June 18, 2026 Google no longer serves the Gemini CLI to personal logins and

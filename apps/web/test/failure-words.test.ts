@@ -9,13 +9,13 @@ describe("what a failure means for the person", () => {
   // Every failed run's server status says `resumable: true`: whether resuming can help is in the reason.
   it("offers no resume where resuming repeats the failure, and says to start again", () => {
     for (const reason of ["Error: REPOSITORY_FILE_LIMIT_EXCEEDED:400", "Error: MODEL_IDENTITY_PLACEHOLDER:auditor-a",
-      provider("openai", "INVALID_REQUEST", "CLI_MODEL_UNAVAILABLE: Codex CLI refused the configured model for this subscription."),
+      provider("google", "AUTH", "CLI_ACCOUNT_INELIGIBLE: Gemini CLI no longer serves this Google account's tier"),
       provider("openai", "INVALID_REQUEST", "CLI_EFFORT_PARAMETER_UNSUPPORTED: Codex CLI accepts effort parameters model_reasoning_effort")]) {
       const words = failureWords(reason);
       expect(words.resumable, reason).toBe(false);
       expect(words.todo, reason).toMatch(/^Start a new audit .*Resuming this run would stop the same way\.$/u);
     }
-    expect(failureWords(provider("openai", "INVALID_REQUEST", "CLI_MODEL_UNAVAILABLE: Codex CLI refused the configured model for this subscription.")).what)
+    expect(failureWords(provider("google", "AUTH", "CLI_ACCOUNT_INELIGIBLE: Gemini CLI no longer serves this Google account's tier")).what)
       .toBe("A model in the lineup is not offered to the account its CLI is signed in to.");
   });
 
@@ -40,6 +40,12 @@ describe("what a failure means for the person", () => {
     expect(key.todo).toMatch(/^Set OPENAI_API_KEY, restart arbitra, then resume the run\./u);
     expect(failureWords(provider("anthropic", "INVALID_REQUEST", "CLI_NOT_INSTALLED: claude was not found on PATH. Install Claude Code.")))
       .toMatchObject({ what: "A model's CLI could not be started on this computer.", resumable: true });
+    // Observed live (October 26, 2026, macOS): the ChatGPT app's Codex CLI was too old for GPT-6.1 Sol; an update and a resume fixed it.
+    const old = failureWords(provider("openai", "INVALID_REQUEST", "CLI_TOO_OLD_FOR_MODEL: Codex CLI 0.158.0 (/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex) does not know gpt-6.1-sol, which needs 0.162.0 or later."));
+    expect(old).toMatchObject({ what: "A model's CLI on this computer is too old for a model in the lineup.", resumable: true });
+    expect(old.todo).toMatch(/^Install the current version of that CLI \(the details say how\), then resume the run\./u);
+    expect(failureWords(provider("openai", "INVALID_REQUEST", "CLI_MODEL_UNAVAILABLE: Codex CLI 0.158.0 (/usr/local/bin/codex) refused gpt-6.1-sol: the plan it is signed in to may not include it")))
+      .toMatchObject({ what: "A model's CLI refused a model in the lineup: the account's plan may not include it, or the CLI is older than the model.", resumable: true });
     expect(failureWords("Error: ENOSPC: no space left on device, write")).toMatchObject({ what: "This computer refused arbitra a file or resource it needed (ENOSPC).", resumable: true });
   });
 

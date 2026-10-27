@@ -6,7 +6,7 @@ import { cliFailureDetail } from "./classify.js";
 import { hostNodeExecutable, type CliExecutableResolution, type HostLookup } from "./discovery.js";
 import { defaultLimitLedgerPath, fileLimitLedger, type CliLimitLedger, type CliUsageLimit } from "./limits.js";
 import { cliTransportSupport, type CliAuthMode, type CliTransportSupport } from "./support.js";
-import { probeCliVersion, runCliCommand, supportedCliExecutable, type CliCommandOptions } from "./transport.js";
+import { probeCliVersion, runCliCommand, supportedCliExecutable, type CliCommandOptions, type CliInstallation } from "./transport.js";
 
 /**
  * Model-free readiness of one subscription CLI: installed, supported version, signed in to a
@@ -23,6 +23,8 @@ export interface CliReadiness {
   readonly auth: CliAuthState | null;
   readonly authDetail: string | null;
   readonly usageLimit: CliUsageLimit | null;
+  /** Every installation found when there are several, with its version; the one in use is `executable`. */
+  readonly installations: readonly CliInstallation[];
 }
 export interface CliProbeOptions {
   readonly lookup: HostLookup;
@@ -44,12 +46,12 @@ export const probeCliReadiness: CliProbe = async (transport, options) => {
   const ledgerPath = options.limits === undefined ? defaultLimitLedgerPath(options.lookup, platform) : null;
   const ledger = options.limits === undefined ? ledgerPath === null ? null : fileLimitLedger(ledgerPath) : options.limits;
   const usageLimit = await ledger?.current(transport, options.now ?? Date.now()).catch(() => null) ?? null;
-  const { resolution: executable, version: known } = await supportedCliExecutable(support, { platform, lookup: options.lookup, nodeExecutable: options.nodeExecutable ?? hostNodeExecutable() }, command);
-  if (!executable.found) return Object.freeze({ support, executable, version: null, versionSupported: null, auth: null, authDetail: null, usageLimit });
+  const { resolution: executable, version: known, installations } = await supportedCliExecutable(support, { platform, lookup: options.lookup, nodeExecutable: options.nodeExecutable ?? hostNodeExecutable() }, command);
+  if (!executable.found) return Object.freeze({ support, executable, version: null, versionSupported: null, auth: null, authDetail: null, usageLimit, installations });
   const version = known ?? await probeCliVersion(executable.executable, support, command).catch(() => null);
   const versionSupported = version === null ? false : versionInRange(version, support.versionRange);
   const { auth, detail } = !versionSupported ? { auth: null, detail: null } : await authState(support, executable, options, command);
-  return Object.freeze({ support, executable, version, versionSupported, auth, authDetail: detail, usageLimit });
+  return Object.freeze({ support, executable, version, versionSupported, auth, authDetail: detail, usageLimit, installations });
 };
 
 async function authState(support: CliTransportSupport, resolution: CliExecutableResolution, options: CliProbeOptions, command: CliCommandOptions): Promise<{ auth: CliAuthState; detail: string | null }> {

@@ -18,6 +18,8 @@ export interface DetectedCli {
   readonly models?: readonly { readonly id: string; readonly name: string }[];
   /** What the vendor's own terms say about driving this CLI from another application, when they restrict it. */
   readonly caution?: string;
+  /** The other installations found, which arbitra does not use: it takes the newest supported one. */
+  readonly others?: readonly { readonly path: string; readonly version: string | null }[];
 }
 
 /**
@@ -74,12 +76,14 @@ export async function detectEnvironment(lookup: (name: string) => string | undef
     const base = { transport: support.transport, name: support.displayName, ...(support.transport === "antigravity-cli" ? { caution: ANTIGRAVITY_CAUTION } : {}) };
     if (readiness === null || !readiness.executable.found) return { ...base, path: null, version: null, state: "not_installed", note: "not found", fix: support.installInstruction };
     const path = readiness.executable.executable.path;
-    if (readiness.versionSupported !== true) return { ...base, path, version: readiness.version, state: "unsupported_version", note: `version ${readiness.version ?? "unreadable"}; arbitra needs ${support.versionRange.minimum} to below ${support.versionRange.below}`, fix: support.installInstruction };
-    if (readiness.auth === "not_logged_in") return { ...base, path, version: readiness.version, state: "not_signed_in", note: "not signed in", fix: support.loginInstruction };
-    if (readiness.auth === "api_key_login") return { ...base, path, version: readiness.version, state: "api_key_login", note: "signed in with an API key, which would spend API credit", fix: support.loginInstruction };
+    const others = readiness.installations.filter((installation) => installation.path !== path);
+    const found = { ...base, path, ...(others.length === 0 ? {} : { others }) };
+    if (readiness.versionSupported !== true) return { ...found, version: readiness.version, state: "unsupported_version", note: `version ${readiness.version ?? "unreadable"}; arbitra needs ${support.versionRange.minimum} to below ${support.versionRange.below}`, fix: support.installInstruction };
+    if (readiness.auth === "not_logged_in") return { ...found, version: readiness.version, state: "not_signed_in", note: "not signed in", fix: support.loginInstruction };
+    if (readiness.auth === "api_key_login") return { ...found, version: readiness.version, state: "api_key_login", note: "signed in with an API key, which would spend API credit", fix: support.loginInstruction };
     const limit = readiness.usageLimit === null ? "" : ` · usage limit reached recently`;
     const models = await listModels(support.transport, path).catch(() => null);
-    return { ...base, path, version: readiness.version, state: "ready", note: `${readiness.auth === "logged_in" ? "signed in" : "sign-in confirmed by the first call"}${readiness.authDetail !== null && readiness.auth === "logged_in" ? ` (${readiness.authDetail})` : ""}${limit}`, fix: null, ...(models === null ? {} : { models }) };
+    return { ...found, version: readiness.version, state: "ready", note: `${readiness.auth === "logged_in" ? "signed in" : "sign-in confirmed by the first call"}${readiness.authDetail !== null && readiness.auth === "logged_in" ? ` (${readiness.authDetail})` : ""}${limit}`, fix: null, ...(models === null ? {} : { models }) };
   }));
   return Object.freeze({ checkedAt: new Date().toISOString(), platform: `${process.platform} ${process.arch}`, node: process.version, clis: Object.freeze(clis),
     apiKeys: Object.freeze(Object.fromEntries(API_KEYS.map((name) => [name, (lookup(name) ?? "") !== ""]))) });

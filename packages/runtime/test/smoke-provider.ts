@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import type { NativeProcessPort, NativeProcessRequest, NativeProcessResult } from "@arbitra/providers/process.js";
-import { CLI_ENGINE_PREAMBLE } from "@arbitra/providers/transports/cli/prompt.js";
+import { CLI_ENGINE_PREAMBLE, CLI_TOOLS_PREAMBLE } from "@arbitra/providers/transports/cli/prompt.js";
 import { CLI_TRANSPORT_SUPPORT } from "@arbitra/providers/transports/cli/support.js";
 import { planIRSchema, type PlanIR } from "@arbitra/schemas/plan.js";
 import type { HttpRequest, HttpResponse } from "@arbitra/providers/transport-contract.js";
@@ -237,7 +237,8 @@ async function smokeCli(root: string, answer: (protocol: WireProtocol, system: s
     const system = vendor === "claude" ? readFileSync(args[args.indexOf("--system-prompt-file") + 1] ?? "", "utf8")
       : vendor === "codex" ? readFileSync(JSON.parse((args.find((value) => value.startsWith("model_instructions_file=")) ?? "model_instructions_file=\"\"").slice("model_instructions_file=".length)) as string, "utf8")
         : vendor === "agy" ? transcriptAt < 0 ? "" : agyPrompt.slice(0, transcriptAt) : readFileSync(request.environment["GEMINI_SYSTEM_MD"] ?? "", "utf8");
-    const instruction = system.startsWith(CLI_ENGINE_PREAMBLE) ? system.slice(CLI_ENGINE_PREAMBLE.length).replace(/^\n\n/u, "") : system;
+    const preamble = [CLI_ENGINE_PREAMBLE, CLI_TOOLS_PREAMBLE].find((text) => system.startsWith(text));
+    const instruction = preamble === undefined ? system : system.slice(preamble.length).replace(/^\n\n/u, "");
     const first = /^<<<BEGIN user ([a-f0-9]{16})>>>\n([\s\S]*?)\n<<<END user \1>>>/mu.exec(stdin);
     const protocol = ({ claude: "claude-code-cli", codex: "codex-cli", gemini: "gemini-cli", agy: "antigravity-cli" } as const)[vendor as "claude" | "codex" | "gemini" | "agy"];
     const after = (flag: string) => args.includes(flag) ? args[args.indexOf(flag) + 1] : undefined;

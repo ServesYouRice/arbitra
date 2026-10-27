@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import type { OfferedModels } from "./model-catalog.js";
 
-export interface DetectedCli { readonly transport: string; readonly name: string; readonly state: string; readonly version: string | null; readonly note: string; readonly fix: string | null; readonly path?: string | null; readonly models?: readonly { readonly id: string; readonly name: string }[]; readonly caution?: string }
+export interface DetectedCli { readonly transport: string; readonly name: string; readonly state: string; readonly version: string | null; readonly note: string; readonly fix: string | null; readonly path?: string | null; readonly models?: readonly { readonly id: string; readonly name: string }[]; readonly caution?: string; readonly others?: readonly { readonly path: string; readonly version: string | null }[] }
 export interface DetectedEnvironment { readonly build: string; readonly checkedAt?: string; readonly clis: readonly DetectedCli[]; readonly apiKeys: Readonly<Record<string, boolean>> }
 
 /** The models this machine can run, found without a model call: the lists the CLIs give (only Antigravity gives one). */
@@ -42,8 +42,8 @@ export function ThisComputer({ environment, failure, transports, keyVariables, s
       })}{keyVariables.length === 0 ? null : <tr><th scope="row">API keys</th><td>read from {keyVariables.join(", ")}; the check says if one is not set</td><td /><td>in this lineup</td></tr>}</tbody></table></div>}
     {environment === null ? null : <details className="fold">
       <summary>Where each was found, and how models are found and chosen</summary>
-      <ul className="plain-list computer-paths">{environment.clis.filter(({ path }) => typeof path === "string").map(({ name, path }) => <li key={name}>{name} · <code>{path}</code></li>)}</ul>
-      <p className="note">arbitra asks each CLI on this computer for its version and whether it is signed in; no model is called. Claude Code and Codex do not list their models, so their choices are the models arbitra knows to work through them. Antigravity lists the models your account can use, and only its Gemini models are offered, so a third finder stays independent of Claude and GPT.</p>
+      <ul className="plain-list computer-paths">{environment.clis.filter(({ path }) => typeof path === "string").map(({ name, path, others }) => <li key={name}>{name} · <code>{path}</code>{(others ?? []).map((other) => <span key={other.path}>; also {other.version ?? "a version it did not report"} at <code>{other.path}</code>, not used</span>)}</li>)}</ul>
+      <p className="note">arbitra asks each CLI on this computer for its version and whether it is signed in; no model is called. Of several copies of one CLI it uses the newest it supports: an older copy, such as the one inside the ChatGPT app, may not know the newest models. Claude Code and Codex do not list their models, so their choices are the models arbitra knows to work through them. Antigravity lists the models your account can use, and only its Gemini models are offered, so a third finder stays independent of Claude and GPT.</p>
       <p className="note">{subscription ? "Each card names the model and effort of every step, in the CLI's own effort word; the steps below change any of them. Opus 5.5 always checks the critical and high issues; Gemini only ever does optional work." : "This lineup names its own models; the steps below and Change models pick others."} Usage windows (five-hour, weekly) are not shown: arbitra does not know your plan.</p>
     </details>}
   </div>;

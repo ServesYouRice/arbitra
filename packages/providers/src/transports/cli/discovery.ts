@@ -27,6 +27,12 @@ export interface DiscoveryHost {
   readonly lookup: HostLookup;
   /** The Node runtime used to run a Windows npm shim's script or a JavaScript entry point. */
   readonly nodeExecutable: string;
+  /**
+   * The system-wide folders searched after PATH, by default /opt/homebrew/bin, /usr/local/bin and /usr/bin outside
+   * Windows. A test replaces them: otherwise a CLI this host has installed there is found before the test's own (observed
+   * on a Mac with /opt/homebrew/bin/codex, October 26, 2026).
+   */
+  readonly systemDirectories?: readonly string[];
 }
 
 export async function resolveCliExecutable(support: CliTransportSupport, host: DiscoveryHost): Promise<CliExecutableResolution> {
@@ -91,7 +97,8 @@ async function wellKnownLocations(support: CliTransportSupport, host: DiscoveryH
   const home = host.platform === "win32" ? host.lookup("USERPROFILE") ?? host.lookup("HOME") : host.lookup("HOME");
   const exe = host.platform === "win32" ? ".exe" : "";
   const npmBins = [
-    ...(host.platform === "win32" ? [host.lookup("APPDATA") === undefined ? null : join(host.lookup("APPDATA") ?? "", "npm")] : ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]),
+    ...(host.platform === "win32" ? [host.lookup("APPDATA") === undefined ? null : join(host.lookup("APPDATA") ?? "", "npm")] : []),
+    ...host.systemDirectories ?? (host.platform === "win32" ? [] : ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]),
     home === undefined ? null : join(home, ".npm-global", "bin"), home === undefined ? null : join(home, ".local", "bin"),
     host.lookup("npm_config_prefix") === undefined ? null : host.platform === "win32" ? host.lookup("npm_config_prefix") ?? null : join(host.lookup("npm_config_prefix") ?? "", "bin"),
   ].filter((value): value is string => value !== null);

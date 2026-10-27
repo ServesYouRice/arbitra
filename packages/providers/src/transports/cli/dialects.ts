@@ -409,17 +409,30 @@ const ANTIGRAVITY_DENIAL = /\b(?:tool|command|action)\b[^\n]{0,120}\b(?:denied|r
  * Taken for tool use, it failed every continued tool turn of the P20 pilot, which was then sent whole again.
  */
 const ANTIGRAVITY_STEPS = new Set(["user_input", "agent_response", "finish", "thinking", "reasoning", "planner_response", "system_message"]);
+/**
+ * agy 1.4.7 streams a step of type `unknown` between the user input and the answer of every plain reply (observed live,
+ * October 26, 2026, macOS: DONE in 0.0003 s, with nothing but its index, state and duration). Taken for tool use, it
+ * failed every Gemini call of a run. Only that bare shape passes: an `unknown` step that names a tool or carries any
+ * other field is still tool use.
+ */
+const ANTIGRAVITY_BARE_STEP_FIELDS = new Set(["conversation_id", "step_index", "state", "step_type", "duration_seconds"]);
+function antigravityBareUnknownStep(step: string, payload: Record<string, unknown> | null): boolean {
+  return step === "unknown" && payload !== null && Object.keys(payload).every((key) => ANTIGRAVITY_BARE_STEP_FIELDS.has(key));
+}
 
 /**
  * The text the CLI stored for one step of a conversation, as lines, or none when it cannot
  * be read. The stream names an `error_message` step without saying what failed (observed live
  * on agy 1.3.3: {"step_index":2,"state":"DONE","step_type":"error_message","duration_seconds":0}).
  * The reason is only in the CLI's own conversation database, as the readable runs of a protobuf
- * payload. The row can trail the event, so the read is tried for up to half a second.
+ * payload. The row can trail the event, so the read is tried for up to half a second. `held` says what a payload with
+ * no readable reason held, for the call's record: the database is removed once the call ends, so a layout a new CLI
+ * version brings can only be diagnosed from that record.
  */
-function antigravityStepText(home: string | undefined, step: Record<string, unknown> | null): readonly string[] {
+function antigravityStepText(home: string | undefined, step: Record<string, unknown> | null): { readonly lines: readonly string[]; readonly held: string | null } {
   const conversation = text(step?.["conversation_id"]); const index = count(step?.["step_index"]);
-  if (home === undefined || conversation === null || !/^[A-Za-z0-9-]{1,80}$/u.test(conversation) || index === null) return [];
+  if (home === undefined || conversation === null || !/^[A-Za-z0-9-]{1,80}$/u.test(conversation) || index === null) return { lines: [], held: null };
+  let held: string | null = null;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     if (attempt > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
     try {
@@ -427,13 +440,18 @@ function antigravityStepText(home: string | undefined, step: Record<string, unkn
       try {
         const row = database.prepare("SELECT step_payload FROM steps WHERE idx = ?").get(index);
         const payload = row?.["step_payload"];
-        // Identifiers of the conversation and its trajectory are readable runs too; they are not the reason.
-        const lines = payload instanceof Uint8Array ? (Buffer.from(payload).toString("latin1").match(/[\x20-\x7e]{12,}/gu) ?? []).filter((run) => !/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-/u.test(run)) : [];
-        if (lines.length > 0) return lines;
+        if (!(payload instanceof Uint8Array)) continue;
+        const decoded = Buffer.from(payload).toString("latin1");
+        // Identifiers of the conversation and its trajectory are readable runs too, and so is a bare hex identifier
+        // (agy 1.4.7, observed live October 26, 2026: "8e2810e05a27466393bf43ac8c6e7157" was the only run, and it was
+        // reported as the reason). None of them is the reason.
+        const lines = (decoded.match(/[\x20-\x7e]{12,}/gu) ?? []).filter((run) => !/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-/u.test(run) && !/^.{0,2}[0-9a-f]{24,}.{0,2}$/iu.test(run));
+        if (lines.length > 0) return { lines, held: null };
+        held = `the step held ${payload.byteLength} bytes; readable: ${(decoded.match(/[\x20-\x7e]{4,}/gu) ?? []).join(" | ") || "none"}`.slice(0, 160);
       } finally { database.close(); }
     } catch { /* No database, or not this layout: the reason stays unknown. */ }
   }
-  return [];
+  return { lines: [], held };
 }
 
 /**
@@ -445,9 +463,9 @@ function antigravityStepText(home: string | undefined, step: Record<string, unkn
  * reply continued past the output limit is never accepted.
  */
 function antigravityModelFailure(home: string | undefined, step: Record<string, unknown> | null): TransportError {
-  const lines = antigravityStepText(home, step);
+  const { lines, held } = antigravityStepText(home, step);
   // An unread or unrecognised failure is retried within the usual bounds, as the CLI itself would retry it.
-  if (lines.length === 0) return new TransportError("HTTP", "CLI_MODEL_CALL_FAILED: the Antigravity CLI reported a failed model call and its reason could not be read", true);
+  if (lines.length === 0) return new TransportError("HTTP", `CLI_MODEL_CALL_FAILED: the Antigravity CLI reported a failed model call and its reason could not be read${held === null ? "" : ` (${cliFailureDetail(held)})`}`, true);
   const failure = classifyCliFailure(ANTIGRAVITY, lines.join("\n"), 1);
   return failure.message.startsWith("CLI_FAILED") ? new TransportError("HTTP", `CLI_MODEL_CALL_FAILED: the Antigravity CLI reported a failed model call: ${cliFailureDetail(lines.join(" "))}`, true) : failure;
 }
@@ -518,7 +536,7 @@ export const antigravityDialect: CliDialect = {
         if (kind === "step_update") {
           const step = String(payload?.["step_type"] ?? "unknown");
           if (step === "error_message") throw antigravityModelFailure(context.hostHome, payload);
-          if (!ANTIGRAVITY_STEPS.has(step)) throw forbiddenToolUse(ANTIGRAVITY, `a ${step.slice(0, 60)} step${typeof payload?.["tool_name"] === "string" ? ` (${payload["tool_name"].slice(0, 40)})` : ""}`, true);
+          if (!ANTIGRAVITY_STEPS.has(step) && !antigravityBareUnknownStep(step, payload)) throw forbiddenToolUse(ANTIGRAVITY, `a ${step.slice(0, 60)} step${typeof payload?.["tool_name"] === "string" ? ` (${payload["tool_name"].slice(0, 40)})` : ""}`, true);
           if (step === "agent_response") streamed += text(payload?.["text_delta"]) ?? "";
         } else if (kind === "result" && payload !== null) {
           if (String(payload["status"]).toUpperCase() === "WAITING") throw forbiddenToolUse(ANTIGRAVITY, "an action that waits for approval", true);

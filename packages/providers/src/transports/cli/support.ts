@@ -31,6 +31,11 @@ export interface CliTransportSupport {
   /** What the operator runs, once, to sign in with the subscription. */
   readonly loginInstruction: string;
   readonly installInstruction: string;
+  /**
+   * The oldest CLI version known to serve a model, recorded where an older one is known not to: a call to that model
+   * through an older CLI is refused before anything is sent, and preflight refuses the run.
+   */
+  readonly modelMinimumVersions?: Readonly<Record<string, string>>;
 }
 
 export const CLI_TRANSPORT_SUPPORT: readonly CliTransportSupport[] = Object.freeze([
@@ -50,7 +55,11 @@ export const CLI_TRANSPORT_SUPPORT: readonly CliTransportSupport[] = Object.free
     status: "live_verified", verifiedVersions: Object.freeze(["0.154.0", "0.162.1"]), evidence: "docs/qa/subscription-cli/README.md",
     authModes: Object.freeze(["subscription_login"] as const),
     loginInstruction: "Run `codex login` and choose Sign in with ChatGPT. An API-key login is refused here because it would spend API credit.",
-    installInstruction: "Install the Codex CLI (`npm install -g @openai/codex`, or the ChatGPT desktop app on macOS) so `codex` is on PATH, or set ARBITRA_CODEX_EXECUTABLE to its absolute path.",
+    installInstruction: "Install the current Codex CLI (`npm install -g @openai/codex`) so `codex` is on PATH, or set ARBITRA_CODEX_EXECUTABLE to its absolute path. The copy inside the ChatGPT desktop app on macOS is found too, but it can be too old for the newest models.",
+    // Observed live (October 26, 2026, macOS): the ChatGPT app's bundled CLI, 0.158.0-alpha.2.1, answered gpt-6.1-sol with
+    // model_not_found ("not supported when using Codex with a ChatGPT account"), while the app's own runtime (0.162.0)
+    // served it on the same account; so did the CLI at 0.162.1 (Windows, every Sol call of October 25) and 0.164.0.
+    modelMinimumVersions: Object.freeze({ "gpt-6.1-sol": "0.162.0" }),
   }),
   Object.freeze({
     transport: "gemini-cli", vendor: "gemini", displayName: "Gemini CLI", endpoint: "cli://gemini",
@@ -83,6 +92,16 @@ export function requireCliTransportSupport(key: string): CliTransportSupport {
   const support = CLI_TRANSPORT_SUPPORT.find((entry) => entry.transport === key || entry.vendor === key);
   if (support === undefined) throw new Error(`UNKNOWN_TRANSPORT:${key}`);
   return support;
+}
+
+/** The oldest version of this CLI that serves `modelId`, when one is recorded. */
+export function cliModelMinimumVersion(support: CliTransportSupport, modelId: string): string | null {
+  return support.modelMinimumVersions !== undefined && Object.hasOwn(support.modelMinimumVersions, modelId) ? support.modelMinimumVersions[modelId] ?? null : null;
+}
+
+/** Why a call to `modelId` through this CLI is refused before it is sent, and what fixes it. */
+export function cliTooOldForModel(support: CliTransportSupport, version: string, path: string, modelId: string, minimum: string): string {
+  return `CLI_TOO_OLD_FOR_MODEL: ${support.displayName} ${version} (${path}) does not know ${modelId}, which needs ${minimum} or later. ${support.installInstruction}`;
 }
 
 export function isCliEndpoint(endpoint: string): boolean { return endpoint.startsWith("cli:"); }

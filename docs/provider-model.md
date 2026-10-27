@@ -96,7 +96,9 @@ outside the matrix range, serializes the conversation deterministically into one
 transcript (system messages through the CLI's own system-prompt mechanism, with its default
 prompt replaced; a compiled stage prompt — protocol, schema, tools and instruction — is one user
 message, so the system prompt carries only arbitra's short engine preamble and the stage prompt
-travels in the transcript), runs the CLI in an empty temporary directory with an allowlisted
+travels in the transcript; when the request offers tools, the preamble names the transcript's
+tools block as the only tools the model may use, since the plain one forbids reading and the
+Antigravity CLI reads it at the head of the prompt), runs the CLI in an empty temporary directory with an allowlisted
 environment and its agent tools, MCP, hooks, skills, plugins and project instructions
 disabled, and kills the process tree on exit. Tool use is emulated: the transcript lists
 arbitra's tools and the model replies with `{"toolCalls":[{"name","arguments"}]}` or its final

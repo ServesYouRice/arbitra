@@ -22,12 +22,16 @@ export type CliStandInReply =
   | { readonly kind: "hang" }
   /** Antigravity only: the CLI's own error step for a failed model call. Its text, when given, is stored where the real CLI keeps it. */
   | { readonly kind: "model_error"; readonly text?: string }
+  /** Antigravity only: a step of type `unknown` that names a tool, unlike the bare one agy 1.4.7 sends before every answer. */
+  | { readonly kind: "unknown_tool_step" }
   /** Antigravity only: a tool call soft-denied on stderr, a SUCCESS with an empty response, or a run waiting for approval. */
   | { readonly kind: "soft_denied" }
   | { readonly kind: "empty_success" }
   | { readonly kind: "waiting" }
   /** Codex only: a configuration setting it ignores, reported as an error item, then an ordinary answer. */
-  | { readonly kind: "ignored_setting" };
+  | { readonly kind: "ignored_setting" }
+  /** Codex only: the service refusing a model the CLI or the plan does not serve (observed live on 0.158.0-alpha.2.1 for gpt-6.1-sol). */
+  | { readonly kind: "model_unavailable" };
 
 export interface CliStandInScenario {
   readonly vendor: CliVendor;
@@ -146,6 +150,8 @@ function run() {
       case "ignored_setting": out({ type: "item.completed", item: { id: "item_1", type: "agent_message", text: "NONE" } }); out({ type: "turn.completed", usage: { input_tokens: 12, cached_input_tokens: 4, output_tokens: 6 } }); process.exit(0);
       case "tool_use": out({ type: "item.started", item: { id: "item_1", type: "command_execution", command: "ls", status: "in_progress" } }); return hang();
       case "not_logged_in": process.stderr.write("Error: Not logged in. Run codex login\n"); process.exit(1);
+      case "model_unavailable": process.stderr.write("ERROR: " + JSON.stringify({ type: "error", status: 400, error: { type: "invalid_request_error", message: "The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account.", code: "model_not_found" } }) + "\n");
+        out({ type: "turn.failed", error: { message: "model_not_found" } }); process.exit(1);
       case "usage_limit": out({ type: "turn.failed", error: { message: "You've hit your usage limit. Upgrade to Pro or try again in 2 hours 5 minutes." } }); process.exit(1);
       case "rate_limit": out({ type: "error", message: "exceeded retry limit, last status: 429 Too Many Requests, retry in 20s" }); out({ type: "turn.failed", error: { message: "429 Too Many Requests" } }); process.exit(1);
       case "malformed": out("{not json"); process.exit(0);
@@ -168,7 +174,8 @@ function run() {
     // have been stopped due to server restart. ...").
     if (continued !== null) step({ step_index: 1, step_type: "system_message", duration_seconds: 0 });
     switch (reply.kind) {
-      case "text": { if (typeof reply.stderr === "string") process.stderr.write(reply.stderr + "\n"); const schema = args.includes("--json-schema"); step({ step_index: 1, step_type: "agent_response", text_delta: reply.text + "\n" }); step({ step_index: 2, step_type: "finish" });
+      // agy 1.4.7 streams a bare step of type "unknown" before the answer of every plain reply (observed live).
+      case "text": { if (typeof reply.stderr === "string") process.stderr.write(reply.stderr + "\n"); const schema = args.includes("--json-schema"); step({ step_index: 1, step_type: "unknown", duration_seconds: 0.000287 }); step({ step_index: 2, step_type: "agent_response", text_delta: reply.text + "\n" }); step({ step_index: 3, step_type: "finish" });
         return envelope("SUCCESS", { response: reply.text, ...(schema ? { structured_output: JSON.parse(reply.text) } : {}), ...(reply.usage === false ? {} : { usage: reply.usage === "thinking_in_output" ? { input_tokens: 30, output_tokens: 8, thinking_tokens: 6, cache_read_tokens: 0, total_tokens: 38 }
           : continued !== null ? { input_tokens: 45, output_tokens: 15, thinking_tokens: 3, cache_read_tokens: 40, total_tokens: 63 } : { input_tokens: 30, output_tokens: 8, thinking_tokens: 2, cache_read_tokens: 10, total_tokens: 40 } }) }); }
       // The shape agy 1.3.3 streams for a failed model call (observed live): the step carries no text. The reason is a
@@ -187,6 +194,7 @@ function run() {
       }
       // The shape agy 1.2.14 streams for its own tool step (observed live).
       case "tool_use": step({ step_index: 1, step_type: "tool", state: "ACTIVE", tool_name: "run_command", tool_info: { name: "run_command", parameters: { CommandLine: "ls -la" } } }); return hang();
+      case "unknown_tool_step": step({ step_index: 1, step_type: "unknown", state: "ACTIVE", tool_name: "run_command" }); return hang();
       case "soft_denied": process.stderr.write("Tool run_command requires approval and was denied in headless mode\n"); result({ status: "SUCCESS", response: "I could not run the command." }); process.exit(0);
       case "empty_success": result({ status: "SUCCESS", response: "" }); process.exit(0);
       case "waiting": result({ status: "WAITING", response: "" }); return hang();

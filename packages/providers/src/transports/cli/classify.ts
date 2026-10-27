@@ -16,7 +16,7 @@ export function classifyCliFailure(support: CliTransportSupport, text: string, e
   }
   if (MODEL_PATTERN.test(text)) {
     const effort = /requires? --effort/iu.test(text) ? " This model needs an effort level: add effort.params entries such as {\"effort\": \"medium\"} to the profile" : "";
-    return new TransportError("INVALID_REQUEST", `CLI_MODEL_UNAVAILABLE: ${support.displayName} refused the configured model for this subscription.${effort}${suffix}`, false, null, noUsage("cli_model_unavailable"));
+    return new TransportError("INVALID_REQUEST", `CLI_MODEL_UNAVAILABLE: ${support.displayName} refused the configured model: the plan it is signed in to may not include it, or this copy of the CLI is older than the model and does not know it (update the CLI, then try again).${effort}${suffix}`, false, null, noUsage("cli_model_unavailable"));
   }
   if (OUTPUT_LIMIT_PATTERN.test(text)) return new TransportError("OUTPUT_LIMIT", `MODEL_OUTPUT_LIMIT_REACHED: ${support.displayName} stopped at the output ceiling${suffix}`, false);
   if (QUOTA_PATTERN.test(text)) {

@@ -223,7 +223,7 @@ describe("environment preflight", () => {
 
   it("reports each subscription CLI state with the command that fixes it, without a model call", async () => {
     const config = await template("subscription-audit-gemini");
-    const state = (transport: string, changes: Partial<CliReadiness>): CliReadiness => ({ support: requireCliTransportSupport(transport), version: "1.0.0", versionSupported: true, auth: "logged_in", authDetail: null, usageLimit: null,
+    const state = (transport: string, changes: Partial<CliReadiness>): CliReadiness => ({ support: requireCliTransportSupport(transport), version: "1.0.0", versionSupported: true, auth: "logged_in", authDetail: null, usageLimit: null, installations: [],
       executable: { found: true, executable: { command: "/bin/cli", prefixArguments: [], path: "/bin/cli", source: "path" } }, ...changes });
     const probe = (states: Record<string, Partial<CliReadiness>>): CliProbe => async (transport) => state(transport, states[transport] ?? {});
     const run = async (states: Record<string, Partial<CliReadiness>>) => environmentDiagnostics(config, { credential: absent, cliProbe: probe(states) });
@@ -246,6 +246,15 @@ describe("environment preflight", () => {
     const versions = new Map<string, string | null>();
     await environmentDiagnostics(config, { credential: absent, cliProbe: probe({ "codex-cli": { version: "0.130.0" }, "antigravity-cli": { version: null, versionSupported: null } }), cliVersions: versions });
     expect(Object.fromEntries(versions)).toEqual({ "claude-code": "1.0.0", codex: "0.130.0", antigravity: null });
+    // Observed live (October 26, 2026, macOS): the ChatGPT app's Codex CLI 0.158.0 did not know GPT-6.1 Sol, and the run
+    // failed at its first call, blaming the subscription. Preflight now refuses it and names the fix.
+    const execution = config.workflow["modelExecution"] as { endpoints: { id: string; transport: string }[]; modelEndpoints: Record<string, string> };
+    const codexProfile = Object.entries(execution.modelEndpoints).find(([, endpoint]) => execution.endpoints.find(({ id }) => id === endpoint)?.transport === "codex-cli")?.[0] ?? "";
+    const sol = { ...config, models: { ...config.models, [codexProfile]: { ...config.models[codexProfile], modelId: "gpt-6.1-sol" } } } as RunConfig;
+    const tooOld = await environmentDiagnostics(sol, { credential: absent, cliProbe: probe({ "codex-cli": { version: "0.158.0" } }) });
+    expect(codes(tooOld)).toEqual(["SUBSCRIPTION_CLI_TOO_OLD_FOR_MODEL:codex"]);
+    expect(tooOld.find(({ severity }) => severity === "error")?.message).toContain("does not know gpt-6.1-sol, which needs 0.162.0 or later. Install the current Codex CLI (`npm install -g @openai/codex`)");
+    expect(codes(await environmentDiagnostics(sol, { credential: absent, cliProbe: probe({ "codex-cli": { version: "0.164.0" } }) }))).toEqual([]);
   });
 
   it("refuses live dispatch of template placeholder model identities", async () => {

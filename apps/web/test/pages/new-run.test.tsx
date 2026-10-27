@@ -22,7 +22,7 @@ const FILES = [
 /** This computer as the October 25 probe saw it, with Claude Code missing and Argon offered. */
 const ENVIRONMENT = { build: "test", checkedAt: "2026-10-25T10:21:00.000Z", apiKeys: {}, clis: [
   { transport: "claude-code-cli", name: "Claude Code", path: null, version: "2.1.310", state: "not_installed", note: "not found", fix: "Install Claude Code." },
-  { transport: "codex-cli", name: "Codex CLI", path: "C:/bin/codex.cmd", version: "0.162.1", state: "ready", note: "signed in", fix: null },
+  { transport: "codex-cli", name: "Codex CLI", path: "C:/bin/codex.cmd", version: "0.162.1", state: "ready", note: "signed in", fix: null, others: [{ path: "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex", version: "0.158.0" }] },
   { transport: "antigravity-cli", name: "Antigravity CLI", path: "C:/bin/agy.exe", version: "1.4.7", state: "ready", note: "ready", fix: null,
     models: [{ id: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)" }, { id: "gemini-4-argon", name: "Gemini 4 Argon" }, { id: "claude-opus-4-6-thinking", name: "Claude Opus 4.6" }] },
 ] };
@@ -276,6 +276,8 @@ describe("the new-run page", () => {
     const computer = await screen.findByRole("table", { name: "CLIs on this computer" });
     expect(within(computer).getAllByRole("row").map(({ textContent }) => textContent)).toEqual([
       "Claude Code 2.1.310not installedhow to fixInstall Claude Code.in this lineup", "Codex CLI 0.162.1signed inin this lineup", "Antigravity CLI 1.4.7readyoffers Gemini 3.8 Flash (High), Gemini 4 Argonnot in this lineup"]);
+    // Every copy found is named, and which one is used (observed October 26, 2026: the ChatGPT app's older Codex CLI).
+    expect(document.querySelector(".computer-paths")?.textContent).toContain("Codex CLI · C:/bin/codex.cmd; also 0.158.0 at /Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex, not used");
     project("/work/fixture");
     const result = await screen.findByRole("region", { name: "check result" }, AFTER_CHECK);
     expect(within(result).getByText("Not ready: Claude Code is not installed; see This computer above.")).toBeTruthy();

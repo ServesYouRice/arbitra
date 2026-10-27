@@ -9,6 +9,15 @@ import { TransportError, type TransportRequest, type TransportToolCall } from ".
  * stable IDs so the canonical harness's durable tool loop runs unchanged.
  */
 export const CLI_ENGINE_PREAMBLE = "You are a completion engine invoked by arbitra. You have no tools of your own: do not try to run commands, read or write files, search, or browse. Everything you need is in the input. Reply with text only, exactly in the format the input asks for.";
+/**
+ * The preamble of a request that offers tools, which names them as the only ones. The other forbids reading and
+ * searching and says the input holds everything, and the Antigravity CLI, which has no system-prompt flag, reads it at
+ * the head of the prompt, far ahead of the offer at the end. Replayed live (October 26, 2026, agy 1.4.7, Gemini 3.8
+ * Flash at medium, a 92 KB first discovery turn on which Claude made 30 tool calls and Sol 25): with that preamble
+ * Gemini answered straight away 3 times of 3; with this one it asked for code 4 times of 4, twice through agy's own
+ * tools first (denied, and sent again). It made no tool call in 10 discovery calls of that day's audit.
+ */
+export const CLI_TOOLS_PREAMBLE = "You are a completion engine invoked by arbitra. Do not use any tools of your own CLI: no commands, file access, search or browsing. The only tools you may use are the ones offered in the tools block of the input, requested with the JSON envelope it describes; use them whenever the input asks you to read code it does not include. Reply with text only, exactly in the format the input asks for.";
 
 export interface CliPrompt {
   /** System instructions for the CLI's system-prompt mechanism. */
@@ -37,9 +46,10 @@ export function serializeCliPrompt(request: TransportRequest, options: { readonl
   const shared = options.markerSeed === undefined ? null : createHash("sha256").update(JSON.stringify({ seed: options.markerSeed, system: systemText, tools: request.tools ?? [], schema: request.responseSchema ?? null })).digest("hex").slice(0, 16);
   const boundary = shared === null || request.messages.some(({ content }) => content.includes(shared)) ? callIds : shared;
   const inlineSystem = options.systemInArguments && Buffer.byteLength(systemText, "utf8") > MAXIMUM_SYSTEM_ARGUMENT_BYTES;
-  const system = inlineSystem || systemText === "" ? CLI_ENGINE_PREAMBLE : `${CLI_ENGINE_PREAMBLE}\n\n${systemText}`;
-  const conversation = request.messages.filter(({ role }) => role !== "system");
   const tools = request.tools ?? [];
+  const preamble = tools.length > 0 ? CLI_TOOLS_PREAMBLE : CLI_ENGINE_PREAMBLE;
+  const system = inlineSystem || systemText === "" ? preamble : `${preamble}\n\n${systemText}`;
+  const conversation = request.messages.filter(({ role }) => role !== "system");
   const sections: string[] = [];
   const single = conversation.length === 1 && conversation[0]?.role === "user" && tools.length === 0 && !inlineSystem;
   if (single) sections.push(conversation[0]?.content ?? "");

@@ -3,14 +3,14 @@ import { mkdir, mkdtemp, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runNativeProcess, type NativeProcessPort, type NativeProcessResult } from "../../process.js";
-import { versionInRange } from "../../semver.js";
+import { compareVersions, versionInRange } from "../../semver.js";
 import { leftProcessesRunning, noUsage, PROCESS_TREE_NOT_TERMINATED, TransportError, type ProviderTransport, type TransportConfiguration, type TransportId, type TransportRequest, type TransportResponse, type TransportToolCall } from "../../transport-contract.js";
 import { resetTime } from "./classify.js";
 import { CLI_DIALECTS, type CliDialect, type CliInvocationContext } from "./dialects.js";
 import { childPath, cliExecutableCandidates, hostNodeExecutable, type CliExecutable, type CliExecutableResolution, type DiscoveryHost, type HostLookup } from "./discovery.js";
 import { defaultLimitLedgerPath, fileLimitLedger, type CliLimitLedger } from "./limits.js";
 import { interpretCliReply, serializeCliFollowUp, serializeCliPrompt, type CliPrompt } from "./prompt.js";
-import type { CliAuthMode, CliTransportSupport } from "./support.js";
+import { cliModelMinimumVersion, cliTooOldForModel, type CliAuthMode, type CliTransportSupport } from "./support.js";
 
 export interface CliTransportOptions {
   /** Host environment reader; also used for the executable override and the optional OAuth token. */
@@ -98,6 +98,8 @@ export class CliTransport implements ProviderTransport {
     const oauthToken = this.#auth === "oauth_token" ? this.#lookup(this.#oauthTokenEnv ?? "") ?? "" : null;
     if (oauthToken === "") throw new TransportError("AUTH", `Credential environment variable ${this.#oauthTokenEnv ?? ""} is not set`, false, null, noUsage("credential_missing"));
     const { executable, version } = await this.#resolve();
+    const minimum = cliModelMinimumVersion(this.#support, request.modelId);
+    if (minimum !== null && (compareVersions(version, minimum) ?? 0) < 0) throw new TransportError("INVALID_REQUEST", cliTooOldForModel(this.#support, version, executable.path, request.modelId, minimum), false, null, noUsage("cli_too_old_for_model"));
     const nativeSchema = this.dialect.nativeSchema(request);
     const prompt = serializeCliPrompt(request, { nativeSchema, systemInArguments: true, markerSeed: this.#markerSeed });
     const run = { request, signal, oauthToken, executable, version, nativeSchema };
@@ -184,6 +186,9 @@ export class CliTransport implements ProviderTransport {
         providerRequestId: outcome.sessionId, transportVersion: `${this.#support.vendor}/${version}`,
       });
     } catch (error) {
+      // Which CLI refused which model: a copy older than the model is refused like a plan without it.
+      const refused = `CLI_MODEL_UNAVAILABLE: ${this.#support.displayName} refused the configured model`;
+      if (error instanceof TransportError && error.message.startsWith(refused)) throw new TransportError(error.code, `CLI_MODEL_UNAVAILABLE: ${this.#support.displayName} ${version} (${executable.path}) refused ${request.modelId}${error.message.slice(refused.length)}`, error.retryable, error.retryAfterMs, error.evidence);
       if (error instanceof TransportError && error.code === "QUOTA") {
         const now = this.#now();
         await this.#limits?.record({ transport: this.id, observedAt: now, resetsAt: error.retryAfterMs === null ? resetTime(error.message, now) : now + error.retryAfterMs, message: error.message }).catch(() => undefined);
@@ -311,21 +316,28 @@ export async function probeCliVersion(executable: CliExecutable, support: CliTra
   return /(\d{1,6}\.\d{1,6}\.\d{1,6})/u.exec(result.stdout)?.[1] ?? null;
 }
 
+/** One installation of a CLI on this host, with the version it reported (null: it reported none). */
+export interface CliInstallation { readonly path: string; readonly version: string | null }
+
 /**
- * The installation a call uses: of several, the first whose version is supported, with that version; of one, or of
- * several none of which is supported, the first, whose version the caller probes and reports.
+ * The installation a call uses: of several, the one whose supported version is newest, with that version (of equals,
+ * the first in search order); of one, or of several none of which is supported, the first, whose version the caller
+ * probes and reports. `installations` lists every one of several, with its version. The newest rather than the first,
+ * since an older copy can predate a model: observed live (October 26, 2026, macOS), the Codex CLI inside the ChatGPT
+ * app (0.158.0-alpha.2.1) did not know GPT-6.1 Sol, which the npm CLI (0.164.0) served.
  */
-export async function supportedCliExecutable(support: CliTransportSupport, host: DiscoveryHost, options: CliCommandOptions): Promise<{ readonly resolution: CliExecutableResolution; readonly version: string | null }> {
+export async function supportedCliExecutable(support: CliTransportSupport, host: DiscoveryHost, options: CliCommandOptions): Promise<{ readonly resolution: CliExecutableResolution; readonly version: string | null; readonly installations: readonly CliInstallation[] }> {
   const candidates = await cliExecutableCandidates(support, host);
-  const installed = candidates.filter((candidate) => candidate.found);
+  const installed = candidates.flatMap((candidate) => candidate.found ? [candidate] : []);
   const first = candidates[0] ?? { found: false as const, reason: "not_found" as const, detail: `${support.command} was not found through ${support.executableEnvVar}, PATH or the documented install locations` };
-  if (installed.length <= 1) return { resolution: first, version: null };
-  for (const candidate of installed) {
-    if (!candidate.found) continue;
-    const version = await probeCliVersion(candidate.executable, support, options).catch(() => null);
-    if (version !== null && versionInRange(version, support.versionRange)) return { resolution: candidate, version };
+  if (installed.length <= 1) return { resolution: first, version: null, installations: [] };
+  const probed = await Promise.all(installed.map(async (candidate) => ({ candidate, version: await probeCliVersion(candidate.executable, support, options).catch(() => null) })));
+  let newest: { readonly candidate: (typeof installed)[number]; readonly version: string } | undefined;
+  for (const { candidate, version } of probed) {
+    if (version !== null && versionInRange(version, support.versionRange) && (newest === undefined || (compareVersions(version, newest.version) ?? 0) > 0)) newest = { candidate, version };
   }
-  return { resolution: first, version: null };
+  const installations = probed.map(({ candidate, version }) => ({ path: candidate.executable.path, version }));
+  return newest === undefined ? { resolution: first, version: null, installations } : { resolution: newest.candidate, version: newest.version, installations };
 }
 
 export function cliTransportFactory(dialectId: string) {

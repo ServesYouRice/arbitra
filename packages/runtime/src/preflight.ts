@@ -18,7 +18,8 @@ import { NATIVE_HARNESS_SUPPORT, unenforceableNativeTools } from "@arbitra/harne
 import { isClaudeCodeControlPath } from "@arbitra/harness/native/claude-code/translation.js";
 import { NATIVE_TESTING_WRITER_STAGE } from "./native-testing-writer.js";
 import { probeCliReadiness, type CliProbe } from "@arbitra/providers/transports/cli/probe.js";
-import { cliTransportSupport } from "@arbitra/providers/transports/cli/support.js";
+import { cliModelMinimumVersion, cliTooOldForModel, cliTransportSupport } from "@arbitra/providers/transports/cli/support.js";
+import { compareVersions } from "@arbitra/providers/semver.js";
 import type { CliTransportOptions } from "@arbitra/providers/transports/cli/transport.js";
 
 /**
@@ -425,7 +426,7 @@ export async function environmentDiagnostics(config: RunConfig, options: Environ
     for (const [index, endpoint] of execution.endpoints.entries()) {
       const models = Object.entries(execution.modelEndpoints).filter(([, endpointId]) => endpointId === endpoint.id).map(([id]) => id);
       if (models.length === 0) continue;
-      if (!("apiKeyEnvVar" in endpoint)) { await cliDiagnostics(endpoint, index, models, options, diagnostics); continue; }
+      if (!("apiKeyEnvVar" in endpoint)) { await cliDiagnostics(endpoint, index, models, models.flatMap((id) => config.models[id]?.modelId ?? []), options, diagnostics); continue; }
       const value = options.credential(endpoint.apiKeyEnvVar);
       if (value === undefined || value.length === 0) {
         diagnostics.push(error(`PROVIDER_CREDENTIAL_MISSING:${endpoint.id}`, `workflow.modelExecution.endpoints.${index}.apiKeyEnvVar`, `Environment variable ${endpoint.apiKeyEnvVar} is not set for endpoint ${endpoint.id} (profiles ${models.join(", ")}). Export it in the process that runs arbitra; the value is read only at dispatch and never written to configuration, runs or responses.`));
@@ -469,7 +470,7 @@ export async function environmentDiagnostics(config: RunConfig, options: Environ
  * a subscription rather than an API key, and not at a recorded usage limit. Each failure names
  * the exact command or setting that fixes it.
  */
-async function cliDiagnostics(endpoint: { readonly id: string; readonly transport: string; readonly auth: "subscription_login" | "oauth_token"; readonly oauthTokenEnvVar?: string | undefined }, index: number, models: readonly string[], options: EnvironmentPreflightOptions, diagnostics: PreflightDiagnostic[]): Promise<void> {
+async function cliDiagnostics(endpoint: { readonly id: string; readonly transport: string; readonly auth: "subscription_login" | "oauth_token"; readonly oauthTokenEnvVar?: string | undefined }, index: number, models: readonly string[], modelIds: readonly string[], options: EnvironmentPreflightOptions, diagnostics: PreflightDiagnostic[]): Promise<void> {
   const support = cliTransportSupport(endpoint.transport);
   if (support === undefined) return;
   const path = `workflow.modelExecution.endpoints.${index}`;
@@ -486,6 +487,12 @@ async function cliDiagnostics(endpoint: { readonly id: string; readonly transpor
   }
   if (readiness.version === null) diagnostics.push(error(`SUBSCRIPTION_CLI_VERSION_UNREADABLE:${endpoint.id}`, "$environment", `${who} at ${readiness.executable.executable.path} did not report a version through --version. Reinstall it or point ${support.executableEnvVar} at a working executable.`));
   else if (readiness.versionSupported !== true) diagnostics.push(error(`SUBSCRIPTION_CLI_VERSION_UNSUPPORTED:${endpoint.id}`, "$environment", `${who} is version ${readiness.version}; arbitra supports ${support.versionRange.minimum} or later and below ${support.versionRange.below}. Install a supported version or point ${support.executableEnvVar} at one.`));
+  else {
+    for (const modelId of new Set(modelIds)) {
+      const minimum = cliModelMinimumVersion(support, modelId);
+      if (minimum !== null && (compareVersions(readiness.version, minimum) ?? 0) < 0) diagnostics.push(error(`SUBSCRIPTION_CLI_TOO_OLD_FOR_MODEL:${endpoint.id}`, "$environment", `${who}: ${cliTooOldForModel(support, readiness.version, readiness.executable.executable.path, modelId, minimum)}`));
+    }
+  }
   if (readiness.auth === "not_logged_in") {
     diagnostics.push(error(`SUBSCRIPTION_CLI_NOT_LOGGED_IN:${endpoint.id}`, endpoint.auth === "oauth_token" ? `${path}.oauthTokenEnvVar` : "$environment", endpoint.auth === "oauth_token"
       ? `${who} uses token authentication, but ${readiness.authDetail ?? "the token variable is not set"}. Run \`claude setup-token\` and export the token in ${endpoint.oauthTokenEnvVar ?? "the named variable"}.`

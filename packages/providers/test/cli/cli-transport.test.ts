@@ -11,7 +11,8 @@ import { ANTIGRAVITY_PROMPT_LIMIT, antigravityDialect, antigravityPromptChannel,
 import { resolveCliExecutable } from "../../src/transports/cli/discovery.js";
 import { fileLimitLedger } from "../../src/transports/cli/limits.js";
 import { probeCliReadiness } from "../../src/transports/cli/probe.js";
-import { CLI_ENGINE_PREAMBLE, interpretCliReply, serializeCliPrompt } from "../../src/transports/cli/prompt.js";
+import { supportedCliExecutable } from "../../src/transports/cli/transport.js";
+import { CLI_ENGINE_PREAMBLE, CLI_TOOLS_PREAMBLE, interpretCliReply, serializeCliPrompt } from "../../src/transports/cli/prompt.js";
 import { writeCliStandIn, type CliStandInScenario } from "../../src/transports/cli/stand-in.js";
 import { CLI_TRANSPORT_SUPPORT, requireCliTransportSupport, TRANSPORT_SUPPORT_MATRIX, type CliVendor } from "../../src/transports/cli/support.js";
 
@@ -526,6 +527,15 @@ describe("Antigravity CLI specifics", { timeout: 30_000 }, () => {
     expect(emptied.message).toContain("CLI_EMPTY_SUCCESS");
   });
 
+  it("accepts agy 1.4.7's bare unknown step but refuses one that names a tool", async () => {
+    // Observed live (October 26, 2026, agy 1.4.7): every plain reply carried a bare `unknown` step, and every Gemini call of a run was refused as tool use.
+    const f = await fixture({ vendor: "antigravity", replies: [{ kind: "text", text: "pong" }, { kind: "unknown_tool_step" }] });
+    expect(await send(f.transport)).toMatchObject({ text: "pong" });
+    const refused = await failure(send(f.transport));
+    expect(refused).toMatchObject({ code: "MALFORMED_RESPONSE", retryable: true });
+    expect(refused.message).toContain("a unknown step (run_command)");
+  });
+
   it("keeps a reply when stderr carries an ordinary permission error, not a soft-denied tool", async () => {
     const f = await fixture({ vendor: "antigravity", replies: [{ kind: "text", text: "ok", stderr: "EACCES: permission denied, mkdir '/home/user/.cache/agy'" }] });
     expect((await send(f.transport)).text).toBe("ok");
@@ -564,6 +574,12 @@ describe("Antigravity CLI specifics", { timeout: 30_000 }, () => {
     const silent = await failure(send(unread.transport));
     expect(silent).toMatchObject({ code: "HTTP", retryable: true });
     expect(silent.message).toContain("its reason could not be read");
+    // agy 1.4.7 (observed live, October 26, 2026): the payload's only readable run was a hex identifier, reported as the
+    // reason. It is not one; what the step held goes into the record, since the database is removed after the call.
+    const identifier = await fixture({ vendor: "antigravity", replies: [{ kind: "model_error", text: "8e2810e05a27466393bf43ac8c6e7157" }] });
+    const unreadable = await failure(send(identifier.transport));
+    expect(unreadable).toMatchObject({ code: "HTTP", retryable: true });
+    expect(unreadable.message).toMatch(/^CLI_MODEL_CALL_FAILED: the Antigravity CLI reported a failed model call and its reason could not be read \(the step held \d+ bytes; readable: .*8e2810e05a27466393bf43ac8c6e7157/u);
   });
 
   it("does not count thinking twice when the CLI's output count already includes it", async () => {
@@ -624,6 +640,26 @@ describe("Antigravity CLI specifics", { timeout: 30_000 }, () => {
   });
 });
 
+describe("a CLI and the models it knows", { timeout: 30_000 }, () => {
+  /** The calls that reached the stand-in: each writes one report. */
+  const reportsOf = async ({ root }: { root: string }) => (await readdir(root)).filter((name) => /^report\.\d+$/u.test(name));
+  it("refuses a model the CLI's version predates before anything is sent, and names the CLI that refused a model", async () => {
+    // Observed live (October 26, 2026, macOS): the ChatGPT app's Codex CLI 0.158.0-alpha.2.1 did not know gpt-6.1-sol,
+    // and the failure blamed the subscription.
+    const old = await fixture({ vendor: "codex", version: "0.158.0-alpha.2.1", replies: [{ kind: "text", text: "pong" }] });
+    const refused = await failure(send(old.transport, request({ modelId: "gpt-6.1-sol" })));
+    expect(refused).toMatchObject({ code: "INVALID_REQUEST", retryable: false, evidence: { consumption: "none" } });
+    expect(refused.message).toBe(`CLI_TOO_OLD_FOR_MODEL: Codex CLI 0.158.0 (${old.executable}) does not know gpt-6.1-sol, which needs 0.162.0 or later. ${old.support.installInstruction}`);
+    // Nothing reached the CLI; a model with no recorded minimum still goes.
+    expect(await send(old.transport)).toMatchObject({ text: "pong" });
+    expect(await reportsOf(old)).toEqual(["report.0"]);
+    const current = await fixture({ vendor: "codex", version: "0.162.1", replies: [{ kind: "model_unavailable" }] });
+    const unavailable = await failure(send(current.transport, request({ modelId: "gpt-6.1-sol" })));
+    expect(unavailable).toMatchObject({ code: "INVALID_REQUEST", retryable: false });
+    expect(unavailable.message).toContain(`CLI_MODEL_UNAVAILABLE: Codex CLI 0.162.1 (${current.executable}) refused gpt-6.1-sol: the plan it is signed in to may not include it, or this copy of the CLI is older than the model`);
+  });
+});
+
 describe("subscription CLI configuration", () => {
   const base = { id: "e", providerId: "anthropic" };
   it("accepts only cli://<vendor> endpoints without API keys, and supported auth modes", () => {
@@ -665,6 +701,16 @@ describe("emulated tool calls", () => {
     expect(interpretCliReply("```json\n{\"schemaVersion\":1}\n```", value, boundary)).toMatchObject({ toolCalls: [], structured: { schemaVersion: 1 } });
   });
 
+  it("names the offered tools as the only ones a model may use, and keeps the plain preamble where none are offered", () => {
+    // Replayed live (October 26, 2026, agy 1.4.7): under the plain preamble, which forbids reading and searching, Gemini
+    // never asked for the tools offered at the end of a 92 KB discovery prompt.
+    const tools = [{ name: "repo_read_file", description: "Read a file", inputSchema: { type: "object", properties: { path: { type: "string" } } } }];
+    expect(serializeCliPrompt(request({ tools }), { nativeSchema: false, systemInArguments: true }).system).toBe(`${CLI_TOOLS_PREAMBLE}\n\nAnswer tersely.`);
+    expect(serializeCliPrompt(request(), { nativeSchema: false, systemInArguments: true }).system).toBe(`${CLI_ENGINE_PREAMBLE}\n\nAnswer tersely.`);
+    expect(CLI_TOOLS_PREAMBLE).toContain("The only tools you may use are the ones offered in the tools block");
+    expect(CLI_TOOLS_PREAMBLE).not.toMatch(/Everything you need is in the input|do not try to .*read/u);
+  });
+
   it("unwraps a reply the model wrote inside the next assistant message's own markers", () => {
     const tools = [{ name: "repo_read_file", description: "Read a file", inputSchema: { type: "object", properties: { path: { type: "string" } } } }];
     const value = request({ tools });
@@ -688,7 +734,7 @@ describe("executable discovery", () => {
       const directory = join(home, ".vscode", "extensions", `anthropic.claude-code-${version}-darwin-arm64`, "resources", "native-binary");
       await mkdir(directory, { recursive: true }); await writeFile(join(directory, "claude"), "#!/bin/sh\n", { mode: 0o755 });
     }
-    const host = (env: Record<string, string>) => ({ platform: "darwin" as const, nodeExecutable: process.execPath, lookup: (name: string) => env[name] });
+    const host = (env: Record<string, string>) => ({ platform: "darwin" as const, nodeExecutable: process.execPath, systemDirectories: [], lookup: (name: string) => env[name] });
     expect(await resolveCliExecutable(support, host({ HOME: home, PATH: join(root, "none") }))).toMatchObject({ found: true, executable: { source: "well_known", path: join(home, ".vscode", "extensions", "anthropic.claude-code-2.1.282-darwin-arm64", "resources", "native-binary", "claude") } });
     await mkdir(join(root, "bin")); await writeFile(join(root, "bin", "claude"), "#!/bin/sh\n", { mode: 0o755 });
     expect(await resolveCliExecutable(support, host({ HOME: home, PATH: join(root, "bin") }))).toMatchObject({ found: true, executable: { source: "path", path: join(root, "bin", "claude") } });
@@ -698,19 +744,35 @@ describe("executable discovery", () => {
   it("finds the Antigravity CLI in its installer's ~/.local/bin location", async () => {
     const root = await mkdtemp(join(tmpdir(), "arbitra-cli-agy-")); roots.push(root);
     await mkdir(join(root, ".local", "bin"), { recursive: true }); await writeFile(join(root, ".local", "bin", "agy"), "#!/bin/sh\n", { mode: 0o755 });
-    expect(await resolveCliExecutable(requireCliTransportSupport("antigravity-cli"), { platform: "darwin", nodeExecutable: process.execPath, lookup: (name) => ({ HOME: root, PATH: join(root, "none") } as Record<string, string>)[name] }))
+    expect(await resolveCliExecutable(requireCliTransportSupport("antigravity-cli"), { platform: "darwin", nodeExecutable: process.execPath, systemDirectories: [], lookup: (name) => ({ HOME: root, PATH: join(root, "none") } as Record<string, string>)[name] }))
       .toMatchObject({ found: true, executable: { source: "well_known", path: join(root, ".local", "bin", "agy") } });
   });
 
   it("finds the Codex CLI inside the ChatGPT app, in its current and earlier layouts", async () => {
     const root = await mkdtemp(join(tmpdir(), "arbitra-cli-codex-app-")); roots.push(root);
     const resources = join(root, "Applications", "ChatGPT.app", "Contents", "Resources");
-    const find = () => resolveCliExecutable(requireCliTransportSupport("codex-cli"), { platform: "darwin", nodeExecutable: process.execPath, lookup: (name) => ({ HOME: root, PATH: join(root, "none") } as Record<string, string>)[name] });
+    // A Mac's own /opt/homebrew/bin/codex was found before the test's (observed October 26, 2026), so the system folders stay out.
+    const find = () => resolveCliExecutable(requireCliTransportSupport("codex-cli"), { platform: "darwin", nodeExecutable: process.execPath, systemDirectories: [], lookup: (name) => ({ HOME: root, PATH: join(root, "none") } as Record<string, string>)[name] });
     await mkdir(resources, { recursive: true }); await writeFile(join(resources, "codex"), "#!/bin/sh\n", { mode: 0o755 });
     expect(await find()).toMatchObject({ found: true, executable: { source: "well_known", path: join(resources, "codex") } });
     // Codex 0.158 moved it; the current layout wins when both exist.
     await mkdir(join(resources, "codex-cli", "bin"), { recursive: true }); await writeFile(join(resources, "codex-cli", "bin", "codex"), "#!/bin/sh\n", { mode: 0o755 });
     expect(await find()).toMatchObject({ found: true, executable: { source: "well_known", path: join(resources, "codex-cli", "bin", "codex") } });
+  });
+
+  it("uses the newest supported of several installations, and lists them all", async () => {
+    // Observed live (October 26, 2026, macOS): the Codex CLI inside the ChatGPT app lagged the npm CLI and did not know GPT-6.1 Sol.
+    const root = await mkdtemp(join(tmpdir(), "arbitra-cli-newest-")); roots.push(root);
+    const app = join(root, "Applications", "ChatGPT.app", "Contents", "Resources", "codex-cli", "bin"); const npm = join(root, ".npm-global", "bin");
+    for (const directory of [app, npm]) { await mkdir(directory, { recursive: true }); await writeFile(join(directory, "codex"), "#!/bin/sh\n", { mode: 0o755 }); }
+    const reported: Record<string, string> = { [join(app, "codex")]: "codex-cli 0.158.0-alpha.2.1", [join(npm, "codex")]: "codex-cli 0.164.0" };
+    const port: NativeProcessPort = { run: async (input) => ({ pid: null, exitCode: 0, exitSignal: null, stopped: null, violation: null, stdout: `${reported[input.executable] ?? ""}\n`, stderr: "", treeTerminated: true }) };
+    // The app's copy is first on PATH, as a link to it puts it.
+    const env: Record<string, string> = { HOME: root, PATH: app };
+    const chosen = await supportedCliExecutable(requireCliTransportSupport("codex-cli"), { platform: "darwin", nodeExecutable: process.execPath, systemDirectories: [], lookup: (name) => env[name] },
+      { lookup: (name) => env[name], process: port, platform: "darwin" });
+    expect(chosen).toMatchObject({ resolution: { found: true, executable: { path: join(npm, "codex") } }, version: "0.164.0",
+      installations: [{ path: join(app, "codex"), version: "0.158.0" }, { path: join(npm, "codex"), version: "0.164.0" }] });
   });
 
   it("runs a JavaScript entry-point override with the host's Node", async () => {

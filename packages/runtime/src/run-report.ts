@@ -15,7 +15,7 @@ export async function runReport(orchestrator: Orchestrator, runId: string, envir
   add(`arbitra run report · ${new Date().toISOString()}`, `build ${build}`);
   if (environment !== null) {
     add(`machine ${environment.platform} · node ${environment.node}`);
-    for (const cli of environment.clis) add(`  ${cli.name}: ${cli.state}${cli.version === null ? "" : ` ${cli.version}`} · ${cli.note}`);
+    for (const cli of environment.clis) add(`  ${cli.name}: ${cli.state}${cli.version === null ? "" : ` ${cli.version}`} · ${cli.note}${(cli.others ?? []).map(({ path, version }) => ` · also found ${version ?? "unreadable version"} at ${path}`).join("")}`);
     add(`  API keys set: ${Object.entries(environment.apiKeys).filter(([, set]) => set).map(([name]) => name).join(", ") || "none"}`);
   }
   add("", `run ${runId}`, `  mode ${overview.mode ?? "unknown"} · workflow ${overview.workflowId ?? "unknown"} · state ${overview.state ?? "unreadable"}${overview.reason === null ? "" : ` (${overview.reason})`}${overview.live ? " · running now" : ""}`,
