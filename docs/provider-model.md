@@ -553,7 +553,20 @@ two line windows). A part declined beside parts that were answered is split the 
 declined; a declined window or one-line unit, or parts all declined, are left unexamined for that auditor
 (`discovery-declined-*`, limitation `discovery_provider_refused`), since a cause in no one part (a fixed prompt
 the provider refuses) declines every smaller part too. A unit whose reply stays invalid after its repairs is
-treated the same way (`discovery_reply_rejected`). A declined review batch contributes nothing and counts as rejected
+treated the same way (`discovery_reply_rejected`), as is one whose subscription CLI used its own agent tools on
+every attempt (`ProviderInvocationFailure.transportCode` `CLI_AGENT_TOOL_USE_FORBIDDEN`). A unit whose call fails
+after the provider's own retries, for a cause in that call alone (a model call the CLI reports failed, a reply the
+transport cannot read, a part past its time limit again, a server error), is left unexamined for that auditor
+without a split (`discovery-declined-*` with cause `provider_failed`, limitation `discovery_provider_failed`), and
+the auditor goes on with its other units. A failure no one unit causes still fails the auditor's discovery, and with
+it the run, as before: a sign-in, a usage limit (which pauses the run), a throttle, a request refused whatever it
+holds (`INVALID_REQUEST`, such as a model the account is not offered or a missing CLI, and an HTTP 4xx), a token
+budget, a cancelled run, a CLI that left processes running, a failure arbitra cannot class, and three units in a
+row that failed with none answered between them (`MAXIMUM_FAILED_UNITS_IN_A_ROW`), or every unit, since a sleeping
+machine or an outage fails each call. A unit that failed is recorded only once its auditor's discovery is done, so a
+resume of an auditor that failed sends it again; in an auditor that finished, it stays a gap. Each finished
+auditor's units, answered and not by cause, show on the run's Summary and in its report (`AuditorProgress.coverage`,
+read from `discovery-scopes-<auditor>`); a run without that record shows none. A declined review batch contributes nothing and counts as rejected
 review output, as does a review of one candidate that stops at the output ceiling (a larger batch that stops
 there is halved), and an auditor whose provider declines a conflict, or whose answer stays invalid after its
 repairs or stops at the output ceiling, casts no vote (`peer-conflict-unanswered-*`), so that conflict stays

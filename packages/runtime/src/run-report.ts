@@ -1,4 +1,5 @@
 import { redactSecrets } from "@arbitra/security/redaction";
+import type { FinderCoverage } from "@arbitra/schemas/run-progress.js";
 import type { DetectedEnvironment } from "./environment.js";
 import type { Orchestrator } from "./orchestrator.js";
 
@@ -35,8 +36,10 @@ export async function runReport(orchestrator: Orchestrator, runId: string, envir
     add("", "checked against the source",
       `  ${outcome.candidates} candidates · ${outcome.confirmed} confirmed${severities === "" ? "" : ` (${severities})`} · ${outcome.rejected} rejected · ${outcome.unsettled} the source could not settle · ${outcome.acceptedUnchecked} accepted without a check · ${outcome.notChecked} not checked`,
       `  ${outcome.tokens === null ? "tokens not recorded" : `${tokenCount(outcome.tokens)} tokens`}${outcome.tokensPerConfirmed === null ? "" : ` · ${tokenCount(outcome.tokensPerConfirmed)} per confirmed issue`}`);
+    // Each finder's units answered of those it sent: a finder that answered 5 of 32 is not an opinion on the other 27.
+    const coverage = new Map((await orchestrator.progress(runId).catch(() => null))?.auditors.map(({ auditorId, coverage: units }) => [auditorId, units]) ?? []);
     for (const auditor of outcome.auditors)
-      add(`  ${auditor.auditorId} (${auditor.modelId ?? "?"}): ${auditor.findings} findings · ${auditor.confirmed} confirmed · ${auditor.confirmedAlone} confirmed that no other auditor found · discovery ${auditor.discoveryTokens === null ? "tokens not recorded" : `${tokenCount(auditor.discoveryTokens)} tokens`}`);
+      add(`  ${auditor.auditorId} (${auditor.modelId ?? "?"}): ${auditor.findings} findings · ${auditor.confirmed} confirmed · ${auditor.confirmedAlone} confirmed that no other auditor found${unitsAnswered(coverage.get(auditor.auditorId) ?? null)} · discovery ${auditor.discoveryTokens === null ? "tokens not recorded" : `${tokenCount(auditor.discoveryTokens)} tokens`}`);
   }
   const carried = metrics?.planResults ?? null;
   if (carried !== null) add("", "plan carried out (results.json)", `  ${carried.reported} of ${carried.issues} issues reported · ${carried.provenByFailingTest} proven by a failing test · ${carried.notProvenByTest} no test could show · ${carried.checkedEndToEnd} checked end to end`,
@@ -59,6 +62,13 @@ export async function runReport(orchestrator: Orchestrator, runId: string, envir
     if (failed.length > 40) add(`  (${failed.length - 40} earlier failures left out)`);
   }
   return lines.map((line) => redactSecrets(line).text).join("\n");
+}
+
+/** ` · 27 of 32 units answered (5 not examined: provider_failed 3, reply_rejected 2)`; nothing for a run that recorded no units. */
+function unitsAnswered(coverage: FinderCoverage | null): string {
+  if (coverage === null) return "";
+  const gaps = Object.entries(coverage.notExamined).sort(([left], [right]) => left.localeCompare(right));
+  return ` · ${coverage.answered} of ${coverage.units} units answered${gaps.length === 0 ? "" : ` (${coverage.units - coverage.answered} not examined: ${gaps.map(([cause, count]) => `${cause} ${count}`).join(", ")})`}`;
 }
 
 function tokenCount(value: number): string {

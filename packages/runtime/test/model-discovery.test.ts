@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { sourceFindingSchema } from "@arbitra/schemas/finding.js";
+import { ProviderBudgetSuspendedError, ProviderInvocationFailure, ProviderUsageLimitError } from "@arbitra/providers/runtime.js";
 import { ModelOutputLimitError, ModelRefusalError, ModelTimeLimitError } from "../src/context-budget.js";
 import type { ModelActivities, ModelActivityRequest } from "../src/model-activities.js";
 import { discoverWithModel, injectionWindows } from "../src/model-discovery.js";
@@ -64,6 +65,36 @@ function ceilinged(limited: (payload: Payload, activityId: string) => boolean, f
     },
   };
   return { activities, spent };
+}
+/** A unit's call that failed after its provider's attempts, as the provider runtime reports it. */
+function callFailed(transportCode: string | null = "CLI_MODEL_CALL_FAILED", causeCode = "HTTP") {
+  const detail = transportCode === null ? "the call failed" : transportCode.startsWith("HTTP_") ? `Provider HTTP ${transportCode.slice(5)}` : `${transportCode}: the call failed`;
+  return new ProviderInvocationFailure(`Provider google failed after 3 attempts (${causeCode}: ${detail}); completed artifacts are preserved and the run may resume with degraded completeness.`, 3, causeCode, transportCode);
+}
+/**
+ * Durable fake activities whose provider fails the calls `failure` returns an error for. An answered call is durable and
+ * replays; a failed one leaves nothing, so a later call of it is sent again, as a call that failed at the provider is.
+ */
+function flaky(failure: (path: string) => Error | null) {
+  const durable = new Map<string, unknown>(); const sent: string[] = [];
+  const activities = { estimateInitialTokens: () => 1, async invoke<T>(input: ModelActivityRequest<T>): Promise<T> {
+    if (!durable.has(input.activityId)) {
+      const payload = JSON.parse(input.messages.find(({ role }) => role === "user")?.content ?? "{}") as Payload;
+      const path = payload.files.map(({ path: sentPath }) => sentPath).join(" ");
+      sent.push(path);
+      const error = failure(path);
+      if (error !== null) throw error;
+      const namespace = /Every sourceFindingId must start with (.+)\/ and be unique/u.exec(input.messages.find(({ role }) => role === "system")?.content ?? "")?.[1] ?? "";
+      durable.set(input.activityId, { findings: [at(`${namespace}/only`, "CORRECTNESS", path, 1, 1, "const value = null;")], truncated: false, unexaminedDueToBudget: [], limitations: [] });
+    }
+    return input.schema.parse(durable.get(input.activityId));
+  } };
+  return { activities, sent };
+}
+/** A discovery of files of one line each, one unit a file, one call at a time. */
+function oneUnitAFile(paths: readonly string[], activities: ReturnType<typeof flaky>["activities"], store: RunStore) {
+  const files = paths.map((path) => fileOf(path, ["const value = null;"]));
+  return () => discoverWithModel({ auditorId: "auditor-a", modelProfileId: "model", snapshot: { root: "fixture", files }, activities, store, signal: new AbortController().signal, maximumInputTokens: files[0]?.byteLength ?? 0 });
 }
 async function artifact(store: RunStore, kind: string) {
   const descriptor = (await store.listArtifacts()).find((entry) => entry.kind === kind);
@@ -416,6 +447,76 @@ describe("independent model discovery", () => {
     expect(await artifact(store, "discovery-validation-auditor-a")).toMatchObject({ acceptedCount: 2, unexaminedDueToBudget: ["discovery_reply_rejected:big.ts:3-8"], limitations: expect.arrayContaining(["discovery_reply_rejected"]) });
   });
 
+  it("leaves a window unexamined for that auditor when its CLI uses its own tools on every attempt, and goes on", async () => {
+    // Observed live (October 27, 2026, agy 1.4.7): Gemini ran run_command on all three attempts of one unit, and its whole discovery failed.
+    const root = await mkdtemp(join(tmpdir(), "arbitra-discovery-own-tools-")); directories.push(root);
+    const store = new RunStore(root, "run-own-tools");
+    const lines = Array.from({ length: 8 }, (_, index) => `const value${index + 1} = ${index === 1 ? "null" : index === 6 ? "commands" : index};`);
+    const files = [fileOf("big.ts", lines), fileOf("small.ts", ["const value = null;"])];
+    const ownTools = () => new ProviderInvocationFailure("Provider google failed after 3 attempts (MALFORMED_RESPONSE: CLI_AGENT_TOOL_USE_FORBIDDEN: Antigravity CLI attempted a tool step (run_command); the CLI's own agent tools are disabled and nothing it did is trusted)", 3, "MALFORMED_RESPONSE", "CLI_AGENT_TOOL_USE_FORBIDDEN");
+    const { activities } = ceilinged(({ files: supplied }) => supplied.some(({ lines: sent }) => sent.some(({ text }) => text.includes("commands"))), ownTools);
+    const result = await discoverWithModel({ auditorId: "auditor-a", modelProfileId: "model", snapshot: { root: "fixture", files }, activities: { ...activities, estimateInitialTokens: () => 1 }, store, signal: new AbortController().signal, maximumInputTokens: files[0]?.byteLength ?? 0 });
+    expect(result.map(({ locations }) => [locations[0]?.path, locations[0]?.startLine])).toEqual([["big.ts", 2], ["small.ts", 1]]);
+    expect(await artifact(store, "discovery-validation-auditor-a")).toMatchObject({ acceptedCount: 2, unexaminedDueToBudget: ["discovery_reply_rejected:big.ts:3-8"], limitations: expect.arrayContaining(["discovery_reply_rejected"]) });
+  });
+
+  it("records a unit whose call fails at the provider as not examined and goes on, failing only at a third failure in a row", async () => {
+    // Observed live (October 26, 2026, agy 1.4.7): one unit failed three attempts with CLI_MODEL_CALL_FAILED, and its finder's 27 units not yet sent never were.
+    const root = await mkdtemp(join(tmpdir(), "arbitra-discovery-call-failed-")); directories.push(root);
+    const store = new RunStore(root, "run-call-failed");
+    const { activities, sent } = flaky((path) => ["b.ts", "c.ts", "e.ts"].includes(path) ? callFailed() : null);
+    const result = await oneUnitAFile(["a.ts", "b.ts", "c.ts", "d.ts", "e.ts"], activities, store)();
+    // Two in a row, then an answer: each failed unit is a gap, sent once and not split, and the finder goes on.
+    expect(sent).toEqual(["a.ts", "b.ts", "c.ts", "d.ts", "e.ts"]);
+    expect(result.map(({ locations }) => locations[0]?.path)).toEqual(["a.ts", "d.ts"]);
+    const scopes = await artifact(store, "discovery-scopes-auditor-a") as { scopes: { paths: string[]; declined?: string }[] };
+    expect(scopes.scopes.map(({ paths, declined }) => [paths[0], declined])).toEqual([["a.ts", undefined], ["b.ts", "provider_failed"], ["c.ts", "provider_failed"], ["d.ts", undefined], ["e.ts", "provider_failed"]]);
+    expect(await artifact(store, "discovery-validation-auditor-a")).toMatchObject({ acceptedCount: 2, unexaminedDueToBudget: ["discovery_provider_failed:b.ts", "discovery_provider_failed:c.ts", "discovery_provider_failed:e.ts"], limitations: expect.arrayContaining(["discovery_provider_failed"]) });
+    const gaps = (await store.listArtifacts()).filter(({ kind }) => kind.startsWith("discovery-declined-auditor-a-"));
+    expect(gaps).toHaveLength(3);
+    expect(JSON.parse((await store.readArtifact(gaps[0]?.artifactId ?? "")).content)).toMatchObject({ cause: "provider_failed", surfaces: ["b.ts"], code: "CLI_MODEL_CALL_FAILED", attempts: 3, reason: expect.stringContaining("CLI_MODEL_CALL_FAILED") });
+
+    // Three in a row, as a sleeping machine or an outage fails every call: the finder fails, and records none as a gap.
+    const secondRoot = await mkdtemp(join(tmpdir(), "arbitra-discovery-calls-failed-")); directories.push(secondRoot);
+    const second = new RunStore(secondRoot, "run-calls-failed");
+    let down = true;
+    const outage = flaky((path) => down && ["b.ts", "c.ts", "d.ts"].includes(path) ? callFailed("HTTP_502") : null);
+    const run = oneUnitAFile(["a.ts", "b.ts", "c.ts", "d.ts", "e.ts"], outage.activities, second);
+    await expect(run()).rejects.toThrow(/^Provider google failed after 3 attempts \(HTTP: Provider HTTP 502/u);
+    expect(outage.sent).toEqual(["a.ts", "b.ts", "c.ts", "d.ts"]);
+    expect((await second.listArtifacts()).filter(({ kind }) => kind.startsWith("discovery-declined-") || kind === "findings-auditor-a")).toEqual([]);
+    // Resumed once the provider answers again: the unit answered replays, and the units that failed are sent again.
+    down = false;
+    expect((await run()).map(({ locations }) => locations[0]?.path)).toEqual(["a.ts", "b.ts", "c.ts", "d.ts", "e.ts"]);
+    expect(outage.sent).toEqual(["a.ts", "b.ts", "c.ts", "d.ts", "b.ts", "c.ts", "d.ts", "e.ts"]);
+    expect(await artifact(second, "discovery-validation-auditor-a")).toMatchObject({ unexaminedDueToBudget: [] });
+  });
+
+  it("fails a finder none of whose units answered, however few failed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbitra-discovery-none-answered-")); directories.push(root);
+    const store = new RunStore(root, "run-none-answered");
+    const { activities, sent } = flaky(() => callFailed());
+    await expect(oneUnitAFile(["a.ts", "b.ts"], activities, store)()).rejects.toBeInstanceOf(ProviderInvocationFailure);
+    expect(sent).toEqual(["a.ts", "b.ts"]);
+    expect((await store.listArtifacts()).filter(({ kind }) => kind.startsWith("discovery-declined-"))).toEqual([]);
+  });
+
+  it("fails the finder at once when a unit fails for a cause every call would meet", async () => {
+    const systemic: readonly [string, Error][] = [
+      ["sign-in", callFailed("CLI_NOT_LOGGED_IN", "AUTH")], ["usage limit", new ProviderUsageLimitError("Provider openai reached its usage limit (QUOTA: CLI_USAGE_LIMIT_REACHED)", 1)],
+      ["throttle", callFailed("CLI_RATE_LIMITED", "RATE_LIMIT")], ["model unavailable", callFailed("CLI_MODEL_UNAVAILABLE", "INVALID_REQUEST")], ["missing CLI", callFailed("CLI_NOT_INSTALLED", "INVALID_REQUEST")],
+      ["HTTP refusal", callFailed("HTTP_404")], ["processes left running", callFailed("CLI_PROCESS_TREE_NOT_TERMINATED")], ["cancelled", callFailed(null, "CANCELLED")], ["unclassed", callFailed(null, "UNKNOWN")],
+      ["budget", new ProviderBudgetSuspendedError("Run token budget exhausted")], ["arbitra's own", new Error("INVOCATION_MODEL_MISMATCH")],
+    ];
+    for (const [, error] of systemic) {
+      const root = await mkdtemp(join(tmpdir(), "arbitra-discovery-systemic-")); directories.push(root);
+      const store = new RunStore(root, "run-systemic");
+      const { activities, sent } = flaky((path) => path === "b.ts" ? error : null);
+      await expect(oneUnitAFile(["a.ts", "b.ts", "c.ts"], activities, store)()).rejects.toBe(error);
+      expect(sent).toEqual(["a.ts", "b.ts"]);
+    }
+  });
+
   it("audits scopes side by side when asked to and puts their findings together in scope order", async () => {
     // Observed live (P20 pilot): five scopes one after another were 33 minutes of a 40-minute audit.
     const root = await mkdtemp(join(tmpdir(), "arbitra-discovery-parallel-")); directories.push(root);
@@ -464,6 +565,19 @@ describe("independent model discovery", () => {
     expect(result.map(({ category }) => category)).toEqual(["PROMPT_INJECTION"]);
     expect(await artifact(store, "discovery-injection-follow-ups-auditor-a")).toMatchObject({ followUps: [{ path: "src/suppressed.ts", startLine: 1, endLine: 1, status: "output_limited", sourceFindingIds: [] }] });
     expect(await artifact(store, "discovery-validation-auditor-a")).toMatchObject({ acceptedCount: 1, unexaminedDueToBudget: ["injection_follow_up:src/suppressed.ts:1-1"], limitations: ["injection_follow_up_output_limited"] });
+  });
+
+  it("records a follow-up whose call fails at the provider and keeps the primary findings", async () => {
+    const root = await mkdtemp(join(tmpdir(), "arbitra-discovery-injection-failed-")); directories.push(root);
+    const store = new RunStore(root, "run-injection-failed");
+    const { activities } = scripted(({ activityId, namespace }) => {
+      if (activityId !== "auditor-a/discovery") throw callFailed();
+      return [at(`${namespace}/planted`, "PROMPT_INJECTION", "src/suppressed.ts", 1, 1, PLANTED[0] ?? "")];
+    });
+    const result = await discoverWithModel({ auditorId: "auditor-a", modelProfileId: "model", snapshot: { root: "fixture", files: [fileOf("src/suppressed.ts", PLANTED)] }, activities, store, signal: new AbortController().signal });
+    expect(result.map(({ category }) => category)).toEqual(["PROMPT_INJECTION"]);
+    expect(await artifact(store, "discovery-injection-follow-ups-auditor-a")).toMatchObject({ followUps: [{ path: "src/suppressed.ts", startLine: 1, endLine: 8, status: "provider_failed", sourceFindingIds: [] }] });
+    expect(await artifact(store, "discovery-validation-auditor-a")).toMatchObject({ acceptedCount: 1, unexaminedDueToBudget: ["injection_follow_up:src/suppressed.ts:1-8"], limitations: ["injection_follow_up_provider_failed"] });
   });
 
   it("halves a follow-up that stops at the output ceiling until its calls fit", async () => {

@@ -166,6 +166,16 @@ truncated. When they do not fit, the stage is recomposed:
   too, so a provider that is slow for every call costs one split. A unit of one line, and an
   injection follow-up, keep the provider's retries. `discovery-scopes-<auditor>` lists the splits
   (`timeLimitSplits`), and coverage carries `discovery_time_limit_split`.
+- **A discovery unit whose call fails is a gap** (October 27, 2026). A unit, or an injection
+  follow-up, whose call fails after the provider's retries for a cause in that call alone is left
+  unexamined for that auditor (`provider_failed`, limitation `discovery_provider_failed` or
+  `injection_follow_up_provider_failed`), and the auditor goes on; observed live (agy 1.4.7), one
+  unit's `CLI_MODEL_CALL_FAILED` had left 27 units unsent. One whose CLI used its own agent tools
+  on every attempt is a rejected reply (`CLI_AGENT_TOOL_USE_FORBIDDEN`, read from
+  `ProviderInvocationFailure.transportCode`), split as one. Account-wide and systemic failures,
+  three failed units in a row, and an auditor none of whose units answered still fail its
+  discovery, and the gaps of a discovery that failed are not recorded, so a resume sends them again
+  ([provider model](provider-model.md)).
 - **Discovery reads beyond its unit** (production-audit 2.0.0, October 25, 2026). A unit audits
   its own files, and its tools read the whole snapshot with the same redaction and framing.
   Reads of other files share 64 KiB a call (`DISCOVERY_READ_BEYOND_UNIT_BYTES`): a read is cut at

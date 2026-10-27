@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runConfigSchema, type RunConfig } from "@arbitra/schemas/config.js";
 import { planIRSchema } from "@arbitra/schemas/plan.js";
-import type { HttpRequest, HttpResponse } from "@arbitra/providers/transport-contract.js";
+import { TransportError, type HttpRequest, type HttpResponse, type TransportRequest } from "@arbitra/providers/transport-contract.js";
 import { BUILTIN_TRANSPORT_FACTORIES, type TransportFactory, type TransportFactoryOptions } from "@arbitra/providers/registry.js";
 import { Orchestrator } from "../src/orchestrator.js";
 import { controlPlaneCore } from "../src/control-plane-core.js";
@@ -877,6 +877,35 @@ describe("composed model audits", () => {
     }));
     expect(new Set(contexts.map(({ activityId }) => activityId.split("/")[0]))).toEqual(new Set(["peer-review", "verification", "planner", "critic"]));
     expect(contexts.every(({ omittedPaths, estimatedTokens, maximumEstimatedTokens }) => omittedPaths.includes("large.ts") && estimatedTokens <= maximumEstimatedTokens)).toBe(true);
+  });
+
+  it("finishes a run whose finder failed at the provider on one part, with that part unexamined in the coverage, the gate and the progress", async () => {
+    // Observed live (October 26, 2026, agy 1.4.7): one Gemini unit failed three attempts, its finder's other units were never sent, and the run failed.
+    const { create, config } = await fixture({ oversizedRepository: true });
+    // The unit's source reaches the transport as JSON inside JSON; read without its quotes, it names its window.
+    const firstWindow = (request: TransportRequest) => request.messages.some(({ content }) => content.replace(/[\\"]|&quot;/gu, "").includes("path:large.ts,lineWindow:{startLine:1,"));
+    const factories = Object.fromEntries(Object.entries(BUILTIN_TRANSPORT_FACTORIES).map(([id, factory]): [string, TransportFactory] => [id, (configuration, options) => {
+      const transport = factory(configuration, options);
+      const send = transport.send.bind(transport);
+      return Object.assign(transport, { send: async (request: TransportRequest, signal: AbortSignal) => {
+        if (configuration.endpoint.includes("auditor-c") && firstWindow(request)) throw new TransportError("HTTP", "Provider HTTP 503: upstream unavailable", true);
+        return send(request, signal);
+      } });
+    }]));
+    const core = create(undefined, { factories }); const result = await core.run(config);
+    expect(result.state).toBe("COMPLETED");
+    const artifacts = await core.artifacts(result.runId);
+    const gaps = artifacts.filter(({ kind }) => kind.startsWith("discovery-declined-"));
+    expect(gaps.map(({ kind }) => kind.startsWith("discovery-declined-auditor-c-window-"))).toEqual([true]);
+    const issues = artifacts.find(({ kind }) => kind === "canonical-issues");
+    if (issues === undefined) throw new Error("ISSUES_ABSENT");
+    const set = JSON.parse((await core.artifact(result.runId, issues.artifactId) as { content: string }).content) as { coverage: { complete: boolean; unexaminedSurfaces: unknown[] }; limitations: string[] };
+    expect(set.coverage.complete).toBe(false);
+    expect(set.coverage.unexaminedSurfaces).toContainEqual({ auditorId: "auditor-c", surface: expect.stringMatching(/^discovery_provider_failed:large\.ts:1-\d+$/u) as unknown });
+    expect(set.limitations).toContain("auditor-c:discovery_provider_failed");
+    expect((await core.gate(result.runId)).reasons).toContain("degraded_coverage");
+    const coverage = (await core.progress(result.runId)).auditors.map(({ auditorId, coverage: units }) => [auditorId, units === null ? null : units.units - units.answered, units?.notExamined]);
+    expect(coverage).toEqual([["auditor-a", 0, {}], ["auditor-b", 0, {}], ["auditor-c", 1, { provider_failed: 1 }]]);
   });
 
   it("reuses semantic decisions after a downstream failure and restart", async () => {

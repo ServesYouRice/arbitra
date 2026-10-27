@@ -1,7 +1,7 @@
 import type { RunOverview, RunProgress } from "../../api/runs.js";
 import { isActive } from "../../app/format.js";
 import type { WorkflowJson } from "../../graph/layout.js";
-import { counted, duration, stepShort, type Mode } from "../../app/words.js";
+import { counted, duration, partsReadWords, stepShort, type Mode } from "../../app/words.js";
 import { modelNodeLabels } from "./models.js";
 import { stageElapsed } from "./StageGraph.js";
 
@@ -21,7 +21,9 @@ export function stageNotes({ workflow, progress, preflight, critique }: { readon
   for (const node of workflow.nodes) {
     if (node.kind === "deterministic" && node.id === "preflight" && typeof preflight?.fileCount === "number") notes.set(node.id, counted(preflight.fileCount, "file"));
     const auditor = progress?.auditors.find(({ auditorId }) => auditorId === node.id);
-    if (auditor !== undefined && (auditor.partsRead > 0 || auditor.finished)) notes.set(node.id, `${counted(auditor.partsRead, "part")} read${auditor.partsDeclined === 0 ? "" : `, ${auditor.partsDeclined} declined`}`);
+    // Once a finder finished, its record of the units it sent says how many of them answered.
+    if (auditor !== undefined && (auditor.partsRead > 0 || auditor.finished)) notes.set(node.id, auditor.coverage !== null ? partsReadWords(auditor.coverage, true)
+      : `${counted(auditor.partsRead, "part")} read${auditor.partsDeclined === 0 ? "" : `, ${auditor.partsDeclined} declined`}`);
     if (node.id === "critic" && critique !== null) notes.set(node.id, criticWords(critique));
   }
   return notes;

@@ -70,7 +70,9 @@ export async function incrementalFixture(files: Readonly<Record<string, string>>
       stage = "discovery";
       const prefix = /Every sourceFindingId must start with (.+)\/ and be unique/u.exec(system)?.[1] ?? "";
       const input = JSON.parse(user) as { files: { path: string; lines: { line: number; text: string }[] }[] };
-      if ([...failing].some((path) => input.files.some((file) => file.path === path))) return { status: 503, headers: {}, body: {} };
+      // A failure every call of the finder would meet (refused credentials), so the run stops and a resume sends the unit
+      // again; one unit's server error is a gap its finder goes on without.
+      if ([...failing].some((path) => input.files.some((file) => file.path === path))) return { status: 401, headers: {}, body: {} };
       const marked = input.files.flatMap(({ path, lines }) => lines.filter(({ text }) => text.includes("// DEFECT-")).map(({ line, text }) => ({ path, line, text })));
       output = { findings: marked.map(({ path, line, text }, index) => {
         const name = /DEFECT-([\w-]+)/u.exec(text)?.[1] ?? "unknown";

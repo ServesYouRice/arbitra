@@ -7,6 +7,8 @@ import type { RepositorySnapshot, SourceFile } from "./repository.js";
 import type { RunStore } from "./run-store.js";
 import type { PinnedProtocol } from "@arbitra/protocols/registry.js";
 import { compareSemver } from "@arbitra/protocols/versioning.js";
+import { ProviderInvocationFailure, ProviderUsageLimitError } from "@arbitra/providers/runtime.js";
+import { PROCESS_TREE_NOT_TERMINATED } from "@arbitra/providers/transport-contract.js";
 
 import { createHash } from "node:crypto";
 import { isModelOutputRejection, ModelOutputLimitError, ModelRefusalError, ModelTimeLimitError } from "./context-budget.js";
@@ -54,7 +56,50 @@ interface LineRange { readonly path: string; readonly startLine: number; readonl
 
 /** The whole snapshot a discovery's units read beyond themselves and cite from, and the index each unit carries. */
 interface WholeRepository { readonly snapshot: RepositorySnapshot; readonly index: RepositoryIndex | null }
-interface DiscoveryOptions extends ModelDiscoveryOptions { readonly repository: WholeRepository }
+interface DiscoveryOptions extends ModelDiscoveryOptions { readonly repository: WholeRepository; readonly failures: FailedUnits }
+
+/**
+ * Units that failed at the provider one after another, with no unit answered between them, at which a finder's discovery
+ * fails instead of going on: a sleeping machine or an outage fails every call, and a resume should send those units
+ * again rather than keep them all as gaps. Three: each is already its provider's own attempts spent (three by default),
+ * so three in a row are nine calls without an answer, more than one unanswerable unit explains, and no more than the
+ * calls a sleeping machine has in flight at once in the shipped subscription audits (four).
+ */
+export const MAXIMUM_FAILED_UNITS_IN_A_ROW = 3;
+
+/** The units of one finder's discovery that failed at the provider in a row; a unit answered, or declined, breaks the row. */
+class FailedUnits {
+  #inARow = 0; #answered = false; #last: { readonly error: unknown } | undefined;
+  answered(): void { this.#inARow = 0; this.#answered = true; }
+  /** Throws the failure itself once it is the last of MAXIMUM_FAILED_UNITS_IN_A_ROW in a row. */
+  failed(error: unknown): void {
+    this.#inARow += 1; this.#last = { error };
+    if (this.#inARow >= MAXIMUM_FAILED_UNITS_IN_A_ROW) throw error;
+  }
+  /** A finder none of whose units answered got nothing from its provider, however few failed: it fails with the last. */
+  assertAnyAnswered(): void { if (!this.#answered && this.#last !== undefined) throw this.#last.error; }
+}
+
+/**
+ * Failure classes no one unit causes: the account's sign-in, its allowance or throttle, a request the provider or its CLI
+ * refuses whatever it holds (a model the account is not offered, a missing CLI), a cancelled run, and a failure arbitra
+ * could not class. Each fails the finder as before, and a resume sends its unanswered units again.
+ */
+const FINDER_FAILURES: ReadonlySet<string> = new Set(["AUTH", "QUOTA", "RATE_LIMIT", "INVALID_REQUEST", "CANCELLED", "UNKNOWN"]);
+
+/**
+ * Whether this unit's call failed, after its provider's own attempts, for a cause in this call alone: a model call its
+ * CLI reports failed, a reply the transport could not read, a part past its time limit again, a server error. The unit is
+ * recorded as not examined (`provider_failed`), a partial result with its completeness degraded (§24.2), and the finder
+ * goes on with its other units. Observed live (October 26, 2026, agy 1.4.7, Gemini 3.8 Flash medium): one unit failed
+ * three attempts with CLI_MODEL_CALL_FAILED, and its finder's 27 units not yet sent never were. An HTTP refusal of the
+ * request (4xx) is in no one unit, and a CLI whose processes outlived its call fails the finder, since the next call
+ * would start another CLI beside them.
+ */
+function failedAlone(error: unknown, options: ScopeOptions): boolean {
+  if (options.signal.aborted || !(error instanceof ProviderInvocationFailure) || error instanceof ProviderUsageLimitError || FINDER_FAILURES.has(error.causeCode)) return false;
+  return error.transportCode !== PROCESS_TREE_NOT_TERMINATED && !/^HTTP_4\d\d$/u.test(error.transportCode ?? "");
+}
 
 /** One discovery unit: a scope of whole files, or an exact line window of one file. */
 interface ScopeOptions extends DiscoveryOptions {
@@ -203,7 +248,7 @@ export async function discoverWithModel(options: ModelDiscoveryOptions): Promise
   // Kept so an incremental run can send a unit it reuses the index this run sent it. As text: a stored object comes
   // back with its keys sorted, and the request would differ.
   await options.store.publish(`${REPOSITORY_INDEX_KIND_PREFIX}${options.auditorId}`, { json: JSON.stringify(index) }, options.auditorId);
-  const discovery: DiscoveryOptions = { ...options, repository: { snapshot: options.snapshot, index } };
+  const discovery: DiscoveryOptions = { ...options, repository: { snapshot: options.snapshot, index }, failures: new FailedUnits() };
   return followInjections(discovery, await discoverPrimary(discovery));
 }
 
@@ -269,7 +314,16 @@ function splitsOnTimeLimit(snapshot: RepositorySnapshot, unit: PendingUnit): boo
 function declined(error: unknown, options: ScopeOptions): "provider_refused" | "reply_rejected" | null {
   const activityId = discoveryActivityId(options);
   if (error instanceof ModelRefusalError && (error.activityId === activityId || error.activityId.startsWith(`${activityId}/`))) return "provider_refused";
-  return isModelOutputRejection(error) ? "reply_rejected" : null;
+  return isModelOutputRejection(error) || usedOwnCliTools(error) ? "reply_rejected" : null;
+}
+
+/**
+ * A subscription CLI that used its own agent tools on every attempt gave no reply arbitra can use, like a model that
+ * never stops asking for tools. Observed live (October 27, 2026, agy 1.4.7): Gemini ran `run_command` on all three
+ * attempts of one unit, and the whole finder's discovery failed with it after seven of its units had answered.
+ */
+function usedOwnCliTools(error: unknown): boolean {
+  return error instanceof ProviderInvocationFailure && error.transportCode === "CLI_AGENT_TOOL_USE_FORBIDDEN";
 }
 
 /**
@@ -323,6 +377,7 @@ async function discoverPrimary(options: DiscoveryOptions): Promise<readonly Sour
     try { return await discoverScopeWithModel({ ...options, ...(splitsOnTimeLimit(options.snapshot, whole) ? { splitOnTimeLimit: true } : {}) }); }
     catch (error) {
       const cause = declined(error, options);
+      if (cause !== null) options.failures.answered();
       const timeLimited = ranPastTimeLimit(error, options);
       const parts = stoppedAtOutputCeiling(error, options) || cause !== null ? splitOutputLimitedUnit(options.snapshot, whole) : timeLimited ? splitOutputLimitedUnit(options.snapshot, { ...whole, afterTimeLimit: true }) : null;
       if (parts === null && cause !== null) unsplit = { unit: whole, cause, error };
@@ -347,11 +402,16 @@ async function discoverPrimary(options: DiscoveryOptions): Promise<readonly Sour
     }
     pending.push(...allocation.scopes, ...windowed.flatMap(({ path, windows }) => windows.map((window) => ({ files: options.snapshot.files.filter((file) => file.path === path), splitModules: [], window }))));
   }
-  interface Audited { readonly scope: { scopeId: string; paths: readonly string[]; estimatedTokens: number | null; splitModules: readonly string[] }; readonly findings: readonly SourceFinding[]; readonly validation: ScopeValidation; readonly splitModules: readonly string[] }
-  interface Declined { readonly unit: PendingUnit; readonly cause: "provider_refused" | "reply_rejected"; readonly error: unknown }
+  interface Gap { readonly scopeId: string; readonly cause: Declined["cause"]; readonly surfaces: readonly string[]; readonly reason: string; readonly code?: string; readonly attempts?: number }
+  interface Audited { readonly scope: { scopeId: string; paths: readonly string[]; estimatedTokens: number | null; splitModules: readonly string[] }; readonly findings: readonly SourceFinding[]; readonly validation: ScopeValidation; readonly splitModules: readonly string[];
+    /** A unit that failed at the provider, recorded once the finder's discovery is done. */
+    readonly failed?: Gap }
+  interface Declined { readonly unit: PendingUnit; readonly cause: "provider_refused" | "reply_rejected" | "provider_failed"; readonly error: unknown }
   interface Outcome { readonly audited: readonly Audited[]; readonly splits: readonly { scopeId: string; into: readonly string[]; declined?: true; timeLimited?: true }[];
     /** A part of a declined unit declined too, left for its caller to split again or record. */
-    readonly deferred?: Declined }
+    readonly deferred?: Declined;
+    /** The unit failed at the provider: no answer, so it tells nothing about where a declined unit's cause is. */
+    readonly unanswered?: true }
   const concurrency = options.concurrency ?? 1;
   // Every call of this audit takes its place from one allowance, however deep its units split.
   const limited = sharedLimit(concurrency);
@@ -359,9 +419,14 @@ async function discoverPrimary(options: DiscoveryOptions): Promise<readonly Sour
     const { window } = unit;
     // This auditor leaves the source unexamined and says so; the audit goes on with what the others found.
     const surfaces = unit.files.map(({ path }) => window === undefined ? path : `${path}:${window.startLine}-${window.endLine}`);
-    await options.store.publish(`discovery-declined-${options.auditorId}-${scopeId}`, { scopeId, cause, surfaces, reason: (error instanceof ModelRefusalError ? error.refusal : error instanceof Error ? error.message : String(error)).slice(0, 500) }, options.auditorId);
+    const gap: Gap = { scopeId, cause, surfaces, reason: (error instanceof ModelRefusalError ? error.refusal : error instanceof Error ? error.message : String(error)).slice(0, 500),
+      ...(error instanceof ProviderInvocationFailure ? { code: error.transportCode ?? error.causeCode, attempts: error.attempts } : {}) };
+    // A unit that failed at the provider is recorded once the finder is done: a finder that fails after it is resumed,
+    // and sends it again rather than keep it as a gap.
+    if (cause !== "provider_failed") await options.store.publish(`discovery-declined-${options.auditorId}-${scopeId}`, gap, options.auditorId);
     const scope = { scopeId, paths: unit.files.map(({ path }) => path), estimatedTokens: null, splitModules: unit.splitModules, ...(window === undefined ? {} : { window }), declined: cause };
-    return { audited: [{ scope, findings: [], validation: { rejectedCount: 0, truncated: false, unexaminedDueToBudget: surfaces.map((surface) => `discovery_${cause}:${surface}`), limitations: [`discovery_${cause}`] }, splitModules: unit.splitModules }], splits: [] };
+    return { audited: [{ scope, findings: [], validation: { rejectedCount: 0, truncated: false, unexaminedDueToBudget: surfaces.map((surface) => `discovery_${cause}:${surface}`), limitations: [`discovery_${cause}`] }, splitModules: unit.splitModules,
+      ...(cause === "provider_failed" ? { failed: gap } : {}) }], splits: [] };
   };
   const replaced = async (unit: PendingUnit, parts: readonly PendingUnit[], cause: Declined["cause"] | "output_limit" | "time_limit"): Promise<Outcome> => {
     // The parts take the place of their unit and are independent of each other, so they run side by side within
@@ -382,7 +447,7 @@ async function discoverPrimary(options: DiscoveryOptions): Promise<readonly Sour
   // replies never meet), and each further split only multiplied the calls: 31 units for eight files, each with its repairs.
   const retried = async (parts: readonly PendingUnit[]): Promise<readonly Outcome[]> => {
     const tried = await sideBySide(parts, concurrency, (part) => audit(part, true));
-    const separable = tried.some(({ deferred }) => deferred === undefined);
+    const separable = tried.some(({ deferred, unanswered }) => deferred === undefined && unanswered !== true);
     return sideBySide(tried, concurrency, async (outcome) => outcome.deferred === undefined ? outcome : separable ? settle(outcome.deferred) : record(outcome.deferred));
   };
   const audit = async (unit: PendingUnit, partOfDeclined = false): Promise<Outcome> => {
@@ -410,9 +475,16 @@ async function discoverPrimary(options: DiscoveryOptions): Promise<readonly Sour
         return replaced(unit, parts, "time_limit");
       }
       const cause = declined(error, selected);
-      if (cause === null) throw error;
+      if (cause === null) {
+        if (!failedAlone(error, selected)) throw error;
+        // A failure of this call alone is a gap in this finder's audit, not the end of it; only a third in a row is.
+        options.failures.failed(error);
+        return { ...await record({ unit, cause: "provider_failed", error }), unanswered: true };
+      }
+      options.failures.answered();
       return partOfDeclined ? { audited: [], splits: [], deferred: { unit, cause, error } } : settle({ unit, cause, error });
     }
+    options.failures.answered();
     const scope = { scopeId, paths: unit.files.map(({ path }) => path), estimatedTokens: options.activities.estimateInitialTokens?.(discoveryRequest(selected)) ?? null, splitModules: unit.splitModules, ...(window === undefined ? {} : { window }) };
     return { audited: [{ scope, findings: found, validation: await readValidation(options.store, `discovery-validation-${options.auditorId}-${scopeId}`), splitModules: unit.splitModules }], splits: [] };
   };
@@ -420,7 +492,9 @@ async function discoverPrimary(options: DiscoveryOptions): Promise<readonly Sour
   // together in unit order, so the audit does not depend on which call returns first.
   // Observed live (P20 pilot): five scopes one after another were 33 minutes of a 40-minute audit.
   const outcomes = unsplit !== undefined ? [await record(unsplit, "whole")] : wholeDeclined ? await retried(pending) : await sideBySide(pending, concurrency, (unit) => audit(unit));
+  options.failures.assertAnyAnswered();
   const audited = outcomes.flatMap((outcome) => outcome.audited);
+  for (const { failed } of audited) if (failed !== undefined) await options.store.publish(`discovery-declined-${options.auditorId}-${failed.scopeId}`, failed, options.auditorId);
   const splits = outcomes.flatMap((outcome) => outcome.splits);
   outputLimitSplits.push(...splits.filter((split) => split.declined !== true && split.timeLimited !== true));
   declinedSplits.push(...splits.filter((split) => split.declined === true).map(({ scopeId, into }) => ({ scopeId, into })));
@@ -509,7 +583,7 @@ async function followInjections(options: DiscoveryOptions, primary: readonly Sou
   if (windows.length === 0) return primary;
   const maximum = options.maximumInputTokens;
   const findings = [...primary];
-  type FollowUp = LineRange & { scopeId: string; reported: readonly LineRange[]; triggeredBy: readonly string[]; status: "examined" | "over_cap" | "exceeds_context_budget" | "output_limited" | "declined"; sourceFindingIds: readonly string[] };
+  type FollowUp = LineRange & { scopeId: string; reported: readonly LineRange[]; triggeredBy: readonly string[]; status: "examined" | "over_cap" | "exceeds_context_budget" | "output_limited" | "declined" | "provider_failed"; sourceFindingIds: readonly string[] };
   const followUps: FollowUp[] = [];
   // Follow-ups whose call stopped at the output ceiling, and the halves that replaced each.
   const outputLimitSplits: { scopeId: string; into: readonly string[] }[] = [];
@@ -532,11 +606,13 @@ async function followInjections(options: DiscoveryOptions, primary: readonly Sou
     const { windows: pieces, unexaminedLines } = fits(window.startLine, window.endLine) ? { windows: [{ startLine: 1, endLine: window.endLine - offset }], unexaminedLines: [] }
       : allocateLineWindows(window.endLine - offset, (startLine, endLine) => fits(startLine + offset, endLine + offset));
     // The primary pass already audited these lines, so a follow-up that stops at the output ceiling is halved like a
-    // primary unit, and one line that still stops there, or a follow-up declined, is recorded and the audit goes on.
+    // primary unit, and one line that still stops there, or a follow-up declined or failed at the provider as a
+    // primary unit's call fails, is recorded and the audit goes on.
     const follow = async (range: { readonly startLine: number; readonly endLine: number }): Promise<void> => {
       const selected = scoped(range);
       try {
         const found = await discoverScopeWithModel(selected);
+        options.failures.answered();
         results.push(await readValidation(options.store, `discovery-validation-${options.auditorId}-${selected.scopeId}`));
         findings.push(...found);
         note(range, "examined", found);
@@ -546,7 +622,8 @@ async function followInjections(options: DiscoveryOptions, primary: readonly Sou
           if (halves.length === 0) { note(range, "output_limited"); return; }
           outputLimitSplits.push({ scopeId: selected.scopeId, into: halves.map((half) => injectionScopeId(window.path, half)) });
           for (const half of halves) await follow(half);
-        } else if (declined(error, selected) !== null) note(range, "declined");
+        } else if (declined(error, selected) !== null) { options.failures.answered(); note(range, "declined"); }
+        else if (failedAlone(error, selected)) { options.failures.failed(error); note(range, "provider_failed"); }
         else throw error;
       }
     };
@@ -572,7 +649,7 @@ async function followInjections(options: DiscoveryOptions, primary: readonly Sou
     ...(own.summaries === undefined ? {} : { summaries: detail("summaries"), quoteRejections: detail("quoteRejections"), ...(detail("widenedLocations").length === 0 ? {} : { widenedLocations: detail("widenedLocations") }) }),
     acceptedCount: findings.length, rejectedCount: results.reduce((sum, { rejectedCount }) => sum + rejectedCount, own.rejectedCount), truncated: own.truncated || results.some(({ truncated }) => truncated),
     unexaminedDueToBudget: [...new Set([...own.unexaminedDueToBudget, ...results.flatMap(({ unexaminedDueToBudget }) => unexaminedDueToBudget), ...skipped.map(({ path, startLine, endLine }) => `injection_follow_up:${path}:${startLine}-${endLine}`)])],
-    limitations: [...new Set([...own.limitations, ...results.flatMap(({ limitations }) => limitations), ...[...new Set(skipped.map(({ status }) => status === "over_cap" ? "injection_follow_up_capped" : status === "output_limited" ? "injection_follow_up_output_limited" : status === "declined" ? "injection_follow_up_declined" : "injection_follow_up_exceeds_discovery_context_budget"))].sort()])],
+    limitations: [...new Set([...own.limitations, ...results.flatMap(({ limitations }) => limitations), ...[...new Set(skipped.map(({ status }) => status === "over_cap" ? "injection_follow_up_capped" : status === "output_limited" ? "injection_follow_up_output_limited" : status === "declined" ? "injection_follow_up_declined" : status === "provider_failed" ? "injection_follow_up_provider_failed" : "injection_follow_up_exceeds_discovery_context_budget"))].sort()])],
   }, options.auditorId);
   await options.store.publish(`findings-${options.auditorId}`, findings, options.auditorId);
   return findings;

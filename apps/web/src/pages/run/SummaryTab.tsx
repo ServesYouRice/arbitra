@@ -8,7 +8,7 @@ import { formatTime, gateReasonLabel, isActive } from "../../app/format.js";
 import { GateVerdict } from "../../app/marks.js";
 import { Link, type RunTab } from "../../app/router.js";
 import { tokens as limitWords } from "../../app/token-limit.js";
-import { counted, duration, failureWords, SEVERITIES, severityWord, stepDoing, tokenWords, type Mode } from "../../app/words.js";
+import { counted, duration, failureWords, partsReadWords, SEVERITIES, severityWord, stepDoing, tokenWords, type Mode } from "../../app/words.js";
 import { CopyButton } from "../../controls/CopyButton.js";
 import { useEvaluationMetrics, type ConfirmedYield } from "../../views/evaluation/api.js";
 import { FeatureOutcome, HandoffDownload } from "../../views/feature/FeatureView.js";
@@ -265,7 +265,12 @@ export function RanFacts({ runId, mode, overview, progress, confirmed, critique,
   const time = runTime(progress, overview, now);
   const perStage = workflow === null || workflow === undefined ? null : stageTimes(workflow, mode, progress, now);
   const models = stepModels(overview);
-  const auditors = [...models].filter(([id]) => id.startsWith("auditor-")).map(([, label]) => label);
+  // Each finder with how much of the project it read, once its record says: one at 5 of 32 parts is not a third opinion.
+  const auditors = [...models].filter(([id]) => id.startsWith("auditor-")).map(([id, label]) => {
+    const coverage = progress?.auditors.find(({ auditorId }) => auditorId === id)?.coverage ?? null;
+    return coverage === null ? label : `${label} · ${partsReadWords(coverage)}`;
+  });
+  const covered = progress?.auditors.some(({ coverage }) => coverage !== null) === true;
   const scripted = overview?.executor === "scripted";
   const tokensUsed = progress?.tokens.used ?? confirmed?.tokens ?? null;
   // Every Audit with a planner says whether its plan was reviewed, also when Review the plan was off (the default).
@@ -278,7 +283,7 @@ export function RanFacts({ runId, mode, overview, progress, confirmed, critique,
       <div><dt>time</dt><dd>{time === null ? "not recorded" : `${duration(time.ms)}${perStage === null ? time.recorded ? "" : " from its start to its last record" : ` · ${perStage}`}`}</dd></div>
       <div><dt>tokens</dt><dd>{scripted ? "none: scripted detectors call no model" : tokensUsed === null ? "not recorded" : `${tokenWords(tokensUsed)}${confirmed?.tokensPerConfirmed == null ? "" : ` · ${tokenWords(confirmed.tokensPerConfirmed)} per confirmed issue`}${(progress?.tokens.callsWithoutUsage ?? 0) > 0 ? ` · ${counted(progress?.tokens.callsWithoutUsage ?? 0, "call")} reported none` : ""}`}</dd></div>
       {mode !== "audit" ? null : scripted ? <><div><dt>found issues</dt><dd>scripted detectors, no model calls</dd></div>{reviewed}</> : <>
-        {auditors.length === 0 ? null : <div><dt>found issues</dt><dd>{auditors.join(", ")}</dd></div>}
+        {auditors.length === 0 ? null : <div><dt>found issues</dt><dd>{covered ? <ul aria-label="finders" className="plain-list">{auditors.map((finder) => <li key={finder}>{finder}</li>)}</ul> : auditors.join(", ")}</dd></div>}
         {models.has("verification") ? <div><dt>checked them</dt><dd>{checkers(overview)}</dd></div> : null}
         {models.has("planner") ? <div><dt>wrote the plan</dt><dd>{models.get("planner")}</dd></div> : null}
         {reviewed}

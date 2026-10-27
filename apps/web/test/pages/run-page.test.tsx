@@ -84,6 +84,36 @@ describe("the run page", () => {
     await waitFor(() => expect(fact(ran, "reviewed the plan")).toBe("GPT-6.1 Sol · high · 1 objection"));
   });
 
+  it("says how much of the project each finder read, so a finder that read few parts does not pass for a whole opinion", async () => {
+    // Observed live (October 26, 2026, agy 1.4.7): Gemini answered 4 of the 32 parts Claude read, and the Summary named it beside the others.
+    stubBrowser();
+    const finished = finishedProgress();
+    const [first, second] = finished.auditors;
+    if (first === undefined || second === undefined) throw new Error("FIXTURE_AUDITORS_ABSENT");
+    const progress = { ...finished, auditors: [{ ...first, finished: true, coverage: { units: 32, answered: 32, notExamined: {} } }, { ...second, finished: true, coverage: { units: 32, answered: 27, notExamined: { reply_rejected: 2, provider_failed: 3 } } }] };
+    stubControlPlane({ "GET /runs/run-1": resource({ workflow: BALANCED_WORKFLOW }), "GET /runs/run-1/overview": modelOverview(), "GET /runs/run-1/progress": progress, "GET /runs/run-1/metrics": metrics(),
+      "GET /handoff/runs/run-1": { saved: [] }, ...artifactRoutes("run-1") });
+    visit("?run=run-1");
+    render(<App />);
+    const ran = await screen.findByRole("region", { name: "How it ran" });
+    const finders = await within(ran).findByRole("list", { name: "finders" });
+    expect(within(finders).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["Opus 5.5 · xhigh · 32 of 32 parts read", "GPT-6.1 Sol · xhigh · 27 of 32 parts read (5 not read: 3 calls failed, 2 with no usable reply)"]);
+  });
+
+  it("says under a finished finder's stage how many of its parts it read, on a run that failed later", async () => {
+    stubBrowser();
+    const failed = finishedProgress({ state: "FAILED" });
+    const [first, second] = failed.auditors;
+    if (first === undefined || second === undefined) throw new Error("FIXTURE_AUDITORS_ABSENT");
+    const progress = { ...failed, auditors: [{ ...first, finished: true, coverage: { units: 22, answered: 22, notExamined: {} } }, { ...second, finished: true, coverage: { units: 16, answered: 14, notExamined: { provider_failed: 2 } } }] };
+    stubControlPlane({ "GET /runs/run-1": resource({ state: "FAILED", resumable: true, workflow: BALANCED_WORKFLOW }), "GET /runs/run-1/overview": modelOverview({ state: "FAILED", reason: "Error: boom", gate: null }), "GET /runs/run-1/progress": progress, ...artifactRoutes("run-1", {}) });
+    visit("?run=run-1");
+    render(<App />);
+    const stages = await screen.findByRole("group", { name: "stages" });
+    await waitFor(() => expect(within(stages).getAllByRole("button").map((button) => button.getAttribute("aria-label")).filter((label) => label?.startsWith("Find issues"))).toEqual([
+      "Find issues · done · 0:53 · Opus 5.5 · xhigh · 22 of 22 parts read", "Find issues · done · 0:41 · GPT-6.1 Sol · xhigh · 14 of 16 parts read, 2 not read"]));
+  });
+
   it("saves the plan into the project on request, then says where it went and what to do next", async () => {
     stubBrowser();
     const saved: { directory: string; relative: string; savedAt: string }[] = [];
