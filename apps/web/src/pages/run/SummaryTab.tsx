@@ -19,6 +19,7 @@ import { planReview, runTime, stageNotes, stageTimes, stepModels, type CriticRes
 import { notificationsSupported, useNotifyChoice } from "./notify.js";
 import { configuredChecker, record } from "./models.js";
 import { PlanCard } from "./PlanCard.js";
+import { RepositoryChanged, reusesFinishedWork } from "./RepositoryChanged.js";
 import { reportText } from "./RunReport.js";
 import { SendReport } from "./SendReport.js";
 import { StageGraph, stageViews } from "./StageGraph.js";
@@ -146,7 +147,7 @@ function Stopped(props: SummaryProps & { readonly state: string }): ReactElement
   const data = useStageData(props, Date.now());
   const why = reason ?? overview?.reason ?? null;
   const limit = record(record(overview?.configuration?.["workflow"])["modelExecution"])["maximumTokens"];
-  const note: ReactNode = state === "FAILED" ? <FailureNote runId={runId} reason={why} mode={props.mode} />
+  const note: ReactNode = state === "FAILED" ? <FailureNote runId={runId} reason={why} mode={props.mode} reuse={reusesFinishedWork(props.mode, overview)} />
     : state === "SUSPENDED_RATE_LIMIT" ? <UsageLimitPause reason={why} />
     : state === "SUSPENDED_BUDGET" ? <Alert title="Paused at its token limit">The run reached its limit{typeof limit === "number" ? ` of ${limitWords(limit)} tokens` : ""}, with everything it has done kept. Raise the limit in the header to go on from where it stopped.</Alert>
     : state === "CANCELLED" ? <Alert title="Cancelled">The run was cancelled. What it finished is kept: resume it from the header to go on from where it stopped.</Alert>
@@ -171,11 +172,13 @@ function Alert({ title, tone = "degraded", children }: { readonly title: string;
 }
 
 /** What failed and what to do, plainly; the recorded reason one click down, and the report to send the developer. */
-function FailureNote({ runId, reason, mode }: { readonly runId: string; readonly reason: string | null; readonly mode: Mode }): ReactElement {
+function FailureNote({ runId, reason, mode, reuse }: { readonly runId: string; readonly reason: string | null; readonly mode: Mode; readonly reuse: boolean }): ReactElement {
   const words = failureWords(reason, mode);
   return <Alert title="The run failed" tone="refuted">
-    <p className="prose">{words.what}</p>
-    <p className="prose">{words.todo}</p>
+    {/RUN_REPOSITORY_CHANGED/u.test(reason ?? "") ? <RepositoryChanged runId={runId} mode={mode} detail={reason ?? ""} reuse={reuse} framed={false} /> : <>
+      <p className="prose">{words.what}</p>
+      <p className="prose">{words.todo}</p>
+    </>}
     <details className="disclosure"><summary>What the run recorded</summary><pre className="artifact__content">{reason ?? "no reason recorded"}</pre></details>
     <div className="summary-links">
       <SendReport runId={runId} occasion="the run failed" />

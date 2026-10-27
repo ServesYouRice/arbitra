@@ -21,12 +21,14 @@ import type { RunStore, StoredRunContext } from "./run-store.js";
 /*
  * Incremental and repeat Audit runs (P14).
  *
- * An incremental run is an ordinary new Audit run that names a completed base run. Before
- * it dispatches a discovery unit (one auditor over one scope or line window) it compares
+ * An incremental run is an ordinary new Audit run that names a base run. Before it
+ * dispatches a discovery unit (one auditor over one scope or line window) it compares
  * the unit's complete input identity with the identity the base recorded for the same
  * unit. Only a byte-identical unit may reuse the base's saved model outputs, and then only
  * outputs whose per-activity replay identity is also unchanged. Everything else, and
- * everything uncertain, is fresh work. The base run is only ever read.
+ * everything uncertain, is fresh work. The base run is only ever read. A base that stopped
+ * before it completed gives only the discovery units it finished; the stages after
+ * discovery run again in full.
  */
 
 export const SNAPSHOT_IDENTITY_KIND = "snapshot-identity";
@@ -74,6 +76,11 @@ export async function captureSnapshotIdentity(snapshot: RepositorySnapshot, repo
   let gitHead: string | null = null;
   try { gitHead = (await git.run(snapshot.root, ["rev-parse", "--verify", "HEAD^{commit}"])).trim() || null; } catch { gitHead = null; }
   return Object.freeze({ schemaVersion: 1, repositoryDigest, gitHead, files: Object.freeze(Object.fromEntries(snapshot.files.map((file) => [file.path, fileHash(file.lines)]))), manifests: Object.freeze(manifests) });
+}
+
+/** The files of `snapshot` added, removed and changed since a run recorded `identity`, by their bytes. */
+export function snapshotChanges(identity: SnapshotIdentity, snapshot: RepositorySnapshot): { readonly added: readonly string[]; readonly removed: readonly string[]; readonly modified: readonly string[] } {
+  return keyChanges(identity.files, Object.fromEntries(snapshot.files.map((file) => [file.path, fileHash(file.lines)])));
 }
 
 /** One discovery activity: an auditor over one scope, or one exact line window of a file. */
@@ -178,12 +185,22 @@ export type UnitDecision = { readonly decision: "reuse" | "regenerate"; readonly
 /**
  * Compare a unit's current identity with the base's record of the same unit. Unknown never
  * means equal: a missing record or footprint is a reason to regenerate.
+ *
+ * Since production-audit 2.0.0 a unit's tools read the whole snapshot. A file it read beyond itself is compared by its
+ * bytes in the base's snapshot (`snapshots.base`) and in this one: a read of a file that changed or is gone is a reason,
+ * and without both snapshots any read beyond the unit is. Searches and listings reach the model only in a later turn's
+ * request, so a changed result changes that turn's replay identity and the turn is asked afresh.
  */
-export function decideUnit(current: UnitIdentity, base: DiscoveryUnitRecord | null, context: { readonly baseHasUnitRecords: boolean; readonly files: ReadonlyMap<string, readonly string[]>; readonly imports: ReadonlyMap<string, readonly string[]> }): UnitDecision {
+export function decideUnit(current: UnitIdentity, base: DiscoveryUnitRecord | null, context: { readonly baseHasUnitRecords: boolean; readonly files: ReadonlyMap<string, readonly string[]>; readonly imports: ReadonlyMap<string, readonly string[]>;
+  readonly snapshots?: { readonly base: Readonly<Record<string, string>>; readonly current: Readonly<Record<string, string>> } }): UnitDecision {
   if (base === null) return { decision: "regenerate", reasons: [context.baseHasUnitRecords ? "base_unit_absent" : "base_unit_identity_unavailable"] };
   const reasons: string[] = [];
   if (!base.inspection.recorded) reasons.push("base_footprint_unavailable");
-  for (const path of base.inspection.readPaths) if (!base.paths.includes(path)) reasons.push(`footprint_outside_unit:${path}`);
+  for (const path of base.inspection.readPaths) if (!base.paths.includes(path)) {
+    const { snapshots } = context;
+    if (snapshots === undefined) reasons.push(`footprint_outside_unit:${path}`);
+    else if (!Object.hasOwn(snapshots.base, path) || snapshots.base[path] !== snapshots.current[path]) reasons.push(`changed:read_beyond_unit:${path}`);
+  }
   const importTargets = new Set(Object.keys(current.files).flatMap((path) => [...context.imports.get(path) ?? []]));
   for (const path of changedKeys(base.identity.files, current.files)) {
     reasons.push(`changed:footprint:${path}`);
@@ -261,6 +278,7 @@ export interface LineageEntry {
 export interface IncrementalContract {
   readonly schemaVersion: 1;
   readonly baseRunId: string;
+  /** The base's state when the run was planned. Unless it is `COMPLETED`, only the discovery units the base finished are reused. */
   readonly baseState: string;
   readonly graph?: ExecutedGraphIdentity;
   readonly baseGraph?: ExecutedGraphIdentity | null;
@@ -325,7 +343,13 @@ export async function planIncrementalAudit(input: IncrementalPlanInput): Promise
   const baseConfig = baseContext.modelConfiguration;
   if (baseConfig === undefined) throw new Error("INCREMENTAL_BASE_CONFIGURATION_ABSENT");
   const fallbackReasons: string[] = [];
-  if (input.baseState !== "COMPLETED") fallbackReasons.push(`base_run_not_completed:${input.baseState}`);
+  // A base that stopped before it completed (failed, cancelled, blocked, paused on its budget or a usage limit, or left
+  // working when its process stopped) holds the discovery units it finished, each recorded as it finished: those may be
+  // reused, and the stages after discovery run again in full. One this arbitra is still executing is still adding to them.
+  // Observed live (October 27, 2026, v0.3.1, macOS): a deep audit failed after ten hours with one finder's 32 units and
+  // another's 16 finished; five unrelated files were edited the next morning, and the audit had to start over.
+  if (input.baseState === "RUNNING") fallbackReasons.push("base_run_live");
+  const unfinished = input.baseState === "COMPLETED" ? null : `base_run_not_completed:${input.baseState}`;
   if (baseContext.repository !== input.repository) fallbackReasons.push("base_repository_differs");
   if (input.baseGraph === null) fallbackReasons.push("base_workflow_graph_unavailable");
   else if (canonicalJson(input.baseGraph) !== canonicalJson(input.graph)) fallbackReasons.push("workflow_graph_changed");
@@ -360,7 +384,7 @@ export async function planIncrementalAudit(input: IncrementalPlanInput): Promise
   const prior = await auditStageIdentities({ config: baseConfig, repositoryDigest: baseContext.repositoryDigest, manifests: baseIdentity?.manifests ?? null, criticEnabled: baseContext.criticEnabled, pin: input.basePin });
   const stages = target.map((stage): IncrementalStageDecision => {
     const before = prior.find((item) => item.stage === stage.stage);
-    const reasons = fallbackReasons.length > 0 ? ["full_audit_fallback"] : Object.entries(stage.components).filter(([name, value]) => before?.components[name] !== value).map(([name]) => `changed:${name}`);
+    const reasons = fallbackReasons.length > 0 ? ["full_audit_fallback"] : unfinished !== null ? [unfinished] : Object.entries(stage.components).filter(([name, value]) => before?.components[name] !== value).map(([name]) => `changed:${name}`);
     return Object.freeze({ stage: stage.stage, decision: reasons.length === 0 ? "reuse" : "regenerate", reasons: Object.freeze(reasons), identity: stage.identity, baseIdentity: before?.identity ?? null });
   });
   const records = await baseUnitRecords(base);
@@ -480,8 +504,9 @@ export function discoveryUnitActivity(activityId: string): string | null {
 }
 
 /**
- * Records every discovery unit's identity (so any completed run can serve as a base) and,
- * in an incremental run, decides and records each unit's reuse before it dispatches.
+ * Records every discovery unit's identity as the unit finishes (so any run can serve as a
+ * base, one that stopped partway with the units it finished) and, in an incremental run,
+ * decides and records each unit's reuse before it dispatches.
  */
 export class DiscoveryUnits implements DiscoveryUnitHooks {
   readonly #environment: UnitEnvironment;
@@ -489,6 +514,7 @@ export class DiscoveryUnits implements DiscoveryUnitHooks {
   readonly #identities = new Map<string, UnitIdentity>();
   readonly #decisions = new Map<string, UnitDecisionRecord>();
   #baseRecords: Promise<readonly DiscoveryUnitRecord[]> | undefined;
+  #baseSnapshot: Promise<SnapshotIdentity | null> | undefined;
 
   constructor(private readonly store: RunStore, config: RunConfig, snapshot: RepositorySnapshot, identity: SnapshotIdentity, private readonly seed?: IncrementalSeed) {
     this.#environment = unitEnvironment(snapshot, identity, config);
@@ -509,9 +535,12 @@ export class DiscoveryUnits implements DiscoveryUnitHooks {
     if (seed.contract.strategy === "full_fallback") decision = { decision: "regenerate", reasons: ["full_audit_fallback", ...seed.contract.fallbackReasons] };
     else {
       this.#baseRecords ??= baseUnitRecords(seed.base);
+      this.#baseSnapshot ??= readKind<SnapshotIdentity>(seed.base, SNAPSHOT_IDENTITY_KIND);
       const records = await this.#baseRecords;
+      const baseSnapshot = await this.#baseSnapshot;
       const base = records.find((record) => record.unitKey === unitKey(unit) && record.activityId === unit.activityId) ?? null;
-      decision = decideUnit(current, base, { baseHasUnitRecords: records.length > 0, files: this.#files, imports: this.#environment.imports });
+      decision = decideUnit(current, base, { baseHasUnitRecords: records.length > 0, files: this.#files, imports: this.#environment.imports,
+        ...(baseSnapshot === null ? {} : { snapshots: { base: baseSnapshot.files, current: this.#environment.snapshot.files } }) });
       if (decision.decision === "reuse" && base !== null) {
         const artifacts = await seed.base.listArtifacts();
         const unitArtifact = artifacts.find(({ kind: item }) => item === `${UNIT_RECORD_PREFIX}${base.unitKey}`);

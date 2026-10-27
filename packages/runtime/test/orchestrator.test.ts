@@ -134,7 +134,10 @@ describe("a run over the fixture repository", () => {
     const added = join(repository, "changed.ts");
     try {
       await writeFile(added, "export const changed = true;\n");
-      await expect(core.resume(started.runId)).rejects.toThrow("RUN_REPOSITORY_CHANGED");
+      // A conflict (409) that names the file, so the person need not hunt for it. Observed live (October 27, 2026,
+      // v0.3.1, macOS): a bare RUN_REPOSITORY_CHANGED:<id> as a 500, and five edited files found with `find -newer`.
+      await expect(core.resume(started.runId)).rejects.toMatchObject({ statusCode: 409,
+        message: `RUN_REPOSITORY_CHANGED:${started.runId}: the repository no longer holds the files the run read. Put them back as they were to resume it, or start a new run of the project as it is now. 1 file changed since the run read them (1 added): added changed.ts` });
     } finally { await rm(added); }
   });
   it("walks every node, publishes the artifacts the UI reads, and grounds each issue in evidence", async () => {

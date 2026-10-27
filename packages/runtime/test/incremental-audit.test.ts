@@ -214,19 +214,79 @@ describe("incremental and repeat audits", () => {
     expect(await issues(resumed, failed.runId)).toEqual(["Unchecked parse alpha-two|accepted|CONFIRMED|2", "Unchecked parse alpha|accepted|CONFIRMED|2", "Unchecked parse beta|accepted|CONFIRMED|2"]);
   });
 
-  it("falls back to a full audit for an unfinished base, and records why", async () => {
+  // Observed live (October 27, 2026, v0.3.1, macOS): a ten-hour audit failed with one finder's 32 units and another's 16
+  // finished; five unrelated files were edited the next morning, its resume was refused, and an incremental run from it
+  // fell back to a full audit (base_run_not_completed:FAILED).
+  it("reuses the discovery units a failed base finished, after its resume is refused naming the changed file, and runs every later stage again", async () => {
     const f = await fixture(baseTree);
     const orchestrator = f.orchestrator();
     f.fail("src/alpha.ts");
     const failedBase = await orchestrator.run(f.config);
     expect(failedBase.state).toBe("FAILED");
-    f.recover(); f.calls.length = 0;
-    const fromFailed = await orchestrator.run(incremental(f.config, failedBase.runId));
-    expect(fromFailed.state).toBe("COMPLETED");
-    const fallback = await orchestrator.incrementalReport(fromFailed.runId);
-    expect(fallback).toMatchObject({ strategy: "full_fallback", fallbackReasons: ["base_run_not_completed:FAILED"] });
+    f.recover();
+    // Discovery reaches gamma, then beta, then alpha: each unit finished before the failure is recorded as it finished.
+    expect((await orchestrator.artifacts(failedBase.runId)).filter(({ kind }) => kind.startsWith("discovery-unit-"))).toHaveLength(4);
+    await f.write({ "pkg/gamma.ts": baseTree["pkg/gamma.ts"].replace("gamma context line 5 ", "gamma context line five ") });
+    await expect(orchestrator.resume(failedBase.runId)).rejects.toMatchObject({ statusCode: 409,
+      message: `RUN_REPOSITORY_CHANGED:${failedBase.runId}: the repository no longer holds the files the run read. Put them back as they were to resume it, or start an incremental audit of the project as it is now with this run as its base (run <config> --incremental ${failedBase.runId}), which reuses the discovery it finished. 1 file changed since the run read them (1 changed): changed pkg/gamma.ts` });
+    const before = await runDigest(f.root, failedBase.runId);
+    f.calls.length = 0;
+    // The way on the refusal names: a new audit of the project as it is now, with the failed run's own settings and the run as its base.
+    const started = await orchestrator.startIncremental(failedBase.runId);
+    expect((await orchestrator.wait(started.runId)).state).toBe("COMPLETED");
+    expect(await runDigest(f.root, failedBase.runId)).toBe(before);
+    expect((await orchestrator.overview(started.runId)).configuration).toEqual(incremental(f.config, failedBase.runId));
+    const report = await orchestrator.incrementalReport(started.runId);
+    expect(report).toMatchObject({ baseRunId: failedBase.runId, baseState: "FAILED", strategy: "incremental", fallbackReasons: [], changedPaths: { added: [], removed: [], modified: ["pkg/gamma.ts"] } });
+    expect(report.stages.map(({ decision, reasons }) => `${decision}:${reasons.join(",")}`)).toEqual(Array(4).fill("regenerate:base_run_not_completed:FAILED"));
+    expect(regenerated(report)).toEqual(["pkg/gamma.ts", "src/alpha.ts"]);
+    expect(reasonsFor(report, "src/alpha.ts")).toEqual(["base_unit_absent"]);
+    expect(reasonsFor(report, "pkg/gamma.ts")).toEqual(["changed:footprint:pkg/gamma.ts"]);
+    expect(report.units.filter(({ decision }) => decision === "reuse").map(({ auditorId, paths, reusedFrom }) => `${auditorId}:${paths.join(",")}:${reusedFrom?.runId ?? ""}`).sort())
+      .toEqual([`auditor-a:src/beta-util.ts,src/beta.ts:${failedBase.runId}`, `auditor-b:src/beta-util.ts,src/beta.ts:${failedBase.runId}`]);
+    expect(f.calls.filter(({ stage }) => stage === "discovery").map(({ activity }) => activity).sort()).toEqual(["auditor-a:pkg/gamma.ts", "auditor-a:src/alpha.ts", "auditor-b:pkg/gamma.ts", "auditor-b:src/alpha.ts"]);
+    expect(report.savedWork.discoveryUnits).toEqual({ total: 6, reused: 2, regenerated: 4 });
+    expect(await issues(orchestrator, started.runId)).toEqual(["Unchecked parse alpha|accepted|CONFIRMED|2", "Unchecked parse beta|accepted|CONFIRMED|2", "Unchecked parse gamma|accepted|CONFIRMED|2"]);
+    expect(await orchestrator.summary(started.runId)).toMatchObject({ incremental: { baseRunId: failedBase.runId, baseState: "FAILED", strategy: "incremental" } });
+  });
+
+  it("falls back to a full audit from a base this arbitra is still running, and records why", async () => {
+    const f = await fixture(baseTree);
+    const orchestrator = f.orchestrator();
+    const release = f.hold("src/alpha.ts");
+    const live = await orchestrator.start(f.config);
+    const fromLive = await orchestrator.start(incremental(f.config, live.runId));
+    release();
+    expect([(await orchestrator.wait(live.runId)).state, (await orchestrator.wait(fromLive.runId)).state]).toEqual(["COMPLETED", "COMPLETED"]);
+    const fallback = await orchestrator.incrementalReport(fromLive.runId);
+    expect(fallback).toMatchObject({ strategy: "full_fallback", baseState: "RUNNING", fallbackReasons: ["base_run_live"] });
     expect(fallback.units.every(({ decision, reasons }) => decision === "regenerate" && reasons[0] === "full_audit_fallback")).toBe(true);
-    expect(f.calls.filter(({ stage }) => stage === "discovery")).toHaveLength(6);
+  });
+
+  it("reuses a unit that read an unchanged file beyond itself, and not one whose read file changed", async () => {
+    const tree = { ...baseTree, "src/alpha.ts": moduleSource("alpha", ["alpha"], { reads: ["pkg/gamma.ts"] }) };
+    const f = await fixture(tree);
+    const orchestrator = f.orchestrator();
+    const base = await orchestrator.run(f.config);
+    expect(base.state).toBe("COMPLETED");
+    const audit = async (change: Readonly<Record<string, string>>) => {
+      await f.write(change);
+      f.calls.length = 0;
+      const next = await orchestrator.run(incremental(f.config, base.runId));
+      expect(next.state).toBe("COMPLETED");
+      const discovery = f.calls.filter(({ stage }) => stage === "discovery").map(({ activity }) => activity).sort();
+      await f.write(tree);
+      return { report: await orchestrator.incrementalReport(next.runId), discovery };
+    };
+    // A file it did not read changed: the unit, its read of gamma and its answer are the base's.
+    const unrelated = await audit({ "src/beta-util.ts": "export const betaUtil = 2;\n" });
+    expect(regenerated(unrelated.report)).toEqual(["src/beta-util.ts", "src/beta.ts"]);
+    expect(unrelated.discovery).toEqual(["auditor-a:src/beta-util.ts,src/beta.ts", "auditor-b:src/beta-util.ts,src/beta.ts"]);
+    // The file it read changed: it is asked afresh, read and all.
+    const read = await audit({ "pkg/gamma.ts": tree["pkg/gamma.ts"].replace("gamma context line 5 ", "gamma context line five ") });
+    expect(regenerated(read.report)).toEqual(["pkg/gamma.ts", "src/alpha.ts"]);
+    expect(reasonsFor(read.report, "src/alpha.ts")).toEqual(["changed:read_beyond_unit:pkg/gamma.ts"]);
+    expect(read.discovery).toEqual(["auditor-a:pkg/gamma.ts", "auditor-a:src/alpha.ts", "auditor-a:src/alpha.ts:read-0", "auditor-b:pkg/gamma.ts", "auditor-b:src/alpha.ts", "auditor-b:src/alpha.ts:read-0"]);
   });
 
   it("falls back to a full audit when the executed graph or the Git history changed", async () => {

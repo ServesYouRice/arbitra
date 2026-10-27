@@ -7,6 +7,7 @@ import { Link } from "../../app/router.js";
 import { raisedTokenLimit, tokens } from "../../app/token-limit.js";
 import { failureWords, type Mode } from "../../app/words.js";
 import { modelName, modelProfiles, record } from "./models.js";
+import { RepositoryChanged, reusesFinishedWork } from "./RepositoryChanged.js";
 
 const MODE_WORDS: Readonly<Record<Mode, string>> = Object.freeze({ audit: "audit", feature: "feature", testing: "testing" });
 const NEW_RUN: Readonly<Record<Mode, string>> = Object.freeze({ audit: "New audit with these settings", feature: "New feature run with these settings", testing: "New testing run with these settings" });
@@ -15,7 +16,8 @@ const NEW_RUN: Readonly<Record<Mode, string>> = Object.freeze({ audit: "New audi
  * The run's project and kind, its state in words, and the one lifecycle action its state allows: cancel a working
  * run, resume a stopped one when resuming can help, raise the token limit of one paused on it, or start a new run
  * like a finished one, or like a failed one that resuming cannot help. A blocked run's decisions are in the banner
- * beneath this, with its resume.
+ * beneath this, with its resume. A resume refused because the project's files changed names them, and for a model
+ * Audit offers a new audit of the project as it is now that reuses what the run finished.
  */
 export function RunHeader({ runId, mode, resource, overview, overviewError = null, reason, streamError, files, onChanged }: {
   readonly runId: string;
@@ -73,7 +75,8 @@ export function RunHeader({ runId, mode, resource, overview, overviewError = nul
     {facts.length === 0 ? overviewError === null ? <p className="run-header__meta" role="status">reading the run's settings</p> : null : <p className="run-header__meta">{facts.join(" · ")}</p>}
     {overview === null && overviewError !== null ? <Problem detail={overviewError}>The run's settings could not be read, so its project, models and times are missing here. Reload the page to try again.</Problem> : null}
     {streamError === null ? null : <Problem detail={streamError}>Live updates stopped, so this page may be behind the run. Reload it to see where the run stands.</Problem>}
-    {failure === null ? null : <Problem detail={failure}>That did not go through, and the run is as it was. Try again, or reload the page to see where it stands.</Problem>}
+    {failure === null ? null : /RUN_REPOSITORY_CHANGED/u.test(failure) ? <RepositoryChanged runId={runId} mode={mode} detail={failure} reuse={reusesFinishedWork(mode, overview)} />
+      : <Problem detail={failure}>That did not go through, and the run is as it was. Try again, or reload the page to see where it stands.</Problem>}
   </header>;
 }
 

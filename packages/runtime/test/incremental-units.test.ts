@@ -24,10 +24,11 @@ function record(files: Record<string, string>, overrides: Partial<DiscoveryUnitR
     identity: discoveryUnitIdentity(unit, unitEnvironment(current, identity, config)), citedRanges: [{ sourceFindingId: "auditor-a/scope-1/1", path: "src/a.ts", startLine: 2, endLine: 2, sha256: hash("bad();"), text: "bad();" }],
     inspection: { recorded: true, readPaths: ["src/a.ts"], searchScopes: [] }, findingsKind: "findings-auditor-a-scope-1", sourceFindingIds: ["auditor-a/scope-1/1"], ...overrides };
 }
-function decide(files: Record<string, string>, base: DiscoveryUnitRecord | null, options: { manifests?: Record<string, string>; hasRecords?: boolean } = {}) {
+function decide(files: Record<string, string>, base: DiscoveryUnitRecord | null, options: { manifests?: Record<string, string>; hasRecords?: boolean; baseFiles?: Record<string, string> } = {}) {
   const { snapshot: current, identity } = snapshot(files);
   const environment = unitEnvironment(current, { ...identity, ...(options.manifests === undefined ? {} : { manifests: options.manifests }) }, config);
-  return decideUnit(discoveryUnitIdentity(unit, environment), base, { baseHasUnitRecords: options.hasRecords ?? true, files: new Map(current.files.map(({ path, lines }) => [path, lines])), imports: environment.imports });
+  return decideUnit(discoveryUnitIdentity(unit, environment), base, { baseHasUnitRecords: options.hasRecords ?? true, files: new Map(current.files.map(({ path, lines }) => [path, lines])), imports: environment.imports,
+    ...(options.baseFiles === undefined ? {} : { snapshots: { base: snapshot(options.baseFiles).identity.files, current: identity.files } }) });
 }
 
 const v1 = { "src/a.ts": 'import "../lib/dep.js";\nbad();\nok();', "lib/dep.ts": "export const dep = 1;", "src/other.ts": "other();" };
@@ -52,6 +53,19 @@ describe("discovery unit identity", () => {
     expect(decide(v1, record(v1, { inspection: { recorded: true, readPaths: ["src/a.ts", "src/other.ts"], searchScopes: [] } })).reasons).toEqual(["footprint_outside_unit:src/other.ts"]);
     const changedModel = { ...record(v1) }; changedModel.identity = { ...changedModel.identity, model: "different" };
     expect(decide(v1, changedModel).reasons).toEqual(["changed:model"]);
+  });
+
+  // Since production-audit 2.0.0 a unit's tools read the whole snapshot, so most units read beyond themselves.
+  it("compares a file a unit read beyond itself by its bytes in the base's snapshot and this one", () => {
+    const reading = record(v1, { inspection: { recorded: true, readPaths: ["src/a.ts", "src/other.ts"], searchScopes: ["."] } });
+    expect(decide(v1, reading, { baseFiles: v1 })).toEqual({ decision: "reuse", reasons: [] });
+    // A file the unit did not read may come or change; one it read may neither change nor go.
+    expect(decide({ ...v1, "src/new.ts": "added();" }, reading, { baseFiles: v1 }).decision).toBe("reuse");
+    expect(decide({ ...v1, "src/other.ts": "changed();" }, reading, { baseFiles: v1 })).toEqual({ decision: "regenerate", reasons: ["changed:read_beyond_unit:src/other.ts"] });
+    const without = Object.fromEntries(Object.entries(v1).filter(([path]) => path !== "src/other.ts"));
+    expect(decide(without, reading, { baseFiles: v1 }).reasons).toEqual(["changed:read_beyond_unit:src/other.ts"]);
+    // Without the base's snapshot nothing beyond the unit can be compared.
+    expect(decide(v1, reading).reasons).toEqual(["footprint_outside_unit:src/other.ts"]);
   });
 
   it("identifies discovery units and their harness turns only", () => {

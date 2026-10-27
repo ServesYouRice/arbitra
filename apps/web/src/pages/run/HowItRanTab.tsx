@@ -10,7 +10,7 @@ import { CopyButton } from "../../controls/CopyButton.js";
 import { useEvaluationMetrics } from "../../views/evaluation/api.js";
 import { RUN_ARTIFACT_KINDS, useRunArtifact } from "../../views/issue-board/run-artifacts.js";
 import { stageNotes, stepModels, type CriticResultRecord, type CritiqueRecord, type PreflightRecord } from "./facts.js";
-import { modelProfiles } from "./models.js";
+import { modelProfiles, record } from "./models.js";
 import { ModelTable } from "./NodeDetails.js";
 import { executorText } from "./RunHeader.js";
 import { RunReport } from "./RunReport.js";
@@ -37,6 +37,8 @@ export function HowItRanTab({ runId, mode, run, overview, progress, events, arti
   const stages = workflow === null ? null : stageViews({ workflow, mode, progress: progress.value, events, now, models: stepModels(overview), notes: stageNotes({ workflow, progress: progress.value, preflight, critique }) });
   if (overview === null) return <p role="status">reading the run's settings</p>;
   const profiles = overview.configuration === null ? [] : modelProfiles(overview.configuration);
+  // An incremental audit names its base in its settings (`workflow.incremental`).
+  const base = record(record(record(overview.configuration)["workflow"])["incremental"])["baseRunId"];
   const scope = Object.entries(overview.scope).filter(([key]) => key !== "kind").map(([key, value]) => `${key} ${Array.isArray(value) ? value.join(", ") : String(value)}`).join(" · ");
   return <div className="summary how-it-ran">
     <RanFacts runId={runId} mode={mode} overview={overview} progress={progress.value} confirmed={metrics.metrics?.confirmedYield ?? null} critique={critique} criticResult={criticResult} workflow={workflow} full />
@@ -56,6 +58,7 @@ export function HowItRanTab({ runId, mode, run, overview, progress, events, arti
         <div><dt>started</dt><dd>{formatTime(overview.createdAt)} · last record {formatTime(overview.updatedAt)}</dd></div>
         {overview.workflowGraph === null ? null : <div><dt>saved graph</dt><dd>{overview.workflowGraph.id} @ {overview.workflowGraph.version}</dd></div>}
         {overview.replayOf === null ? null : <div><dt>replay of</dt><dd><Link to={{ page: "run", runId: overview.replayOf, tab: null, item: null }}>{overview.replayOf}</Link></dd></div>}
+        {typeof base !== "string" ? null : <div><dt>reuses the work of</dt><dd><Link to={{ page: "run", runId: base, tab: null, item: null }}>{base}</Link> · what it finished whose files did not change</dd></div>}
       </dl>
     </section>
     <section aria-labelledby="records-title" className="summary-section">

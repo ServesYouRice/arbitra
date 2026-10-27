@@ -5,7 +5,7 @@ import type { HumanCheckpointResource, PlanQuestionsCheckpointResource } from ".
 import { App } from "../../src/app/App.js";
 import { ARTIFACT_CONTENT } from "../views/fixtures.js";
 import { address, json, stubBrowser, stubControlPlane, visit } from "../support.js";
-import { artifactRoutes, BALANCED_WORKFLOW, discoveryProgress, EMPTY_TRACES, FEATURE_WORKFLOW, finishedProgress, metrics, modelOverview, overview, resource } from "./fixtures.js";
+import { artifactRoutes, BALANCED_WORKFLOW, discoveryProgress, EMPTY_TRACES, FEATURE_WORKFLOW, finishedProgress, metrics, MODEL_CONFIGURATION, modelOverview, overview, resource } from "./fixtures.js";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); visit(""); });
 
@@ -283,6 +283,47 @@ describe("the run page", () => {
     await waitFor(() => expect(calls).toContain("POST /runs/run-1/resume"));
   });
 
+  // Observed live (October 27, 2026, v0.3.1, macOS): five files in a failed ten-hour audit's scope were edited, its resume
+  // answered 500, and the way on was to put them back or start over, losing every finished part.
+  it("names the files that changed when a resume is refused, and starts a new audit that reuses what the run finished", async () => {
+    stubBrowser();
+    const refusal = "RUN_REPOSITORY_CHANGED:run-1: the repository no longer holds the files the run read. Put them back as they were to resume it, or start an incremental audit of the project as it is now with this run as its base (run <config> --incremental run-1), which reuses the discovery it finished. 12 files changed since the run read them (11 changed, 1 added): "
+      + [...Array.from({ length: 9 }, (_, index) => `changed scripts/step-${index}.sh`), "added docs/INSTALL.md"].join(", ") + " and 2 more";
+    const calls = stubControlPlane({ "GET /runs/run-1": resource({ state: "FAILED", resumable: true }), "GET /runs/run-1/overview": modelOverview({ state: "FAILED", reason: "ProviderInvocationFailure: Provider openai failed after 3 attempts (TIMEOUT: Provider stage timed out after 900000ms)", gate: null }),
+      "GET /runs/run-1/progress": finishedProgress({ state: "FAILED" }), "POST /runs/run-1/resume": () => json({ statusCode: 409, error: "REQUEST_FAILED", message: refusal }, 409),
+      "POST /runs/run-1/incremental": resource({ runId: "run-2", state: "CREATED", resumable: true }), ...artifactRoutes("run-1", {}) });
+    visit("?run=run-1");
+    render(<App />);
+    await screen.findByRole("region", { name: "The run failed" });
+    fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+    const changed = await screen.findByRole("alert", { name: "The project's files changed" });
+    expect(within(changed).getByText("The project's files changed after the run read them, so the run cannot go on from where it stopped.")).toBeTruthy();
+    expect(within(changed).getByText("12 files changed since the run read them:")).toBeTruthy();
+    const files = within(changed).getByRole("list", { name: "files changed since the run read them" });
+    expect(within(files).getAllByRole("listitem").map((item) => item.textContent)).toEqual([...Array.from({ length: 9 }, (_, index) => `scripts/step-${index}.sh · changed`), "docs/INSTALL.md · added"]);
+    expect(within(changed).getByText("and 2 more files")).toBeTruthy();
+    expect(within(changed).getByText(/^Put the files back as they were to resume, or start a new audit of the project as it is now\. It reuses the parts this run finished/u)).toBeTruthy();
+    expect(within(changed).getByText(`${refusal} (RUN_API_409)`).closest("details")).not.toBeNull();
+    fireEvent.click(within(changed).getByRole("button", { name: "New audit that reuses what this run finished" }));
+    await waitFor(() => expect(address().get("run")).toBe("run-2"));
+    expect(calls).toContain("POST /runs/run-1/incremental");
+  });
+
+  it("names the files that changed for a scripted audit, and offers no reuse a scripted audit cannot make", async () => {
+    stubBrowser();
+    const refusal = "RUN_REPOSITORY_CHANGED:run-1: the repository no longer holds the files the run read. Put them back as they were to resume it, or start a new run of the project as it is now. 1 file changed since the run read them (1 removed): removed src/old.ts";
+    stubControlPlane({ "GET /runs/run-1": resource({ state: "CANCELLED", resumable: true }), "GET /runs/run-1/overview": overview({ state: "CANCELLED", gate: null }),
+      "POST /runs/run-1/resume": () => json({ statusCode: 409, error: "REQUEST_FAILED", message: refusal }, 409), ...artifactRoutes("run-1", {}) });
+    visit("?run=run-1");
+    render(<App />);
+    await screen.findByRole("region", { name: "Cancelled" });
+    fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+    const changed = await screen.findByRole("alert", { name: "The project's files changed" });
+    expect(within(changed).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["src/old.ts · removed"]);
+    expect(within(changed).getByText("Put the files back as they were to resume, or start a new audit of the project as it is now.")).toBeTruthy();
+    expect(within(changed).queryByRole("button")).toBeNull();
+  });
+
   it("says when a run paused for usage goes on by itself", async () => {
     stubBrowser();
     const reason = "ProviderUsageLimitError: Provider openai reached its usage limit (QUOTA: CLI_USAGE_LIMIT_REACHED: the Codex CLI subscription's usage allowance is exhausted until 2026-10-25T11:46:00.000Z)";
@@ -320,6 +361,18 @@ describe("the run page", () => {
     expect(within(records).getAllByRole("link").map((link) => link.textContent)).toEqual(["← How it ran", "Activity", "Evaluation"]);
     expect(within(screen.getByRole("navigation", { name: "run views" })).getByRole("link", { name: "How it ran" }).getAttribute("aria-current")).toBe("page");
     expect(await screen.findByRole("region", { name: "trace browser" })).toBeTruthy();
+  });
+
+  it("names the run an incremental audit reuses the work of, in what it read and how", async () => {
+    stubBrowser();
+    const configuration = { ...MODEL_CONFIGURATION, workflow: { ...(MODEL_CONFIGURATION["workflow"] as Readonly<Record<string, unknown>>), incremental: { baseRunId: "run-0" } } };
+    stubControlPlane({ "GET /runs/run-1": resource({ workflow: BALANCED_WORKFLOW }), "GET /runs/run-1/overview": modelOverview({ configuration }), "GET /runs/run-1/progress": finishedProgress(), "GET /runs/run-1/metrics": metrics(),
+      ...artifactRoutes("run-1") });
+    visit("?run=run-1&view=how-it-ran");
+    render(<App />);
+    const settings = await screen.findByRole("region", { name: "What it read and how" });
+    expect(fact(settings, "reuses the work of")).toBe("run-0 · what it finished whose files did not change");
+    expect(within(settings).getByRole("link", { name: "run-0" }).getAttribute("href")).toBe("/?run=run-0");
   });
 
   it("puts a blocked run's decision above every tab and resumes only once nothing is left to decide", async () => {
