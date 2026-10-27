@@ -126,7 +126,7 @@ export class ModelActivities {
       // Each protocol call sends its entire explicit input. Replaying an interrupted
       // call must not silently append it to a provider-side conversation.
       continuation: new ContinuationStateStore({ async load() { return null; }, async save() {} }, { enabled: false, now: () => 0 }),
-      traces,
+      traces, ...(options.suspends === undefined ? {} : { suspends: options.suspends }),
     });
     if (execution.batch === undefined) this.#batch = null;
     else {

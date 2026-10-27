@@ -70,6 +70,8 @@ the run's report to the developer when I save**. Either opens a new issue at
 <https://github.com/ServesYouRice/arbitra/issues> in your browser, filled in with the run report: arbitra's build, your
 system and Node version, which CLIs it found and whether they are signed in, which API keys are set (not their
 values), the run's settings, including the folders and files it was set to read or leave out, the counts and tokens
-of each step, and the codes and messages of failed calls. Nothing is sent until you submit the issue from your
+of each step, when the computer slept during the run and whether arbitra could keep it awake, and the codes and
+messages of failed calls (for a call that ran past its time limit, also when its CLI's last event came, the event's
+type, and the last line of the CLI's error output, masked). Nothing is sent until you submit the issue from your
 GitHub account, and issues there are public. The first time, the exact text is shown before anything opens; agreeing
 is kept in that browser, and clearing the box turns it off. arbitra itself still sends nothing anywhere.

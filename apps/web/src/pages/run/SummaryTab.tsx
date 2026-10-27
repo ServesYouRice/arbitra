@@ -8,7 +8,7 @@ import { formatTime, gateReasonLabel, isActive } from "../../app/format.js";
 import { GateVerdict } from "../../app/marks.js";
 import { Link, type RunTab } from "../../app/router.js";
 import { tokens as limitWords } from "../../app/token-limit.js";
-import { counted, duration, failureWords, SEVERITIES, severityWord, stepDoing, tokenWords, type Mode } from "../../app/words.js";
+import { counted, duration, failureWords, SEVERITIES, severityWord, sleptSpans, sleptWords, stepDoing, tokenWords, type Mode } from "../../app/words.js";
 import { CopyButton } from "../../controls/CopyButton.js";
 import { useEvaluationMetrics, type ConfirmedYield } from "../../views/evaluation/api.js";
 import { FeatureOutcome, HandoffDownload } from "../../views/feature/FeatureView.js";
@@ -92,6 +92,7 @@ function WatchView(props: SummaryProps & { readonly state: string }): ReactEleme
       <p className="watch-now__line">{doing}{stageTime !== null ? ` · ${duration(stageTime)} so far` : time === null ? "" : ` · ${duration(time.ms)} so far`}</p>
       {facts.length === 0 ? null : <p className="watch-now__facts">{facts.join(" · ")}</p>}
       {progress.error === null ? null : <p className="note">The run's progress could not be read just now, so the stages below follow its live events and show no times. The page tries again by itself.</p>}
+      <SleptNote events={props.events} />
     </section>
     <section aria-labelledby="stages-title" className="summary-section">
       <h2 className="panel-title" id="stages-title">Stages</h2>
@@ -104,6 +105,15 @@ function WatchView(props: SummaryProps & { readonly state: string }): ReactEleme
       <Link className="more-link" to={{ page: "run", runId, tab: "activity", item: null }}>Records</Link>
     </div>
   </>;
+}
+
+/**
+ * When the computer slept during the run, from its recorded suspends. Observed live (October 26, 2026, macOS): nothing
+ * in a run said the Mac had slept, and finding it took `pmset -g log`.
+ */
+function SleptNote({ events }: { readonly events: readonly RunEvent[] }): ReactElement | null {
+  const words = sleptWords(sleptSpans(events));
+  return words === null ? null : <p className="note" data-slept="true">{words}</p>;
 }
 
 function Restarted({ restarted }: { readonly restarted: RunProgress["restarted"] }): ReactElement {
@@ -154,6 +164,7 @@ function Stopped(props: SummaryProps & { readonly state: string }): ReactElement
     : <Alert title="Stopped">The run is not working and its state is not one this page knows.</Alert>;
   return <>
     {note}
+    <SleptNote events={props.events} />
     {data === null ? null : <section aria-labelledby="stages-title" className="summary-section">
       <h2 className="panel-title" id="stages-title">Where it stopped</h2>
       <StageGraph stages={data.stages} workflow={data.workflow} selectedId={selectedNode} onSelect={onSelectNode} />
@@ -209,6 +220,7 @@ function AuditDone(props: SummaryProps): ReactElement {
     <NeedsYou runId={runId} questions={questions} confirmed={confirmed} reasons={overview?.gate?.reasons ?? []} />
     <IssueCounts runId={runId} />
     <RanFacts runId={runId} mode="audit" overview={overview} progress={progress.value} confirmed={confirmed} critique={data?.critique ?? null} criticResult={data?.criticResult ?? null} workflow={props.run?.workflow ?? null} />
+    <SleptNote events={props.events} />
   </>;
 }
 
@@ -307,6 +319,7 @@ function OtherDone(props: SummaryProps): ReactElement {
     {overview?.gate == null ? null : <section aria-label="How it ended" className="summary-section"><GateVerdict gate={overview.gate} /></section>}
     <ModeSummary {...props} />
     <RanFacts runId={runId} mode={mode} overview={overview} progress={progress.value} confirmed={null} critique={null} workflow={run?.workflow ?? null} />
+    <SleptNote events={props.events} />
   </>;
 }
 

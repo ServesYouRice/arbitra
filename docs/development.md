@@ -36,7 +36,10 @@ evidence.
 4. **Workflows (P03).**
    1. Generate the configurations: `node tooling/live/configure.mjs tooling/live/bindings.subscription.json .runs/live/configs-sub`.
    2. Run one: `tooling/live/run.sh .runs/live/configs-sub <audit-mixed-providers|feature-automatic|feature-interactive|testing-plan|testing-execute>`.
-      A sleeping host stretches every stage timeout, so keep the machine awake during a run.
+      arbitra keeps the machine from idle sleep while a run is live (`caffeinate -i`, `systemd-inhibit`,
+      `SetThreadExecutionState`; see `packages/runtime/src/keep-awake.ts`), but a closed MacBook lid still sleeps it.
+      A call a sleep cut is sent again once the machine has been awake for two minutes, without counting an attempt,
+      and the run records the sleep (`host_suspended`); see [provider-model.md](provider-model.md).
    3. An interactive Feature stops `BLOCKED`. Inspect it with `requirements <run-id>`, then `revise-requirements`
       and/or `approve-requirements`, then run `tooling/live/resume.sh feature-interactive <run-id>`.
    4. Hand a Feature plan to fresh Claude Code executors: `node tooling/live/handoff.mjs <work-name> <run-id>`.

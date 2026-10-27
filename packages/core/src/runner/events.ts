@@ -32,7 +32,10 @@ export type RunState = (typeof RUN_STATES)[number];
 export type RunEvent =
   | { readonly t: "run_transition"; readonly runId: string; readonly state: RunState; readonly reason?: string; readonly at?: string }
   | { readonly t: "node_dispatched"; readonly runId: string; readonly nodeId: string; readonly activityId: string; readonly at?: string }
-  | { readonly t: "node_completed"; readonly runId: string; readonly nodeId: string; readonly activityId: string; readonly replayed: boolean; readonly at?: string };
+  | { readonly t: "node_completed"; readonly runId: string; readonly nodeId: string; readonly activityId: string; readonly replayed: boolean; readonly at?: string }
+  /** The computer slept (was suspended) from `from` to `to` (ISO-8601) while the run was live. The composition root
+   * records it as it sees the wake; the runner never does. */
+  | { readonly t: "host_suspended"; readonly runId: string; readonly from: string; readonly to: string; readonly at?: string };
 
 export type RunnerJournalRecord = ActivityRecord | RunEvent;
 
@@ -48,5 +51,6 @@ export function isRunEvent(record: unknown): record is RunEvent {
   if (value["t"] === "run_transition") return typeof value["state"] === "string" && RUN_STATES.includes(value["state"] as RunState) && (value["reason"] === undefined || typeof value["reason"] === "string");
   if (value["t"] === "node_dispatched") return typeof value["nodeId"] === "string" && value["nodeId"] !== "" && typeof value["activityId"] === "string" && value["activityId"] !== "";
   if (value["t"] === "node_completed") return typeof value["nodeId"] === "string" && value["nodeId"] !== "" && typeof value["activityId"] === "string" && value["activityId"] !== "" && typeof value["replayed"] === "boolean";
+  if (value["t"] === "host_suspended") return [value["from"], value["to"]].every((time) => typeof time === "string" && !Number.isNaN(Date.parse(time)));
   return false;
 }

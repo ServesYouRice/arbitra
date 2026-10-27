@@ -1,8 +1,9 @@
-import { leftProcessesRunning, TransportError, type ProviderTransport, type TransportRequest, type TransportResponse } from "./transport-contract.js";
+import { leftProcessesRunning, TransportError, withStreamTrace, type ProviderTransport, type StreamTrace, type TransportRequest, type TransportResponse } from "./transport-contract.js";
 import { setTimeout as delay } from "node:timers/promises";
 import { RateLimitScheduler, type SchedulerLease } from "./scheduler.js";
 import { ContinuationStateStore } from "./continuation/store.js";
 import { sessionContinuationState } from "./continuation/types.js";
+import { NO_SUSPENDS, type HostSuspend, type SuspendWatch } from "./suspend.js";
 
 export interface InvocationBudget {
   reserve(activityId: string, estimatedTokens: number): BudgetReservation | Promise<BudgetReservation>;
@@ -17,6 +18,10 @@ export interface InvocationTrace {
   readonly usage: TransportResponse["usage"] | null;
   /** Present on a failed attempt whose reservation was released: the rule that proved it consumed nothing. */
   readonly released?: string;
+  /** Present on a failed attempt the computer's sleep explains (ISO-8601): the first suspend it lived through to the last. */
+  readonly suspended?: { readonly from: string; readonly to: string };
+  /** What the failed attempt's streams showed, when its transport read them (a CLI's last event and stderr). */
+  readonly stream?: StreamTrace;
 }
 export interface TraceSink { record(trace: InvocationTrace): void; }
 export interface RuntimeTimer {
@@ -44,6 +49,8 @@ export interface ProviderRuntimeOptions {
   readonly traces: TraceSink;
   readonly timer?: RuntimeTimer;
   readonly maximumBackoffMs?: number;
+  /** The computer's suspends (see suspend.ts): no call starts until it has been awake a while, and one a sleep cut is sent again. */
+  readonly suspends?: SuspendWatch;
 }
 
 export class ProviderBudgetSuspendedError extends Error {
@@ -72,13 +79,30 @@ export class ProviderUsageLimitError extends ProviderInvocationFailure {
 export class ProviderTimeLimitError extends ProviderInvocationFailure {
   constructor(message: string, attempts: number) { super(message, attempts, "TIMEOUT"); this.name = "ProviderTimeLimitError"; }
 }
+/**
+ * A call the computer's sleep stopped: its last attempt lived through a suspend and then timed out or lost its stream,
+ * after the call had been sent again as often as a sleep may cost it. The sleep is named, not the provider. Observed
+ * live (October 26, 2026, macOS, pmset): a run failed twice with "Provider … failed after 3 attempts (TIMEOUT …)",
+ * naming a different provider each time, while the Mac slept with only short dark wakes.
+ */
+export class HostSuspendedError extends ProviderInvocationFailure {
+  constructor(message: string, attempts: number, causeCode: string, readonly slept: HostSuspend) { super(message, attempts, causeCode); this.name = "HostSuspendedError"; }
+}
+/**
+ * How often a call is sent again, without counting an attempt, because a suspend cut it. Each waits for the computer
+ * to be awake (`SuspendWatch.awake`), so only a computer that sleeps again and again during one call spends them all;
+ * after that a cut counts as an attempt.
+ */
+export const MAXIMUM_SUSPEND_RESENDS = 3;
 
 /** Sole production entrypoint to low-level provider transports. */
 export class ProviderInvocationRuntime {
   private readonly timer: RuntimeTimer;
   private readonly maximumBackoffMs: number;
+  private readonly suspends: SuspendWatch;
   constructor(private readonly options: ProviderRuntimeOptions) {
     this.timer = options.timer ?? systemTimer;
+    this.suspends = options.suspends ?? NO_SUSPENDS;
     this.maximumBackoffMs = boundedTimerDelay(options.maximumBackoffMs ?? 30_000);
     if (this.maximumBackoffMs < 1) throw new Error("INVALID_MAXIMUM_BACKOFF");
   }
@@ -96,18 +120,26 @@ export class ProviderInvocationRuntime {
 
     let lastError: unknown;
     let attempts = 0;
+    // Attempts a suspend cut and that were sent again without counting; the sleep the call lived through, and whether
+    // its last attempt was cut by it.
+    let resent = 0; let slept: HostSuspend | null = null; let cut = false;
     for (let attempt = 1; attempt <= context.maximumRetries + 1; attempt += 1) {
       if (context.signal.aborted) throw new ProviderInvocationFailure("Provider request cancelled before dispatch", attempts, "CANCELLED");
+      // No call starts until the computer has been awake a while after a sleep, so none starts in a dark wake.
+      try { await this.suspends.awake(context.signal); }
+      catch (error) { if (context.signal.aborted) throw new ProviderInvocationFailure("Provider request cancelled before dispatch", attempts, "CANCELLED"); throw error; }
       const reservation = await this.options.budget.reserve(context.activityId, context.estimatedTokens);
       if (!reservation.allowed) throw new ProviderBudgetSuspendedError(reservation.reason ?? "Provider budget preflight refused dispatch");
       let lease: SchedulerLease | undefined;
       let retryDelay: number | null = null;
       let dispatched = false;
+      let startedAt = 0;
       try {
         lease = await this.options.scheduler.acquire(context.providerId, context.estimatedTokens, context.signal);
         if (context.signal.aborted) throw new TransportError("CANCELLED", "Provider request cancelled before dispatch", false);
         attempts = attempt;
         dispatched = true;
+        startedAt = this.suspends.now();
         const result = await sendWithTimeout(transport, effectiveRequest, context.signal, context.timeoutMs, this.timer);
         await this.options.budget.recordActual(context.activityId, result.usage, reservation.reservationId);
         if (result.continuation !== null) await this.options.continuation.save(context.activityId, sessionContinuationState({
@@ -118,29 +150,44 @@ export class ProviderInvocationRuntime {
         return result;
       } catch (error) {
         lastError = error;
-        const retryable = !timeLimited(error, context) && error instanceof TransportError && error.retryable && attempt <= context.maximumRetries;
+        // A failure the computer's sleep explains is the sleep's, not the call's: it is sent again once the computer is
+        // awake, without counting, and is never taken for a run past the time limit (`retryTimeouts: false`).
+        const interruption = dispatched && sleepExplains(error) ? span(this.suspends.suspendsSince(startedAt)) : null;
+        cut = interruption !== null;
+        if (interruption !== null) slept = slept === null ? interruption : { from: Math.min(slept.from, interruption.from), to: Math.max(slept.to, interruption.to) };
+        const resend = interruption !== null && resent < MAXIMUM_SUSPEND_RESENDS && !context.signal.aborted;
+        const retryable = !resend && attempt <= context.maximumRetries && (interruption !== null || error instanceof TransportError && error.retryable && !timeLimited(error, context));
         // Release the reservation only when the attempt provably consumed nothing; otherwise it stays charged.
         const evidence = !dispatched ? { consumption: "none" as const, rule: "not_dispatched" } : error instanceof TransportError ? error.evidence : null;
         let released: string | undefined;
         if (evidence?.consumption === "none" && reservation.reservationId !== undefined && this.options.budget.release !== undefined) {
           try { await this.options.budget.release(context.activityId, reservation.reservationId, evidence.rule); released = evidence.rule; } catch { released = undefined; }
         }
-        this.options.traces.record({ ...trace(context, attempt, retryable ? "retry" : "failed",
-          error instanceof TransportError ? error.code : "UNKNOWN", null), ...(released === undefined ? {} : { released }) });
+        const stream = error instanceof TransportError ? error.stream : null;
+        this.options.traces.record({ ...trace(context, attempt, resend || retryable ? "retry" : "failed",
+          error instanceof TransportError ? error.code : "UNKNOWN", null), ...(released === undefined ? {} : { released }),
+          ...(interruption === null ? {} : { suspended: { from: new Date(interruption.from).toISOString(), to: new Date(interruption.to).toISOString() } }), ...(stream === null ? {} : { stream }) });
+        // Sent again under the same attempt number, with no backoff: the wait for the computer to be awake is the wait.
+        if (resend) { resent += 1; attempt -= 1; continue; }
         if (!retryable) break;
-        const retryAfter = boundedTimerDelay(error.retryAfterMs ?? Math.min(this.maximumBackoffMs, 1_000 * (2 ** (attempt - 1))));
-        if (error.code === "RATE_LIMIT") this.options.scheduler.respectRetryAfter(context.providerId, retryAfter);
+        const hint = error instanceof TransportError ? error.retryAfterMs : null;
+        const retryAfter = boundedTimerDelay(hint ?? Math.min(this.maximumBackoffMs, 1_000 * (2 ** (attempt - 1))));
+        if (error instanceof TransportError && error.code === "RATE_LIMIT") this.options.scheduler.respectRetryAfter(context.providerId, retryAfter);
         retryDelay = retryAfter;
       } finally { lease?.release(); }
       if (retryDelay !== null) {
         try { await sleepUnlessAborted(this.timer, retryDelay, context.signal); }
-        catch (error) { lastError = error; break; }
+        catch (error) { lastError = error; cut = false; break; }
       }
     }
     const code = lastError instanceof TransportError ? lastError.code : "UNKNOWN";
     // Transport messages are bounded and redacted at the source (providerErrorDetail).
     const detail = lastError instanceof TransportError ? `: ${lastError.message.slice(0, 300)}` : "";
     if (code === "QUOTA") throw new ProviderUsageLimitError(`Provider ${context.providerId} reached its usage limit (${code}${detail}); the run pauses with its completed work kept and goes on when resumed after the reset.`, attempts);
+    if (cut && slept !== null) {
+      throw new HostSuspendedError(`The computer slept from ${new Date(slept.from).toISOString()} to ${new Date(slept.to).toISOString()} while a call to ${context.providerId} was in flight, and the call could not finish across it (${code}${detail}). `
+        + `The sleep stopped it, not ${context.providerId}: keep the computer awake while the run works, then resume it; completed artifacts are preserved.`, attempts, code, slept);
+    }
     if (timeLimited(lastError, context)) throw new ProviderTimeLimitError(`Provider ${context.providerId}: the call ran past its time limit of ${context.timeoutMs} ms and stopped (${code}${detail}); it is not sent again, since its stage sends less work instead.`, attempts);
     throw new ProviderInvocationFailure(`Provider ${context.providerId} failed after ${attempts} attempt${attempts === 1 ? "" : "s"} (${code}${detail}); completed artifacts are preserved and the run may resume with degraded completeness.`, attempts, code);
   }
@@ -150,6 +197,24 @@ export class ProviderInvocationRuntime {
  * still running after it was cancelled is not one: nothing starts beside it. */
 function timeLimited(error: unknown, context: ProviderInvocationContext): boolean {
   return context.retryTimeouts === false && error instanceof TransportError && error.code === "TIMEOUT" && error.retryable;
+}
+
+/**
+ * A failure a suspend explains when the attempt lived through one: the call ran out its time limit (on darwin and win32
+ * the timer counts the sleep), or its CLI or stream broke (a connection does not outlive a long sleep; fetch fails with
+ * a TypeError). Not one that is final whatever stopped it (a CLI that left processes running, a send that would not
+ * stop), and not the provider's own answer (a limit, a sign-in, a refusal answered before any work).
+ */
+function sleepExplains(error: unknown): boolean {
+  if (!(error instanceof TransportError)) return error instanceof TypeError;
+  if (error.code === "TIMEOUT" || error.code === "MALFORMED_RESPONSE") return error.retryable;
+  return error.code === "HTTP" && error.evidence.consumption !== "none" && !leftProcessesRunning(error);
+}
+
+/** The suspends an attempt lived through, as one span from the first to the last; null for none. */
+function span(suspends: readonly HostSuspend[]): HostSuspend | null {
+  if (suspends.length === 0) return null;
+  return { from: Math.min(...suspends.map(({ from }) => from)), to: Math.max(...suspends.map(({ to }) => to)) };
 }
 
 function boundedTimerDelay(milliseconds: number): number {
@@ -199,7 +264,9 @@ async function timedOutSend(sent: Promise<TransportResponse>, milliseconds: numb
     const outcome = await Promise.race([sent.then(() => null, (error: unknown) => error), waited, cancelled]);
     if (leftProcessesRunning(outcome)) return outcome;
     if (outcome === STILL_RUNNING) return new TransportError("TIMEOUT", `Provider stage timed out after ${milliseconds}ms, and the call had not stopped ${STOP_AFTER_TIMEOUT_MS}ms after it was cancelled`, false);
-    return new TransportError("TIMEOUT", `Provider stage timed out after ${milliseconds}ms`, true);
+    const stopped = new TransportError("TIMEOUT", `Provider stage timed out after ${milliseconds}ms`, true);
+    // The stopped send's trace says whether anything was arriving when the time ran out.
+    return outcome instanceof TransportError && outcome.stream !== null ? withStreamTrace(stopped, outcome.stream) : stopped;
   } finally { cancelWait(); }
 }
 function validateContext(value: ProviderInvocationContext): void {

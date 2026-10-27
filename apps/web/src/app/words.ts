@@ -4,6 +4,8 @@
  * the details and the copied report.
  */
 
+import { formatTime } from "./format.js";
+
 export type Mode = "audit" | "feature" | "testing";
 export interface StepNode { readonly id: string; readonly kind: string; readonly label: string }
 
@@ -87,6 +89,34 @@ function activityStep(activityId: string): string {
   return steps[stage] ?? stage;
 }
 
+/** A span the computer slept during a run (ISO-8601). */
+export interface Slept { readonly from: string; readonly to: string }
+/** How long the computer must be awake after a sleep before a call starts (packages/providers/src/suspend.ts). */
+const AWAKE_SETTLE_MS = 120_000;
+
+/**
+ * When the computer slept during a run, from its `host_suspended` events, as the run report reads them: a Mac asleep
+ * wakes in the dark for under a minute every quarter hour, and suspends apart by less than two minutes are one sleep.
+ */
+export function sleptSpans(events: readonly { readonly t: string; readonly from?: string; readonly to?: string }[]): readonly Slept[] {
+  const spans: { from: number; to: number }[] = [];
+  const suspends = events.flatMap(({ t, from, to }) => t === "host_suspended" && from !== undefined && to !== undefined && Number.isFinite(Date.parse(from)) && Number.isFinite(Date.parse(to))
+    ? [{ from: Date.parse(from), to: Date.parse(to) }] : []).sort((a, b) => a.from - b.from);
+  for (const suspend of suspends) {
+    const last = spans.at(-1);
+    if (last !== undefined && suspend.from - last.to < AWAKE_SETTLE_MS) last.to = Math.max(last.to, suspend.to);
+    else spans.push({ ...suspend });
+  }
+  return spans.map(({ from, to }) => ({ from: new Date(from).toISOString(), to: new Date(to).toISOString() }));
+}
+
+/** "The computer slept from 26 Oct, 10:37 to 26 Oct, 11:56; calls in flight were sent again." Null when it did not sleep. */
+export function sleptWords(spans: readonly Slept[]): string | null {
+  return spans.length === 0 ? null : `The computer slept ${spans.map(({ from, to }) => `from ${formatTime(from)} to ${formatTime(to)}`).join(" and ")}; calls in flight were sent again.`;
+}
+
+const AWAKE = "Keep the computer awake while the run works (on a Mac, with its lid open), then resume the run: it goes on from where it stopped, and calls already finished are kept.";
+
 /** What a failure means for the person: what happened, what to do, and whether resuming can help. */
 export interface FailureWords { readonly what: string; readonly todo: string; readonly resumable: boolean }
 
@@ -107,11 +137,18 @@ const SEND = "If it stops the same way again, copy the report below and send it 
  *
  * Observed (inventory, October 25, 2026): a run whose snapshot was refused offered a resume that could only fail the
  * same way, and every unnamed failure said to resume.
+ *
+ * A call the computer's sleep stopped names the sleep, not a provider: the runtime records it as HostSuspendedError,
+ * and a plain timeout is one the runtime found no sleep across. Observed live (October 26, 2026, macOS): a run that
+ * failed in the Mac's dark wakes said "Provider openai failed after 3 attempts", which sent its tester after the wrong
+ * cause.
  */
 export function failureWords(reason: string | null, mode: Mode = "audit"): FailureWords {
   const text = reason ?? "";
   const run = mode === "audit" ? "audit" : `${mode} run`;
   if (text.trim() === "") return { what: "The run stopped on an error, and no reason was recorded.", todo: `Resume it to go on from where it stopped. ${KEPT} ${SEND}`, resumable: true };
+  const asleep = /^HostSuspendedError: The computer slept from (\S+) to (\S+) /u.exec(text);
+  if (asleep !== null) return { what: `The computer slept from ${formatTime(asleep[1] ?? null)} to ${formatTime(asleep[2] ?? null)} while the run's model calls were in flight, and they could not finish across it.`, todo: AWAKE, resumable: true };
   // Start again: the run's recorded settings or its project are the cause.
   const files = /REPOSITORY_FILE_LIMIT_EXCEEDED:(\d+)/u.exec(text);
   if (files !== null) return { what: `The project has more than ${Number(files[1]).toLocaleString("en")} source files, more than one run reads.`, todo: `Start a new ${run} that reads some folders of the project, or leaves some out. ${AGAIN}`, resumable: false };

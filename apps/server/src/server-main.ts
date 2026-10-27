@@ -5,6 +5,7 @@ import { arbitraBuild, detectEnvironment, type DetectedEnvironment } from "@arbi
 import { pickFolder } from "./folder-picker.js";
 import { registerHandoffRoutes } from "./handoff.js";
 import { runReport } from "@arbitra/runtime/run-report.js";
+import { processHost } from "@arbitra/runtime/run-host.js";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertLoopbackHost, buildServer, DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT } from "./main.js";
@@ -37,7 +38,8 @@ export async function serve(): Promise<Serving> {
     if (running === build) return { url, alreadyRunning: true, close: () => Promise.resolve() };
     throw new ArbitraAlreadyRunningError(url, running, build);
   }
-  const orchestrator = new Orchestrator({ repository: process.env["ARBITRA_REPOSITORY"] ?? process.cwd(), ...(recorded === null ? {} : { build: recorded }) });
+  // The computer is kept awake while a run works, and its sleeps watched (see packages/runtime/src/run-host.ts).
+  const orchestrator = new Orchestrator({ repository: process.env["ARBITRA_REPOSITORY"] ?? process.cwd(), host: processHost(), ...(recorded === null ? {} : { build: recorded }) });
   const app = buildServer(controlPlaneCore(orchestrator));
   // The built web app is served from the same address when it exists (`pnpm build` makes it); ARBITRA_WEB_DIST names
   // another build, and an empty value leaves the control plane alone, as for the Vite dev server.
@@ -51,7 +53,8 @@ export async function serve(): Promise<Serving> {
   app.get("/diagnostics/server", async () => ({ build, pid: process.pid }));
   app.get<{ Querystring: { refresh?: string } }>("/diagnostics/environment", async (request) => {
     if (request.query.refresh === "1") environment = detectEnvironment();
-    return { build, ...await environment };
+    // Whether a run keeps this computer awake, as of now: a missing tool or a holder that stopped shows here, never as a failed run.
+    return { build, ...await environment, keepAwake: orchestrator.keepAwake() };
   });
   // Writes a run's plan into its repository as prompts on the operator's explicit request only, and reads it back.
   registerHandoffRoutes(app, orchestrator);

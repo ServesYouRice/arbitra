@@ -90,6 +90,12 @@ arbitra. Then go on at [Run an audit](#run-an-audit).
 
 ## If something goes wrong
 
+While a run works, arbitra keeps your computer from going to sleep by itself; **This computer** says whether it can.
+Closing a MacBook's lid still puts it to sleep, so keep the lid open (and the Mac plugged in) during a long run. If the
+computer sleeps anyway, the run waits: calls it had in flight are sent again once the computer has been awake for two
+minutes, and the run's page says when it slept. If a call cannot finish across the sleep, the run fails saying so;
+resume it once the computer is awake.
+
 If a run pauses at its token limit, its page offers **Raise to … and resume**: it goes on from where it stopped and
 keeps everything it has done. If a run reaches a usage limit of one of your plans, it pauses and keeps everything too;
 when the plan says when the limit resets, arbitra resumes the run by itself a minute later while it stays open.

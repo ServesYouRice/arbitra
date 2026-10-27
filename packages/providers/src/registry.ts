@@ -7,6 +7,7 @@ import { OpenAiChatTransport } from "./transports/openai-chat.js";
 import { OpenAiResponsesTransport } from "./transports/openai-responses.js";
 import { cliTransportSupport, isCliEndpoint, type CliAuthMode } from "./transports/cli/support.js";
 import { cliTransportFactory, type CliTransportOptions } from "./transports/cli/transport.js";
+import type { SuspendWatch } from "./suspend.js";
 
 export interface ProviderEndpoint {
   /** Endpoint identity, distinct from the wire protocol shared by compatible providers. */
@@ -27,6 +28,8 @@ export interface TransportFactoryOptions {
   readonly credential?: (environmentName: string) => string | undefined;
   /** Subscription CLI transports: host environment, process runner and limits record. */
   readonly cli?: CliTransportOptions;
+  /** The computer's suspends, for the provider runtime that sends through these transports (see suspend.ts). Not a transport's concern. */
+  readonly suspends?: SuspendWatch;
 }
 
 export type TransportFactory = (configuration: TransportConfiguration, options: TransportFactoryOptions) => ProviderTransport;

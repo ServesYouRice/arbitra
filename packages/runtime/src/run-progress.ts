@@ -43,8 +43,9 @@ export function digestArtifact(kind: string, content: unknown, nodeId: string | 
   if (ACTIVITY_TRACE.test(kind)) {
     const value = record(content);
     const attempts = Array.isArray(value["attempts"]) ? value["attempts"].map(record) : [];
+    // An attempt the computer's sleep cut was sent again for the sleep, not for running past its time limit.
     return { kind: "trace", activityId: typeof value["activityId"] === "string" ? value["activityId"] : nodeId ?? kind,
-      timedOutAndRetried: attempts.some((attempt) => attempt["outcome"] === "retry" && attempt["errorCode"] === "TIMEOUT") };
+      timedOutAndRetried: attempts.some((attempt) => attempt["outcome"] === "retry" && attempt["errorCode"] === "TIMEOUT" && attempt["suspended"] === undefined) };
   }
   if (kind.startsWith("findings-") && Array.isArray(content)) {
     const auditorId = nodeId ?? kind.slice("findings-".length);
@@ -140,7 +141,7 @@ export function timeline(events: readonly RunEvent[], nodeIds: readonly string[]
       run.open = event.at ?? ""; run.startedAt ??= event.at ?? null;
     } else if (event.t === "run_transition") {
       if (STOPPED.has(event.state)) close(event.at);
-    } else {
+    } else if (event.t === "node_dispatched" || event.t === "node_completed") {
       const node = nodes.get(event.nodeId);
       if (node !== undefined && event.t === "node_dispatched") { node.clock.open = event.at ?? ""; node.interrupted = false; }
       else if (node !== undefined && event.t === "node_completed") {

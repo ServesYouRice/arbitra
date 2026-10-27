@@ -18,6 +18,8 @@ export interface NativeProcessRequest {
   readonly signal: AbortSignal;
   /** Called synchronously for every complete stdout line. Throwing stops the process as a violation. */
   readonly onLine?: (line: string) => void;
+  /** Called with every stderr chunk as it arrives, past the head `stderr` keeps: a failed call's trace keeps how stderr ended. */
+  readonly onStderr?: (chunk: string) => void;
   readonly onSpawn?: (pid: number) => void;
 }
 export type NativeProcessStop = "timeout" | "cancelled" | "output_limit" | "spawn_error" | "violation";
@@ -102,7 +104,10 @@ export function runNativeProcess(request: NativeProcessRequest): Promise<NativeP
         deliver(pending.subarray(0, index)); pending = pending.subarray(index + 1); index = pending.indexOf(10);
       }
     });
-    child.stderr.on("data", (chunk: Buffer) => { if (stderr.length < MAXIMUM_STDERR_BYTES) stderr = Buffer.concat([stderr, chunk.subarray(0, MAXIMUM_STDERR_BYTES - stderr.length)]); });
+    child.stderr.on("data", (chunk: Buffer) => {
+      if (stderr.length < MAXIMUM_STDERR_BYTES) stderr = Buffer.concat([stderr, chunk.subarray(0, MAXIMUM_STDERR_BYTES - stderr.length)]);
+      try { request.onStderr?.(chunk.toString("utf8")); } catch { /* a trace that fails to record never stops the call */ }
+    });
     const cancelled = () => stop("cancelled");
     request.signal.addEventListener("abort", cancelled, { once: true });
     const timer = setTimeout(() => stop("timeout"), request.timeoutMs);
