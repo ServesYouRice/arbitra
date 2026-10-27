@@ -46,7 +46,10 @@ export async function runReport(orchestrator: Orchestrator, runId: string, envir
       add(`  ${auditor.auditorId} (${auditor.modelId ?? "?"}): ${auditor.findings} findings · ${auditor.confirmed} confirmed · ${auditor.confirmedAlone} confirmed that no other auditor found${unitsAnswered(coverage.get(auditor.auditorId) ?? null)} · discovery ${auditor.discoveryTokens === null ? "tokens not recorded" : `${tokenCount(auditor.discoveryTokens)} tokens`}`);
   }
   const carried = metrics?.planResults ?? null;
-  if (carried !== null) add("", "plan carried out (results.json)", `  ${carried.reported} of ${carried.issues} issues reported · ${carried.provenByFailingTest} proven by a failing test · ${carried.notProvenByTest} no test could show · ${carried.checkedEndToEnd} checked end to end`,
+  // A plan saved and not yet carried out has a results.json with no result in it (observed October 27, 2026: "0 of 111
+  // issues reported · fixed 0 · ..." read like results).
+  if (carried !== null && carried.reported === 0 && carried.foundWhileFixing.reported === 0) add("", "plan carried out (results.json)", `  not yet: none of the plan's ${carried.issues} issues has a result`);
+  else if (carried !== null) add("", "plan carried out (results.json)", `  ${carried.reported} of ${carried.issues} issues reported · ${carried.provenByFailingTest} proven by a failing test · ${carried.notProvenByTest} no test could show · ${carried.checkedEndToEnd} checked end to end`,
     `  ${Object.entries(carried.results).map(([result, count]) => `${result.replaceAll("_", " ")} ${count}`).join(" · ")}`,
     ...(carried.foundWhileFixing.reported === 0 ? [] : [`  found while fixing, no issue named them: ${carried.foundWhileFixing.reported} · ${carried.foundWhileFixing.provenByFailingTest} proven by a failing test`]));
   const stages = new Map<string, { calls: number; failed: number; ms: number; tokens: number }>();

@@ -7,13 +7,15 @@ const yieldOf = (auditorId: string, modelId: string, findings: number) => ({ aud
 const progressOf = (auditorId: string, coverage: AuditorProgress["coverage"]): AuditorProgress => ({ auditorId, modelId: null, partsRead: 0, partsDeclined: 0, findings: 0, finished: true, coverage });
 
 /** The parts of an orchestrator a run's report reads. */
-function orchestrator(auditors: readonly AuditorProgress[]): Orchestrator {
+function orchestrator(auditors: readonly AuditorProgress[], planResults: unknown = null): Orchestrator {
   return {
     overview: async () => ({ mode: "audit", workflowId: "audit-balanced", state: "COMPLETED", reason: null, live: false, gate: null, createdAt: null, updatedAt: null, scope: {}, configuration: null }),
     modelTraces: async () => [],
     metrics: async () => ({ confirmedYield: { candidates: 9, confirmed: 6, confirmedBySeverity: {}, rejected: 1, unsettled: 1, acceptedUnchecked: 0, notChecked: 1, tokens: null, tokensPerConfirmed: null,
-      auditors: [yieldOf("auditor-a", "claude-opus-5-5", 40), yieldOf("auditor-b", "gemini-3.8-flash-medium", 7), yieldOf("auditor-c", "gpt-6.1-sol", 12)] }, planResults: null }),
+      auditors: [yieldOf("auditor-a", "claude-opus-5-5", 40), yieldOf("auditor-b", "gemini-3.8-flash-medium", 7), yieldOf("auditor-c", "gpt-6.1-sol", 12)] }, planResults }),
     progress: async () => ({ auditors }),
+    keepAwake: () => null,
+    slept: async () => [],
   } as unknown as Orchestrator;
 }
 
@@ -27,5 +29,13 @@ describe("a run's report", () => {
     expect(lines).toContain("  auditor-b (gemini-3.8-flash-medium): 7 findings · 3 confirmed · 1 confirmed that no other auditor found · 27 of 32 units answered (5 not examined: provider_failed 3, reply_rejected 2) · discovery 2.4M tokens");
     // A run that recorded no units says nothing of them, rather than a number it cannot know.
     expect(lines).toContain("  auditor-c (gpt-6.1-sol): 12 findings · 3 confirmed · 1 confirmed that no other auditor found · discovery 2.4M tokens");
+  });
+
+  it("says a saved plan has not been carried out yet, rather than counting zero results", async () => {
+    // Observed (October 27, 2026, the MacBook run's report): a plan just saved read "0 of 111 issues reported · fixed 0 · ...".
+    const saved = { issues: 111, reported: 0, provenByFailingTest: 0, notProvenByTest: 0, checkedEndToEnd: 0, results: { fixed: 0, not_reproducible: 0 }, foundWhileFixing: { reported: 0, provenByFailingTest: 0 } };
+    const lines = (await runReport(orchestrator([], saved), "run-1", null, "test")).split("\n");
+    expect(lines).toContain("  not yet: none of the plan's 111 issues has a result");
+    expect(lines.some((line) => line.includes("0 of 111 issues reported"))).toBe(false);
   });
 });

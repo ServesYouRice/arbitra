@@ -55,6 +55,11 @@ describe("web evaluation surface over the localhost routes", () => {
     expect([...opus.querySelectorAll("td")].map(({ textContent }) => textContent)).toEqual(["Opus 5.5", "190", "19", "12", "1.2M"]);
     const gemini = within(table).getByText("Gemini 3.8 Flash high").closest("tr") as HTMLElement;
     expect(within(gemini).getByText("unavailable").dataset.state).toBe("unexamined");
+    cleanup();
+    // A plan saved and not carried out yet holds no result, and says so instead of counting zeros (observed October 27, 2026).
+    stubMetrics({ ...metrics, confirmedYield: { candidates: 275, confirmed: 84, confirmedBySeverity: {}, rejected: 46, unsettled: 27, acceptedUnchecked: 0, notChecked: 118, tokens: null, tokensPerConfirmed: null, auditors: [] }, planResults: { issues: 111, reported: 0, provenByFailingTest: 0, notProvenByTest: 0, results: { fixed: 0 }, checkedEndToEnd: 0, foundWhileFixing: { reported: 0, provenByFailingTest: 0 } } });
+    render(<EvaluationView api={new EvaluationApi()} runId="run-1" />);
+    expect(await screen.findByText("plan carried out · not yet: none of the plan's 111 issues has a result")).toBeTruthy();
   });
 
   it("states explicitly that a run with no independence data is not applicable", async () => {
