@@ -70,7 +70,31 @@ export class TransportError extends Error {
     readonly retryable: boolean,
     readonly retryAfterMs: number | null = null,
     readonly evidence: UsageEvidence = USAGE_UNKNOWN,
+    /** What the call's streams showed until it failed, when its transport read them (a CLI). */
+    readonly stream: StreamTrace | null = null,
   ) { super(message); this.name = "TransportError"; }
+}
+/**
+ * What a failed call's streams showed until it stopped: how many events came, when the last came and what it was, and
+ * how its stderr ended (bounded, redacted). Times are ISO-8601. It tells a call that received nothing from one that
+ * was streaming when its time ran out: observed (October 26, 2026), a timed-out call kept no trace of either.
+ */
+export interface StreamTrace {
+  readonly startedAt: string; readonly stoppedAt: string;
+  readonly events: number; readonly lastEventAt: string | null; readonly lastEventType: string | null;
+  readonly stderrTail: string;
+}
+/** The same failure with its stream's trace. A timeout says in its message what the stream showed, so the run's failed calls do. */
+export function withStreamTrace(error: TransportError, stream: StreamTrace): TransportError {
+  return new TransportError(error.code, error.code === "TIMEOUT" ? `${error.message}; ${streamSummary(stream)}` : error.message, error.retryable, error.retryAfterMs, error.evidence, stream);
+}
+/** "stream: no event in the 25.0 min it ran" or "stream: 48 events in 15.0 min, the last (assistant) 0.2 min before it stopped", with the end of stderr. */
+export function streamSummary(stream: StreamTrace): string {
+  const minutes = (from: string, to: string): string => `${(Math.max(0, Date.parse(to) - Date.parse(from)) / 60_000).toFixed(1)} min`;
+  const events = stream.events === 0 || stream.lastEventAt === null ? `stream: no event in the ${minutes(stream.startedAt, stream.stoppedAt)} it ran`
+    : `stream: ${stream.events} event${stream.events === 1 ? "" : "s"} in ${minutes(stream.startedAt, stream.stoppedAt)}, the last${stream.lastEventType === null ? "" : ` (${stream.lastEventType})`} ${minutes(stream.lastEventAt, stream.stoppedAt)} before it stopped`;
+  const tail = stream.stderrTail.split(/\r?\n/u).map((line) => line.trim()).filter((line) => line !== "").join(" / ").slice(-120);
+  return tail === "" ? events : `${events}; stderr: ${tail}`;
 }
 /** A CLI's process tree outlived its call. The failure is final, so no retry starts another CLI beside it. */
 export const PROCESS_TREE_NOT_TERMINATED = "CLI_PROCESS_TREE_NOT_TERMINATED";
@@ -79,7 +103,7 @@ export function leftProcessesRunning(error: unknown): error is TransportError {
 }
 /** The same failure, with its usage evidence stated. */
 export function withUsageEvidence(error: TransportError, evidence: UsageEvidence): TransportError {
-  return new TransportError(error.code, error.message, error.retryable, error.retryAfterMs, evidence);
+  return new TransportError(error.code, error.message, error.retryable, error.retryAfterMs, evidence, error.stream);
 }
 
 export interface TransportConfiguration {

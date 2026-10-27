@@ -2,7 +2,9 @@ import type { ReactElement } from "react";
 import type { OfferedModels } from "./model-catalog.js";
 
 export interface DetectedCli { readonly transport: string; readonly name: string; readonly state: string; readonly version: string | null; readonly note: string; readonly fix: string | null; readonly path?: string | null; readonly models?: readonly { readonly id: string; readonly name: string }[]; readonly caution?: string; readonly others?: readonly { readonly path: string; readonly version: string | null }[] }
-export interface DetectedEnvironment { readonly build: string; readonly checkedAt?: string; readonly clis: readonly DetectedCli[]; readonly apiKeys: Readonly<Record<string, boolean>> }
+/** Whether a run keeps this computer awake (`held`, `ready`), or why not (`unavailable`, `failed`); null from an arbitra that holds nothing. */
+export interface KeepAwakeState { readonly state: "held" | "ready" | "unavailable" | "failed"; readonly tool: string | null; readonly detail: string }
+export interface DetectedEnvironment { readonly build: string; readonly checkedAt?: string; readonly clis: readonly DetectedCli[]; readonly apiKeys: Readonly<Record<string, boolean>>; readonly keepAwake?: KeepAwakeState | null }
 
 /** The models this machine can run, found without a model call: the lists the CLIs give (only Antigravity gives one). */
 export function offeredModels(environment: DetectedEnvironment | null): OfferedModels {
@@ -18,6 +20,16 @@ export function antigravityState(environment: DetectedEnvironment | null): "read
 /** The CLIs the lineup uses that are not ready on this computer, and why, in words: what Start needs first. */
 export function missingClis(environment: DetectedEnvironment | null, transports: ReadonlySet<string>): readonly { readonly name: string; readonly state: string }[] {
   return (environment?.clis ?? []).filter(({ transport, state }) => transports.has(transport) && state !== "ready").map(({ name, state }) => ({ name, state: state.replaceAll("_", " ") }));
+}
+
+/**
+ * Whether a run keeps this computer from sleeping. A missing tool or a holder that stopped shows here, never as a failed
+ * run; a run across a sleep still goes on (its calls are sent again once the computer is awake).
+ */
+function KeepAwakeRow({ state }: { readonly state: KeepAwakeState | null }): ReactElement | null {
+  if (state === null) return null;
+  const kept = state.state === "held" || state.state === "ready";
+  return <tr data-ready={kept}><th scope="row">Sleep</th><td className="state" data-state={kept ? "verified" : "degraded"}>{state.detail}</td><td>{state.state === "held" ? "a run is working now" : ""}</td><td /></tr>;
 }
 
 /**
@@ -39,7 +51,8 @@ export function ThisComputer({ environment, failure, transports, keyVariables, s
           <td>{gemini.length === 0 ? "" : `offers ${gemini.map(({ name }) => name).join(", ")}`}</td>
           <td className={used ? undefined : "muted"}>{used ? "in this lineup" : "not in this lineup"}</td>
         </tr>;
-      })}{keyVariables.length === 0 ? null : <tr><th scope="row">API keys</th><td>read from {keyVariables.join(", ")}; the check says if one is not set</td><td /><td>in this lineup</td></tr>}</tbody></table></div>}
+      })}{keyVariables.length === 0 ? null : <tr><th scope="row">API keys</th><td>read from {keyVariables.join(", ")}; the check says if one is not set</td><td /><td>in this lineup</td></tr>}
+        <KeepAwakeRow state={environment.keepAwake ?? null} /></tbody></table></div>}
     {environment === null ? null : <details className="fold">
       <summary>Where each was found, and how models are found and chosen</summary>
       <ul className="plain-list computer-paths">{environment.clis.filter(({ path }) => typeof path === "string").map(({ name, path, others }) => <li key={name}>{name} · <code>{path}</code>{(others ?? []).map((other) => <span key={other.path}>; also {other.version ?? "a version it did not report"} at <code>{other.path}</code>, not used</span>)}</li>)}</ul>

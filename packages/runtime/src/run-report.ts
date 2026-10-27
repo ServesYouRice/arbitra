@@ -19,10 +19,14 @@ export async function runReport(orchestrator: Orchestrator, runId: string, envir
     for (const cli of environment.clis) add(`  ${cli.name}: ${cli.state}${cli.version === null ? "" : ` ${cli.version}`} · ${cli.note}${(cli.others ?? []).map(({ path, version }) => ` · also found ${version ?? "unreadable version"} at ${path}`).join("")}`);
     add(`  API keys set: ${Object.entries(environment.apiKeys).filter(([, set]) => set).map(([name]) => name).join(", ") || "none"}`);
   }
+  const awake = orchestrator.keepAwake();
+  if (awake !== null) add(`  keep awake: ${awake.state} · ${awake.detail}`);
   add("", `run ${runId}`, `  mode ${overview.mode ?? "unknown"} · workflow ${overview.workflowId ?? "unknown"} · state ${overview.state ?? "unreadable"}${overview.reason === null ? "" : ` (${overview.reason})`}${overview.live ? " · running now" : ""}`,
     `  gate ${overview.gate === null ? "not reached" : `${overview.gate.status}${overview.gate.reasons.length === 0 ? "" : ` · ${overview.gate.reasons.join(", ")}`}`}`,
     `  created ${overview.createdAt ?? "unknown"} · last activity ${overview.updatedAt ?? "unknown"}`,
     `  scope ${JSON.stringify(overview.scope)}`);
+  // A sleep is named here, so a timeout across one is not read as the provider's (issue #3, October 26, 2026).
+  for (const { from, to } of await orchestrator.slept(runId).catch(() => [])) add(`  the computer slept from ${from} to ${to} (${Math.round((Date.parse(to) - Date.parse(from)) / 60_000)} min); calls in flight were sent again`);
   const configuration = overview.configuration as { models?: Record<string, { modelId?: string; transport?: string }>; workflow?: { modelExecution?: { roles?: Record<string, string>; stageEffort?: Record<string, string> } }; auditDepth?: string } | null;
   if (configuration?.models !== undefined) {
     add(`  depth ${configuration.auditDepth ?? "default"} · stage effort ${JSON.stringify(configuration.workflow?.modelExecution?.stageEffort ?? {})}`);
@@ -58,7 +62,8 @@ export async function runReport(orchestrator: Orchestrator, runId: string, envir
   const failed = traces.filter(({ outcome }) => outcome !== "success");
   if (failed.length > 0) {
     add("", "failed calls");
-    for (const trace of failed.slice(-40)) add(`  ${trace.activityId} · ${trace.modelId} · ${trace.outcome} · ${trace.error?.code ?? trace.refusal ?? ""} ${trace.error?.message.replace(/\s+/gu, " ").slice(0, 300) ?? ""}`);
+    // Room for a timed-out call's stream trace (its last event, the end of stderr) after the provider's own words.
+    for (const trace of failed.slice(-40)) add(`  ${trace.activityId} · ${trace.modelId} · ${trace.outcome} · ${trace.error?.code ?? trace.refusal ?? ""} ${trace.error?.message.replace(/\s+/gu, " ").slice(0, 600) ?? ""}`);
     if (failed.length > 40) add(`  (${failed.length - 40} earlier failures left out)`);
   }
   return lines.map((line) => redactSecrets(line).text).join("\n");

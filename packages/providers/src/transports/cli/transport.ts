@@ -4,12 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runNativeProcess, type NativeProcessPort, type NativeProcessResult } from "../../process.js";
 import { compareVersions, versionInRange } from "../../semver.js";
-import { leftProcessesRunning, noUsage, PROCESS_TREE_NOT_TERMINATED, TransportError, type ProviderTransport, type TransportConfiguration, type TransportId, type TransportRequest, type TransportResponse, type TransportToolCall } from "../../transport-contract.js";
+import { leftProcessesRunning, noUsage, PROCESS_TREE_NOT_TERMINATED, TransportError, withStreamTrace, type ProviderTransport, type TransportConfiguration, type TransportId, type TransportRequest, type TransportResponse, type TransportToolCall } from "../../transport-contract.js";
 import { resetTime } from "./classify.js";
 import { CLI_DIALECTS, type CliDialect, type CliInvocationContext } from "./dialects.js";
 import { childPath, cliExecutableCandidates, hostNodeExecutable, type CliExecutable, type CliExecutableResolution, type DiscoveryHost, type HostLookup } from "./discovery.js";
 import { defaultLimitLedgerPath, fileLimitLedger, type CliLimitLedger } from "./limits.js";
 import { interpretCliReply, serializeCliFollowUp, serializeCliPrompt, type CliPrompt } from "./prompt.js";
+import { StreamRecorder } from "./stream-trace.js";
 import { cliModelMinimumVersion, cliTooOldForModel, type CliAuthMode, type CliTransportSupport } from "./support.js";
 
 export interface CliTransportOptions {
@@ -150,14 +151,18 @@ export class CliTransport implements ProviderTransport {
     prompt: CliPrompt, directories: CliDirectories, session: CliInvocationContext["session"], sessionBoundary?: string, reported?: CliUsage): Promise<TransportResponse> {
     const { request, signal, oauthToken, executable, version, nativeSchema } = run;
     let kept = false; let sessionId: () => string | null = () => session?.resume === true ? session.id : null;
+    let stream: StreamRecorder | null = null; let stderr = "";
     try {
       const context: CliInvocationContext = { request, prompt, work: directories.work, control: directories.control, isolatedHome: directories.isolatedHome, auth: this.#auth, oauthToken, nativeSchema, lookup: this.#lookup, timeoutMs: this.#timeoutMs, platform: this.#platform,
         hostHome: this.#hostHome(), base: this.#baseEnvironment(executable, directories.scratch), ...(session === undefined ? {} : { session }) };
       const invocation = await this.dialect.prepare(context);
       const reader = this.dialect.reader(context);
       const fallback = sessionId; sessionId = () => reader.sessionId?.() ?? fallback();
+      const recorder = stream = new StreamRecorder(this.#now);
       const result = await this.#process.run({ executable: executable.command, arguments: [...executable.prefixArguments, ...invocation.arguments], cwd: directories.work,
-        environment: invocation.environment, stdin: invocation.stdin, timeoutMs: this.#timeoutMs, maximumOutputBytes: this.#maximumOutputBytes, signal, onLine: (line) => reader.line(line) });
+        environment: invocation.environment, stdin: invocation.stdin, timeoutMs: this.#timeoutMs, maximumOutputBytes: this.#maximumOutputBytes, signal,
+        onLine: (line) => { recorder.line(line); reader.line(line); }, onStderr: (chunk) => recorder.stderr(chunk) });
+      stderr = result.stderr;
       // Before the reason it stopped: a timeout is retried, and another CLI must not start beside processes still running.
       if (!result.treeTerminated) throw new TransportError("HTTP", `${PROCESS_TREE_NOT_TERMINATED}: ${this.#support.displayName} left processes running${result.pid === null ? "" : ` (process ${result.pid} and its descendants)`}`, false);
       this.#assertStopped(result, signal);
@@ -185,15 +190,17 @@ export class CliTransport implements ProviderTransport {
         continuation: null, structuredOutputTier: request.responseSchema === undefined ? "prompt_json" : nativeSchema ? "native_structured" : "prompt_json",
         providerRequestId: outcome.sessionId, transportVersion: `${this.#support.vendor}/${version}`,
       });
-    } catch (error) {
+    } catch (caught) {
       // Which CLI refused which model: a copy older than the model is refused like a plan without it.
       const refused = `CLI_MODEL_UNAVAILABLE: ${this.#support.displayName} refused the configured model`;
-      if (error instanceof TransportError && error.message.startsWith(refused)) throw new TransportError(error.code, `CLI_MODEL_UNAVAILABLE: ${this.#support.displayName} ${version} (${executable.path}) refused ${request.modelId}${error.message.slice(refused.length)}`, error.retryable, error.retryAfterMs, error.evidence);
+      const error = caught instanceof TransportError && caught.message.startsWith(refused)
+        ? new TransportError(caught.code, `CLI_MODEL_UNAVAILABLE: ${this.#support.displayName} ${version} (${executable.path}) refused ${request.modelId}${caught.message.slice(refused.length)}`, caught.retryable, caught.retryAfterMs, caught.evidence, caught.stream) : caught;
       if (error instanceof TransportError && error.code === "QUOTA") {
         const now = this.#now();
         await this.#limits?.record({ transport: this.id, observedAt: now, resetsAt: error.retryAfterMs === null ? resetTime(error.message, now) : now + error.retryAfterMs, message: error.message }).catch(() => undefined);
       }
-      throw error;
+      // A call that ran fails with what its streams showed (its last event, how stderr ended), for its attempt's record.
+      throw stream !== null && error instanceof TransportError && error.stream === null ? withStreamTrace(error, stream.trace(stderr)) : error;
     } finally {
       if (!kept) await this.#remove(directories, session !== undefined || this.dialect.session?.storesEveryCall === true ? sessionId() : undefined);
     }

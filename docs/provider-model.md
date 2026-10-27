@@ -165,6 +165,26 @@ running after that wait, fails it without a retry. A caller that sends less work
 stopped back as `ProviderTimeLimitError`, not sent again: a retry sends the same work from
 nothing.
 
+A sleep of the computer is not a provider's failure. On macOS and Windows Node's timers count
+the time asleep (libuv reads `mach_continuous_time` and `QueryPerformanceCounter`), so a stage
+timeout started before an idle sleep runs out in the first wake, a macOS dark wake of 10–60 s
+included; on Linux they do not (`CLOCK_MONOTONIC`), but a stream can still break across the
+suspend. The runtime watches for suspends (`packages/providers/src/suspend.ts`: a heartbeat and
+a look at each question, comparing the wall and monotonic clocks) and acts on them in two ways:
+no call starts until the computer has been awake for two minutes since its last sleep, and an
+attempt that lived through a suspend and then timed out or lost its stream is sent again
+without counting an attempt, up to three times a call. It is never taken for a run past the
+time limit, so a discovery unit is not split for it. A call the sleep still stops fails as
+`HostSuspendedError`, which names the sleep and its times, not the provider. The composition
+root keeps the computer from idle sleep while any run is live and records each suspend as a
+`host_suspended` run event; the run page and the run report say when the computer slept.
+
+A failed CLI call keeps a trace of its streams in its attempt's record (`stream`): when it
+started and stopped, how many events came, when the last came and its type, and the last
+2,000 characters of the CLI's stderr, masked. A timeout's message says it in one line, so the
+run's failed calls tell "no event in the 25.0 min it ran" from "312 events in 15.0 min, the
+last 0.1 min before it stopped".
+
 The adapters use native wire formats, including tool-call history and tool-result IDs.
 The Responses adapter reads every text/refusal content block and uses
 `previous_response_id`; the other three APIs use explicit message history rather than

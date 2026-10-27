@@ -69,6 +69,8 @@ import type { WorkflowGraph } from "@arbitra/workflow/graph-schema.js";
 import { PROJECT_COMMANDS_KIND, projectCommands } from "./project-commands.js";
 import { digestArtifact, needsDigest, summariseProgress, type ArtifactDigest } from "./run-progress.js";
 import type { RunProgress } from "@arbitra/schemas/run-progress.js";
+import { holdForRun, sleptSpans, withHostSuspends, type RunHost } from "./run-host.js";
+import type { KeepAwakeStatus } from "./keep-awake.js";
 
 /** A run's executed graph identity: the saved version it references and the version of what actually ran. */
 export interface RunWorkflowGraphIdentity extends WorkflowGraphReference { readonly executedVersion: string }
@@ -94,6 +96,12 @@ export interface OrchestratorOptions {
    * versions, so a resume on another build that cannot reuse the run's recorded work names the one to resume it with.
    */
   readonly build?: string;
+  /**
+   * The computer the runs run on (`processHost()` for the CLI and the server): kept awake while any run is live, and its
+   * sleeps watched, so a call a sleep cut is sent again and each sleep is recorded in the run. Without it nothing is
+   * held or watched.
+   */
+  readonly host?: RunHost;
 }
 
 export interface PreflightReport {
@@ -189,6 +197,7 @@ export class Orchestrator {
   /** What the progress read takes from each artifact, by run and artifact ID; artifacts never change once written. */
   readonly #digests = new Map<string, ArtifactDigest>();
   readonly #build: string | undefined;
+  readonly #host: RunHost | undefined;
 
   constructor(options: OrchestratorOptions = {}) {
     this.#build = options.build;
@@ -200,7 +209,9 @@ export class Orchestrator {
     this.workflowGraphs = new WorkflowGraphStore(resolve(state, "workflows"), { now: options.now ?? ((): string => new Date().toISOString()) });
     // arbitra-determinism: allow -- run identity is minted at the composition boundary
     this.#newRunId = options.newRunId ?? ((): string => `run-${randomUUID()}`);
-    this.#providerOptions = options.providerOptions ?? {};
+    this.#host = options.host;
+    // Every model call of every run reads the host's suspends through the provider options its stages already pass on.
+    this.#providerOptions = withHostSuspends(options.providerOptions ?? {}, options.host);
     this.#testSandbox = options.testSandbox;
     for (const id of Object.keys(options.graphs ?? {})) {
       if (PRESET_NAMES.includes(id)) throw new Error(`DUPLICATE_WORKFLOW_PRESET:${id}`);
@@ -347,7 +358,7 @@ export class Orchestrator {
     });
     const { runner, close } = this.#runner(store, context, undefined, modelConfiguration, checkpointPolicy, undefined, units);
     const handle = runner.start(graph, { runId });
-    this.#track(runId, handle, close);
+    this.#track(store, handle, close);
     return Object.freeze({ runId, state: handle.state, resumable: true, checkpoints: Object.freeze([]), preservedArtifacts: 0 });
   }
 
@@ -489,7 +500,7 @@ export class Orchestrator {
     const context: AuditContext = Object.freeze({ snapshot, store, auditors: [], auditorKind: "model_auditors", policy: Object.freeze({ name: config.consensusPolicy, quorum: 2, minimumIndependentGroupsForHighRisk: 2 }), maximumRounds: config.maxConsensusRounds, criticEnabled: false });
     const { runner, close } = this.#runner(store, context, undefined, config, checkpointPolicy, seed);
     const handle = runner.start(graph, { runId });
-    this.#track(runId, handle, close);
+    this.#track(store, handle, close);
     return Object.freeze({ runId, sourceRunId, mode, state: handle.state, stages, execution });
   }
 
@@ -533,7 +544,7 @@ export class Orchestrator {
       variantSearchEnabled: replayGraph.nodes.some(({ id }) => id === VARIANT_SEARCH_NODE_ID) });
     const { runner, close } = this.#runner(store, context, findings, original.modelConfiguration, original.checkpointPolicy);
     const handle = runner.start(replayGraph, { ...definition.config, runId });
-    this.#track(runId, handle, close);
+    this.#track(store, handle, close);
     return Object.freeze({ runId, sourceRunId, mode: "audit" as const, state: handle.state });
   }
 
@@ -620,7 +631,7 @@ export class Orchestrator {
     const units = storedContext.modelConfiguration?.mode === "audit" && reused === undefined ? await this.#resumeUnits(store, snapshot, storedContext.repositoryDigest) : undefined;
     const { runner, close } = this.#runner(store, context, reused, storedContext.modelConfiguration, storedContext.checkpointPolicy, seed, units);
     const handle = runner.resume(runId);
-    this.#track(runId, handle, close);
+    this.#track(store, handle, close);
     return Object.freeze({ runId, state: handle.state, resumable: true, checkpoints: Object.freeze([]), preservedArtifacts: (await store.listArtifacts()).length });
   }
 
@@ -971,6 +982,14 @@ export class Orchestrator {
     }
   }
 
+  /** When the computer slept while the run was live, from its recorded events; sleeps split only by dark wakes read as one. */
+  async slept(runId: string): Promise<readonly { readonly from: string; readonly to: string }[]> {
+    return sleptSpans(await new RunStore(this.#runsDirectory, runId).loadEvents());
+  }
+
+  /** Whether this computer is kept awake while a run works; null when this orchestrator holds nothing (no host). */
+  keepAwake(): KeepAwakeStatus | null { return this.#host?.keepAwake.status() ?? null; }
+
   async artifacts(runId: string): Promise<readonly PublicArtifact[]> {
     return (await new RunStore(this.#runsDirectory, runId).listArtifacts()).map(withoutRef);
   }
@@ -1304,8 +1323,12 @@ export class Orchestrator {
     return Object.fromEntries(entries);
   }
 
-  #track(runId: string, handle: RunHandle, close: () => Promise<void>): void {
+  #track(store: RunStore, handle: RunHandle, close: () => Promise<void>): void {
+    const runId = store.runId;
     this.#live.set(runId, handle);
+    // The computer stays awake until the run settles, and each sleep it lives through goes into its events (run-host.ts),
+    // through the store its runner appends to.
+    if (this.#host !== undefined) holdForRun(this.#host, store, handle.result);
     void handle.result.finally(() => { if (this.#live.get(runId) === handle) this.#live.delete(runId); }).catch(() => undefined);
     // A CLI transport keeps a session for its next tool turn and sweeps old ones only inside a later call, which a
     // settled run never makes. Its transports are closed once its result settles, whatever the outcome; a
