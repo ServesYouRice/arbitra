@@ -9,14 +9,15 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
 
 ## State
 
-- **Releases:** v0.3.1 (October 25, 2de2587: the Windows exe and the source zip) is the latest: 0.3.0 plus an older
-  arbitra on the port no longer opened in its place, Send to the developer, and the Linux launcher no longer
-  rebuilding at every start. Work continues on `main`; [`TESTERS.md`](TESTERS.md) is the testers' guide.
+- **Releases:** v0.3.2 (October 27, 7321952: the Windows exe and the source zip) is the latest: 0.3.1 plus the fixes
+  of the MacBook run's reports (keeping the computer awake and sleep-aware calls, agy 1.4.7, the tools preamble, a
+  failed unit as a gap, a Codex CLI too old for its model, a new audit reusing a stopped one). Work continues on
+  `main`; [`TESTERS.md`](TESTERS.md) is the testers' guide.
 - **Break, October 25 to 31:** v0.3.1 goes to friends to test; their reports arrive as GitHub issues (Send to the
   developer) or as a run's copied report. Work resumes after the Claude weekly reset on October 31, at the top of the order below.
 - **Testers' reports, October 27:** the owner's own run of v0.3.1 on a MacBook (GitHub issues #2 to #9,
-  [real runs](docs/qa/real-runs.md#the-runs)). Every defect in them is fixed on `main` (604d5ac to 04a155f), checked on
-  Windows and Linux; not released yet. #7 is a request, placed under "Need design".
+  [real runs](docs/qa/real-runs.md#the-runs)). Every defect in them is fixed (604d5ac to 04a155f), checked on Windows
+  and Linux, and released in v0.3.2; those issues are closed. #7 is a request, placed under "Need design".
 - **Default lineup:** New run starts on Claude Code and Codex (`subscription-audit`: two finders at depth deep, no
   peer-review round, plan critic off); balanced and cheap depths, a third finder and the critic are separate
   choices in New run (October 25). Gemini is only ever the opt-in third finder, labelled with Google's terms. The Feature templates still use Antigravity as
@@ -35,10 +36,9 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
 ## Order of work
 
 1. **Testers' reports on v0.3.1:** a defect is shown by a failing test, fixed on `main` and released as 0.3.x; a
-   request goes into the lists below. Next: release 0.3.2 with the fixes of October 27 on the owner's go, after a
-   cheap shakedown on the MacBook that lets it sleep once (keeping awake, the sleep seen, its calls sent again and
-   the two-minute wait were only faked in tests; Linux's `systemd-inhibit` too), then close issues #2 to #6, #8 and
-   #9. Also: the exe's window prints five Ajv "strict mode: use allowUnionTypes" lines at start (since 0.3.0 at
+   request goes into the lists below. Next: a cheap run of v0.3.2 on the MacBook that lets it sleep once (keeping
+   awake, the sleep seen, its calls sent again and the two-minute wait were only faked in tests; Linux's
+   `systemd-inhibit` too). Also: the exe's window prints five Ajv "strict mode: use allowUnionTypes" lines at start (since 0.3.0 at
    least), which mean nothing to a tester. Left by the October 27 fixes: the CLI has no command for a new audit that
    reuses a stopped run (its refusal names `run <config> --incremental <id>`); the blocked-run banner shows a
    refused resume's raw text; native-harness and batch-lane calls get no sleep handling; stage and run times on the
