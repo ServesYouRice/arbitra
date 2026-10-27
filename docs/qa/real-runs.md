@@ -17,6 +17,7 @@ the P20 pilot in `git show e917ec7:WORK-REMAINING.md`, the first narratives of t
 | nextra, Oct 23 | `run-ccd3ccea` | 172 files, 38,967 lines | 105 min | 683 | 26.8M (688) | 126 of 415 confirmed (1 critical, 21 high, 104 medium) | 213K | 40 / 30 / 3 |
 | rokbot, Oct 24 | `run-869f90f0` | 125 files, about 26,100 lines | 71 min | 418 | 15.8M (605) | 102 of 300 confirmed (10 high, 92 medium) | 155K | 45 / 15 / — |
 | veritra, Oct 25 | `run-e5546c4c` | 416 files, 103,575 lines | about 5 h 25 | 1,451 | 70.0M (675) | 256 of 929 confirmed (36 high, 220 medium) | 273K | 133 / 50 / — |
+| Java and React project (MacBook), Oct 26–27 | `run-755a4cc3` | about 33,000 lines | 28 h wall, most of it asleep or stopped | 917 | 42.6M (about 1,290) | 84 of 275 confirmed (1 critical, 18 high, 65 medium) | 507K | 19 / 11 / 19 |
 
 beachflag ran before confirmed issues were reported, so its counts are accepted issues. beachflag, rokavatar and
 blog ran with one peer-review round; commentanywhere, nextra and rokbot without one, the default since October 23.
@@ -75,11 +76,25 @@ What each run changed:
   and reserved Sol's whole 128,000-token output ceiling, so no batch fit (766a289); and the revision's calls carried
   the same notes (3539d7c). A fourth stop was a slip in that last fix: rewording a sentence every critic batch
   carries changed their recorded inputs (23e0f59).
+- **The MacBook run**, the first on a tester's machine: v0.3.1 from the download, macOS on Apple silicon, three
+  finders at depth deep (Opus 5.5 xhigh, GPT-6.1 Sol xhigh, Gemini 3.8 Flash medium), a private project the owner
+  keeps there. It reached COMPLETED after several resumes; the gate failed on unresolved issues, degraded coverage
+  and blocking plan questions. 118 of the 275 candidates were not checked, 27 the source could not settle. Its
+  reports are GitHub issues #2 to #9, all fixed on `main` on October 27 (604d5ac, 2bf3a54, f55ca5b, 4609874,
+  04a155f): agy 1.4.7's bare `unknown` step failed every Gemini call (#2); the Mac's idle sleep ran out the
+  15-minute call limits in its dark wakes and failed the run twice as provider timeouts, once blamed on Claude and
+  once on Sol (#3; 20 of Sol's 143 calls failed, 1,271 call-minutes); the ChatGPT app's own Codex CLI (0.158.0) did
+  not know Sol and the error blamed the plan (#4); Gemini made no tool call in 10 discovery calls, since the CLI
+  preamble forbade reading (#5); a hex identifier read as a failed call's reason, and one failed unit ended a
+  finder's whole discovery, Gemini's after 5 of 32 units (#6); five unrelated files edited the next morning made
+  the failed run unresumable and its finished discovery unusable (#8). Gemini, with no tool call, confirmed 19
+  issues no other finder found, as many as Opus, for 5.0M discovery tokens against Opus's 18.3M.
 
 Verification costs 75K to 86K tokens a question. Gemini's confirmed finds that no other model made, against what its
 audit cost: rokavatar 0 for 2.1M tokens at high thinking (560 call-minutes; 17 of 51 calls lost, 12 to its content
 filter and 5 to its output ceiling), 7 in that run's replay; blog 2 for 1.9M at medium (135 call-minutes; 9 of 47
-calls refused); commentanywhere 2 for 1.1M (6 of 21 refused); nextra 3 for 2.0M (2 of 39 refused). Gemini has been
+calls refused); commentanywhere 2 for 1.1M (6 of 21 refused); nextra 3 for 2.0M (2 of 39 refused); the MacBook run 19 for 5.0M
+(200 call-minutes; 8 of 94 calls failed, most before the fix for agy 1.4.7). Gemini has been
 opt-in since v0.2.1, so its share is measured only on a run that uses it.
 
 ## Peer review measured (October 23)

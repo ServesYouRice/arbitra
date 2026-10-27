@@ -1,6 +1,6 @@
 # Remaining work
 
-Updated October 25, 2026, on `main`. This file lists open work only, each item with its next step and its place in
+Updated October 27, 2026, on `main`. This file lists open work only, each item with its next step and its place in
 the order below; an item is deleted once it is done, and Git keeps its history. Run records and measurements are in
 [real-project runs](docs/qa/real-runs.md), phase status in the [completion plan](docs/completion-plan.md), the design
 review in the [design audit](docs/design-audit.md), the research behind the pipeline in [research](docs/research.md),
@@ -14,6 +14,9 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
   rebuilding at every start. Work continues on `main`; [`TESTERS.md`](TESTERS.md) is the testers' guide.
 - **Break, October 25 to 31:** v0.3.1 goes to friends to test; their reports arrive as GitHub issues (Send to the
   developer) or as a run's copied report. Work resumes after the Claude weekly reset on October 31, at the top of the order below.
+- **Testers' reports, October 27:** the owner's own run of v0.3.1 on a MacBook (GitHub issues #2 to #9,
+  [real runs](docs/qa/real-runs.md#the-runs)). Every defect in them is fixed on `main` (604d5ac to 04a155f), checked on
+  Windows and Linux; not released yet. #7 is a request, placed under "Need design".
 - **Default lineup:** New run starts on Claude Code and Codex (`subscription-audit`: two finders at depth deep, no
   peer-review round, plan critic off); balanced and cheap depths, a third finder and the critic are separate
   choices in New run (October 25). Gemini is only ever the opt-in third finder, labelled with Google's terms. The Feature templates still use Antigravity as
@@ -32,8 +35,14 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
 ## Order of work
 
 1. **Testers' reports on v0.3.1:** a defect is shown by a failing test, fixed on `main` and released as 0.3.x; a
-   request goes into the lists below. Also: the exe's window prints five Ajv "strict mode: use allowUnionTypes"
-   lines at start (since 0.3.0 at least), which mean nothing to a tester.
+   request goes into the lists below. Next: release 0.3.2 with the fixes of October 27 on the owner's go, after a
+   cheap shakedown on the MacBook that lets it sleep once (keeping awake, the sleep seen, its calls sent again and
+   the two-minute wait were only faked in tests; Linux's `systemd-inhibit` too), then close issues #2 to #6, #8 and
+   #9. Also: the exe's window prints five Ajv "strict mode: use allowUnionTypes" lines at start (since 0.3.0 at
+   least), which mean nothing to a tester. Left by the October 27 fixes: the CLI has no command for a new audit that
+   reuses a stopped run (its refusal names `run <config> --incremental <id>`); the blocked-run banner shows a
+   refused resume's raw text; native-harness and batch-lane calls get no sleep handling; stage and run times on the
+   run page still count time asleep; the P20 premise driver does not keep the computer awake.
 2. **veritra's plan,** after the reset on October 31: re-export run `run-e5546c4c` on the current build, carry its 227
    tasks out on veritra's `dev` branch (never `main`), count what the prompts did not cover, and take the export,
    premise-check and write-scope measurements under "Measure on the next runs".
@@ -88,6 +97,17 @@ From the research review; each decides a cut or a build.
 - **Discovery units split at the time limit** (built October 25, `timeLimitSplits`): how many units split, whether a
   part ran past the limit again (it is then sent again whole), and the minutes and tokens against veritra's 8 calls
   sent again whole.
+- **Gemini with the tools preamble** (#5, built October 27): replayed, Gemini asked for code 4 times of 4 instead of
+  0 of 3, twice through agy's own tools first, each a retry. On the next run with Gemini: how many of its discovery
+  calls use the snapshot tools, how many try agy's own (each costs an attempt; if often, answer them with a short
+  corrective turn in the same conversation instead), and whether reading changes what it confirms. On the MacBook
+  run it confirmed 19 issues no other finder found, as many as Opus, with no tool call at all.
+- **GPT-6.1 Sol's discovery at xhigh** (#3): awake, its turns took 5 to 12 minutes at 1 to 3 output tokens a second,
+  most of the 15-minute limit, where its first turns took 25 to 60 seconds. Compare a run's Sol turns at xhigh and
+  at high before the limit or the default effort changes.
+- **Codex's system skills:** every Codex call installs its system skills under `~/.codex` (on October 26, calls side
+  by side printed "failed to install system skills" to stderr). Check whether skills instructions reach the prompt,
+  and whether a setting turns them off.
 - **The verifier's required reason:** how often an answer leaves it out and costs a repair.
 - **A Sonnet second look at medium reports Opus leaves unsettled:** build it as an option, off by default; it decided
   6 of 7 rightly on nextra, at about 28K tokens a question.
@@ -168,6 +188,18 @@ real runs' Summary and every other place measured 0 px at 390 px. It owns:
   presets named by count, and the variant search (`workflow.variantSearch`, off; Gemini searches when it is a
   finder, else Sonnet 5.5 · high). Left: the measured runs that set the defaults; the renamed presets' browser tests
   have not run.
+- **Which read tools finders get** (owner's proposal, issue #7, October 27): every finder has the five snapshot tools
+  (on the MacBook run 1,156 reads, 794 literal searches, 46 stats and 8 tree listings; 12 calls ran out of tool turns
+  and 22 spent the budget for reads beyond their unit). In order: a symbol lookup (definition and references, from a
+  tree-sitter or ctags-style index built at preflight), since many searches were a function name and `(`; tool turns
+  and the beyond-unit budget set by depth (deep 12 to 16 turns); then Git history behind a switch, off by default
+  (`repo.gitLog`, `repo.gitDiff`, blame, pinned to the snapshot's commit; emails redacted; `docs/privacy.md` says that
+  messages and authors go to the vendors); then linters, type checkers and an offline advisory lookup run once by
+  arbitra in the isolated execution, their output a readable artifact; regex search last (17 of 334 distinct
+  queries had regex-like characters, all literal call text). Claude Code's own `Read`, `Grep` and `Glob` over a
+  redacted copy only as an opt-in, and only if a side-by-side run shows more confirmed issues (results `native:`, not
+  pooled). Stay refused: a shell for any vendor, Antigravity's own tools, web search and fetch, writes, MCP servers,
+  subagents, skills and the operator's own CLI configuration.
 - **Compare the right pairs for duplicates** (*before veritra*): cross-auditor pairs first, same-answer pairs last (1
   merge in 332), a higher ceiling when batched, and TF-IDF neighbours in other files (the export's version found 4 of
   nextra's 5 overlaps).
