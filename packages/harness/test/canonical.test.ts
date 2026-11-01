@@ -29,6 +29,21 @@ describe("canonical harness", () => {
     expect(requiredAt(requests, 1).messages.at(-2)).toMatchObject({ role: "assistant", toolCalls: [{ id: "call-1" }] });
   });
 
+  it("says the tool turns left at the end of a turn's last result when asked to, and leaves the requests as they were when not", async () => {
+    const run = async (announceToolTurns?: boolean) => {
+      const requests: HarnessModelRequest[] = [];
+      const runtime: HarnessProviderRuntime = { async invoke(request) {
+        requests.push(request);
+        return requests.length <= 2 ? { text: null, toolCalls: [{ id: `a${requests.length}`, name: "t", arguments: {} }, { id: `b${requests.length}`, name: "t", arguments: {} }], refusal: null, usage } : { text: "done", toolCalls: [], refusal: null, usage };
+      } };
+      const tools = { async invoke() { return { ok: true, summary: "s", content: "c", artifact: null, truncated: false, trust: "untrusted" as const }; } };
+      await collect(new CanonicalHarnessAdapter(runtime).run({ id: "n", modelId: "m", maximumOutputTokens: 10, maxToolTurns: 3, ...(announceToolTurns === undefined ? {} : { announceToolTurns }) }, { text: "p", hash: "h" }, [], tools, { mode: "feature", round: 1, requirements: {}, signal: new AbortController().signal, toolContext: { protect: (content) => content } }).events);
+      return requiredAt(requests, 2).messages.filter(({ role }) => role === "tool").map(({ content }) => JSON.parse(content) as Record<string, unknown>);
+    };
+    expect((await run(true)).map(({ toolTurnsLeft }) => toolTurnsLeft)).toEqual([undefined, 2, undefined, 1]);
+    expect((await run()).every((result) => !Object.hasOwn(result, "toolTurnsLeft"))).toBe(true);
+  });
+
   it("enforces the model-profile tool-loop bound", async () => {
     const requests: HarnessModelRequest[] = [];
     const runtime: HarnessProviderRuntime = { async invoke(request) { requests.push(request); return { text: null, toolCalls: [{ id: "again", name: "repo.readFile", arguments: {} }], refusal: null, usage }; } };
