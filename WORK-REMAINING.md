@@ -9,7 +9,7 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
 
 ## State
 
-- **Releases:** v0.4.0 (November 1: the Windows exe and the source zip) is the latest: cheaper reading and checking, a
+- **Releases:** v0.4.0 (November 1, 301aa45: the Windows exe and the source zip) is the latest: cheaper reading and checking, a
   Codex usage warning, tests left out of an audit until ticked in, and plans no longer ignored by Git. Work continues on
   `main`; [`TESTERS.md`](TESTERS.md) is the testers' guide.
 - **nananananana, November 1:** audited on v0.3.2 ([real runs](docs/qa/real-runs.md#the-runs)); its plan is in the owner's
