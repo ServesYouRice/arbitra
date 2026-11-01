@@ -14,7 +14,7 @@ import { withStrongestOffered } from "./model-catalog.js";
 import { getIn, modeOf, placeholders, setIn, suggestedName, withGraph, type Draft, type Mode } from "./draft.js";
 import { DEFAULT_START, SCRIPTED_AUDIT, TEMPLATES } from "./templates.js";
 import { isDepthLineup } from "./depth.js";
-import { knownFiles, leftOut, reading, withPath } from "./reading.js";
+import { knownFiles, leftOut, reading, withPath, withTests } from "./reading.js";
 import { HowThorough, PlanScope, StepsList } from "./HowThorough.js";
 import { OverLimit, WhatToRead } from "./WhatToRead.js";
 import { antigravityState, missingClis, offeredModels, ThisComputer, type DetectedEnvironment } from "./ThisComputer.js";
@@ -72,6 +72,7 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
   const [naming, setNaming] = useState<string | null>(null);
   // Suggested leave-outs the person ticked back in: a later check does not leave them out again.
   const readAnyway = useRef(new Set<string>());
+  const testsChosen = useRef(false);
   const draftRef = useRef(draft); draftRef.current = draft;
   const loadedRef = useRef(loaded); loadedRef.current = loaded;
   const repositoryRef = useRef(repository); repositoryRef.current = repository;
@@ -135,9 +136,11 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
   const applyCheck = (result: PreflightResult, value: Draft): Draft => {
     let exclude = excludeOf(value);
     if (autoLeaveOut) for (const { path } of result.estimate?.suggestedLeaveOut ?? []) if (!readAnyway.current.has(path) && !leftOut(exclude, path)) exclude = withPath(exclude, path, true);
+    const files = result.estimate?.read?.files;
+    // An audit leaves the tests out until they are ticked in: half of a project's lines on the largest run, for 6 to 15% of the confirmed issues.
+    if (autoLeaveOut && modeOf(value) === "audit" && !testsChosen.current && files !== undefined) exclude = withTests(exclude, files, false);
     let next = exclude.length === excludeOf(value).length ? value : withExclude(value, exclude);
     const estimate = result.estimate?.estimate;
-    const files = result.estimate?.read?.files;
     if (estimate !== undefined) next = sizedLimit(next, files === undefined ? estimate.lines : reading(files, exclude).lines, estimate.auditors);
     return next;
   };
@@ -297,7 +300,7 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
       {files === null && result?.folders !== undefined ? <OverLimit folders={result.folders.folders} complete={result.folders.complete} limit={Number(/REPOSITORY_FILE_LIMIT_EXCEEDED:(\d+)/u.exec(result.estimateError ?? "")?.[1] ?? 1_000)}
         exclude={exclude} onExclude={(next) => setDraft((current) => withExclude(current, next))} />
         : files === null ? <p className="note">{project === "" ? "Choose the project to see its folders, its tests and what each holds of the estimate." : result?.estimate == null ? "The folders show once the project is read." : `${counted(result.estimate.estimate.files, "file")} · ${result.estimate.estimate.lines.toLocaleString("en")} lines`}</p>
-        : <WhatToRead files={files} complete={result?.estimate?.read?.complete === true} suggestions={result?.estimate?.suggestedLeaveOut ?? []} exclude={exclude} onExclude={(next) => setDraft((current) => withExclude(current, next))} onSuggestion={onSuggestion} />}
+        : <WhatToRead files={files} complete={result?.estimate?.read?.complete === true} suggestions={result?.estimate?.suggestedLeaveOut ?? []} exclude={exclude} onExclude={(next) => setDraft((current) => withExclude(current, next))} onSuggestion={onSuggestion} onTestsChosen={() => { testsChosen.current = true; }} />}
     </Section>
 
     {mode === "audit" && !scripted ? <Section number={number()} title="What goes into the plan" id="plan-scope">

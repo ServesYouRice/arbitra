@@ -17,9 +17,9 @@ export function share(part: number, total: number): string {
  * files that look generated, vendored or minified, left out with their reason unless ticked back in. Each changes
  * the scope's leave-outs, and the estimate follows at once.
  */
-export function WhatToRead({ files, complete, suggestions, exclude, onExclude, onSuggestion }: {
+export function WhatToRead({ files, complete, suggestions, exclude, onExclude, onSuggestion, onTestsChosen }: {
   readonly files: readonly ReadFile[]; readonly complete: boolean; readonly suggestions: readonly Suggestion[]; readonly exclude: readonly string[];
-  readonly onExclude: (next: readonly string[]) => void; readonly onSuggestion: (path: string, leave: boolean) => void;
+  readonly onExclude: (next: readonly string[]) => void; readonly onSuggestion: (path: string, leave: boolean) => void; readonly onTestsChosen: () => void;
 }): ReactElement {
   const groups = folderGroups(files);
   const read = reading(files, exclude);
@@ -45,9 +45,9 @@ export function WhatToRead({ files, complete, suggestions, exclude, onExclude, o
         <td>{entry}</td><td colSpan={2}>not counted</td><td>left out</td>
       </tr>)}</tbody>
     </table></div>
-    {tests.length === 0 ? <p className="note">No tests found by their names or folders.</p> : <label className="box-row tick"><input aria-label="audit the tests" checked={testsOn} type="checkbox" onChange={(event) => onExclude(withTests(exclude, files, event.target.checked))} />
+    {tests.length === 0 ? <p className="note">No tests found by their names or folders.</p> : <label className="box-row tick"><input aria-label="audit the tests" checked={testsOn} type="checkbox" onChange={(event) => { onTestsChosen(); onExclude(withTests(exclude, files, event.target.checked)); }} />
       <span><span className="mono box-row__title">Audit the tests too · {testsOn ? `${read.testLines.toLocaleString("en")} of these lines (${share(read.testLines, read.lines)})` : `${sum(tests).toLocaleString("en")} lines left out`}</span>
-        <span className="field__hint">On four runs, 6 to 15% of confirmed issues were in tests, mostly tests that cannot catch the defect they are named for.</span></span></label>}
+        <span className="field__hint">Left out unless ticked. On four runs, 6 to 15% of confirmed issues were in tests, mostly tests that cannot catch the defect they are named for.</span></span></label>}
     {suggestions.length === 0 ? null : <details className="box-fold">
       <summary>Left out · {counted(generated.length, "generated file")} · {sum(generated).toLocaleString("en")} lines</summary>
       <ul aria-label="generated files" className="plain-list generated">{suggestions.map(({ path, lines, reason }) => {

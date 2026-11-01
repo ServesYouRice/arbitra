@@ -128,10 +128,11 @@ describe("the new-run page", () => {
     project("/work/fixture");
     expect(await screen.findByText("Ready to start.", {}, AFTER_CHECK)).toBeTruthy();
     expect(bodies).toEqual([{ config: template("subscription-audit").config, repository: "/work/fixture" }]);
-    expect(screen.getByText("4 source files · 1,000 lines, 100 of them tests")).toBeTruthy();
+    // An audit leaves the tests out until they are ticked in.
+    expect(screen.getByText("3 source files · 900 lines")).toBeTruthy();
     const deep = screen.getByRole("radio", { name: "Deep" }).closest(".lineup-card")?.textContent ?? "";
-    expect(deep).toContain("≈ 1.2M–1.4M tokens");
-    expect(deep).toContain("Claude Code ≈ 1M–1.2M · Codex ≈ 156K–182K");
+    expect(deep).toContain("≈ 1.1M–1.3M tokens");
+    expect(deep).toContain("Claude Code ≈ 940K–1.1M · Codex ≈ 140K–164K");
     expect(deep).toContain("time not measured at this size: the smallest measured, commentanywhere, 11,719 lines, took 40 min");
     expect(deep).toContain("basis: 2 measured runs, 1,290–1,330 tokens a line");
     // The whole basis is one click down, below the cards.
@@ -147,15 +148,15 @@ describe("the new-run page", () => {
     await screen.findByRole("radio", { name: "Deep" });
     project("/work/fixture");
     const folders = await screen.findByRole("table", { name: "folders" }, AFTER_CHECK);
-    expect(within(folders).getAllByRole("row").slice(1).map(({ textContent }) => textContent)).toEqual(["mobile260060%", "server240040%"]);
+    expect(within(folders).getAllByRole("row").slice(1).map(({ textContent }) => textContent)).toEqual(["mobile260067%", "server240033%"]);
+    expect(checked("audit the tests")).toBe(false);
+    expect(leftOutPaths()).toBe("server/main_test.go");
     fireEvent.click(screen.getByRole("checkbox", { name: "read mobile" }));
     expect(within(folders).getAllByRole("row").slice(1).map(({ textContent }) => textContent)).toEqual(["mobile2600left out", "server2400100%"]);
-    expect(screen.getByText("2 source files · 400 lines, 100 of them tests")).toBeTruthy();
-    expect(checked("audit the tests")).toBe(true);
-    fireEvent.click(screen.getByRole("checkbox", { name: "audit the tests" }));
-    expect(leftOutPaths()).toBe("mobile\nserver/main_test.go");
     expect(screen.getByText("1 source file · 300 lines")).toBeTruthy();
     fireEvent.click(screen.getByRole("checkbox", { name: "audit the tests" }));
+    expect(leftOutPaths()).toBe("mobile");
+    expect(screen.getByText("2 source files · 400 lines, 100 of them tests")).toBeTruthy();
     fireEvent.click(screen.getByRole("checkbox", { name: "read mobile" }));
     expect(leftOutPaths()).toBe("");
     await new Promise((resolve) => { setTimeout(resolve, 900); });
@@ -176,16 +177,16 @@ describe("the new-run page", () => {
     expect(generated.closest("details")?.querySelector("summary")?.textContent).toBe("Left out · 1 generated file · 200 lines");
     expect(generated.textContent).toBe("mobile/lib/db.g.dartits first lines say: // GENERATED CODE - DO NOT MODIFY BY HAND200");
     expect(checked("leave out mobile/lib/db.g.dart")).toBe(true);
-    expect(leftOutPaths()).toBe("mobile/lib/db.g.dart");
+    expect(leftOutPaths()).toBe("mobile/lib/db.g.dart\nserver/main_test.go");
     // Leaving it out is the check's own setting: the page is not edited by it.
-    expect(screen.getByText("3 source files · 800 lines, 100 of them tests")).toBeTruthy();
+    expect(screen.getByText("2 source files · 700 lines")).toBeTruthy();
     fireEvent.click(screen.getByRole("checkbox", { name: "leave out mobile/lib/db.g.dart" }));
-    expect(leftOutPaths()).toBe("");
+    expect(leftOutPaths()).toBe("server/main_test.go");
     // A later check does not leave it out again.
     fireEvent.click(screen.getByRole("radio", { name: "Balanced" }));
     await waitFor(() => expect(bodies).toHaveLength(2), AFTER_CHECK);
-    expect(getIn(bodies[1]?.config ?? {}, ["scope", "exclude"])).toBeUndefined();
-    expect(leftOutPaths()).toBe("");
+    expect(getIn(bodies[1]?.config ?? {}, ["scope", "exclude"])).toEqual(["server/main_test.go"]);
+    expect(leftOutPaths()).toBe("server/main_test.go");
   });
 
   it("sets the depth, the third finder and each step as a choice of its own, with the plan review recommended off and why", async () => {
@@ -270,7 +271,7 @@ describe("the new-run page", () => {
     expect(within(screen.getByRole("table", { name: "folders" })).getAllByRole("row").at(-1)?.textContent).toBe("vendornot countedleft out");
     fireEvent.click(screen.getByRole("checkbox", { name: "read vendor" }));
     await waitFor(() => expect(bodies).toHaveLength(3), AFTER_CHECK);
-    expect(getIn(bodies[2]?.config ?? {}, ["scope", "exclude"])).toBeUndefined();
+    expect(getIn(bodies[2]?.config ?? {}, ["scope", "exclude"])).toEqual(["server/main_test.go"]);
   });
 
   it("keeps the tests' tick and one row per folder when an over-limit project's next read no longer lists the tests", async () => {
@@ -288,16 +289,18 @@ describe("the new-run page", () => {
     await screen.findByRole("radio", { name: "Deep" });
     project("/work/fixture");
     await screen.findByRole("checkbox", { name: "audit the tests" }, AFTER_CHECK);
+    expect(checked("audit the tests")).toBe(false);
     fireEvent.click(screen.getByRole("checkbox", { name: "audit the tests" }));
     await waitFor(() => expect(bodies).toHaveLength(2), AFTER_CHECK);
+    expect(getIn(bodies[1]?.config ?? {}, ["scope", "exclude"])).toBeUndefined();
+    await screen.findByText("Ready to start.", {}, AFTER_CHECK);
+    fireEvent.click(screen.getByRole("checkbox", { name: "audit the tests" }));
+    await waitFor(() => expect(bodies).toHaveLength(3), AFTER_CHECK);
     expect(await screen.findByText("Ready to start.", {}, AFTER_CHECK)).toBeTruthy();
     expect(screen.queryByText("No tests found by their names or folders.")).toBeNull();
     expect(checked("audit the tests")).toBe(false);
     expect(screen.getByText(/100 lines left out/u)).toBeTruthy();
     expect(within(screen.getByRole("table", { name: "folders" })).queryByText("server/main_test.go")).toBeNull();
-    fireEvent.click(screen.getByRole("checkbox", { name: "audit the tests" }));
-    await waitFor(() => expect(bodies).toHaveLength(3), AFTER_CHECK);
-    expect(getIn(bodies[2]?.config ?? {}, ["scope", "exclude"])).toBeUndefined();
   });
 
   it("leaves out a file over the read limit with one click, and reads the project again", async () => {
@@ -362,11 +365,11 @@ describe("the new-run page", () => {
     project("/work/big");
     expect(await screen.findByText("Ready to start.", {}, AFTER_CHECK)).toBeTruthy();
     const codex = await screen.findByText(/^A run this size is likely to pause on Codex's five-hour window/u);
-    expect(codex.textContent).toBe("A run this size is likely to pause on Codex's five-hour window: about 120–145% of it, from 1.5–1.7% of a window per 1,000 lines on the measured runs. A window held about 10.6M tokens on a ChatGPT plan; on your plan it may hold more or less. A run that pauses carries on by itself after the reset.");
-    expect(screen.getByText(/^A run this size is likely to pause on Claude Code's five-hour window/u)).toBeTruthy();
+    expect(codex.textContent).toBe("A run this size is likely to pause on Codex's five-hour window: about 120–145% of it, from 1.5–1.7% of a window per 1,000 lines on the measured runs. A window held about 10.6M tokens on ChatGPT Plus; on your plan it may hold more or less. A run that pauses carries on by itself after the reset.");
+    expect(screen.queryByText(/on Claude Code's five-hour window/u)).toBeNull();
     expect((screen.getByRole("button", { name: "Start audit" }) as HTMLButtonElement).disabled).toBe(false);
     // Where each window was measured is one click down.
-    expect(screen.getByText(/Codex's five-hour window, about 10\.6M tokens on a ChatGPT plan: November 1, 2026, nananananana/u)).toBeTruthy();
+    expect(screen.getByText(/Codex's five-hour window, about 10\.6M tokens on ChatGPT Plus: November 1, 2026, nananananana/u)).toBeTruthy();
   });
 
   it("says nothing alarming when the meters cannot be read, and warns of a window already used when a smaller run would not fit what is left", async () => {

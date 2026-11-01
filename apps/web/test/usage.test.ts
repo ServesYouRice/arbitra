@@ -50,15 +50,14 @@ const CODEX_AT = (usedPercent: number): UsageWindows => ({ checkedAt: "2026-11-0
 
 describe("what a run takes of a vendor's usage window, as measured on one plan", () => {
   it("records what each window held, with where it was measured", () => {
-    expect(PLAN_WINDOWS.map(({ vendor, window, tokens, atLeast }) => [vendor, window, tokens, atLeast])).toEqual([["Codex", "five-hour", 10_600_000, false], ["Claude Code", "five-hour", 57_000_000, false], ["Claude Code", "weekly", 315_000_000, true]]);
-    expect(windowSources()[0]).toBe("Codex's five-hour window, about 10.6M tokens on a ChatGPT plan: November 1, 2026, nananananana (84,380 lines, Opus and Sol at xhigh): Codex's five-hour window went from 0 to 100% for about 10.6M tokens, Sol's share of the whole run was 14.8M, and the run paused for 3 hours.");
+    expect(PLAN_WINDOWS.map(({ vendor, window, tokens, atLeast }) => [vendor, window, tokens, atLeast])).toEqual([["Codex", "five-hour", 10_600_000, false], ["Claude Code", "weekly", 315_000_000, true]]);
+    expect(windowSources()[0]).toBe("Codex's five-hour window, about 10.6M tokens on ChatGPT Plus: November 1, 2026, nananananana (84,380 lines, Opus and Sol at xhigh): Codex's five-hour window went from 0 to 100% for about 10.6M tokens, Sol's share of the whole run was 14.8M, and the run paused for 3 hours.");
   });
 
   it("says a run of the size of the one that paused is likely to pause on Codex's five-hour window, with the measured basis, and does not block", () => {
-    const [codex, claude, ...rest] = pauseWords(deep(84_380));
-    expect(codex).toBe("A run this size is likely to pause on Codex's five-hour window: about 120–145% of it, from 1.5–1.7% of a window per 1,000 lines on the measured runs. A window held about 10.6M tokens on a ChatGPT plan; on your plan it may hold more or less. A run that pauses carries on by itself after the reset.");
-    // Claude's five-hour window held about 57M tokens on Max 20x; the week held at least 315M, so a run this size is nowhere near it.
-    expect(claude).toContain("on Claude Code's five-hour window: about 150–185% of it");
+    const [codex, ...rest] = pauseWords(deep(84_380));
+    expect(codex).toBe("A run this size is likely to pause on Codex's five-hour window: about 120–145% of it, from 1.5–1.7% of a window per 1,000 lines on the measured runs. A window held about 10.6M tokens on ChatGPT Plus; on your plan it may hold more or less. A run that pauses carries on by itself after the reset.");
+    // Claude's week held at least 315M tokens, so a run this size is nowhere near it, and its five-hour window has no known size.
     expect(rest).toEqual([]);
   });
 
@@ -74,16 +73,16 @@ describe("what a run takes of a vendor's usage window, as measured on one plan",
     expect(pauseWords(deep(65_000))[0]).toMatch(/^A run this size may pause on Codex's five-hour window: about 95–115% of it/u);
     // The week held at least 315M tokens, so a run over that is not certain to pause on it.
     const huge = pauseWords(deep(320_000));
-    expect(huge.map((words) => /^A run this size (.*?) window:/u.exec(words)?.[1])).toEqual(["is likely to pause on Codex's five-hour", "is likely to pause on Claude Code's five-hour", "may pause on Claude Code's weekly"]);
-    expect(huge[2]).toContain("up to 105–125% of it");
-    expect(huge[2]).toContain("A window held at least 315M tokens on Claude Max 20x");
+    expect(huge.map((words) => /^A run this size (.*?) window:/u.exec(words)?.[1])).toEqual(["is likely to pause on Codex's five-hour", "may pause on Claude Code's weekly"]);
+    expect(huge[1]).toContain("up to 105–125% of it");
+    expect(huge[1]).toContain("A window held at least 315M tokens on Claude Max 20x");
   });
 
   it("warns of a window already mostly used, from the meter as read now, and stays quiet when the room is enough or the meter was not read", () => {
     const small = deep(10_000);
     expect(pauseWords(small)).toEqual([]);
     expect(pauseWords(small, CODEX_AT(5), NOW)).toEqual([]);
-    expect(pauseWords(small, CODEX_AT(90), NOW)).toEqual(["Codex's five-hour window is 90% used now, and a run this size takes about 10–20% of it (as measured on a ChatGPT plan), so it may pause before it ends; the window resets 13:31. A run that pauses carries on by itself after the reset."]);
+    expect(pauseWords(small, CODEX_AT(90), NOW)).toEqual(["Codex's five-hour window is 90% used now, and a run this size takes about 10–20% of it (as measured on ChatGPT Plus), so it may pause before it ends; the window resets 13:31. A run that pauses carries on by itself after the reset."]);
     expect(pauseWords(small, { ...CODEX_AT(90), codex: { state: "not_read", reason: "Codex is not installed" } }, NOW)).toEqual([]);
   });
 });

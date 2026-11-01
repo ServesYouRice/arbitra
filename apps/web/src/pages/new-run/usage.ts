@@ -108,10 +108,10 @@ export interface PlanWindow {
   readonly source: string;
 }
 export const PLAN_WINDOWS: readonly PlanWindow[] = [
-  { vendor: "Codex", window: "five-hour", tokens: 10_600_000, atLeast: false, plan: "a ChatGPT plan",
+  { vendor: "Codex", window: "five-hour", tokens: 10_600_000, atLeast: false, plan: "ChatGPT Plus",
     source: "November 1, 2026, nananananana (84,380 lines, Opus and Sol at xhigh): Codex's five-hour window went from 0 to 100% for about 10.6M tokens, Sol's share of the whole run was 14.8M, and the run paused for 3 hours" },
-  { vendor: "Claude Code", window: "five-hour", tokens: 57_000_000, atLeast: false, plan: "Claude Max 20x",
-    source: "meter against tokens since October 22, 2026: about 0.57M tokens a point of the five-hour meter" },
+  // Claude's five-hour window has no row: October's about 57M does not hold, since on November 1 Opus used 62.8M in
+  // under two hours and no limit was reached.
   { vendor: "Claude Code", window: "weekly", tokens: 315_000_000, atLeast: true, plan: "Claude Max 20x",
     source: "meter against tokens since October 22, 2026: the week held at least 315M tokens" },
 ];
