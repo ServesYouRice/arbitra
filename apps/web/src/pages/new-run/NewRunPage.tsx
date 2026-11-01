@@ -73,6 +73,10 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
   // Suggested leave-outs the person ticked back in: a later check does not leave them out again.
   const readAnyway = useRef(new Set<string>());
   const testsChosen = useRef(false);
+  // The leave-outs a check added itself, which go with the project it read; those a person wrote or ticked stay.
+  const checkAdded = useRef(new Set<string>());
+  // A lineup imported from a file keeps the leave-outs it says, as a saved one does.
+  const imported = useRef(false);
   const draftRef = useRef(draft); draftRef.current = draft;
   const loadedRef = useRef(loaded); loadedRef.current = loaded;
   const repositoryRef = useRef(repository); repositoryRef.current = repository;
@@ -84,7 +88,7 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
   // The lineup is part of the address, so a template, a saved lineup or a rerun is a link.
   useEffect(() => {
     let active = true;
-    setLoadError(null); setCheck(null); setFailure([]); setNotice(null); setNaming(null); readAnyway.current = new Set();
+    setLoadError(null); setCheck(null); setFailure([]); setNotice(null); setNaming(null); readAnyway.current = new Set(); checkAdded.current = new Set(); testsChosen.current = false; imported.current = false;
     void startingPoint(from, graph, apis).then((value) => { if (!active) return; setLoaded(value); setDraft(value.draft); if (value.repository !== undefined) setRepository(value.repository); }, (cause: unknown) => { if (active) setLoadError(message(cause)); });
     return () => { active = false; };
   }, [from, graph, apis]);
@@ -135,10 +139,16 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
   /** The lineup once a check has read the project: generated files left out (unless ticked back in), the stop sized. */
   const applyCheck = (result: PreflightResult, value: Draft): Draft => {
     let exclude = excludeOf(value);
-    if (autoLeaveOut) for (const { path } of result.estimate?.suggestedLeaveOut ?? []) if (!readAnyway.current.has(path) && !leftOut(exclude, path)) exclude = withPath(exclude, path, true);
+    const automatic = autoLeaveOut && !imported.current;
+    if (automatic) for (const { path } of result.estimate?.suggestedLeaveOut ?? []) if (!readAnyway.current.has(path) && !leftOut(exclude, path)) { exclude = withPath(exclude, path, true); checkAdded.current.add(path); }
     const files = result.estimate?.read?.files;
-    // An audit leaves the tests out until they are ticked in: half of a project's lines on the largest run, for 6 to 15% of the confirmed issues.
-    if (autoLeaveOut && modeOf(value) === "audit" && !testsChosen.current && files !== undefined) exclude = withTests(exclude, files, false);
+    // An audit of the whole project leaves the tests out until they are ticked in: half of a project's lines on the largest run, for 6 to 15% of the confirmed issues.
+    // Only the whole project: a diff lists the files it changes, and a folder of those is not all of the folder. A project
+    // of nothing but tests keeps them, since leaving them out would leave nothing to read.
+    if (automatic && modeOf(value) === "audit" && getIn(value, ["scope", "kind"]) === "repository" && !testsChosen.current && files !== undefined) {
+      const without = withTests(exclude, files, false, result.estimate?.read?.complete === true);
+      if (reading(files, without).files > 0) { for (const entry of without) if (!exclude.includes(entry)) checkAdded.current.add(entry); exclude = without; }
+    }
     let next = exclude.length === excludeOf(value).length ? value : withExclude(value, exclude);
     const estimate = result.estimate?.estimate;
     if (estimate !== undefined) next = sizedLimit(next, files === undefined ? estimate.lines : reading(files, exclude).lines, estimate.auditors);
@@ -177,6 +187,22 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
     const timer = setTimeout(() => { if (!starting.current) void runCheck(); }, CHECK_DELAY_MS);
     return () => clearTimeout(timer);
   }, [key]);
+
+  // A leave-out the person took away is theirs from then on. A project has folders of its own: the `spec` folder of one is
+  // not the `spec` of the next, and the next project's tests are left out or ticked in afresh.
+  useEffect(() => { for (const entry of checkAdded.current) if (!excludeOf(draft).includes(entry)) checkAdded.current.delete(entry); }, [draft]);
+  const lastProject = useRef(project);
+  useEffect(() => {
+    if (lastProject.current === project) return;
+    lastProject.current = project;
+    const own = checkAdded.current;
+    checkAdded.current = new Set(); readAnyway.current = new Set(); testsChosen.current = false;
+    if (own.size === 0) return;
+    const without = (value: Draft): Draft => withExclude(value, excludeOf(value).filter((entry) => !own.has(entry)));
+    // What a check set is the lineup's own, so an unedited page stays unedited.
+    setLoaded((start) => start !== null && stableJson(start.draft) === stableJson(draftRef.current) ? { ...start, draft: without(start.draft) } : start);
+    setDraft(without);
+  }, [project]);
 
   const result = check !== null && check.repository === project ? check.result : null;
   const fresh = result !== null && check?.key === key;
@@ -233,6 +259,7 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
     try {
       const value: unknown = JSON.parse(await file.text());
       if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("the file is not a JSON object");
+      imported.current = true; checkAdded.current = new Set();
       setDraft(value as Draft); setNotice(`imported ${file.name}`);
     } catch (cause) { setFailure([`import failed · ${message(cause)}`]); }
   };
@@ -300,7 +327,7 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
       {files === null && result?.folders !== undefined ? <OverLimit folders={result.folders.folders} complete={result.folders.complete} limit={Number(/REPOSITORY_FILE_LIMIT_EXCEEDED:(\d+)/u.exec(result.estimateError ?? "")?.[1] ?? 1_000)}
         exclude={exclude} onExclude={(next) => setDraft((current) => withExclude(current, next))} />
         : files === null ? <p className="note">{project === "" ? "Choose the project to see its folders, its tests and what each holds of the estimate." : result?.estimate == null ? "The folders show once the project is read." : `${counted(result.estimate.estimate.files, "file")} · ${result.estimate.estimate.lines.toLocaleString("en")} lines`}</p>
-        : <WhatToRead files={files} complete={result?.estimate?.read?.complete === true} suggestions={result?.estimate?.suggestedLeaveOut ?? []} exclude={exclude} onExclude={(next) => setDraft((current) => withExclude(current, next))} onSuggestion={onSuggestion} onTestsChosen={() => { testsChosen.current = true; }} />}
+        : <WhatToRead files={files} complete={result?.estimate?.read?.complete === true} wholeProject={result?.estimate?.read?.complete === true && getIn(draft, ["scope", "kind"]) === "repository"} suggestions={result?.estimate?.suggestedLeaveOut ?? []} exclude={exclude} onExclude={(next) => setDraft((current) => withExclude(current, next))} onSuggestion={onSuggestion} onTestsChosen={() => { testsChosen.current = true; }} />}
     </Section>
 
     {mode === "audit" && !scripted ? <Section number={number()} title="What goes into the plan" id="plan-scope">
@@ -375,8 +402,8 @@ function Problem({ words, code, tone = "refuted", children }: { readonly words: 
   return <div className="state problem-line" data-state={tone}><p>{words}</p>{children}<details><summary>recorded code</summary><code>{code}</code></details></div>;
 }
 
-/** The file a read refused for its size; New run leaves it out with one click. */
-function tooLarge(code: string): string | null { return /REPOSITORY_FILE_TOO_LARGE:(\S+)/u.exec(code)?.[1] ?? null; }
+/** The file a read refused for its size; New run leaves it out with one click. The code ends with its path, which may hold spaces. */
+function tooLarge(code: string): string | null { return /REPOSITORY_FILE_TOO_LARGE:(.+)$/su.exec(code)?.[1] ?? null; }
 
 /** Why the project could not be read, and what to do: the snapshot's refusals in words. */
 export function readFailure(code: string, project: string): string {
