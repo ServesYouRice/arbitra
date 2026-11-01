@@ -76,8 +76,8 @@ arbitra. Then go on at [Run an audit](#run-an-audit).
    103,600 lines about five and a half hours of work and 70 million, most of them Claude's. Start with a small
    project and mind your plans' usage.
 7. When it finishes, the run page's Summary leads with **the plan**: **Save the plan into the project** writes a
-   `.arbitra/plans/` folder into your project, which Git ignores: it lists every open issue, so keep it out of a public
-   repository until they are fixed. Tick the box under it to send the developer the run's report as you save (see
+   `.arbitra/plans/` folder into your project: it lists every open issue, so keep it out of a public repository until
+   they are fixed. Tick the box under it to send the developer the run's report as you save (see
    [If something goes wrong](#if-something-goes-wrong)). The folder has one ready-to-paste prompt per fix, sorted by the kind of model
    each suits, and an `AGENTS.md` a coding agent follows: open the project in Claude Code or Codex and ask it to
    work through `.arbitra/plans/<folder>`. Answer the questions its README lists first: they are decisions only you

@@ -119,7 +119,9 @@ export function premiseKit() {
   // A route in prose starts a word: `min()/calc()` and `open/close` name none. Text already read is blanked with "#".
   const PROSE_ROUTE = /(?<=^|[\s([,])(?:(GET|POST|PUT|PATCH|DELETE)\s+)?(\/(?:[a-z][\w.-]*|:\w+|\{\w+\})(?:\/(?:[\w.-]+|:\w+|\{\w+\}|\*))*)(?![\w/(])/gu;
   const KEBAB = /^[a-z][a-z0-9]*(?:[-:][a-z0-9]+)+$/u;
-  const SYMBOL = /^(?:new\s+)?([A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$#][\w$]*)*)(?:\(\))?$/u;
+  const SYMBOL = /^(?:new\s+)?([A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$#][\w$]*)*)[?!]?(?:\(\))?$/u;
+  // Elixir and Erlang name a function with its arity: `check_rate/4`, `Module.name/2`, `valid?/1`, `:ets.update_counter/4`.
+  const ARITY = /^:?([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)[?!]?\/\d{1,2}$/u;
   const IDS = /(?:section-[0-9a-f]{6,}\/)?\b(?:TASK|VAL|REQ|Q)-\d+\b|\bC-[0-9a-f]{6,}\b|\bsection-[0-9a-f]{6,}\b/gu;
   const URLS = /\bhttps?:\/\/[^\s)'"`>]+/gu;
   const ELISION = /\.\.\.|…|<[a-z][\w -]*>/u;
@@ -130,7 +132,7 @@ export function premiseKit() {
   const COMMON_MEMBERS = new Set(["current", "length", "then", "catch", "finally", "push", "pop", "shift", "delete", "get", "set", "has", "add", "clear", "call", "apply", "bind", "toString", "value", "on", "once", "off", "emit", "stop", "start", "close", "open", "play", "pause", "send", "end", "write", "read", "map", "filter", "forEach", "some", "every", "find", "includes", "keys", "values", "entries", "size", "id", "name", "type", "data", "error", "message", "status", "result", "slice", "split", "join", "trim", "test", "exec", "match", "replace"]);
   const PRODUCT_NAMES = new Set(["WebRTC", "JavaScript", "TypeScript", "GitHub", "GitLab", "PowerShell", "YouTube", "OpenAI", "ChatGPT", "DevTools", "VSCode", "NodeJS", "NodeJs", "MacOS", "WhatsApp", "PostgreSQL", "MySQL", "SQLite", "MongoDB", "GraphQL", "OAuth", "ESLint", "WebKit", "WebAssembly", "LinkedIn", "PayPal", "OneDrive", "iCloud", "macOS", "iOS", "iPadOS", "iPhone", "iPad", "eBay", "FreeBSD", "OpenSSL", "LibreSSL", "WebM", "WebP"]);
   // Globals and Node modules: a member of one that the project's code never names is the platform's, not a false premise.
-  const PLATFORM = new Set(["Promise", "Object", "Array", "Number", "String", "Boolean", "JSON", "Math", "Reflect", "Symbol", "Date", "Buffer", "Intl", "Atomics", "BigInt", "crypto", "net", "fs", "path", "os", "http", "https", "http2", "url", "util", "zlib", "stream", "events", "dgram", "dns", "tls", "child_process", "worker_threads", "process", "window", "document", "navigator", "console", "performance", "location", "history", "screen", "localStorage", "sessionStorage", "globalThis"]);
+  const PLATFORM = new Set(["Promise", "Object", "Array", "Number", "String", "Boolean", "JSON", "Math", "Reflect", "Symbol", "Date", "Buffer", "Intl", "Atomics", "BigInt", "crypto", "net", "fs", "path", "os", "http", "https", "http2", "url", "util", "zlib", "stream", "events", "dgram", "dns", "tls", "child_process", "worker_threads", "process", "window", "document", "navigator", "console", "performance", "location", "history", "screen", "localStorage", "sessionStorage", "globalThis", "ets", "erlang", "persistent_term", "Enum", "Map", "MapSet", "List", "Keyword", "Kernel", "Process", "Task", "Agent", "GenServer", "Stream", "Integer", "Float", "Regex", "Code", "File", "IO", "Application", "Logger", "DateTime", "NaiveDateTime", "Time"]);
   const PLATFORM_CLASSES = /^(?:\w*(?:Error|Exception)|EventEmitters?|PassThrough|Readable|Writable|Duplex|Transform|IncomingMessage|ClientRequest|ServerResponse|AbortController|AbortSignal|MediaSource|SourceBuffer|MediaRecorder|MediaStream|MediaStreamTrack|RTC\w+|WebSocket|URLSearchParams|TextEncoder|TextDecoder|ReadableStream|WritableStream|TransformStream|ArrayBuffer|SharedArrayBuffer|DataView|\w+Array|WeakMap|WeakSet|WeakRef|FinalizationRegistry|EventTarget|CustomEvent|MessageChannel|MessagePort|BroadcastChannel|FormData|Headers|Request|Response|Blob|File|FileReader|IntersectionObserver|ResizeObserver|MutationObserver|HTMLElement|HTML\w+Element|DOMParser|XMLHttpRequest|Worker|ServiceWorker|Notification|Permissions?|Geolocation|IndexedDB|IDB\w+|AudioContext|AudioWorklet\w*|OfflineAudioContext|VideoFrame|VideoEncoder|VideoDecoder|AudioEncoder|AudioDecoder|EncodedVideoChunk|EncodedAudioChunk)$/u;
   const UNITS = /^(?:[KMGTP]i?B|[KMGT]bps|[kKM]?Hz|ms|fps)$/u;
   const DETERMINERS = new Set(["the", "a", "an", "its", "this", "that", "these", "those", "their", "our", "of", "to", "for", "from", "by", "on", "in", "with", "no", "any", "each", "every", "and", "or", "both", "all", "some", "two", "three", "four", "other", "another"]);
@@ -317,6 +319,8 @@ export function premiseKit() {
     if (path?.[1] !== undefined) return { kind: "path", text: path[1], ...(path[2] === undefined ? {} : { lines: [Number(path[2]), Number(path[3] ?? path[2])] as const }) };
     if (ROUTE.test(text) && /[a-z]/iu.test(text) && !text.includes("//")) return { kind: "route", text };
     if (KEBAB.test(text)) return { kind: "event", text };
+    const arity = ARITY.exec(text)?.[1];
+    if (arity !== undefined && !LITERALS.has(arity) && !KEYWORDS.has(arity) && (arity.split(".").pop() ?? "").length >= 3) return { kind: "symbol", text: arity };
     const symbol = SYMBOL.exec(text);
     if (symbol?.[1] !== undefined) {
       const name = symbol[1];

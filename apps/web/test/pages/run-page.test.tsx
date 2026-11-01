@@ -30,6 +30,7 @@ describe("the run page", () => {
     expect(within(plan).getByRole("button", { name: "Save the plan into the project" }).className).toContain("button--primary");
     expect(document.querySelectorAll("main .button--primary")).toHaveLength(1);
     expect(await within(plan).findByText("Not saved yet. Nothing in the project changes until you save.")).toBeTruthy();
+    expect(within(plan).getByText("The plan lists every open issue. A public repository that commits it publishes them all.")).toBeTruthy();
     expect(within(plan).getByRole("link", { name: "Read it first" }).getAttribute("href")).toBe("/?run=run-1&view=plan");
     const needs = screen.getByRole("region", { name: "Needs you" });
     expect(within(needs).getAllByRole("link").map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
@@ -142,6 +143,7 @@ describe("the run page", () => {
     const plan = await screen.findByRole("region", { name: "The plan is ready · 1 task for 1 issue" });
     expect(await within(plan).findByText("/work/fixture/.arbitra/plans/2026-10-24-run1-2")).toBeTruthy();
     expect(within(plan).getByText(/2 copies are in \.arbitra\/plans; this is the newest\./u)).toBeTruthy();
+    expect(within(plan).getByText("The plan lists every open issue. A public repository that commits it publishes them all.")).toBeTruthy();
   });
 
   it("watches a running audit: the step and its time, what it has read and found, the stages with the finders side by side, and the calls started again", async () => {
