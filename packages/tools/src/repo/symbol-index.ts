@@ -41,13 +41,13 @@ const JS = anyOf(
   first(/^\s*(?:export\s+)?(?:declare\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=]*)?=/u),
   // A class member or an object's function: the name, then parameters that open a body, or an arrow function's value.
   notKeyword(first(/^\s+(?:(?:public|private|protected|static|readonly|override|abstract|async|get|set)\s+)*\*?\s*([A-Za-z_$#][\w$]*)\s*(?:<[^>]*>)?\s*\([^;]*\)\s*(?::[^{;]*)?\{\s*$/u)),
-  first(/^\s+(?:(?:public|private|protected|static|readonly|override)\s+)*([A-Za-z_$#][\w$]*)\s*(?::[^=]*?)?[:=]\s*(?:async\s+)?(?:\([^)]*\)\s*(?::[^=]*)?=>|[A-Za-z_$][\w$]*\s*=>|function\b)/u),
+  first(/^\s+(?:(?:public|private|protected|static|readonly|override)\s+)*([A-Za-z_$#][\w$]*)\s*(?::[^=]*?)?[:=]\s*(?:async\s+)?(?:\([^)]*\)\s*(?::[^=]*)?=>|\(\s*$|[A-Za-z_$][\w$]*\s*=>|function\b)/u),
 );
 const ELIXIR_MODULE = (head: string): readonly string[] => {
   const name = /^\s*(?:defmodule|defprotocol)\s+([A-Z][\w.]*)/u.exec(head)?.[1];
   return name === undefined ? [] : [...new Set([name, name.split(".").at(-1) ?? name])];
 };
-const ELIXIR = anyOf(ELIXIR_MODULE, first(/^\s*(?:def|defp|defmacro|defmacrop|defguard|defguardp|defdelegate|defimpl|defoverridable)\s+([A-Za-z_][\w]*[?!]?)/u), first(/^\s*@(?:type|typep|opaque|callback)\s+([A-Za-z_][\w]*[?!]?)/u));
+const ELIXIR = anyOf(ELIXIR_MODULE, first(/^\s*(?:def|defp|defmacro|defmacrop|defguard|defguardp|defdelegate|defimpl|defoverridable)\s+([A-Za-z_][\w]*[?!]?)/u), first(/^\s*@(?:type|typep|opaque|callback)\s+([A-Za-z_][\w]*[?!]?)/u), first(/^\s*field\s+:([A-Za-z_]\w*[?!]?)/u));
 const RUBY = anyOf(first(/^\s*(?:class|module)\s+(?:[\w:]+::)?([A-Z]\w*)/u), first(/^\s*def\s+(?:self\.)?([A-Za-z_]\w*[?!=]?)/u));
 const GO = anyOf(first(/^func\s+\([^)]*\)\s*([A-Za-z_]\w*)/u), first(/^func\s+([A-Za-z_]\w*)/u), first(/^type\s+([A-Za-z_]\w*)/u), first(/^(?:var|const)\s+([A-Za-z_]\w*)/u));
 const PYTHON = anyOf(first(/^\s*(?:async\s+)?def\s+([A-Za-z_]\w*)/u), first(/^\s*class\s+([A-Za-z_]\w*)/u), first(/^([A-Za-z_]\w*)\s*(?::[^=]*)?=(?!=)/u));
@@ -120,7 +120,7 @@ function bracesEnd(lines: readonly string[], start: number): { end: number; cut:
     if (depth <= 0 && opened) {
       // A signature's parameters close before its body opens: `int load(int a)` followed by `{`, or `(a): T =>`.
       const next = (lines[index + 1] ?? "").trim();
-      if (depth === 0 && !trimmed.endsWith(";") && !trimmed.endsWith("}") && (next.startsWith("{") || /(?:=>|=|,|:|\|\|?|&&?)$/u.test(trimmed))) continue;
+      if (depth === 0 && !trimmed.endsWith(";") && !trimmed.endsWith("}") && (next.startsWith("{") || /(?:=>|=|:|\|\|?|&&?)$/u.test(trimmed))) continue;
       if (depth === 0 && /\)\s*(?::[^{;]*)?$/u.test(trimmed) && next.startsWith("{")) continue;
       return { end: index, cut: false };
     }
@@ -161,7 +161,7 @@ function endKeywordEnd(lines: readonly string[], start: number): { end: number; 
   const own = indentOf(lines[start] ?? "");
   const limit = Math.min(lines.length, start + MAXIMUM_BODY_LINES);
   const head = lines[start] ?? "";
-  if (/,\s*do:/u.test(head) || /^\s*(?:@|defoverridable|defdelegate\b)/u.test(head)) return { end: start, cut: false };
+  if (/,\s*do:/u.test(head) || /^\s*(?:@|defoverridable|defdelegate\b|field\b)/u.test(head)) return { end: start, cut: false };
   // The head may run over several lines before its `do`; one that never opens a block is a single statement.
   let opened = -1;
   for (let index = start; index < limit; index += 1) {

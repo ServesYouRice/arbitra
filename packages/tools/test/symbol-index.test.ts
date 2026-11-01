@@ -12,6 +12,8 @@ describe("the symbol index", () => {
     ["TypeScript arrow", "a.ts", "export const load = async (id: string) => {\n  run(id);\n};\nconst after = 2;", "load", [[1, 3]]],
     ["TypeScript type", "a.ts", "export type Load = {\n  id: string;\n};\nexport interface Other { id: string }", "Load", [[1, 3]]],
     ["TypeScript one-line constant", "a.ts", "const LIMIT = 12;\nconst after = 2;", "LIMIT", [[1, 1]]],
+    ["an object's function with its parameters on the next lines", "a.ts", "export const api = {\n  updatePost: (\n    id: string,\n  ) => requestWithRetry(id),\n};", "updatePost", [[2, 4]]],
+    ["Elixir schema field", "a.ex", "schema \"posts\" do\n  field :is_mature, :boolean, default: false\nend", "is_mature", [[2, 2]]],
     ["TypeScript method", "a.ts", "class Store {\n  private async load(id: string): Promise<void> {\n    run(id);\n  }\n}", "load", [[2, 4]]],
     ["TSX component with a brace in a string", "a.tsx", "export function Row() {\n  const open = \"{\";\n  return <div>{open}</div>;\n}\nconst after = 1;", "Row", [[1, 4]]],
     ["JavaScript function", "a.js", "function load() {\n  return 1;\n}", "load", [[1, 3]]],
