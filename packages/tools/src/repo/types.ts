@@ -1,3 +1,5 @@
+import type { SymbolIndex } from "./symbol-index.js";
+
 export type ResponseFormat = "concise" | "detailed";
 
 export interface RepositoryFile {
@@ -25,6 +27,8 @@ export interface ReadRepository {
   gitDiff(base?: string, head?: string): Promise<string>;
   gitLog(limit?: number): Promise<string>;
   readManifest(path: string): Promise<RepositoryFile>;
+  /** The index `repo.symbol` answers from; a repository without one does not offer that tool. */
+  symbols?(): SymbolIndex;
 }
 
 export interface ReadArtifacts { read(ref: string): Promise<string>; }
