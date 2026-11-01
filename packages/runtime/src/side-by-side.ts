@@ -31,6 +31,17 @@ export async function sideBySide<T, R>(items: readonly T[], limit: number, run: 
 }
 
 /**
+ * `sideBySide` with the first item finished before the others start, for calls that share the start of their prompt: a
+ * provider's cache holds a prompt only once the first response to it has begun, so calls started together each write
+ * what the second could have read. One item, or a limit of one, changes nothing.
+ */
+export async function firstThenSideBySide<T, R>(items: readonly T[], limit: number, run: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  if (limit === 1 || items.length < 2) return sideBySide(items, limit, run);
+  const [first] = await sideBySide(items.slice(0, 1), 1, run);
+  return [first as R, ...await sideBySide(items.slice(1), limit, (item, index) => run(item, index + 1))];
+}
+
+/**
  * One allowance of `limit` calls in flight for work that nests `sideBySide`: an item that splits and runs its parts
  * side by side would otherwise start another `limit` of its own, so two items at a limit of two had four calls in
  * flight. Calls wait their turn in the order they asked; a call holds its place only while it runs.

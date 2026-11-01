@@ -31,6 +31,19 @@ describe("a run's report", () => {
     expect(lines).toContain("  auditor-c (gpt-6.1-sol): 12 findings · 3 confirmed · 1 confirmed that no other auditor found · discovery 2.4M tokens");
   });
 
+  it("says what a verification question cost: its calls, tool calls, and what the first call and the later calls took from the cache", async () => {
+    // A question's first call wrote 48,000 tokens to the cache and read none in a recorded run of 197 questions (October 31, 2026).
+    const trace = (activityId: string, input: number, read: number, written: number, tools: number, errors = 0) => ({ activityId, nodeId: "verification", outcome: "success", durationMs: 1_000, modelId: "m", error: null, refusal: null,
+      tokenUsage: { inputTokens: input, outputTokens: 100, cacheReadTokens: read, cacheWriteTokens: written }, toolCallCount: tools, toolCallErrors: errors });
+    const traces = [trace("verification/C-1/question/turn-0", 40_000, 0, 40_000, 2), trace("verification/C-1/question/turn-1", 42_000, 40_000, 2_000, 1, 1), trace("verification/C-1/question/turn-2", 43_000, 42_000, 1_000, 0),
+      trace("verification/C-2/question/turn-0", 20_000, 4_000, 16_000, 0), trace("planner/turn-0", 9_000, 0, 9_000, 0)];
+    const lines = (await runReport({ ...orchestrator([]), modelTraces: async () => traces } as unknown as Orchestrator, "run-1", null, "test")).split("\n");
+    const at = lines.indexOf("verification questions");
+    expect(lines.slice(at, at + 4)).toEqual(["verification questions", "  2 questions · 4 calls (2.0 a question) · 3 tool calls (1 failed)",
+      "  first call of a question: 30K tokens in, 2K read from the cache, 28K written to it", "  later calls: 43K tokens in, 41K read from the cache, 2K written to it"]);
+    expect(lines.some((line) => line.startsWith("verification questions") && lines.indexOf(line) !== at)).toBe(false);
+  });
+
   it("says a saved plan has not been carried out yet, rather than counting zero results", async () => {
     // Observed (October 27, 2026, the MacBook run's report): a plan just saved read "0 of 111 issues reported · fixed 0 · ...".
     const saved = { issues: 111, reported: 0, provenByFailingTest: 0, notProvenByTest: 0, checkedEndToEnd: 0, results: { fixed: 0, not_reproducible: 0 }, foundWhileFixing: { reported: 0, provenByFailingTest: 0 } };

@@ -33,6 +33,10 @@ export interface ModelActivityRequest<T> {
   readonly tools?: readonly TransportTool[];
   readonly protocolAsset?: PinnedProtocol;
   readonly outputSchema?: unknown;
+  /** The stage lays its prompt out for caches (verification under protocol 1.1.0): the source label names the protocol
+   * and not the activity, so the prompts of all its calls start alike, and a Claude Code call has the locked layer in
+   * its system prompt. Part of the identity through the messages it changes. */
+  readonly cacheLayout?: boolean;
   readonly sourcePaths?: readonly string[];
   /** With `sourcePaths`: the tools may also read every other file of the snapshot, up to this many bytes a call.
    * Part of the identity through the harness policy. */

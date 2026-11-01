@@ -17,10 +17,12 @@ import type { TestSandbox } from "../src/test-sandbox.js";
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
-async function fixture(options: { secondFile?: boolean; revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: true | "every"; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; conflictFault?: "invalid" | "output_limit"; ambiguousClustering?: boolean; oversizedRepository?: boolean; packedReviewSource?: boolean; planQuestion?: boolean; verifierContextTokens?: number; invalidVerification?: boolean; verificationOutputLimit?: "first" | "always"; invalidGroupVerification?: boolean; unanimousReview?: boolean; verificationByPlace?: boolean; holdingPlaces?: readonly string[]; placeBesideMerge?: boolean; severities?: readonly string[]; critiqueVerdict?: "HOLDS" | "DOES_NOT_HOLD"; lowerSeverity?: "one" | "two"; severeRejection?: "REJECTED" | "CONFIRMED"; revisionQuestion?: boolean; revisionPatchOutputLimit?: boolean; depth?: "fast" | "balanced" | "deep"; finding?: { readonly severity?: string; readonly category?: string }; abstainAt?: string; confidenceByLine?: boolean } = {}) {
+async function fixture(options: { secondFile?: boolean; revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: true | "every"; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; conflictFault?: "invalid" | "output_limit"; ambiguousClustering?: boolean; oversizedRepository?: boolean; packedReviewSource?: boolean; planQuestion?: boolean; verifierContextTokens?: number; invalidVerification?: boolean; verificationOutputLimit?: "first" | "always"; invalidGroupVerification?: boolean; unanimousReview?: boolean; verificationByPlace?: boolean; holdingPlaces?: readonly string[]; placeBesideMerge?: boolean; severities?: readonly string[]; critiqueVerdict?: "HOLDS" | "DOES_NOT_HOLD"; lowerSeverity?: "one" | "two"; severeRejection?: "REJECTED" | "CONFIRMED"; revisionQuestion?: boolean; revisionPatchOutputLimit?: boolean; depth?: "fast" | "balanced" | "deep"; finding?: { readonly severity?: string; readonly category?: string }; abstainAt?: string; confidenceByLine?: boolean; relatedSource?: boolean } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "arbitra-model-run-")); directories.push(directory);
   const manyIssues = options.largePeerContext === true || options.largePlannerContext === true;
-  await writeFile(join(directory, "a.ts"), "const value = null;\n".repeat(manyIssues || options.placeBesideMerge === true ? 4 : options.ambiguousClustering === true ? 3 : 1), "utf8");
+  // A cited line that names a function another file defines: the question is handed that definition.
+  if (options.relatedSource === true) await writeFile(join(directory, "b.ts"), "export function helperOf(x) {\n  return x;\n}\n", "utf8");
+  await writeFile(join(directory, "a.ts"), (options.relatedSource === true ? "const value = null; // see helperOf\n" : "const value = null;\n").repeat(manyIssues || options.placeBesideMerge === true ? 4 : options.ambiguousClustering === true ? 3 : 1), "utf8");
   if (options.secondFile === true) await writeFile(join(directory, "b.ts"), "export const other = 1;\n", "utf8");
   if (options.oversizedRepository === true) await writeFile(join(directory, "large.ts"), "// unrelated source\n".repeat(12_000), "utf8");
   // Many small files: a review carries as many as fit, so its prompt ends close to the size calls are packed to.
@@ -60,7 +62,7 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
     execution.modelEndpoints["verifier-model"] = "auditor-b"; execution.roles.verifier = "verifier-model";
   }
   const requests: { stage: string; url: string; ceiling?: number }[] = [];
-  const verificationInputs: { candidateId: string; unresolvedPeerOperations: { candidateIds: string[] }[]; sourcePaths: string[]; question?: string; findings?: Record<string, unknown>[]; request?: unknown }[] = [];
+  const verificationInputs: { candidateId: string; unresolvedPeerOperations: { candidateIds: string[] }[]; sourcePaths: string[]; question?: string; findings?: Record<string, unknown>[]; request?: unknown; relatedSource?: { definitions: { at: string }[]; callers: { at: string }[] }; label?: string; keys?: string[] }[] = [];
   // By place: a question about more than one place is rejected, and of the places only the holding ones (the second
   // line unless set) hold.
   const byPlace = (question: string) => { const places = question.match(/a\.ts:\d+/gu) ?? []; return places.length === 1 && (options.holdingPlaces ?? ["a.ts:2"]).includes(places[0] ?? "") ? "CONFIRMED" : "REJECTED"; };
@@ -90,10 +92,12 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
     const ceiling = body.max_tokens ?? body.max_output_tokens ?? body.generationConfig?.maxOutputTokens;
     let system = body.input?.find(({ role }) => role === "system")?.content ?? body.system ?? body.systemInstruction?.parts[0]?.text ?? "";
     let user = body.input?.find(({ role }) => role === "user")?.content ?? body.messages?.[0]?.content ?? body.contents?.[0]?.parts[0]?.text ?? "{}";
+    let label = "";
     if (user.startsWith('{"layer":"locked"')) {
       const layers = user.split("\n").map((line) => JSON.parse(line) as { layer: string; value: { instruction?: string; artifacts?: string[] } });
       system = layers.find(({ layer }) => layer === "instruction")?.value.instruction ?? "";
       const framed = layers.flatMap(({ value }) => value.artifacts ?? [])[0] ?? "";
+      label = /source_id="([^"]*)"/u.exec(framed)?.[1] ?? "";
       const content = /-->\n([\s\S]*)\n<\/repository_content>$/u.exec(framed)?.[1] ?? "{}";
       user = content.replaceAll("&quot;", '"').replaceAll("&apos;", "'").replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
     }
@@ -184,8 +188,9 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
       if (failVerification) return { status: 503, headers: {}, body: {} };
       // The reply stops at the output ceiling (the Anthropic shape), at the first ceiling only or at any.
       if (options.verificationOutputLimit === "always" || options.verificationOutputLimit === "first" && (ceiling ?? 0) <= 16_000) return { status: 200, headers: {}, body: { stop_reason: "max_tokens", content: [{ type: "text", text: '{"outcome":' }], usage: { input_tokens: 10, output_tokens: 2_000 } } };
-      const input = JSON.parse(user) as { request: { candidateId: string; question: string; context: { citedContext: { evidenceId: string }[] } }; findings: Record<string, unknown>[]; unresolvedPeerOperations: { candidateIds: string[] }[]; repository: { path: string }[] };
-      verificationInputs.push({ candidateId: input.request.candidateId, unresolvedPeerOperations: input.unresolvedPeerOperations, sourcePaths: input.repository.map(({ path }) => path), question: input.request.question, findings: input.findings });
+      const input = JSON.parse(user) as { request: { candidateId: string; question: string; context: { citedContext: { evidenceId: string }[] } }; findings: Record<string, unknown>[]; unresolvedPeerOperations: { candidateIds: string[] }[]; repository: { path: string }[]; relatedSource?: { definitions: { at: string }[]; callers: { at: string }[] } };
+      verificationInputs.push({ candidateId: input.request.candidateId, unresolvedPeerOperations: input.unresolvedPeerOperations, sourcePaths: input.repository.map(({ path }) => path), question: input.request.question, findings: input.findings, label, keys: Object.keys(input),
+        ...(input.relatedSource === undefined ? {} : { relatedSource: input.relatedSource }) });
       // The answers take a moment, so questions asked side by side are in flight together.
       verificationFlight.now += 1; verificationFlight.most = Math.max(verificationFlight.most, verificationFlight.now);
       await new Promise((resolve) => setTimeout(resolve, 60));
@@ -1272,6 +1277,38 @@ describe("composed model audits", () => {
     expect(presented.length).toBeGreaterThan(0);
     expect(presented.every((finding) => finding["findingRef"] !== undefined && finding["severity"] === undefined && finding["confidence"] === undefined && finding["status"] === undefined && finding["sourceFindingId"] === undefined)).toBe(true);
     expect(JSON.stringify(presented)).not.toMatch(/auditor-[abc]/u);
+  });
+
+  it("hands a verification question the definition its cited line uses and lays its prompt out for caches, from protocol 1.1.0", async () => {
+    const { create, config, verificationInputs } = await fixture({ unanimousReview: true, relatedSource: true });
+    const core = create(); const result = await core.run(config);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
+    expect(verificationInputs).toHaveLength(1);
+    const [asked] = verificationInputs;
+    expect(asked?.relatedSource?.definitions.map(({ at }) => at)).toEqual(["b.ts:1-3"]);
+    // It is not mistaken for a cited file: only a.ts is carried whole, and the related source follows the files.
+    expect(asked?.sourcePaths).toEqual(["a.ts"]);
+    expect(asked?.keys?.slice(0, 3)).toEqual(["repository", "contextCoverage", "relatedSource"]);
+    // The label names the protocol, not the question, so the prompts of all questions start alike.
+    expect(asked?.label).toBe("targeted-verification@1.1.0:input-0");
+    const artifacts = await core.artifacts(result.runId);
+    const supplied = JSON.parse((await core.artifact(result.runId, artifacts.find(({ kind }) => kind === "verification-related-source")?.artifactId ?? "") as { content: string }).content) as { candidateId: string; definitions: number; callers: number; bytes: number; leftOut: boolean }[];
+    expect(supplied).toEqual([{ candidateId: asked?.candidateId, definitions: 1, callers: 0, bytes: expect.any(Number), leftOut: false }]);
+    expect(supplied[0]?.bytes).toBeGreaterThan(0);
+  });
+
+  it("asks a verification question as protocol 1.0.0 did when the run is pinned there, so its recorded answers replay", async () => {
+    const { create, config, verificationInputs } = await fixture({ unanimousReview: true, relatedSource: true });
+    config.protocols = { ...config.protocols, verification: "1.0.0" };
+    const core = create(); const result = await core.run(config);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
+    const [asked] = verificationInputs;
+    expect(asked?.relatedSource).toBeUndefined();
+    expect(asked?.keys).toEqual(["repository", "contextCoverage", "request", "findings", "executionInterpretation", "unresolvedPeerOperations"]);
+    expect(asked?.label).toBe(`verification/${asked?.candidateId}/question:input-0`);
+    expect((await core.artifacts(result.runId)).some(({ kind }) => kind === "verification-related-source")).toBe(false);
   });
 
   it("plans only the accepted issues of the run's minimum severity, ranked, and lists the rest", async () => {

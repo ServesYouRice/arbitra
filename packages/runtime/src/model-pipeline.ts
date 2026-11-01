@@ -45,8 +45,10 @@ import { expectedRecordCapacity, inputBytesPerToken, outputCeiling, requestCeili
 import { stageEffort } from "./stage-effort.js";
 import { checkerProfile, mergerProfile, secondOpinionProfile } from "./audit-roles.js";
 import { agreedConflictResolution, conflictId, conflictResolutionView, independentConflicts, type ConflictResolutionVote } from "./model-conflict-resolution.js";
-import { sideBySide } from "./side-by-side.js";
+import { firstThenSideBySide, sideBySide } from "./side-by-side.js";
 import { validateBatchLanes } from "./model-batch-lane.js";
+import { relatedSourceFinder, type RelatedSource } from "./verification-context.js";
+import { compareSemver } from "@arbitra/protocols/versioning.js";
 
 interface ModelStageInput<T> { activityId: string; modelProfileId: string; signal: AbortSignal; protocol: string; instruction: string; input: unknown; schema: { parse(value: unknown): T }; jsonSchema: unknown; preferredPaths?: readonly string[];
   /** The checking stage this call belongs to; its effort may be set apart from the audit's (`stageEffort`). */
@@ -59,7 +61,9 @@ interface ModelStageInput<T> { activityId: string; modelProfileId: string; signa
   maximumOutputTokens?: number;
   /** With `readBeyondSource`: the files the call reads freely; the tools read the rest of the snapshot within the budget, and
    * what they read there is recorded (`readsBeyondSource`), as for a discovery unit. */
-  sourcePaths?: readonly string[]; readBeyondSource?: { readonly maximumBytes: number } }
+  sourcePaths?: readonly string[]; readBeyondSource?: { readonly maximumBytes: number };
+  /** The prompt is laid out for caches (verification under protocol 1.1.0); see `ModelActivityRequest.cacheLayout`. */
+  cacheLayout?: boolean }
 
 /** The most characters of source a group of verification questions reads by itself: about four of the P20 projects'
  * larger files. A question reads the files its claim cites (two on average there), so a group of three stays near
@@ -190,6 +194,8 @@ export class ModelAuditPipeline {
   readonly #activities: ModelHarness;
   readonly #roles;
   readonly #protocols: ModelProtocols;
+  /** The lookup of definitions and callers over the snapshot, built when the first verification question needs it. */
+  #relatedSource: ReturnType<typeof relatedSourceFinder> | undefined;
   constructor(private readonly context: AuditContext, private readonly config: RunConfig, options: TransportFactoryOptions = {}, sandbox?: TestSandbox, units?: AuditUnitOptions) {
     this.#verificationExecutor = new VerificationExecutor(context.store, sandbox);
     validateModelAudit(config, context.auditors.map(({ auditorId }) => auditorId), context.criticEnabled, context.variantSearchEnabled === true);
@@ -612,13 +618,26 @@ export class ModelAuditPipeline {
     // A critical or high issue is checked by the verifier, the strongest checker; one below high by the medium verifier
     // when the run names one (`roles.mediumVerifier`), so a cheap audit spends its strong model on the severe issues.
     const checkerOf = (candidateId: string) => { const candidate = candidates[candidateId]; return checkerProfile(this.#roles, candidate === undefined ? "critical" : severityOf(candidate)); };
+    // From protocol 1.1.0 a question is laid out for caches and carries related source: where the names used at the cited
+    // lines are defined and who calls the function they sit in (`relatedSource`), found by text. A run pinned at 1.0.0
+    // asks as it did, so its recorded answers replay.
+    const cacheLayout = compareSemver((await this.#protocols.resolve("targeted-verification")).protocolVersion, "1.1.0") >= 0;
+    const related = new Map<string, RelatedSource | null>(); const withoutRelated = new Set<string>();
+    const relatedOf = (candidateId: string, findings: readonly AuditFinding[]): RelatedSource | undefined => {
+      if (!cacheLayout || withoutRelated.has(candidateId)) return undefined;
+      const places = findings.flatMap(({ locations }) => locations.map(({ path, startLine, endLine }) => ({ path, startLine, endLine })));
+      const key = JSON.stringify(places);
+      if (!related.has(key)) related.set(key, (this.#relatedSource ??= relatedSourceFinder(this.context.snapshot.files))(places));
+      return related.get(key) ?? undefined;
+    };
     const question = (request: ModelVerificationRequest, findings: readonly AuditFinding[] = candidateFindings[request.candidateId] ?? [], activityId = `verification/${request.candidateId}/question`) => {
       const names = neutralNames(); const presented = names.present(request, findings);
       const known = new Set(presented.request.context.citedContext.map(({ evidenceId }) => evidenceId));
       const checker = checkerOf(request.candidateId);
-      return { activityId, modelProfileId: checker, signal, protocol: "targeted-verification", stage: "verification" as const, sourceScope: "cited" as const,
+      const relatedSource = relatedOf(request.candidateId, findings);
+      return { activityId, modelProfileId: checker, signal, protocol: "targeted-verification", stage: "verification" as const, sourceScope: "cited" as const, ...(cacheLayout ? { cacheLayout: true } : {}),
         instruction: VERIFICATION_INSTRUCTION, maximumOutputTokens: answerCeiling(checker),
-        input: { request: presented.request, findings: presented.findings, executedChecks: executedChecks.get(request.candidateId), executionInterpretation, unresolvedPeerOperations: conflictsInvolving(operationConflicts, [request.candidateId]).map(conflictOutline), repository: this.repository() },
+        input: { ...(relatedSource === undefined ? {} : { relatedSource }), request: presented.request, findings: presented.findings, executedChecks: executedChecks.get(request.candidateId), executionInterpretation, unresolvedPeerOperations: conflictsInvolving(operationConflicts, [request.candidateId]).map(conflictOutline), repository: this.repository() },
         schema: { parse(value: unknown) {
           const parsed = modelVerificationResultSchema.parse(value);
           if (parsed.evidenceIds.some((id) => !known.has(id)) || parsed.outcome !== "STILL_NEEDS_VERIFICATION" && parsed.evidenceIds.length === 0) throw new Error("INVALID_VERIFICATION_EVIDENCE");
@@ -630,6 +649,12 @@ export class ModelAuditPipeline {
     // its own, with evidence from its own question.
     const perCall = typeof this.config.verification["maxQuestionsPerCall"] === "number" ? this.config.verification["maxQuestionsPerCall"] : 1;
     const pathsOf = (candidateId: string) => [...new Set((candidateFindings[candidateId] ?? []).flatMap(({ locations }) => locations.map(({ path }) => path)))];
+    // The order a question's files are carried in is by path, so questions sorted by their cited paths, as lists, put those
+    // that share a first file side by side. The sort is stable: questions citing alike keep their order.
+    const byCitedFiles = (requests: readonly ModelVerificationRequest[]) => requests.map((request) => ({ request, paths: [...pathsOf(request.candidateId)].sort((a, b) => a.localeCompare(b)) })).sort((a, b) => {
+      for (let index = 0; index < Math.max(a.paths.length, b.paths.length); index += 1) { const left = a.paths[index]; const right = b.paths[index]; if (left === right) continue; return left === undefined ? -1 : right === undefined ? 1 : left.localeCompare(right); }
+      return 0;
+    }).map(({ request }) => request);
     const characters = new Map(this.context.snapshot.files.map(({ path, lines }) => [path, lines.reduce((sum, line) => sum + line.length + 1, 0)]));
     const groupQuestion = (requests: readonly ModelVerificationRequest[]) => {
       const names = neutralNames(); const presented = requests.map((request) => names.present(request, candidateFindings[request.candidateId] ?? []));
@@ -766,10 +791,18 @@ export class ModelAuditPipeline {
     } }, { maximumItems: items.length, maximumModelCalls, allowModelCall: true, round: scope.round }, {
       sink: { async append(operation) { operations.push(operation); } },
       // No question reads another's answer: up to maximumParallelCalls are in flight at a time.
-      together: (list, run) => sideBySide(list, parallel, run),
+      // From protocol 1.1.0 the first question is answered before the others start: the prompts of the questions share
+      // their start, and a provider's cache holds a prompt only once the first response to it has begun.
+      together: (list, run) => (cacheLayout ? firstThenSideBySide : sideBySide)(list, parallel, run),
       model: {
-        // A question that cannot be sent even as required input is not asked: the item stays unverified.
-        fits: (request) => this.sendable(question(request), true),
+        // A question that cannot be sent even as required input is not asked: the item stays unverified. Related source
+        // is added to a question that fits without it; one it would push over the limit is asked without it.
+        fits: async (request) => {
+          if (await this.sendable(question(request), true)) return true;
+          if (relatedOf(request.candidateId, candidateFindings[request.candidateId] ?? []) === undefined) return false;
+          withoutRelated.add(request.candidateId);
+          return this.sendable(question(request), true);
+        },
         verify: async (request) => {
           const stage = question(request);
           let answer;
@@ -780,7 +813,8 @@ export class ModelAuditPipeline {
         // A group starts with the first question not yet grouped and takes later ones whose claims cite a file it
         // already reads, while the files it reads stay within a bound and the call fits.
         group: async (requests) => {
-          if (perCall <= 1) { spare -= requests.length; return requests.map((request) => [request]); }
+          // Questions go in the order of the files they cite, so neighbours share the most of their start.
+          if (perCall <= 1) { spare -= requests.length; return (cacheLayout ? byCitedFiles(requests) : requests).map((request) => [request]); }
           const groups: ModelVerificationRequest[][] = []; const taken = new Set<string>();
           for (const [index, first] of requests.entries()) {
             if (taken.has(first.candidateId)) continue;
@@ -805,6 +839,11 @@ export class ModelAuditPipeline {
         },
       },
     });
+    // What each question was handed beside the files its candidate cites, so a later run can set it against the tool calls.
+    if (cacheLayout && perCall <= 1) await context.store.publish(scope.groupsKind.replace("groups", "related-source"), items.map(({ candidateId }) => {
+      const supplied = withoutRelated.has(candidateId) ? undefined : relatedOf(candidateId, candidateFindings[candidateId] ?? []);
+      return { candidateId, definitions: supplied?.definitions.length ?? 0, callers: supplied?.callers.length ?? 0, bytes: [...supplied?.definitions ?? [], ...supplied?.callers ?? []].reduce((sum, { content }) => sum + Buffer.byteLength(content), 0), leftOut: withoutRelated.has(candidateId) };
+    }));
     return { verification, operations, notAsked, held, executedChecks };
   }
 
@@ -1379,7 +1418,7 @@ function segmentedCandidates(candidates: Readonly<Record<string, unknown>>, segm
 export function sourceFirst(payload: unknown): unknown {
   if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return payload;
   const record = payload as Record<string, unknown>;
-  const first = ["repository", "repositoryContext", "necessaryContext", "contextCoverage"].filter((key) => Object.hasOwn(record, key));
+  const first = ["repository", "repositoryContext", "necessaryContext", "contextCoverage", "relatedSource"].filter((key) => Object.hasOwn(record, key));
   return Object.fromEntries([...first.map((key) => [key, record[key]] as const), ...Object.entries(record).filter(([key]) => !first.includes(key))]);
 }
 
