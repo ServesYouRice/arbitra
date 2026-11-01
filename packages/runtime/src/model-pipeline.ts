@@ -45,7 +45,7 @@ import { expectedRecordCapacity, inputBytesPerToken, outputCeiling, requestCeili
 import { stageEffort } from "./stage-effort.js";
 import { checkerProfile, mergerProfile, secondOpinionProfile } from "./audit-roles.js";
 import { agreedConflictResolution, conflictId, conflictResolutionView, independentConflicts, type ConflictResolutionVote } from "./model-conflict-resolution.js";
-import { firstThenSideBySide, sideBySide } from "./side-by-side.js";
+import { sideBySide } from "./side-by-side.js";
 import { validateBatchLanes } from "./model-batch-lane.js";
 import { relatedSourceFinder, type RelatedSource } from "./verification-context.js";
 import { compareSemver } from "@arbitra/protocols/versioning.js";
@@ -791,9 +791,7 @@ export class ModelAuditPipeline {
     } }, { maximumItems: items.length, maximumModelCalls, allowModelCall: true, round: scope.round }, {
       sink: { async append(operation) { operations.push(operation); } },
       // No question reads another's answer: up to maximumParallelCalls are in flight at a time.
-      // From protocol 1.1.0 the first question is answered before the others start: the prompts of the questions share
-      // their start, and a provider's cache holds a prompt only once the first response to it has begun.
-      together: (list, run) => (cacheLayout ? firstThenSideBySide : sideBySide)(list, parallel, run),
+      together: (list, run) => sideBySide(list, parallel, run),
       model: {
         // A question that cannot be sent even as required input is not asked: the item stays unverified. Related source
         // is added to a question that fits without it; one it would push over the limit is asked without it.

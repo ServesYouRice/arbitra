@@ -41,9 +41,6 @@ export interface ModelActivityRequest<T> {
   /** With `sourcePaths`: the tools may also read every other file of the snapshot, up to this many bytes a call.
    * Part of the identity through the harness policy. */
   readonly readBeyondSource?: { readonly maximumBytes: number; readonly reading?: ReadingPolicy };
-  /** Never part of the identity: called once the first turn is answered, or replayed, so a caller can hold back what would
-   * read its prompt from the cache this first call writes. */
-  readonly onFirstReply?: () => void;
   readonly harnessIdentity?: { readonly id: string; readonly version: string; readonly policyHash: string };
   /** Per-request output reserve; defaults to the run's configured reserve. Part of the identity. */
   readonly maximumOutputTokens?: number;

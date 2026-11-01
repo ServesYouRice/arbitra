@@ -105,17 +105,17 @@ async function artifact(store: RunStore, kind: string) {
 }
 
 describe("a run on production-audit 2.1.0", () => {
-  it("starts every unit with one system prompt of fixed text, and with one text through the repository index", async () => {
+  it("starts every unit with a first layer of fixed text, and with one text through the repository index", async () => {
     const { store, requests, model } = await harness(() => answer());
     await discoverWithModel({ ...OWN, activities: perFile(model), store, protocol: await protocolAt("2.1.0") });
     const [left, right] = firstCallsOf(requests);
-    const systemOf = (input: typeof left) => input?.find(({ role }) => role === "system")?.content ?? "";
     const userOf = (input: typeof left) => input?.find(({ role }) => role === "user")?.content ?? "";
-    expect(systemOf(left)).toBe(systemOf(right));
-    expect(systemOf(left)).toContain("repo_symbol");
-    expect(systemOf(left)).toContain("Plan your reading before you ask");
-    // Nothing of the repository, and nothing of one unit, has the authority of the system prompt.
-    for (const text of ["deleteRoom", "client/api.ts", "server/rooms.ts", "scope-"]) expect(systemOf(left)).not.toContain(text);
+    const lockedOf = (input: typeof left) => userOf(input).split("\n")[0] ?? "";
+    expect(lockedOf(left)).toBe(lockedOf(right));
+    expect(lockedOf(left)).toContain("repo_symbol");
+    expect(lockedOf(left)).toContain("Plan your reading before you ask");
+    // Nothing of the repository, and nothing of one unit, is in the layer Claude Code takes as its system prompt.
+    for (const text of ["deleteRoom", "client/api.ts", "server/rooms.ts", "scope-"]) expect(lockedOf(left)).not.toContain(text);
     let shared = 0; const [a, b] = [userOf(left), userOf(right)];
     while (shared < a.length && a[shared] === b[shared]) shared += 1;
     expect(a.indexOf("repositoryIndex")).toBeGreaterThanOrEqual(0);
@@ -198,61 +198,6 @@ describe("a run on production-audit 2.1.0", () => {
     // The turns of tools, one more that asks and is told none remain, and the answer.
     expect(requests).toHaveLength(turns + 2);
     expect(await artifact(store, "discovery-validation-auditor-a")).toMatchObject({ toolUse: { toolTurnLimit: turns, turns: turns + 2, askedPastLimit: true } });
-  });
-});
-
-describe("the first unit of a finder", () => {
-  const files = ["a", "b", "c", "d"].map((name) => fileOf(`${name}.ts`, [`export const ${name} = 1;`]));
-  const source = { root: "fixture", files };
-  const units = (invoke: (request: ModelActivityRequest<unknown>) => Promise<unknown>) => ({ invoke: invoke as <T>(request: ModelActivityRequest<T>) => Promise<T>,
-    estimateInitialTokens: (request: ModelActivityRequest<unknown>) => 10_000 * ((JSON.parse(request.messages.find(({ role }) => role === "user")?.content ?? "{}") as { files?: unknown[] }).files?.length ?? 0) });
-  const empty = { findings: [], truncated: false, unexaminedDueToBudget: [], limitations: [] };
-  const run = async (invoke: (request: ModelActivityRequest<unknown>) => Promise<unknown>, version: string, concurrency: number) => {
-    const root = await mkdtemp(join(tmpdir(), "arbitra-discovery-first-")); directories.push(root);
-    return discoverWithModel({ auditorId: "auditor-a", modelProfileId: "auditor-a", snapshot: source, activities: units(invoke), store: new RunStore(root, "run-1"), signal: new AbortController().signal, maximumInputTokens: 15_000, protocol: await protocolAt(version), concurrency });
-  };
-
-  it("goes ahead until its first reply, then the others start side by side", async () => {
-    const started: string[] = [];
-    let reply = () => {};
-    const first = new Promise<void>((resolve) => { reply = resolve; });
-    let hold: Promise<void> = Promise.resolve();
-    const finished = run(async (request) => {
-      started.push(request.activityId);
-      if (started.length === 1) { await first; request.onFirstReply?.(); await hold; }
-      return empty;
-    }, "2.1.0", 4);
-    await vi.waitFor(() => { expect(started).toHaveLength(1); });
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(started).toHaveLength(1);
-    // The first's reply opens the way though its call goes on, and that call holds it there.
-    let finish = () => {};
-    const held = new Promise<void>((resolve) => { finish = resolve; });
-    hold = held;
-    reply();
-    await vi.waitFor(() => { expect(started).toHaveLength(4); });
-    finish();
-    await finished;
-  });
-
-  it("lets the others start when it fails", async () => {
-    const started: string[] = [];
-    await run(async (request) => {
-      started.push(request.activityId);
-      if (started.length === 1) throw Object.assign(new Error("MODEL_ACTIVITY_INVALID_JSON"), { modelOutputRejected: true });
-      return empty;
-    }, "2.1.0", 2);
-    expect(started.length).toBeGreaterThanOrEqual(4);
-  });
-
-  it("does not hold back a run pinned earlier: its units start together, as they did", async () => {
-    const started: string[] = [];
-    let reply = () => {};
-    const first = new Promise<void>((resolve) => { reply = resolve; });
-    const finished = run(async (request) => { started.push(request.activityId); await first; return empty; }, "2.0.0", 4);
-    await vi.waitFor(() => { expect(started).toHaveLength(4); });
-    reply();
-    await finished;
   });
 });
 

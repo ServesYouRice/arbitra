@@ -214,10 +214,10 @@ truncated. When they do not fit, the stage is recomposed:
 - **The shared prefix of discovery** (2.1.0). Each unit's prompt is byte for byte the same through
   the repository index. Claude Code takes the prompt as one block, and a provider's cache is read at
   the boundaries of blocks, so that prefix was never read: nananananana's 302 first calls of Opus read
-  nothing from the cache. The locked layer (protocol, output schema, tools) now goes in the system
-  prompt, which has a boundary of its own; the first unit of a finder runs ahead until its first
-  reply, so its entry exists when the rest start. The index stays in the user's message: it is text
-  from the repository, which has no authority in a system prompt.
+  nothing from the cache. On Claude Code the locked layer (protocol, output schema, tools) now goes in
+  the system prompt, which has a boundary of its own. No unit waits for another: the shared part is
+  worth about $0.02 a finder against about 40 seconds. The index stays in the user's message: it is
+  text from the repository, which has no authority in a system prompt.
 - A run pinned to production-audit 2.0.0 sends what it always sent, tools, prompt and tool turns, so it
   resumes and replays as it was; `discovery-reading.test.ts` holds it to the hash of its requests.
 - **The variant search reads the same way.** Its tools read the files its issues cite freely and

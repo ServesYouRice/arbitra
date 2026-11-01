@@ -360,7 +360,7 @@ October 31, 2026; 914 tool calls, 417 of them reading an uncited file) it covers
 reads, with 2.8 KB a question on average (8 KB at most), and costs 0.7 s for the whole run. The same version
 lays the prompt out for caches: its source label names the protocol and not the question, a
 Claude Code call has the locked layer as its system prompt, the questions are asked in the order
-of the files they cite, and the first is answered before the rest start. The run's report lists
+of the files they cite. The run's report lists
 the calls, tool calls and cache use of its questions (`verification questions`), and
 `verification-related-source` lists what each was handed. A wider source was measured and dropped: with the files
 of the cited files' modules, each of 51 questions read 47 of a project's 57 files, because one

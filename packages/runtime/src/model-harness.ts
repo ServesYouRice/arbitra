@@ -228,7 +228,7 @@ export class ModelHarness {
         toolCallErrors: events.filter((event) => event.type === "tool_result" && event.turn === context.turn - 1 && !event.result.ok && event.result.error?.code !== "ZERO_RESULTS" && event.result.error?.code !== TOOL_TURN_LIMIT_REACHED).length,
         harnessIdentity: { id: harnessProfile.id, version: harnessProfile.version, policyHash: createHash("sha256").update(JSON.stringify({ policy: harnessProfile.policy, sourcePaths: input.sourcePaths === undefined ? null : [...input.sourcePaths].sort(), historyPolicy: "archive-complete-exchanges-v1", maximumContext, ...(this.testing === undefined ? {} : { testingWritePolicy: this.testing.policyIdentity }), ...(beyond === undefined ? {} : { readBeyondSource: beyond }) })).digest("hex") },
       });
-      return context.turn === 0 ? answered.finally(() => { input.onFirstReply?.(); }) : answered;
+      return answered;
     } }, harnessProfile);
     const prompt = compiled ?? { text: JSON.stringify(initialMessages), hash: createHash("sha256").update(JSON.stringify(initialMessages)).digest("hex") };
     const runtime = this.testing?.createRuntime(toolSet.runtime, input.activityId, input.signal, input.sourcePaths) ?? toolSet.runtime;

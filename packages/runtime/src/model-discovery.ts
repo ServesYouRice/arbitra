@@ -57,21 +57,6 @@ function readingPolicy(options: { readonly protocol?: PinnedProtocol; readonly d
   return { unitSuppliedWhole: options.window === undefined, ...(turns === undefined ? {} : { maximumToolTurns: turns }) };
 }
 
-/**
- * Holds every unit but the first until the first has its first reply, so the prompt cache entry it writes is there for
- * the rest to read. Started side by side, each of the first `concurrency` units writes its own. A unit that fails opens
- * the way as well, and no unit waiting here holds a place in the audit's allowance.
- */
-function firstUnitAhead(): <R>(call: (onFirstReply?: () => void) => Promise<R>) => Promise<R> {
-  let opened: Promise<void> | undefined;
-  return async (call) => {
-    if (opened !== undefined) { await opened; return call(); }
-    let open = () => {};
-    opened = new Promise((resolve) => { open = resolve; });
-    try { return await call(open); } finally { open(); }
-  };
-}
-
 /** Round zero has only the deterministic snapshot: no peer/model/advisor artifacts. */
 export interface ModelDiscoveryOptions {
   readonly auditorId: string;
@@ -153,8 +138,6 @@ interface ScopeOptions extends DiscoveryOptions {
   readonly reportedInstructionShapedText?: readonly LineRange[];
   /** Holds the unit's model call to the allowance its audit shares. */
   readonly limited?: <R>(call: () => Promise<R>) => Promise<R>;
-  /** Holds the unit back until its finder's first unit has its first reply. */
-  readonly ahead?: <R>(call: (onFirstReply?: () => void) => Promise<R>) => Promise<R>;
   /** Set when the unit can be split: a call of it that runs past the time limit is split, not sent again whole. */
   readonly splitOnTimeLimit?: boolean;
 }
@@ -174,7 +157,7 @@ async function discoverScopeWithModel(options: ScopeOptions): Promise<readonly S
   const reused = await options.units?.indexFor?.(unit);
   const request = discoveryRequest(reused === undefined ? options : { ...options, repository: { ...options.repository, index: reused.index as RepositoryIndex | null } });
   const limited = options.limited ?? (<R>(call: () => Promise<R>) => call());
-  const discovery = await (options.ahead ?? (<R>(call: (onFirstReply?: () => void) => Promise<R>) => call()))((onFirstReply) => limited(() => activities.invoke(onFirstReply === undefined ? request : { ...request, onFirstReply })));
+  const discovery = await limited(() => activities.invoke(request));
   const findings = discovery.findings;
   const reads = activities.readsBeyondSource?.(discoveryActivityId(options)) ?? null;
   const toolUse = activities.toolUse?.(discoveryActivityId(options)) ?? null;
@@ -462,8 +445,6 @@ async function discoverPrimary(options: DiscoveryOptions): Promise<readonly Sour
   const concurrency = options.concurrency ?? 1;
   // Every call of this audit takes its place from one allowance, however deep its units split.
   const limited = sharedLimit(concurrency);
-  // With one unit at a time, the first is ahead of the rest already.
-  const ahead = concurrency > 1 && readingPolicy(options) !== undefined ? firstUnitAhead() : undefined;
   const record = async ({ unit, cause, error }: Declined, scopeId = unitScopeId(unit)): Promise<Outcome> => {
     const { window } = unit;
     // This auditor leaves the source unexamined and says so; the audit goes on with what the others found.
@@ -502,7 +483,7 @@ async function discoverPrimary(options: DiscoveryOptions): Promise<readonly Sour
   const audit = async (unit: PendingUnit, partOfDeclined = false): Promise<Outcome> => {
     const { window } = unit;
     const scopeId = unitScopeId(unit);
-    const selected: ScopeOptions = { ...options, snapshot: { ...options.snapshot, files: unit.files }, scopeId, ...(window === undefined ? {} : { window }), limited, ...(ahead === undefined ? {} : { ahead }),
+    const selected: ScopeOptions = { ...options, snapshot: { ...options.snapshot, files: unit.files }, scopeId, ...(window === undefined ? {} : { window }), limited,
       ...(splitsOnTimeLimit(options.snapshot, unit) ? { splitOnTimeLimit: true } : {}) };
     let found: readonly SourceFinding[];
     try { found = await discoverScopeWithModel(selected); }
