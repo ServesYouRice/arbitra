@@ -47,6 +47,13 @@ describe("reading what a prompt names", () => {
     expect(outcome("Call `:ets.update_counter/4`.")).toEqual(["found:false"]);
   });
 
+  it("does not read a protocol version or a path of two words as a function's arity", () => {
+    const names = (text: string) => kit.extract([premise(text)]).map(({ kind, text }) => `${kind}:${text}`);
+    expect(names("The server speaks `HTTP/2` and \"HTTP/2\", and reads \"docs/2\" and Http/2 and `IPV6/4`.")).toEqual([]);
+    expect(names("Call `check_rate/4`, `valid?/1`, `reset!/2`, `Module.name/2` and `:ets.update_counter/4`.")).toHaveLength(5);
+    expect(checked({ "lib/a.ex": "defmodule A do\nend\n" }, [premise("The server speaks `HTTP/2` and reads \"docs/2\".")])).toEqual([]);
+  });
+
   it("tells the change's new names apart from claims about the code", () => {
     const [registerUndo, onReconnect] = ["registerUndo", "onReconnect"].map((name) => kit.extract([{ text: "Add transaction.registerUndo(label, fn), then call it from onReconnect.", role: "change" },
       premise("onReconnect retries after a disconnect.")]).find(({ text }) => text.endsWith(name)));
