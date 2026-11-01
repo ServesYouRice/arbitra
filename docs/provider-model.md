@@ -350,7 +350,18 @@ verification turns the longest wrote 2,284, and one that ran on to a 128,000-tok
 looped. A question reads the files its candidate cites (every other file is a
 tool call away, and its instruction says to read what the answer depends on), and the
 unresolved peer operations that involve its own candidate in outline; the plan reads those
-that involve accepted issues in full. A wider source was measured and dropped: with the files
+that involve accepted issues in full. From `targeted-verification` 1.1.0 (a run pinned at 1.0.0 asks
+as it did) a question also carries `relatedSource`, found by text without a model: where the
+names used at the cited lines are defined and where the function they sit in is called, in files
+the findings do not cite, within 8 KB (`verification-context.ts`; Elixir, JavaScript and
+TypeScript, Python, Ruby, Go and Rust). On the 197 questions of a recorded run (nananananana,
+October 31, 2026; 914 tool calls, 417 of them reading an uncited file) it covers 22% of those
+reads, with 2.8 KB a question on average (8 KB at most), and costs 0.7 s for the whole run. The same version
+lays the prompt out for caches: its source label names the protocol and not the question, a
+Claude Code call has the locked layer as its system prompt, the questions are asked in the order
+of the files they cite, and the first is answered before the rest start. The run's report lists
+the calls, tool calls and cache use of its questions (`verification questions`), and
+`verification-related-source` lists what each was handed. A wider source was measured and dropped: with the files
 of the cited files' modules, each of 51 questions read 47 of a project's 57 files, because one
 chain of imports joins most of a project, and the questions of one run read 5.3M tokens.
 `verification.maxQuestionsPerCall` (default 1) lets questions whose claims cite the same files

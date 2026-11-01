@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { compile, PromptTextLimitError } from "@arbitra/core/prompt/compiler.js";
+import { compile, PromptTextLimitError, type CompiledPrompt } from "@arbitra/core/prompt/compiler.js";
 import { CanonicalHarnessAdapter, TOOL_TURN_LIMIT_REACHED } from "@arbitra/harness/canonical/adapter.js";
 import type { HarnessEvent } from "@arbitra/harness/adapter.js";
 import { CANONICAL_HARNESS_PROFILE, CANONICAL_TESTING_HARNESS_PROFILE } from "@arbitra/harness/profile.js";
@@ -253,7 +253,8 @@ function prepareModelInput(input: ModelActivityRequest<unknown>, config: RunConf
     const discovery = input.activityId.endsWith("/discovery");
     // A discovery unit's input opens with what every unit of the run shares (the repository index), so its label names
     // no unit: the prompts of all the units then start with the same text, which a provider can read from its cache.
-    const contextArtifacts = input.messages.filter(({ role }) => role !== "system").map(({ content }, index) => ({ sourceId: discovery ? `discovery:input-${index}` : `${input.activityId}:input-${index}`, content }));
+    // A stage that asks for the cache layout does the same: its label names the protocol.
+    const contextArtifacts = input.messages.filter(({ role }) => role !== "system").map(({ content }, index) => ({ sourceId: discovery ? `discovery:input-${index}` : `${input.cacheLayout === true ? input.protocol : input.activityId}:input-${index}`, content }));
     const compiled = input.protocolAsset === undefined ? undefined : compile({
       protocol: input.protocolAsset, outputSchema: input.outputSchema ?? {}, toolDefinitions: tools,
       projectContext: { mode: config.mode },
@@ -263,8 +264,23 @@ function prepareModelInput(input: ModelActivityRequest<unknown>, config: RunConf
       outputContract: "Return only JSON matching the locked output schema.", nodeId: input.activityId, modelId: profile.modelId,
       security: { redact: (text) => { const result = redactSecrets(text); return { text: result.text, redactionCount: result.redactions.length }; }, frame: frameUntrusted },
     });
-    const initialMessages = compiled === undefined ? input.messages : [{ role: "user" as const, content: compiled.text }];
+    const initialMessages = compiled === undefined ? input.messages : initialMessagesOf(compiled, input.cacheLayout === true, profile);
     return { profile, execution, tools, compiled, initialMessages, discovery };
+}
+
+/**
+ * A compiled prompt as the messages of a call's first turn: one user message, as the prompt compiler wrote it. With the
+ * cache layout, a Claude Code call has the prompt's first layer (the locked protocol, output schema and tool
+ * definitions, the same for every call of a stage) as its system prompt and the other layers as the user message. The
+ * CLI sends a system prompt as its own block, which its cache can serve to every call; the layer order is as written,
+ * the instruction still last. Any other call, or one that does not ask, keeps the single message.
+ */
+export function initialMessagesOf(compiled: CompiledPrompt, cacheLayout: boolean, profile: { readonly transport: string; readonly quirks: { readonly systemPromptSupport: string } }): readonly TransportMessage[] {
+  const end = compiled.breakpoints[0]?.afterLayer === "locked" ? compiled.breakpoints[0].endByte : 0;
+  if (!cacheLayout || end === 0 || profile.transport !== "claude-code-cli" || profile.quirks.systemPromptSupport !== "full") return [{ role: "user", content: compiled.text }];
+  const decoder = new TextDecoder();
+  // A layer's end includes the newline that joins it to the next.
+  return [{ role: "system", content: decoder.decode(compiled.bytes.subarray(0, end - 1)) }, { role: "user", content: decoder.decode(compiled.bytes.subarray(end)) }];
 }
 
 /** A request prepared to be measured; none when a message is over the compiler's limit, so the prompt never fits and

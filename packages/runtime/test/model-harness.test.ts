@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { compile } from "@arbitra/core/prompt/compiler.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -9,7 +11,7 @@ import type { RequirementsContract } from "@arbitra/workflow/nodes/requirements/
 import { validateFeatureExploration } from "../src/feature-exploration.js";
 import { ModelActivities } from "../src/model-activities.js";
 import { discoverWithModel } from "../src/model-discovery.js";
-import { isModelOutputRejection, ModelHarness } from "../src/model-harness.js";
+import { initialMessagesOf, isModelOutputRejection, ModelHarness } from "../src/model-harness.js";
 import { RunStore } from "../src/run-store.js";
 import { snapshotTools, SNAPSHOT_TOOLS } from "../src/snapshot-tools.js";
 
@@ -336,6 +338,37 @@ describe("durable canonical model harness", () => {
     const ref = await scoped.archive("Earlier tool result");
     expect(await scoped.runtime.invoke("artifact_read", { ref }, { ...context, nodeId: "scoped-history" })).toMatchObject({ ok: true, content: expect.stringContaining("Earlier tool result") });
     expect(await runtime.invoke("artifact_read", { ref }, context)).toMatchObject({ ok: false, error: { code: "ARTIFACT_OUTSIDE_ACTIVITY_CONTEXT" } });
+  });
+
+  it("labels a stage's source by its protocol when the stage asks for the cache layout, so the prompts of its calls start alike", async () => {
+    // Replays of recorded runs keep the label that names the activity; a stage that shares its start asks for the other.
+    const { create, send, requests, store } = await setup(0);
+    send.mockImplementation(async (value) => { requests.push(value); return { status: 200, headers: {}, body: { output_text: '{"answer":"ok"}', usage: { input_tokens: 10, output_tokens: 10 } } }; });
+    const protocolAsset = { protocolId: "targeted-verification", protocolVersion: "1.1.0", protocolHash: "0".repeat(64), content: "Check the claim." } as unknown as PinnedProtocol;
+    const ask = (activityId: string, cacheLayout: boolean) => create().invoke({ ...request(), activityId, protocol: "targeted-verification@1.1.0", protocolAsset, outputSchema: {}, ...(cacheLayout ? { cacheLayout: true } : {}),
+      messages: [{ role: "system" as const, content: "Answer." }, { role: "user" as const, content: JSON.stringify({ request: { candidateId: activityId } }) }] });
+    for (const [activityId, layout] of [["verification/C-1/question", true], ["verification/C-2/question", true], ["verification/C-3/question", false]] as const) await ask(activityId, layout);
+    const prompt = async (activityId: string) => String((JSON.parse((await store.readArtifact((await store.listArtifacts()).find(({ kind }) => kind === `compiled-prompt-${createHash("sha256").update(activityId).digest("hex")}`)?.artifactId ?? "")).content) as { text: string }).text);
+    const [one, two, three] = await Promise.all(["verification/C-1/question", "verification/C-2/question", "verification/C-3/question"].map(prompt));
+    // The text is stored as JSON, so the label's quotes are escaped there.
+    const label = (text: string) => /source_id=\\+"([^"\\]*)/u.exec(text)?.[1];
+    expect([one, two, three].map((text) => label(text ?? ""))).toEqual(["targeted-verification@1.1.0:input-0", "targeted-verification@1.1.0:input-0", "verification/C-3/question:input-0"]);
+    // Both start alike up to the call's own input.
+    expect((one ?? "").slice(0, (one ?? "").indexOf("candidateId"))).toBe((two ?? "").slice(0, (two ?? "").indexOf("candidateId")));
+  });
+
+  it("puts the locked layer of a Claude Code call in the system prompt and the rest in the user message, and no other call's", () => {
+    const compiled = compile({ protocol: { protocolId: "targeted-verification", protocolVersion: "1.1.0", protocolHash: "0".repeat(64), content: "Check the claim." }, outputSchema: {}, toolDefinitions: [], projectContext: { mode: "audit" },
+      stableRepositoryArtifacts: [], roundArtifacts: [{ sourceId: "round", content: "the question" }], overrides: {}, instruction: "Answer.", outputContract: "JSON.", nodeId: "n", modelId: "m",
+      security: { redact: (text) => ({ text, redactionCount: 0 }), frame: (text) => `<repository_content trust="untrusted">${text}</repository_content>` } });
+    const claude = initialMessagesOf(compiled, true, { transport: "claude-code-cli", quirks: { systemPromptSupport: "full" } });
+    expect(claude.map(({ role }) => role)).toEqual(["system", "user"]);
+    expect(claude[0]?.content).toContain("\"layer\":\"locked\"");
+    expect(claude[0]?.content).not.toContain("\"layer\":\"round\"");
+    expect(`${claude[0]?.content}\n${claude[1]?.content}`).toBe(compiled.text);
+    expect(claude[1]?.content.startsWith("{\"layer\":\"stable_repository\"")).toBe(true);
+    for (const other of [initialMessagesOf(compiled, false, { transport: "claude-code-cli", quirks: { systemPromptSupport: "full" } }), initialMessagesOf(compiled, true, { transport: "codex-cli", quirks: { systemPromptSupport: "full" } }), initialMessagesOf(compiled, true, { transport: "claude-code-cli", quirks: { systemPromptSupport: "discouraged" } })])
+      expect(other).toEqual([{ role: "user", content: compiled.text }]);
   });
 
   it("offers a model no tool that cannot work on a snapshot: the Git tools are neither offered nor reachable", async () => {

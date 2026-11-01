@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sharedLimit, sideBySide } from "../src/side-by-side.js";
+import { firstThenSideBySide, sharedLimit, sideBySide } from "../src/side-by-side.js";
 
 const later = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 
@@ -15,6 +15,25 @@ describe("independent work side by side", () => {
     expect(most).toBe(2);
     expect(results).toEqual(["0:30", "1:5", "2:20", "3:1", "4:10"]);
     expect(await sideBySide([], 4, async () => 1)).toEqual([]);
+  });
+
+  it("can finish the first item before the others start, so the prompt cache they share is written, and keeps the order and the limit", async () => {
+    const events: string[] = []; let active = 0; let most = 0;
+    const results = await firstThenSideBySide([10, 5, 5, 5, 5], 3, async (milliseconds, index) => {
+      events.push(`start ${index}`); active += 1; most = Math.max(most, active);
+      await later(milliseconds);
+      active -= 1; events.push(`end ${index}`);
+      return index;
+    });
+    expect(results).toEqual([0, 1, 2, 3, 4]);
+    expect(events.slice(0, 2)).toEqual(["start 0", "end 0"]);
+    expect(most).toBe(3);
+    // Nothing to wait for with one item or one call at a time; a failure of the first item starts no other.
+    expect(await firstThenSideBySide([7], 4, async (item) => item)).toEqual([7]);
+    const started: number[] = [];
+    await expect(firstThenSideBySide([0, 1, 2], 2, async (item) => { started.push(item); if (item === 0) throw new Error("FIRST_FAILED"); })).rejects.toThrow("FIRST_FAILED");
+    expect(started).toEqual([0]);
+    await expect(firstThenSideBySide([1], 0, async () => 1)).rejects.toThrow("INVALID_PARALLEL_CALLS");
   });
 
   it("starts nothing new after a failure, lets the work in flight end, and reports the first failure in item order", async () => {
