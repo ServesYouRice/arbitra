@@ -1545,6 +1545,17 @@ describe("composed model audits", () => {
     expect((await read<{ limitations: string[] }>("canonical-issues")).limitations).toContain(`verification_questions_not_asked:${notAsked}`);
   });
 
+  it.each([[1, [16_000], 1, 1], [2, [16_000, 32_000], 0, 0]] as const)("counts the question sent again at a higher ceiling against the run's question limit: %s", async (limit, ceilings, unanswered, notAsked) => {
+    const { create, config, requests } = await fixture({ verificationOutputLimit: "first" });
+    (config.workflow["modelExecution"] as { maximumOutputTokens: number }).maximumOutputTokens = 64_000;
+    const core = create(); const result = await core.run({ ...config, verification: { ...config.verification, maxModelQuestionsPerRound: limit } });
+    expect(result.state).toBe("COMPLETED");
+    expect(requests.filter(({ stage }) => stage === "verification").map(({ ceiling }) => ceiling)).toEqual(ceilings);
+    const artifacts = await core.artifacts(result.runId);
+    expect(artifacts.filter(({ kind }) => kind.startsWith("verification-unanswered-"))).toHaveLength(unanswered);
+    expect(artifacts.filter(({ kind }) => kind === "verification-questions-not-asked")).toHaveLength(notAsked);
+  });
+
   it("leaves a severe rejection open when the question limit leaves no second opinion", async () => {
     const { create, config, requests } = await fixture({ severeRejection: "REJECTED" });
     const core = create(); const result = await core.run({ ...config, verification: { ...config.verification, secondOpinion: "severe_rejections", maxModelQuestionsPerRound: 1 } });
