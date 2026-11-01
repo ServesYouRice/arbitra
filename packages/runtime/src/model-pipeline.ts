@@ -795,7 +795,9 @@ export class ModelAuditPipeline {
       model: {
         // A question that cannot be sent even as required input is not asked: the item stays unverified. Related source
         // is added to a question that fits without it; one it would push over the limit is asked without it.
+        // One that stopped at its output ceiling is not too large: it is asked again at the raised ceiling, on a resume too.
         fits: async (request) => {
+          if (await this.#activities.outputLimited(question(request).activityId)) return true;
           if (await this.sendable(question(request), true)) return true;
           if (relatedOf(request.candidateId, candidateFindings[request.candidateId] ?? []) === undefined) return false;
           withoutRelated.add(request.candidateId);
