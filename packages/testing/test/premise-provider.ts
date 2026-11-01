@@ -74,7 +74,8 @@ function decode(protocol: ScriptedCall["protocol"], value: unknown): { system: s
   const text = (content: unknown): string => typeof content === "string" ? content : Array.isArray(content) ? content.map((part: { text?: string }) => part.text ?? "").join("") : "";
   let system = protocol === "openai-chat" ? text(body.messages?.find(({ role }) => role === "system")?.content) : body.systemInstruction?.parts.map(({ text: part }) => part).join("\n") ?? "";
   let user = protocol === "openai-chat" ? text(body.messages?.find(({ role }) => role === "user")?.content) : body.contents?.[0]?.parts.map(({ text: part }) => part ?? "").join("") ?? "";
-  if (user.startsWith('{"layer":"locked"')) {
+  // From production-audit 2.1.0 a discovery unit's locked layer is its system message.
+  if (user.startsWith('{"layer":"locked"') || user.startsWith('{"layer":"stable_repository"')) {
     // Compiled prompts carry the instruction and framed untrusted input as JSON lines.
     const layers = user.split("\n").map((line) => JSON.parse(line) as { layer: string; value: { instruction?: string; artifacts?: string[] } });
     system = layers.find(({ layer }) => layer === "instruction")?.value.instruction ?? system;

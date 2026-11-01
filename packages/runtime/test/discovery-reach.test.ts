@@ -187,11 +187,11 @@ describe("a run whose discovery was pinned before production-audit 2.0.0", () =>
     await expect(assertDiscoveryResumable(store, ["auditor-a", "auditor-b"])).resolves.toBeUndefined();
   });
 
-  it("is not a new run's: a new run pins 2.0.0 and its discovery proceeds", async () => {
+  it("is not a new run's: a new run pins 2.1.0 and its discovery proceeds", async () => {
     const root = await mkdtemp(join(tmpdir(), "arbitra-discovery-current-")); directories.push(root);
     const store = new RunStore(root, "run-new");
     const pinned = await new ModelProtocols(store, {}, undefined, AUDIT_PROTOCOL_DEFAULTS).resolve("production-audit");
-    expect(pinned.protocolVersion).toBe("2.0.0");
+    expect(pinned.protocolVersion).toBe("2.1.0");
     expect(pinned.content).toContain("Read before concluding");
     await expect(assertDiscoveryResumable(store, ["auditor-a"])).resolves.toBeUndefined();
   });

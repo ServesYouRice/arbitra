@@ -178,7 +178,8 @@ function decode(protocol: WireProtocol, value: unknown): { system: string; input
 
 function decodeCompiled(initialSystem: string, initialUser: string): { system: string; input: Record<string, unknown> } {
   let system = initialSystem; let user = initialUser;
-  if (user.startsWith('{"layer":"locked"')) {
+  // From production-audit 2.1.0 a discovery unit's locked layer is its system message.
+  if (user.startsWith('{"layer":"locked"') || user.startsWith('{"layer":"stable_repository"')) {
     // Compiled prompts carry the instruction and framed untrusted input as JSON lines.
     const layers = user.split("\n").map((line) => JSON.parse(line) as { layer: string; value: { instruction?: string; artifacts?: string[] } });
     system = layers.find(({ layer }) => layer === "instruction")?.value.instruction ?? system;

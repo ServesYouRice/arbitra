@@ -46,7 +46,7 @@ export async function incrementalFixture(files: Readonly<Record<string, string>>
     workflow: { preset: "audit-balanced", modelExecution: {
       endpoints: ids.map((id) => ({ id, providerId: "openai", transport: "openai-responses", endpoint: `https://${id}.example/v1`, apiKeyEnvVar: "FIXTURE_KEY" })),
       modelEndpoints: Object.fromEntries(ids.map((id) => [id, id])), roles: { planner: "planner", verifier: "planner" },
-      maximumOutputTokens: 2_000, maximumDiscoveryTokens: 40_000, maximumTokens: 50_000_000, timeoutMs: 30_000, maximumRetries: 0,
+      maximumOutputTokens: 2_000, maximumDiscoveryTokens: 44_000, maximumTokens: 50_000_000, timeoutMs: 30_000, maximumRetries: 0,
       rateLimits: { openai: { rpm: 100_000, tpm: 1_000_000_000, maxConcurrent: 8 } },
     } },
   });
@@ -58,7 +58,8 @@ export async function incrementalFixture(files: Readonly<Record<string, string>>
     const body = request.body as { input?: { role: string; content: string; type?: string }[] };
     let system = body.input?.find(({ role }) => role === "system")?.content ?? "";
     let user = body.input?.find(({ role }) => role === "user")?.content ?? "{}";
-    if (user.startsWith('{"layer":"locked"')) {
+    // From production-audit 2.1.0 a discovery unit's locked layer is its system message.
+    if (user.startsWith('{"layer":"locked"') || user.startsWith('{"layer":"stable_repository"')) {
       const layers = user.split("\n").map((line) => JSON.parse(line) as { layer: string; value: { instruction?: string; artifacts?: string[] } });
       system = layers.find(({ layer }) => layer === "instruction")?.value.instruction ?? "";
       const framed = layers.flatMap(({ value }) => value.artifacts ?? [])[0] ?? "";

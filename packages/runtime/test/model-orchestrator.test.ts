@@ -90,7 +90,8 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
     const ceiling = body.max_tokens ?? body.max_output_tokens ?? body.generationConfig?.maxOutputTokens;
     let system = body.input?.find(({ role }) => role === "system")?.content ?? body.system ?? body.systemInstruction?.parts[0]?.text ?? "";
     let user = body.input?.find(({ role }) => role === "user")?.content ?? body.messages?.[0]?.content ?? body.contents?.[0]?.parts[0]?.text ?? "{}";
-    if (user.startsWith('{"layer":"locked"')) {
+    // From production-audit 2.1.0 a discovery unit's locked layer is its system message.
+    if (user.startsWith('{"layer":"locked"') || user.startsWith('{"layer":"stable_repository"')) {
       const layers = user.split("\n").map((line) => JSON.parse(line) as { layer: string; value: { instruction?: string; artifacts?: string[] } });
       system = layers.find(({ layer }) => layer === "instruction")?.value.instruction ?? "";
       const framed = layers.flatMap(({ value }) => value.artifacts ?? [])[0] ?? "";

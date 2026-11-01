@@ -55,7 +55,8 @@ async function fixture(options: { readonly variantSearch?: boolean; readonly fai
     const input = (request.body as { input: { role?: string; content?: string; type?: string }[] }).input;
     let system = input.find(({ role }) => role === "system")?.content ?? "";
     let user = input.find(({ role }) => role === "user")?.content ?? "{}";
-    if (user.startsWith('{"layer":"locked"')) {
+    // From production-audit 2.1.0 a discovery unit's locked layer is its system message.
+    if (user.startsWith('{"layer":"locked"') || user.startsWith('{"layer":"stable_repository"')) {
       const layers = user.split("\n").map((entry) => JSON.parse(entry) as { layer: string; value: { instruction?: string; artifacts?: string[] } });
       system = layers.find(({ layer }) => layer === "instruction")?.value.instruction ?? "";
       const framed = layers.flatMap(({ value }) => value.artifacts ?? [])[0] ?? "";
