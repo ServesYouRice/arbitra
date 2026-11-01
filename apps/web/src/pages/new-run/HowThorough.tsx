@@ -228,7 +228,7 @@ export function PlanScope({ draft, setDraft }: { readonly draft: Draft; readonly
   return <div aria-label="what goes into the plan" className="plan-scope" role="radiogroup">
     <label className="choice"><input aria-label="Critical and high issues only" checked={value === "high"} name="plan-scope" type="radio" onChange={() => choose("high")} />
       <span><span className="choice__name">Critical and high issues only</span>
-        <span className="field__hint">Medium issues are listed without tasks{skipped ? " and not checked" : ""}. On the measured runs they were 77 to 91% of what was checked, and checking about 55% of a run&apos;s tokens.</span></span></label>
+        <span className="field__hint">Medium issues are listed without tasks{skipped ? " and not checked" : ""}. On the measured runs they were 77 to 91% of what was checked, and checking 28 to 55% of a run&apos;s tokens.</span></span></label>
     <label className="choice"><input aria-label="Medium issues too" checked={value === "medium"} name="plan-scope" type="radio" onChange={() => choose("medium")} />
       <span><span className="choice__name">Medium issues too</span>
         <span className="field__hint">Every critical, high and medium issue is checked and gets a task. The measured runs planned this way.</span></span></label>

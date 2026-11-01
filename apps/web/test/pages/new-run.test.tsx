@@ -122,12 +122,12 @@ describe("the new-run page", () => {
     expect(bodies).toEqual([{ config: template("subscription-audit").config, repository: "/work/fixture" }]);
     expect(screen.getByText("4 source files · 1,000 lines, 100 of them tests")).toBeTruthy();
     const deep = screen.getByRole("radio", { name: "Deep" }).closest(".lineup-card")?.textContent ?? "";
-    expect(deep).toContain("≈ 600K–700K tokens");
-    expect(deep).toContain("Claude Code ≈ 522K–609K · Codex ≈ 78K–91K");
+    expect(deep).toContain("≈ 1.2M–1.4M tokens");
+    expect(deep).toContain("Claude Code ≈ 1M–1.2M · Codex ≈ 156K–182K");
     expect(deep).toContain("time not measured at this size: the smallest measured, commentanywhere, 11,719 lines, took 40 min");
-    expect(deep).toContain("basis: 3 measured runs, 605–688 tokens a line");
+    expect(deep).toContain("basis: 2 measured runs, 1,290–1,330 tokens a line");
     // The whole basis is one click down, below the cards.
-    expect(screen.getByText("How the estimates are made").closest("details")?.textContent).toContain("basis: 3 runs at deep on October 23 and 24, 11,719 to 38,967 lines");
+    expect(screen.getByText("How the estimates are made").closest("details")?.textContent).toContain("basis: 2 runs at deep since finders read beyond their unit for the tokens, 4 runs for the time, 11,719 to 84,380 lines");
     expect(screen.getByRole("radio", { name: "Cheap" }).closest(".lineup-card")?.textContent).toContain("not measured yet");
   });
 
@@ -263,6 +263,48 @@ describe("the new-run page", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "read vendor" }));
     await waitFor(() => expect(bodies).toHaveLength(3), AFTER_CHECK);
     expect(getIn(bodies[2]?.config ?? {}, ["scope", "exclude"])).toBeUndefined();
+  });
+
+  it("keeps the tests' tick and one row per folder when an over-limit project's next read no longer lists the tests", async () => {
+    stubBrowser();
+    const bodies: Body[] = [];
+    // The whole project is over the limit, so each read lists only what its leave-outs let through.
+    const answer = ({ body }: { body: Body }) => {
+      bodies.push(body);
+      const files = getIn(body.config, ["scope", "exclude"]) === undefined ? FILES : FILES.filter(({ test }) => !test);
+      return { ...READY, estimate: { ...READY.estimate, read: { complete: false, files } } };
+    };
+    stubControlPlane({ ...BASE_ROUTES, "POST /preflight": answer });
+    visit("?page=new-run");
+    render(<App />);
+    await screen.findByRole("radio", { name: "Deep" });
+    project("/work/fixture");
+    await screen.findByRole("checkbox", { name: "audit the tests" }, AFTER_CHECK);
+    fireEvent.click(screen.getByRole("checkbox", { name: "audit the tests" }));
+    await waitFor(() => expect(bodies).toHaveLength(2), AFTER_CHECK);
+    expect(await screen.findByText("Ready to start.", {}, AFTER_CHECK)).toBeTruthy();
+    expect(screen.queryByText("No tests found by their names or folders.")).toBeNull();
+    expect(checked("audit the tests")).toBe(false);
+    expect(screen.getByText(/100 lines left out/u)).toBeTruthy();
+    expect(within(screen.getByRole("table", { name: "folders" })).queryByText("server/main_test.go")).toBeNull();
+    fireEvent.click(screen.getByRole("checkbox", { name: "audit the tests" }));
+    await waitFor(() => expect(bodies).toHaveLength(3), AFTER_CHECK);
+    expect(getIn(bodies[2]?.config ?? {}, ["scope", "exclude"])).toBeUndefined();
+  });
+
+  it("leaves out a file over the read limit with one click, and reads the project again", async () => {
+    stubBrowser();
+    const bodies: Body[] = [];
+    const large = { ...READY, ready: false, estimate: null, estimateError: "REPOSITORY_FILE_TOO_LARGE:packages/api/generated.ts" };
+    stubControlPlane({ ...BASE_ROUTES, "POST /preflight": ({ body }: { body: Body }) => { bodies.push(body); return bodies.length === 1 ? large : READY; } });
+    visit("?page=new-run");
+    render(<App />);
+    await screen.findByRole("radio", { name: "Deep" });
+    project("/work/fixture");
+    expect(await screen.findByText("packages/api/generated.ts is larger than 512 KB, more than a run reads in one file.", {}, AFTER_CHECK)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Leave it out" }));
+    expect(await screen.findByText("Ready to start.", {}, AFTER_CHECK)).toBeTruthy();
+    expect(getIn(bodies[1]?.config ?? {}, ["scope", "exclude"])).toEqual(["packages/api/generated.ts"]);
   });
 
   it("names what this computer lacks in one line beside Start, pointing up, with the recorded codes one click down", async () => {

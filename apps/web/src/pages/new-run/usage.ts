@@ -7,13 +7,20 @@ import { duration, tokenWords } from "../../app/words.js";
  * the app does not know the person's plan.
  */
 export interface MeasuredRun { readonly project: string; readonly lines: number; readonly minutes: number; readonly tokensPerLine: number }
-interface Basis { readonly runs: readonly MeasuredRun[]; readonly what: string }
+/** `tokensPerLine` when the rate comes from other runs than the time; else each run's own. */
+interface Basis { readonly runs: readonly MeasuredRun[]; readonly what: string; readonly tokensPerLine?: readonly number[] }
+const ratesOf = (basis: Basis): readonly number[] => basis.tokensPerLine ?? basis.runs.map(({ tokensPerLine }) => tokensPerLine);
 
-/** At deep, two or three finders, no review round, the plan critic on (October 23 and 24, 2026). */
-const DEEP: Basis = { what: "3 runs at deep on October 23 and 24", runs: [
+/**
+ * At deep, no review round. The tokens are from the runs since finders read beyond their unit: the MacBook run (three
+ * finders, October 26 to 27, its time mostly asleep) and nananananana (two, November 1); the three before used half
+ * as many (605 to 688). The time counts those three too, with the plan critic on.
+ */
+const DEEP: Basis = { what: "2 runs at deep since finders read beyond their unit for the tokens, 4 runs for the time", tokensPerLine: [1_290, 1_330], runs: [
   { project: "commentanywhere", lines: 11_719, minutes: 40, tokensPerLine: 640 },
   { project: "rokbot", lines: 26_100, minutes: 71, tokensPerLine: 605 },
   { project: "nextra", lines: 38_967, minutes: 105, tokensPerLine: 688 },
+  { project: "nananananana", lines: 84_380, minutes: 197, tokensPerLine: 1_330 },
 ] };
 /** At deep with one review round and Gemini as the third finder (October 20 to 22, 2026), on earlier builds. */
 const REVIEWED: Basis = { what: "3 runs at deep with one review round on October 20 to 22", runs: [
@@ -41,7 +48,7 @@ export interface Usage {
 export function usage(input: UsageInput): Usage {
   const basis = input.depth !== "deep" ? null : input.reviewRound ? REVIEWED : DEEP;
   if (basis === null) return { basis, perLine: null, tokens: null, vendors: [], minutes: null, perThousandLines: null, input };
-  const rates = basis.runs.map(({ tokensPerLine }) => tokensPerLine);
+  const rates = ratesOf(basis);
   // The measured rates, widened to the hundreds around them: an estimate with a little room, as people read one.
   const perLine = { low: Math.floor(Math.min(...rates) / 100) * 100, high: Math.ceil(Math.max(...rates) / 100) * 100 };
   const speeds = basis.runs.map(({ minutes, lines }) => minutes / lines * 1_000);
@@ -70,14 +77,14 @@ export function usageWords(estimate: Usage): UsageWords {
     : input.lines === null ? `about ${perThousandLines.low.toFixed(1)} to ${perThousandLines.high.toFixed(1)} minutes per 1,000 lines`
     : smallest !== undefined && input.lines < smallest.lines ? `time not measured at this size: the smallest measured, ${smallest.project}, ${smallest.lines.toLocaleString("en")} lines, took ${time(smallest.minutes)}`
     : largest === undefined ? "time not measured at this size" : `time not measured at this size: the largest measured, ${largest.project}, ${largest.lines.toLocaleString("en")} lines, took ${time(largest.minutes)}`;
-  const rates = basis.runs.map(({ tokensPerLine }) => tokensPerLine);
+  const rates = ratesOf(basis);
   const minutes = basis.runs.map(({ minutes: taken }) => taken);
-  const critic = input.critic ? "They reviewed the plan too." : "They reviewed the plan, which took 9 to 17% of their tokens; it is off here.";
+  const critic = input.critic ? "Reviewing the plan, on here, takes 9 to 17% of a run's tokens on top." : "Reviewing the plan is off here; it took 9 to 17% of a run's tokens.";
   return {
-    tokens: estimate.tokens === null ? `≈ ${perLine.low} to ${perLine.high} tokens a line of the project` : `≈ ${range(estimate.tokens.low, estimate.tokens.high)} tokens`,
+    tokens: estimate.tokens === null ? `≈ ${perLine.low.toLocaleString("en")} to ${perLine.high.toLocaleString("en")} tokens a line of the project` : `≈ ${range(estimate.tokens.low, estimate.tokens.high)} tokens`,
     vendors: estimate.vendors.length === 0 ? null : estimate.vendors.map(({ name, low, high }) => `${name} ≈ ${range(low, high)}`).join(" · "),
     time: timeWords,
-    short: `basis: ${basis.runs.length} measured runs, ${Math.min(...rates).toLocaleString("en")}–${Math.max(...rates).toLocaleString("en")} tokens a line`,
+    short: `basis: ${rates.length} measured runs, ${Math.min(...rates).toLocaleString("en")}–${Math.max(...rates).toLocaleString("en")} tokens a line`,
     basis: `basis: ${basis.what}, ${(smallest?.lines ?? 0).toLocaleString("en")} to ${(largest?.lines ?? 0).toLocaleString("en")} lines: ${Math.min(...rates).toLocaleString("en")} to ${Math.max(...rates).toLocaleString("en")} tokens a line, ${time(Math.min(...minutes))} to ${time(Math.max(...minutes))}. ${critic}`,
   };
 }

@@ -17,6 +17,15 @@ export function reading(files: readonly ReadFile[], exclude: readonly string[]):
   return { files: read.length, lines: sum(read), testFiles: tests.length, testLines: sum(tests) };
 }
 
+/**
+ * What is known of a project's files after another read. A project over the file limit lists only what its leave-outs
+ * let through, so the list keeps what earlier reads named: the tests stay a tick, a folder left out stays its row.
+ */
+export function knownFiles(earlier: readonly ReadFile[], files: readonly ReadFile[]): readonly ReadFile[] {
+  const listed = new Set(files.map(({ path }) => path));
+  return [...earlier.filter(({ path }) => !listed.has(path)), ...files];
+}
+
 /** A row of the folder table: a folder, or the files directly in one, and what leaving it out adds to the leave-outs. */
 export interface FolderGroup { readonly id: string; readonly label: string; readonly leaveOut: readonly string[]; readonly files: readonly ReadFile[] }
 

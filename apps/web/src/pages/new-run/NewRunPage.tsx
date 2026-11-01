@@ -1,7 +1,7 @@
 import "./new-run.css";
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { useConfigurations } from "../../api/configurations.js";
-import type { PreflightResult } from "../../api/runs.js";
+import type { PreflightResult, ReadFile } from "../../api/runs.js";
 import { useLoaded } from "../../api/runs.js";
 import type { GraphListing } from "../../api/workflows.js";
 import { useApis } from "../../app/apis.js";
@@ -14,7 +14,7 @@ import { withStrongestOffered } from "./model-catalog.js";
 import { getIn, modeOf, placeholders, setIn, suggestedName, withGraph, type Draft, type Mode } from "./draft.js";
 import { DEFAULT_START, SCRIPTED_AUDIT, TEMPLATES } from "./templates.js";
 import { isDepthLineup } from "./depth.js";
-import { leftOut, reading, withPath } from "./reading.js";
+import { knownFiles, leftOut, reading, withPath } from "./reading.js";
 import { HowThorough, PlanScope, StepsList } from "./HowThorough.js";
 import { OverLimit, WhatToRead } from "./WhatToRead.js";
 import { antigravityState, missingClis, offeredModels, ThisComputer, type DetectedEnvironment } from "./ThisComputer.js";
@@ -33,7 +33,7 @@ const CARD_LINEUPS = new Set(["template:subscription-audit", "template:subscript
 
 interface Loaded { readonly draft: Draft; readonly name: string; readonly savedId: string | null; readonly source: string; readonly repository?: string }
 /** A check of one lineup against one project; `key` is what it checked, so the page knows when to check again. */
-interface Checked { readonly result: PreflightResult; readonly key: string; readonly repository: string; readonly draft: Draft }
+interface Checked { readonly result: PreflightResult; readonly key: string; readonly repository: string; readonly draft: Draft; readonly files: readonly ReadFile[] | null }
 
 const excludeOf = (draft: Draft): readonly string[] => { const value = getIn(draft, ["scope", "exclude"]); return Array.isArray(value) ? value.map(String) : []; };
 const withExclude = (draft: Draft, exclude: readonly string[]): Draft => setIn(draft, ["scope", "exclude"], exclude.length === 0 ? undefined : [...exclude]);
@@ -74,6 +74,7 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
   const loadedRef = useRef(loaded); loadedRef.current = loaded;
   const repositoryRef = useRef(repository); repositoryRef.current = repository;
   const ticket = useRef(0);
+  const listed = useRef<{ readonly repository: string; readonly files: readonly ReadFile[] } | null>(null);
   // While Start checks the lineup, a check waiting for typing to pause does not run: it would make Start's stale.
   const starting = useRef(false);
 
@@ -143,7 +144,10 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
       const start = loadedRef.current;
       if (next !== value && start !== null && stableJson(value) === stableJson(start.draft)) setLoaded({ ...start, draft: next });
       if (next !== value) { draftRef.current = next; setDraft(next); }
-      const checked = { result, key: checkKey(next, path, result.estimate?.read?.complete === true), repository: path, draft: next };
+      const read = result.estimate?.read;
+      const files = read === undefined ? null : read.complete ? read.files : knownFiles(listed.current?.repository === path ? listed.current.files : [], read.files);
+      if (files !== null) listed.current = { repository: path, files };
+      const checked = { result, key: checkKey(next, path, read?.complete === true), repository: path, draft: next, files };
       setCheck(checked);
       return checked;
     } catch (cause) {
@@ -162,7 +166,7 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
   const result = check !== null && check.repository === project ? check.result : null;
   const fresh = result !== null && check?.key === key;
   const exclude = excludeOf(draft);
-  const files = result?.estimate?.read?.files ?? null;
+  const files = result === null ? null : check?.files ?? null;
   const read = files === null ? null : reading(files, exclude);
   const lines = read?.lines ?? result?.estimate?.estimate.lines ?? null;
   const open = placeholders(draft);
@@ -246,7 +250,7 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
       </div>
       <datalist id="recent-projects">{recentRepositories().map((path) => <option key={path} value={path} />)}</datalist>
       {recentRepositories().length === 0 ? null : <div className="recent"><span className="note">Recent</span>{recentRepositories().map((path) => <button className="button" key={path} title={path} type="button" onClick={() => setRepository(path)}>{projectName(path)}</button>)}</div>}
-      <ProjectLine project={project} checking={checking && !fresh} error={checkError} result={result} read={read} />
+      <ProjectLine project={project} checking={checking && !fresh} error={checkError} result={result} read={read} onLeaveOut={(path) => onSuggestion(path, true)} />
       {pickFailure === null ? null : <p className="state" data-state="degraded" role="alert">{pickFailure}</p>}
     </Section>
 
@@ -337,11 +341,14 @@ function Section({ number, title, id, aside, children }: { readonly number?: num
 }
 
 /** The project in one line once it is read: how much the run reads, or what stopped the reading, in words. */
-function ProjectLine({ project, checking, error, result, read }: { readonly project: string; readonly checking: boolean; readonly error: string | null; readonly result: PreflightResult | null; readonly read: ReturnType<typeof reading> | null }): ReactElement | null {
+function ProjectLine({ project, checking, error, result, read, onLeaveOut }: { readonly project: string; readonly checking: boolean; readonly error: string | null; readonly result: PreflightResult | null; readonly read: ReturnType<typeof reading> | null; readonly onLeaveOut: (path: string) => void }): ReactElement | null {
   if (project === "") return null;
   if (error !== null) return <Problem words={readFailure(error, project)} code={error} />;
   if (result === null) return <p className="note" role="status">{checking ? "reading the project…" : ""}</p>;
-  if (result.estimateError !== null) return <Problem words={readFailure(result.estimateError, project)} code={result.estimateError} />;
+  if (result.estimateError !== null) {
+    const large = tooLarge(result.estimateError);
+    return <Problem words={readFailure(result.estimateError, project)} code={result.estimateError}>{large === null ? null : <button className="button button--small" type="button" onClick={() => onLeaveOut(large)}>Leave it out</button>}</Problem>;
+  }
   const estimate = result.estimate?.estimate;
   if (estimate === undefined) return <p className="note">{checking ? "reading the project…" : "Read once the lineup is valid."}</p>;
   const files = read?.files ?? estimate.files; const lines = read?.lines ?? estimate.lines;
@@ -349,16 +356,19 @@ function ProjectLine({ project, checking, error, result, read }: { readonly proj
 }
 
 /** What the check found in words, with the recorded code one click down. */
-function Problem({ words, code, tone = "refuted" }: { readonly words: string; readonly code: string; readonly tone?: string }): ReactElement {
-  return <div className="state problem-line" data-state={tone}><p>{words}</p><details><summary>recorded code</summary><code>{code}</code></details></div>;
+function Problem({ words, code, tone = "refuted", children }: { readonly words: string; readonly code: string; readonly tone?: string; readonly children?: ReactNode }): ReactElement {
+  return <div className="state problem-line" data-state={tone}><p>{words}</p>{children}<details><summary>recorded code</summary><code>{code}</code></details></div>;
 }
+
+/** The file a read refused for its size; New run leaves it out with one click. */
+function tooLarge(code: string): string | null { return /REPOSITORY_FILE_TOO_LARGE:(\S+)/u.exec(code)?.[1] ?? null; }
 
 /** Why the project could not be read, and what to do: the snapshot's refusals in words. */
 export function readFailure(code: string, project: string): string {
   const files = /REPOSITORY_FILE_LIMIT_EXCEEDED:(\d+)/u.exec(code);
   if (files !== null) return `The project has more than ${Number(files[1]).toLocaleString("en")} source files, more than one run reads. Leave out folders under What to read, or read some folders only under More options.`;
-  const large = /REPOSITORY_FILE_TOO_LARGE:(\S+)/u.exec(code);
-  if (large !== null) return `${large[1]} is larger than 512 KB, more than a run reads in one file. Leave it out under More options.`;
+  const large = tooLarge(code);
+  if (large !== null) return `${large} is larger than 512 KB, more than a run reads in one file.`;
   if (/REPOSITORY_NOT_FOUND/u.test(code)) return `There is no folder at ${project}.`;
   if (/REPOSITORY_NOT_DIRECTORY/u.test(code)) return `${project} is a file, not a folder.`;
   if (/SCOPE_EXCLUSION_COVERS_REPOSITORY/u.test(code)) return "The leave-outs cover the whole project, so there is nothing to read.";
