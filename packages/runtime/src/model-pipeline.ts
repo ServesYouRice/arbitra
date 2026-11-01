@@ -659,6 +659,19 @@ export class ModelAuditPipeline {
       await context.store.publish(`verification-unanswered-${createHash("sha256").update(`${activityId}/${request.candidateId}`).digest("hex").slice(0, 24)}`, { candidateId: request.candidateId, activityId, reason: (error as Error).message.slice(0, 1_000) });
       return { outcome: "STILL_NEEDS_VERIFICATION" as const, evidenceIds: [], artifactRefs: [], activityId, confidence: 0 };
     };
+    // A question that stops at its output ceiling is sent once more at twice the ceiling, up to what its model writes
+    // (nananananana, November 1: 2 of 197 stopped at 16,000). The first attempt is untouched, and the second is an
+    // activity of its own, so a finished run replays as it ran. The raise is recorded (`verification-ceiling-raised-*`).
+    const askOne = async <T extends object>(stage: ModelStageInput<T> & { maximumOutputTokens: number }): Promise<T & { activityId: string; artifactRefs: never[] }> => {
+      try { return { ...await this.call(stage), activityId: stage.activityId, artifactRefs: [] }; }
+      catch (error) {
+        const raised = Math.min(stage.maximumOutputTokens * 2, outputCeiling(this.config, stage.modelProfileId));
+        if (!(error instanceof ModelOutputLimitError) || raised <= stage.maximumOutputTokens) throw error;
+        const again = { ...stage, activityId: `${stage.activityId}/higher-ceiling`, maximumOutputTokens: raised };
+        await context.store.publish(`verification-ceiling-raised-${createHash("sha256").update(stage.activityId).digest("hex").slice(0, 24)}`, { activityId: stage.activityId, askedAgainAs: again.activityId, from: stage.maximumOutputTokens, to: raised });
+        return { ...await this.call(again), activityId: again.activityId, artifactRefs: [] };
+      }
+    };
     // A bound on questions (`maxModelQuestionsPerRound`) holds for every question verification asks: the re-asks of
     // a rejected merge's places, a second opinion and a failed group's questions asked one at a time come out of what
     // the first questions leave. Those are set aside when the questions are grouped, so no re-ask takes one a later
@@ -687,7 +700,7 @@ export class ModelAuditPipeline {
         const stage = question(single, findings, `verification/${request.candidateId}/place/${createHash("sha256").update(JSON.stringify(sourceFindingIds)).digest("hex").slice(0, 16)}`);
         if (!allowed(request.candidateId, stage.activityId)) continue;
         let answer: ModelVerificationResponse;
-        try { answer = { ...await this.call(stage), activityId: stage.activityId, artifactRefs: [] }; }
+        try { answer = await askOne(stage); }
         catch (error) { answer = await unanswered(single, stage.activityId, error); }
         asked.push({ sourceFindingIds, activityId: stage.activityId, outcome: answer.outcome });
         if (answer.outcome === "CONFIRMED") confirmed.push({ answer, findings });
@@ -715,7 +728,7 @@ export class ModelAuditPipeline {
       // Without the second question the rejection is not confirmed, so the issue stays open.
       if (!allowed(request.candidateId, stage.activityId)) return { ...rejected, outcome: "STILL_NEEDS_VERIFICATION", reason: `The verifier rejected it: ${rejected.reason ?? "no reason given."} No second model was asked: the run's limit on verification questions was reached.` };
       let answer: ModelVerificationResponse;
-      try { answer = { ...await this.call(stage), activityId: stage.activityId, artifactRefs: [] }; }
+      try { answer = await askOne(stage); }
       catch (error) { answer = await unanswered(request, stage.activityId, error); }
       await context.store.publish(`verification-second-opinion-${request.candidateId}`, { candidateId: request.candidateId, modelProfileId: secondOpinion,
         first: { activityId: rejected.activityId, outcome: rejected.outcome, confidence: rejected.confidence }, second: { activityId: answer.activityId, outcome: answer.outcome, confidence: answer.confidence } });
@@ -734,7 +747,7 @@ export class ModelAuditPipeline {
         for (const request of requests) {
           const single = question(request);
           if (!allowed(request.candidateId, single.activityId)) { answers.push({ outcome: "STILL_NEEDS_VERIFICATION", evidenceIds: [], artifactRefs: [], activityId: single.activityId, confidence: 0 }); continue; }
-          try { answers.push({ ...await this.call(single), activityId: single.activityId, artifactRefs: [] }); }
+          try { answers.push(await askOne(single)); }
           catch (failure) { answers.push(await unanswered(request, single.activityId, failure)); }
         }
         return answers;
@@ -760,7 +773,7 @@ export class ModelAuditPipeline {
         verify: async (request) => {
           const stage = question(request);
           let answer;
-          try { answer = { ...await this.call(stage), activityId: stage.activityId, artifactRefs: [] }; }
+          try { answer = await askOne(stage); }
           catch (error) { return unanswered(request, stage.activityId, error); }
           return settled(request, answer);
         },

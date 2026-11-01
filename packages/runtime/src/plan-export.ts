@@ -81,12 +81,6 @@ const TIERS = {
   fast: { folder: "3-fast-model", model: "a fast, inexpensive model (such as Claude Haiku)", why: "a small, mechanical change" },
 } as const;
 
-const PLANS_GITIGNORE = [
-  "# Written by arbitra. Saved plans list this project's unfixed defects, security issues among them,",
-  "# so Git leaves this folder out. Remove the line below to commit plans on purpose; a public",
-  "# repository would then publish every open issue.",
-  "*", ""].join("\n");
-
 /**
  * Writes a run's plan into its repository as prompts a person or a coding agent can use directly, in
  * `.arbitra/plans/<date>-<run>/`: a README with the order of work, AGENTS.md (and CLAUDE.md) telling a coding agent how
@@ -198,10 +192,6 @@ export async function exportPlan(orchestrator: Orchestrator, runId: string): Pro
     .map((issue) => `## ${issue.claim.title}\n\n${issue.severity} · ${issue.disposition} · ${issue.candidateId}\n\n${issue.claim.description}\n`)].join("\n"));
   files.set(RESULTS_FILE, `${JSON.stringify(resultsTemplate(runId, unsettled, ordered, issues), null, 2)}\n`);
   await mkdir(directory, { recursive: true });
-  // A plan lists the project's unfixed defects, security issues among them, so Git leaves the folder out unless the
-  // person chooses otherwise; an existing file is their choice and is kept.
-  const ignore = join(overview.repository, ".arbitra", ".gitignore");
-  if (!existsSync(ignore)) await writeFile(ignore, PLANS_GITIGNORE, { encoding: "utf8", flag: "wx" });
   for (const [path, content] of files) {
     await mkdir(join(directory, path, ".."), { recursive: true });
     await writeFile(join(directory, path), content, { encoding: "utf8", flag: "wx" });
@@ -345,6 +335,7 @@ function readme(plan: ExportPlan, ordered: readonly ExportTask[], runId: string,
   const fixes = new Set(ordered.flatMap((task) => task.addresses.issues)).size;
   return [`# Plan · ${ordered.length} ${ordered.length === 1 ? "task" : "tasks"} for ${fixes} ${fixes === 1 ? "issue" : "issues"}`, "", plan.title.split(/;\s+/u).map((part) => `- ${part}`).join("\n"), "", `From arbitra run \`${runId}\` (${workflow}).`, "",
     "Work through the prompts in the order below. Each one is self-contained: paste it into your coding agent (Claude Code, Codex or another), or follow it yourself. The folder says which kind of model each task suits.", "",
+    "This folder lists every open issue the audit found. A public repository that commits it publishes them all, so keep it out of one until they are fixed.", "",
     `Each defect is proven before it is fixed: a test that fails on the current code, then passes with the fix. Record each issue's result in \`${RESULTS_FILE}\`; arbitra reads it back and reports how many defects a failing test proved and how many were fixed.`, "",
     ...(notes.length === 0 ? [] : ["## Read this first", "", ...notes.map((note) => `- ${note}`), ""]),
     ...(blocking.length === 0 ? [] : ["## Answer these first", "", ...blocking.map(({ id, question }) => `- **${id}**: ${question}`), ""]),

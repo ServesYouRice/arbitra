@@ -52,6 +52,7 @@ export function PlanCard({ runId, plan, questions, onPlanTab = false }: { readon
       </div>
       {saving.failure === null ? <p className="note">{saved.loading && saved.value === null ? "Checking whether it was saved before." : "Not saved yet. Nothing in the project changes until you save."}</p>
         : <p className="state" data-state="degraded" role="alert">The plan was not saved: {saving.failure}. Nothing in the project changed.</p>}
+      <p className="note">{PUBLIC_REPOSITORY}</p>
       <label className="notify"><input checked={sends} type="checkbox" onChange={(event) => tick(event.target.checked)} />Also send the run's report to the developer when I save</label>
       {shown === null ? null : <ReportPreview text={shown} action="Send it when I save" onAgree={() => { chooseSends(true); setShown(null); }} onCancel={() => setShown(null)} />}
     </> : <>
@@ -63,10 +64,14 @@ export function PlanCard({ runId, plan, questions, onPlanTab = false }: { readon
         {read}
       </div>
       <p className="note">Saved {formatTime(latest.savedAt)}.{(saved.value?.saved.length ?? 0) > 1 ? ` ${saved.value?.saved.length ?? 0} copies are in .arbitra/plans; this is the newest.` : ""}</p>
+      <p className="note">{PUBLIC_REPOSITORY}</p>
     </>}
     {unsent === null ? null : <p className="state" data-state="degraded" role="alert">The report could not be sent: {unsent}</p>}
   </section>;
 }
+
+/** The saved plan lists every open issue, and Git no longer leaves it out. */
+const PUBLIC_REPOSITORY = "The plan lists every open issue. A public repository that commits it publishes them all.";
 
 /** What the premise check found when the plan was saved, in words. */
 export function premiseWords({ named, notFound, prompts }: PremiseSummary): string {

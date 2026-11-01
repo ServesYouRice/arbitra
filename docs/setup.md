@@ -594,10 +594,9 @@ hidden directories, so a later run does not read the folder. `AGENTS.md` lists t
 test, typecheck, lint and build commands, read from its manifests when the run started
 (`repository-commands`; the planners are given the same list), and the README opens with
 "Read this first" when the project's files changed after the audit, a CLI updated itself while
-the run was paused, or a file holds text that reads like instructions to a model. The first save also writes
-`.arbitra/.gitignore` with `*`, so Git leaves the plans out: they list the project's open
-defects, security issues among them. Remove that line to commit plans on purpose; an existing
-`.arbitra/.gitignore` is never changed.
+the run was paused, or a file holds text that reads like instructions to a model. No `.gitignore` is written, so
+plans can be pushed; they list the project's open defects, security issues among them, so keep them out of a public
+repository until those are fixed. An existing `.arbitra/.gitignore` is never changed.
 
 | File | Contents |
 |---|---|

@@ -17,7 +17,7 @@ import type { TestSandbox } from "../src/test-sandbox.js";
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
-async function fixture(options: { secondFile?: boolean; revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: true | "every"; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; conflictFault?: "invalid" | "output_limit"; ambiguousClustering?: boolean; oversizedRepository?: boolean; packedReviewSource?: boolean; planQuestion?: boolean; verifierContextTokens?: number; invalidVerification?: boolean; invalidGroupVerification?: boolean; unanimousReview?: boolean; verificationByPlace?: boolean; holdingPlaces?: readonly string[]; placeBesideMerge?: boolean; severities?: readonly string[]; critiqueVerdict?: "HOLDS" | "DOES_NOT_HOLD"; lowerSeverity?: "one" | "two"; severeRejection?: "REJECTED" | "CONFIRMED"; revisionQuestion?: boolean; revisionPatchOutputLimit?: boolean; depth?: "fast" | "balanced" | "deep"; finding?: { readonly severity?: string; readonly category?: string }; abstainAt?: string; confidenceByLine?: boolean } = {}) {
+async function fixture(options: { secondFile?: boolean; revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: true | "every"; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; conflictFault?: "invalid" | "output_limit"; ambiguousClustering?: boolean; oversizedRepository?: boolean; packedReviewSource?: boolean; planQuestion?: boolean; verifierContextTokens?: number; invalidVerification?: boolean; verificationOutputLimit?: "first" | "always"; invalidGroupVerification?: boolean; unanimousReview?: boolean; verificationByPlace?: boolean; holdingPlaces?: readonly string[]; placeBesideMerge?: boolean; severities?: readonly string[]; critiqueVerdict?: "HOLDS" | "DOES_NOT_HOLD"; lowerSeverity?: "one" | "two"; severeRejection?: "REJECTED" | "CONFIRMED"; revisionQuestion?: boolean; revisionPatchOutputLimit?: boolean; depth?: "fast" | "balanced" | "deep"; finding?: { readonly severity?: string; readonly category?: string }; abstainAt?: string; confidenceByLine?: boolean } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "arbitra-model-run-")); directories.push(directory);
   const manyIssues = options.largePeerContext === true || options.largePlannerContext === true;
   await writeFile(join(directory, "a.ts"), "const value = null;\n".repeat(manyIssues || options.placeBesideMerge === true ? 4 : options.ambiguousClustering === true ? 3 : 1), "utf8");
@@ -182,6 +182,8 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
     } else if (system.startsWith("Answer the single")) {
       requests.push({ stage: "verification", url: request.url, ...(ceiling === undefined ? {} : { ceiling }) });
       if (failVerification) return { status: 503, headers: {}, body: {} };
+      // The reply stops at the output ceiling (the Anthropic shape), at the first ceiling only or at any.
+      if (options.verificationOutputLimit === "always" || options.verificationOutputLimit === "first" && (ceiling ?? 0) <= 16_000) return { status: 200, headers: {}, body: { stop_reason: "max_tokens", content: [{ type: "text", text: '{"outcome":' }], usage: { input_tokens: 10, output_tokens: 2_000 } } };
       const input = JSON.parse(user) as { request: { candidateId: string; question: string; context: { citedContext: { evidenceId: string }[] } }; findings: Record<string, unknown>[]; unresolvedPeerOperations: { candidateIds: string[] }[]; repository: { path: string }[] };
       verificationInputs.push({ candidateId: input.request.candidateId, unresolvedPeerOperations: input.unresolvedPeerOperations, sourcePaths: input.repository.map(({ path }) => path), question: input.request.question, findings: input.findings });
       // The answers take a moment, so questions asked side by side are in flight together.
@@ -1600,6 +1602,33 @@ describe("composed model audits", () => {
     const events = []; for await (const event of core.events(result.runId)) events.push(event);
     expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
     expect(verificationInputs.map(({ sourcePaths }) => sourcePaths)).toEqual([["a.ts"]]);
+  });
+
+  it("sends a verification question that stops at its output ceiling once more at twice the ceiling, and records it", async () => {
+    // Observed (nananananana, November 1, 2026): 2 of 197 questions stopped at 16,000 tokens and went unanswered.
+    const { create, config, requests } = await fixture({ verificationOutputLimit: "first" });
+    (config.workflow["modelExecution"] as { maximumOutputTokens: number }).maximumOutputTokens = 64_000;
+    const core = create(); const result = await core.run(config);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.at(-1))).toBe("COMPLETED");
+    expect(requests.filter(({ stage }) => stage === "verification").map(({ ceiling }) => ceiling)).toEqual([16_000, 32_000]);
+    const artifacts = await core.artifacts(result.runId);
+    const raised = artifacts.filter(({ kind }) => kind.startsWith("verification-ceiling-raised-"));
+    expect(raised).toHaveLength(1);
+    expect(JSON.parse((await core.artifact(result.runId, raised[0]?.artifactId ?? "") as { content: string }).content)).toMatchObject({ from: 16_000, to: 32_000, askedAgainAs: expect.stringMatching(/\/question\/higher-ceiling$/u) });
+    expect(artifacts.filter(({ kind }) => kind.startsWith("verification-unanswered-"))).toHaveLength(0);
+    const canonical = artifacts.find(({ kind }) => kind === "canonical-issues");
+    const value = JSON.parse((await core.artifact(result.runId, canonical?.artifactId ?? "") as { content: string }).content) as { issues: { verificationOutcome: string }[] };
+    expect(value.issues.map(({ verificationOutcome }) => verificationOutcome)).toEqual(["CONFIRMED"]);
+  });
+
+  it("records a verification question unanswered when the higher ceiling is reached too, and asks no third time", async () => {
+    const { create, config, requests } = await fixture({ verificationOutputLimit: "always" });
+    (config.workflow["modelExecution"] as { maximumOutputTokens: number }).maximumOutputTokens = 64_000;
+    const core = create(); const result = await core.run(config);
+    expect(result.state).toBe("COMPLETED");
+    expect(requests.filter(({ stage }) => stage === "verification").map(({ ceiling }) => ceiling)).toEqual([16_000, 32_000]);
+    expect((await core.artifacts(result.runId)).filter(({ kind }) => kind.startsWith("verification-unanswered-"))).toHaveLength(1);
   });
 
   it("leaves a candidate open when its verification answer stays invalid, and completes the run", async () => {

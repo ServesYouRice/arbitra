@@ -37,6 +37,16 @@ describe("reading what a prompt names", () => {
     expect(found.filter(({ kind, text }) => kind === "quote" && text.includes("connect-transport'"))).toHaveLength(1);
   });
 
+  it("reads an Elixir name/arity as the name, and still reports a missing one (nananananana, November 1)", () => {
+    const names = (text: string) => kit.extract([premise(text)]).map(({ kind, text }) => `${kind}:${text}`);
+    expect(names("Call `check_rate/4`, `Media.legacy_object_kept?/1`, `reset!/2` and `:ets.update_counter/4`.")).toEqual(["symbol:check_rate", "symbol:Media.legacy_object_kept", "symbol:reset", "symbol:ets.update_counter"]);
+    const files = { "lib/rate.ex": "defmodule Rate do\n  def check_rate(a, b, c, d), do: a\n  def valid?(x), do: x\nend\n" };
+    const outcome = (text: string) => checked(files, [premise(text)]).map(({ saved, flagged }) => `${saved.status}:${flagged}`);
+    expect(outcome("Call `check_rate/4` and `valid?/1`.")).toEqual(["found:false", "found:false"]);
+    expect(outcome("Call `drop_everything/2`.")).toEqual(["missing:true"]);
+    expect(outcome("Call `:ets.update_counter/4`.")).toEqual(["found:false"]);
+  });
+
   it("tells the change's new names apart from claims about the code", () => {
     const [registerUndo, onReconnect] = ["registerUndo", "onReconnect"].map((name) => kit.extract([{ text: "Add transaction.registerUndo(label, fn), then call it from onReconnect.", role: "change" },
       premise("onReconnect retries after a disconnect.")]).find(({ text }) => text.endsWith(name)));

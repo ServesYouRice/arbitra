@@ -57,8 +57,8 @@ arbitra is a Gemini API key from Google AI Studio. New run shows this beside the
 
 - Runs, saved configurations and plans: `.runs` in the arbitra folder (for the Windows `.exe`,
   `%LOCALAPPDATA%\arbitra\.runs`), and the plan you choose to save in your project's `.arbitra/plans/`. A plan
-  lists your project's open defects, security issues among them, so arbitra writes `.arbitra/.gitignore` to keep it
-  out of Git. Do not commit it to a public repository until those issues are fixed.
+  lists your project's open defects, security issues among them. arbitra no longer asks Git to leave it out, so you can
+  push it; do not commit it to a public repository until those issues are fixed.
 - The vendor CLIs' own conversation logs: arbitra asks Claude Code for no saved session and Codex for an ephemeral
   one unless a call needs a follow-up turn, and deletes each Antigravity conversation after the call.
 - The run report you can copy for support holds no source code and no model output, and is masked like the rest.

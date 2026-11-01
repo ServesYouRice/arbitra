@@ -162,12 +162,14 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
     expect(results.foundWhileFixing).toEqual([]);
     // Nothing is reported until the executor fills an entry in.
     expect(await planResults(repository, "run-12345678-abcd")).toMatchObject({ issues: 3, reported: 0, provenByFailingTest: 0, checkedEndToEnd: 0, foundWhileFixing: { reported: 0, provenByFailingTest: 0 } });
-    // Git leaves saved plans out, since they list open defects; a person's own .gitignore there is kept.
-    expect(await readFile(join(repository, ".arbitra", ".gitignore"), "utf8")).toMatch(/\n\*\n$/u);
-    await writeFile(join(repository, ".arbitra", ".gitignore"), "# tracked on purpose\n");
+    // Plans may be pushed, so no ignore is written; the README says a public repository would publish the open issues.
+    await expect(readFile(join(repository, ".arbitra", ".gitignore"), "utf8")).rejects.toThrow("ENOENT");
+    expect(await readFile(join(first.directory, "README.md"), "utf8")).toContain("A public repository that commits it publishes them all");
+    // A .gitignore a project already has there is kept.
+    await writeFile(join(repository, ".arbitra", ".gitignore"), "# kept as it was\n");
     const second = await exportPlan(orchestrator, "run-12345678-abcd");
     expect(second.directory).toBe(`${first.directory}-2`);
-    expect(await readFile(join(repository, ".arbitra", ".gitignore"), "utf8")).toBe("# tracked on purpose\n");
+    expect(await readFile(join(repository, ".arbitra", ".gitignore"), "utf8")).toBe("# kept as it was\n");
     // The executor worked in the first copy; arbitra reads the newest results.json, checking every field it reads.
     await writeFile(join(first.directory, "results.json"), JSON.stringify({ issues: [
       { issue: "C-2", result: "no_change_needed", failedBefore: false, test: null, proof: "The caller guards it." },
