@@ -91,6 +91,29 @@ describe("runtime repository snapshots", () => {
       expect(snapshot.files.map(({ path, lines }) => `${path}: ${lines[0] ?? ""}`)).toEqual(["added.ts: never added", "tracked.ts: working"]);
     } finally { await rm(root, { recursive: true, force: true }); }
   });
+  it("leaves arbitra's own plan folder out of a diff, whether it is untracked or committed, and out of the repository walk", async () => {
+    // Plans may be committed (owner's decision, October 31, 2026), so the folder is not kept out by an ignore file.
+    const root = await mkdtemp(join(tmpdir(), "arbitra-git-plans-"));
+    const execute = promisify(execFile);
+    const git = async (...args: string[]) => (await execute("git", ["-C", root, ...args], { encoding: "utf8", windowsHide: true })).stdout.trim();
+    try {
+      await git("init");
+      await writeFile(join(root, "tracked.ts"), "original\n");
+      await git("add", ".");
+      await git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "-c", "commit.gpgsign=false", "commit", "-m", "original");
+      await mkdir(join(root, ".arbitra", "plans", "2026-11-01-abc"), { recursive: true });
+      await writeFile(join(root, ".arbitra", "plans", "2026-11-01-abc", "check-premises.mjs"), "export const plan = 1;\n");
+      await writeFile(join(root, "tracked.ts"), "working\n");
+      const snapshot = await snapshotRepository(root, 5, { scope: { kind: "diff", diffMode: "working_tree" } });
+      expect(snapshot.files.map(({ path }) => path)).toEqual(["tracked.ts"]);
+      await git("add", "-f", ".");
+      await git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "-c", "commit.gpgsign=false", "commit", "-m", "plans and change");
+      const range = await snapshotRepository(root, 5, { scope: { kind: "diff", revisionRange: "HEAD~1..HEAD" } });
+      expect(range.files.map(({ path }) => path)).toEqual(["tracked.ts"]);
+      const walked = await snapshotRepository(root, 5, { scope: { kind: "repository" } });
+      expect(walked.files.map(({ path }) => path)).toEqual(["tracked.ts"]);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
   it("leaves a symbolic link out of a working-tree diff, as the repository walk does, instead of failing the snapshot", async () => {
     const root = await mkdtemp(join(tmpdir(), "arbitra-git-link-"));
     const outside = await mkdtemp(join(tmpdir(), "arbitra-git-link-outside-"));

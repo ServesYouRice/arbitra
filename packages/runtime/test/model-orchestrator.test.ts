@@ -186,7 +186,8 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
       }
     } else if (system.startsWith("Answer the single")) {
       requests.push({ stage: "verification", url: request.url, ...(ceiling === undefined ? {} : { ceiling }) });
-      if (failVerification) return { status: 503, headers: {}, body: {} };
+      // With a first ceiling that is reached, the failure comes at the raised one: the question stopped, then the run broke.
+      if (failVerification && (options.verificationOutputLimit === undefined || (ceiling ?? 0) > 16_000)) return { status: 503, headers: {}, body: {} };
       // The reply stops at the output ceiling (the Anthropic shape), at the first ceiling only or at any.
       if (options.verificationOutputLimit === "always" || options.verificationOutputLimit === "first" && (ceiling ?? 0) <= 16_000) return { status: 200, headers: {}, body: { stop_reason: "max_tokens", content: [{ type: "text", text: '{"outcome":' }], usage: { input_tokens: 10, output_tokens: 2_000 } } };
       const input = JSON.parse(user) as { request: { candidateId: string; question: string; context: { citedContext: { evidenceId: string }[] } }; findings: Record<string, unknown>[]; unresolvedPeerOperations: { candidateIds: string[] }[]; repository: { path: string }[]; relatedSource?: { definitions: { at: string }[]; callers: { at: string }[] } };
@@ -1544,6 +1545,17 @@ describe("composed model audits", () => {
     expect((await read<{ limitations: string[] }>("canonical-issues")).limitations).toContain(`verification_questions_not_asked:${notAsked}`);
   });
 
+  it.each([[1, [16_000], 1, 1], [2, [16_000, 32_000], 0, 0]] as const)("counts the question sent again at a higher ceiling against the run's question limit: %s", async (limit, ceilings, unanswered, notAsked) => {
+    const { create, config, requests } = await fixture({ verificationOutputLimit: "first" });
+    (config.workflow["modelExecution"] as { maximumOutputTokens: number }).maximumOutputTokens = 64_000;
+    const core = create(); const result = await core.run({ ...config, verification: { ...config.verification, maxModelQuestionsPerRound: limit } });
+    expect(result.state).toBe("COMPLETED");
+    expect(requests.filter(({ stage }) => stage === "verification").map(({ ceiling }) => ceiling)).toEqual(ceilings);
+    const artifacts = await core.artifacts(result.runId);
+    expect(artifacts.filter(({ kind }) => kind.startsWith("verification-unanswered-"))).toHaveLength(unanswered);
+    expect(artifacts.filter(({ kind }) => kind === "verification-questions-not-asked")).toHaveLength(notAsked);
+  });
+
   it("leaves a severe rejection open when the question limit leaves no second opinion", async () => {
     const { create, config, requests } = await fixture({ severeRejection: "REJECTED" });
     const core = create(); const result = await core.run({ ...config, verification: { ...config.verification, secondOpinion: "severe_rejections", maxModelQuestionsPerRound: 1 } });
@@ -1658,6 +1670,25 @@ describe("composed model audits", () => {
     const canonical = artifacts.find(({ kind }) => kind === "canonical-issues");
     const value = JSON.parse((await core.artifact(result.runId, canonical?.artifactId ?? "") as { content: string }).content) as { issues: { verificationOutcome: string }[] };
     expect(value.issues.map(({ verificationOutcome }) => verificationOutcome)).toEqual(["CONFIRMED"]);
+  });
+
+  it("asks a resumed run's verification question again at the higher ceiling instead of leaving it unverified", async () => {
+    // A question stopped at its first ceiling, and the run broke (a usage window, a provider error) before the raised
+    // attempt was answered: the resume replays the raised attempt and does not call the question too large.
+    const { create, config, requests, failVerification } = await fixture({ unanimousReview: true, verificationOutputLimit: "first", relatedSource: true });
+    (config.workflow["modelExecution"] as { maximumOutputTokens: number }).maximumOutputTokens = 64_000;
+    failVerification(true);
+    const core = create(); const result = await core.run(config);
+    expect(result.state).toBe("FAILED");
+    failVerification(false);
+    const resumed = create(); await resumed.resume(result.runId);
+    expect((await resumed.wait(result.runId)).state).toBe("COMPLETED");
+    expect(requests.filter(({ stage }) => stage === "verification").map(({ ceiling }) => ceiling).at(-1)).toBe(32_000);
+    const artifacts = await resumed.artifacts(result.runId);
+    const read = async <T>(descriptor: { artifactId: string } | undefined) => JSON.parse((await resumed.artifact(result.runId, descriptor?.artifactId ?? "") as { content: string }).content) as T;
+    expect((await read<{ issues: { verificationOutcome: string }[] }>(artifacts.find(({ kind }) => kind === "canonical-issues"))).issues.map(({ verificationOutcome }) => verificationOutcome)).toEqual(["CONFIRMED"]);
+    const supplied = await Promise.all(artifacts.filter(({ kind }) => kind === "verification-related-source").map((descriptor) => read<{ leftOut: boolean }[]>(descriptor)));
+    expect(supplied.at(-1)?.map(({ leftOut }) => leftOut)).toEqual([false]);
   });
 
   it("records a verification question unanswered when the higher ceiling is reached too, and asks no third time", async () => {

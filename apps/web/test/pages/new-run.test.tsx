@@ -318,6 +318,101 @@ describe("the new-run page", () => {
     expect(getIn(bodies[1]?.config ?? {}, ["scope", "exclude"])).toEqual(["packages/api/generated.ts"]);
   });
 
+  it("leaves out a file over the read limit whose path holds a space, by its whole path", async () => {
+    stubBrowser();
+    const bodies: Body[] = [];
+    const path = "packages/my api/generated file.ts";
+    const large = { ...READY, ready: false, estimate: null, estimateError: `REPOSITORY_FILE_TOO_LARGE:${path}` };
+    stubControlPlane({ ...BASE_ROUTES, "POST /preflight": ({ body }: { body: Body }) => { bodies.push(body); return bodies.length === 1 ? large : READY; } });
+    visit("?page=new-run");
+    render(<App />);
+    await screen.findByRole("radio", { name: "Deep" });
+    project("/work/fixture");
+    expect(await screen.findByText(`${path} is larger than 512 KB, more than a run reads in one file.`, {}, AFTER_CHECK)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Leave it out" }));
+    expect(await screen.findByText("Ready to start.", {}, AFTER_CHECK)).toBeTruthy();
+    expect(getIn(bodies[1]?.config ?? {}, ["scope", "exclude"])).toEqual([path]);
+  });
+
+  it("leaves the tests of a diff out of nothing, so the whole project is not left without a folder when the scope goes back", async () => {
+    stubBrowser();
+    // A diff lists only the files it changes: here one test of a folder that holds source too.
+    const answer = ({ body }: { body: Body }) => {
+      const diff = getIn(body.config, ["scope", "kind"]) === "diff";
+      const files = diff ? [{ path: "src/a.test.ts", lines: 50, test: true, leftOut: false }] : [{ path: "src/a.ts", lines: 100, test: false, leftOut: false }, { path: "src/a.test.ts", lines: 50, test: true, leftOut: false }];
+      return { ...READY, estimate: { ...READY.estimate, read: { complete: true, files } } };
+    };
+    stubControlPlane({ ...BASE_ROUTES, "POST /preflight": answer });
+    visit("?page=new-run");
+    render(<App />);
+    fireEvent.change(await screen.findByRole("combobox", { name: "scope" }), { target: { value: "diff" } });
+    project("/work/fixture");
+    expect(await screen.findByText("Ready to start.", {}, AFTER_CHECK)).toBeTruthy();
+    expect(leftOutPaths()).toBe("");
+    fireEvent.change(screen.getByRole("combobox", { name: "scope" }), { target: { value: "repository" } });
+    await waitFor(() => expect(leftOutPaths()).toBe("src/a.test.ts"), AFTER_CHECK);
+  });
+
+  it("starts the next project's leave-outs afresh: the folders and the tests of the first are not carried over", async () => {
+    stubBrowser();
+    const here = [{ path: "spec/x.test.ts", lines: 50, test: true, leftOut: false }, { path: "src/app.ts", lines: 100, test: false, leftOut: false }];
+    const there = [{ path: "spec/prod.ts", lines: 80, test: false, leftOut: false }, { path: "app/b.ts", lines: 60, test: false, leftOut: false }, { path: "app/b.test.ts", lines: 40, test: true, leftOut: false }];
+    stubControlPlane({ ...BASE_ROUTES, "POST /preflight": ({ body }: { body: Body }) => ({ ...READY, repository: body.repository, estimate: { ...READY.estimate, read: { complete: true, files: body.repository === "/work/here" ? here : there } } }) });
+    visit("?page=new-run");
+    render(<App />);
+    await screen.findByRole("radio", { name: "Deep" });
+    project("/work/here");
+    await waitFor(() => expect(leftOutPaths()).toBe("spec"), AFTER_CHECK);
+    project("/work/there");
+    await waitFor(() => expect(leftOutPaths()).toBe("app/b.test.ts"), AFTER_CHECK);
+    // The tests ticked in for one project do not stay ticked in for the next.
+    fireEvent.click(screen.getByRole("checkbox", { name: "audit the tests" }));
+    expect(leftOutPaths()).toBe("");
+    project("/work/here");
+    await waitFor(() => expect(leftOutPaths()).toBe("spec"), AFTER_CHECK);
+  });
+
+  it("keeps the leave-outs of an imported lineup as they are written, tests and all", async () => {
+    stubBrowser();
+    stubControlPlane({ ...BASE_ROUTES, "POST /preflight": READY });
+    visit("?page=new-run&from=template:subscription-audit");
+    render(<App />);
+    await screen.findByRole("radio", { name: "Deep" });
+    const lineup = JSON.stringify(setIn(template("subscription-audit").config, ["scope", "exclude"], ["vendor"]));
+    fireEvent.change(screen.getByLabelText("import a lineup file"), { target: { files: [{ name: "lineup.json", text: async () => lineup }] } });
+    await screen.findByText("imported lineup.json");
+    project("/work/fixture");
+    expect(await screen.findByText("Ready to start.", {}, AFTER_CHECK)).toBeTruthy();
+    expect(leftOutPaths()).toBe("vendor");
+    expect(checked("audit the tests")).toBe(true);
+  });
+
+  it("keeps the tests of a project that holds nothing else, ticked, and reads it", async () => {
+    stubBrowser();
+    const only = { ...READY, estimate: { ...READY.estimate, estimate: { ...READY.estimate.estimate, files: 1, lines: 50 }, read: { complete: true, files: [{ path: "test/a.test.ts", lines: 50, test: true, leftOut: false }] } } };
+    stubControlPlane({ ...BASE_ROUTES, "POST /preflight": only });
+    visit("?page=new-run");
+    render(<App />);
+    await screen.findByRole("radio", { name: "Deep" });
+    project("/work/fixture");
+    expect(await screen.findByText("Ready to start.", {}, AFTER_CHECK)).toBeTruthy();
+    expect(leftOutPaths()).toBe("");
+    expect(checked("audit the tests")).toBe(true);
+  });
+
+  it("leaves no tests out of some folders that hold nothing else", async () => {
+    stubBrowser();
+    const only = { ...READY, estimate: { ...READY.estimate, estimate: { ...READY.estimate.estimate, files: 1, lines: 50 }, read: { complete: true, files: [{ path: "src/a.test.ts", lines: 50, test: true, leftOut: false }] } } };
+    stubControlPlane({ ...BASE_ROUTES, "POST /preflight": only });
+    visit("?page=new-run");
+    render(<App />);
+    fireEvent.change(await screen.findByRole("combobox", { name: "scope" }), { target: { value: "module" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "modules" }), { target: { value: "src" } });
+    project("/work/fixture");
+    expect(await screen.findByText("Ready to start.", {}, AFTER_CHECK)).toBeTruthy();
+    expect(leftOutPaths()).toBe("");
+  });
+
   it("names what this computer lacks in one line beside Start, pointing up, with the recorded codes one click down", async () => {
     stubBrowser();
     stubControlPlane({ ...BASE_ROUTES, "GET /diagnostics/environment": ENVIRONMENT, "GET /diagnostics/usage-windows": NOT_READ,

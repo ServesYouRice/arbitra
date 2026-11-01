@@ -52,6 +52,15 @@ describe("what a run reads", () => {
     expect(withTests(out, VERITRA, true)).toEqual(["scripts"]);
   });
 
+  it("leaves the tests out file by file where the list is not the whole project, since a folder of tests may hold source it does not show", () => {
+    expect(testCover(VERITRA, false)).toEqual(["mobile/test/app_test.dart", "server/main_test.go"]);
+    const listed = [file("src/a.test.ts", 50, true)];
+    expect(testCover(listed)).toEqual(["src"]);
+    expect(testCover(listed, false)).toEqual(["src/a.test.ts"]);
+    expect(withTests(["scripts"], listed, false, false)).toEqual(["scripts", "src/a.test.ts"]);
+    expect(withTests(["scripts", "src/a.test.ts"], listed, true, false)).toEqual(["scripts"]);
+  });
+
   it("reads one suggested file anyway, or leaves it out again", () => {
     expect(withPath(["scripts"], "mobile/lib/db.g.dart", true)).toEqual(["scripts", "mobile/lib/db.g.dart"]);
     expect(withPath(["scripts", "mobile/lib/db.g.dart"], "mobile/lib/db.g.dart", false)).toEqual(["scripts"]);

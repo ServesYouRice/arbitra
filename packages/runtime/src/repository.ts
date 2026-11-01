@@ -194,7 +194,8 @@ async function snapshotDiff(guard: RepositoryPathGuard, scope: RunScope, maximum
   const names = await git.run(guard.root, ["diff", "--name-only", "--relative", "--diff-filter=ACMR", "-z", ...target, "--"]);
   // The working tree's changes include files never added, which `git diff` does not list; ignored ones stay out.
   const untracked = mode === "working_tree" ? await git.run(guard.root, ["ls-files", "--others", "--exclude-standard", "-z"]) : "";
-  const listed = [...new Set(`${names}\0${untracked}`.split("\0").filter((path) => path !== "" && eligible(path)))].sort();
+  // arbitra's own saved plans (`.arbitra/`) are not source, whether a person committed them or left them untracked.
+  const listed = [...new Set(`${names}\0${untracked}`.split("\0").filter((path) => path !== "" && !path.startsWith(".arbitra/") && eligible(path)))].sort();
   // The working tree is read from disk, where a listed path can be a symbolic link or lie inside one: Git for Windows
   // lists the files inside a junction. Such a path is left out, as the repository walk leaves out every link, rather
   // than failing the snapshot when the link points outside the root.

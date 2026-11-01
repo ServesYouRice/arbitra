@@ -320,7 +320,13 @@ export function premiseKit() {
     if (ROUTE.test(text) && /[a-z]/iu.test(text) && !text.includes("//")) return { kind: "route", text };
     if (KEBAB.test(text)) return { kind: "event", text };
     const arity = ARITY.exec(text)?.[1];
-    if (arity !== undefined && !LITERALS.has(arity) && !KEYWORDS.has(arity) && (arity.split(".").pop() ?? "").length >= 3) return { kind: "symbol", text: arity };
+    if (arity !== undefined) {
+      // A function's name starts lower-case: `HTTP/2` and `Http/2` are a protocol and a version, not a function. A bare
+      // lower-case word (`docs/2`) is a function only in code marks, as a plain word in quotation marks is not a name.
+      const last = arity.split(".").pop() ?? "";
+      const plain = /^[a-z][a-z0-9]*$/u.test(text.slice(0, text.lastIndexOf("/")));
+      return LITERALS.has(arity) || KEYWORDS.has(arity) || last.length < 3 || !/^[a-z_]/u.test(last) || plain && mark !== "`" ? null : { kind: "symbol", text: arity };
+    }
     const symbol = SYMBOL.exec(text);
     if (symbol?.[1] !== undefined) {
       const name = symbol[1];

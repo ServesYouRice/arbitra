@@ -76,8 +76,13 @@ export function withGroup(exclude: readonly string[], groups: readonly FolderGro
   return unique([...kept, ...beside]);
 }
 
-/** The fewest leave-outs that cover exactly the tests: a folder that holds only tests, else the test file itself. */
-export function testCover(files: readonly ReadFile[]): readonly string[] {
+/**
+ * The fewest leave-outs that cover exactly the tests: a folder that holds only tests, else the test file itself. A folder
+ * stands for its tests only when the list holds every file the project has (`wholeProject`); a diff or a few folders
+ * list part of it, and a folder with only tests among those listed may hold source the list does not show.
+ */
+export function testCover(files: readonly ReadFile[], wholeProject = true): readonly string[] {
+  if (!wholeProject) return unique(files.filter(({ test }) => test).map(({ path }) => path)).sort();
   const onlyTests = (folder: string): boolean => files.every(({ path, test }) => test || !path.startsWith(`${folder}/`));
   return unique(files.filter(({ test }) => test).map(({ path }) => {
     const parts = path.split("/");
@@ -89,8 +94,8 @@ export function testCover(files: readonly ReadFile[]): readonly string[] {
 export function testsRead(files: readonly ReadFile[], exclude: readonly string[]): boolean { return files.some(({ path, test }) => test && !leftOut(exclude, path)); }
 
 /** The leave-outs with the tests left out, or read again: an entry that covers tests and nothing else goes. */
-export function withTests(exclude: readonly string[], files: readonly ReadFile[], read: boolean): readonly string[] {
-  if (!read) return unique([...exclude, ...testCover(files)]);
+export function withTests(exclude: readonly string[], files: readonly ReadFile[], read: boolean, wholeProject = true): readonly string[] {
+  if (!read) return unique([...exclude, ...testCover(files, wholeProject)]);
   return exclude.filter((entry) => { const covered = files.filter(({ path }) => covers(entry, path)); return covered.length === 0 || covered.some(({ test }) => !test); });
 }
 
