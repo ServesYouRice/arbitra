@@ -78,8 +78,12 @@ describe("a run pinned to production-audit 2.0.0", () => {
     const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
     // Computed on the build before the reading tools (4a55818). When a change makes these differ, a run pinned to 2.0.0
     // can no longer resume or be replayed: put the change behind DISCOVERY_READS_BY_NAME_FROM instead of updating them.
-    expect(digest(requests.map(({ body }) => body))).toBe("1da4cb5890c2cecb2096e8453943e6d6f9bd1de46e1eb593b2bc38c735bb715a");
-    expect(digest(identities.sort((a, b) => String(a[0]).localeCompare(String(b[0]))))).toBe("51f4cdff103218de25d0879a3ba6569fe5dbf891b20be2283ce6d23d69b4ac6a");
+    // Git checks the protocol's files out with CRLF line ends on Windows, so what is sent differs by platform.
+    const bodies = requests.map(({ body }) => body);
+    const checkedOutWithCrlf = /\\+r\\+n/u.test(JSON.stringify(bodies));
+    expect([digest(bodies), digest(identities.sort((a, b) => String(a[0]).localeCompare(String(b[0]))))]).toEqual(checkedOutWithCrlf
+      ? ["1da4cb5890c2cecb2096e8453943e6d6f9bd1de46e1eb593b2bc38c735bb715a", "51f4cdff103218de25d0879a3ba6569fe5dbf891b20be2283ce6d23d69b4ac6a"]
+      : ["5517fd067c51d08c4c0a148b09b4f8b516ff2ff9f2eaf8e0297df7c5ca95f5d4", "22b11937abd7d33b3a20a661bfa16cafcf65de199b0d3f67c23d93dd3d71b24b"]);
   });
 
   it("is offered no symbol lookup and no count of turns, and a lookup asked for anyway is refused", async () => {

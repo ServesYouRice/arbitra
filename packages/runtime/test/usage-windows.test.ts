@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -36,6 +36,7 @@ async function codex(behaviour: "answers" | "too_old" | "silent"): Promise<{ rea
   const script = join(folder, "codex.js");
   const pidFile = join(folder, "pid");
   const source = [
+    "#!/usr/bin/env node",
     `require("node:fs").writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));`,
     behaviour === "too_old" ? `console.error("error: unrecognized subcommand 'app-server'"); process.exit(2);` : "",
     `let buffer = ""; const newline = String.fromCharCode(10);`,
@@ -44,6 +45,7 @@ async function codex(behaviour: "answers" | "too_old" | "silent"): Promise<{ rea
     `process.stdin.on("end", () => process.exit(0)); setTimeout(() => {}, 60000);`,
   ].join("\n");
   await writeFile(script, source, "utf8");
+  await chmod(script, 0o755);
   return { lookup: (name) => name === "ARBITRA_CODEX_EXECUTABLE" ? script : process.env[name], pidFile };
 }
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
