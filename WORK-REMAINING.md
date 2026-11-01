@@ -48,8 +48,8 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
    premise-check and write-scope measurements under "Measure on the next runs".
 3. **Measure first** (no model calls, or one cheap run): they decide what to cut before anything is built.
 4. **Small builds before the next real runs** ("Need design", marked *before veritra*).
-5. **The next real run:** the same audit of nextra again ("Discovery reading beyond its unit" below), on the current build, with the rest of
-   "Measure on the next runs".
+5. **The next real runs:** projects not audited yet (game, memoria, spectra), from the week of November 2, on the
+   current build, with "Measure on the next runs". The owner would rather not run earlier projects again.
 6. **UI phase**: built on the `ui` branch, merged into `main` and released in 0.3.0; the owner's review and the
    testers' reports go on.
 7. **Improvements the measurements support** (the rest of "Need design").
@@ -75,14 +75,13 @@ From the research review; each decides a cut or a build.
 
 ## Measure on the next runs
 
-- **Discovery reading beyond its unit** (production-audit 2.0.0): audit nextra again from
-  `arbitra-experiments\checkouts\nextra` with run ccd3ccea's lineup, after a cheap shakedown of the reads. Does it
-  find the client that never sends the operator token, and the other client–server misses; how many calls read
-  beyond their unit (8 of 97 before) and how many limitations say "not supplied" (52); what the index costs in
-  units and tokens (13 KB a unit on nextra) and how much of it the cache serves. On nananananana (November 1,
-  [real runs](docs/qa/real-runs.md#the-runs)) the reading made discovery 69% of a run and doubled its tokens a line
-  against the runs before it, with 70 limitations where the budget ran out; nextra's old and new runs decide whether
-  the turns and the budget (65,536 bytes a unit) stay, since Codex's five-hour window ran out within an hour.
+- **Discovery reading beyond its unit** (production-audit 2.0.0): on nananananana (November 1,
+  [real runs](docs/qa/real-runs.md#the-runs)) every unit read beyond itself (about 12 files, against 7 to 12 in the
+  unit), 151 of 175 confirmed issues cite a file beyond their unit (before the change, 8 of 97 calls read beyond), and
+  it doubled the tokens a line, with 70 limitations where the budget ran out and half of Opus's units at its 10 turns.
+  It stays; the work is making it cheaper ("Which read tools finders get"). On the next runs: whether a symbol lookup
+  and fewer turns keep those citations, what the index costs in units and tokens, and how Codex's five-hour window
+  holds, since it ran out within an hour.
 - **Test files packed with their source:** whether claims about production code that cite only tests go away, and
   what the 9% more discovery units cost.
 - **The new export:** how many workarounds the executing agents still need, against nextra's stale lines, wrong
@@ -113,6 +112,9 @@ From the research review; each decides a cut or a build.
   by side printed "failed to install system skills" to stderr). Check whether skills instructions reach the prompt,
   and whether a setting turns them off.
 - **The verifier's required reason:** how often an answer leaves it out and costs a repair.
+- **Two small defects from nananananana, not fixed yet:** 2 of 197 questions stopped at the verifier's 16,000-token
+  ceiling and went unanswered (send them again with a higher ceiling); and 158 of the premise check's 209 "not found"
+  are Elixir's `name/arity` read as literal text (look the name up), which tells an agent a real function is gone.
 - **A Sonnet second look at medium reports Opus leaves unsettled:** build it as an option, off by default; it decided
   6 of 7 rightly on nextra, at about 28K tokens a question.
 - **Eight discovery units at a time** instead of four: the audit runs in two waves (14 minutes of a 28-minute run).

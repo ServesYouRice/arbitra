@@ -125,7 +125,7 @@ describe("the run page", () => {
     const plan = await screen.findByRole("region", { name: "The plan is ready · 1 task for 1 issue" });
     fireEvent.click(await within(plan).findByRole("button", { name: "Save the plan into the project" }));
     expect(await within(plan).findByText("Saved in the project")).toBeTruthy();
-    expect(within(plan).getByText(".arbitra/plans/2026-10-25-run1")).toBeTruthy();
+    expect(within(plan).getByText("/work/fixture/.arbitra/plans/2026-10-25-run1")).toBeTruthy();
     expect(within(plan).getByText(/^Next: open the project in Claude Code or Codex and ask it to work through/u).textContent).toContain(".arbitra/plans/2026-10-25-run1/README.md. Answer the 1 question it asks first");
     expect(within(plan).getByRole("button", { name: "Copy that request" })).toBeTruthy();
     // Saved, the plan is no longer the page's call to act: nothing is filled any more.
@@ -140,7 +140,7 @@ describe("the run page", () => {
     visit("?run=run-1");
     render(<App />);
     const plan = await screen.findByRole("region", { name: "The plan is ready · 1 task for 1 issue" });
-    expect(await within(plan).findByText(".arbitra/plans/2026-10-24-run1-2")).toBeTruthy();
+    expect(await within(plan).findByText("/work/fixture/.arbitra/plans/2026-10-24-run1-2")).toBeTruthy();
     expect(within(plan).getByText(/2 copies are in \.arbitra\/plans; this is the newest\./u)).toBeTruthy();
   });
 

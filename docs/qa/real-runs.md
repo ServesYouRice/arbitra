@@ -99,10 +99,13 @@ What each run changed:
   questions). Reading beyond each unit is now the largest cost: discovery was 69% of the tokens (veritra 18%), Opus
   715K input and 32 tool calls a unit (veritra 62K and 1.8), Sol 292K and 24 (52K and 1.4), 86% and 75% of it from the
   cache, and in 70 limitations the out-of-unit budget ran out. Codex's five-hour window went from 0 to 100% in about an
-  hour on 10.3M input and 0.33M output, counting the cancelled attempt. No call failed but the 4 refused at that
-  limit, and none came near the 15-minute limit: Sol's turns at xhigh took 37 seconds at the median, 359 at most. 89%
-  of the checked issues were confirmed (veritra and nextra 65%) and 2.1 per 1,000 lines of production code (4.0 and
-  4.9), but these are different projects, so whether the reading pays is left to the same audit of nextra again.
+  hour on 10.3M input and 0.33M output, counting the cancelled attempt. Nothing crashed: the server ran throughout,
+  and the only failed calls were the 4 refused at that limit and 2 questions stopped at the verifier's 16,000-token
+  ceiling, which stayed unsettled. None came near the 15-minute limit: Sol's turns at xhigh took 37 seconds at the
+  median, 359 at most. 89% of the checked issues were confirmed (veritra and nextra 65%) and 2.1 per 1,000 lines of
+  production code (4.0 and 4.9), on different projects. The reading is in real use: 151 of the 175 confirmed issues
+  cite a file beyond their unit, though that does not show they would have been missed without it. 158 of the premise
+  check's 209 "not found" are Elixir's `name/arity` read as literal text.
   Because of it, New run now estimates from the runs that read this way (it said 600 to 700 tokens a line), offers
   one click to leave out a file over the 512 KB limit, and keeps the tests' tick when a project over the file limit
   is read again without them.

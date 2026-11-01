@@ -55,7 +55,7 @@ export function PlanCard({ runId, plan, questions, onPlanTab = false }: { readon
       <label className="notify"><input checked={sends} type="checkbox" onChange={(event) => tick(event.target.checked)} />Also send the run's report to the developer when I save</label>
       {shown === null ? null : <ReportPreview text={shown} action="Send it when I save" onAgree={() => { chooseSends(true); setShown(null); }} onCancel={() => setShown(null)} />}
     </> : <>
-      <p className="plan-card__saved"><span>Saved in the project</span> <code>{latest.relative}</code></p>
+      <p className="plan-card__saved"><span>Saved in the project</span> <code>{latest.directory}</code></p>
       <p className="prose">Next: open the project in Claude Code or Codex and ask it to work through <code>{latest.relative}/README.md</code>.{questions > 0 ? ` Answer the ${counted(questions, "question")} it asks first: they are decisions only you can make.` : ""}</p>
       {latest.premises == null ? null : <p className="prose">{premiseWords(latest.premises)}</p>}
       <div className="actions">

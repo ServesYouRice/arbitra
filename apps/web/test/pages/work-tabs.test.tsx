@@ -234,7 +234,7 @@ describe("the Plan tab", () => {
     render(<App />);
     const card = await screen.findByRole("region", { name: "The plan is ready · 3 tasks for 3 issues" });
     fireEvent.click(await within(card).findByRole("button", { name: "Save the plan into the project" }));
-    expect(await within(card).findByText(".arbitra/plans/2026-10-25-run1")).toBeTruthy();
+    expect(await within(card).findByText("/work/rokbot/.arbitra/plans/2026-10-25-run1")).toBeTruthy();
     expect(within(card).getByText(/^Next: open the project in Claude Code or Codex/u)).toBeTruthy();
     expect(within(card).getByText("7 of the 120 things the prompts name were not found in the code, in 3 prompts. Each of those prompts lists them, and the agent finds the real code or reports the premise false.")).toBeTruthy();
     expect(within(card).queryByRole("button", { name: "Save the plan into the project" })).toBeNull();
