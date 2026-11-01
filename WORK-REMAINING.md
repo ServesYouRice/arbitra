@@ -1,6 +1,6 @@
 # Remaining work
 
-Updated October 27, 2026, on `main`. This file lists open work only, each item with its next step and its place in
+Updated November 1, 2026, on `main`. This file lists open work only, each item with its next step and its place in
 the order below; an item is deleted once it is done, and Git keeps its history. Run records and measurements are in
 [real-project runs](docs/qa/real-runs.md), phase status in the [completion plan](docs/completion-plan.md), the design
 review in the [design audit](docs/design-audit.md), the research behind the pipeline in [research](docs/research.md),
@@ -22,7 +22,7 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
   peer-review round, plan critic off); balanced and cheap depths, a third finder and the critic are separate
   choices in New run (October 25). Gemini is only ever the opt-in third finder, labelled with Google's terms. The Feature templates still use Antigravity as
   their second reviewer behind the same warning.
-- **Evidence:** six real projects audited; nextra's plan carried out on its `dev` branch: all 126 confirmed issues
+- **Evidence:** nine real projects audited; nextra's plan carried out on its `dev` branch: all 126 confirmed issues
   were real, 118 shown by a failing test, and 14 more defects were found while fixing. P20 is closed on its pilot
   (October 19); its held-out set stays unrun by design.
 - **Research review, October 25:** every step checked against other labs, products and our own runs
@@ -48,7 +48,7 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
    premise-check and write-scope measurements under "Measure on the next runs".
 3. **Measure first** (no model calls, or one cheap run): they decide what to cut before anything is built.
 4. **Small builds before the next real runs** ("Need design", marked *before veritra*).
-5. **The next real run:** nananananana, once its current development settles, on the current build, with the rest of
+5. **The next real run:** the same audit of nextra again ("Discovery reading beyond its unit" below), on the current build, with the rest of
    "Measure on the next runs".
 6. **UI phase**: built on the `ui` branch, merged into `main` and released in 0.3.0; the owner's review and the
    testers' reports go on.
@@ -79,7 +79,10 @@ From the research review; each decides a cut or a build.
   `arbitra-experiments\checkouts\nextra` with run ccd3ccea's lineup, after a cheap shakedown of the reads. Does it
   find the client that never sends the operator token, and the other client–server misses; how many calls read
   beyond their unit (8 of 97 before) and how many limitations say "not supplied" (52); what the index costs in
-  units and tokens (13 KB a unit on nextra) and how much of it the cache serves.
+  units and tokens (13 KB a unit on nextra) and how much of it the cache serves. On nananananana (November 1,
+  [real runs](docs/qa/real-runs.md#the-runs)) the reading made discovery 69% of a run and doubled its tokens a line
+  against the runs before it, with 70 limitations where the budget ran out; nextra's old and new runs decide whether
+  the turns and the budget (65,536 bytes a unit) stay, since Codex's five-hour window ran out within an hour.
 - **Test files packed with their source:** whether claims about production code that cite only tests go away, and
   what the 9% more discovery units cost.
 - **The new export:** how many workarounds the executing agents still need, against nextra's stale lines, wrong
@@ -103,7 +106,8 @@ From the research review; each decides a cut or a build.
   corrective turn in the same conversation instead), and whether reading changes what it confirms. On the MacBook
   run it confirmed 19 issues no other finder found, as many as Opus, with no tool call at all.
 - **GPT-6.1 Sol's discovery at xhigh** (#3): awake, its turns took 5 to 12 minutes at 1 to 3 output tokens a second,
-  most of the 15-minute limit, where its first turns took 25 to 60 seconds. Compare a run's Sol turns at xhigh and
+  most of the 15-minute limit, where its first turns took 25 to 60 seconds; on nananananana, with reads in small turns,
+  37 seconds at the median and 359 at most. Compare a run's Sol turns at xhigh and
   at high before the limit or the default effort changes.
 - **Codex's system skills:** every Codex call installs its system skills under `~/.codex` (on October 26, calls side
   by side printed "failed to install system skills" to stderr). Check whether skills instructions reach the prompt,
@@ -251,5 +255,5 @@ Out of the plan until the named event happens.
 - **An operator's cancel releases the call's slot at once**, before its CLI stops: if it ever overlaps a new run.
 - **The plan critic's other spec triggers** (migration, deployment, auth redesign, cross-service, large task graph) have
   no data source in audit mode: if the critic stays.
-- **The other five run plans** (beachflag, rokavatar, raquelsblog, commentanywhere, rokbot): when the owner wants
+- **The other six run plans** (beachflag, rokavatar, raquelsblog, commentanywhere, rokbot, nananananana; its 7 open questions wait for the owner): when the owner wants
   those projects fixed. Re-export each first so it gets the current export.

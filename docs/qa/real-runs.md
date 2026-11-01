@@ -18,6 +18,7 @@ the P20 pilot in `git show e917ec7:WORK-REMAINING.md`, the first narratives of t
 | rokbot, Oct 24 | `run-869f90f0` | 125 files, about 26,100 lines | 71 min | 418 | 15.8M (605) | 102 of 300 confirmed (10 high, 92 medium) | 155K | 45 / 15 / — |
 | veritra, Oct 25 | `run-e5546c4c` | 416 files, 103,575 lines | about 5 h 25 | 1,451 | 70.0M (675) | 256 of 929 confirmed (36 high, 220 medium) | 273K | 133 / 50 / — |
 | Java and React project (MacBook), Oct 26–27 | `run-755a4cc3` | about 33,000 lines | 28 h wall, most of it asleep or stopped | 917 | 42.6M (about 1,290) | 84 of 275 confirmed (1 critical, 18 high, 65 medium) | 507K | 19 / 11 / 19 |
+| nananananana, Nov 1 | `run-b1997046` | 572 files, 84,380 lines, no tests | 3 h 17 (6 h 19 with its pause) | 1,627 | 112.2M (1,330) | 175 of 434 confirmed (36 high, 139 medium) | 641K | 81 / 51 / — |
 
 beachflag ran before confirmed issues were reported, so its counts are accepted issues. beachflag, rokavatar and
 blog ran with one peer-review round; commentanywhere, nextra and rokbot without one, the default since October 23.
@@ -89,6 +90,22 @@ What each run changed:
   finder's whole discovery, Gemini's after 5 of 32 units (#6); five unrelated files edited the next morning made
   the failed run unresumable and its finished discovery unusable (#8). Gemini, with no tool call, confirmed 19
   issues no other finder found, as many as Opus, for 5.0M discovery tokens against Opus's 18.3M.
+- **nananananana**, the first run of v0.3.2 here, on the two-finder deep lineup with the plan critic off, from a clone
+  of its `origin/main` (9e3a070). A first attempt with the tests in (909 files, 173,244 lines) was cancelled after 12
+  minutes by the owner's choice: this run leaves out the tests, the generated files, `design`, `implementation`,
+  `scripts` and the test and lint settings. Wall time: Opus's discovery 1 h 45 (84 units, 62.8M tokens), Sol's 2 h 30
+  active (49 units, 14.8M) with a 3 h pause on Codex's five-hour limit between, which ended by itself; merging 3
+  minutes (0.5M), checking 20 (31.4M, 197 questions in 601 calls, 159K each), the plan 22 (2.7M; 166 tasks, 7 open
+  questions). Reading beyond each unit is now the largest cost: discovery was 69% of the tokens (veritra 18%), Opus
+  715K input and 32 tool calls a unit (veritra 62K and 1.8), Sol 292K and 24 (52K and 1.4), 86% and 75% of it from the
+  cache, and in 70 limitations the out-of-unit budget ran out. Codex's five-hour window went from 0 to 100% in about an
+  hour on 10.3M input and 0.33M output, counting the cancelled attempt. No call failed but the 4 refused at that
+  limit, and none came near the 15-minute limit: Sol's turns at xhigh took 37 seconds at the median, 359 at most. 89%
+  of the checked issues were confirmed (veritra and nextra 65%) and 2.1 per 1,000 lines of production code (4.0 and
+  4.9), but these are different projects, so whether the reading pays is left to the same audit of nextra again.
+  Because of it, New run now estimates from the runs that read this way (it said 600 to 700 tokens a line), offers
+  one click to leave out a file over the 512 KB limit, and keeps the tests' tick when a project over the file limit
+  is read again without them.
 
 Verification costs 75K to 86K tokens a question. Gemini's confirmed finds that no other model made, against what its
 audit cost: rokavatar 0 for 2.1M tokens at high thinking (560 call-minutes; 17 of 51 calls lost, 12 to its content
