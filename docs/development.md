@@ -58,7 +58,11 @@ evidence.
    [qa/p06-subscription](qa/p06-subscription/README.md). Its run state is local only, in
    `.runs/p06-subscription-2.1.0` (2.0.0's in `.runs/p06-subscription`); keep both. For live runs, pace on the Claude
    five-hour window (`rate_limit_event` in any `claude -p --output-format stream-json --verbose` call).
-7. **Usage windows.** Codex's are read without a model call through `codex app-server` (`account/rateLimits/read`).
+7. **Usage windows.** Codex's are read without a model call through `codex app-server` (`account/rateLimits/read`);
+   the server does so at `GET /diagnostics/usage-windows` (`packages/runtime/src/usage-windows.ts`) and New run shows
+   them under This computer. Claude Code's appear only in a model call (`rate_limit_event`), so New run says "not read".
+   What a window held on the plans measured is in `PLAN_WINDOWS` (`apps/web/src/pages/new-run/usage.ts`), the one place to
+   update them.
 
 Evidence per item is in [docs/qa](qa/README.md); the subscription runs are in
 [qa/p03-subscription](qa/p03-subscription/README.md).

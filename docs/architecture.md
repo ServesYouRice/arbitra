@@ -225,12 +225,16 @@ single-file app). It reads its settings from the environment:
 | `ARBITRA_WEB_DIST` | `apps/web/dist` | Web build to serve if its `index.html` exists; empty serves none |
 | `ARBITRA_BUILD` | the short Git commit, else `tooling/launch/build-id` | Build named in the diagnostics and recorded with each run it starts |
 
-It also registers four routes directly. They have no schema entry and do not pass
+It also registers five routes directly. They have no schema entry and do not pass
 `assertNoSecretEgress`; the loopback check and the error handler still apply.
 
 - `GET /diagnostics/environment` returns the build and what `detectEnvironment`
   (`packages/runtime/src/environment.ts`) found: the subscription CLIs and which API keys are
   set, never their values. `?refresh=1` checks again.
+- `GET /diagnostics/usage-windows` returns what Codex's five-hour and weekly meters say now, read through
+  `codex app-server` (`account/rateLimits/read`; no model call; `packages/runtime/src/usage-windows.ts`). Anything
+  not read, such as Claude Code's meters, which appear only in a model call, is `not_read` with a reason. A reading is
+  kept 30 seconds; `?refresh=1` reads again.
 - `GET /diagnostics/runs/:runId` returns a run's plain-text report
   (`packages/runtime/src/run-report.ts`); every line passes `redactSecrets`.
 - `POST /handoff/runs/:runId` writes the run's plan into its repository as prompts under

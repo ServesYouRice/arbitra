@@ -12,6 +12,8 @@ export interface NativeProcessRequest {
   readonly executable: string; readonly arguments: readonly string[];
   readonly cwd: string; readonly environment: Readonly<Record<string, string>>;
   readonly stdin: string;
+  /** Leave stdin open after writing it, for a process that answers only while its input is open (a JSON-RPC server); it is closed when the process ends. */
+  readonly keepStdinOpen?: boolean;
   readonly timeoutMs: number;
   /** Total stdout bytes; exceeding it stops the process. */
   readonly maximumOutputBytes: number;
@@ -86,7 +88,7 @@ export function runNativeProcess(request: NativeProcessRequest): Promise<NativeP
     const stop = (reason: NativeProcessStop) => { if (stopped === null) stopped = reason; terminate(); };
     if (pid !== null) try { request.onSpawn?.(pid); } catch (error) { violation = error; stop("violation"); }
     child.stdin.on("error", () => undefined);
-    child.stdin.end(request.stdin);
+    if (request.keepStdinOpen === true) child.stdin.write(request.stdin); else child.stdin.end(request.stdin);
     const deliver = (line: Buffer) => {
       if (stopped !== null || request.onLine === undefined) return;
       const text = line.toString("utf8").replace(/\r$/u, "");

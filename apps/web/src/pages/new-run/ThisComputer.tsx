@@ -1,5 +1,6 @@
 import type { ReactElement } from "react";
 import type { OfferedModels } from "./model-catalog.js";
+import { codexWords, type WindowsState } from "./windows.js";
 
 export interface DetectedCli { readonly transport: string; readonly name: string; readonly state: string; readonly version: string | null; readonly note: string; readonly fix: string | null; readonly path?: string | null; readonly models?: readonly { readonly id: string; readonly name: string }[]; readonly caution?: string; readonly others?: readonly { readonly path: string; readonly version: string | null }[] }
 /** Whether a run keeps this computer awake (`held`, `ready`), or why not (`unavailable`, `failed`); null from an arbitra that holds nothing. */
@@ -33,11 +34,25 @@ function KeepAwakeRow({ state }: { readonly state: KeepAwakeState | null }): Rea
 }
 
 /**
+ * What a signed-in CLI's usage windows say now. Codex's are read in the background without a model call; Claude Code
+ * shows its own only in a model call, which arbitra does not make for this, so they are not read. A window that could
+ * not be read says "not read" and nothing more: it is not a problem with the computer.
+ */
+function UsageRows({ environment, windows }: { readonly environment: DetectedEnvironment; readonly windows: WindowsState }): ReactElement | null {
+  const ready = (transport: string) => environment.clis.some((cli) => cli.transport === transport && cli.state === "ready");
+  const codex = windows === "loading" ? "reading…" : windows === "failed" ? null : codexWords(windows);
+  return <>
+    {ready("codex-cli") ? <tr><th scope="row">Codex usage</th><td className="state" colSpan={3} data-state={windows === "loading" ? "unexamined" : codex === null ? "degraded" : "verified"}>{codex ?? "not read"}</td></tr> : null}
+    {ready("claude-code-cli") ? <tr><th scope="row">Claude Code usage</th><td className="state" colSpan={3} data-state="degraded">not read: Claude Code shows its windows only in a model call</td></tr> : null}
+  </>;
+}
+
+/**
  * This computer: one row per CLI arbitra looked for, with its version, whether it is signed in, what it offers and
  * whether the lineup uses it. How to install one that is missing, where each was found, and how models are found and
  * chosen are each one click down.
  */
-export function ThisComputer({ environment, failure, transports, keyVariables, subscription }: { readonly environment: DetectedEnvironment | null; readonly failure: string | null; readonly transports: ReadonlySet<string>; readonly keyVariables: readonly string[]; readonly subscription: boolean }): ReactElement {
+export function ThisComputer({ environment, failure, transports, keyVariables, subscription, windows = "loading" }: { readonly environment: DetectedEnvironment | null; readonly failure: string | null; readonly transports: ReadonlySet<string>; readonly keyVariables: readonly string[]; readonly subscription: boolean; readonly windows?: WindowsState }): ReactElement {
   return <div className="computer">
     {failure !== null ? <p className="state" data-state="degraded">The CLIs on this computer could not be checked · {failure}</p>
       : environment === null ? <p className="state" data-state="unexamined" role="status">Looking for the CLIs on this computer</p>
@@ -52,12 +67,13 @@ export function ThisComputer({ environment, failure, transports, keyVariables, s
           <td className={used ? undefined : "muted"}>{used ? "in this lineup" : "not in this lineup"}</td>
         </tr>;
       })}{keyVariables.length === 0 ? null : <tr><th scope="row">API keys</th><td>read from {keyVariables.join(", ")}; the check says if one is not set</td><td /><td>in this lineup</td></tr>}
+        <UsageRows environment={environment} windows={windows} />
         <KeepAwakeRow state={environment.keepAwake ?? null} /></tbody></table></div>}
     {environment === null ? null : <details className="fold">
       <summary>Where each was found, and how models are found and chosen</summary>
       <ul className="plain-list computer-paths">{environment.clis.filter(({ path }) => typeof path === "string").map(({ name, path, others }) => <li key={name}>{name} · <code>{path}</code>{(others ?? []).map((other) => <span key={other.path}>; also {other.version ?? "a version it did not report"} at <code>{other.path}</code>, not used</span>)}</li>)}</ul>
       <p className="note">arbitra asks each CLI on this computer for its version and whether it is signed in; no model is called. Of several copies of one CLI it uses the newest it supports: an older copy, such as the one inside the ChatGPT app, may not know the newest models. Claude Code and Codex do not list their models, so their choices are the models arbitra knows to work through them. Antigravity lists the models your account can use, and only its Gemini models are offered, so a third finder stays independent of Claude and GPT.</p>
-      <p className="note">{subscription ? "Each card names the model and effort of every step, in the CLI's own effort word; the steps below change any of them. Opus 5.5 always checks the critical and high issues; Gemini only ever does optional work." : "This lineup names its own models; the steps below and Change models pick others."} Usage windows (five-hour, weekly) are not shown: arbitra does not know your plan.</p>
+      <p className="note">{subscription ? "Each card names the model and effort of every step, in the CLI's own effort word; the steps below change any of them. Opus 5.5 always checks the critical and high issues; Gemini only ever does optional work." : "This lineup names its own models; the steps below and Change models pick others."} The usage windows (five-hour, weekly) are what the vendor's own meter says now, read without a model call; arbitra does not know your plan, so the warning under the estimate is from what was measured on one.</p>
     </details>}
   </div>;
 }

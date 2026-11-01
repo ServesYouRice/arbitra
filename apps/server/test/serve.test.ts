@@ -56,6 +56,10 @@ describe("serve at an address another arbitra holds", () => {
       expect(started.alreadyRunning).toBe(false);
       const answer = await (await fetch(`${started.url}/diagnostics/server`, { signal: AbortSignal.timeout(5_000) })).json() as unknown;
       expect(answer).toEqual({ build: "test-build", pid: process.pid });
+      // Without a Codex to ask, the usage windows are not read, and the route says so rather than failing.
+      const windows = await (await fetch(`${started.url}/diagnostics/usage-windows`, { signal: AbortSignal.timeout(5_000) })).json() as { readonly codex: unknown; readonly claude: unknown };
+      expect(windows.codex).toEqual({ state: "not_read", reason: "Codex is not installed" });
+      expect(windows.claude).toMatchObject({ state: "not_read" });
     } finally {
       await started.close();
       await rm(root, { recursive: true, force: true });
