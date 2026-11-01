@@ -144,6 +144,8 @@ export interface FailureWords { readonly what: string; readonly todo: string; re
 const KEPT = "What it finished is kept.";
 const AGAIN = "Resuming this run would stop the same way.";
 const SEND = "If it stops the same way again, copy the report below and send it to whoever helps you.";
+/** The unnamed failure's first sentence, which `resumeRefusalWords` tells apart from a named one. */
+const INSIDE_ARBITRA = "The run stopped on an error inside arbitra, not at a model.";
 
 /**
  * What a failure means for the person, read from its recorded reason (`<error name>: <message>`). The control plane
@@ -204,7 +206,19 @@ export function failureWords(reason: string | null, mode: Mode = "audit"): Failu
   if (/\bTIMEOUT\b|timed out/iu.test(text)) return { what: "A model call kept running past its time limit.", todo: "Resume the run: it goes on from where it stopped, and calls already finished are kept.", resumable: true };
   if (/^ProviderInvocationFailure: .*\((?:HTTP|RATE_LIMIT|MALFORMED_RESPONSE|CANCELLED|UNKNOWN)\b/u.test(text)) return { what: "A model call failed: the model's service or its CLI did not answer as expected.", todo: `Resume the run: it goes on from where it stopped, and calls already finished are kept. ${SEND}`, resumable: true };
   // Update, then resume: arbitra's own check or defect, which the same version repeats.
-  return { what: "The run stopped on an error inside arbitra, not at a model.", todo: "Resuming with this version of arbitra stops the same way. Update arbitra, then resume: what the run finished is kept. If the update does not fix it, copy the report below and send it to whoever helps you.", resumable: true };
+  return { what: INSIDE_ARBITRA, todo: "Resuming with this version of arbitra stops the same way. Update arbitra, then resume: what the run finished is kept. If the update does not fix it, copy the report below and send it to whoever helps you.", resumable: true };
+}
+
+/**
+ * What a resume the server refused means for the person, from the refusal's message: why it did not go on, and what to
+ * do. A refusal no named reason covers says to try again, and to copy the details if it is refused the same way.
+ */
+export function resumeRefusalWords(refusal: string, mode: Mode = "audit"): { readonly what: string; readonly todo: string } {
+  if (/RUN_ALREADY_LIVE:/u.test(refusal)) return { what: "arbitra is already working on this run, so nothing was started.", todo: "Wait for the run to stop, or reload the page to see where it stands." };
+  if (/RUN_NOT_RESUMABLE:/u.test(refusal)) return { what: "This run cannot be resumed in the state it is in, so nothing was started.", todo: "Reload the page to see what the run can do now." };
+  const named = failureWords(refusal, mode);
+  if (named.what !== INSIDE_ARBITRA) return named;
+  return { what: "The resume was refused, so the run is as it was.", todo: "Try again. If it is refused the same way, copy the details below and send them to whoever helps you." };
 }
 
 /** The files a refusal names as changed since the run read them, and how many it names in all. */

@@ -467,6 +467,57 @@ describe("the run page", () => {
     await waitFor(() => expect(calls).toContain("POST /runs/run-1/resume"));
   });
 
+  // A refused resume from the banner used to print the server's code as the whole message; the words say what to do, and the code stays one click down.
+  it("says in words why a blocked run's resume was refused, with the recorded code one click down", async () => {
+    stubBrowser();
+    const refusal = "CLI_NOT_LOGGED_IN: Claude Code is not signed in";
+    stubControlPlane({
+      "GET /runs/run-1": resource({ state: "BLOCKED", resumable: true }), "GET /runs/run-1/overview": overview({ state: "BLOCKED", gate: null }),
+      "POST /runs/run-1/resume": () => json({ statusCode: 409, error: "REQUEST_FAILED", message: refusal }, 409), ...artifactRoutes("run-1", {}),
+    });
+    visit("?run=run-1");
+    render(<App />);
+    const banner = () => screen.getByRole("region", { name: /This run is waiting for your decision/u });
+    await screen.findByRole("region", { name: /This run is waiting for your decision/u });
+    fireEvent.click(within(banner()).getByRole("button", { name: "resume run" }));
+    const refused = await within(banner()).findByRole("alert");
+    expect(within(refused).getByText("Claude Code is not signed in on this computer. Sign in to it (the details say how), then resume the run. What it finished is kept.")).toBeTruthy();
+    expect(within(refused).getByText(`${refusal} (RUN_API_409)`).closest("details")).not.toBeNull();
+  });
+
+  it("says in words that a resume the run cannot take was refused, and that nothing started", async () => {
+    stubBrowser();
+    stubControlPlane({
+      "GET /runs/run-1": resource({ state: "BLOCKED", resumable: true }), "GET /runs/run-1/overview": overview({ state: "BLOCKED", gate: null }),
+      "POST /runs/run-1/resume": () => json({ statusCode: 409, error: "REQUEST_FAILED", message: "RUN_NOT_RESUMABLE:run-1" }, 409), ...artifactRoutes("run-1", {}),
+    });
+    visit("?run=run-1");
+    render(<App />);
+    const banner = () => screen.getByRole("region", { name: /This run is waiting for your decision/u });
+    await screen.findByRole("region", { name: /This run is waiting for your decision/u });
+    fireEvent.click(within(banner()).getByRole("button", { name: "resume run" }));
+    const refused = await within(banner()).findByRole("alert");
+    expect(within(refused).getByText("This run cannot be resumed in the state it is in, so nothing was started. Reload the page to see what the run can do now.")).toBeTruthy();
+    expect(within(refused).getByText("RUN_NOT_RESUMABLE:run-1 (RUN_API_409)").closest("details")).not.toBeNull();
+  });
+
+  it("names the files that changed when a blocked run's resume is refused, the way the header does", async () => {
+    stubBrowser();
+    const refusal = "RUN_REPOSITORY_CHANGED:run-1: the repository no longer holds the files the run read. Put them back as they were to resume it, or start a new run of the project as it is now. 1 file changed since the run read them (1 changed): changed src/a.ts";
+    stubControlPlane({
+      "GET /runs/run-1": resource({ state: "BLOCKED", resumable: true }), "GET /runs/run-1/overview": overview({ state: "BLOCKED", gate: null }),
+      "POST /runs/run-1/resume": () => json({ statusCode: 409, error: "REQUEST_FAILED", message: refusal }, 409), ...artifactRoutes("run-1", {}),
+    });
+    visit("?run=run-1");
+    render(<App />);
+    await screen.findByRole("region", { name: /This run is waiting for your decision/u });
+    fireEvent.click(screen.getByRole("button", { name: "resume run" }));
+    const changed = await screen.findByRole("alert", { name: "The project's files changed" });
+    expect(within(changed).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["src/a.ts · changed"]);
+    expect(within(changed).getByText("Put the files back as they were to resume, or start a new audit of the project as it is now.")).toBeTruthy();
+    expect(within(changed).getByText(`${refusal} (RUN_API_409)`).closest("details")).not.toBeNull();
+  });
+
   it("lands a link to a tab this mode does not have, or the old Overview, on the Summary", async () => {
     stubBrowser();
     stubControlPlane({

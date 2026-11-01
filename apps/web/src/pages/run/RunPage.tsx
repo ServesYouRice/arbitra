@@ -113,7 +113,7 @@ export function RunPage({ runId, tab, item }: { readonly runId: string; readonly
   return <div className="run-page">
     <RunHeader runId={runId} mode={mode} resource={resource} overview={overview.value} overviewError={overview.error} reason={reason} streamError={error}
       files={typeof preflight?.fileCount === "number" ? { files: preflight.fileCount, lines: typeof preflight.lineCount === "number" ? preflight.lineCount : null } : null} onChanged={refresh} />
-    <DecisionBanner runId={runId} run={resource} onChanged={refresh} />
+    <DecisionBanner runId={runId} run={resource} mode={mode} overview={overview.value} onChanged={refresh} />
     <nav aria-label="run views" className="tabs">{tabs.map((key) => <Link aria-current={key === current || key === "how-it-ran" && RECORD_TABS.includes(current) ? "page" : undefined} key={key} to={{ page: "run", runId, tab: key === "summary" ? null : key, item: null }}>{TAB_LABELS[key]}</Link>)}</nav>
     <div className="run-body" data-details={details !== null}>
       <div className="run-main"><ViewBoundary resetKey={current} label={`the ${TAB_LABELS[current]} tab`}>{content}</ViewBoundary></div>

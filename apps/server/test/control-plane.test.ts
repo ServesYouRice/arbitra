@@ -1,8 +1,8 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
-import { assertLoopbackHost, buildServer, DEFAULT_SERVER_HOST, startServer } from "../src/main.js";
+import { describe, expect, it, vi } from "vitest";
+import { assertLoopbackHost, buildServer, DEFAULT_SERVER_HOST, startServer, type ServerCore } from "../src/main.js";
 import { registerControlPlaneRoutes, type ControlPlaneCore } from "../src/routes/control-plane.js";
 import { EVALUATION_ROUTE_INVENTORY } from "../src/routes/evaluation.js";
 import { TRACE_ROUTE_INVENTORY } from "../src/routes/traces.js";
@@ -27,6 +27,23 @@ describe("localhost control plane contracts", () => {
     expect(assertLoopbackHost("::1")).toBe("::1");
     expect(() => assertLoopbackHost("0.0.0.0")).toThrow("NON_LOOPBACK_SERVER_HOST");
     await expect(startServer(fakeServer(), core(), HTTP_ROUTE_SCHEMAS, { host: "localhost" })).rejects.toThrow("NON_LOOPBACK_SERVER_HOST");
+  });
+
+  it("compiles the route schemas without Ajv strict-mode or Fastify deprecation warnings", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const emitWarning = vi.spyOn(process, "emitWarning").mockImplementation(() => undefined);
+    // Every route family is registered, so every schema compiles; the handlers, which the cores serve, never run here.
+    const everyFamily = { ...core(), evaluation: {}, traces: {}, requirements: {}, replay: {}, testing: {}, incremental: {}, workflows: {}, batches: {}, progress: {} } as unknown as ServerCore;
+    try {
+      const app = buildServer(everyFamily);
+      await app.ready();
+      await app.close();
+      expect(warn.mock.calls).toEqual([]);
+      expect(emitWarning.mock.calls.map(([warning]) => String(warning))).toEqual([]);
+    } finally {
+      warn.mockRestore();
+      emitWarning.mockRestore();
+    }
   });
 
   it("round-trips canonical configurations byte-stably and rejects resolved credentials", async () => {

@@ -1,18 +1,22 @@
 import { NODE_GLYPHS } from "@arbitra/schemas/glyphs";
 import { useState, type ReactElement } from "react";
-import type { HumanCheckpointResource, PlanQuestionsCheckpointResource, RequirementsCheckpointResource, RunResource } from "../../api/runs.js";
+import type { HumanCheckpointResource, PlanQuestionsCheckpointResource, RequirementsCheckpointResource, RunOverview, RunResource } from "../../api/runs.js";
 import { useApis } from "../../app/apis.js";
 import { Link } from "../../app/router.js";
+import { resumeRefusalWords, type Mode } from "../../app/words.js";
+import { Problem } from "./RunHeader.js";
+import { RepositoryChanged, reusesFinishedWork } from "./RepositoryChanged.js";
 
 /**
  * A blocked run does nothing until the operator acts, so its decisions sit above every tab.
  * A decision is recorded immediately; the run continues only on an explicit resume, which
- * is offered once nothing is left to decide.
+ * is offered once nothing is left to decide. A refused decision or resume says in words what to do, and the code the
+ * server recorded sits one click down, as the header's refused resume does.
  */
-export function DecisionBanner({ runId, run, onChanged }: { readonly runId: string; readonly run: RunResource | null; readonly onChanged: () => void }): ReactElement | null {
+export function DecisionBanner({ runId, run, mode, overview, onChanged }: { readonly runId: string; readonly run: RunResource | null; readonly mode: Mode; readonly overview: RunOverview | null; readonly onChanged: () => void }): ReactElement | null {
   const { runs } = useApis();
   const [busy, setBusy] = useState(false);
-  const [failure, setFailure] = useState<string | null>(null);
+  const [failure, setFailure] = useState<{ readonly detail: string; readonly resume: boolean } | null>(null);
   const [recorded, setRecorded] = useState<string | null>(null);
   if (run === null || run.state !== "BLOCKED") return null;
   const human = run.checkpoints.filter((checkpoint): checkpoint is HumanCheckpointResource => checkpoint.kind === "human");
@@ -22,10 +26,11 @@ export function DecisionBanner({ runId, run, onChanged }: { readonly runId: stri
   const questions = run.checkpoints.find((checkpoint): checkpoint is PlanQuestionsCheckpointResource => checkpoint.kind === "plan-questions");
   const unanswered = questions?.status === "pending" ? questions : undefined;
   const open = pending.length + approvals.length + (unanswered === undefined ? 0 : 1);
-  const act = async (label: string, operation: () => Promise<unknown>): Promise<void> => {
+  const words = failure?.resume === true ? resumeRefusalWords(failure.detail, mode) : null;
+  const act = async (label: string, operation: () => Promise<unknown>, resume = false): Promise<void> => {
     setBusy(true); setFailure(null); setRecorded(null);
     try { await operation(); setRecorded(label); onChanged(); }
-    catch (cause) { setFailure(cause instanceof Error ? cause.message : String(cause)); }
+    catch (cause) { setFailure({ detail: cause instanceof Error ? cause.message : String(cause), resume }); }
     finally { setBusy(false); }
   };
   return <section aria-labelledby="decision-title" className="decision">
@@ -46,11 +51,12 @@ export function DecisionBanner({ runId, run, onChanged }: { readonly runId: stri
     {human.filter(({ status }) => status !== "pending").map((checkpoint) => <p className="state" data-state={checkpoint.status === "approved" ? "verified" : "refuted"} key={checkpoint.checkpointId}>checkpoint {checkpoint.checkpointId} · {checkpoint.status}</p>)}
     {questions?.status === "answered" ? <p className="state" data-state="verified">plan questions · answered</p> : null}
     <div className="actions">
-      <button className="button button--primary" disabled={busy || open > 0} type="button" onClick={() => { void act("resume requested", () => runs.resume(runId)); }}>resume run</button>
+      <button className="button button--primary" disabled={busy || open > 0} type="button" onClick={() => { void act("resume requested", () => runs.resume(runId), true); }}>resume run</button>
       <p className="note">{open > 0 ? "Answer or decide each item above first. Each is recorded at once; the run continues only when you resume it." : "Your decisions are recorded. The run stays blocked until you resume it."}</p>
     </div>
     {recorded === null ? null : <p className="state" data-state="verified" role="status">{recorded}</p>}
-    {failure === null ? null : <p className="state" data-state="degraded" role="alert">{failure}</p>}
+    {failure === null ? null : failure.resume && /RUN_REPOSITORY_CHANGED/u.test(failure.detail) ? <RepositoryChanged runId={runId} mode={mode} detail={failure.detail} reuse={reusesFinishedWork(mode, overview)} />
+      : <Problem detail={failure.detail}>{words === null ? "That did not go through, and the run is as it was. Try again, or reload the page to see where it stands." : `${words.what} ${words.todo}`}</Problem>}
   </section>;
 }
 
