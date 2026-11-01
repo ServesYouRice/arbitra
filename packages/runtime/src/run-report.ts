@@ -62,6 +62,7 @@ export async function runReport(orchestrator: Orchestrator, runId: string, envir
   add("", `model calls ${traces.length} · failed ${traces.filter(({ outcome }) => outcome !== "success").length}`);
   for (const [stage, value] of [...stages.entries()].sort(([left], [right]) => left.localeCompare(right)))
     add(`  ${stage}: ${value.calls} calls · ${value.failed} failed · ${Math.round(value.ms / 60_000 * 10) / 10} call-minutes · ${value.tokens} tokens`);
+  add(...verificationQuestions(traces));
   const failed = traces.filter(({ outcome }) => outcome !== "success");
   if (failed.length > 0) {
     add("", "failed calls");
@@ -70,6 +71,27 @@ export async function runReport(orchestrator: Orchestrator, runId: string, envir
     if (failed.length > 40) add(`  (${failed.length - 40} earlier failures left out)`);
   }
   return lines.map((line) => redactSecrets(line).text).join("\n");
+}
+
+/**
+ * What the verification questions cost, to set one run against another: the calls a question took (each tool turn is a
+ * call), its tool calls, and what the first call and the later calls read from the provider's cache and wrote to it.
+ * A recorded run of 197 questions averaged 3.1 calls; the first wrote 48,000 tokens and read none, and the later
+ * ones read 49,000 and wrote 3,000. Nothing for a run that asked no question.
+ */
+function verificationQuestions(traces: Awaited<ReturnType<Orchestrator["modelTraces"]>>): string[] {
+  const calls = traces.filter(({ activityId }) => activityId.startsWith("verification/") && /\/turn-\d+$/u.test(activityId));
+  if (calls.length === 0) return [];
+  const questions = new Set(calls.map(({ activityId }) => activityId.replace(/\/turn-\d+$/u, "")));
+  const perCall = (list: typeof calls) => {
+    const sum = (field: "inputTokens" | "cacheReadTokens" | "cacheWriteTokens") => list.reduce((total, trace) => total + (trace.tokenUsage?.[field] ?? 0), 0);
+    const mean = (value: number) => tokenCount(Math.round(value / Math.max(1, list.length)));
+    return `${mean(sum("inputTokens"))} tokens in, ${mean(sum("cacheReadTokens"))} read from the cache, ${mean(sum("cacheWriteTokens"))} written to it`;
+  };
+  const first = calls.filter(({ activityId }) => activityId.endsWith("/turn-0")); const later = calls.filter(({ activityId }) => !activityId.endsWith("/turn-0"));
+  const failed = calls.reduce((total, trace) => total + (trace.toolCallErrors ?? 0), 0);
+  return ["", "verification questions", `  ${questions.size} questions · ${calls.length} calls (${(calls.length / questions.size).toFixed(1)} a question) · ${calls.reduce((total, trace) => total + (trace.toolCallCount ?? 0), 0)} tool calls (${failed} failed)`,
+    `  first call of a question: ${perCall(first)}`, ...(later.length === 0 ? [] : [`  later calls: ${perCall(later)}`])];
 }
 
 /** ` · 27 of 32 units answered (5 not examined: provider_failed 3, reply_rejected 2)`; nothing for a run that recorded no units. */
