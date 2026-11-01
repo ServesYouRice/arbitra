@@ -5,11 +5,15 @@ import { arbitraBuild, detectEnvironment, type DetectedEnvironment } from "@arbi
 import { pickFolder } from "./folder-picker.js";
 import { registerHandoffRoutes } from "./handoff.js";
 import { runReport } from "@arbitra/runtime/run-report.js";
+import { readUsageWindows, type UsageWindows } from "@arbitra/runtime/usage-windows.js";
 import { processHost } from "@arbitra/runtime/run-host.js";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertLoopbackHost, buildServer, DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT } from "./main.js";
 import { serveWebApp } from "./web-app.js";
+
+/** How long a reading of the usage windows is kept before the next page asks Codex again. */
+const USAGE_WINDOWS_KEPT_MS = 30_000;
 
 /**
  * The control plane's process entrypoint, as a function: `serve.js` calls it, and so does the single-file app, which
@@ -55,6 +59,13 @@ export async function serve(): Promise<Serving> {
     if (request.query.refresh === "1") environment = detectEnvironment();
     // Whether a run keeps this computer awake, as of now: a missing tool or a holder that stopped shows here, never as a failed run.
     return { build, ...await environment, keepAwake: orchestrator.keepAwake() };
+  });
+  // What Codex's usage windows say now, read through its app server (no model call). Slower than the environment, so the page
+  // asks for it on its own; a reading is kept briefly so that reloading the page does not start Codex again each time.
+  let windows: { readonly at: number; readonly reading: Promise<UsageWindows> } | null = null;
+  app.get<{ Querystring: { refresh?: string } }>("/diagnostics/usage-windows", async (request) => {
+    if (windows === null || request.query.refresh === "1" || Date.now() - windows.at > USAGE_WINDOWS_KEPT_MS) windows = { at: Date.now(), reading: readUsageWindows() };
+    return await windows.reading;
   });
   // Writes a run's plan into its repository as prompts on the operator's explicit request only, and reads it back.
   registerHandoffRoutes(app, orchestrator);

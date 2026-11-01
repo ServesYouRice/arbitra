@@ -26,10 +26,18 @@ const ENVIRONMENT = { build: "test", checkedAt: "2026-10-25T10:21:00.000Z", apiK
   { transport: "antigravity-cli", name: "Antigravity CLI", path: "C:/bin/agy.exe", version: "1.4.7", state: "ready", note: "ready", fix: null,
     models: [{ id: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)" }, { id: "gemini-4-argon", name: "Gemini 4 Argon" }, { id: "claude-opus-4-6-thinking", name: "Claude Opus 4.6" }] },
 ] };
+/** Codex's meters were not read (an old Codex, none installed, or no answer in time); Claude Code's never are. */
+const NOT_READ = { checkedAt: "2026-11-01T12:00:00.000Z", codex: { state: "not_read", reason: "Codex did not give its usage windows" }, claude: { state: "not_read", reason: "Claude Code shows its usage windows only in a model call" } };
+/** Codex's meters as the server reads them: the five-hour window used `fiveHour`%, resetting in two hours. */
+const codexRead = (fiveHour: number) => ({ ...NOT_READ, codex: { state: "read", plan: "plus", fiveHour: { usedPercent: fiveHour, resetsAt: new Date(Date.now() + 2 * 3_600_000).toISOString() }, week: { usedPercent: 5, resetsAt: new Date(Date.now() + 4 * 86_400_000).toISOString() } } });
 const SUGGESTED = [{ path: "mobile/lib/db.g.dart", lines: 200, reason: "its first lines say: // GENERATED CODE - DO NOT MODIFY BY HAND" }];
 const READY = { valid: true, ready: true, mode: "audit", preset: "audit-two-finders", modelBacked: true, diagnostics: [], repository: "/work/fixture", estimateError: null,
   estimate: { estimate: { files: 4, lines: 1000, nodes: 7, auditors: 2, providerCalls: null, costUsd: null, currency: null, basis: "configured_models_cost_unknown_without_pricing_and_outputs" },
     read: { complete: true, files: FILES }, suggestedLeaveOut: [], gate: "clear" } };
+
+/** A project of the size of the one that paused Codex's five-hour window (nananananana, November 1, 2026). */
+const sized = (lines: number) => ({ ...READY, estimate: { ...READY.estimate, estimate: { ...READY.estimate.estimate, files: 1, lines }, read: { complete: true, files: [{ path: "src/big.ts", lines, test: false, leftOut: false }] } } });
+const BIG = sized(84_380);
 
 describe("configuration drafts", () => {
   it("edits nested values without mutating the draft, and removes a key set to undefined", () => {
@@ -309,15 +317,15 @@ describe("the new-run page", () => {
 
   it("names what this computer lacks in one line beside Start, pointing up, with the recorded codes one click down", async () => {
     stubBrowser();
-    stubControlPlane({ ...BASE_ROUTES, "GET /diagnostics/environment": ENVIRONMENT,
+    stubControlPlane({ ...BASE_ROUTES, "GET /diagnostics/environment": ENVIRONMENT, "GET /diagnostics/usage-windows": NOT_READ,
       "POST /preflight": { ...READY, ready: false, diagnostics: [{ code: "SUBSCRIPTION_CLI_NOT_INSTALLED:claude-code", severity: "error", scope: "environment", path: "$environment", message: "Claude Code is not available." },
         { code: "SUBSCRIPTION_CLI_UNVERIFIED:antigravity-cli", severity: "warning", scope: "configuration", path: "workflow", message: "Antigravity support is declared but not yet verified." }] } });
     visit("?page=new-run");
     render(<App />);
     await screen.findByRole("radio", { name: "Deep" });
     const computer = await screen.findByRole("table", { name: "CLIs on this computer" });
-    expect(within(computer).getAllByRole("row").map(({ textContent }) => textContent)).toEqual([
-      "Claude Code 2.1.310not installedhow to fixInstall Claude Code.in this lineup", "Codex CLI 0.162.1signed inin this lineup", "Antigravity CLI 1.4.7readyoffers Gemini 3.8 Flash (High), Gemini 4 Argonnot in this lineup"]);
+    await waitFor(() => expect(within(computer).getAllByRole("row").map(({ textContent }) => textContent)).toEqual([
+      "Claude Code 2.1.310not installedhow to fixInstall Claude Code.in this lineup", "Codex CLI 0.162.1signed inin this lineup", "Antigravity CLI 1.4.7readyoffers Gemini 3.8 Flash (High), Gemini 4 Argonnot in this lineup", "Codex usagenot read"]));
     // Every copy found is named, and which one is used (observed October 26, 2026: the ChatGPT app's older Codex CLI).
     expect(document.querySelector(".computer-paths")?.textContent).toContain("Codex CLI · C:/bin/codex.cmd; also 0.158.0 at /Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex, not used");
     project("/work/fixture");
@@ -326,6 +334,59 @@ describe("the new-run page", () => {
     // This computer's problem is not repeated; its code, and the check's note, are one click down.
     expect(result.textContent).not.toContain("Claude Code is not available.");
     expect(within(result).getByText("SUBSCRIPTION_CLI_NOT_INSTALLED:claude-code").closest("details")?.querySelector("summary")?.textContent).toBe("recorded codes, and 1 note from the check");
+  });
+
+  it("shows what Codex's meters say once they are read, apart from the CLIs, and says Claude Code's are not read", async () => {
+    stubBrowser();
+    const claudeReady = { ...ENVIRONMENT, clis: ENVIRONMENT.clis.map((cli) => cli.transport === "claude-code-cli" ? { ...cli, path: "C:/bin/claude.exe", state: "ready", note: "signed in", fix: null } : cli) };
+    const calls = stubControlPlane({ ...BASE_ROUTES, "GET /diagnostics/environment": claudeReady, "GET /diagnostics/usage-windows": codexRead(31) });
+    visit("?page=new-run");
+    render(<App />);
+    const computer = await screen.findByRole("table", { name: "CLIs on this computer" });
+    // The CLIs are listed whether or not the meters have come back.
+    await waitFor(() => expect(within(computer).getByText(/^5-hour window 31% used, resets \d\d:\d\d; week 5%, resets \w{3} \d\d:\d\d · plus plan$/u)).toBeTruthy());
+    expect(within(computer).getByText("not read: Claude Code shows its windows only in a model call")).toBeTruthy();
+    expect(calls.filter((call) => call === "GET /diagnostics/usage-windows")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    await waitFor(() => expect(calls).toContain("GET /diagnostics/usage-windows?refresh=1"));
+  });
+
+  it("says a run of the size that paused Codex's five-hour window is likely to pause on it, with its basis, and still lets it start", async () => {
+    stubBrowser();
+    stubControlPlane({ ...BASE_ROUTES, "GET /diagnostics/environment": ENVIRONMENT, "GET /diagnostics/usage-windows": codexRead(31), "POST /preflight": BIG });
+    visit("?page=new-run");
+    render(<App />);
+    await screen.findByRole("radio", { name: "Deep" });
+    // Before a project is read there is no size to warn of.
+    expect(document.querySelector("[data-pause]")).toBeNull();
+    project("/work/big");
+    expect(await screen.findByText("Ready to start.", {}, AFTER_CHECK)).toBeTruthy();
+    const codex = await screen.findByText(/^A run this size is likely to pause on Codex's five-hour window/u);
+    expect(codex.textContent).toBe("A run this size is likely to pause on Codex's five-hour window: about 120–145% of it, from 1.5–1.7% of a window per 1,000 lines on the measured runs. A window held about 10.6M tokens on a ChatGPT plan; on your plan it may hold more or less. A run that pauses carries on by itself after the reset.");
+    expect(screen.getByText(/^A run this size is likely to pause on Claude Code's five-hour window/u)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Start audit" }) as HTMLButtonElement).disabled).toBe(false);
+    // Where each window was measured is one click down.
+    expect(screen.getByText(/Codex's five-hour window, about 10\.6M tokens on a ChatGPT plan: November 1, 2026, nananananana/u)).toBeTruthy();
+  });
+
+  it("says nothing alarming when the meters cannot be read, and warns of a window already used when a smaller run would not fit what is left", async () => {
+    stubBrowser();
+    stubControlPlane({ ...BASE_ROUTES, "GET /diagnostics/environment": ENVIRONMENT, "POST /preflight": READY });
+    visit("?page=new-run");
+    render(<App />);
+    await screen.findByRole("radio", { name: "Deep" });
+    project("/work/fixture");
+    expect(await screen.findByText("Ready to start.", {}, AFTER_CHECK)).toBeTruthy();
+    // The route is not there at all (a server that predates it): the row says "not read", and no pause is claimed of a run that fits.
+    const computer = await screen.findByRole("table", { name: "CLIs on this computer" });
+    await waitFor(() => expect(within(computer).getByText("not read")).toBeTruthy());
+    expect(document.querySelector("[data-pause]")).toBeNull();
+    cleanup();
+    stubControlPlane({ ...BASE_ROUTES, "GET /diagnostics/environment": ENVIRONMENT, "GET /diagnostics/usage-windows": codexRead(90), "POST /preflight": sized(10_000) });
+    render(<App />);
+    await screen.findByRole("radio", { name: "Deep" });
+    project("/work/fixture");
+    expect(await screen.findByText(/^Codex's five-hour window is 90% used now, and a run this size takes about 10–20% of it/u, {}, AFTER_CHECK)).toBeTruthy();
   });
 
   it("changes a step's model and effort in place, marks the depth changed, and resets it from the card", async () => {

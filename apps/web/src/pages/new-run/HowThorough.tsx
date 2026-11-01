@@ -7,7 +7,8 @@ import { getIn, setIn, type Draft } from "./draft.js";
 import { lineupRows, stepsOf, type StepSeat, type StepState } from "./lineup.js";
 import type { OfferedModels } from "./model-catalog.js";
 import { routeOf, withRoute, type Route } from "./routes.js";
-import { usage, usageWords } from "./usage.js";
+import { pauseWords, usage, usageWords, windowSources } from "./usage.js";
+import type { WindowsState } from "./windows.js";
 
 /** Each depth in a few words: what it is, and when to choose it. The models and efforts are read from the draft. */
 const CARDS: Readonly<Record<Depth, { readonly name: string; readonly when: string }>> = Object.freeze({
@@ -24,7 +25,7 @@ const ROLE_PREFIX = /^(critical and high|medium|second opinion|its points checke
 
 export interface ThoroughProps {
   readonly draft: Draft; readonly setDraft: (next: Draft) => void; readonly lines: number | null; readonly offered: OfferedModels;
-  readonly antigravity: "ready" | "missing" | "unknown"; readonly children?: ReactNode;
+  readonly antigravity: "ready" | "missing" | "unknown"; readonly windows?: WindowsState; readonly children?: ReactNode;
 }
 
 /**
@@ -33,13 +34,15 @@ export interface ThoroughProps {
  * card again writes the preset afresh. How the models are reached (the CLIs here, or API keys) is a choice of its own,
  * and so is a third finder. A lineup the depths are not written for gets one card of its own, read from it.
  */
-export function HowThorough({ draft, setDraft, lines, offered, antigravity, children }: ThoroughProps): ReactElement {
+export function HowThorough({ draft, setDraft, lines, offered, antigravity, windows = "loading", children }: ThoroughProps): ReactElement {
   const depths = isDepthLineup(draft);
   const route = routeOf(draft);
   const depth = String(draft["auditDepth"] ?? "deep");
   const input = { finders: findersOf(draft), reviewRound: Number(draft["maxConsensusRounds"] ?? 0) > 0, critic: getIn(draft, ["workflow", "critic"]) === true, lines,
     names: ["auditor-a", "auditor-b", "auditor-c"].map((alias, index) => SPLIT_NAMES[String(getIn(draft, ["models", alias, "transport"]) ?? "")] ?? ["Claude", "GPT", "the third finder"][index] ?? alias) };
   const measured = usageWords(usage({ ...input, depth: "deep" }));
+  // What the chosen depth would take of a vendor's window, with the meter as read now when it has been; a lineup the depths are not written for is not measured.
+  const pauses = pauseWords(usage({ ...input, depth: depths ? depth : "unmeasured" }), typeof windows === "string" ? null : windows);
   return <div className="thorough">
     {depths && route !== null ? <RouteChoice draft={draft} route={route} setDraft={setDraft} /> : null}
     {depths ? <div aria-label="how thorough" className="lineup-cards" role="radiogroup">
@@ -51,8 +54,11 @@ export function HowThorough({ draft, setDraft, lines, offered, antigravity, chil
       })}
     </div> : <div className="lineup-cards"><LineupCard name="This lineup" when="Its models are its own: the depths are written for a Claude and a GPT finder." draft={draft} chosen changed={false}
       estimate={usageWords(usage({ ...input, depth: "unmeasured" }))} viaApi={false} /></div>}
-    {depths && !DEPTH_NAMES.includes(depth as Depth) ? <p className="note">This lineup was saved at the earlier depth “{depth}”; choose a card to set its models and efforts.</p> : null}
-    {measured.basis === null ? null : <details className="fold"><summary>How the estimates are made</summary><p className="note">{measured.basis} Tokens are split as rokbot (two finders) and nextra (three, Gemini 3.8 Flash the third) split; another third finder is given Gemini's share, not measured. A time is given only for a project within a tenth of the sizes measured. Balanced and cheap have not run on a real project yet.</p></details>}
+    {pauses.map((words) => <p className="note" data-pause="" key={words} role="status">{words}</p>)}
+    {depths && !DEPTH_NAMES.includes(depth as Depth) ?<p className="note">This lineup was saved at the earlier depth “{depth}”; choose a card to set its models and efforts.</p> : null}
+    {measured.basis === null ? null : <details className="fold"><summary>How the estimates are made</summary><p className="note">{measured.basis} Tokens are split as rokbot (two finders) and nextra (three, Gemini 3.8 Flash the third) split; another third finder is given Gemini's share, not measured. A time is given only for a project within a tenth of the sizes measured. Balanced and cheap have not run on a real project yet.</p>
+      <p className="note">How much of a five-hour or weekly window a run takes depends on your plan, which arbitra does not know. These are the windows as measured, each on one plan:</p>
+      <ul className="plain-list">{windowSources().map((source) => <li key={source}>{source}</li>)}</ul></details>}
     {depths ? <ThirdFinder draft={draft} setDraft={setDraft} offered={offered} antigravity={antigravity} /> : null}
     {children}
   </div>;

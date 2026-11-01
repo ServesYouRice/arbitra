@@ -1,10 +1,12 @@
 import { duration, tokenWords } from "../../app/words.js";
+import { resetWords, type UsageWindows } from "./windows.js";
 
 /**
  * What a run will use before it starts, from measured runs only (docs/qa/real-runs.md): tokens from the tokens a line
  * the runs used, by vendor as they split, and a time range only for a project of a size a run measured. A depth or a
- * setting no run has measured says so instead of a guess. Shares of a vendor's five-hour or weekly window are left out:
- * the app does not know the person's plan.
+ * setting no run has measured says so instead of a guess. A vendor's five-hour or weekly window is a share of the
+ * person's plan, which the app does not know: `PLAN_WINDOWS` holds what the windows held on the plans measured, and
+ * `pauseWords` says what a run of this size would take of one, as what was measured on that plan and not a promise.
  */
 export interface MeasuredRun { readonly project: string; readonly lines: number; readonly minutes: number; readonly tokensPerLine: number }
 /** `tokensPerLine` when the rate comes from other runs than the time; else each run's own. */
@@ -87,4 +89,70 @@ export function usageWords(estimate: Usage): UsageWords {
     short: `basis: ${rates.length} measured runs, ${Math.min(...rates).toLocaleString("en")}–${Math.max(...rates).toLocaleString("en")} tokens a line`,
     basis: `basis: ${basis.what}, ${(smallest?.lines ?? 0).toLocaleString("en")} to ${(largest?.lines ?? 0).toLocaleString("en")} lines: ${Math.min(...rates).toLocaleString("en")} to ${Math.max(...rates).toLocaleString("en")} tokens a line, ${time(Math.min(...minutes))} to ${time(Math.max(...minutes))}. ${critic}`,
   };
+}
+
+/**
+ * What one vendor's usage window held, as measured on one plan. These are readings of single plans, not what any plan
+ * holds, and the people who use arbitra are on others: the words that use them say so. Reading cost per line is about
+ * to change (discovery is being made cheaper), so the tokens a line come from the runs above and these stay the only
+ * place a window's size is written.
+ */
+export interface PlanWindow {
+  readonly vendor: "Claude Code" | "Codex";
+  readonly window: "five-hour" | "weekly";
+  /** What the window held, in tokens (input including cache reads and writes, plus output). */
+  readonly tokens: number;
+  /** The meter showed no limit reached: the window holds this much or more, so a run under it is certain not to pause on it, and one over it is not certain to. */
+  readonly atLeast: boolean;
+  readonly plan: string;
+  readonly source: string;
+}
+export const PLAN_WINDOWS: readonly PlanWindow[] = [
+  { vendor: "Codex", window: "five-hour", tokens: 10_600_000, atLeast: false, plan: "a ChatGPT plan",
+    source: "November 1, 2026, nananananana (84,380 lines, Opus and Sol at xhigh): Codex's five-hour window went from 0 to 100% for about 10.6M tokens, Sol's share of the whole run was 14.8M, and the run paused for 3 hours" },
+  { vendor: "Claude Code", window: "five-hour", tokens: 57_000_000, atLeast: false, plan: "Claude Max 20x",
+    source: "meter against tokens since October 22, 2026: about 0.57M tokens a point of the five-hour meter" },
+  { vendor: "Claude Code", window: "weekly", tokens: 315_000_000, atLeast: true, plan: "Claude Max 20x",
+    source: "meter against tokens since October 22, 2026: the week held at least 315M tokens" },
+];
+
+/** Where each window's size was measured, one per line, for the details under the estimates. */
+export const windowSources = (): readonly string[] => PLAN_WINDOWS.map(({ vendor, window, tokens, atLeast, plan, source }) => `${vendor}'s ${window} window, ${atLeast ? "at least " : "about "}${tokenWords(tokens)} tokens on ${plan}: ${source}.`);
+
+/** A percentage to the nearest 5 outward, as a time is: 124 → 120, 144 → 145. */
+const roundedPercent = (low: number, high: number): string => {
+  const down = Math.floor(low / 5) * 5; const up = Math.ceil(high / 5) * 5;
+  return down === up ? `${down}%` : `${down}–${up}%`;
+};
+
+/**
+ * What a run of this size would take of the vendors' windows, in plain lines: one for each window it is likely to fill,
+ * and one for Codex's five-hour window when it is too full now for a run of this size to end without pausing. Nothing
+ * for a depth or a lineup that has no measured tokens, for vendors reached through an API key (they have no window),
+ * and nothing where the run fits. Whatever is said is as measured on one plan; it never blocks starting.
+ */
+export function pauseWords(estimate: Usage, windows: UsageWindows | null = null, now: Date = new Date()): readonly string[] {
+  if (estimate.tokens === null || estimate.input.lines === null || estimate.input.lines === 0) return [];
+  const lines = estimate.input.lines;
+  const out: string[] = [];
+  for (const limit of PLAN_WINDOWS) {
+    const vendor = estimate.vendors.find(({ name }) => name === limit.vendor);
+    if (vendor === undefined) continue;
+    const low = vendor.low / limit.tokens * 100; const high = vendor.high / limit.tokens * 100;
+    const perThousand = (tokens: number) => tokens / lines * 1_000 / limit.tokens * 100;
+    const held = `${limit.atLeast ? "at least " : "about "}${tokenWords(limit.tokens)} tokens`;
+    const about = `${limit.atLeast ? "up to" : "about"} ${roundedPercent(low, high)} of it`;
+    if (limit.atLeast ? low >= 100 : high >= 100) {
+      const lead = limit.atLeast ? "may pause" : low >= 100 ? "is likely to pause" : "may pause";
+      out.push(`A run this size ${lead} on ${limit.vendor}'s ${limit.window} window: ${about}, from ${perThousand(vendor.low).toFixed(1)}–${perThousand(vendor.high).toFixed(1)}% of a window per 1,000 lines on the measured runs. A window held ${held} on ${limit.plan}; on your plan it may hold more or less. A run that pauses carries on by itself after the reset.`);
+      continue;
+    }
+    // Codex's meter is read now: a run that fits an empty window may not fit what is left of it.
+    const used = limit.vendor === "Codex" && limit.window === "five-hour" && windows?.codex.state === "read" ? windows.codex.fiveHour : null;
+    if (used !== null && used.usedPercent + high >= 100) {
+      const reset = resetWords(used.resetsAt, now);
+      out.push(`${limit.vendor}'s ${limit.window} window is ${Math.round(used.usedPercent)}% used now, and a run this size takes ${about} (as measured on ${limit.plan}), so it may pause before it ends${reset === null ? "" : `; the window resets ${reset}`}. A run that pauses carries on by itself after the reset.`);
+    }
+  }
+  return out;
 }

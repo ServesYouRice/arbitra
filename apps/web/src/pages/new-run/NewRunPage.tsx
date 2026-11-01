@@ -18,6 +18,7 @@ import { knownFiles, leftOut, reading, withPath } from "./reading.js";
 import { HowThorough, PlanScope, StepsList } from "./HowThorough.js";
 import { OverLimit, WhatToRead } from "./WhatToRead.js";
 import { antigravityState, missingClis, offeredModels, ThisComputer, type DetectedEnvironment } from "./ThisComputer.js";
+import type { UsageWindows, WindowsState } from "./windows.js";
 import { ChangeModels } from "./ChangeModels.js";
 import { MoreOptions, optionsSummary } from "./MoreOptions.js";
 import { FeatureFields, TestingFields } from "./ModeFields.js";
@@ -65,6 +66,7 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
   const [notice, setNotice] = useState<string | null>(null);
   const [environment, setEnvironment] = useState<DetectedEnvironment | null>(null);
   const [environmentFailure, setEnvironmentFailure] = useState<string | null>(null);
+  const [windows, setWindows] = useState<WindowsState>("loading");
   const [picking, setPicking] = useState(false);
   const [pickFailure, setPickFailure] = useState<string | null>(null);
   const [naming, setNaming] = useState<string | null>(null);
@@ -93,6 +95,16 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
       .catch((error: unknown) => setEnvironmentFailure(message(error)));
   };
   useEffect(() => { loadEnvironment(false); }, []);
+  // The usage windows take Codex a moment to answer, so they are read apart from the CLIs and shown when they arrive; a
+  // reading that fails is "not read", never an error on the page.
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  const loadWindows = (refresh: boolean): void => {
+    setWindows("loading");
+    void fetch(`/diagnostics/usage-windows${refresh ? "?refresh=1" : ""}`).then(async (response) => { if (!response.ok) throw new Error(`HTTP ${response.status}`); if (alive.current) setWindows(await response.json() as UsageWindows); })
+      .catch(() => { if (alive.current) setWindows("failed"); });
+  };
+  useEffect(() => { loadWindows(false); }, []);
   const offered = useMemo(() => offeredModels(environment), [environment]);
   // A template not yet edited takes the strongest Gemini this machine's CLI offers (Argon), as it does for the others.
   useEffect(() => {
@@ -260,7 +272,7 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
         <span className="lineup-card__when">Fixed detectors stand in for the finders. Nothing is spent: the run shows the steps work, not what models find.</span>
         <span><button className="button" type="button" onClick={() => navigate({ page: "new-run", from: DEFAULT_START, graph: null }, { replace: true })}>Audit with Claude Code and Codex instead</button></span>
       </div></div>
-        : <HowThorough draft={draft} setDraft={setDraft} lines={lines} offered={offered} antigravity={antigravityState(environment)} />}
+        : <HowThorough draft={draft} setDraft={setDraft} lines={lines} offered={offered} antigravity={antigravityState(environment)} windows={windows} />}
       <LineupChoice startKey={startKey} graph={graph} loaded={loaded} configurations={configurations} onChoose={(key) => navigate({ page: "new-run", from: key, graph: null }, { replace: true })} />
       <OpenValues open={open} />
       {scripted ? null : <details className="fold change-disclosure" open={open.length > 0}>
@@ -294,8 +306,8 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
 
     <Section title="This computer" id="computer" aside={<>
       {environment?.checkedAt === undefined ? null : <span className="note">checked {new Date(environment.checkedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span>}
-      <button className="button button--small" type="button" onClick={() => { loadEnvironment(true); void runCheck(); }}>Check again</button></>}>
-      <ThisComputer environment={environment} failure={environmentFailure} transports={transports} keyVariables={keyVariables} subscription={depthLineup} />
+      <button className="button button--small" type="button" onClick={() => { loadEnvironment(true); loadWindows(true); void runCheck(); }}>Check again</button></>}>
+      <ThisComputer environment={environment} failure={environmentFailure} transports={transports} keyVariables={keyVariables} subscription={depthLineup} windows={windows} />
     </Section>
 
     <details className="more" id="more">

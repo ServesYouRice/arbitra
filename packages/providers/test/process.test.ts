@@ -85,3 +85,20 @@ describe("native process start", () => {
       signal: new AbortController().signal, onLine: () => undefined })).resolves.toMatchObject({ pid: null, stopped: "spawn_error", treeTerminated: true });
   });
 });
+
+describe("native process input", () => {
+  // A server that answers a request only while its input is open (`codex app-server` quits at the end of its input).
+  const ECHO = `process.stdin.once("data", () => { process.stdout.write("answer\\n"); }); process.stdin.on("end", () => process.exit(0)); setTimeout(() => {}, 60000);`;
+  const ask = (keepStdinOpen: boolean) => {
+    const lines: string[] = [];
+    return runNativeProcess({ executable: process.execPath, arguments: ["-e", ECHO], cwd: process.cwd(), environment: { ...process.env } as Record<string, string>, stdin: "ask\n", ...(keepStdinOpen ? { keepStdinOpen } : {}),
+      timeoutMs: 1_500, maximumOutputBytes: 1_000, signal: new AbortController().signal, onLine: (line) => { lines.push(line); } }).then((result) => ({ result, lines }));
+  };
+
+  it("closes the input after writing it, unless asked to keep it open, and ends the tree at the timeout", { timeout: 30_000 }, async () => {
+    expect((await ask(false)).result).toMatchObject({ stopped: null, exitCode: 0 });
+    const kept = await ask(true);
+    expect(kept.lines).toEqual(["answer"]);
+    expect(kept.result).toMatchObject({ stopped: "timeout", treeTerminated: true });
+  });
+});

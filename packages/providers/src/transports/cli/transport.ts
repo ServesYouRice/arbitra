@@ -297,6 +297,8 @@ export interface CliCommandOptions {
   readonly nodeExecutable?: string | undefined;
   readonly temporaryDirectory?: string | undefined;
   readonly extraEnvironment?: Readonly<Record<string, string>>;
+  /** A short conversation with a CLI server: `stdin` is written and the input kept open, each line it prints goes to `onLine` (which ends it by throwing), and it is ended at `timeoutMs`. */
+  readonly session?: { readonly stdin: string; readonly timeoutMs: number; readonly onLine: (line: string) => void };
 }
 
 /** Runs a short, model-free CLI command (version, auth status) in an empty directory with the sanitized environment. */
@@ -307,7 +309,8 @@ export async function runCliCommand(executable: CliExecutable, commandArguments:
     const environment = { ...cliBaseEnvironment(executable, root, { lookup: options.lookup, platform, nodeExecutable: options.nodeExecutable ?? hostNodeExecutable(),
       home: options.lookup(platform === "win32" ? "USERPROFILE" : "HOME") ?? options.lookup("HOME") }), ...options.extraEnvironment };
     return await (options.process ?? { run: runNativeProcess }).run({ executable: executable.command, arguments: [...executable.prefixArguments, ...commandArguments], cwd: root,
-      environment, stdin: "", timeoutMs: PROBE_TIMEOUT_MS, maximumOutputBytes: 256 * 1024, signal: new AbortController().signal });
+      environment, ...(options.session === undefined ? { stdin: "", timeoutMs: PROBE_TIMEOUT_MS } : { stdin: options.session.stdin, keepStdinOpen: true, timeoutMs: options.session.timeoutMs, onLine: options.session.onLine }),
+      maximumOutputBytes: 256 * 1024, signal: new AbortController().signal });
   } finally { await rm(root, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined); }
 }
 
