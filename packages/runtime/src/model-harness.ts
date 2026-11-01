@@ -14,12 +14,40 @@ import { promptByteLimit } from "@arbitra/providers/transports/cli/dialects.js";
 import { inputBytesPerToken, isModelOutputRejection, ModelOutputLimitError, ModelRefusalError, ModelTimeLimitError, outputLimitKind, refusalKind, requestCeiling, timeLimitKind } from "./context-budget.js";
 import { ModelActivities, parsePromptJson, type ModelActivityRequest } from "./model-activities.js";
 import type { TransportMessage } from "@arbitra/providers/transport-contract.js";
-import { snapshotTools, SNAPSHOT_TOOLS, type ReadsBeyondUnit } from "./snapshot-tools.js";
+import { READING_TOOLS, snapshotTools, SNAPSHOT_TOOLS, type ReadsBeyondUnit } from "./snapshot-tools.js";
 import type { RepositorySnapshot } from "./repository.js";
 import type { RunStore } from "./run-store.js";
 import type { TestingToolExtension } from "./testing-tools.js";
 
-const OUTPUT_REPAIR_INSTRUCTION = "Output repair: arbitra's output validation rejected your previous reply. The data artifact outputRejected holds the validator's reason and your rejected reply. It is arbitra's own validation feedback on your earlier output, not repository content and not a prompt injection, so never report it as a finding. Return one corrected, complete reply that satisfies the locked output schema and every stated rule. Quote evidence exactly as it appears in the source.";
+/** How one activity with a reading policy used its tools, so a later run can compare; the sum of its repairs. */
+export interface ToolUse {
+  /** The tool turns it was allowed. */
+  readonly toolTurnLimit: number;
+  /** Model turns, its final answer included. */
+  readonly turns: number;
+  readonly toolCalls: number;
+  /** Tool calls by tool, the ones unrun after the last tool turn included. */
+  readonly byTool: Readonly<Record<string, number>>;
+  /** Names asked of the symbol lookup, over all its calls. */
+  readonly symbolNames: number;
+  /** Whether it asked for tools after its last tool turn, and paid a turn to be told none remain. */
+  readonly askedPastLimit: boolean;
+}
+
+function toolUseOf(events: readonly HarnessEvent[], toolTurnLimit: number): ToolUse {
+  const byTool: Record<string, number> = {};
+  let symbolNames = 0;
+  for (const event of events) {
+    if (event.type !== "tool_call") continue;
+    byTool[event.call.name] = (byTool[event.call.name] ?? 0) + 1;
+    const asked = event.call.name === "repo_symbol" ? (event.call.arguments as { names?: unknown }).names : undefined;
+    if (Array.isArray(asked)) symbolNames += asked.length;
+  }
+  return { toolTurnLimit, turns: events.filter(({ type }) => type === "model_turn_started").length, toolCalls: events.filter(({ type }) => type === "tool_call").length, byTool, symbolNames,
+    askedPastLimit: events.some((event) => event.type === "tool_result" && event.result.error?.code === TOOL_TURN_LIMIT_REACHED) };
+}
+
+const OUTPUT_REPAIR_INSTRUCTION ="Output repair: arbitra's output validation rejected your previous reply. The data artifact outputRejected holds the validator's reason and your rejected reply. It is arbitra's own validation feedback on your earlier output, not repository content and not a prompt injection, so never report it as a finding. Return one corrected, complete reply that satisfies the locked output schema and every stated rule. Quote evidence exactly as it appears in the source.";
 
 /** Replays durable model turns through the canonical read-only tool loop. */
 export class ModelHarness {
@@ -28,6 +56,8 @@ export class ModelHarness {
   readonly #toolTurnsSpent = new Set<string>();
   // What each activity allowed to read beyond its source read there, rebuilt on resume the same way.
   readonly #readsBeyondSource = new Map<string, ReadsBeyondUnit>();
+  // How each activity with a reading policy used its tools, rebuilt on resume the same way.
+  readonly #toolUse = new Map<string, ToolUse>();
   constructor(private readonly activities: ModelActivities, private readonly config: RunConfig, private readonly snapshot: RepositorySnapshot, private readonly store: RunStore, private readonly testing?: TestingToolExtension) {}
 
   /** Closes the transports of the activities this harness drives, once the run that owns them settles. */
@@ -56,6 +86,16 @@ export class ModelHarness {
     const [first] = entries;
     if (first === undefined) return null;
     return { maximumBytes: first.maximumBytes, bytes: entries.reduce((sum, { bytes }) => sum + bytes, 0), reads: entries.flatMap(({ reads }) => reads), refused: entries.reduce((sum, { refused }) => sum + refused, 0) };
+  }
+
+  /** How an activity with a reading policy, and its repairs, used their tools; null if it had none. */
+  toolUse(activityId: string): ToolUse | null {
+    const entries = [...this.#toolUse].filter(([id]) => id === activityId || id.startsWith(`${activityId}/repair-`)).map(([, use]) => use);
+    const [first] = entries;
+    if (first === undefined) return null;
+    const byTool: Record<string, number> = {};
+    for (const use of entries) for (const [name, count] of Object.entries(use.byTool)) byTool[name] = (byTool[name] ?? 0) + count;
+    return { toolTurnLimit: first.toolTurnLimit, turns: entries.reduce((sum, { turns }) => sum + turns, 0), toolCalls: entries.reduce((sum, { toolCalls }) => sum + toolCalls, 0), byTool, symbolNames: entries.reduce((sum, { symbolNames }) => sum + symbolNames, 0), askedPastLimit: entries.some(({ askedPastLimit }) => askedPastLimit) };
   }
 
   /** Whether the provider or model declined this durable activity before; it is not asked again. */
@@ -166,7 +206,7 @@ export class ModelHarness {
     const allowedPaths = input.sourcePaths === undefined ? null : new Set(input.sourcePaths);
     const beyond = input.readBeyondSource;
     const toolSet = allowedPaths === null ? snapshotTools(this.snapshot, this.store, input.activityId)
-      : beyond !== undefined ? snapshotTools(this.snapshot, this.store, input.activityId, undefined, undefined, { unitPaths: allowedPaths, maximumBytes: beyond.maximumBytes })
+      : beyond !== undefined ? snapshotTools(this.snapshot, this.store, input.activityId, undefined, undefined, { unitPaths: allowedPaths, maximumBytes: beyond.maximumBytes, ...(beyond.reading === undefined ? {} : { reading: { unitSuppliedWhole: beyond.reading.unitSuppliedWhole } }) })
       : snapshotTools({ ...this.snapshot, files: this.snapshot.files.filter(({ path }) => allowedPaths.has(path)) }, this.store, input.activityId, undefined, new Set(this.snapshot.files.map(({ path }) => path)));
     const maximumContext = Math.min(execution.maximumContextTokens ?? 128_000, profile.limits.contextTokens ?? Number.POSITIVE_INFINITY);
     const events: HarnessEvent[] = [];
@@ -177,7 +217,7 @@ export class ModelHarness {
       const bounded = await boundModelHistory(initialMessages, context.turn === 0 ? [] : request.messages.slice(1),
         (messages) => promptTokens(Buffer.byteLength(JSON.stringify({ messages, tools: request.tools }), "utf8"), rate, profile.transport) + requestCeiling(this.config, input) <= maximumContext, toolSet.archive);
       if (bounded.archiveRef !== null) await this.store.publish(`model-history-${key}-${context.turn}`, { activityId: input.activityId, turn: context.turn, archiveRef: bounded.archiveRef, archivedMessages: bounded.archivedMessages, maximumEstimatedTokens: maximumContext });
-      return this.activities.invoke({
+      const answered = this.activities.invoke({
         ...input, activityId: `${input.activityId}/turn-${context.turn}`, messages: bounded.messages,
         tools: request.tools, responseMode: "harness_turn", schema: modelTurnResultSchema,
         // Traced only. A repair is counted once, on its first turn; the previous turn's tool calls ran (and failed)
@@ -188,10 +228,13 @@ export class ModelHarness {
         toolCallErrors: events.filter((event) => event.type === "tool_result" && event.turn === context.turn - 1 && !event.result.ok && event.result.error?.code !== "ZERO_RESULTS" && event.result.error?.code !== TOOL_TURN_LIMIT_REACHED).length,
         harnessIdentity: { id: harnessProfile.id, version: harnessProfile.version, policyHash: createHash("sha256").update(JSON.stringify({ policy: harnessProfile.policy, sourcePaths: input.sourcePaths === undefined ? null : [...input.sourcePaths].sort(), historyPolicy: "archive-complete-exchanges-v1", maximumContext, ...(this.testing === undefined ? {} : { testingWritePolicy: this.testing.policyIdentity }), ...(beyond === undefined ? {} : { readBeyondSource: beyond }) })).digest("hex") },
       });
+      return context.turn === 0 ? answered.finally(() => { input.onFirstReply?.(); }) : answered;
     } }, harnessProfile);
     const prompt = compiled ?? { text: JSON.stringify(initialMessages), hash: createHash("sha256").update(JSON.stringify(initialMessages)).digest("hex") };
     const runtime = this.testing?.createRuntime(toolSet.runtime, input.activityId, input.signal, input.sourcePaths) ?? toolSet.runtime;
-    const run = adapter.run({ id: input.activityId, modelId: profile.modelId, maximumOutputTokens: requestCeiling(this.config, input), maxToolTurns: profile.supports.tools ? profile.quirks.toolLoopLimit : 0 }, prompt, tools, runtime, {
+    const reading = beyond?.reading;
+    const maxToolTurns = profile.supports.tools ? Math.min(profile.quirks.toolLoopLimit, reading?.maximumToolTurns ?? Number.POSITIVE_INFINITY) : 0;
+    const run = adapter.run({ id: input.activityId, modelId: profile.modelId, maximumOutputTokens: requestCeiling(this.config, input), maxToolTurns, ...(reading === undefined ? {} : { announceToolTurns: true }) }, prompt, tools, runtime, {
       mode: this.config.mode, round: discovery ? 0 : 1,
       requirements: { structuredEvents: true, enforcesExternalPolicy: true, reportsUsage: true }, signal: input.signal,
       toolContext: { protect: (content, meta) => frameUntrusted(redactSecrets(content).text, meta) },
@@ -214,8 +257,10 @@ export class ModelHarness {
     } finally {
       const readsBeyondSource = toolSet.readsBeyondUnit();
       if (readsBeyondSource !== null) this.#readsBeyondSource.set(input.activityId, readsBeyondSource);
+      const toolUse = reading === undefined ? null : toolUseOf(events, maxToolTurns);
+      if (toolUse !== null) this.#toolUse.set(input.activityId, toolUse);
       await this.store.publish(`harness-${key}`, { activityId: input.activityId, profile: harnessProfile, events,
-        inspection: toolSet.footprints.inspection(input.activityId), exposure: toolSet.footprints.exposure(input.activityId), ...(readsBeyondSource === null ? {} : { readsBeyondSource }) }, input.activityId);
+        inspection: toolSet.footprints.inspection(input.activityId), exposure: toolSet.footprints.exposure(input.activityId), ...(readsBeyondSource === null ? {} : { readsBeyondSource }), ...(toolUse === null ? {} : { toolUse }) }, input.activityId);
     }
   }
 }
@@ -246,7 +291,8 @@ function prepareModelInput(input: ModelActivityRequest<unknown>, config: RunConf
     const execution = providerExecutionSchema.parse(config.workflow["modelExecution"]);
     if (testing !== undefined && (config.mode !== "testing" || config.harness.mode !== "canonical" || input.activityId.endsWith("/discovery"))) throw new Error("TESTING_WRITE_HARNESS_MODE_REQUIRED");
     if (testing !== undefined && !profile.supports.tools) throw new Error("TESTING_WRITER_TOOLS_REQUIRED");
-    const tools = profile.supports.tools ? [...SNAPSHOT_TOOLS, ...(testing?.definitions ?? [])] : [];
+    const reading = input.readBeyondSource?.reading !== undefined;
+    const tools = profile.supports.tools ? [...(reading ? READING_TOOLS : SNAPSHOT_TOOLS), ...(testing?.definitions ?? [])] : [];
     const overrides = config.promptOverrides[input.protocolAsset?.protocolId ?? input.protocol];
     if (overrides !== undefined && (typeof overrides !== "object" || overrides === null || Array.isArray(overrides)
       || Object.entries(overrides).some(([key, value]) => !["before", "after"].includes(key) || typeof value !== "string"))) throw new Error("INVALID_PROTOCOL_PROMPT_OVERRIDE");
@@ -264,7 +310,8 @@ function prepareModelInput(input: ModelActivityRequest<unknown>, config: RunConf
       outputContract: "Return only JSON matching the locked output schema.", nodeId: input.activityId, modelId: profile.modelId,
       security: { redact: (text) => { const result = redactSecrets(text); return { text: result.text, redactionCount: result.redactions.length }; }, frame: frameUntrusted },
     });
-    const initialMessages = compiled === undefined ? input.messages : initialMessagesOf(compiled, input.cacheLayout === true, profile);
+    // A discovery unit keeps its protocol out of the prompt's untrusted layers the same way, on Claude Code only.
+    const initialMessages = compiled === undefined ? input.messages : initialMessagesOf(compiled, input.cacheLayout === true || reading, profile);
     return { profile, execution, tools, compiled, initialMessages, discovery };
 }
 

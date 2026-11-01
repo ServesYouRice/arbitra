@@ -40,7 +40,10 @@ export interface ModelActivityRequest<T> {
   readonly sourcePaths?: readonly string[];
   /** With `sourcePaths`: the tools may also read every other file of the snapshot, up to this many bytes a call.
    * Part of the identity through the harness policy. */
-  readonly readBeyondSource?: { readonly maximumBytes: number };
+  readonly readBeyondSource?: { readonly maximumBytes: number; readonly reading?: ReadingPolicy };
+  /** Never part of the identity: called once the first turn is answered, or replayed, so a caller can hold back what would
+   * read its prompt from the cache this first call writes. */
+  readonly onFirstReply?: () => void;
   readonly harnessIdentity?: { readonly id: string; readonly version: string; readonly policyHash: string };
   /** Per-request output reserve; defaults to the run's configured reserve. Part of the identity. */
   readonly maximumOutputTokens?: number;
@@ -64,6 +67,18 @@ export interface ModelActivityRequest<T> {
   /** Traced only, never part of the identity: failed tool calls whose results this call reads. The tools a turn asks
    * for run after its trace is written, so their failures are counted on the turn that receives them. */
   readonly toolCallErrors?: number;
+}
+
+/**
+ * How a call reads beyond its source from production-audit 2.1.0 (`DISCOVERY_READS_BY_NAME_FROM`): the reading tools, its
+ * fixed text in the system prompt, and a count of the tool turns left. All of it changes what the call sends, so a
+ * call on an earlier protocol has no policy and sends what it always sent.
+ */
+export interface ReadingPolicy {
+  /** The call was sent its source files whole, so a tool names their lines rather than repeat them. */
+  readonly unitSuppliedWhole: boolean;
+  /** Fewer tool turns than the model's profile allows. */
+  readonly maximumToolTurns?: number;
 }
 
 export interface AdvisorActivityIdentity {

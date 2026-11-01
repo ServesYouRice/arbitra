@@ -33,7 +33,10 @@ export class CanonicalHarnessAdapter implements HarnessAdapter {
         const result = turn === node.maxToolTurns ? toolTurnLimitResult(node.maxToolTurns)
           : await toolRuntime.invoke(call.name, call.arguments, { ...policy.toolContext, nodeId: node.id, callId: call.id, turn, callIndex });
         yield Object.freeze({ type: "tool_result", nodeId: node.id, turn, callId: call.id, result });
-        messages.push({ role: "tool", content: JSON.stringify(result), toolCallId: call.id, toolName: call.name });
+        // Observed live (nananananana, November 1, 2026): 43 of Opus's 84 units asked for tools after their last tool turn,
+        // and each paid a whole turn of about 98,000 tokens to be told none remain.
+        const announced = node.announceToolTurns === true && turn < node.maxToolTurns && callIndex === response.toolCalls.length - 1 ? { ...result, toolTurnsLeft: node.maxToolTurns - turn - 1 } : result;
+        messages.push({ role: "tool", content: JSON.stringify(announced), toolCallId: call.id, toolName: call.name });
       }
     }
     throw new Error("HARNESS_LOOP_UNREACHABLE");

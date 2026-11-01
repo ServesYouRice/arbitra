@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { ToolRegistry } from "@arbitra/tools/registry.js";
+import { ToolRegistry, type LineDelivery, type LinesToDeliver } from "@arbitra/tools/registry.js";
 import { FootprintRecorder } from "@arbitra/tools/footprint/index.js";
+import { buildSymbolIndex, type SymbolIndex } from "@arbitra/tools/repo/symbol-index.js";
 import type { ReadRepository, SearchHit } from "@arbitra/tools/repo/types.js";
 import type { HarnessToolDefinition, HarnessToolRuntime } from "@arbitra/harness/adapter.js";
 import type { RepositorySnapshot } from "./repository.js";
@@ -15,8 +16,41 @@ export const SNAPSHOT_TOOLS: readonly HarnessToolDefinition[] = [
   { name: "artifact_read", description: "Read only a tool-output artifact produced by this activity.", inputSchema: { type: "object", properties: { ref: { type: "string" } }, required: ["ref"], additionalProperties: false } },
 ];
 
+/** Lines of context around each hit of a search, unless the call asks for another number. */
+export const SEARCH_CONTEXT_LINES = 2;
+const NUMBERED_LINES = "Lines come numbered: \"12:\" is a matched or asked-for line, \"12-\" a line around it. The number and its mark are not part of the source: leave them out of a quotation, and cite the number as the line.";
+
+/**
+ * What a discovery unit is offered from production-audit 2.1.0. A symbol lookup and a search that carries its context
+ * answer in one turn what took a search and then a read. A call on any earlier protocol is offered `SNAPSHOT_TOOLS`,
+ * byte for byte: these definitions are part of the prompt and of the identity of every turn.
+ */
+export const READING_TOOLS: readonly HarnessToolDefinition[] = [
+  SNAPSHOT_TOOLS[0] as HarnessToolDefinition,
+  { name: "repo_symbol", description: `Look names up across the whole snapshot: for each, every definition with its whole body, then the lines that use it. Ask for up to 8 names in one call, as they appear in the code (a function, type, module, or a qualified name such as Accounts.get_user). Prefer it to a search and a read when you know a name. A definition in the source you were given is named by location only. ${NUMBERED_LINES}`, inputSchema: { type: "object", properties: { names: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 8 }, scope: { type: "string", description: "A directory or file to keep to." } }, required: ["names"], additionalProperties: false } },
+  { name: "repo_read_file", description: "Read a snapshot file, optionally a 1-based line range. Ask for the lines you need when you know them.", inputSchema: { type: "object", properties: { path: { type: "string" }, startLine: { type: "integer", minimum: 1 }, endLine: { type: "integer", minimum: 1 } }, required: ["path"], additionalProperties: false } },
+  { name: "repo_search", description: `Search snapshot source for literal text, for what is not a name. Each hit comes with the lines around it, ${SEARCH_CONTEXT_LINES} by default. Hits in the source you were given are named by location only. ${NUMBERED_LINES}`, inputSchema: { type: "object", properties: { query: { type: "string" }, scope: { type: "string" }, contextLines: { type: "integer", minimum: 0, maximum: 5 } }, required: ["query"], additionalProperties: false } },
+  SNAPSHOT_TOOLS[3] as HarnessToolDefinition,
+  SNAPSHOT_TOOLS[4] as HarnessToolDefinition,
+];
+
+/** Built once for a snapshot, however many units read it. */
+const symbolIndexes = new WeakMap<RepositorySnapshot["files"], SymbolIndex>();
+function symbolIndexOf(snapshot: RepositorySnapshot): SymbolIndex {
+  const known = symbolIndexes.get(snapshot.files);
+  if (known !== undefined) return known;
+  const index = buildSymbolIndex(snapshot.files.map(({ path, lines }) => ({ path, lines })));
+  symbolIndexes.set(snapshot.files, index);
+  return index;
+}
+
 /** A call that audits some files of the snapshot and may read the rest: what it read beyond them, under its budget. */
-export interface BeyondUnitPolicy { readonly unitPaths: ReadonlySet<string>; readonly maximumBytes: number }
+export interface BeyondUnitPolicy {
+  readonly unitPaths: ReadonlySet<string>;
+  readonly maximumBytes: number;
+  /** Offers the reading tools (`READING_TOOLS`). `unitSuppliedWhole`: the call was sent its files whole, so a result names their lines rather than repeat them. */
+  readonly reading?: { readonly unitSuppliedWhole: boolean };
+}
 export interface ReadsBeyondUnit {
   readonly maximumBytes: number;
   /** Bytes of tool results that carried files outside the unit. */
@@ -37,7 +71,9 @@ export const READ_BUDGET_SPENT = "READ_BUDGET_SPENT";
  * With `beyondUnit`, `snapshot` is the whole snapshot and every file of it can be read: reads of files outside the
  * unit share `beyondUnit.maximumBytes`, a read is cut at whole lines to what is left, and once it is spent such reads
  * are refused. Searches and listings cover the whole snapshot; they deliver paths and line numbers only, within the
- * activity's byte budget like every result.
+ * activity's byte budget like every result. With `beyondUnit.reading`, a symbol lookup and a search with context also
+ * deliver lines: each block of another file is charged to the same budget and recorded as a read, so it can be cited,
+ * and a block the budget cannot hold is named by where it is.
  */
 export function snapshotTools(snapshot: RepositorySnapshot, store: RunStore, activityId: string, maximumBytes = 128_000, repositoryPaths?: ReadonlySet<string>, beyondUnit?: BeyondUnitPolicy): { runtime: HarnessToolRuntime; footprints: FootprintRecorder; archive(content: string): Promise<string>; readsBeyondUnit(): ReadsBeyondUnit | null } {
   const byPath = new Map(snapshot.files.map((file) => [file.path, file]));
@@ -67,6 +103,7 @@ export function snapshotTools(snapshot: RepositorySnapshot, store: RunStore, act
     async gitStatus() { throw new Error("SNAPSHOT_GIT_EVIDENCE_UNAVAILABLE"); },
     async gitDiff() { throw new Error("SNAPSHOT_GIT_EVIDENCE_UNAVAILABLE"); },
     async gitLog() { throw new Error("SNAPSHOT_GIT_EVIDENCE_UNAVAILABLE"); },
+    ...(beyondUnit?.reading === undefined ? {} : { symbols: () => symbolIndexOf(snapshot) }),
   };
   const footprints = new FootprintRecorder();
   const allowedArtifacts = new Set<string>();
@@ -89,10 +126,28 @@ export function snapshotTools(snapshot: RepositorySnapshot, store: RunStore, act
   } });
   const beyond = { bytes: 0, refused: 0, reads: [] as { path: string; startLine: number; endLine: number; bytes: number }[] };
   const readsBeyondUnit = (): ReadsBeyondUnit | null => beyondUnit === undefined ? null : { maximumBytes: beyondUnit.maximumBytes, bytes: beyond.bytes, reads: beyond.reads.map((read) => ({ ...read })), refused: beyond.refused };
+  const deliverLines = (policy: BeyondUnitPolicy, { path, startLine, endLine, bytes }: LinesToDeliver): LineDelivery => {
+    if (policy.unitPaths.has(path)) return policy.reading?.unitSuppliedWhole === true ? "supplied" : "deliver";
+    if (bytes > policy.maximumBytes - beyond.bytes) { beyond.refused += 1; return "refused"; }
+    beyond.bytes += bytes;
+    beyond.reads.push({ path, startLine, endLine, bytes });
+    return "deliver";
+  };
   return { footprints, archive, readsBeyondUnit, runtime: { async invoke(name, args, context) {
-    if (!Object.hasOwn(names, name)) return { ok: false, summary: "Tool unavailable", content: "Only declared snapshot tools are available.", artifact: null, truncated: false, trust: "untrusted", error: { code: "TOOL_NOT_ALLOWED", message: "Only declared snapshot tools are available." } };
-    const tool = names[name as keyof typeof names];
-    const path = typeof args === "object" && args !== null && !Array.isArray(args) ? (args as Record<string, unknown>)["path"] : undefined;
+    const reading = beyondUnit?.reading !== undefined;
+    const lookup = name === "repo_symbol" && reading;
+    if (!lookup && !Object.hasOwn(names, name)) return { ok: false, summary: "Tool unavailable", content: "Only declared snapshot tools are available.", artifact: null, truncated: false, trust: "untrusted", error: { code: "TOOL_NOT_ALLOWED", message: "Only declared snapshot tools are available." } };
+    const tool = lookup ? "repo.symbol" : names[name as keyof typeof names];
+    const argument = (key: string) => typeof args === "object" && args !== null && !Array.isArray(args) ? (args as Record<string, unknown>)[key] : undefined;
+    if (beyondUnit !== undefined && reading && (tool === "repo.symbol" || tool === "repo.search")) {
+      // Lines charged for a result that then fails were never delivered, so they are neither spent nor citable.
+      const before = { bytes: beyond.bytes, reads: beyond.reads.length };
+      const asked = tool === "repo.search" && argument("contextLines") === undefined && typeof args === "object" && args !== null ? { ...args, contextLines: SEARCH_CONTEXT_LINES } : args;
+      const result = await registry.invoke(tool, asked, { nodeId: context.nodeId, protect: context.protect, deliverLines: (lines) => deliverLines(beyondUnit, lines) });
+      if (!result.ok) { beyond.bytes = before.bytes; beyond.reads.length = before.reads; }
+      return result;
+    }
+    const path = argument("path");
     const file = tool === "repo.readFile" && typeof path === "string" && beyondUnit !== undefined && !beyondUnit.unitPaths.has(path) ? byPath.get(path) : undefined;
     if (beyondUnit === undefined || file === undefined) return registry.invoke(tool, args, { nodeId: context.nodeId, protect: context.protect });
     const remaining = Math.max(0, beyondUnit.maximumBytes - beyond.bytes);

@@ -1,7 +1,9 @@
 import type { HarnessMode, HarnessProfile, HarnessRequirements } from "./profile.js";
 
 export interface HarnessPrompt { readonly text: string; readonly hash: string }
-export interface HarnessNode { readonly id: string; readonly modelId: string; readonly maximumOutputTokens: number; readonly maxToolTurns: number }
+export interface HarnessNode { readonly id: string; readonly modelId: string; readonly maximumOutputTokens: number; readonly maxToolTurns: number;
+  /** The last tool result of each turn says how many tool turns are left, at its end, so all that came before stays as sent. */
+  readonly announceToolTurns?: boolean }
 export interface HarnessToolDefinition { readonly name: string; readonly description: string; readonly inputSchema: Readonly<Record<string, unknown>> }
 export interface HarnessToolRuntime { invoke(name: string, args: unknown, context: HarnessToolContext): Promise<HarnessToolResult> }
 export interface HarnessToolContext {

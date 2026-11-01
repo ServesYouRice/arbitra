@@ -2,7 +2,9 @@ import type { SourceFinding } from "@arbitra/schemas/finding.js";
 import { modelDiscoveryResultSchema } from "@arbitra/schemas/model-results.js";
 import { redactSecrets } from "@arbitra/security/redaction";
 import { validateFindings, type RejectionStore, type ValidationResult } from "@arbitra/workflow/nodes/validate-findings.js";
-import type { ModelActivities, ModelActivityRequest } from "./model-activities.js";
+import type { RunConfig } from "@arbitra/schemas/config.js";
+import type { ModelActivities, ModelActivityRequest, ReadingPolicy } from "./model-activities.js";
+import type { ToolUse } from "./model-harness.js";
 import type { RepositorySnapshot, SourceFile } from "./repository.js";
 import type { RunStore } from "./run-store.js";
 import type { PinnedProtocol } from "@arbitra/protocols/registry.js";
@@ -33,6 +35,43 @@ export const DISCOVERY_READS_BEYOND_UNIT_FROM = "2.0.0";
  */
 export const DISCOVERY_READ_BEYOND_UNIT_BYTES = 65_536;
 
+/**
+ * The first production-audit version whose units look names up, get a search's context with its hits, are told their tool
+ * turns left, and hold their tool turns to their depth. A run pinned earlier sends what it always sent, so it resumes
+ * and replays as it was.
+ */
+export const DISCOVERY_READS_BY_NAME_FROM = "2.1.0";
+
+/**
+ * Tool turns of one discovery unit by depth; a depth absent here keeps its model profile's limit (8). Of nananananana's
+ * 175 confirmed issues (November 1, 2026, Opus and Sol at xhigh, 8 turns), every finding of 9 (1 high) cited a file first
+ * read after the sixth tool turn, and of 17 (2 high) after the fifth; none after the eighth, the last there was, so the
+ * limit may have cut more: deep keeps it. The same turns ask for more at once from this protocol on, so these bound what
+ * a depth gives up rather than predict it.
+ */
+export const DISCOVERY_TOOL_TURNS: Readonly<Partial<Record<NonNullable<ModelDiscoveryOptions["depth"]>, number>>> = Object.freeze({ balanced: 6, cheap: 5, fast: 5 });
+
+function readingPolicy(options: { readonly protocol?: PinnedProtocol; readonly depth?: ModelDiscoveryOptions["depth"]; readonly window?: unknown }): ReadingPolicy | undefined {
+  if (options.protocol === undefined || options.protocol.protocolId !== "production-audit" || compareSemver(options.protocol.protocolVersion, DISCOVERY_READS_BY_NAME_FROM) < 0) return undefined;
+  const turns = options.depth === undefined ? undefined : DISCOVERY_TOOL_TURNS[options.depth];
+  return { unitSuppliedWhole: options.window === undefined, ...(turns === undefined ? {} : { maximumToolTurns: turns }) };
+}
+
+/**
+ * Holds every unit but the first until the first has its first reply, so the prompt cache entry it writes is there for
+ * the rest to read. Started side by side, each of the first `concurrency` units writes its own. A unit that fails opens
+ * the way as well, and no unit waiting here holds a place in the audit's allowance.
+ */
+function firstUnitAhead(): <R>(call: (onFirstReply?: () => void) => Promise<R>) => Promise<R> {
+  let opened: Promise<void> | undefined;
+  return async (call) => {
+    if (opened !== undefined) { await opened; return call(); }
+    let open = () => {};
+    opened = new Promise((resolve) => { open = resolve; });
+    try { return await call(open); } finally { open(); }
+  };
+}
+
 /** Round zero has only the deterministic snapshot: no peer/model/advisor artifacts. */
 export interface ModelDiscoveryOptions {
   readonly auditorId: string;
@@ -40,7 +79,11 @@ export interface ModelDiscoveryOptions {
   readonly snapshot: RepositorySnapshot;
   readonly activities: Pick<ModelActivities, "invoke"> & { estimateInitialTokens?(input: ModelActivityRequest<unknown>): number;
     /** What a discovery call (and its repairs) read outside its unit, from the harness that ran its tools. */
-    readsBeyondSource?(activityId: string): ReadsBeyondUnit | null };
+    readsBeyondSource?(activityId: string): ReadsBeyondUnit | null;
+    /** How a discovery call (and its repairs) with a reading policy used its tools, from the same harness. */
+    toolUse?(activityId: string): ToolUse | null };
+  /** The run's depth, which sets a unit's tool turns from production-audit 2.1.0. */
+  readonly depth?: RunConfig["auditDepth"];
   readonly store: RunStore;
   readonly signal: AbortSignal;
   readonly effort?: "low" | "medium" | "high" | "xhigh" | "max";
@@ -110,6 +153,8 @@ interface ScopeOptions extends DiscoveryOptions {
   readonly reportedInstructionShapedText?: readonly LineRange[];
   /** Holds the unit's model call to the allowance its audit shares. */
   readonly limited?: <R>(call: () => Promise<R>) => Promise<R>;
+  /** Holds the unit back until its finder's first unit has its first reply. */
+  readonly ahead?: <R>(call: (onFirstReply?: () => void) => Promise<R>) => Promise<R>;
   /** Set when the unit can be split: a call of it that runs past the time limit is split, not sent again whole. */
   readonly splitOnTimeLimit?: boolean;
 }
@@ -128,15 +173,17 @@ async function discoverScopeWithModel(options: ScopeOptions): Promise<readonly S
   // A unit an incremental run reuses is sent its base's index, so its request is the base's.
   const reused = await options.units?.indexFor?.(unit);
   const request = discoveryRequest(reused === undefined ? options : { ...options, repository: { ...options.repository, index: reused.index as RepositoryIndex | null } });
-  const discovery = await (options.limited ?? ((call) => call()))(() => activities.invoke(request));
+  const limited = options.limited ?? (<R>(call: () => Promise<R>) => call());
+  const discovery = await (options.ahead ?? (<R>(call: (onFirstReply?: () => void) => Promise<R>) => call()))((onFirstReply) => limited(() => activities.invoke(onFirstReply === undefined ? request : { ...request, onFirstReply })));
   const findings = discovery.findings;
   const reads = activities.readsBeyondSource?.(discoveryActivityId(options)) ?? null;
+  const toolUse = activities.toolUse?.(discoveryActivityId(options)) ?? null;
   const unitPaths = new Set(snapshot.files.map(({ path }) => path));
   const { validation, accepted, quoteRejections, widenedLocations, quoteBlocksRemoved } = await groundFindings({ actorId: auditorId, findings, snapshot: options.repository.snapshot, unitPaths, reads,
     persistRejection: async (rejection) => (await store.publish(`discovery-rejection-${artifactAuditorId}-${findings.findIndex(({ sourceFindingId }) => sourceFindingId === rejection.finding.sourceFindingId)}`, rejection, auditorId)).artifactId });
   const readBeyondUnit = reads === null ? undefined : unitReads(reads, unitPaths, accepted);
   await store.publish(`discovery-validation-${artifactAuditorId}`, { summaries: validation.summaries, quoteRejections, ...(widenedLocations.length === 0 ? {} : { widenedLocations }), ...(quoteBlocksRemoved.length === 0 ? {} : { quoteBlocksRemoved }), acceptedCount: accepted.length, rejectedCount: validation.rejected.length + quoteRejections.length,
-    truncated: discovery.truncated, unexaminedDueToBudget: discovery.unexaminedDueToBudget, limitations: discovery.limitations, ...(readBeyondUnit === undefined ? {} : { readBeyondUnit }) }, auditorId);
+    truncated: discovery.truncated, unexaminedDueToBudget: discovery.unexaminedDueToBudget, limitations: discovery.limitations, ...(readBeyondUnit === undefined ? {} : { readBeyondUnit }), ...(toolUse === null ? {} : { toolUse }) }, auditorId);
   await store.publish(`findings-${artifactAuditorId}`, accepted, auditorId);
   await options.units?.complete(unit, accepted);
   return accepted;
@@ -415,6 +462,8 @@ async function discoverPrimary(options: DiscoveryOptions): Promise<readonly Sour
   const concurrency = options.concurrency ?? 1;
   // Every call of this audit takes its place from one allowance, however deep its units split.
   const limited = sharedLimit(concurrency);
+  // With one unit at a time, the first is ahead of the rest already.
+  const ahead = concurrency > 1 && readingPolicy(options) !== undefined ? firstUnitAhead() : undefined;
   const record = async ({ unit, cause, error }: Declined, scopeId = unitScopeId(unit)): Promise<Outcome> => {
     const { window } = unit;
     // This auditor leaves the source unexamined and says so; the audit goes on with what the others found.
@@ -453,7 +502,7 @@ async function discoverPrimary(options: DiscoveryOptions): Promise<readonly Sour
   const audit = async (unit: PendingUnit, partOfDeclined = false): Promise<Outcome> => {
     const { window } = unit;
     const scopeId = unitScopeId(unit);
-    const selected: ScopeOptions = { ...options, snapshot: { ...options.snapshot, files: unit.files }, scopeId, ...(window === undefined ? {} : { window }), limited,
+    const selected: ScopeOptions = { ...options, snapshot: { ...options.snapshot, files: unit.files }, scopeId, ...(window === undefined ? {} : { window }), limited, ...(ahead === undefined ? {} : { ahead }),
       ...(splitsOnTimeLimit(options.snapshot, unit) ? { splitOnTimeLimit: true } : {}) };
     let found: readonly SourceFinding[];
     try { found = await discoverScopeWithModel(selected); }
@@ -516,7 +565,8 @@ async function discoverPrimary(options: DiscoveryOptions): Promise<readonly Sour
   coverage.limitations.push(...(unsplit === undefined ? ["discovery_partitioned_context"] : []), ...[...lineSplitPaths].map((path) => `file_context_split:${path}`), ...(unexaminedLines.length === 0 ? [] : ["lines_exceed_discovery_context_budget"]), ...(outputLimitSplits.length === 0 ? [] : ["discovery_output_limit_split"]), ...(timeLimitSplits.length === 0 ? [] : ["discovery_time_limit_split"]), ...(declinedSplits.length === 0 ? [] : ["discovery_declined_unit_split"]));
   await options.store.publish(`discovery-scopes-${options.auditorId}`, { scopes, unallocatedPaths: [], windowedPaths: windowed.map(({ path, windows }) => ({ path, windows })), unexaminedLines, maximumEstimatedTokens: maximum ?? null, ...(outputLimitSplits.length === 0 ? {} : { outputLimitSplits }), ...(timeLimitSplits.length === 0 ? {} : { timeLimitSplits }), ...(declinedSplits.length === 0 ? {} : { declinedSplits }) });
   const readsBeyondUnits = unitsReads(audited.map(({ validation }) => validation));
-  await options.store.publish(`discovery-validation-${options.auditorId}`, { ...coverage, unexaminedDueToBudget: [...new Set(coverage.unexaminedDueToBudget)], acceptedCount: findings.length, limitations: [...new Set(coverage.limitations)], ...(readsBeyondUnits === undefined ? {} : { readsBeyondUnits }) });
+  const toolUseOfUnits = unitsToolUse(audited.map(({ validation }) => validation));
+  await options.store.publish(`discovery-validation-${options.auditorId}`, { ...coverage, unexaminedDueToBudget: [...new Set(coverage.unexaminedDueToBudget)], acceptedCount: findings.length, limitations: [...new Set(coverage.limitations)], ...(readsBeyondUnits === undefined ? {} : { readsBeyondUnits }), ...(toolUseOfUnits === undefined ? {} : { toolUseOfUnits }) });
   await options.store.publish(`findings-${options.auditorId}`, findings, options.auditorId);
   return findings;
 }
@@ -555,6 +605,19 @@ function unitsReads(validations: readonly ScopeValidation[], prior?: UnitsReads)
     paths: [...new Set([...(prior?.paths ?? []), ...own.flatMap(({ files }) => files.map(({ path }) => path))])].sort() };
 }
 
+/** How an auditor's units used their tools, for the next run's report to compare. */
+interface UnitsToolUse { readonly units: number; readonly toolTurnLimit: number; readonly turns: number; readonly toolCalls: number; readonly byTool: Readonly<Record<string, number>>; readonly symbolNames: number; readonly askedPastLimit: number }
+
+function unitsToolUse(validations: readonly ScopeValidation[], prior?: UnitsToolUse): UnitsToolUse | undefined {
+  const own = validations.flatMap(({ toolUse }) => toolUse === undefined ? [] : [toolUse]);
+  const [first] = own;
+  if (first === undefined) return prior;
+  const byTool: Record<string, number> = { ...prior?.byTool };
+  for (const use of own) for (const [name, count] of Object.entries(use.byTool)) byTool[name] = (byTool[name] ?? 0) + count;
+  const sum = (key: "turns" | "toolCalls" | "symbolNames") => (prior?.[key] ?? 0) + own.reduce((total, use) => total + use[key], 0);
+  return { units: (prior?.units ?? 0) + own.length, toolTurnLimit: first.toolTurnLimit, turns: sum("turns"), toolCalls: sum("toolCalls"), byTool, symbolNames: sum("symbolNames"), askedPastLimit: (prior?.askedPastLimit ?? 0) + own.filter(({ askedPastLimit }) => askedPastLimit).length };
+}
+
 /** Context lines a follow-up reads before and after text reported as prompt injection. */
 export const INJECTION_FOLLOW_UP_CONTEXT_LINES = { before: 10, after: 40 } as const;
 /** Windows one auditor may follow up, each counted once however many calls it takes; later windows are recorded as unexamined. */
@@ -562,7 +625,7 @@ export const MAXIMUM_INJECTION_FOLLOW_UPS = 3;
 
 interface ScopeValidation { readonly rejectedCount: number; readonly truncated: boolean; readonly unexaminedDueToBudget: readonly string[]; readonly limitations: readonly string[];
   readonly summaries?: readonly unknown[]; readonly quoteRejections?: readonly string[]; readonly widenedLocations?: readonly unknown[];
-  readonly readBeyondUnit?: UnitReads; readonly readsBeyondUnits?: UnitsReads }
+  readonly readBeyondUnit?: UnitReads; readonly readsBeyondUnits?: UnitsReads; readonly toolUse?: ToolUse; readonly toolUseOfUnits?: UnitsToolUse }
 
 async function readValidation(store: RunStore, kind: string): Promise<ScopeValidation> {
   const artifact = (await store.listArtifacts()).find((entry) => entry.kind === kind);
@@ -644,7 +707,8 @@ async function followInjections(options: DiscoveryOptions, primary: readonly Sou
   const own = await readValidation(options.store, `discovery-validation-${options.auditorId}`);
   const detail = <T>(key: "summaries" | "quoteRejections" | "widenedLocations"): readonly T[] => [...(own[key] ?? []), ...results.flatMap((result) => result[key] ?? [])] as readonly T[];
   const readsBeyondUnits = results.some(({ readBeyondUnit }) => readBeyondUnit !== undefined) ? unitsReads(own.readBeyondUnit === undefined ? results : [own, ...results], own.readsBeyondUnits) : undefined;
-  await options.store.publish(`discovery-validation-${options.auditorId}`, { ...own, ...(readsBeyondUnits === undefined ? {} : { readsBeyondUnits }),
+  const toolUseOfUnits = unitsToolUse(results, own.toolUseOfUnits);
+  await options.store.publish(`discovery-validation-${options.auditorId}`, { ...own, ...(readsBeyondUnits === undefined ? {} : { readsBeyondUnits }), ...(toolUseOfUnits === undefined ? {} : { toolUseOfUnits }),
     // A partitioned summary carries counts only; per-unit detail stays in each scope's artifact.
     ...(own.summaries === undefined ? {} : { summaries: detail("summaries"), quoteRejections: detail("quoteRejections"), ...(detail("widenedLocations").length === 0 ? {} : { widenedLocations: detail("widenedLocations") }) }),
     acceptedCount: findings.length, rejectedCount: results.reduce((sum, { rejectedCount }) => sum + rejectedCount, own.rejectedCount), truncated: own.truncated || results.some(({ truncated }) => truncated),
@@ -706,8 +770,9 @@ function discoveryRequest(options: ScopeOptions): ModelActivityRequest<ReturnTyp
   const files = snapshot.files.map((file) => ({ path: file.path, ...(window === undefined ? {} : { lineWindow: { startLine: window.startLine, endLine: window.endLine, totalLines: file.lines.length } }),
     lines: file.lines.map((text, index) => ({ line: index + 1, text })).filter(({ line }) => window === undefined || line >= window.startLine && line <= window.endLine).map(({ line, text }) => ({ line, text: redactSecrets(text).text })) }));
   const index = options.repository.index;
+  const reading = readingPolicy(options);
   return {
-    activityId: discoveryActivityId(options), sourcePaths: snapshot.files.map(({ path }) => path), readBeyondSource: { maximumBytes: DISCOVERY_READ_BEYOND_UNIT_BYTES },
+    activityId: discoveryActivityId(options), sourcePaths: snapshot.files.map(({ path }) => path), readBeyondSource: { maximumBytes: DISCOVERY_READ_BEYOND_UNIT_BYTES, ...(reading === undefined ? {} : { reading }) },
     ...(options.splitOnTimeLimit === true ? { splitOnTimeLimit: true } : {}),
     modelProfileId, protocol: options.protocol === undefined ? PROTOCOL : `${options.protocol.protocolId}@${options.protocol.protocolVersion}`, signal,
     ...(options.protocol === undefined ? {} : { protocolAsset: options.protocol, outputSchema: modelDiscoveryResultSchema.toJSONSchema(), protocolIdentity: { protocolId: options.protocol.protocolId, protocolVersion: options.protocol.protocolVersion, protocolHash: options.protocol.protocolHash } }),
@@ -722,7 +787,8 @@ function discoveryRequest(options: ScopeOptions): ModelActivityRequest<ReturnTyp
         "Each finding must cite at least one location and one evidence item linked to a cited location.",
         "Evidence text must be an exact nonempty excerpt from its cited lines. Never invent paths or line numbers.",
         "Matching source text establishes a citation, not proof that a defect is confirmed. Express uncertainty in status and confidence.",
-        `The files array holds this unit's own source, which is what you audit. ${index === null ? "Every other file of the repository" : "repositoryIndex lists every file of the repository with its line count and its exported or top-level symbols; any of them"} can be read with the read-only source tools (repo_read_file, repo_search), up to ${DISCOVERY_READ_BEYOND_UNIT_BYTES} bytes of other files in this call.`,
+        `The files array holds this unit's own source, which is what you audit. ${index === null ? "Every other file of the repository" : "repositoryIndex lists every file of the repository with its line count and its exported or top-level symbols; any of them"} can be read with the read-only source tools (${reading === undefined ? "repo_read_file, repo_search" : "repo_symbol, repo_read_file, repo_search"}), up to ${DISCOVERY_READ_BEYOND_UNIT_BYTES} bytes of other files in this call.`,
+        ...(reading === undefined ? [] : ["Each turn of tools is costly, since the whole conversation is sent again with it: ask for every lookup you can already name in one reply, up to 8 names in one repo_symbol call. The last tool result of each turn carries toolTurnsLeft, the turns of tools you have left; when it is 0, reply with your final answer."]),
         "Read before concluding: when a finding depends on code outside this unit, such as a caller or callee, or the other side of a boundary (client and server, producer and consumer, writer and reader), read that code first and decide on what it shows. Report a defect that spans the boundary with the lines on both sides.",
         "Do not report a limitation that a read would remove, such as a caller, callee or counterpart that was not supplied; report only what you could not read.",
         "A finding may cite lines you read from another file, quoted exactly as read, at their original line numbers.",

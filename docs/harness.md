@@ -72,7 +72,7 @@ rather than any vendor's SDK:
 
 ```text
 HarnessPrompt          text + hash
-HarnessNode            id, modelId, maximumOutputTokens, maxToolTurns
+HarnessNode            id, modelId, maximumOutputTokens, maxToolTurns, announceToolTurns
 HarnessToolDefinition  name, description, inputSchema
 HarnessToolRuntime     invoke(name, args, context)
 HarnessToolContext     protect(), moduleForPath(), riskSurfacesForPath(), byte caps
@@ -191,6 +191,35 @@ truncated. When they do not fit, the stage is recomposed:
   (files, line ranges, bytes, refused reads, findings citing them), the auditor's summary
   `readsBeyondUnits`. A run pinned to an earlier production-audit does not resume an unfinished
   discovery (`DISCOVERY_PROTOCOL_RETIRED`); its stored results stay readable.
+- **Discovery reads by name** (production-audit 2.1.0, November 1, 2026). A unit is offered
+  `repo_symbol` (`repo.symbol`), which takes up to 8 names and returns each definition with its
+  whole body and the lines that use it, from an index built once from the snapshot with line
+  patterns in pure JavaScript (`packages/tools/src/repo/symbol-index.ts`: TypeScript and
+  JavaScript, Elixir, Ruby, Go, Python, Rust, Java, Dart and their relatives, the C family; a name
+  of any other language gets its uses, and text that is no name the literal search). `repo_search`
+  returns each hit with 2 lines of context unless `contextLines` (0 to 5) says otherwise; after
+  40 hits, locations only. Both number their lines (`12:` a hit or a body, `12-` context) and
+  stay within one result by leaving out whole blocks, each named by where it is, so neither is ever
+  cut in the middle. They go through the same redaction, framing and byte budget as a read: lines
+  of another file are charged to `DISCOVERY_READ_BEYOND_UNIT_BYTES` and recorded as reads, so a
+  finding may cite them and an incremental run compares their files. Lines of the source the unit
+  already holds are named, not sent again; a block the budget cannot hold is named too. Reads by
+  line range and the 32 KiB limit of one result, with where to read on, are as they were.
+- **Fewer turns.** From 2.1.0 the prompt asks for all independent lookups in one reply, and the
+  last tool result of each turn ends with `toolTurnsLeft` (`HarnessNode.announceToolTurns`): only
+  there, so all that was sent before stays byte for byte as it was. A unit's tool turns follow the
+  run's depth (`DISCOVERY_TOOL_TURNS`): deep keeps its profile's 8, balanced has 6, cheap and fast 5.
+  Each unit's `discovery-validation-*` records `toolUse` (turns, tool calls by tool, names looked up,
+  whether it asked past its last turn), the auditor's summary `toolUseOfUnits`.
+- **The shared prefix of discovery** (2.1.0). Each unit's prompt is byte for byte the same through
+  the repository index. Claude Code takes the prompt as one block, and a provider's cache is read at
+  the boundaries of blocks, so that prefix was never read: nananananana's 302 first calls of Opus read
+  nothing from the cache. The locked layer (protocol, output schema, tools) now goes in the system
+  prompt, which has a boundary of its own; the first unit of a finder runs ahead until its first
+  reply, so its entry exists when the rest start. The index stays in the user's message: it is text
+  from the repository, which has no authority in a system prompt.
+- A run pinned to production-audit 2.0.0 sends what it always sent, tools, prompt and tool turns, so it
+  resumes and replays as it was; `discovery-reading.test.ts` holds it to the hash of its requests.
 - **The variant search reads the same way.** Its tools read the files its issues cite freely and
   any other file within the same 64 KiB a call, and what it proposes is validated as a discovery
   unit's findings are (`groundFindings`): it may cite only what it was given or read

@@ -110,7 +110,8 @@ request's own hash instead. Before October 14, 2026 every transcript that offers
 with its request's hash. A provider that caches any shared prefix (OpenAI and Google cache
 automatically) can now read that start from its cache; Claude Code caches at the ends of its
 system prompt and of the conversation, so its separate calls share the system prompt only, and
-its savings come from continued sessions. Each stage's input puts its source first and the
+its savings come from continued sessions; from production-audit 2.1.0 a discovery unit's protocol,
+schema and tools go there for that reason ([harness](harness.md)). Each stage's input puts its source first and the
 call's own question after it, as Anthropic advises for long documents. Measured (October 14,
 Claude Code 2.1.296, its system prompt replaced): a call in another directory read 26,032 of
 26,387 prompt tokens from the cache another call wrote, so a fresh directory a call costs about

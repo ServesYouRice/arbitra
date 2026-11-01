@@ -224,8 +224,8 @@ export class ModelAuditPipeline {
     // A unit is sized at one byte a token whatever the run counts for later stages (estimatedBytesPerToken): the
     // size of a unit is how finely the audit reads the source, and a larger one is a different audit.
     const activities = { invoke: <T>(request: ModelActivityRequest<T>) => this.#activities.invoke(request), estimateInitialTokens: (request: ModelActivityRequest<unknown>) => this.#activities.estimateInitialTokens(request, 1),
-      readsBeyondSource: (activityId: string) => this.#activities.readsBeyondSource(activityId) };
-    return discoverWithModel({ auditorId, modelProfileId: auditorId, snapshot: this.context.snapshot, activities, store: this.context.store, signal, effort: stageEffort(this.config, "discovery", auditorId), protocol, maximumInputTokens: Math.floor(contextLimit * 0.8), concurrency: execution.maximumParallelCalls ?? 1, ...(this.#units === undefined ? {} : { units: this.#units }) });
+      readsBeyondSource: (activityId: string) => this.#activities.readsBeyondSource(activityId), toolUse: (activityId: string) => this.#activities.toolUse(activityId) };
+    return discoverWithModel({ auditorId, modelProfileId: auditorId, snapshot: this.context.snapshot, activities, store: this.context.store, signal, effort: stageEffort(this.config, "discovery", auditorId), protocol, depth: this.config.auditDepth, maximumInputTokens: Math.floor(contextLimit * 0.8), concurrency: execution.maximumParallelCalls ?? 1, ...(this.#units === undefined ? {} : { units: this.#units }) });
   }
 
   async converge(findings: Readonly<Record<string, readonly AuditFinding[]>>, signal: AbortSignal): Promise<ConvergenceResult> {

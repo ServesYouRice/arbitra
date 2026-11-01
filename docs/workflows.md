@@ -902,7 +902,9 @@ beyond itself is compared by its bytes in the base's `snapshot-identity` and in 
 a unit whose read file changed or is gone is regenerated (`changed:read_beyond_unit`), and
 one whose reads are all unchanged may be reused. Searches and listings also cover the
 whole snapshot; their results reach the model only in a later turn's request, so a changed
-result changes that turn's replay identity and the turn is asked afresh.
+result changes that turn's replay identity and the turn is asked afresh. From
+production-audit 2.1.0 the lines a symbol lookup or a search with context delivers count
+as reads of their files, so they are compared the same way.
 `baseFindingLineage` re-anchors each base finding by exact content only:
 
 - `unchanged`
