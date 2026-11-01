@@ -9,15 +9,11 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
 
 ## State
 
-- **Releases:** v0.3.2 (October 27, 7321952: the Windows exe and the source zip) is the latest: 0.3.1 plus the fixes
-  of the MacBook run's reports (keeping the computer awake and sleep-aware calls, agy 1.4.7, the tools preamble, a
-  failed unit as a gap, a Codex CLI too old for its model, a new audit reusing a stopped one). Work continues on
+- **Releases:** v0.4.0 (November 1: the Windows exe and the source zip) is the latest: cheaper reading and checking, a
+  Codex usage warning, tests left out of an audit until ticked in, and plans no longer ignored by Git. Work continues on
   `main`; [`TESTERS.md`](TESTERS.md) is the testers' guide.
-- **Break, October 25 to 31:** v0.3.1 goes to friends to test; their reports arrive as GitHub issues (Send to the
-  developer) or as a run's copied report. Work resumes after the Claude weekly reset on October 31, at the top of the order below.
-- **Testers' reports, October 27:** the owner's own run of v0.3.1 on a MacBook (GitHub issues #2 to #9,
-  [real runs](docs/qa/real-runs.md#the-runs)). Every defect in them is fixed (604d5ac to 04a155f), checked on Windows
-  and Linux, and released in v0.3.2; those issues are closed. #7 is a request, placed under "Need design".
+- **nananananana, November 1:** audited on v0.3.2 ([real runs](docs/qa/real-runs.md#the-runs)); its plan is in the owner's
+  checkout, and the owner has started carrying it out. New projects come next: the owner would rather not run earlier ones again.
 - **Default lineup:** New run starts on Claude Code and Codex (`subscription-audit`: two finders at depth deep, no
   peer-review round, plan critic off); balanced and cheap depths, a third finder and the critic are separate
   choices in New run (October 25). Gemini is only ever the opt-in third finder, labelled with Google's terms. The Feature templates still use Antigravity as
@@ -35,14 +31,13 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
 
 ## Order of work
 
-1. **Testers' reports on v0.3.1:** a defect is shown by a failing test, fixed on `main` and released as 0.3.x; a
-   request goes into the lists below. Next: a cheap run of v0.3.2 on the MacBook that lets it sleep once (keeping
+1. **Testers' reports:** a defect is shown by a failing test, fixed on `main` and released as a patch; a
+   request goes into the lists below. Next: a cheap run on the MacBook that lets it sleep once (keeping
    awake, the sleep seen, its calls sent again and the two-minute wait were only faked in tests; Linux's
-   `systemd-inhibit` too). Also: the exe's window prints five Ajv "strict mode: use allowUnionTypes" lines at start (since 0.3.0 at
-   least), which mean nothing to a tester. Left by the October 27 fixes: the CLI has no command for a new audit that
-   reuses a stopped run (its refusal names `run <config> --incremental <id>`); the blocked-run banner shows a
-   refused resume's raw text; native-harness and batch-lane calls get no sleep handling; stage and run times on the
-   run page still count time asleep; the P20 premise driver does not keep the computer awake.
+   `systemd-inhibit` too). Left by the October 27 fixes: the CLI has no command for a new audit that
+   reuses a stopped run (its refusal names `run <config> --incremental <id>`); native-harness and batch-lane calls get
+   no sleep handling; stage and run times on the run page still count time asleep; the P20 premise driver does not keep
+   the computer awake.
 2. **veritra's plan,** after the reset on October 31: re-export run `run-e5546c4c` on the current build, carry its 227
    tasks out on veritra's `dev` branch (never `main`), count what the prompts did not cover, and take the export,
    premise-check and write-scope measurements under "Measure on the next runs".
@@ -54,6 +49,27 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
    testers' reports go on.
 7. **Improvements the measurements support** (the rest of "Need design").
 8. **P21**, the completion report and the docs reconciled with the final build, then a release.
+
+## To test next week
+
+On the projects not audited yet, one change at a time; each decides a default. The research is in the session's report
+of November 1 (its sources are named in [real runs](docs/qa/real-runs.md#what-the-reading-costs-november-1)).
+
+- **Unit sizes:** Opus's units are smaller than Sol's only because sizing reserves each model's whole output ceiling
+  (84 units against 49 on nananananana). Even them out and compare confirmed issues and tokens.
+- **Effort across whole units:** about 15 units at xhigh against high and medium on both vendors, counting confirmed
+  issues and quota. Effort cannot change inside a tool loop. No study measures effort on finding bugs.
+- **A scout for the reading:** Sonnet or Haiku writes a read list for about 15 units; compare it with the files the
+  confirmed issues cite. Go on only at 95% or more, stop under 90%, then run the analysis on the prefetched content.
+  No measured study shows a cheaper model can choose the reading without losing findings.
+- **The cited files in a question:** send the lines around a location instead of a whole file over about 16 KB, and
+  compare verdicts. This is the largest lever on checking, and it removes what the checker can see.
+- **Balanced and cheap:** neither has a measured run on a real project. A run of each sets their estimates, and tests
+  turn limits of 6 and 5, which would have touched at most 9 and 17 of nananananana's 175 confirmed issues.
+- **Cheap's wide pass, then a deep pass,** or the union of repeated cheap runs, for cheap only.
+- **Luna as the second finder at deep or balanced:** it costs 1/20 of Sol's Codex credits and Codex's window is the limit.
+- **The index in the system prompt:** about 2.6% of Opus's discovery cost, but it gives repository text the authority of
+  a system prompt: the owner's call.
 
 ## Measure first
 
@@ -75,13 +91,14 @@ From the research review; each decides a cut or a build.
 
 ## Measure on the next runs
 
-- **Discovery reading beyond its unit** (production-audit 2.0.0): on nananananana (November 1,
+- **Discovery reading beyond its unit** (production-audit 2.0.0, cheaper from 2.1.0): on nananananana (November 1,
   [real runs](docs/qa/real-runs.md#the-runs)) every unit read beyond itself (about 12 files, against 7 to 12 in the
-  unit), 151 of 175 confirmed issues cite a file beyond their unit (before the change, 8 of 97 calls read beyond), and
-  it doubled the tokens a line, with 70 limitations where the budget ran out and half of Opus's units at its 10 turns.
-  It stays; the work is making it cheaper ("Which read tools finders get"). On the next runs: whether a symbol lookup
-  and fewer turns keep those citations, what the index costs in units and tokens, and how Codex's five-hour window
-  holds, since it ran out within an hour.
+  unit), 151 of 175 confirmed issues cite a file beyond their unit, and it doubled the tokens a line, with 70
+  limitations where the budget ran out and half of Opus's units at their last turn. It stays. Built November 1:
+  `repo_symbol`, search context, asking for all lookups in one reply, the turns left in the last result of a turn,
+  tool-turn limits by depth (deep 8, balanced 6, cheap 5). On the next runs: `toolUseOfUnits` (turns, calls by tool,
+  names looked up), whether the citations hold, tokens a line against 1,330, and whether New run's estimate and
+  `PLAN_WINDOWS` need new figures.
 - **Test files packed with their source:** whether claims about production code that cite only tests go away, and
   what the 9% more discovery units cost.
 - **The new export:** how many workarounds the executing agents still need, against nextra's stale lines, wrong
@@ -112,18 +129,18 @@ From the research review; each decides a cut or a build.
   by side printed "failed to install system skills" to stderr). Check whether skills instructions reach the prompt,
   and whether a setting turns them off.
 - **The verifier's required reason:** how often an answer leaves it out and costs a repair.
-- **Two small defects from nananananana, not fixed yet:** 2 of 197 questions stopped at the verifier's 16,000-token
-  ceiling and went unanswered (send them again with a higher ceiling); and 158 of the premise check's 209 "not found"
-  are Elixir's `name/arity` read as literal text (look the name up), which tells an agent a real function is gone.
 - **A Sonnet second look at medium reports Opus leaves unsettled:** build it as an option, off by default; it decided
   6 of 7 rightly on nextra, at about 28K tokens a question.
 - **Eight discovery units at a time** instead of four: the audit runs in two waves (14 minutes of a 28-minute run).
 - **Claude Code's cache on first calls:** 72 first calls in one run wrote 1.18M tokens and read none.
 - **Whether the critic still lacks its source** (`critic-result.citedSourceLeftOut`), if it stays: on veritra's
   227-task plan its 12 batches carried none of the 254 files the plan cites.
-- **What a verification question costs on a large project:** 116K tokens on veritra (391 questions, 45.5M, 65% of the
-  run; 2.9 turns a question), against 75K to 86K on the earlier runs. Find whether the tool turns or the source a
-  question carries make the difference before changing anything.
+- **What a verification question costs:** 159K tokens on nananananana (197 questions, 31.4M, 3 calls a question), 116K
+  on veritra, 75K to 86K before that. About 70% of a question's cost is its first call, which writes the whole cited
+  files to the cache (48 KB on average, each file sent 5.3 times), and a later turn is mostly cheap cache reads. Built
+  November 1 (targeted-verification 1.1.0): related source up front (2.8 KB a question), questions in the order of the
+  files they cite, the locked layer in Claude Code's system prompt. The run report's `verification questions` shows
+  what it does; the estimate is about 10% fewer tool calls and no net change in tokens.
 - **What the injection scanner's hits hold**, before sending them to model follow-ups.
 - **Four measurements from October 11 to 13:** prompts sized at one byte a token outside the stages that set
   `estimatedBytesPerToken`, discovery source as one JSON object a line, Gemini's output nearly all thinking, a pinned
@@ -194,11 +211,8 @@ real runs' Summary and every other place measured 0 px at 390 px. It owns:
   presets named by count, and the variant search (`workflow.variantSearch`, off; Gemini searches when it is a
   finder, else Sonnet 5.5 · high). Left: the measured runs that set the defaults; the renamed presets' browser tests
   have not run.
-- **Which read tools finders get** (owner's proposal, issue #7, October 27): every finder has the five snapshot tools
-  (on the MacBook run 1,156 reads, 794 literal searches, 46 stats and 8 tree listings; 12 calls ran out of tool turns
-  and 22 spent the budget for reads beyond their unit). In order: a symbol lookup (definition and references, from a
-  tree-sitter or ctags-style index built at preflight), since many searches were a function name and `(`; tool turns
-  and the beyond-unit budget set by depth (deep 12 to 16 turns); then Git history behind a switch, off by default
+- **Which read tools finders get** (owner's proposal, issue #7, October 27; the symbol lookup and limits by depth were
+  built November 1, without raising deep's limit). Next, in order: Git history behind a switch, off by default
   (`repo.gitLog`, `repo.gitDiff`, blame, pinned to the snapshot's commit; emails redacted; `docs/privacy.md` says that
   messages and authors go to the vendors); then linters, type checkers and an offline advisory lookup run once by
   arbitra in the isolated execution, their output a readable artifact; regex search last (17 of 334 distinct
@@ -216,15 +230,10 @@ real runs' Summary and every other place measured 0 px at 390 px. It owns:
   nextra's four client–server misses.
 - **Severity from stated preconditions** (reachability, the login or action needed, the impact), mapped by code and
   answered again by the verifier, so the plan's scope uses a verified level. Severity is the weakest step today.
-- **Hand the verifier its context:** callers, definitions and imports up front, file reads reused across questions on
-  one file (a question costs about 74K input tokens for under 1K of output). Owner: measure it later on a project
-  smaller than veritra.
 - **Review each fix from another vendor** (owner: yes, later, as "Check the fixes"): root cause or guard, a variant the test misses, a new defect.
 - **Memory across runs:** stable issue fingerprints, disproved claims as prior evidence, fixed issues found again
   marked reopened.
 - **Docs and standards as an oracle:** README, docs, `.env.example` and configuration as untrusted claims to check.
-- **Cache layout:** the stable part of each verification prompt in the CLI's system-prompt file, questions ordered by
-  the file they cite, the first call sent before the rest.
 - **The execution rung,** only if the rejection test above shows it is needed (design in the research review).
 - **Duplicates across discovery units,** **partial stages told the rest of the repository exists** and **a critic
   batched by task** are covered by the items above.

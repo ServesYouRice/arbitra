@@ -52,7 +52,8 @@ arbitra. Then go on at [Run an audit](#run-an-audit).
 1. Click **New run**. Near the bottom, **This computer** shows each tool arbitra found and whether it is signed in;
    for one that is missing, **how to fix** says what to do.
 2. Under **Project**, click **Browse…** and choose the project folder you want audited (or paste its path). arbitra
-   reads it at once and says how many files and lines it will read.
+   reads it at once and says how many files and lines it will read. Tests are left out unless you tick them in under
+   **What to read**, since they were half of one large project for few of its issues.
 3. Under **How thorough**, pick a depth. Each card names the model and effort of every step:
    - **Deep**, the default: Opus 5.5 and GPT-6.1 Sol find issues at xhigh; Opus checks each issue the plan acts on
      against the code at high (a severe issue it rejects is asked of Sol as well) and writes the plan. It is the

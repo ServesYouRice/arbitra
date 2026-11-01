@@ -117,6 +117,36 @@ calls refused); commentanywhere 2 for 1.1M (6 of 21 refused); nextra 3 for 2.0M 
 (200 call-minutes; 8 of 94 calls failed, most before the fix for agy 1.4.7). Gemini has been
 opt-in since v0.2.1, so its share is measured only on a run that uses it.
 
+## What the reading costs (November 1)
+
+From nananananana's records. At list prices the run would cost about $106 for Opus's discovery alone, an estimate; a
+subscription's meter may weigh these differently: output about half, cache writes $41, cached reads $10. So pruning old
+tool results in a loop can raise the cost, since an edit rewrites what follows it. Why Opus used 4× Sol's tokens: 84 units
+against 49 (sizing reserves each model's whole output ceiling, 128K against 64K), 9 to 10 turns a unit against 5, 79K
+against 59K a turn, and 397 findings against 130. Its turns that ask for reads took 231 of 417 call-minutes and 1.40M of
+2.71M output, 817 tokens at the median and 6,222 at the 90th percentile, so reading is not a separate simple job.
+
+Of the confirmed issues, 39 cite a file first read after turn 3, 23 after turn 4, 13 after turn 5 and 0 after turn 7 (no
+tool ran later), so deep keeps its 8 tool turns. A first prompt was byte-identical through the index (about 24,000 characters) and
+was still never read from the cache by Claude Code, which sends a prompt as one block: 0 of 302 first calls.
+
+Sources that shaped what was built and what is left to test, seen as abstracts or secondary summaries where marked:
+[prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching) and
+[effort](https://platform.claude.com/docs/en/build-with-claude/effort) (Anthropic);
+[SWE-Pruner](https://arxiv.org/html/2601.16746v1) (line pruning cut tokens 23 to 38% on another kind of agent);
+[a budget tracker](https://arxiv.org/abs/2511.17006v1) (web-search agents, summaries only);
+[CodeScout](https://arxiv.org/pdf/2603.17829) (localization by model size);
+[RepoAudit](https://arxiv.org/pdf/2501.18160) ($0.95 per true bug, 78% precision);
+[project-scale recall](https://arxiv.org/html/2601.19239v1) (21 to 34%);
+[SWE-Router](https://arxiv.org/abs/2607.00053) (abstract and summaries);
+[a CVE portfolio study](https://icml.cc/virtual/2026/78010) (abstract only). None measures a cheaper model choosing what a
+stronger one reads for bug finding.
+
+A cheap run of the v0.4.0 build (November 1, 11,689 lines from nananananana, Sonnet 5.5 and GPT-6 Luna, `run-26ae97b0`)
+took 6 minutes and 4.9M tokens with no failed call, 2 units each and no finding rejected for its quotes. `repo_symbol` was
+used 11 times for 52 names, and the saved plan is no longer ignored by Git. Luna's second unit read 156K of 307K from the
+cache; Sonnet's read none. A cheap run of 11,689 lines is too small to measure the savings, which wait for a real project.
+
 ## Peer review measured (October 23)
 
 Item 11 of the design audit, no peer review, is measured and is now the default of the
