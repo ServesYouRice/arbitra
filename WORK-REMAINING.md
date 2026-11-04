@@ -260,8 +260,10 @@ called only where code cannot decide: the interview's questions and the request 
 a repair proposal. Its model is a frontier one by default (Opus 5.5), chosen by the user in settings
 (`helper.model`, any profile the lineup could use), and each call gets only the facts the code gathered (the reason,
 the run's status, the report's lines that matter), never the whole run. Today arbitra already sends a failed model
-call again (up to 3 attempts) and after the computer slept, but a run that has stopped stays stopped until the person
-presses Resume; that last part is what step 2 adds.
+call again (up to 3 attempts) and after the computer slept, and a run paused on a usage limit whose reset time is
+known resumes by itself a minute after it (`#wakeups` in `orchestrator.ts`, kept only in memory while arbitra is open).
+Every other stop, a time-out or a provider failure among them, stays stopped until the person presses Resume; step 2
+adds those, and moves the usage-limit wakeup into the helper so there is one place that resumes.
 
 ```text
  owner ──► interview ──► Feature request ──► run starts
@@ -282,8 +284,9 @@ presses Resume; that last part is what step 2 adds.
    tests, moved, plus one per kind. No model calls.
 2. **Auto-resume, no model.** A `RunHelper` in `packages/runtime`, started by the server (`apps/server/src/serve.ts`),
    follows each run through `orchestrator.events(id)`. When a run fails:
-   - `resume-now`: a usage limit waits until `usage-windows.ts` says the window has reset (or a fixed hour when the
-     meter was not read), a time-out or provider failure waits a few minutes; then it calls `orchestrator.resume(id)`.
+   - `resume-now`: a usage limit waits until its reset, as the orchestrator's `#wakeups` does today, and when no
+     reset time was given, until `usage-windows.ts` says the window has room (today such a run waits for the person);
+     a time-out or provider failure waits a few minutes; then it calls `orchestrator.resume(id)`.
    - Any other kind: no resume; it records why and shows the owner the same words the run page shows.
    - Limits: at most 2 automatic resumes per run and none for a reason that already came back after one; a run the
      owner cancelled is never resumed; on by default (owner, November 4), with a switch per run
