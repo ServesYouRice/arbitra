@@ -254,6 +254,15 @@ writes Feature requests by asking the owner questions. Built in four steps, each
 starts only once the one before it has worked on real runs. It never changes the project's code or arbitra's own code
 (that stays the operator's job), and it never decides what the owner has not.
 
+**An orchestrator of the orchestrator (owner, November 4):** the helper is code first. Watching, sorting a stop,
+waiting, resuming, counting tries and recording are plain functions and runners, with no model call. A model is
+called only where code cannot decide: the interview's questions and the request it writes, a stop no rule names, and
+a repair proposal. Its model is a frontier one by default (Opus 5.5), chosen by the user in settings
+(`helper.model`, any profile the lineup could use), and each call gets only the facts the code gathered (the reason,
+the run's status, the report's lines that matter), never the whole run. Today arbitra already sends a failed model
+call again (up to 3 attempts) and after the computer slept, but a run that has stopped stays stopped until the person
+presses Resume; that last part is what step 2 adds.
+
 ```text
  owner ──► interview ──► Feature request ──► run starts
                                                │
@@ -277,8 +286,11 @@ starts only once the one before it has worked on real runs. It never changes the
      meter was not read), a time-out or provider failure waits a few minutes; then it calls `orchestrator.resume(id)`.
    - Any other kind: no resume; it records why and shows the owner the same words the run page shows.
    - Limits: at most 2 automatic resumes per run and none for a reason that already came back after one; a run the
-     owner cancelled is never resumed; off by default, a switch per run (`workflow.autoResume`) and a global one in
-     settings.
+     owner cancelled is never resumed; on by default (owner, November 4), with a switch per run
+     (`workflow.autoResume`) and a global one in settings to turn it off. It only ever resumes `resume-now` stops, so
+     on by default cannot repeat a stop that a resume would only repeat.
+   - A stop no rule names (today's `inside-arbitra` fallback) goes to the helper's model once, with the reason and the
+     report's last lines, which answers one of the four kinds or "unknown"; "unknown" is never resumed.
    - Every action is a record in the run's store (`helper-actions`: time, reason read, action, result) and an event
      on the run's stream, so the run page shows "resumed by the helper at 14:02, because …".
    - Tests with an injected orchestrator and clock: each kind, the retry limit, a cancel during the wait, a server
@@ -290,10 +302,17 @@ starts only once the one before it has worked on real runs. It never changes the
    `feature.request` and shows it to the owner, who edits or approves it before anything else is spent. It reuses
    the checkpoint pattern (`plan-questions`, `RequirementsCheckpoint`: versioned, durable, the same in CLI, HTTP and
    web) as a new `feature-interview` checkpoint, and a protocol of its own (`feature-interview`) so its prompt is
-   versioned like the others. The cheap model at medium by default (Sonnet 5.5). Web: a chat-like panel in New run,
-   Feature tab. CLI: `interview <config>`, then `respond-checkpoint`. The approved request and every question and
-   answer are artifacts of the run. Test first on two Features of a project already audited, against requests the
-   owner writes by hand: are fewer requirements left ambiguous.
+   versioned like the others. It runs on the helper's model (`helper.model`, frontier by default). Tokens are saved
+   by code, not a smaller model: the repository context is the snapshot's file list and the symbol lookup's names,
+   not file contents, unless the model asks to read a named file; answered questions are kept as short records, not
+   the whole chat. Web: a chat-like panel in New run, Feature tab. CLI: `interview <config>`, then
+   `respond-checkpoint`. The approved request and every question and answer are artifacts of the run. Test first on
+   two Features of a project already audited, against requests the owner writes by hand: are fewer requirements left
+   ambiguous.
+   **For Audit too, optional and short** (decided November 4): a "Help me set it up" button in New run asks at most 3
+   questions (which folders matter, what the project does, what worries the owner) and fills in the folders and a
+   focus note for the finders. Skipping it starts the audit as today. Built after the Feature interview, from the same
+   checkpoint.
 4. **Limited repair, last and only if step 2's measurements show stops it could not help.** A model reads an
    `inside-arbitra` or `fix-computer` failure with the run's report and proposes one change from a fixed list:
    raise the run's token ceiling (the resume body already takes one), lower a stage's batch size, switch a failed
@@ -302,8 +321,9 @@ starts only once the one before it has worked on real runs. It never changes the
    lineup's core roles, and never hides a failure: an `inside-arbitra` stop is always also reported as a defect for
    "Testers' reports". Spending cap per run, counted in the run's tokens.
 
-Open for the owner: whether step 2 is on by default once measured; whether the interview may also be offered for
-Audit (which folders, what to look for); which model runs the helper.
+Decided November 4: auto-resume is on by default for `resume-now` stops; the interview is offered for Audit as an
+optional short setup; the helper's model is the user's choice, frontier by default, and the helper spends tokens only
+where its code cannot decide.
 
 ## Parked
 
