@@ -328,6 +328,69 @@ Decided November 4: auto-resume is on by default for `resume-now` stops; the int
 optional short setup; the helper's model is the user's choice, frontier by default, and the helper spends tokens only
 where its code cannot decide.
 
+## Less work for the user (owner, November 4)
+
+Seven features so the person only starts a run and approves results. The research behind them, with what other tools
+do and how far their numbers can be trusted, is in [what other tools do](docs/research-other-tools.md) (November 4,
+mostly read from search snippets). Its main lesson: the tools that save the most work act on their own in a copy of
+the code, check their own result with the same check that found the problem, and leave the last click to the person.
+Order: 2, 4 and 3 first (cheap), 7 alongside, then 1, then 6 and 5. Each uses the run helper's model where a model
+is needed, and code everywhere else.
+
+1. **Fix it for me.** A button on the run's Summary that carries out the plan instead of exporting prompts only.
+   - Where: one Git worktree per task on a new branch `arbitra/fix-<run>`, built on the Testing mode's
+     `testing-worktree.ts`, `testing-task-runner.ts`, `testing-repair.ts` and `testing-task-verifier.ts`. The
+     person's checkout is never touched; the result is a branch and a diff they apply with one click (or a PR they
+     open). The model's network is off while it edits; running the project's own tests is an opt-in on the first use.
+   - What: only confirmed issues, one task per diff, in the plan's order; a diff touching files outside the task's
+     write scope is flagged (this builds the parked "Enforcing the write scope").
+   - Proof: the task's test runs on the unchanged code (must fail) and on the fixed code (must pass), run by arbitra,
+     not by the agent; the project's existing tests must still pass. Then the finder that reported the issue and one
+     model of another vendor are asked whether it is gone and whether the diff adds a new defect.
+   - Tampering: agents edit or delete tests to pass (ImpossibleBench: 92% on impossible tasks, 1% with a strict
+     prompt). Edits to existing tests, test configs, CI files and skip markers are refused; the agent must stop and
+     say why instead.
+   - Honesty: a task whose test could not run is marked "unverified", never "fixed"; `results.json` gets the same
+     record as today, plus applied as-is / applied with edits / thrown away, counted per model.
+   - The prompt export stays for design-level tasks and for anyone who prefers it. Expect far less than vendor
+     numbers: agent pull requests are merged 35–65% of the time against about 78% for people's (AIDev, 456K PRs).
+   - First: run it on nextra's already-fixed issues, from the commit before the fixes, and compare with the owner's
+     fixes.
+2. **Just go.** New run opens with one button that needs only the project folder.
+   - Code picks everything: depth from the project's size and what `usage-windows.ts` says is left of each plan
+     (deep when the estimate fits, else balanced, else cheap, with the reason shown); the lineup from the CLIs
+     `preflight.ts` finds signed in; folders as today's defaults (`generated-files.ts`, tests out).
+   - New: read the project's own `AGENTS.md`, `CLAUDE.md`, `.cursorrules` and Copilot instruction files, matching
+     names in any case, as untrusted context for the finders (CodeRabbit misses `claude.md` by matching exact case).
+   - The estimate and what was chosen are shown before Start, each changeable; nothing is hidden. No model call.
+3. **Suggested answers to the plan's questions.** Each blocking question in `plan-questions.ts` gets a proposed
+   answer with its reason, the recommended option first, and an "Other" box (Spec Kit's `/speckit.clarify` shape:
+   at most 5 questions, answers saved with the plan). "Accept all suggested" covers only questions where the
+   planner and the other vendor's model proposed the same answer; a question they disagree on, or whose blast radius
+   is high, must be answered one by one, since people shown a wrong suggestion follow it (one study: 14 points of
+   accuracy lost). The record says which answers were taken as suggested.
+4. **Short summary.** The Summary opens with at most 3 issues to worry about, each in two plain sentences (what can
+   go wrong, who can trigger it) with its evidence one click down. Ranking is code: severity, then the verifier's
+   verdict, then how many vendors found it; one of the 3 places is kept for a confirmed critical or high issue only
+   one model found, since ranking by agreement buries those. One model call writes the sentences from the issue
+   records. Every other issue stays one click away; nothing filtered is hidden.
+5. **Ask your run.** A chat on the run's page, and on each issue, answered only from the run's records (the
+   issue, its verification, the snapshot's code at `file:line@commit`, the plan task); an answer that goes beyond
+   them says so. It reads by tool calls over the run store, not by loading the run into the prompt. Its answers about
+   rejected issues are checked separately: Semgrep's agreement was 96% on real issues but 41% on false alarms.
+6. **Auto re-check.** After commits (a Git hook or a watch on the folder, the person chooses) or on a schedule, a run
+   of "Re-audit only what changed" (above, in "Need design") reads the changed files and what imports them; a full
+   audit runs weekly or monthly, since changed-files runs miss what spans files. Needs "Memory across runs"
+   first: issue IDs from category, file and the code's text, not line numbers (line numbers make every issue below
+   an edit look new). An issue is closed only when the re-check read its place and the code there changed;
+   "fixed" (code changed) is kept apart from "dropped" (arbitra or its settings changed). Starts only while arbitra
+   is open, within a spending cap.
+7. **Auto bug report.** When a run stops `inside-arbitra`, the helper drafts the issue: what happened in plain words,
+   version, system, the error and the stage, from `SendReport.tsx`'s report. No code, prompts or paths by default; a
+   local secret scan must pass before the draft is shown (5,881 real secrets were found in public GitHub issues); the
+   same stop seen before (a signature from error and stage) links the earlier issue instead of a new one. The person
+   reads it and sends it through the pre-filled `issues/new` link, as today. Nothing is sent by itself.
+
 ## Parked
 
 Out of the plan until the named event happens.
