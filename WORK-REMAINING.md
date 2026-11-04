@@ -47,7 +47,8 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
    current build, with "Measure on the next runs". The owner would rather not run earlier projects again.
 6. **UI phase**: built on the `ui` branch, merged into `main` and released in 0.3.0; the owner's review and the
    testers' reports go on.
-7. **Improvements the measurements support** (the rest of "Need design").
+7. **Improvements the measurements support** (the rest of "Need design"). The run helper's steps 1 and 2 can be built
+   alongside, since they spend no model calls; steps 3 and 4 wait for its measurements.
 8. **P21**, the completion report and the docs reconciled with the final build, then a release.
 
 ## To test next week
@@ -245,6 +246,64 @@ real runs' Summary and every other place measured 0 px at 390 px. It owns:
 - **A pair check that stops at the output ceiling** is re-sent as segments up to 16 times.
 - **A descendant that holds no pipe and whose parents have exited** is out of reach on POSIX; it needs a Job Object or
   a cgroup.
+
+## Run helper (owner's proposal, November 4)
+
+An AI helper that lives in arbitra, outside the runs: it watches runs, resumes the ones a resume can help, and
+writes Feature requests by asking the owner questions. Built in four steps, each usable on its own; the next step
+starts only once the one before it has worked on real runs. It never changes the project's code or arbitra's own code
+(that stays the operator's job), and it never decides what the owner has not.
+
+```text
+ owner ──► interview ──► Feature request ──► run starts
+                                               │
+              run stops ◄──────────────────────┘
+                 │  read the reason (failureWords)
+     ┌───────────┼──────────────┬────────────────────┐
+  resume now   fix computer   start again       inside arbitra
+  (wait, then  (tell owner,   (tell owner,      (tell owner, attach the
+   resume)      wait)          no resume)        report, no resume)
+```
+
+1. **Move the failure reading out of the web app.** `failureWords` and `resumeRefusalWords` live in
+   `apps/web/src/app/words.ts`; the helper runs on the server, so the rules that sort a reason into the four kinds
+   move to `packages/runtime` (for example `failure-kinds.ts`) and return a kind (`resume-now`, `fix-computer`,
+   `start-again`, `inside-arbitra`) plus the facts the words need (the CLI, the variable, the sleep times). The web
+   words are then built from that kind, so the page and the helper can never disagree. Its tests are today's word
+   tests, moved, plus one per kind. No model calls.
+2. **Auto-resume, no model.** A `RunHelper` in `packages/runtime`, started by the server (`apps/server/src/serve.ts`),
+   follows each run through `orchestrator.events(id)`. When a run fails:
+   - `resume-now`: a usage limit waits until `usage-windows.ts` says the window has reset (or a fixed hour when the
+     meter was not read), a time-out or provider failure waits a few minutes; then it calls `orchestrator.resume(id)`.
+   - Any other kind: no resume; it records why and shows the owner the same words the run page shows.
+   - Limits: at most 2 automatic resumes per run and none for a reason that already came back after one; a run the
+     owner cancelled is never resumed; off by default, a switch per run (`workflow.autoResume`) and a global one in
+     settings.
+   - Every action is a record in the run's store (`helper-actions`: time, reason read, action, result) and an event
+     on the run's stream, so the run page shows "resumed by the helper at 14:02, because …".
+   - Tests with an injected orchestrator and clock: each kind, the retry limit, a cancel during the wait, a server
+     restart during the wait (the wait is stored, not only in memory).
+   Measure on the next real runs: how many stops it resumed, and how many of those then finished.
+3. **The interview for Feature requests.** A model step before Feature mode's own requirements step
+   (`model-requirements.ts`): from the owner's first sentence and the project's snapshot it asks at most about 5
+   questions at a time, in plain words, each with a proposed answer, over at most 3 rounds; then it writes the
+   `feature.request` and shows it to the owner, who edits or approves it before anything else is spent. It reuses
+   the checkpoint pattern (`plan-questions`, `RequirementsCheckpoint`: versioned, durable, the same in CLI, HTTP and
+   web) as a new `feature-interview` checkpoint, and a protocol of its own (`feature-interview`) so its prompt is
+   versioned like the others. The cheap model at medium by default (Sonnet 5.5). Web: a chat-like panel in New run,
+   Feature tab. CLI: `interview <config>`, then `respond-checkpoint`. The approved request and every question and
+   answer are artifacts of the run. Test first on two Features of a project already audited, against requests the
+   owner writes by hand: are fewer requirements left ambiguous.
+4. **Limited repair, last and only if step 2's measurements show stops it could not help.** A model reads an
+   `inside-arbitra` or `fix-computer` failure with the run's report and proposes one change from a fixed list:
+   raise the run's token ceiling (the resume body already takes one), lower a stage's batch size, switch a failed
+   optional step (third finder, variant search, critic) off, or name the command the owner should run on this
+   computer. The owner approves each proposal; nothing is applied on its own. It never edits files, never changes the
+   lineup's core roles, and never hides a failure: an `inside-arbitra` stop is always also reported as a defect for
+   "Testers' reports". Spending cap per run, counted in the run's tokens.
+
+Open for the owner: whether step 2 is on by default once measured; whether the interview may also be offered for
+Audit (which folders, what to look for); which model runs the helper.
 
 ## Parked
 
