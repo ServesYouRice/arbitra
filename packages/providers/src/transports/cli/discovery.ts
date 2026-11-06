@@ -33,6 +33,12 @@ export interface DiscoveryHost {
    * on a Mac with /opt/homebrew/bin/codex, October 26, 2026).
    */
   readonly systemDirectories?: readonly string[];
+  /**
+   * The system-wide application folders searched for an app that bundles a CLI (the ChatGPT app's Codex), by default
+   * /Applications on macOS. A test replaces them as it does `systemDirectories`: otherwise this Mac's own ChatGPT app is
+   * listed among the test's installations (observed November 6, 2026).
+   */
+  readonly applicationDirectories?: readonly string[];
 }
 
 export async function resolveCliExecutable(support: CliTransportSupport, host: DiscoveryHost): Promise<CliExecutableResolution> {
@@ -113,7 +119,7 @@ async function wellKnownLocations(support: CliTransportSupport, host: DiscoveryH
       // The ChatGPT app ships the CLI at Resources/codex-cli/bin/codex since Codex 0.158 (observed
       // live: discovery missed it there); earlier versions put it at Resources/codex. A per-user
       // app install comes before the system-wide one, as user directories do on PATH.
-      const resources = host.platform !== "darwin" ? [] : [...(home === undefined ? [] : [join(home, "Applications")]), "/Applications"].map((root) => join(root, "ChatGPT.app", "Contents", "Resources"));
+      const resources = host.platform !== "darwin" ? [] : [...(home === undefined ? [] : [join(home, "Applications")]), ...host.applicationDirectories ?? ["/Applications"]].map((root) => join(root, "ChatGPT.app", "Contents", "Resources"));
       return [...commandIn(npmBins), ...resources.flatMap((directory) => [join(directory, "codex-cli", "bin", "codex"), join(directory, "codex")])];
     }
     case "gemini": return commandIn(npmBins);

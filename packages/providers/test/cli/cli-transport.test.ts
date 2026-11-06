@@ -752,7 +752,7 @@ describe("executable discovery", () => {
     const root = await mkdtemp(join(tmpdir(), "arbitra-cli-codex-app-")); roots.push(root);
     const resources = join(root, "Applications", "ChatGPT.app", "Contents", "Resources");
     // A Mac's own /opt/homebrew/bin/codex was found before the test's (observed October 26, 2026), so the system folders stay out.
-    const find = () => resolveCliExecutable(requireCliTransportSupport("codex-cli"), { platform: "darwin", nodeExecutable: process.execPath, systemDirectories: [], lookup: (name) => ({ HOME: root, PATH: join(root, "none") } as Record<string, string>)[name] });
+    const find = () => resolveCliExecutable(requireCliTransportSupport("codex-cli"), { platform: "darwin", nodeExecutable: process.execPath, systemDirectories: [], applicationDirectories: [], lookup: (name) => ({ HOME: root, PATH: join(root, "none") } as Record<string, string>)[name] });
     await mkdir(resources, { recursive: true }); await writeFile(join(resources, "codex"), "#!/bin/sh\n", { mode: 0o755 });
     expect(await find()).toMatchObject({ found: true, executable: { source: "well_known", path: join(resources, "codex") } });
     // Codex 0.158 moved it; the current layout wins when both exist.
@@ -769,7 +769,8 @@ describe("executable discovery", () => {
     const port: NativeProcessPort = { run: async (input) => ({ pid: null, exitCode: 0, exitSignal: null, stopped: null, violation: null, stdout: `${reported[input.executable] ?? ""}\n`, stderr: "", treeTerminated: true }) };
     // The app's copy is first on PATH, as a link to it puts it.
     const env: Record<string, string> = { HOME: root, PATH: app };
-    const chosen = await supportedCliExecutable(requireCliTransportSupport("codex-cli"), { platform: "darwin", nodeExecutable: process.execPath, systemDirectories: [], lookup: (name) => env[name] },
+    // This Mac's own /Applications/ChatGPT.app was listed as a third installation (observed November 6, 2026), so it stays out too.
+    const chosen = await supportedCliExecutable(requireCliTransportSupport("codex-cli"), { platform: "darwin", nodeExecutable: process.execPath, systemDirectories: [], applicationDirectories: [], lookup: (name) => env[name] },
       { lookup: (name) => env[name], process: port, platform: "darwin" });
     expect(chosen).toMatchObject({ resolution: { found: true, executable: { path: join(npm, "codex") } }, version: "0.164.0",
       installations: [{ path: join(app, "codex"), version: "0.158.0" }, { path: join(npm, "codex"), version: "0.164.0" }] });
