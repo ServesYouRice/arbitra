@@ -47,7 +47,8 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
    current build, with "Measure on the next runs". The owner would rather not run earlier projects again.
 6. **UI phase**: built on the `ui` branch, merged into `main` and released in 0.3.0; the owner's review and the
    testers' reports go on.
-7. **Improvements the measurements support** (the rest of "Need design").
+7. **Improvements the measurements support** (the rest of "Need design"). The run helper's steps 1 and 2 can be built
+   alongside, since they spend no model calls; steps 3 and 4 wait for its measurements.
 8. **P21**, the completion report and the docs reconciled with the final build, then a release.
 
 ## To test next week
@@ -245,6 +246,150 @@ real runs' Summary and every other place measured 0 px at 390 px. It owns:
 - **A pair check that stops at the output ceiling** is re-sent as segments up to 16 times.
 - **A descendant that holds no pipe and whose parents have exited** is out of reach on POSIX; it needs a Job Object or
   a cgroup.
+
+## Run helper (owner's proposal, November 4)
+
+An AI helper that lives in arbitra, outside the runs: it watches runs, resumes the ones a resume can help, and
+writes Feature requests by asking the owner questions. Built in four steps, each usable on its own; the next step
+starts only once the one before it has worked on real runs. It never changes the project's code or arbitra's own code
+(that stays the operator's job), and it never decides what the owner has not.
+
+**An orchestrator of the orchestrator (owner, November 4):** the helper is code first. Watching, sorting a stop,
+waiting, resuming, counting tries and recording are plain functions and runners, with no model call. A model is
+called only where code cannot decide: the interview's questions and the request it writes, a stop no rule names, and
+a repair proposal. Its model is a frontier one by default (Opus 5.5), chosen by the user in settings
+(`helper.model`, any profile the lineup could use), and each call gets only the facts the code gathered (the reason,
+the run's status, the report's lines that matter), never the whole run. Today arbitra already sends a failed model
+call again (up to 3 attempts) and after the computer slept, and a run paused on a usage limit whose reset time is
+known resumes by itself a minute after it (`#wakeups` in `orchestrator.ts`, kept only in memory while arbitra is open).
+Every other stop, a time-out or a provider failure among them, stays stopped until the person presses Resume; step 2
+adds those, and moves the usage-limit wakeup into the helper so there is one place that resumes.
+
+```text
+ owner ──► interview ──► Feature request ──► run starts
+                                               │
+              run stops ◄──────────────────────┘
+                 │  read the reason (failureWords)
+     ┌───────────┼──────────────┬────────────────────┐
+  resume now   fix computer   start again       inside arbitra
+  (wait, then  (tell owner,   (tell owner,      (tell owner, attach the
+   resume)      wait)          no resume)        report, no resume)
+```
+
+1. **Move the failure reading out of the web app.** `failureWords` and `resumeRefusalWords` live in
+   `apps/web/src/app/words.ts`; the helper runs on the server, so the rules that sort a reason into the four kinds
+   move to `packages/runtime` (for example `failure-kinds.ts`) and return a kind (`resume-now`, `fix-computer`,
+   `start-again`, `inside-arbitra`) plus the facts the words need (the CLI, the variable, the sleep times). The web
+   words are then built from that kind, so the page and the helper can never disagree. Its tests are today's word
+   tests, moved, plus one per kind. No model calls.
+2. **Auto-resume, no model.** A `RunHelper` in `packages/runtime`, started by the server (`apps/server/src/serve.ts`),
+   follows each run through `orchestrator.events(id)`. When a run fails:
+   - `resume-now`: a usage limit waits until its reset, as the orchestrator's `#wakeups` does today, and when no
+     reset time was given, until `usage-windows.ts` says the window has room (today such a run waits for the person);
+     a time-out or provider failure waits a few minutes; then it calls `orchestrator.resume(id)`.
+   - Any other kind: no resume; it records why and shows the owner the same words the run page shows.
+   - Limits: at most 2 automatic resumes per run and none for a reason that already came back after one; a run the
+     owner cancelled is never resumed; on by default (owner, November 4), with a switch per run
+     (`workflow.autoResume`) and a global one in settings to turn it off. It only ever resumes `resume-now` stops, so
+     on by default cannot repeat a stop that a resume would only repeat.
+   - A stop no rule names (today's `inside-arbitra` fallback) goes to the helper's model once, with the reason and the
+     report's last lines, which answers one of the four kinds or "unknown"; "unknown" is never resumed.
+   - Every action is a record in the run's store (`helper-actions`: time, reason read, action, result) and an event
+     on the run's stream, so the run page shows "resumed by the helper at 14:02, because …".
+   - Tests with an injected orchestrator and clock: each kind, the retry limit, a cancel during the wait, a server
+     restart during the wait (the wait is stored, not only in memory).
+   Measure on the next real runs: how many stops it resumed, and how many of those then finished.
+3. **The interview for Feature requests.** A model step before Feature mode's own requirements step
+   (`model-requirements.ts`): from the owner's first sentence and the project's snapshot it asks at most about 5
+   questions at a time, in plain words, each with a proposed answer, over at most 3 rounds; then it writes the
+   `feature.request` and shows it to the owner, who edits or approves it before anything else is spent. It reuses
+   the checkpoint pattern (`plan-questions`, `RequirementsCheckpoint`: versioned, durable, the same in CLI, HTTP and
+   web) as a new `feature-interview` checkpoint, and a protocol of its own (`feature-interview`) so its prompt is
+   versioned like the others. It runs on the helper's model (`helper.model`, frontier by default). Tokens are saved
+   by code, not a smaller model: the repository context is the snapshot's file list and the symbol lookup's names,
+   not file contents, unless the model asks to read a named file; answered questions are kept as short records, not
+   the whole chat. Web: a chat-like panel in New run, Feature tab. CLI: `interview <config>`, then
+   `respond-checkpoint`. The approved request and every question and answer are artifacts of the run. Test first on
+   two Features of a project already audited, against requests the owner writes by hand: are fewer requirements left
+   ambiguous.
+   **For Audit too, optional and short** (decided November 4): a "Help me set it up" button in New run asks at most 3
+   questions (which folders matter, what the project does, what worries the owner) and fills in the folders and a
+   focus note for the finders. Skipping it starts the audit as today. Built after the Feature interview, from the same
+   checkpoint.
+4. **Limited repair, last and only if step 2's measurements show stops it could not help.** A model reads an
+   `inside-arbitra` or `fix-computer` failure with the run's report and proposes one change from a fixed list:
+   raise the run's token ceiling (the resume body already takes one), lower a stage's batch size, switch a failed
+   optional step (third finder, variant search, critic) off, or name the command the owner should run on this
+   computer. The owner approves each proposal; nothing is applied on its own. It never edits files, never changes the
+   lineup's core roles, and never hides a failure: an `inside-arbitra` stop is always also reported as a defect for
+   "Testers' reports". Spending cap per run, counted in the run's tokens.
+
+Decided November 4: auto-resume is on by default for `resume-now` stops; the interview is offered for Audit as an
+optional short setup; the helper's model is the user's choice, frontier by default, and the helper spends tokens only
+where its code cannot decide.
+
+## Less work for the user (owner, November 4)
+
+Seven features so the person only starts a run and approves results. The research behind them, with what other tools
+do and how far their numbers can be trusted, is in [what other tools do](docs/research-other-tools.md) (November 4,
+mostly read from search snippets). Its main lesson: the tools that save the most work act on their own in a copy of
+the code, check their own result with the same check that found the problem, and leave the last click to the person.
+Order: 2, 4 and 3 first (cheap), 7 alongside, then 1, then 6 and 5. Each uses the run helper's model where a model
+is needed, and code everywhere else.
+
+1. **Fix it for me.** A button on the run's Summary that carries out the plan instead of exporting prompts only.
+   - Where: one Git worktree per task on a new branch `arbitra/fix-<run>`, built on the Testing mode's
+     `testing-worktree.ts`, `testing-task-runner.ts`, `testing-repair.ts` and `testing-task-verifier.ts`. The
+     person's checkout is never touched; the result is a branch and a diff they apply with one click (or a PR they
+     open). The model's network is off while it edits; running the project's own tests is an opt-in on the first use.
+   - What: only confirmed issues, one task per diff, in the plan's order; a diff touching files outside the task's
+     write scope is flagged (this builds the parked "Enforcing the write scope").
+   - Proof: the task's test runs on the unchanged code (must fail) and on the fixed code (must pass), run by arbitra,
+     not by the agent; the project's existing tests must still pass. Then the finder that reported the issue and one
+     model of another vendor are asked whether it is gone and whether the diff adds a new defect.
+   - Tampering: agents edit or delete tests to pass (ImpossibleBench: 92% on impossible tasks, 1% with a strict
+     prompt). Edits to existing tests, test configs, CI files and skip markers are refused; the agent must stop and
+     say why instead.
+   - Honesty: a task whose test could not run is marked "unverified", never "fixed"; `results.json` gets the same
+     record as today, plus applied as-is / applied with edits / thrown away, counted per model.
+   - The prompt export stays for design-level tasks and for anyone who prefers it. Expect far less than vendor
+     numbers: agent pull requests are merged 35–65% of the time against about 78% for people's (AIDev, 456K PRs).
+   - First: run it on nextra's already-fixed issues, from the commit before the fixes, and compare with the owner's
+     fixes.
+2. **Just go.** New run opens with one button that needs only the project folder.
+   - Code picks everything: depth from the project's size and what `usage-windows.ts` says is left of each plan
+     (deep when the estimate fits, else balanced, else cheap, with the reason shown); the lineup from the CLIs
+     `preflight.ts` finds signed in; folders as today's defaults (`generated-files.ts`, tests out).
+   - New: read the project's own `AGENTS.md`, `CLAUDE.md`, `.cursorrules` and Copilot instruction files, matching
+     names in any case, as untrusted context for the finders (CodeRabbit misses `claude.md` by matching exact case).
+   - The estimate and what was chosen are shown before Start, each changeable; nothing is hidden. No model call.
+3. **Suggested answers to the plan's questions.** Each blocking question in `plan-questions.ts` gets a proposed
+   answer with its reason, the recommended option first, and an "Other" box (Spec Kit's `/speckit.clarify` shape:
+   at most 5 questions, answers saved with the plan). "Accept all suggested" covers only questions where the
+   planner and the other vendor's model proposed the same answer; a question they disagree on, or whose blast radius
+   is high, must be answered one by one, since people shown a wrong suggestion follow it (one study: 14 points of
+   accuracy lost). The record says which answers were taken as suggested.
+4. **Short summary.** The Summary opens with at most 3 issues to worry about, each in two plain sentences (what can
+   go wrong, who can trigger it) with its evidence one click down. Ranking is code: severity, then the verifier's
+   verdict, then how many vendors found it; one of the 3 places is kept for a confirmed critical or high issue only
+   one model found, since ranking by agreement buries those. One model call writes the sentences from the issue
+   records. Every other issue stays one click away; nothing filtered is hidden.
+5. **Ask your run.** A chat on the run's page, and on each issue, answered only from the run's records (the
+   issue, its verification, the snapshot's code at `file:line@commit`, the plan task); an answer that goes beyond
+   them says so. It reads by tool calls over the run store, not by loading the run into the prompt. Its answers about
+   rejected issues are checked separately: Semgrep's agreement was 96% on real issues but 41% on false alarms.
+6. **Auto re-check.** After commits (a Git hook or a watch on the folder, the person chooses) or on a schedule, a run
+   of "Re-audit only what changed" (above, in "Need design") reads the changed files and what imports them; a full
+   audit runs weekly or monthly, since changed-files runs miss what spans files. Needs "Memory across runs"
+   first: issue IDs from category, file and the code's text, not line numbers (line numbers make every issue below
+   an edit look new). An issue is closed only when the re-check read its place and the code there changed;
+   "fixed" (code changed) is kept apart from "dropped" (arbitra or its settings changed). Starts only while arbitra
+   is open, within a spending cap.
+7. **Auto bug report.** When a run stops `inside-arbitra`, the helper drafts the issue: what happened in plain words,
+   version, system, the error and the stage, from `SendReport.tsx`'s report. No code, prompts or paths by default; a
+   local secret scan must pass before the draft is shown (5,881 real secrets were found in public GitHub issues); the
+   same stop seen before (a signature from error and stage) links the earlier issue instead of a new one. The person
+   reads it and sends it through the pre-filled `issues/new` link, as today. Nothing is sent by itself.
 
 ## Parked
 
