@@ -31,10 +31,12 @@ docs/ROUND-TABLE.md
 # Per-user tool state
 #
 # Claude Code keeps sessions, worktrees and memory under .claude/; none of it is
-# shared. A .claude/settings.json may be committed if the project ever needs one.
+# shared. .claude/settings.json and .claude/hooks/ (the Claude web check gate)
+# are committed.
 # ---------------------------------------------------------------------------
 .claude/*
 !.claude/settings.json
+!.claude/hooks/
 
 # ---------------------------------------------------------------------------
 # Secrets
