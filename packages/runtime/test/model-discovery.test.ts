@@ -492,6 +492,17 @@ describe("independent model discovery", () => {
     expect(await artifact(second, "discovery-validation-auditor-a")).toMatchObject({ unexaminedDueToBudget: [] });
   });
 
+  it("does not count Gemini's malformed function calls towards the row that fails a finder", async () => {
+    // Observed live (November 10, 2026, agy 1.5.4): six of Gemini's first ten units ended this way, three in a row ended its discovery.
+    const root = await mkdtemp(join(tmpdir(), "arbitra-discovery-malformed-")); directories.push(root);
+    const store = new RunStore(root, "run-malformed");
+    const { activities, sent } = flaky((path) => ["b.ts", "c.ts", "d.ts", "e.ts"].includes(path) ? callFailed("CLI_MALFORMED_FUNCTION_CALL", "MALFORMED_RESPONSE") : null);
+    const result = await oneUnitAFile(["a.ts", "b.ts", "c.ts", "d.ts", "e.ts", "f.ts"], activities, store)();
+    expect(sent).toEqual(["a.ts", "b.ts", "c.ts", "d.ts", "e.ts", "f.ts"]);
+    expect(result.map(({ locations }) => locations[0]?.path)).toEqual(["a.ts", "f.ts"]);
+    expect(await artifact(store, "discovery-validation-auditor-a")).toMatchObject({ unexaminedDueToBudget: ["discovery_provider_failed:b.ts", "discovery_provider_failed:c.ts", "discovery_provider_failed:d.ts", "discovery_provider_failed:e.ts"] });
+  });
+
   it("fails a finder none of whose units answered, however few failed", async () => {
     const root = await mkdtemp(join(tmpdir(), "arbitra-discovery-none-answered-")); directories.push(root);
     const store = new RunStore(root, "run-none-answered");

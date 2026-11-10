@@ -101,7 +101,11 @@ class FailedUnits {
   answered(): void { this.#inARow = 0; this.#answered = true; }
   /** Throws the failure itself once it is the last of MAXIMUM_FAILED_UNITS_IN_A_ROW in a row. */
   failed(error: unknown): void {
-    this.#inARow += 1; this.#last = { error };
+    this.#last = { error };
+    // A reply the model itself wrote wrong (Gemini's malformed function calls through Antigravity) says nothing about the
+    // machine or the provider, so it does not count towards the row; the unit stays a gap.
+    if (error instanceof ProviderInvocationFailure && error.transportCode === "CLI_MALFORMED_FUNCTION_CALL") return;
+    this.#inARow += 1;
     if (this.#inARow >= MAXIMUM_FAILED_UNITS_IN_A_ROW) throw error;
   }
   /** A finder none of whose units answered got nothing from its provider, however few failed: it fails with the last. */

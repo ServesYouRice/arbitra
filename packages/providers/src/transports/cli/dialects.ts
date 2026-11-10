@@ -486,6 +486,16 @@ function antigravityConversationFiles(home: string, id: string): readonly string
 const MALFORMED_FUNCTION_CALL = /improperly formatted function call|Malformed function call/iu;
 
 /**
+ * The failure such a call ends with when no whole reply survives it: a reply the model wrote wrong, not a machine, an
+ * account or an outage, so its own code (`CLI_MALFORMED_FUNCTION_CALL`) lets a finder go on past it. The CLI retries by
+ * itself after the error step and may still end the call ERROR (observed live November 10: 27 deltas, the error, then
+ * 811 more), so the call is followed to its end rather than stopped at the step.
+ */
+function malformedFunctionCall(failure: TransportError): TransportError {
+  return new TransportError("MALFORMED_RESPONSE", failure.message.replace(/^CLI_MODEL_CALL_FAILED:/u, "CLI_MALFORMED_FUNCTION_CALL:"), true);
+}
+
+/**
  * The reply of a call whose model wrote its whole answer as text before the CLI reported the malformed function call:
  * accepted only when that text is one complete JSON value (a tool-call envelope or a final answer), so a reply cut
  * short by the failure still fails the call as before.
@@ -562,8 +572,8 @@ export const antigravityDialect: CliDialect = {
           const step = String(payload?.["step_type"] ?? "unknown");
           if (step === "error_message") {
             const failure = antigravityModelFailure(context.hostHome, payload);
-            if (!MALFORMED_FUNCTION_CALL.test(failure.message) || streamed.trim() === "") throw failure;
-            functionCallFailure = failure;
+            if (!MALFORMED_FUNCTION_CALL.test(failure.message)) throw failure;
+            functionCallFailure = malformedFunctionCall(failure);
             return;
           }
           if (!ANTIGRAVITY_STEPS.has(step) && !antigravityBareUnknownStep(step, payload)) throw forbiddenToolUse(ANTIGRAVITY, `a ${step.slice(0, 60)} step${typeof payload?.["tool_name"] === "string" ? ` (${payload["tool_name"].slice(0, 40)})` : ""}`, true);

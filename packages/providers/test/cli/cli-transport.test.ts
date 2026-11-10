@@ -519,7 +519,7 @@ describe("Antigravity CLI specifics", { timeout: 30_000 }, () => {
     const whole = await fixture({ vendor: "antigravity", replies: [{ kind: "model_error", text: malformed, answered: envelope }] });
     expect(await send(whole.transport)).toMatchObject({ text: envelope, usage: { inputTokens: 40, outputTokens: 8 } });
     const partial = await fixture({ vendor: "antigravity", replies: [{ kind: "model_error", text: malformed, answered: envelope.slice(0, 20) }] });
-    expect((await failure(send(partial.transport))).message).toContain("Malformed function call");
+    expect(await failure(send(partial.transport))).toMatchObject({ code: "MALFORMED_RESPONSE", message: expect.stringContaining("CLI_MALFORMED_FUNCTION_CALL") });
   });
 
   it("fails a soft-denied tool call, a run waiting for approval and an empty SUCCESS", async () => {
