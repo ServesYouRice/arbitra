@@ -172,6 +172,17 @@ describe("native wire formats", () => {
     ] });
     expect(client.requests[0]?.body).not.toHaveProperty("continuation");
   });
+  it("sends effort in output_config with adaptive thinking, caches the prompt, and replays thinking before tool calls", async () => {
+    const thinking = { type: "thinking", thinking: "", signature: "sig-1" };
+    const client = new ScriptedHttpClient([http(200, { content: [thinking, { type: "tool_use", id: "call-1", name: "lookup", input: { q: "x" } }], stop_reason: "tool_use", usage: {} }), http(200, anthropicBody("success"))]);
+    const transport = factory(AnthropicMessagesTransport)(client);
+    const first = await transport.send({ ...request(), effortParams: { effort: "xhigh" } }, signal());
+    expect(client.requests[0]?.body).toMatchObject({ output_config: { effort: "xhigh" }, thinking: { type: "adaptive" }, cache_control: { type: "ephemeral" } });
+    expect(first.toolCalls[0]?.providerState).toEqual({ anthropicThinking: [thinking] });
+    await transport.send({ ...request(), messages: [{ role: "user", content: "hello" }, { role: "assistant", content: "", toolCalls: first.toolCalls }, { role: "tool", toolCallId: "call-1", toolName: "lookup", content: "found" }] }, signal());
+    expect(client.requests[1]?.body).toMatchObject({ messages: [{ role: "user" }, { role: "assistant", content: [thinking, { type: "tool_use", id: "call-1" }] }, { role: "user" }] });
+    expect((client.requests[1]?.body as Record<string, unknown>)["thinking"]).toBeUndefined();
+  });
   it("does not retry local encoding failures as network failures", async () => {
     const client = new ScriptedHttpClient([]);
     await expect(factory(GeminiNativeTransport)(client).send({ ...request(), modelId: "../../unsafe" }, signal())).rejects.toMatchObject({ code: "INVALID_REQUEST", retryable: false });
