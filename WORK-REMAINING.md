@@ -14,6 +14,18 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
   `main`; [`TESTERS.md`](TESTERS.md) is the testers' guide.
 - **nananananana, November 1:** audited on v0.3.2 ([real runs](docs/qa/real-runs.md#the-runs)); its plan is in the owner's
   checkout, and the owner has started carrying it out. New projects come next: the owner would rather not run earlier ones again.
+- **memoria, November 10, in progress** (`run-bcd4fc1e`, 567 files, 88,659 lines, tests left out): Opus 5.5 xhigh
+  through the owner's **Anthropic API key** (finder, checker, planner; $200 of credit to use up), Sol through Codex,
+  Gemini 3.8 Flash high through Antigravity. Found while running, fixed on `main`:
+  - The Anthropic API route had never run against a current model: every call was refused (effort sent as
+    `thinking.effort`), nothing was cached, and thinking blocks were not replayed (664e9fa). With the fix Opus's
+    discovery made 755 calls without an error, 96 units, 601 findings, about $115 (cache writes and output dominate).
+  - Antigravity 1.5.4 follows Gemini's reply with "improperly formatted function call" and retries by itself: 6 of
+    Gemini's first 10 units failed and three in a row ended its discovery. A whole reply is now kept (1906cfd), and the
+    failure no longer counts towards the row (5d4b08b).
+  - **Open:** the automatic resume after a usage limit lives only in the server process; a restart drops it, so the run
+    had to be resumed by hand. New run should also check the API key route before Start, and offer a dollar cap.
+  - Sol's ChatGPT Plus window ran out twice (18:49 and 22:27); a project this size takes more than one window.
 - **Default lineup:** New run starts on Claude Code and Codex (`subscription-audit`: two finders at depth deep, no
   peer-review round, plan critic off); balanced and cheap depths, a third finder and the critic are separate
   choices in New run (October 25). Gemini is only ever the opt-in third finder, labelled with Google's terms. The Feature templates still use Antigravity as
