@@ -477,6 +477,29 @@ function antigravityConversationFiles(home: string, id: string): readonly string
 }
 
 /**
+ * Gemini's backend refusing a native function call the model began, which arbitra never offers. Observed live
+ * (November 10, 2026, agy 1.5.4, Gemini 3.8 Flash high, memoria's audit on production-audit 2.1.0): 6 of 10 first
+ * discovery turns ended "Your previous response contained an improperly formatted function call: Malformed function
+ * call: ... Function call is empty", three attempts each, after the model had written a complete tool-call envelope as
+ * its text. Replayed alone, the same request did it again with the envelope whole in the result's `response`.
+ */
+const MALFORMED_FUNCTION_CALL = /improperly formatted function call|Malformed function call/iu;
+
+/**
+ * The reply of a call whose model wrote its whole answer as text before the CLI reported the malformed function call:
+ * accepted only when that text is one complete JSON value (a tool-call envelope or a final answer), so a reply cut
+ * short by the failure still fails the call as before.
+ */
+function answeredBeforeFunctionCallFailure(envelope: Record<string, unknown>, streamed: string, conversation: string | null, failure: TransportError): CliOutcome {
+  const reply = (text(envelope["response"]) ?? streamed).trim();
+  try { JSON.parse(reply); } catch { throw failure; }
+  const usage = record(envelope["usage"]);
+  const input = count(usage?.["input_tokens"]); const output = count(usage?.["output_tokens"]); const read = count(usage?.["cache_read_tokens"]);
+  return { text: reply, sessionId: text(envelope["conversation_id"]) ?? conversation,
+    usage: { inputTokens: input === null ? null : input + (read ?? 0), outputTokens: output, cacheReadTokens: read, cacheWriteTokens: null } };
+}
+
+/**
  * Antigravity CLI (`agy`), Google's CLI for personal Google AI subscriptions, in headless
  * print mode with stream-json events. It has no documented system-prompt flag, so the engine
  * preamble and system text lead the prompt; `--sandbox` confines it, permissions are never
@@ -524,6 +547,8 @@ export const antigravityDialect: CliDialect = {
   },
   reader(context) {
     let envelope: Record<string, unknown> | null = null; let streamed = ""; let conversation: string | null = null;
+    // A failed function call the CLI reports after the model wrote its whole reply as text: kept, not thrown at once.
+    let functionCallFailure: TransportError | null = null;
     return {
       sessionId: () => conversation,
       // Events are {"event": <kind>, <kind>: {...}}: init, step_update (one per agent step) and result.
@@ -535,7 +560,12 @@ export const antigravityDialect: CliDialect = {
         conversation = text(event["conversation_id"]) ?? text(payload?.["conversation_id"]) ?? conversation;
         if (kind === "step_update") {
           const step = String(payload?.["step_type"] ?? "unknown");
-          if (step === "error_message") throw antigravityModelFailure(context.hostHome, payload);
+          if (step === "error_message") {
+            const failure = antigravityModelFailure(context.hostHome, payload);
+            if (!MALFORMED_FUNCTION_CALL.test(failure.message) || streamed.trim() === "") throw failure;
+            functionCallFailure = failure;
+            return;
+          }
           if (!ANTIGRAVITY_STEPS.has(step) && !antigravityBareUnknownStep(step, payload)) throw forbiddenToolUse(ANTIGRAVITY, `a ${step.slice(0, 60)} step${typeof payload?.["tool_name"] === "string" ? ` (${payload["tool_name"].slice(0, 40)})` : ""}`, true);
           if (step === "agent_response") streamed += text(payload?.["text_delta"]) ?? "";
         } else if (kind === "result" && payload !== null) {
@@ -545,7 +575,8 @@ export const antigravityDialect: CliDialect = {
       },
       finish(exitCode, stderr) {
         if (ANTIGRAVITY_DENIAL.test(stderr)) throw forbiddenToolUse(ANTIGRAVITY, `a tool call that was soft-denied (${stderr.split(/\r?\n/u).find((line) => ANTIGRAVITY_DENIAL.test(line))?.trim().slice(0, 80) ?? "stderr notice"})`, true);
-        if (envelope === null) throw incomplete(ANTIGRAVITY, exitCode, stderr);
+        if (envelope === null) throw functionCallFailure ?? incomplete(ANTIGRAVITY, exitCode, stderr);
+        if (functionCallFailure !== null) return answeredBeforeFunctionCallFailure(envelope, streamed, conversation, functionCallFailure);
         const status = String(envelope["status"]).toUpperCase();
         const failure = `${text(envelope["error"]) ?? text(record(envelope["error"])?.["message"]) ?? ""}\n${stderr}`;
         if (status === "CANCELED" || status === "INTERRUPTED") throw new TransportError("HTTP", `CLI_INTERRUPTED: the Antigravity CLI reported ${status}`, true);

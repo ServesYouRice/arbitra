@@ -513,6 +513,15 @@ describe("sessions of Codex and the Antigravity CLI", { timeout: 30_000 }, () =>
 });
 
 describe("Antigravity CLI specifics", { timeout: 30_000 }, () => {
+  it("keeps a whole reply the model wrote before the CLI reported a malformed function call, and fails a partial one", async () => {
+    const malformed = "Your previous response contained an improperly formatted function call: Malformed function call: Failed to parse function call: Function call is empty - no input to parse. Please retry with a properly formatted function call";
+    const envelope = JSON.stringify({ toolCalls: [{ name: "lookup", arguments: { q: "x" } }] });
+    const whole = await fixture({ vendor: "antigravity", replies: [{ kind: "model_error", text: malformed, answered: envelope }] });
+    expect(await send(whole.transport)).toMatchObject({ text: envelope, usage: { inputTokens: 40, outputTokens: 8 } });
+    const partial = await fixture({ vendor: "antigravity", replies: [{ kind: "model_error", text: malformed, answered: envelope.slice(0, 20) }] });
+    expect((await failure(send(partial.transport))).message).toContain("Malformed function call");
+  });
+
   it("fails a soft-denied tool call, a run waiting for approval and an empty SUCCESS", async () => {
     for (const kind of ["soft_denied", "waiting"] as const) {
       const f = await fixture({ vendor: "antigravity", replies: [{ kind }] });

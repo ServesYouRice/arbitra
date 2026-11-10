@@ -21,7 +21,7 @@ export type CliStandInReply =
   | { readonly kind: "output_limit" }
   | { readonly kind: "hang" }
   /** Antigravity only: the CLI's own error step for a failed model call. Its text, when given, is stored where the real CLI keeps it. */
-  | { readonly kind: "model_error"; readonly text?: string }
+  | { readonly kind: "model_error"; readonly text?: string; /** Antigravity: the reply the model streamed before the failure; the CLI then ends with an ERROR result holding it (agy 1.5.4). */ readonly answered?: string }
   /** Antigravity only: a step of type `unknown` that names a tool, unlike the bare one agy 1.4.7 sends before every answer. */
   | { readonly kind: "unknown_tool_step" }
   /** Antigravity only: a tool call soft-denied on stderr, a SUCCESS with an empty response, or a run waiting for approval. */
@@ -190,7 +190,10 @@ function run() {
           database.prepare("INSERT INTO steps (idx, step_type, step_payload) VALUES (?, ?, ?)").run(1, 17, Buffer.concat([Buffer.from([98, 36]), Buffer.from("070bfd30-3c8c-4839-b4f1-e13cf43b0ce4"), Buffer.from([18, 3, 8, 1, 26]), Buffer.from(reply.text), Buffer.from([10, 0])]));
           database.close();
         }
-        step({ step_index: 1, step_type: "error_message", duration_seconds: 0 }); return hang();
+        if (typeof reply.answered === "string") step({ step_index: 1, step_type: "agent_response", text_delta: reply.answered });
+        step({ step_index: 1, step_type: "error_message", duration_seconds: 0 });
+        if (typeof reply.answered === "string") { result({ status: "ERROR", response: reply.answered, usage: { input_tokens: 30, output_tokens: 8, cache_read_tokens: 10 } }); process.exit(0); }
+        return hang();
       }
       // The shape agy 1.2.14 streams for its own tool step (observed live).
       case "tool_use": step({ step_index: 1, step_type: "tool", state: "ACTIVE", tool_name: "run_command", tool_info: { name: "run_command", parameters: { CommandLine: "ls -la" } } }); return hang();
