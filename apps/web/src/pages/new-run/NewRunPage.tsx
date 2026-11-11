@@ -1,5 +1,5 @@
 import "./new-run.css";
-import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode, type SetStateAction } from "react";
 import { useConfigurations } from "../../api/configurations.js";
 import type { PreflightResult, ReadFile } from "../../api/runs.js";
 import { useLoaded } from "../../api/runs.js";
@@ -20,6 +20,8 @@ import { OverLimit, WhatToRead } from "./WhatToRead.js";
 import { antigravityState, missingClis, offeredModels, ThisComputer, type DetectedEnvironment } from "./ThisComputer.js";
 import type { UsageWindows, WindowsState } from "./windows.js";
 import { ChangeModels } from "./ChangeModels.js";
+import { withSyncedFallbacks } from "./fallback.js";
+import { WhenRunOut } from "./WhenRunOut.js";
 import { MoreOptions, optionsSummary } from "./MoreOptions.js";
 import { FeatureFields, TestingFields } from "./ModeFields.js";
 
@@ -55,7 +57,9 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
   const listing = useLoaded<GraphListing>("workflows", () => apis.workflows.list());
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [draft, setDraft] = useState<Draft>(SCRIPTED_AUDIT);
+  const [draft, setStoredDraft] = useState<Draft>(SCRIPTED_AUDIT);
+  // Every change goes through here, so a model's fallback follows the depth, model or effort chosen for it.
+  const setDraft = useMemo(() => (next: SetStateAction<Draft>): void => setStoredDraft((current) => withSyncedFallbacks(typeof next === "function" ? next(current) : next)), []);
   // The project starts empty: the server's own folder is not a project (inventory, October 25, 2026).
   const [repository, setRepository] = useState("");
   const [check, setCheck] = useState<Checked | null>(null);
@@ -309,6 +313,7 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
         <summary>Change models: each model's details, and which model does what</summary>
         <ChangeModels draft={draft} edit={edit} offered={offered} />
       </details>}
+      {scripted ? null : <WhenRunOut draft={draft} setDraft={setDraft} />}
     </Section> : <Section number={number()} title={mode === "feature" ? "What to plan" : "What to test"} id="what">
       {mode === "feature" ? <FeatureFields draft={draft} edit={edit} /> : <TestingFields draft={draft} edit={edit} />}
       <LineupChoice startKey={startKey} graph={graph} loaded={loaded} configurations={configurations} onChoose={(key) => navigate({ page: "new-run", from: key, graph: null }, { replace: true })} />
@@ -317,6 +322,7 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
         <summary>Models</summary>
         <ChangeModels draft={draft} edit={edit} offered={offered} />
       </details>
+      <WhenRunOut draft={draft} setDraft={setDraft} />
     </Section>}
 
     {mode === "audit" && !scripted ? <Section number={number()} title="Steps" id="steps">
