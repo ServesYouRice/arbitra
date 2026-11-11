@@ -552,6 +552,26 @@ describe("composed model audits", () => {
     expect(context.leftOutFinders).toEqual(["auditor-c"]);
   });
 
+  it("stops verifying issues below the plan's scope when a resume asks, and only for a run that has one", async () => {
+    // Observed live (memoria, November 11, 2026): low issues were put to an API-billed verifier the plan would not use.
+    const unscoped = await fixture();
+    unscoped.quotaDiscovery("auditor-c");
+    const failed = await unscoped.create().run(unscoped.config);
+    expect(failed.state).toBe("SUSPENDED_RATE_LIMIT");
+    await expect(unscoped.create().resume(failed.runId, { skipBelowPlanScope: true })).rejects.toThrow("RUN_HAS_NO_PLAN_SCOPE");
+    const { directory, create, config, quotaDiscovery } = await fixture();
+    const execution = config.workflow["modelExecution"] as Record<string, unknown>;
+    const scoped = runConfigSchema.parse({ ...config, workflow: { ...config.workflow, modelExecution: { ...execution, planScope: { minimumSeverity: "medium" } } } });
+    quotaDiscovery("auditor-c");
+    const core = create(); const result = await core.run(scoped);
+    expect(result.state).toBe("SUSPENDED_RATE_LIMIT");
+    quotaDiscovery(null);
+    await core.resume(result.runId, { skipBelowPlanScope: true });
+    expect((await core.wait(result.runId)).state).toBe("COMPLETED");
+    const context = JSON.parse(await readFile(join(directory, ".runs", "runs", result.runId, "context.json"), "utf8")) as { modelConfiguration: RunConfig };
+    expect(context.modelConfiguration.verification["belowPlanScope"]).toBe("skip");
+  });
+
   it("waits for answers to blocking plan questions, then applies them with one planner call", async () => {
     // Observed live: an Audit plan correctly left "throw or clamp?" open and failed its gate, with no way to answer it.
     const { directory, create, config, requests } = await fixture({ planQuestion: true });

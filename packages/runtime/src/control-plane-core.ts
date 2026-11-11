@@ -79,7 +79,7 @@ export function controlPlaneCore(orchestrator: Orchestrator) {
       },
       start: async (body: unknown) => { const request = await configured(body); return orchestrator.start(request.config, request.repository); },
       status: (id: string) => orchestrator.status(id),
-      resume: (id: string, body?: unknown) => orchestrator.resume(id, { ...raisedLimit(body), ...leftOut(body) }),
+      resume: (id: string, body?: unknown) => orchestrator.resume(id, { ...raisedLimit(body), ...leftOut(body), ...belowPlanScope(body) }),
       events: (id: string) => orchestrator.events(id),
       cancel: async (id: string) => orchestrator.cancel(id),
       respondCheckpoint: (id: string, checkpointId: string, body: unknown) => orchestrator.respondCheckpoint(id, checkpointId, body),
@@ -178,6 +178,14 @@ function leftOut(body: unknown): { readonly leaveOut?: readonly string[] } {
   if (value === undefined) return {};
   if (!Array.isArray(value) || value.length === 0 || !value.every((id) => typeof id === "string" && id.trim() !== "")) throw Object.assign(new Error("INVALID_LEAVE_OUT"), { statusCode: 400 });
   return { leaveOut: value as string[] };
+}
+
+/** `skipBelowPlanScope: true` stops verifying issues the plan leaves out. */
+function belowPlanScope(body: unknown): { readonly skipBelowPlanScope?: boolean } {
+  const value = typeof body === "object" && body !== null ? (body as { skipBelowPlanScope?: unknown }).skipBelowPlanScope : undefined;
+  if (value === undefined) return {};
+  if (typeof value !== "boolean") throw Object.assign(new Error("INVALID_SKIP_BELOW_PLAN_SCOPE"), { statusCode: 400 });
+  return { skipBelowPlanScope: value };
 }
 
 async function repositoryPath(value: unknown): Promise<string> {

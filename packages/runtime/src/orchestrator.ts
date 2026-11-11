@@ -587,22 +587,24 @@ export class Orchestrator {
 
   /**
    * Resumes a run; `maximumTokens` raises a model run's token limit first (a run paused on its budget goes on), and
-   * `leaveOut` names finders the run goes on without (one whose provider's allowance is out for days).
+   * `leaveOut` names finders the run goes on without (one whose provider's allowance is out for days), and
+   * `skipBelowPlanScope` stops putting issues below the plan's minimum severity to the verifier.
    */
-  async resume(runId: string, options: { readonly maximumTokens?: number; readonly leaveOut?: readonly string[] } = {}): Promise<RunResource> {
+  async resume(runId: string, options: ResumeOptions = {}): Promise<RunResource> {
     if (this.#live.has(runId) || this.#resuming.has(runId)) throw new Error(`RUN_ALREADY_LIVE:${runId}`);
     clearTimeout(this.#wakeups.get(runId)); this.#wakeups.delete(runId);
     this.#resuming.add(runId);
-    try { return await this.#resume(runId, options.maximumTokens, options.leaveOut); }
+    try { return await this.#resume(runId, options); }
     finally { this.#resuming.delete(runId); }
   }
 
-  async #resume(runId: string, maximumTokens?: number, leaveOut?: readonly string[]): Promise<RunResource> {
+  async #resume(runId: string, { maximumTokens, leaveOut, skipBelowPlanScope }: ResumeOptions): Promise<RunResource> {
     const previous = await this.status(runId);
     if (!previous.resumable) throw new Error(`RUN_NOT_RESUMABLE:${runId}`);
     const store = new RunStore(this.#runsDirectory, runId);
     const raised = maximumTokens === undefined ? await store.loadContext() : await raisedTokenLimit(store, await store.loadContext(), maximumTokens);
-    const storedContext = leaveOut === undefined ? raised : await finderLeftOut(store, raised, auditorIdsFor((await store.definitions().load(runId)).graph), leaveOut);
+    const narrowed = skipBelowPlanScope === true ? await skippedBelowPlanScope(store, raised) : raised;
+    const storedContext = leaveOut === undefined ? narrowed : await finderLeftOut(store, narrowed, auditorIdsFor((await store.definitions().load(runId)).graph), leaveOut);
     const snapshot = await snapshotRepository(storedContext.repository, SNAPSHOT_FILE_LIMIT, { scope: storedContext.scope, ...testingSnapshotOptions(storedContext.modelConfiguration) });
     if (snapshotDigest(snapshot) !== storedContext.repositoryDigest) {
       // A model Audit's finished discovery is not lost with it: a new run of the project as it is now reuses it.
@@ -1589,6 +1591,24 @@ async function approvedRequirements(source: RunStore, sourceConfig: RunConfig, c
  * The stored context with a model run's token limit raised. Only the limit changes, and only upwards: everything the
  * run has charged stays charged, and every other setting stays the one it started with.
  */
+/** What a resume may change first: see `Orchestrator.resume`. */
+export interface ResumeOptions { readonly maximumTokens?: number; readonly leaveOut?: readonly string[]; readonly skipBelowPlanScope?: boolean }
+
+/**
+ * The context of a model audit whose verifier is no longer asked about issues below the plan's minimum severity
+ * (`verification.belowPlanScope: "skip"`). Answers already given are kept; the questions are bound to their issue, so
+ * no other answer changes. Observed live (memoria, November 11, 2026): 684 issues went to an API-billed verifier at
+ * about $0.25 each, low ones among them, and the credit left would not reach the plan.
+ */
+async function skippedBelowPlanScope(store: RunStore, context: StoredRunContext): Promise<StoredRunContext> {
+  const configuration = context.modelConfiguration;
+  const scope = (configuration?.workflow["modelExecution"] as { planScope?: { minimumSeverity?: unknown } } | undefined)?.planScope;
+  if (configuration === undefined || typeof scope?.minimumSeverity !== "string") throw Object.assign(new Error("RUN_HAS_NO_PLAN_SCOPE: the run plans issues of every severity"), { statusCode: 409 });
+  const skipped: StoredRunContext = { ...context, modelConfiguration: { ...configuration, verification: { ...configuration.verification, belowPlanScope: "skip" } } };
+  await store.replaceContext(skipped);
+  return skipped;
+}
+
 /**
  * The context of a model audit resumed without the finders `leaveOut` names, added to any left out before. Two finders
  * at least stay, so findings are still reviewed by another.
