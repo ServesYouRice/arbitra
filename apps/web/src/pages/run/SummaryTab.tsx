@@ -1,5 +1,6 @@
 import "./summary.css";
 import { useState, type ReactElement, type ReactNode } from "react";
+import { readFailure } from "@arbitra/runtime/failure-kinds.js";
 import type { ArtifactDescriptor } from "../../api/artifacts.js";
 import { useLoaded, useNow, type Loaded, type RunOverview, type RunProgress, type RunResource } from "../../api/runs.js";
 import type { RunEvent } from "../../api/sse.js";
@@ -200,8 +201,9 @@ function FailureNote({ runId, reason, mode, reuse }: { readonly runId: string; r
 
 /** Which allowance ran out and, when the provider said, when arbitra goes on by itself. */
 export function UsageLimitPause({ reason }: { readonly reason: string | null }): ReactElement {
-  const until = /\buntil (\d{4}-\d{2}-\d{2}T[\d:.]+Z)/u.exec(reason ?? "")?.[1];
-  const who = /\bthe (.+?) subscription's usage allowance/u.exec(reason ?? "")?.[1] ?? /^\w+: Provider (\S+)/u.exec(reason ?? "")?.[1];
+  const reading = readFailure(reason);
+  const until = reading.rule === "usage-limit" ? reading.resetsAt ?? undefined : undefined;
+  const who = reading.rule === "usage-limit" ? reading.cli ?? reading.provider ?? undefined : undefined;
   return <Alert title="Paused for usage">
     <p className="prose">The run paused because {who === undefined ? "a model's" : `${who}'s`} usage limit was reached. Everything it has done is kept.{" "}
       {until === undefined ? "Resume it from the header once the limit has reset." : <>The limit resets at {formatTime(until)}; arbitra resumes the run by itself a minute later while it stays open, or resume it from the header then.</>}</p>

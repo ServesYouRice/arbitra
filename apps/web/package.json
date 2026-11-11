@@ -12,6 +12,7 @@
     "e2e:run": "playwright test"
   },
   "dependencies": {
+    "@arbitra/runtime": "workspace:*",
     "@arbitra/schemas": "workspace:*",
     "@xyflow/react": "12.11.3",
     "elkjs": "0.12.0",

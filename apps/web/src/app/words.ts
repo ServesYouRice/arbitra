@@ -4,6 +4,7 @@
  * the details and the copied report.
  */
 import type { FinderCoverage } from "@arbitra/schemas/run-progress.js";
+import { readFailure, readResumeRefusal, resumable, type FailureReading } from "@arbitra/runtime/failure-kinds.js";
 
 import { formatTime } from "./format.js";
 
@@ -144,69 +145,44 @@ export interface FailureWords { readonly what: string; readonly todo: string; re
 const KEPT = "What it finished is kept.";
 const AGAIN = "Resuming this run would stop the same way.";
 const SEND = "If it stops the same way again, copy the report below and send it to whoever helps you.";
-/** The unnamed failure's first sentence, which `resumeRefusalWords` tells apart from a named one. */
-const INSIDE_ARBITRA = "The run stopped on an error inside arbitra, not at a model.";
 
 /**
  * What a failure means for the person, read from its recorded reason (`<error name>: <message>`). The control plane
- * says `resumable` of every run that is not done, so whether resuming can help is decided here, by the reason:
- *
- * - the run's own settings or project cause it, and a resume repeats it: start a new run, and no resume is offered;
- * - something on this computer (a sign-in, a key, a CLI, the disk): fix it, then resume;
- * - a model's service or a call's time limit: resume now;
- * - anything else stopped inside arbitra, where the same version stops the same way: update arbitra, then resume.
- *   veritra stopped four times so (October 25, 2026: a prompt over 1 MiB, two sizing limits, a changed call input),
- *   and each resumed once a newer arbitra fixed the cause, so resume stays offered for after the update.
- *
- * Observed (inventory, October 25, 2026): a run whose snapshot was refused offered a resume that could only fail the
- * same way, and every unnamed failure said to resume.
- *
- * A call the computer's sleep stopped names the sleep, not a provider: the runtime records it as HostSuspendedError,
- * and a plain timeout is one the runtime found no sleep across. Observed live (October 26, 2026, macOS): a run that
- * failed in the Mac's dark wakes said "Provider openai failed after 3 attempts", which sent its tester after the wrong
- * cause.
+ * says `resumable` of every run that is not done, so whether resuming can help is decided by the reason's kind, which
+ * packages/runtime/src/failure-kinds.ts reads, the same reading the run helper resumes by: these are only its words.
  */
 export function failureWords(reason: string | null, mode: Mode = "audit"): FailureWords {
-  const text = reason ?? "";
+  const reading = readFailure(reason);
+  return { ...readingWords(reading, mode), resumable: resumable(reading.kind) };
+}
+
+function readingWords(reading: FailureReading, mode: Mode): { readonly what: string; readonly todo: string } {
   const run = mode === "audit" ? "audit" : `${mode} run`;
-  if (text.trim() === "") return { what: "The run stopped on an error, and no reason was recorded.", todo: `Resume it to go on from where it stopped. ${KEPT} ${SEND}`, resumable: true };
-  const asleep = /^HostSuspendedError: The computer slept from (\S+) to (\S+) /u.exec(text);
-  if (asleep !== null) return { what: `The computer slept from ${formatTime(asleep[1] ?? null)} to ${formatTime(asleep[2] ?? null)} while the run's model calls were in flight, and they could not finish across it.`, todo: AWAKE, resumable: true };
-  // Start again: the run's recorded settings or its project are the cause.
-  const files = /REPOSITORY_FILE_LIMIT_EXCEEDED:(\d+)/u.exec(text);
-  if (files !== null) return { what: `The project has more than ${Number(files[1]).toLocaleString("en")} source files, more than one run reads.`, todo: `Start a new ${run} that reads some folders of the project, or leaves some out. ${AGAIN}`, resumable: false };
-  if (/MODEL_IDENTITY_PLACEHOLDER/u.test(text)) return { what: "A model in the lineup is a placeholder, not a model this computer can run.", todo: `Start a new ${run} with a model chosen for each step. ${AGAIN}`, resumable: false };
-  if (/CLI_ACCOUNT_INELIGIBLE/u.test(text)) return { what: "A model in the lineup is not offered to the account its CLI is signed in to.", todo: `Start a new ${run} with another model for that step. ${AGAIN}`, resumable: false };
-  if (/CLI_EFFORT_PARAMETER_UNSUPPORTED/u.test(text)) return { what: "A model refused the effort the lineup gives it.", todo: `Start a new ${run} with another effort for that step. ${AGAIN}`, resumable: false };
-  // Observed live (veritra, October 25, 2026): after a code change, a resume refused every recorded critic batch.
-  const changed = /MODEL_ACTIVITY_INPUT_CHANGED:([^\s:]+)/u.exec(text);
-  if (changed !== null) {
-    const startedOn = /version it started on, "((?:[^"\\]|\\.)*)"/u.exec(text)?.[1];
-    return { what: `This version of arbitra asks for the work of ${activityStep(changed[1] ?? "")} differently from the version the run started on, so it cannot reuse what the run recorded there.`,
-      todo: `${startedOn === undefined ? "Resume it with the arbitra version it started on" : `It started on arbitra ${startedOn}. Resume it with that version`}, or start a new run. Resuming it with this version would stop the same way.`, resumable: false };
+  switch (reading.rule) {
+    case "no-reason": return { what: "The run stopped on an error, and no reason was recorded.", todo: `Resume it to go on from where it stopped. ${KEPT} ${SEND}` };
+    case "host-suspended": return { what: `The computer slept from ${formatTime(reading.from)} to ${formatTime(reading.to)} while the run's model calls were in flight, and they could not finish across it.`, todo: AWAKE };
+    case "repository-file-limit": return { what: `The project has more than ${reading.fileLimit.toLocaleString("en")} source files, more than one run reads.`, todo: `Start a new ${run} that reads some folders of the project, or leaves some out. ${AGAIN}` };
+    case "model-placeholder": return { what: "A model in the lineup is a placeholder, not a model this computer can run.", todo: `Start a new ${run} with a model chosen for each step. ${AGAIN}` };
+    case "account-ineligible": return { what: "A model in the lineup is not offered to the account its CLI is signed in to.", todo: `Start a new ${run} with another model for that step. ${AGAIN}` };
+    case "effort-unsupported": return { what: "A model refused the effort the lineup gives it.", todo: `Start a new ${run} with another effort for that step. ${AGAIN}` };
+    case "activity-input-changed": return { what: `This version of arbitra asks for the work of ${activityStep(reading.activityId)} differently from the version the run started on, so it cannot reuse what the run recorded there.`,
+      todo: `${reading.startedOn === null ? "Resume it with the arbitra version it started on" : `It started on arbitra ${reading.startedOn}. Resume it with that version`}, or start a new run. Resuming it with this version would stop the same way.` };
+    case "repository-changed": return { what: "The project's files changed after the run read them, so the run cannot go on from where it stopped.", todo: `Put the files back as they were to resume, or start a new ${run} of the project as it is now.` };
+    case "cli-signed-out": return { what: `${reading.cli ?? "A model's CLI"} is not signed in on this computer.`, todo: `Sign in to it (the details say how), then resume the run. ${KEPT}` };
+    case "credential-missing": return { what: "A model's API key is not set on this computer.", todo: `Set ${reading.variable ?? "the key"}, restart arbitra, then resume the run. ${KEPT}` };
+    case "api-key-in-use": return { what: "Claude Code used an API key where the lineup runs through its subscription, so nothing was sent.", todo: `Remove the key from the environment arbitra runs in, restart arbitra, then resume the run. ${KEPT}` };
+    case "cli-not-started": return { what: "A model's CLI could not be started on this computer.", todo: `Install it, or make it findable as the details say, then resume the run. ${KEPT}` };
+    // Observed live (October 26, 2026, macOS): the words said the account was not offered the model, when updating the CLI and resuming was the fix.
+    case "cli-too-old": return { what: "A model's CLI on this computer is too old for a model in the lineup.", todo: `Install the current version of that CLI (the details say how), then resume the run. ${KEPT}` };
+    case "cli-model-unavailable": return { what: "A model's CLI refused a model in the lineup: the account's plan may not include it, or the CLI is older than the model.", todo: `Update that CLI (the details name it) and resume the run, or start a new ${run} with another model for that step. ${KEPT}` };
+    case "cli-version-unsupported": return { what: "A model's CLI is a version arbitra does not support.", todo: `Install a version the details name, or update arbitra, then resume the run. ${KEPT}` };
+    case "auth-refused": return { what: "A model's provider refused the sign-in or key on this computer.", todo: `Check the key or sign in again, restart arbitra, then resume the run. ${KEPT}` };
+    case "resource": return { what: `This computer refused arbitra a file or resource it needed (${reading.resource}).`, todo: `Free what the details name, such as disk space or a file another program holds, then resume the run. ${KEPT}` };
+    case "usage-limit": return { what: "A model's usage limit was reached.", todo: "Resume the run once the limit has reset. Everything it has done is kept." };
+    case "time-limit": return { what: "A model call kept running past its time limit.", todo: "Resume the run: it goes on from where it stopped, and calls already finished are kept." };
+    case "provider-failure": return { what: "A model call failed: the model's service or its CLI did not answer as expected.", todo: `Resume the run: it goes on from where it stopped, and calls already finished are kept. ${SEND}` };
+    case "unnamed": return { what: "The run stopped on an error inside arbitra, not at a model.", todo: "Resuming with this version of arbitra stops the same way. Update arbitra, then resume: what the run finished is kept. If the update does not fix it, copy the report below and send it to whoever helps you." };
   }
-  // Fix it on this computer, then resume.
-  if (/RUN_REPOSITORY_CHANGED/u.test(text)) return { what: "The project's files changed after the run read them, so the run cannot go on from where it stopped.", todo: `Put the files back as they were to resume, or start a new ${run} of the project as it is now.`, resumable: true };
-  const signedOut = /CLI_NOT_LOGGED_IN: (.+?) is not signed in/u.exec(text);
-  if (signedOut !== null) return { what: `${signedOut[1] ?? "A model's CLI"} is not signed in on this computer.`, todo: `Sign in to it (the details say how), then resume the run. ${KEPT}`, resumable: true };
-  const variable = /Credential environment variable (\S+) is not set/u.exec(text)?.[1];
-  if (variable !== undefined || /PROVIDER_CREDENTIAL_MISSING/u.test(text)) return { what: "A model's API key is not set on this computer.", todo: `Set ${variable ?? "the key"}, restart arbitra, then resume the run. ${KEPT}`, resumable: true };
-  if (/CLI_API_KEY_IN_USE/u.test(text)) return { what: "Claude Code used an API key where the lineup runs through its subscription, so nothing was sent.", todo: `Remove the key from the environment arbitra runs in, restart arbitra, then resume the run. ${KEPT}`, resumable: true };
-  if (/CLI_NOT_INSTALLED|CLI_SPAWN_FAILED/u.test(text)) return { what: "A model's CLI could not be started on this computer.", todo: `Install it, or make it findable as the details say, then resume the run. ${KEPT}`, resumable: true };
-  // Observed live (October 26, 2026, macOS): the Codex CLI inside the ChatGPT app was too old for GPT-6.1 Sol, and the
-  // words said the account was not offered the model, when updating the CLI and resuming was the fix.
-  if (/CLI_TOO_OLD_FOR_MODEL/u.test(text)) return { what: "A model's CLI on this computer is too old for a model in the lineup.", todo: `Install the current version of that CLI (the details say how), then resume the run. ${KEPT}`, resumable: true };
-  if (/CLI_MODEL_UNAVAILABLE/u.test(text)) return { what: "A model's CLI refused a model in the lineup: the account's plan may not include it, or the CLI is older than the model.", todo: `Update that CLI (the details name it) and resume the run, or start a new ${run} with another model for that step. ${KEPT}`, resumable: true };
-  if (/CLI_VERSION_UNSUPPORTED|CLI_VERSION_UNREADABLE/u.test(text)) return { what: "A model's CLI is a version arbitra does not support.", todo: `Install a version the details name, or update arbitra, then resume the run. ${KEPT}`, resumable: true };
-  if (/\(AUTH: /u.test(text)) return { what: "A model's provider refused the sign-in or key on this computer.", todo: `Check the key or sign in again, restart arbitra, then resume the run. ${KEPT}`, resumable: true };
-  const resource = /\b(ENOSPC|EMFILE|ENFILE|ENOMEM|EBUSY|EPERM|EACCES)\b/u.exec(text)?.[1];
-  if (resource !== undefined) return { what: `This computer refused arbitra a file or resource it needed (${resource}).`, todo: `Free what the details name, such as disk space or a file another program holds, then resume the run. ${KEPT}`, resumable: true };
-  // Resume now: a model's service, its allowance or a call's time limit.
-  if (/ProviderUsageLimitError|usage limit|usage allowance/iu.test(text)) return { what: "A model's usage limit was reached.", todo: "Resume the run once the limit has reset. Everything it has done is kept.", resumable: true };
-  if (/\bTIMEOUT\b|timed out/iu.test(text)) return { what: "A model call kept running past its time limit.", todo: "Resume the run: it goes on from where it stopped, and calls already finished are kept.", resumable: true };
-  if (/^ProviderInvocationFailure: .*\((?:HTTP|RATE_LIMIT|MALFORMED_RESPONSE|CANCELLED|UNKNOWN)\b/u.test(text)) return { what: "A model call failed: the model's service or its CLI did not answer as expected.", todo: `Resume the run: it goes on from where it stopped, and calls already finished are kept. ${SEND}`, resumable: true };
-  // Update, then resume: arbitra's own check or defect, which the same version repeats.
-  return { what: INSIDE_ARBITRA, todo: "Resuming with this version of arbitra stops the same way. Update arbitra, then resume: what the run finished is kept. If the update does not fix it, copy the report below and send it to whoever helps you.", resumable: true };
 }
 
 /**
@@ -214,10 +190,10 @@ export function failureWords(reason: string | null, mode: Mode = "audit"): Failu
  * do. A refusal no named reason covers says to try again, and to copy the details if it is refused the same way.
  */
 export function resumeRefusalWords(refusal: string, mode: Mode = "audit"): { readonly what: string; readonly todo: string } {
-  if (/RUN_ALREADY_LIVE:/u.test(refusal)) return { what: "arbitra is already working on this run, so nothing was started.", todo: "Wait for the run to stop, or reload the page to see where it stands." };
-  if (/RUN_NOT_RESUMABLE:/u.test(refusal)) return { what: "This run cannot be resumed in the state it is in, so nothing was started.", todo: "Reload the page to see what the run can do now." };
-  const named = failureWords(refusal, mode);
-  if (named.what !== INSIDE_ARBITRA) return named;
+  const reading = readResumeRefusal(refusal);
+  if (reading.rule === "run-already-live") return { what: "arbitra is already working on this run, so nothing was started.", todo: "Wait for the run to stop, or reload the page to see where it stands." };
+  if (reading.rule === "run-not-resumable") return { what: "This run cannot be resumed in the state it is in, so nothing was started.", todo: "Reload the page to see what the run can do now." };
+  if (reading.failure.rule !== "unnamed") { const named: FailureWords = { ...readingWords(reading.failure, mode), resumable: resumable(reading.failure.kind) }; return named; }
   return { what: "The resume was refused, so the run is as it was.", todo: "Try again. If it is refused the same way, copy the details below and send them to whoever helps you." };
 }
 
