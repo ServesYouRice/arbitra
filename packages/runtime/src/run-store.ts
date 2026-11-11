@@ -47,6 +47,11 @@ export interface StoredRunContext {
   readonly checkpointPolicy?: CheckpointPolicy;
   /** The saved operator-authored graph version this run executes; resume and replay use exactly it. */
   readonly workflowGraph?: WorkflowGraphReference;
+  /**
+   * Finders a resume left out (`leaveOut`), each one whose provider cannot answer for days. Their answered units stand,
+   * the units they had not answered are gaps made without a call, and they review nothing.
+   */
+  readonly leftOutFinders?: readonly string[];
 }
 
 const ONCE_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
@@ -189,7 +194,7 @@ export class RunStore {
     await writeFile(this.#created, JSON.stringify({ createdAt: new Date().toISOString() }), { encoding: "utf8", flag: "wx" });
   }
 
-  /** Replaces an existing run's context, atomically. Only a raised token limit does this (`Orchestrator.resume`). */
+  /** Replaces an existing run's context, atomically. Only a resume that raises the token limit or leaves a finder out does this (`Orchestrator.resume`). */
   async replaceContext(context: StoredRunContext): Promise<void> {
     validateContext(context);
     if (await readOptional(this.#context) === null) throw new Error(`RUN_CONTEXT_ABSENT:${this.runId}`);
@@ -337,6 +342,7 @@ function validateContext(value: unknown): asserts value is StoredRunContext {
   if (context["consensusPolicy"] !== "full" && context["consensusPolicy"] !== "risk_weighted" && context["consensusPolicy"] !== "minimal") throw new Error("INVALID_RUN_CONTEXT_POLICY");
   if (!Number.isSafeInteger(context["maximumRounds"]) || (context["maximumRounds"] as number) < 0 || (context["maximumRounds"] as number) > 3) throw new Error("INVALID_RUN_CONTEXT_ROUNDS");
   if (typeof context["criticEnabled"] !== "boolean") throw new Error("INVALID_RUN_CONTEXT_CRITIC");
+  if (context["leftOutFinders"] !== undefined && (!Array.isArray(context["leftOutFinders"]) || !context["leftOutFinders"].every((id) => typeof id === "string"))) throw new Error("INVALID_RUN_CONTEXT_LEFT_OUT");
 }
 
 async function atomicJson(path: string, value: unknown): Promise<void> {

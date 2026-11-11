@@ -79,7 +79,7 @@ export function controlPlaneCore(orchestrator: Orchestrator) {
       },
       start: async (body: unknown) => { const request = await configured(body); return orchestrator.start(request.config, request.repository); },
       status: (id: string) => orchestrator.status(id),
-      resume: (id: string, body?: unknown) => orchestrator.resume(id, raisedLimit(body)),
+      resume: (id: string, body?: unknown) => orchestrator.resume(id, { ...raisedLimit(body), ...leftOut(body) }),
       events: (id: string) => orchestrator.events(id),
       cancel: async (id: string) => orchestrator.cancel(id),
       respondCheckpoint: (id: string, checkpointId: string, body: unknown) => orchestrator.respondCheckpoint(id, checkpointId, body),
@@ -170,6 +170,14 @@ function raisedLimit(body: unknown): { readonly maximumTokens?: number } {
   if (value === undefined) return {};
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) throw Object.assign(new Error("INVALID_TOKEN_LIMIT"), { statusCode: 400 });
   return { maximumTokens: value };
+}
+
+/** The finders a resume goes on without (`leaveOut`): ids of the run's own finders, checked by the orchestrator. */
+function leftOut(body: unknown): { readonly leaveOut?: readonly string[] } {
+  const value = typeof body === "object" && body !== null ? (body as { leaveOut?: unknown }).leaveOut : undefined;
+  if (value === undefined) return {};
+  if (!Array.isArray(value) || value.length === 0 || !value.every((id) => typeof id === "string" && id.trim() !== "")) throw Object.assign(new Error("INVALID_LEAVE_OUT"), { statusCode: 400 });
+  return { leaveOut: value as string[] };
 }
 
 async function repositoryPath(value: unknown): Promise<string> {

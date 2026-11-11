@@ -41,6 +41,14 @@ export interface AuditContext {
   /** The run's graph searches for variants of the confirmed issues between verification and the plan (`workflow.variantSearch`). */
   readonly variantSearchEnabled?: boolean;
   readonly auditorKind?: "scripted_auditors" | "model_auditors";
+  /** Finders a resume left out: their findings stand, and they make no further call and review nothing. */
+  readonly leftOut?: readonly string[];
+}
+
+/** The auditors that review one another's findings: all but those a resume left out. */
+export function reviewersOf(context: AuditContext): readonly AuditorProfile[] {
+  const leftOut = new Set(context.leftOut ?? []);
+  return context.auditors.filter(({ auditorId }) => !leftOut.has(auditorId));
 }
 
 export interface PreflightResult { readonly fileCount: number; readonly lineCount: number; readonly auditorIds: readonly string[] }

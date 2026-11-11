@@ -585,20 +585,24 @@ export class Orchestrator {
     return diffRuns(a, b);
   }
 
-  /** Resumes a run; `maximumTokens` raises a model run's token limit first (a run paused on its budget goes on). */
-  async resume(runId: string, options: { readonly maximumTokens?: number } = {}): Promise<RunResource> {
+  /**
+   * Resumes a run; `maximumTokens` raises a model run's token limit first (a run paused on its budget goes on), and
+   * `leaveOut` names finders the run goes on without (one whose provider's allowance is out for days).
+   */
+  async resume(runId: string, options: { readonly maximumTokens?: number; readonly leaveOut?: readonly string[] } = {}): Promise<RunResource> {
     if (this.#live.has(runId) || this.#resuming.has(runId)) throw new Error(`RUN_ALREADY_LIVE:${runId}`);
     clearTimeout(this.#wakeups.get(runId)); this.#wakeups.delete(runId);
     this.#resuming.add(runId);
-    try { return await this.#resume(runId, options.maximumTokens); }
+    try { return await this.#resume(runId, options.maximumTokens, options.leaveOut); }
     finally { this.#resuming.delete(runId); }
   }
 
-  async #resume(runId: string, maximumTokens?: number): Promise<RunResource> {
+  async #resume(runId: string, maximumTokens?: number, leaveOut?: readonly string[]): Promise<RunResource> {
     const previous = await this.status(runId);
     if (!previous.resumable) throw new Error(`RUN_NOT_RESUMABLE:${runId}`);
     const store = new RunStore(this.#runsDirectory, runId);
-    const storedContext = maximumTokens === undefined ? await store.loadContext() : await raisedTokenLimit(store, await store.loadContext(), maximumTokens);
+    const raised = maximumTokens === undefined ? await store.loadContext() : await raisedTokenLimit(store, await store.loadContext(), maximumTokens);
+    const storedContext = leaveOut === undefined ? raised : await finderLeftOut(store, raised, auditorIdsFor((await store.definitions().load(runId)).graph), leaveOut);
     const snapshot = await snapshotRepository(storedContext.repository, SNAPSHOT_FILE_LIMIT, { scope: storedContext.scope, ...testingSnapshotOptions(storedContext.modelConfiguration) });
     if (snapshotDigest(snapshot) !== storedContext.repositoryDigest) {
       // A model Audit's finished discovery is not lost with it: a new run of the project as it is now reuses it.
@@ -619,6 +623,7 @@ export class Orchestrator {
       policy: Object.freeze({ name: storedContext.consensusPolicy, quorum: 2, minimumIndependentGroupsForHighRisk: 2 }),
       maximumRounds: storedContext.maximumRounds, criticEnabled: storedContext.criticEnabled,
       variantSearchEnabled: definition.graph.nodes.some(({ id }) => id === VARIANT_SEARCH_NODE_ID),
+      ...(storedContext.leftOutFinders === undefined ? {} : { leftOut: storedContext.leftOutFinders }),
     });
     const sourceStore = storedContext.replaySourceRunId === undefined ? undefined : new RunStore(this.#runsDirectory, storedContext.replaySourceRunId);
     const modelReplay = sourceStore !== undefined && (storedContext.modelConfiguration?.mode === "feature" || storedContext.modelConfiguration?.mode === "testing");
@@ -1584,6 +1589,24 @@ async function approvedRequirements(source: RunStore, sourceConfig: RunConfig, c
  * The stored context with a model run's token limit raised. Only the limit changes, and only upwards: everything the
  * run has charged stays charged, and every other setting stays the one it started with.
  */
+/**
+ * The context of a model audit resumed without the finders `leaveOut` names, added to any left out before. Two finders
+ * at least stay, so findings are still reviewed by another.
+ */
+async function finderLeftOut(store: RunStore, context: StoredRunContext, auditorIds: readonly string[], leaveOut: readonly string[]): Promise<StoredRunContext> {
+  if (context.modelConfiguration?.mode !== "audit") throw Object.assign(new Error("LEAVE_OUT_NEEDS_MODEL_AUDIT"), { statusCode: 409 });
+  const unknown = leaveOut.filter((id) => !auditorIds.includes(id));
+  if (unknown.length > 0) throw Object.assign(new Error(`LEAVE_OUT_UNKNOWN_FINDER: ${unknown.join(", ")} is not a finder of this run (${auditorIds.join(", ")})`), { statusCode: 400 });
+  const leftOut = [...new Set([...(context.leftOutFinders ?? []), ...leaveOut])].sort();
+  if (auditorIds.length - leftOut.length < 2) throw Object.assign(new Error("LEAVE_OUT_TOO_MANY: two finders at least must stay"), { statusCode: 400 });
+  // A finder that also plans, checks or critiques is needed after discovery; the run is configured again for that.
+  const roles = Object.entries((context.modelConfiguration.workflow["modelExecution"] as { roles?: Record<string, unknown> } | undefined)?.roles ?? {}).filter(([, id]) => typeof id === "string" && leftOut.includes(id));
+  if (roles.length > 0) throw Object.assign(new Error(`LEAVE_OUT_HOLDS_ROLE: ${roles.map(([role, id]) => `${String(id)} is the run's ${role}`).join(", ")}`), { statusCode: 409 });
+  const left: StoredRunContext = { ...context, leftOutFinders: leftOut };
+  await store.replaceContext(left);
+  return left;
+}
+
 async function raisedTokenLimit(store: RunStore, context: StoredRunContext, maximumTokens: number): Promise<StoredRunContext> {
   const configuration = context.modelConfiguration;
   const execution = configuration?.workflow["modelExecution"] as { maximumTokens?: unknown } | undefined;

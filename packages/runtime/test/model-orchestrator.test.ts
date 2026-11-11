@@ -84,6 +84,7 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
   let failVerification = false;
   let failCritic = false;
   let quotaUntil: string | null = null;
+  let quotaDiscovery: string | null = null;
   let failExpansion = false;
   let failRevisionPatch = false;
   let blockDiscovery: (() => void) | undefined;
@@ -106,6 +107,7 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
     if (system.startsWith("Audit the supplied")) {
       requests.push({ stage: "discovery", url: request.url, ...(ceiling === undefined ? {} : { ceiling }) });
       if (blockDiscovery !== undefined) { blockDiscovery(); return new Promise(() => {}); }
+      if (quotaDiscovery !== null && request.url.includes(quotaDiscovery)) return { status: 429, headers: {}, body: { error: { code: "insufficient_quota", message: "You exceeded your current quota until 2099-01-01T00:00:00Z" } } };
       const auditorId = /Every sourceFindingId must start with (.+)\/ and be unique/u.exec(system)?.[1];
       const line = options.ambiguousClustering === true ? ids.indexOf(auditorId ?? "") + 1 : 1;
       output = { findings: [{ schemaVersion: 1, sourceFindingId: `${auditorId}/1`, category: options.finding?.category ?? "CORRECTNESS", title: "Null value", severity: options.lowRisk === true ? "low" : options.finding?.severity ?? "high", status: "needs_verification", confidence: 0.5, productionBlocker: false,
@@ -301,7 +303,7 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
     return { status: 200, headers: {}, body: response };
   };
   const create = (testSandbox?: TestSandbox, providerOptions: TransportFactoryOptions & { readonly factories?: Readonly<Record<string, TransportFactory>> } = {}, build?: string) => new Orchestrator({ repository: directory, stateDirectory: join(directory, ".runs"), providerOptions: { client: { send }, credential: () => "fixture-credential", ...providerOptions }, ...(testSandbox === undefined ? {} : { testSandbox }), ...(build === undefined ? {} : { build }) });
-  return { directory, create, config, requests, verificationInputs, plannerContexts, plannerConstraints, plannerReads, reviewInputs, packedChecks, criticIssueIds, verificationFlight, mergedListedPair: () => mergedListedPair, failRevisionPatch: (value: boolean) => { failRevisionPatch = value; }, failExpansion: (value: boolean) => { failExpansion = value; }, failCritic: (value: boolean) => { failCritic = value; }, quotaCritic: (until: string) => { quotaUntil = until; }, failVerification: (value: boolean) => { failVerification = value; }, blockDiscovery: (callback: () => void) => { blockDiscovery = callback; } };
+  return { directory, create, config, requests, verificationInputs, plannerContexts, plannerConstraints, plannerReads, reviewInputs, packedChecks, criticIssueIds, verificationFlight, mergedListedPair: () => mergedListedPair, failRevisionPatch: (value: boolean) => { failRevisionPatch = value; }, failExpansion: (value: boolean) => { failExpansion = value; }, failCritic: (value: boolean) => { failCritic = value; }, quotaCritic: (until: string) => { quotaUntil = until; }, quotaDiscovery: (auditorId: string | null) => { quotaDiscovery = auditorId; }, failVerification: (value: boolean) => { failVerification = value; }, blockDiscovery: (callback: () => void) => { blockDiscovery = callback; } };
 }
 
 describe("composed model audits", () => {
@@ -523,6 +525,31 @@ describe("composed model audits", () => {
     expect((await core.overview(result.runId)).reason).toMatch(/^ProviderUsageLimitError: .*insufficient_quota/u);
     await vi.waitFor(async () => { expect((await core.status(result.runId)).state).toBe("COMPLETED"); }, { timeout: 15_000, interval: 100 });
     expect(requests.filter(({ stage }) => stage === "critic").length).toBeGreaterThan(1);
+  });
+
+  it("goes on without a finder whose allowance is out for days, its unanswered units gaps made without a call", async () => {
+    // Observed live (memoria, November 11, 2026): Antigravity's Gemini allowance ran out for 72 hours with 5 units answered.
+    const { directory, create, config, requests, quotaDiscovery } = await fixture();
+    const execution = config.workflow["modelExecution"] as { roles: Record<string, string> };
+    execution.roles = { ...execution.roles, critic: "auditor-a" };
+    quotaDiscovery("auditor-c");
+    const core = create(); const result = await core.run(config);
+    expect(result.state).toBe("SUSPENDED_RATE_LIMIT");
+    // A finder the run needs after discovery, or one that is not the run's, cannot be left out, nor can all but one.
+    await expect(core.resume(result.runId, { leaveOut: ["auditor-b"] })).rejects.toThrow("LEAVE_OUT_HOLDS_ROLE: auditor-b is the run's verifier");
+    await expect(core.resume(result.runId, { leaveOut: ["auditor-z"] })).rejects.toThrow("LEAVE_OUT_UNKNOWN_FINDER");
+    await expect(core.resume(result.runId, { leaveOut: ["auditor-b", "auditor-c"] })).rejects.toThrow("LEAVE_OUT_TOO_MANY");
+    const asked = requests.filter(({ stage, url }) => stage === "discovery" && url.includes("auditor-c")).length;
+    await core.resume(result.runId, { leaveOut: ["auditor-c"] });
+    const finished = await core.wait(result.runId); const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(finished.state, JSON.stringify(events.slice(-3))).toBe("COMPLETED");
+    // Gemini is asked nothing more: not for discovery, and not to review the others' findings.
+    expect(requests.filter(({ url }) => url.includes("auditor-c"))).toHaveLength(asked);
+    const read = async <T>(kind: string) => { const descriptor = (await core.artifacts(result.runId)).find((artifact) => artifact.kind === kind); return JSON.parse((await core.artifact(result.runId, descriptor?.artifactId ?? "") as { content: string }).content) as T; };
+    expect(JSON.stringify(await read("discovery-validation-auditor-c"))).toContain("provider_failed");
+    // It stays left out, should the run be resumed again.
+    const context = JSON.parse(await readFile(join(directory, ".runs", "runs", result.runId, "context.json"), "utf8")) as { leftOutFinders?: string[] };
+    expect(context.leftOutFinders).toEqual(["auditor-c"]);
   });
 
   it("waits for answers to blocking plan questions, then applies them with one planner call", async () => {

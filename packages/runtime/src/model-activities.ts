@@ -102,6 +102,14 @@ export interface ActivityReplaySource {
   reject(request: { readonly activityId: string; readonly key: string }, reason: string): Promise<void>;
 }
 
+/**
+ * The transport code of a call a finder left out by a resume would have made. Its provider is not asked: the call fails
+ * at once, for this unit alone, so the unit is a gap (`provider_failed`) and the finder goes on to its next. Observed
+ * live (memoria, November 11, 2026): Antigravity's Gemini allowance ran out for 72 hours with 5 of a finder's units
+ * answered, and the run could only wait.
+ */
+export const FINDER_LEFT_OUT = "FINDER_LEFT_OUT";
+
 /** Durable, stateless JSON model calls shared by workflow stages. No tool execution. */
 export class ModelActivities {
   readonly #pool: ModelPool;
@@ -115,8 +123,11 @@ export class ModelActivities {
   readonly #budget: DurableTokenBudget;
   readonly #registry: ProviderRegistry;
 
-  constructor(private readonly store: RunStore, config: RunConfig, options: TransportFactoryOptions = {}, replay?: ActivityReplaySource) {
+  readonly #leftOut: ReadonlySet<string>;
+
+  constructor(private readonly store: RunStore, config: RunConfig, options: TransportFactoryOptions = {}, replay?: ActivityReplaySource, leftOut: readonly string[] = []) {
     this.#replay = replay;
+    this.#leftOut = new Set(leftOut);
     this.#config = runConfigSchema.parse(config);
     this.#execution = providerExecutionSchema.parse(this.#config.workflow["modelExecution"]);
     const execution = this.#execution;
@@ -260,6 +271,8 @@ export class ModelActivities {
         }
       }
     }
+    // A finder a resume left out answers from what it recorded only.
+    if (this.#leftOut.has(input.modelProfileId)) throw new ProviderInvocationFailure(`${FINDER_LEFT_OUT}: ${input.modelProfileId} was left out when the run was resumed`, 0, "LEFT_OUT", FINDER_LEFT_OUT);
     // Record identity before spend so a failed or interrupted activity cannot be
     // resumed with a different prompt/profile under the same durable activity ID.
     const identity = await this.read(`${key}-input`) as { fingerprint?: unknown } | null;

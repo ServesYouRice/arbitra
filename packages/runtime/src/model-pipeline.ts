@@ -20,7 +20,7 @@ import { discoverWithModel, groundFindings } from "./model-discovery.js";
 import { repositoryIndex } from "./repository-index.js";
 import { pathsOfSeeds, reportedPlaces, VARIANT_SEARCH_ACTOR, VARIANT_SEARCH_INSTRUCTION, VARIANT_SEARCH_READ_BYTES, variantBatches, variantBatchId, variantCandidateId, variantSeeds, withoutDuplicates, type VariantFinding, type VariantSeed } from "./variant-search.js";
 import { AUDIT_PLAN_CONSTRAINT, INSTRUCTION_SHAPED_TEXT_RULE, PLAN_TEXT_RULE } from "./prompt-conventions.js";
-import { converge, readStage, type AuditContext, type ConvergenceResult } from "./pipeline.js";
+import { converge, readStage, reviewersOf, type AuditContext, type ConvergenceResult } from "./pipeline.js";
 import { plannerCommandContext, PROJECT_COMMANDS_KIND, type ProjectCommand } from "./project-commands.js";
 import { instructionRisk, INSTRUCTION_RISK_KIND } from "./instruction-risk.js";
 import type { AuditFinding } from "./auditors.js";
@@ -202,7 +202,7 @@ export class ModelAuditPipeline {
     const roles = providerExecutionSchema.parse(config.workflow["modelExecution"]).roles;
     if (roles === undefined) throw new Error("MODEL_EXECUTION_ROLES_REQUIRED");
     this.#roles = roles;
-    this.#activities = new ModelHarness(new ModelActivities(context.store, config, options, units?.seed), config, context.snapshot, context.store);
+    this.#activities = new ModelHarness(new ModelActivities(context.store, config, options, units?.seed, context.leftOut), config, context.snapshot, context.store);
     this.#units = units === undefined ? undefined : new DiscoveryUnits(context.store, config, context.snapshot, units.identity, units.seed);
     this.#peerReviewSeed = units?.seed?.contract.peerReviewSeed ?? undefined;
     // The audit's critic follows the narrower protocol unless the run selects another version. It is a default, not a
@@ -303,7 +303,9 @@ export class ModelAuditPipeline {
     const conflictVotes = new Map<string, ConflictResolutionVote>();
     let { candidates, candidateFindings } = issueBoard.view();
     let consensus: ConsensusState = initial.consensus;
-    for (let round = 1; round <= context.maximumRounds && context.auditors.length > 1 && Object.keys(candidates).length > 0; round += 1) {
+    // A finder a resume left out reviews nothing; its findings are reviewed by the others.
+    const reviewers = reviewersOf(context);
+    for (let round = 1; round <= context.maximumRounds && reviewers.length > 1 && Object.keys(candidates).length > 0; round += 1) {
       if (round > 1 && issueBoard.conflicts.length > 0) {
         await this.resolveConflicts(issueBoard, round, signal, conflictVotes);
         ({ candidates, candidateFindings } = issueBoard.view());
@@ -311,7 +313,7 @@ export class ModelAuditPipeline {
       // An incremental run whose peer-review identity matches its base presents the base's views, so they can be reused.
       const rng = new SeededRng(this.#peerReviewSeed ?? context.store.runId);
       const batchesByReviewer = new Map<string, readonly PeerOperationBatch[]>();
-      const review = await peerReviewRound({ candidates }, context.policy, round, { auditors: context.auditors, rng, runtime: { review: async (request) => {
+      const review = await peerReviewRound({ candidates }, context.policy, round, { auditors: reviewers, rng, runtime: { review: async (request) => {
         const auditorId = request.reviewerId;
         const view = peerReviewView(request.candidates.map(({ candidateId }) => candidateId), candidateFindings, auditorId, rng.forActivity(`peer-view:${round}:${auditorId}`), candidates);
         const candidateIds = Object.keys(view.candidates);
@@ -418,6 +420,7 @@ export class ModelAuditPipeline {
         const prior = previous[id];
         return [id, prior !== undefined && candidateSignature(prior) === candidateSignature(candidate) ? { ...candidate, lastChangedRound: prior.lastChangedRound } : candidate];
       }));
+      // Consensus is still counted over every finder: one left out is a reviewer missing, not one fewer auditor.
       consensus = computeConsensus({ candidates }, context.policy, { auditors: context.auditors, round, maximumRounds: context.maximumRounds });
       candidates = Object.fromEntries(Object.entries(candidates).map(([id, candidate]) => {
         const outcome = consensus.candidates.find(({ candidateId }) => candidateId === id)?.outcome;
@@ -456,7 +459,8 @@ export class ModelAuditPipeline {
       const { together, waiting } = independentConflicts(pending.filter((conflict) => conflict.candidateIds.every((id) => Object.hasOwn(state.candidates, id))));
       const answered = await sideBySide(together, parallel, async (conflict) => {
         const id = conflictId(conflict);
-        const votes = await sideBySide(this.context.auditors, this.context.auditors.length, async ({ auditorId }): Promise<ConflictResolutionVote | null> => {
+        const reviewers = reviewersOf(this.context);
+        const votes = await sideBySide(reviewers, reviewers.length, async ({ auditorId }): Promise<ConflictResolutionVote | null> => {
           const view = peerReviewView(conflict.candidateIds, state.candidateFindings, auditorId, new SeededRng(this.context.store.runId).forActivity(`conflict:${id}:${round}:${auditorId}`), state.candidates);
           if (conflict.candidateIds.some((candidateId) => !Object.hasOwn(view.candidates, candidateId))) return null;
           const presented = conflictResolutionView(conflict, view, previousVotes.get(`${id}/${auditorId}`));
@@ -1347,7 +1351,7 @@ export class ModelAuditPipeline {
     if (record.length > 0) await this.context.store.publish("severity-restored", { minimumSeverity: minimum, issues: record });
     return restored;
   }
-  #secondOpinionProfile(): string | undefined { return secondOpinionProfile(this.#roles, this.context.auditors.map(({ auditorId }) => auditorId)); }
+  #secondOpinionProfile(): string | undefined { return secondOpinionProfile(this.#roles, reviewersOf(this.context).map(({ auditorId }) => auditorId)); }
   /** The accepted issues the plan covers: all of them, or those of at least the run's minimum severity. Anthropic's
    * reviewers rank and fix the most important first; the plan and its critic cost grow with every task. */
   #planned(issues: CanonicalIssueSet): CanonicalIssueSet["issues"] {

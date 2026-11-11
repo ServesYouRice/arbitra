@@ -3,7 +3,7 @@ import { modelDiscoveryResultSchema } from "@arbitra/schemas/model-results.js";
 import { redactSecrets } from "@arbitra/security/redaction";
 import { validateFindings, type RejectionStore, type ValidationResult } from "@arbitra/workflow/nodes/validate-findings.js";
 import type { RunConfig } from "@arbitra/schemas/config.js";
-import type { ModelActivities, ModelActivityRequest, ReadingPolicy } from "./model-activities.js";
+import { FINDER_LEFT_OUT, type ModelActivities, type ModelActivityRequest, type ReadingPolicy } from "./model-activities.js";
 import type { ToolUse } from "./model-harness.js";
 import type { RepositorySnapshot, SourceFile } from "./repository.js";
 import type { RunStore } from "./run-store.js";
@@ -101,6 +101,8 @@ class FailedUnits {
   answered(): void { this.#inARow = 0; this.#answered = true; }
   /** Throws the failure itself once it is the last of MAXIMUM_FAILED_UNITS_IN_A_ROW in a row. */
   failed(error: unknown): void {
+    // A finder a resume left out may have answered none of its units: that is the operator's choice, not a failure.
+    if (error instanceof ProviderInvocationFailure && error.transportCode === FINDER_LEFT_OUT) return;
     this.#last = { error };
     // A reply the model itself wrote wrong (Gemini's malformed function calls through Antigravity) says nothing about the
     // machine or the provider, so it does not count towards the row; the unit stays a gap.
@@ -415,6 +417,8 @@ async function discoverPrimary(options: DiscoveryOptions): Promise<readonly Sour
       const timeLimited = ranPastTimeLimit(error, options);
       const parts = stoppedAtOutputCeiling(error, options) || cause !== null ? splitOutputLimitedUnit(options.snapshot, whole) : timeLimited ? splitOutputLimitedUnit(options.snapshot, { ...whole, afterTimeLimit: true }) : null;
       if (parts === null && cause !== null) unsplit = { unit: whole, cause, error };
+      // A finder a resume left out keeps the whole snapshot as its one gap.
+      else if (parts === null && error instanceof ProviderInvocationFailure && error.transportCode === FINDER_LEFT_OUT) unsplit = { unit: whole, cause: "provider_failed", error };
       else if (parts === null) throw error;
       else {
         (cause !== null ? declinedSplits : timeLimited ? timeLimitSplits : outputLimitSplits).push({ scopeId: "whole", into: parts.map(unitScopeId) });
