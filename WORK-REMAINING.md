@@ -31,9 +31,13 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
   - Consensus put all 684 issues to Opus at about $0.25 each, low ones too; a resume can now skip those below the plan's
     scope (`skipBelowPlanScope`, a10f773), which left 305. **Cost finding:** cache writes were $65 of verification's
     ~$80 (13.0M written, 32.0M read): each question writes its own ~11k-token start, read back only ~2.5 times.
-  - **State at 10:30Z:** paused on Sol's Codex window (second opinions) until 12:17Z, server timer set (build
-    `main-a10f773`, port 4181). 306 issues asked; the API credit is nearly spent (~$82 since 08:18Z), so the plan may
-    need more credit.
+  - The API credit was nearly spent (~$82 on verification since 08:18Z) before the plan: a resume can now give a stage
+    not yet started to a profile it adds (`reassign`, b0a0803), and the plan ran on Opus through Claude Code on the
+    owner's Max login (46 calls). The `claude` on PATH (npm, 2.0.51) is refused by current models; the run used the
+    VS Code extension's 2.1.322 through ARBITRA_CLAUDE_CODE_EXECUTABLE.
+  - **Completed November 11, 13:3xZ:** 684 issues (44 high, 261 medium, 364 low, 15 informational), 305 verified,
+    292 accepted into a plan of 243 tasks; 130.3M tokens. **Finding:** the plan's title is every section's title joined
+    with ";" (24 of them), not one title. Still to write up in docs/qa/real-runs.md.
 - **Default lineup:** New run starts on Claude Code and Codex (`subscription-audit`: two finders at depth deep, no
   peer-review round, plan critic off); balanced and cheap depths, a third finder and the critic are separate
   choices in New run (October 25). Gemini is only ever the opt-in third finder, labelled with Google's terms. The Feature templates still use Antigravity as
