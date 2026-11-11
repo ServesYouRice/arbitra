@@ -1,7 +1,7 @@
 import { record } from "../run/models.js";
 import { getIn, setIn, type Draft } from "./draft.js";
 import { MODEL_CATALOG, modelSettings } from "./model-catalog.js";
-import { profileFor, routeOf, transportFor, vendorOf, withEndpoint, withoutUnboundEndpoints } from "./routes.js";
+import { fallbackAliases, profileFor, routeOf, transportFor, vendorOf, withEndpoint, withoutUnboundEndpoints } from "./routes.js";
 
 /**
  * Depth presets for a subscription audit (Claude Code and Codex): a depth is the models and the effort of each step, in
@@ -187,11 +187,12 @@ function withFinderEfforts(draft: Draft, count: FinderCount): Draft {
 }
 
 /**
- * The draft without the profiles nothing uses: a profile that is not a finder and that no role names (one a step had
- * of its own before it took another model), with its endpoint binding, its efforts and any endpoint left unbound.
+ * The draft without the profiles nothing uses: a profile that is not a finder, that no role names and that stands in
+ * for no other when it runs out (one a step had of its own before it took another model), with its endpoint binding,
+ * its efforts and any endpoint left unbound.
  */
 export function withoutUnusedProfiles(draft: Draft): Draft {
-  const named = new Set(Object.values(record(getIn(draft, ["workflow", "modelExecution", "roles"]))));
+  const named = new Set([...Object.values(record(getIn(draft, ["workflow", "modelExecution", "roles"]))), ...fallbackAliases(draft)]);
   const unused = Object.keys(record(draft["models"])).filter((alias) => !alias.startsWith("auditor-") && !named.has(alias));
   if (unused.length === 0) return draft;
   let next = draft;

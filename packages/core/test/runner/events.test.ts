@@ -18,4 +18,15 @@ describe("run events", () => {
     expect(isRunEvent({ ...action, action: "" })).toBe(false);
     expect(isRunEvent({ ...action, result: undefined })).toBe(false);
   });
+
+  it("records a profile's switch to its fallback, or a pause with none, with why and the dollars it had spent", () => {
+    const switched = { t: "model_route_switched", runId: "run-1", from: "opus-api", to: "opus-cc", reason: "credit_out", spentUsd: 182.4, effort: "xhigh", at: "2026-11-11T08:14:00.000Z" };
+    expect(isRunEvent(switched)).toBe(true);
+    expect(isRunEvent({ ...switched, to: null, reason: "cost_cap" })).toBe(true);
+    expect(isRunEvent({ ...switched, from: "opus-cc", to: "opus-api", reason: "usage_limit", spentUsd: null, resetsAt: "2026-11-14T09:00:00.000Z" })).toBe(true);
+    expect(isRunEvent({ ...switched, reason: "bored" })).toBe(false);
+    expect(isRunEvent({ ...switched, spentUsd: -1 })).toBe(false);
+    expect(isRunEvent({ ...switched, to: "" })).toBe(false);
+    expect(isRunEvent({ ...switched, resetsAt: "soon" })).toBe(false);
+  });
 });

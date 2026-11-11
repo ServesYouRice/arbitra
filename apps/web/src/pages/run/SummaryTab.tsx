@@ -9,7 +9,7 @@ import { formatTime, gateReasonLabel, isActive } from "../../app/format.js";
 import { GateVerdict } from "../../app/marks.js";
 import { Link, type RunTab } from "../../app/router.js";
 import { tokens as limitWords } from "../../app/token-limit.js";
-import { counted, duration, failureWords, helperWaiting, helperWords, partsReadWords, SEVERITIES, severityWord, sleptSpans, sleptWords, stepDoing, tokenWords, type Mode } from "../../app/words.js";
+import { counted, dollars, duration, failureWords, helperWaiting, helperWords, partsReadWords, routeSwitchWords, routeWord, SEVERITIES, severityWord, sleptSpans, sleptWords, stepDoing, tokenWords, type Mode } from "../../app/words.js";
 import { CopyButton } from "../../controls/CopyButton.js";
 import { useEvaluationMetrics, type ConfirmedYield } from "../../views/evaluation/api.js";
 import { FeatureOutcome, HandoffDownload } from "../../views/feature/FeatureView.js";
@@ -18,7 +18,7 @@ import { RUN_ARTIFACT_KINDS, useRunArtifact } from "../../views/issue-board/run-
 import { Handoff, Outcome, Planning, useTestingView } from "../../views/testing/TestingView.js";
 import { planReview, runTime, stageNotes, stageTimes, stepModels, type CriticResultRecord, type CritiqueRecord, type PreflightRecord } from "./facts.js";
 import { notificationsSupported, useNotifyChoice } from "./notify.js";
-import { configuredChecker, record } from "./models.js";
+import { configuredChecker, modelName, record } from "./models.js";
 import { PlanCard } from "./PlanCard.js";
 import { RepositoryChanged, reusesFinishedWork } from "./RepositoryChanged.js";
 import { reportText } from "./RunReport.js";
@@ -83,10 +83,12 @@ function WatchView(props: SummaryProps & { readonly state: string }): ReactEleme
   const stageTime = first?.elapsedMs ?? null;
   const doing = node === undefined ? data?.stages.some(({ status }) => status === "done") === true ? "Between stages" : "Starting" : stepDoing(node, mode);
   const parts = value?.auditors.reduce((total, { partsRead }) => total + partsRead, 0) ?? 0;
+  const spend = useApiSpend(runId, props.artifacts, props.refreshKey);
   const facts = [
     ...(value !== null && value.auditors.length > 0 && parts > 0 ? [`${counted(parts, "part")} read`] : []),
     ...(value !== null && value.auditors.length > 0 ? [`${counted(value.found.total, "issue")} found, not checked yet`] : []),
     ...(value === null ? [] : [`${tokenWords(value.tokens.used)}${value.tokens.limit === null ? "" : ` of ${limitWords(value.tokens.limit)}`} tokens`]),
+    ...(spend === null ? [] : [`${dollars(spend.total)} through API keys`]),
   ];
   return <>
     {live ? null : <p className="state" data-state="degraded">This arbitra is not running this run. Another arbitra, such as the command line, may be running it, or it stopped when its process ended. Resume it from the header only if nothing else is running it.</p>}
@@ -96,6 +98,7 @@ function WatchView(props: SummaryProps & { readonly state: string }): ReactEleme
       {progress.error === null ? null : <p className="note">The run's progress could not be read just now, so the stages below follow its live events and show no times. The page tries again by itself.</p>}
       <SleptNote events={props.events} />
       <HelperNote events={props.events} stopped={false} mode={props.mode} />
+      <RouteNotes events={props.events} overview={overview} />
     </section>
     <section aria-labelledby="stages-title" className="summary-section">
       <h2 className="panel-title" id="stages-title">Stages</h2>
@@ -123,6 +126,42 @@ function SleptNote({ events }: { readonly events: readonly RunEvent[] }): ReactE
 function HelperNote({ events, stopped, mode }: { readonly events: readonly RunEvent[]; readonly stopped: boolean; readonly mode: Mode }): ReactElement | null {
   const lines = helperWords(events, stopped, mode);
   return lines.length === 0 ? null : <>{lines.map((line, index) => <p className="note" data-helper="true" key={index}>{line}</p>)}</>;
+}
+
+/** The profile a recorded switch names, as the run's configuration has it: its model and how it is reached. */
+function profileOf(overview: RunOverview | null, id: string): { readonly model: string; readonly route: string } {
+  const profile = record(record(overview?.configuration?.["models"])[id]);
+  const modelId = typeof profile["modelId"] === "string" ? profile["modelId"] : id;
+  return { model: modelName(modelId), route: routeWord(typeof profile["transport"] === "string" ? profile["transport"] : "") };
+}
+
+/**
+ * Each time a model's work went to its fallback, or the run paused with none, in a line: "Switched Opus 5.5 · xhigh
+ * from API key to Claude Code at 11 Nov, 08:14, credit out ($182 spent)." Observed live (memoria, November 10–11,
+ * 2026): the API credit ran out before the plan, and the switch to the subscription was made by hand.
+ */
+export function RouteNotes({ events, overview }: { readonly events: readonly RunEvent[]; readonly overview: RunOverview | null }): ReactElement | null {
+  const caps = record(record(record(overview?.configuration?.["workflow"])["modelExecution"])["maximumCostUsd"]);
+  const lines = events.flatMap((event) => {
+    if (event.t !== "model_route_switched" || event.from === undefined || event.to === undefined) return [];
+    const from = profileOf(overview, event.from); const to = event.to === null ? null : profileOf(overview, event.to);
+    const subject = event.reason === "reset" && to !== null ? to : from;
+    const cap = caps[event.from];
+    return [routeSwitchWords({ model: subject.model, effort: event.effort ?? null, from: from.route, to: to?.route ?? null, toModel: to?.model ?? null, at: event.at ?? null,
+      reason: event.reason ?? "", spentUsd: typeof event.spentUsd === "number" ? event.spentUsd : null, capUsd: typeof cap === "number" ? cap : null, resetsAt: event.resetsAt ?? null })];
+  });
+  return lines.length === 0 ? null : <ul aria-label="model switches" className="plain-list note" data-switches="">{lines.map((line, index) => <li key={`${index}:${line}`}>{line}</li>)}</ul>;
+}
+
+/** What the run's priced API profiles have spent (the `model-routes` artifact), or null before any has. */
+interface RouteRecord { readonly spentUsd?: Readonly<Record<string, number>>; readonly pricesAsOf?: string; readonly unpricedCalls?: Readonly<Record<string, number>> }
+function useApiSpend(runId: string, artifacts: readonly ArtifactDescriptor[] | null, refreshKey: unknown): { readonly total: number; readonly byProfile: readonly (readonly [string, number])[]; readonly pricesAsOf: string | null; readonly unpriced: number } | null {
+  const { artifacts: api } = useApis();
+  const present = artifacts === null || artifacts.some(({ kind }) => kind === "model-routes");
+  const routes = useRunArtifact<RouteRecord>(api, present ? runId : null, "model-routes", refreshKey).value;
+  const byProfile = Object.entries(routes?.spentUsd ?? {}).filter(([, usd]) => typeof usd === "number" && usd > 0);
+  if (byProfile.length === 0) return null;
+  return { total: byProfile.reduce((sum, [, usd]) => sum + usd, 0), byProfile, pricesAsOf: routes?.pricesAsOf ?? null, unpriced: Object.values(routes?.unpricedCalls ?? {}).reduce((sum, count) => sum + count, 0) };
 }
 
 function Restarted({ restarted }: { readonly restarted: RunProgress["restarted"] }): ReactElement {
@@ -167,6 +206,7 @@ function Stopped(props: SummaryProps & { readonly state: string }): ReactElement
   const limit = record(record(overview?.configuration?.["workflow"])["modelExecution"])["maximumTokens"];
   const note: ReactNode = state === "FAILED" ? <FailureNote runId={runId} reason={why} mode={props.mode} reuse={reusesFinishedWork(props.mode, overview)} />
     : state === "SUSPENDED_RATE_LIMIT" ? <UsageLimitPause reason={why} helper={helperWaiting(props.events)} />
+    : state === "SUSPENDED_BUDGET" && /MODEL_COST_CAP_REACHED/u.test(why ?? "") ? <Alert title="Paused at its dollar cap"><p className="prose">{failureWords(why).what}</p><p className="prose">{failureWords(why).todo}</p></Alert>
     : state === "SUSPENDED_BUDGET" ? <Alert title="Paused at its token limit">The run reached its limit{typeof limit === "number" ? ` of ${limitWords(limit)} tokens` : ""}, with everything it has done kept. Raise the limit in the header to go on from where it stopped.</Alert>
     : state === "CANCELLED" ? <Alert title="Cancelled">The run was cancelled. What it finished is kept: resume it from the header to go on from where it stopped.</Alert>
     : state === "BLOCKED" ? <Alert title="Needs you" tone="attention">The run waits on the decisions above. Each is recorded at once; the run goes on when you resume it.</Alert>
@@ -175,6 +215,7 @@ function Stopped(props: SummaryProps & { readonly state: string }): ReactElement
     {note}
     <HelperNote events={props.events} stopped mode={props.mode} />
     <SleptNote events={props.events} />
+    <RouteNotes events={props.events} overview={overview} />
     {data === null ? null : <section aria-labelledby="stages-title" className="summary-section">
       <h2 className="panel-title" id="stages-title">Where it stopped</h2>
       <StageGraph stages={data.stages} workflow={data.workflow} selectedId={selectedNode} onSelect={onSelectNode} />
@@ -235,6 +276,7 @@ function AuditDone(props: SummaryProps): ReactElement {
     <RanFacts runId={runId} mode="audit" overview={overview} progress={progress.value} confirmed={confirmed} critique={data?.critique ?? null} criticResult={data?.criticResult ?? null} workflow={props.run?.workflow ?? null} />
     <SleptNote events={props.events} />
     <HelperNote events={props.events} stopped={false} mode="audit" />
+    <RouteNotes events={props.events} overview={overview} />
   </>;
 }
 
@@ -297,6 +339,7 @@ export function RanFacts({ runId, mode, overview, progress, confirmed, critique,
     return coverage === null ? label : `${label} · ${partsReadWords(coverage)}`;
   });
   const covered = progress?.auditors.some(({ coverage }) => coverage !== null) === true;
+  const spend = useApiSpend(runId, null, overview?.state ?? null);
   const scripted = overview?.executor === "scripted";
   const tokensUsed = progress?.tokens.used ?? confirmed?.tokens ?? null;
   // Every Audit with a planner says whether its plan was reviewed, also when Review the plan was off (the default).
@@ -307,6 +350,7 @@ export function RanFacts({ runId, mode, overview, progress, confirmed, critique,
     {full ? <h2 className="panel-title" id="ran-facts-title">Time, tokens and models</h2> : <h2 className="panel-title" id="ran-title">How it ran</h2>}
     <dl className="facts ran-facts">
       <div><dt>time</dt><dd>{time === null ? "not recorded" : `${duration(time.ms)}${perStage === null ? time.recorded ? "" : " from its start to its last record" : ` · ${perStage}`}`}</dd></div>
+      {spend === null ? null : <div><dt>API spend</dt><dd>{dollars(spend.total)}{` · ${spend.byProfile.map(([id, usd]) => `${dollars(usd)} ${modelName(String(record(record(overview?.configuration?.["models"])[id])["modelId"] ?? id))} (${id})`).join(", ")}`}{spend.unpriced > 0 ? ` · ${counted(spend.unpriced, "call")} reported no usage and ${spend.unpriced === 1 ? "is" : "are"} not counted` : ""}{spend.pricesAsOf === null ? "" : ` · priced as of ${spend.pricesAsOf}`}</dd></div>}
       <div><dt>tokens</dt><dd>{scripted ? "none: scripted detectors call no model" : tokensUsed === null ? "not recorded" : `${tokenWords(tokensUsed)}${confirmed?.tokensPerConfirmed == null ? "" : ` · ${tokenWords(confirmed.tokensPerConfirmed)} per confirmed issue`}${(progress?.tokens.callsWithoutUsage ?? 0) > 0 ? ` · ${counted(progress?.tokens.callsWithoutUsage ?? 0, "call")} reported none` : ""}`}</dd></div>
       {mode !== "audit" ? null : scripted ? <><div><dt>found issues</dt><dd>scripted detectors, no model calls</dd></div>{reviewed}</> : <>
         {auditors.length === 0 ? null : <div><dt>found issues</dt><dd>{covered ? <ul aria-label="finders" className="plain-list">{auditors.map((finder) => <li key={finder}>{finder}</li>)}</ul> : auditors.join(", ")}</dd></div>}
@@ -339,6 +383,7 @@ function OtherDone(props: SummaryProps): ReactElement {
     <ModeSummary {...props} />
     <RanFacts runId={runId} mode={mode} overview={overview} progress={progress.value} confirmed={null} critique={null} workflow={run?.workflow ?? null} />
     <SleptNote events={props.events} />
+    <RouteNotes events={props.events} overview={overview} />
   </>;
 }
 

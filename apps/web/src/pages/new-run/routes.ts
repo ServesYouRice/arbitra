@@ -37,12 +37,19 @@ function template(transport: string): { readonly endpoint: Endpoint; readonly pr
   return undefined;
 }
 
+/** The profiles that stand in for another when it runs out (`workflow.modelExecution.fallbacks`): they take the other route. */
+export function fallbackAliases(draft: Draft): ReadonlySet<string> {
+  return new Set(Object.values(record(getIn(draft, ["workflow", "modelExecution", "fallbacks"]))).filter((alias): alias is string => typeof alias === "string"));
+}
+
 /**
  * The route every vendor model of the lineup takes, or null when they take both. A model on an OpenAI-compatible
- * endpoint is reached the same way on either route, so it does not decide it.
+ * endpoint is reached the same way on either route, so it does not decide it, and neither does a fallback, which takes
+ * the other route by design.
  */
 export function routeOf(draft: Draft): Route | null {
-  const transports = Object.values(record(draft["models"])).map((profile) => record(profile)["transport"]).filter((transport) => transport !== COMPATIBLE_TRANSPORT);
+  const extra = fallbackAliases(draft);
+  const transports = Object.entries(record(draft["models"])).filter(([alias]) => !extra.has(alias)).map(([, profile]) => record(profile)["transport"]).filter((transport) => transport !== COMPATIBLE_TRANSPORT);
   if (transports.length === 0) return null;
   if (transports.every((transport) => VENDORS.some(({ cli }) => cli === transport))) return "cli";
   if (transports.every((transport) => VENDORS.some(({ api }) => api === transport))) return "api";
@@ -100,8 +107,11 @@ export function withoutUnboundEndpoints(draft: Draft): Draft {
  */
 export function withRoute(draft: Draft, route: Route): Draft {
   if (routeOf(draft) === route || routeOf(draft) === null) return draft;
+  // A fallback takes the other route, and a dollar cap holds for an API key only: a change of route sets them afresh.
   let next = draft;
-  for (const [alias, value] of Object.entries(record(draft["models"]))) {
+  for (const alias of fallbackAliases(draft)) next = setIn(setIn(next, ["models", alias], undefined), ["workflow", "modelExecution", "modelEndpoints", alias], undefined);
+  next = setIn(setIn(next, ["workflow", "modelExecution", "fallbacks"], undefined), ["workflow", "modelExecution", "maximumCostUsd"], undefined);
+  for (const [alias, value] of Object.entries(record(next["models"]))) {
     const profile = record(value);
     const vendor = vendorOf(profile["transport"]);
     if (vendor === undefined) continue;

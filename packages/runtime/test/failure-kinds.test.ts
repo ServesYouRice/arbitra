@@ -40,6 +40,9 @@ describe("the kind of stop a failure reason is", () => {
     expect(readFailure(provider("openai", "INVALID_REQUEST", "CLI_TOO_OLD_FOR_MODEL: Codex CLI 0.158.0 does not know gpt-6.1-sol, which needs 0.162.0 or later."))).toMatchObject({ kind: "fix-computer", rule: "cli-too-old" });
     expect(readFailure(provider("openai", "INVALID_REQUEST", "CLI_MODEL_UNAVAILABLE: Codex CLI 0.158.0 refused gpt-6.1-sol"))).toMatchObject({ kind: "fix-computer", rule: "cli-model-unavailable" });
     expect(readFailure("Error: ENOSPC: no space left on device, write")).toEqual({ kind: "fix-computer", rule: "resource", resource: "ENOSPC" });
+    // A dollar cap is the owner's to raise, so the helper never resumes it by itself.
+    expect(readFailure("ProviderBudgetSuspendedError: MODEL_COST_CAP_REACHED:auditor-a: auditor-a has spent $150.20 of its $150.00 cap and has no fallback."))
+      .toEqual({ kind: "fix-computer", rule: "cost-cap", profile: "auditor-a", spent: "$150.20", cap: "$150.00" });
     expect(readFailure("RUN_REPOSITORY_CHANGED:run-1: the repository no longer holds the files the run read.")).toEqual({ kind: "fix-computer", rule: "repository-changed" });
     expect(readFailure(SLEPT)).toEqual({ kind: "fix-computer", rule: "host-suspended", from: "2026-10-26T10:37:00.000Z", to: "2026-10-26T11:56:00.000Z" });
   });

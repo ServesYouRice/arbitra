@@ -48,6 +48,8 @@ export type FailureReading =
   | { readonly kind: "fix-computer"; readonly rule: "auth-refused" }
   /** `resource`: the error code the computer refused with (`ENOSPC`, `EBUSY`). */
   | { readonly kind: "fix-computer"; readonly rule: "resource"; readonly resource: string }
+  /** A profile reached its dollar cap with no fallback: the owner raises the cap on resume, so it is never resumed by itself. */
+  | { readonly kind: "fix-computer"; readonly rule: "cost-cap"; readonly profile: string; readonly spent: string; readonly cap: string }
   /**
    * A model's allowance ran out. `provider`: the provider ID (`openai`); `cli`: the subscription's CLI as the reason
    * names it (`Codex CLI`); `resetsAt`: when it resets (ISO-8601), when the provider said.
@@ -93,6 +95,8 @@ export function readFailure(reason: string | null): FailureReading {
   if (/\(AUTH: /u.test(text)) return { kind: "fix-computer", rule: "auth-refused" };
   const resource = /\b(ENOSPC|EMFILE|ENFILE|ENOMEM|EBUSY|EPERM|EACCES)\b/u.exec(text)?.[1];
   if (resource !== undefined) return { kind: "fix-computer", rule: "resource", resource };
+  const capped = /MODEL_COST_CAP_REACHED:(\S+): \S+ has spent (\$[\d.]+) of its (\$[\d.]+) cap/u.exec(text);
+  if (capped !== null) return { kind: "fix-computer", rule: "cost-cap", profile: capped[1] ?? "", spent: capped[2] ?? "", cap: capped[3] ?? "" };
   // Resume now: a model's service, its allowance or a call's time limit.
   if (/ProviderUsageLimitError|usage limit|usage allowance/iu.test(text)) {
     const until = /\buntil (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)/u.exec(text)?.[1];

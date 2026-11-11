@@ -2,6 +2,7 @@ import { useState, type ReactElement } from "react";
 import { modelName, modelProfiles, PLACEHOLDER_PREFIX, roleEffort, type ModelProfileSummary } from "../run/models.js";
 import { getIn, roleSlots, type Draft, type Edit, type RoleSlot } from "./draft.js";
 import { modelSettings, offeredCatalog, type CatalogModel, type OfferedModels } from "./model-catalog.js";
+import { fallbackAliases } from "./routes.js";
 
 /** Where a model runs, in words: "Claude Code", or the API it is called through. */
 const RUNS_THROUGH: Readonly<Record<string, string>> = Object.freeze({ "claude-code-cli": "Claude Code", "codex-cli": "Codex", "antigravity-cli": "Antigravity", "gemini-cli": "Gemini CLI",
@@ -14,7 +15,9 @@ export const runsThrough = (transport: string): string => RUNS_THROUGH[transport
  * listed; an endpoint with no list (an OpenAI-compatible one) is typed.
  */
 export function ChangeModels({ draft, edit, offered }: { readonly draft: Draft; readonly edit: Edit; readonly offered: OfferedModels }): ReactElement {
-  const profiles = modelProfiles(draft);
+  // A fallback follows its model (see fallback.ts): it is chosen under "when a model runs out", not here.
+  const fallbacks = fallbackAliases(draft);
+  const profiles = modelProfiles(draft).filter(({ alias }) => !fallbacks.has(alias));
   const recommendable = profiles.filter((profile) => profile.placeholder && offeredCatalog(profile.transport, offered) !== undefined);
   return <div className="change-models">
     {recommendable.length === 0 ? null : <p><button className="button" type="button" onClick={() => { for (const profile of recommendable) { const choice = offeredCatalog(profile.transport, offered)?.[0]; if (choice !== undefined) choose(edit, profile.alias, choice); } }}>

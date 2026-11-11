@@ -603,6 +603,29 @@ describe("the new-run page", () => {
     expect(screen.getByText("Not ready: 1 problem on this computer.")).toBeTruthy();
   });
 
+  // Observed live (memoria, November 10–11, 2026): Opus through an API key spent its $200 credit before the plan, and
+  // the plan went on through Claude Code only by a resume made by hand.
+  it("lets a model through an API key go on through its CLI when it runs out, with a dollar cap, and keeps it at the depth chosen", async () => {
+    stubBrowser();
+    const bodies: Body[] = [];
+    stubControlPlane({ ...BASE_ROUTES, "GET /diagnostics/environment": ENVIRONMENT, "POST /preflight": ({ body }: { body: Body }) => { bodies.push(body); return READY; } });
+    visit("?page=new-run");
+    render(<App />);
+    await screen.findByRole("table", { name: "CLIs on this computer" });
+    fireEvent.click(screen.getByRole("radio", { name: "API keys" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "when auditor-a runs out" }), { target: { value: "other" } });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "dollar cap for auditor-a" }), { target: { value: "150" } });
+    // The fallback does not make the lineup a mixed one: the depths stay, and a depth chosen holds for the fallback too.
+    fireEvent.click(screen.getByRole("radio", { name: "Cheap" }));
+    expect(screen.queryByRole("spinbutton", { name: "dollar cap for auditor-b" })).toBeNull();
+    project("/work/fixture");
+    await waitFor(() => expect(bodies).toHaveLength(1), AFTER_CHECK);
+    const sent = bodies[0]?.config ?? {};
+    expect(getIn(sent, ["workflow", "modelExecution", "fallbacks"])).toEqual({ "auditor-a": "fallback-auditor-a" });
+    expect(getIn(sent, ["workflow", "modelExecution", "maximumCostUsd"])).toEqual({ "auditor-a": 150 });
+    expect([getIn(sent, ["models", "fallback-auditor-a", "transport"]), getIn(sent, ["models", "fallback-auditor-a", "modelId"])]).toEqual(["claude-code-cli", "claude-sonnet-5-5"]);
+  });
+
   it("starts the run from this project's last start, saved, and opens it", async () => {
     stubBrowser();
     const calls = stubControlPlane({ ...BASE_ROUTES, "POST /preflight": READY,

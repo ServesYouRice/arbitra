@@ -120,9 +120,9 @@ const AWAKE_SETTLE_MS = 120_000;
  * When the computer slept during a run, from its `host_suspended` events, as the run report reads them: a Mac asleep
  * wakes in the dark for under a minute every quarter hour, and suspends apart by less than two minutes are one sleep.
  */
-export function sleptSpans(events: readonly { readonly t: string; readonly from?: string; readonly to?: string }[]): readonly Slept[] {
+export function sleptSpans(events: readonly { readonly t: string; readonly from?: string; readonly to?: string | null }[]): readonly Slept[] {
   const spans: { from: number; to: number }[] = [];
-  const suspends = events.flatMap(({ t, from, to }) => t === "host_suspended" && from !== undefined && to !== undefined && Number.isFinite(Date.parse(from)) && Number.isFinite(Date.parse(to))
+  const suspends = events.flatMap(({ t, from, to }) => t === "host_suspended" && from !== undefined && to !== undefined && to !== null && Number.isFinite(Date.parse(from)) && Number.isFinite(Date.parse(to))
     ? [{ from: Date.parse(from), to: Date.parse(to) }] : []).sort((a, b) => a.from - b.from);
   for (const suspend of suspends) {
     const last = spans.at(-1);
@@ -135,6 +135,42 @@ export function sleptSpans(events: readonly { readonly t: string; readonly from?
 /** "The computer slept from 26 Oct, 10:37 to 26 Oct, 11:56; calls in flight were sent again." Null when it did not sleep. */
 export function sleptWords(spans: readonly Slept[]): string | null {
   return spans.length === 0 ? null : `The computer slept ${spans.map(({ from, to }) => `from ${formatTime(from)} to ${formatTime(to)}`).join(" and ")}; calls in flight were sent again.`;
+}
+
+/** Dollars as a person reads them: "$182" from a hundred up, "$3.40" below, "under $0.01" for less than a cent. */
+export function dollars(usd: number): string {
+  if (usd > 0 && usd < 0.005) return "under $0.01";
+  return usd >= 100 ? `$${Math.round(usd).toLocaleString("en")}` : `$${usd.toFixed(2)}`;
+}
+
+/** How a model is reached, in the words of a switch: the CLI by name, or an API key. */
+export function routeWord(transport: string): string {
+  const cli: Readonly<Record<string, string>> = { "claude-code-cli": "Claude Code", "codex-cli": "Codex", "antigravity-cli": "Antigravity", "gemini-cli": "Gemini CLI" };
+  return cli[transport] ?? "API key";
+}
+
+/** One recorded switch of a model profile (a `model_route_switched` event), with its models and routes named. */
+export interface RouteSwitch {
+  readonly model: string; readonly effort: string | null; readonly from: string; readonly to: string | null; readonly toModel: string | null;
+  readonly at: string | null; readonly reason: string; readonly spentUsd: number | null; readonly capUsd: number | null; readonly resetsAt: string | null;
+}
+
+/**
+ * A switch as one line: "Switched Opus 5.5 · xhigh from API key to Claude Code at 11 Nov, 08:14, credit out ($182
+ * spent)." A pause with no fallback, and a return once a limit has reset, are said in the same words.
+ */
+export function routeSwitchWords(change: RouteSwitch): string {
+  const subject = `${change.model}${change.effort === null ? "" : ` · ${change.effort}`}`;
+  const when = change.at === null ? "" : ` at ${formatTime(change.at)}`;
+  const spent = change.spentUsd === null ? "" : ` (${dollars(change.spentUsd)} spent)`;
+  const why = change.reason === "credit_out" ? "credit out"
+    : change.reason === "usage_limit" ? `usage limit reached${change.resetsAt === null ? "" : `, until ${formatTime(change.resetsAt)}`}`
+    : change.reason === "cost_cap" ? `its ${change.capUsd === null ? "dollar" : dollars(change.capUsd)} cap reached`
+    : change.reason === "reset" ? "its limit has reset" : change.reason;
+  if (change.to === null) return `${subject} through ${change.from} stopped${when}: ${why}${spent}. No fallback is set, so the run paused.`;
+  if (change.reason === "reset") return `Went back to ${subject} through ${change.to}${when}: ${why}.`;
+  const target = change.toModel === null || change.toModel === change.model ? change.to : `${change.toModel} through ${change.to}`;
+  return `Switched ${subject} from ${change.from} to ${target}${when}, ${why}${spent}.`;
 }
 
 const AWAKE = "Keep the computer awake while the run works (on a Mac, with its lid open), then resume the run: it goes on from where it stopped, and calls already finished are kept.";
@@ -178,6 +214,7 @@ function readingWords(reading: FailureReading, mode: Mode): { readonly what: str
     case "cli-version-unsupported": return { what: "A model's CLI is a version arbitra does not support.", todo: `Install a version the details name, or update arbitra, then resume the run. ${KEPT}` };
     case "auth-refused": return { what: "A model's provider refused the sign-in or key on this computer.", todo: `Check the key or sign in again, restart arbitra, then resume the run. ${KEPT}` };
     case "resource": return { what: `This computer refused arbitra a file or resource it needed (${reading.resource}).`, todo: `Free what the details name, such as disk space or a file another program holds, then resume the run. ${KEPT}` };
+    case "cost-cap": return { what: `${reading.profile || "A model"} reached its dollar cap: ${reading.spent} of ${reading.cap}, with no fallback to go on with.`, todo: `Resume the run with a higher cap to go on through the API, or start it again with a fallback. ${KEPT}` };
     case "usage-limit": return { what: "A model's usage limit was reached.", todo: "Resume the run once the limit has reset. Everything it has done is kept." };
     case "time-limit": return { what: "A model call kept running past its time limit.", todo: "Resume the run: it goes on from where it stopped, and calls already finished are kept." };
     case "provider-failure": return { what: "A model call failed: the model's service or its CLI did not answer as expected.", todo: `Resume the run: it goes on from where it stopped, and calls already finished are kept. ${SEND}` };
