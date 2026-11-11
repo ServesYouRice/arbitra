@@ -352,6 +352,21 @@ describe("public runtime preflight", () => {
     const scripted = await new Orchestrator({ repository: root, providerOptions: { credential: absent } }).preflight({ ...(JSON.parse(await readFile(new URL("../../../examples/audit-balanced.json", import.meta.url), "utf8")) as object), models: {} });
     expect(scripted).toMatchObject({ valid: true, ready: true, modelBacked: false, diagnostics: [] });
   });
+
+  it("asks each API key endpoint before Start whether it takes the key and knows the model, and is not ready when it does not", async () => {
+    // Observed live (memoria, November 2026): only starting the run showed the Anthropic API route refused every call.
+    const root = await repository();
+    const config = mutable(await template("audit-mixed-providers"));
+    for (const [id, modelId] of [["auditor-a", "gpt-5.5"], ["auditor-b", "claude-opus-9"], ["auditor-c", "gemini-3-pro"]] as const) (config.models as Record<string, { modelId: string; family: string }>)[id] = { ...(config.models as Record<string, { modelId: string; family: string }>)[id] as { modelId: string; family: string }, modelId, family: modelId };
+    const asked: string[] = [];
+    const keyCheckClient = { send: async ({ url }: { url: string }) => { asked.push(url); return url.includes("anthropic") ? { status: 404, headers: {}, body: { type: "error", error: { type: "not_found_error", message: "model: claude-opus-9" } } } : url.includes("openai") ? { status: 200, headers: {}, body: { data: [{ id: "gpt-5.5" }] } } : { status: 200, headers: {}, body: {} }; } };
+    const report = await new Orchestrator({ repository: root, providerOptions: { credential: present }, keyCheckClient }).preflight(config);
+    expect(asked.sort()).toEqual(["https://api.anthropic.com/v1/models/claude-opus-9", "https://api.openai.com/v1/models", "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro"]);
+    expect(report).toMatchObject({ valid: true, ready: false });
+    expect(codes(report.diagnostics)).toEqual(["PROVIDER_MODEL_UNKNOWN:auditor-b"]);
+    expect(report.apiKeys?.map(({ endpointId, state, models }) => ({ endpointId, state, known: models.map(({ known }) => known) }))).toEqual([
+      { endpointId: "anthropic", state: "accepted", known: [false] }, { endpointId: "gemini", state: "accepted", known: [true] }, { endpointId: "openai", state: "accepted", known: [true] }]);
+  });
 });
 
 describe("advisor preflight", () => {

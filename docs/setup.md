@@ -704,6 +704,8 @@ See [Feature mode](workflows.md#feature-mode) for revision and the equivalent HT
 | `ADVISOR_MODEL_CONFIGURATION_INVALID`, `ADVISOR_OUTPUT_LIMIT_EXCEEDED`, `ADVISOR_CONTEXT_LIMIT_EXCEEDED`, `ADVISOR_MODEL_ENDPOINT_ABSENT:<id>` | configuration | Each `workflow.testing.execution.advisors.models` tier must name a bound profile at or above that tier whose limits admit the advisor limits |
 | `MODEL_IDENTITY_PLACEHOLDER:<id>` | environment (live runs) | Set real `modelId`/`family` |
 | `PROVIDER_CREDENTIAL_MISSING:<endpoint>` | environment | Export the named variable |
+| `PROVIDER_KEY_REFUSED:<endpoint>`, `PROVIDER_MODEL_UNKNOWN:<profile>` | environment (the check before Start) | The provider refused the key, or has no such model for it: set a key it takes, or fix the profile's `modelId`. Asked on the provider's models route (Anthropic, OpenAI-compatible, Gemini), no model call; it does not prove the account has credit |
+| `PROVIDER_KEY_UNCHECKED:<endpoint>` | environment (warning) | The provider could not be asked; the run's first call tells |
 | `NATIVE_HARNESS_EXECUTABLE_MISSING`, `NATIVE_HARNESS_CREDENTIAL_MISSING:<var>`, `NATIVE_HARNESS_HOST_HOME_MISSING` | environment | Export `ARBITRA_CLAUDE_CODE_EXECUTABLE` (absolute path) and the `apiKeyEnvVar` variable; `subscription_login` needs the host `HOME` (`USERPROFILE` on Windows) |
 | `NATIVE_HARNESS_EXECUTABLE_UNSUPPORTED:<var>` | environment | The variable names a Windows `.cmd` or `.bat` that is not an npm shim of an installed package; point it at `claude.exe` or at the npm `claude.cmd` |
 | `SANDBOX_ENGINE_UNAVAILABLE`, `SANDBOX_IMAGE_UNAVAILABLE:<image>` | environment | Start a Linux Docker engine; make the pinned image present locally |

@@ -67,6 +67,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@arbitra/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
       '@arbitra/schemas':
         specifier: workspace:*
         version: link:../../packages/schemas

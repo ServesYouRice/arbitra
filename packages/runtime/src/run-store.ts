@@ -57,6 +57,9 @@ export interface StoredRunContext {
 const ONCE_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 let onceSequence = 0;
 
+/** Where a state directory keeps its runs, one folder each. */
+export function runsDirectoryOf(stateDirectory: string): string { return join(stateDirectory, "runs"); }
+
 export class RunStore {
   readonly runId: string;
   readonly directory: string;
@@ -68,6 +71,7 @@ export class RunStore {
   readonly #definition: string;
   readonly #context: string;
   readonly #created: string;
+  readonly #helper: string;
   readonly #journalPath: string;
   readonly #traces: TraceRecorder;
   readonly #runsDirectory: string;
@@ -94,6 +98,7 @@ export class RunStore {
     this.#definition = join(this.directory, "definition.json");
     this.#context = join(this.directory, "context.json");
     this.#created = join(this.directory, "created.json");
+    this.#helper = join(this.directory, "helper-actions.json");
     this.artifacts = new ArtifactStore(this.directory);
   }
 
@@ -286,6 +291,20 @@ export class RunStore {
   #oncePath(segments: readonly string[]): string {
     if (segments.length === 0 || segments.some((segment) => !ONCE_SEGMENT.test(segment))) throw new Error("INVALID_RUN_RECORD_PATH");
     return `${join(this.directory, "records", ...segments)}.json`;
+  }
+
+  /**
+   * The run helper's record of this run (run-helper.ts): what it did about each stop, and the wait it holds, kept on
+   * disk so a restart of arbitra finds the wait. Null before the helper has recorded anything.
+   */
+  async loadHelperActions(): Promise<unknown> {
+    const text = await readOptional(this.#helper);
+    return text === null ? null : JSON.parse(text) as unknown;
+  }
+
+  async saveHelperActions(record: unknown): Promise<void> {
+    await mkdir(this.directory, { recursive: true });
+    await atomicJson(this.#helper, record);
   }
 
   async listArtifacts(): Promise<readonly ArtifactDescriptor[]> {

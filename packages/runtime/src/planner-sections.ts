@@ -50,8 +50,10 @@ export async function planInSections(input: PlannerInput, port: PlannerCompositi
   const plans = sections.map((sectionIds, index) => renumbered(checkedSection(replies[index], sectionIds, input.premiseReport), digest(sectionIds), counters));
   const unique = (values: readonly string[]) => [...new Set(values)];
   const all = <T>(select: (plan: PlanIR) => readonly T[]) => plans.flatMap(select);
+  // The plan has one short title, and each section's title is recorded with how the plan was written, where the plan's
+  // export lists them. Observed live (memoria, November 2026): the 24 section titles joined with ";" were its title.
   const joined = withSharedWritesOrdered(planIRSchema.parse({
-    schemaVersion: 1, id: `plan-${digest(ids)}`, title: plans.length === 1 ? plans[0]?.title : `${plans.map(({ title }) => title).join("; ")}`, mode: "audit",
+    schemaVersion: 1, id: `plan-${digest(ids)}`, title: plans.length === 1 ? plans[0]?.title : `Audit plan in ${plans.length} sections`, mode: "audit",
     reasoningOutcome: plans.map(({ reasoningOutcome }, index) => plans.length === 1 ? reasoningOutcome : `Section ${index + 1}: ${reasoningOutcome}`).join("\n\n"),
     implementationStrategy: unique(all(({ implementationStrategy }) => implementationStrategy)), dependencies: unique(all(({ dependencies }) => dependencies)), acceptedIssueIds: [...ids],
     unresolvedQuestions: all(({ unresolvedQuestions }) => unresolvedQuestions), validationContract: { schemaVersion: 1, validation: all(({ validationContract }) => validationContract.validation) },
@@ -85,7 +87,7 @@ export async function planInSections(input: PlannerInput, port: PlannerCompositi
   if (asked !== undefined) await port.publish("planner-question-groups", { groups: groups.map(({ questionIds: [questionId, ...merged], reason }) => ({ questionId, merged, reason })), ...(unanswered === undefined ? {} : { unanswered }) });
   const diagnostics = records.diagnostics(plan);
   if (diagnostics.length > 0) throw new Error(`PLANNER_SECTIONS_TRACEABILITY_INVALID:${diagnostics.map(({ code }) => code).join(",")}`);
-  await port.publish("planner-composition", { kind: "sections_side_by_side", sections: sections.length, recordsPerSection: sections.map(({ length }) => length), logicalModelCalls: sections.length + (asked === undefined ? 0 : 1) });
+  await port.publish("planner-composition", { kind: "sections_side_by_side", sections: sections.length, recordsPerSection: sections.map(({ length }) => length), sectionTitles: plans.map(({ title }) => title), logicalModelCalls: sections.length + (asked === undefined ? 0 : 1) });
   return plan;
 }
 

@@ -7,6 +7,7 @@ import { registerHandoffRoutes } from "./handoff.js";
 import { runReport } from "@arbitra/runtime/run-report.js";
 import { readUsageWindows, type UsageWindows } from "@arbitra/runtime/usage-windows.js";
 import { processHost } from "@arbitra/runtime/run-host.js";
+import { RunHelper } from "@arbitra/runtime/run-helper.js";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertLoopbackHost, buildServer, DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT } from "./main.js";
@@ -44,7 +45,12 @@ export async function serve(): Promise<Serving> {
   }
   // The computer is kept awake while a run works, and its sleeps watched (see packages/runtime/src/run-host.ts).
   const orchestrator = new Orchestrator({ repository: process.env["ARBITRA_REPOSITORY"] ?? process.cwd(), host: processHost(), ...(recorded === null ? {} : { build: recorded }) });
+  // The run helper resumes the stops a resume helps (a usage limit after its reset, a time-out, a provider failure) and
+  // takes up the waits recorded before this start; `helper.autoResume: false` in <state>/settings.json turns it off.
+  const helper = new RunHelper({ orchestrator });
+  await helper.start();
   const app = buildServer(controlPlaneCore(orchestrator));
+  app.addHook("onClose", async () => { helper.stop(); });
   // The built web app is served from the same address when it exists (`pnpm build` makes it); ARBITRA_WEB_DIST names
   // another build, and an empty value leaves the control plane alone, as for the Vite dev server.
   const webRoot = resolve(process.env["ARBITRA_WEB_DIST"] ?? join(here(), "..", "..", "..", "web", "dist"));

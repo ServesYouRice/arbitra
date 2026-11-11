@@ -73,7 +73,18 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
     const first = await exportPlan(orchestrator, "run-12345678-abcd");
     expect(first.files).toEqual(expect.arrayContaining([expect.stringMatching(/prompts[\\/]1-strong-model[\\/]01-TASK-1\.md$/u), expect.stringMatching(/prompts[\\/]3-fast-model[\\/]02-TASK-2\.md$/u)]));
     const readme = await readFile(join(first.directory, "README.md"), "utf8");
+    // A plan saved before the sections' titles were recorded apart lists the titles its own title joined.
     expect(readme).toMatch(/^# Plan · 3 tasks for 2 issues\n\n- Section one\n- Section two\n/u);
+    // A plan written in sections now has one short title, and its sections' titles are listed from the record of how
+    // it was written. Observed live (memoria, November 2026): 24 section titles joined with ";" were the plan's title.
+    const sectioned = content as Record<string, unknown>;
+    sectioned["plan-ir"] = { ...content["plan-ir"], title: "Audit plan in 2 sections" };
+    sectioned["planner-composition"] = { kind: "sections_side_by_side", sections: 2, sectionTitles: ["Harden billing; refunds", "Fix users"] };
+    const titled = await exportPlan(orchestrator, "run-12345678-abcd");
+    expect(await readFile(join(titled.directory, "README.md"), "utf8")).toMatch(/^# Plan · 3 tasks for 2 issues\n\n- Harden billing; refunds\n- Fix users\n\nFrom arbitra run/u);
+    await rm(titled.directory, { recursive: true });
+    sectioned["plan-ir"] = { ...content["plan-ir"], title: "Section one; Section two" };
+    delete sectioned["planner-composition"];
     // A wait the run added only so that edits to one file land in turn is a merge hint, not an order of work.
     // TASK-3's issue says fetchAll retries, and the project has no fetchAll: the README counts it.
     expect(readme).toContain("2. `TASK-2` Fix TASK-2 · 3-fast-model · after TASK-1\n3. `TASK-3` Fix TASK-3 · 2-balanced-model · same files as TASK-1 · 1 not found\n");

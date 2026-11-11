@@ -337,7 +337,7 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
     <Section title="This computer" id="computer" aside={<>
       {environment?.checkedAt === undefined ? null : <span className="note">checked {new Date(environment.checkedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span>}
       <button className="button button--small" type="button" onClick={() => { loadEnvironment(true); loadWindows(true); void runCheck(); }}>Check again</button></>}>
-      <ThisComputer environment={environment} failure={environmentFailure} transports={transports} keyVariables={keyVariables} subscription={depthLineup} windows={windows} />
+      <ThisComputer environment={environment} failure={environmentFailure} transports={transports} keyVariables={keyVariables} keyChecks={fresh ? result?.apiKeys ?? null : null} subscription={depthLineup} windows={windows} />
     </Section>
 
     <details className="more" id="more">

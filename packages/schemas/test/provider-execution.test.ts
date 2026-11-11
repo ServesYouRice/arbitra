@@ -72,6 +72,13 @@ describe("provider execution configuration", () => {
     expect(paths({ variantSearch: true, graph: { id: "saved", version: "a".repeat(64) } })).toEqual(["workflow.variantSearch"]);
     expect(paths({ variantSearch: true }, "feature")).toContain("workflow.variantSearch");
   });
+  it("takes the run helper's switch for a run only as true or false, in every mode", () => {
+    const config = runConfigSchema.parse(JSON.parse(readFileSync(new URL("./golden/run-config.valid.json", import.meta.url), "utf8")) as unknown);
+    const paths = (workflow: Record<string, unknown>, mode = config.mode) => runConfigSchema.safeParse({ ...config, mode, workflow }).error?.issues.map(({ path }) => path.join(".")) ?? [];
+    expect(paths({ autoResume: false })).toEqual([]);
+    expect(paths({ autoResume: true }, "feature")).toEqual([]);
+    expect(paths({ autoResume: "no" })).toEqual(["workflow.autoResume"]);
+  });
   it.each([
     { modelEndpoints: { auditor: "missing" } },
     { rateLimits: {} },

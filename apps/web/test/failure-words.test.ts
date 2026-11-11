@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { changedFiles, failureWords } from "../src/app/words.js";
+import { readFailure } from "@arbitra/runtime/failure-kinds.js";
+import { changedFiles, failureWords, resumeRefusalWords } from "../src/app/words.js";
 
 /** A provider failure as the runtime records it (`ProviderInvocationRuntime.invoke`). */
 const provider = (id: string, code: string, detail: string): string =>
@@ -55,6 +56,16 @@ describe("what a failure means for the person", () => {
     expect(upstream).toMatchObject({ what: "A model call failed: the model's service or its CLI did not answer as expected.", resumable: true });
     expect(upstream.todo).toMatch(/^Resume the run: it goes on from where it stopped/u);
     expect(failureWords(null)).toMatchObject({ what: "The run stopped on an error, and no reason was recorded.", resumable: true });
+  });
+
+  // The page and the run helper read the same kind (packages/runtime/src/failure-kinds.ts), so they never disagree.
+  it("offers a resume exactly where the runtime's reading of the reason says one can help", () => {
+    const reasons = ["ProviderUsageLimitError: Provider openai reached its usage limit (QUOTA: usage allowance is exhausted)", provider("openai", "AUTH", "Credential environment variable OPENAI_API_KEY is not set"),
+      "Error: MODEL_IDENTITY_PLACEHOLDER:auditor-a", "Error: something new", null];
+    expect(reasons.map((reason) => [readFailure(reason).kind, failureWords(reason).resumable])).toEqual([["resume-now", true], ["fix-computer", true], ["start-again", false], ["inside-arbitra", true], ["inside-arbitra", true]]);
+    expect(resumeRefusalWords("RUN_REPOSITORY_CHANGED:run-1: the repository no longer holds the files the run read.").what).toBe("The project's files changed after the run read them, so the run cannot go on from where it stopped.");
+    expect(resumeRefusalWords("Error: something new").what).toBe("The resume was refused, so the run is as it was.");
+    expect(resumeRefusalWords("RUN_ALREADY_LIVE:run-1").what).toBe("arbitra is already working on this run, so nothing was started.");
   });
 
   // Observed live (October 27, 2026, v0.3.1, macOS): the edited files had to be found with `find -newer`.

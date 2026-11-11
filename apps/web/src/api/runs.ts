@@ -87,6 +87,19 @@ export interface PreflightResult {
   readonly estimateError: string | null;
   /** For a scope over the file limit: how many source files each folder at its top holds, before its leave-outs. */
   readonly folders?: { readonly complete: boolean; readonly folders: readonly { readonly path: string; readonly files: number }[] };
+  /** Each API key endpoint, as its provider answered before the run (asked on its models route, no model call). */
+  readonly apiKeys?: readonly ApiKeyCheck[];
+}
+
+/** One API key endpoint's check: `accepted` or `refused` by the provider, `missing` (not set), or `unchecked`. */
+export interface ApiKeyCheck {
+  readonly endpointId: string;
+  readonly providerId: string;
+  readonly variable: string;
+  readonly state: "accepted" | "refused" | "missing" | "unchecked";
+  readonly models: readonly { readonly profiles: readonly string[]; readonly modelId: string; readonly known: boolean | null }[];
+  readonly detail: string | null;
+  readonly cost: "models_route" | "none";
 }
 
 export class RunApi {

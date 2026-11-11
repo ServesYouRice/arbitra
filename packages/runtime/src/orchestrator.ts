@@ -10,6 +10,7 @@ import { runConfigSchema, type RunConfig } from "@arbitra/schemas/config.js";
 import { DEFAULT_AUDITORS, type AuditFinding } from "./auditors.js";
 import type { CanonicalIssueSet } from "@arbitra/workflow/nodes/canonical-issues.js";
 import { AUDIT_THREE_FINDERS_GRAPH, auditorIdsFor, auditStageState, PRESET_NAMES, VARIANT_SEARCH_NODE_ID, withCritic } from "./graphs.js";
+import { apiKeyChecks, type ApiKeyCheck } from "./api-key-check.js";
 import { assertNoPreflightErrors, configurationDiagnostics, ENVIRONMENT_VERSIONS_KIND, environmentDiagnostics, graphForConfiguration, PreflightError, type ConfigurationPreflightOptions, type PreflightDiagnostic } from "./preflight.js";
 import { DockerTestSandbox } from "./test-sandbox.js";
 import { canonicalise, converge, critique, discover, plan, preflight, readStage, verify, type AuditContext, type ConvergenceResult, type Plan } from "./pipeline.js";
@@ -17,11 +18,12 @@ import { suggestLeaveOuts } from "./generated-files.js";
 import { defaultGit, SNAPSHOT_FILE_LIMIT, snapshotRepository, sourceFolderCounts, type RepositorySnapshot } from "./repository.js";
 import { isTestPath, modulePartition } from "./discovery-scope.js";
 import { assertDiscoveryResumable } from "./model-discovery.js";
-import { listRunIds, RunStore, type ArtifactDescriptor, type StoredRunContext } from "./run-store.js";
+import { listRunIds, RunStore, runsDirectoryOf, type ArtifactDescriptor, type StoredRunContext } from "./run-store.js";
 import { ModelAuditPipeline, validateModelAudit, type AuditUnitOptions } from "./model-pipeline.js";
 import { captureSnapshotIdentity, INCREMENTAL_CONTRACT_KIND, incrementalReport, incrementalRequestOf, IncrementalSeed, planIncrementalAudit, readIncrementalArtifact, SNAPSHOT_IDENTITY_KIND, snapshotChanges, withIncrementalBase, type IncrementalContract, type SnapshotIdentity } from "./incremental-audit.js";
 import type { TestSandbox } from "./test-sandbox.js";
 import type { TransportFactoryOptions } from "@arbitra/providers/registry.js";
+import type { HttpClient } from "@arbitra/providers/transport-contract.js";
 import type { PlanIR } from "@arbitra/schemas/plan.js";
 import { loadActivityTraces } from "@arbitra/persistence/trace.js";
 import { indexedTraceEntry, indexedTracePage } from "./trace-browser.js";
@@ -103,6 +105,19 @@ export interface OrchestratorOptions {
    * held or watched.
    */
   readonly host?: RunHost;
+  /** The client the pre-run API key check asks providers through. Without it the check asks through fetch, and only
+   * when calls would reach real providers (no `providerOptions.client`). */
+  readonly keyCheckClient?: HttpClient;
+}
+
+/**
+ * Follows runs from outside them (`Orchestrator.observe`), as the run helper does. `live` is told each run this process
+ * starts or resumes, as it starts; `cancelled` each cancel the owner asks for, before it is made, and answers whether it
+ * was waiting to resume that run.
+ */
+export interface RunObserver {
+  live?(runId: string): void;
+  cancelled?(runId: string): Promise<boolean>;
 }
 
 export interface PreflightReport {
@@ -113,6 +128,8 @@ export interface PreflightReport {
   /** False for a scripted Audit (no model profiles); null when the schema is invalid. */
   readonly modelBacked: boolean | null;
   readonly diagnostics: readonly PreflightDiagnostic[];
+  /** Each API key endpoint, as its provider answered before the run: asked only when calls would reach real providers. */
+  readonly apiKeys?: readonly ApiKeyCheck[];
 }
 
 export type RequirementsCheckpointResource = { readonly artifactId: string; readonly kind: "requirements"; readonly pendingAmbiguityIds: readonly string[]; readonly revisionProposalArtifactId?: string };
@@ -180,6 +197,8 @@ export interface RunOverview extends RunListItem {
  */
 export class Orchestrator {
   readonly repository: string;
+  /** Where runs, saved configurations and the settings live (`<repository>/.runs` by default). */
+  readonly stateDirectory: string;
   readonly configurations: ConfigStore<RunConfig>;
   /** Operator-authored graphs: content-addressed, immutable per version. */
   readonly workflowGraphs: WorkflowGraphStore;
@@ -189,9 +208,10 @@ export class Orchestrator {
   readonly #live = new Map<string, RunHandle>();
   readonly #listCache = new Map<string, { readonly stamp: string; readonly item: RunListItem }>();
   readonly #resuming = new Set<string>();
-  /** Runs paused on a usage limit that resume by themselves once it resets. */
-  readonly #wakeups = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Who follows runs from outside them, such as the run helper (run-helper.ts), which resumes the stops a resume helps. */
+  readonly #observers = new Set<RunObserver>();
   readonly #providerOptions: TransportFactoryOptions;
+  readonly #keyCheckClient: HttpClient | undefined;
   readonly #testSandbox: TestSandbox | undefined;
   readonly #graphs: Readonly<Record<string, RunnerGraph>>;
   readonly #gatePolicies: GatePolicyRegistry;
@@ -204,7 +224,8 @@ export class Orchestrator {
     this.#build = options.build;
     this.repository = resolve(options.repository ?? process.cwd());
     const state = resolve(options.stateDirectory ?? resolve(this.repository, ".runs"));
-    this.#runsDirectory = resolve(state, "runs");
+    this.stateDirectory = state;
+    this.#runsDirectory = runsDirectoryOf(state);
     this.configurations = new ConfigStore<RunConfig>(resolve(state, "configurations"), runConfigSchema);
     // arbitra-determinism: allow -- wall-clock save time is read only at the composition boundary
     this.workflowGraphs = new WorkflowGraphStore(resolve(state, "workflows"), { now: options.now ?? ((): string => new Date().toISOString()) });
@@ -213,6 +234,7 @@ export class Orchestrator {
     this.#host = options.host;
     // Every model call of every run reads the host's suspends through the provider options its stages already pass on.
     this.#providerOptions = withHostSuspends(options.providerOptions ?? {}, options.host);
+    this.#keyCheckClient = options.keyCheckClient;
     this.#testSandbox = options.testSandbox;
     for (const id of Object.keys(options.graphs ?? {})) {
       if (PRESET_NAMES.includes(id)) throw new Error(`DUPLICATE_WORKFLOW_PRESET:${id}`);
@@ -291,11 +313,14 @@ export class Orchestrator {
     }
     const saved = await this.#savedGraph(config);
     const configuration = [...saved.diagnostics, ...configurationDiagnostics(config, this.#preflightOptions(config, saved.graph))];
-    const environment = await environmentDiagnostics(config, this.#environmentOptions());
+    // Whether each API key is taken and its models known, asked of the provider without a generation.
+    const keys = this.#keyCheckClient === undefined && this.#providerOptions.client !== undefined ? null
+      : await apiKeyChecks(config, { credential: this.#environmentOptions().credential, ...(this.#keyCheckClient === undefined ? {} : { client: this.#keyCheckClient }) });
+    const environment = [...await environmentDiagnostics(config, this.#environmentOptions()), ...keys?.diagnostics ?? []];
     const valid = !configuration.some(({ severity }) => severity === "error");
     const preset = presetOf(config) ?? (valid ? (saved.graph ?? graphForConfiguration(config, this.#graphs)).id : null);
     return Object.freeze({ valid, ready: valid && !environment.some(({ severity }) => severity === "error"), mode: config.mode, preset,
-      modelBacked: config.mode !== "audit" || Object.keys(config.models).length > 0, diagnostics: Object.freeze([...configuration, ...environment]) });
+      modelBacked: config.mode !== "audit" || Object.keys(config.models).length > 0, diagnostics: Object.freeze([...configuration, ...environment]), ...(keys === null ? {} : { apiKeys: keys.checks }) });
   }
 
   #preflightOptions(config: RunConfig, savedGraph?: RunnerGraph): ConfigurationPreflightOptions {
@@ -593,7 +618,6 @@ export class Orchestrator {
    */
   async resume(runId: string, options: ResumeOptions = {}): Promise<RunResource> {
     if (this.#live.has(runId) || this.#resuming.has(runId)) throw new Error(`RUN_ALREADY_LIVE:${runId}`);
-    clearTimeout(this.#wakeups.get(runId)); this.#wakeups.delete(runId);
     this.#resuming.add(runId);
     try { return await this.#resume(runId, options); }
     finally { this.#resuming.delete(runId); }
@@ -957,10 +981,11 @@ export class Orchestrator {
 
   async cancel(runId: string): Promise<RunResource> {
     const handle = this.#live.get(runId);
+    // A run the owner cancelled is never resumed by an observer; one an observer was waiting to resume stays as it is.
+    let waited = false;
+    for (const observer of this.#observers) if (await observer.cancelled?.(runId).catch(() => false) === true) waited = true;
     if (handle === undefined) {
-      // A run waiting for its usage limit to reset stays paused and no longer resumes by itself.
-      const waking = this.#wakeups.get(runId);
-      if (waking !== undefined) { clearTimeout(waking); this.#wakeups.delete(runId); return await this.status(runId); }
+      if (waited) return await this.status(runId);
       const existing = await this.status(runId);
       if (["COMPLETED", "FAILED", "CANCELLED"].includes(existing.state)) return existing;
       throw new Error(`RUN_NOT_LIVE:${runId}`);
@@ -1344,27 +1369,13 @@ export class Orchestrator {
     // settled run never makes. Its transports are closed once its result settles, whatever the outcome; a
     // failure to close is never the run's result. A resume builds its own pipeline and transports.
     void handle.result.then(() => close(), () => close()).catch(() => undefined);
-    void handle.result.then((state) => state === "SUSPENDED_RATE_LIMIT" ? this.#wakeAfterReset(runId) : undefined).catch(() => undefined);
+    for (const observer of this.#observers) { try { observer.live?.(runId); } catch { /* an observer never stops a run */ } }
   }
 
-  /**
-   * A run paused on a usage limit whose reset time the provider gave goes on by itself a minute after the reset, while
-   * this process stays up; a resume or cancel before then removes the wake-up. Observed live (October 21, 2026): a
-   * tester's run stopped at the critic on the Codex five-hour window with the reset three hours away.
-   */
-  async #wakeAfterReset(runId: string): Promise<void> {
-    const events = await new RunStore(this.#runsDirectory, runId).loadEvents();
-    const reason = [...events].reverse().find((event): event is Extract<RunEvent, { t: "run_transition" }> => event.t === "run_transition")?.reason ?? "";
-    const until = Date.parse(/\buntil (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)/u.exec(reason)?.[1] ?? "");
-    // arbitra-determinism: allow -- a wake-up is wall-clock scheduling at the composition boundary, outside any run
-    const wait = until + 60_000 - Date.now();
-    if (!Number.isFinite(wait) || wait > MAXIMUM_WAKE_UP_MS || this.#live.has(runId)) return;
-    // arbitra-determinism: allow -- as above
-    const timer = setTimeout(() => { this.#wakeups.delete(runId); void this.resume(runId).catch(() => undefined); }, Math.max(0, wait));
-    // A pending wake-up never keeps the process alive on its own.
-    timer.unref();
-    clearTimeout(this.#wakeups.get(runId));
-    this.#wakeups.set(runId, timer);
+  /** Follows every run this process starts or resumes, and every cancel; returns the call that stops it. */
+  observe(observer: RunObserver): () => void {
+    this.#observers.add(observer);
+    return () => { this.#observers.delete(observer); };
   }
 }
 
@@ -1380,8 +1391,6 @@ function withoutRef(descriptor: ArtifactDescriptor): PublicArtifact {
 const MAXIMUM_DIGESTS = 50_000;
 /** How many runs the run list reads at once. */
 const LIST_CONCURRENCY = 8;
-/** Seven days covers a weekly allowance; a reset further away is left to the operator. */
-const MAXIMUM_WAKE_UP_MS = 7 * 24 * 3_600_000;
 
 /**
  * A pending human checkpoint is one decision. A requirements checkpoint is listed only while
