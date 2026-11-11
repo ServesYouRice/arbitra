@@ -16,9 +16,9 @@ in the source; lower-severity reports are listed but not checked.
 
 | Project | Lines | Confirmed issues | Time | Tokens | Tokens per confirmed issue |
 |---|---|---|---|---|---|
-| A web app (rokavatar) | 10,716 | 23 (3 high) | 110 min | 15.6M | 677K |
+| A web app | 10,716 | 23 (3 high) | 110 min | 15.6M | 677K |
 | A blog with a CMS | 14,204 | 41 (3 high) | 63 min | 13.1M | 320K |
-| A comments service (commentanywhere) | 11,719 | 51 (1 critical, 7 high) | 40 min | 7.5M | 146K |
+| A comments service | 11,719 | 51 (1 critical, 7 high) | 40 min | 7.5M | 146K |
 | A screen-sharing app ([nextra](https://github.com/ServesYouRice/nextra)) | 38,967 | 126 (1 critical, 21 high) | 105 min | 26.8M | 213K |
 | A desktop automation app (Python and React) | 26,100 | 102 (10 high) | 71 min | 15.8M | 155K |
 | A self-hosted messaging app in alpha ([veritra](https://github.com/ServesYouRice/veritra)) | 103,575 | 256 (36 high) | about 5 h 25 | 70.0M | 273K |
