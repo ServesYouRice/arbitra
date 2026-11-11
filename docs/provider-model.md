@@ -272,6 +272,10 @@ The run schema validates optional `workflow.modelExecution` settings: `endpoints
 per-provider `rateLimits`, optional `batch` lanes (see [Batch lane](#batch-lane)), and `roles` (`planner`, `verifier`, optional `critic`, `critiqueChecker` and `secondOpinion`, the model asked again when `verification.secondOpinion: "severe_rejections"` and the verifier rejects a critical or high issue a reviewer backed; by default the critic, or another auditor than the verifier). Endpoint credentials are named by `apiKeyEnvVar`; values
 are resolved only at dispatch; `run` first checks that each referenced variable is set
 (`PROVIDER_CREDENTIAL_MISSING:<endpoint>`) without reading the value into any output.
+The check before Start (`preflight`, the New run page) also asks each API key endpoint's
+models route, with the key sent only to that provider, whether it takes the key and knows
+each bound model (`PROVIDER_KEY_REFUSED:<endpoint>`, `PROVIDER_MODEL_UNKNOWN:<profile>`);
+no generation is made, and an accepted answer is kept ten minutes.
 Limits are supplied by the operator, not inferred from a provider-name table. The CLI/server executes a bounded source-snapshot Audit when these
 settings and model profiles are supplied. Profile IDs for discovery match the selected
 preset's `auditor-a`, `auditor-b` and, for deep audits, `auditor-c` nodes. Roles reference

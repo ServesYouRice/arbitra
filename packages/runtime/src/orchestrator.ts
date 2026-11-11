@@ -10,6 +10,7 @@ import { runConfigSchema, type RunConfig } from "@arbitra/schemas/config.js";
 import { DEFAULT_AUDITORS, type AuditFinding } from "./auditors.js";
 import type { CanonicalIssueSet } from "@arbitra/workflow/nodes/canonical-issues.js";
 import { AUDIT_THREE_FINDERS_GRAPH, auditorIdsFor, auditStageState, PRESET_NAMES, VARIANT_SEARCH_NODE_ID, withCritic } from "./graphs.js";
+import { apiKeyChecks, type ApiKeyCheck } from "./api-key-check.js";
 import { assertNoPreflightErrors, configurationDiagnostics, ENVIRONMENT_VERSIONS_KIND, environmentDiagnostics, graphForConfiguration, PreflightError, type ConfigurationPreflightOptions, type PreflightDiagnostic } from "./preflight.js";
 import { DockerTestSandbox } from "./test-sandbox.js";
 import { canonicalise, converge, critique, discover, plan, preflight, readStage, verify, type AuditContext, type ConvergenceResult, type Plan } from "./pipeline.js";
@@ -22,6 +23,7 @@ import { ModelAuditPipeline, validateModelAudit, type AuditUnitOptions } from ".
 import { captureSnapshotIdentity, INCREMENTAL_CONTRACT_KIND, incrementalReport, incrementalRequestOf, IncrementalSeed, planIncrementalAudit, readIncrementalArtifact, SNAPSHOT_IDENTITY_KIND, snapshotChanges, withIncrementalBase, type IncrementalContract, type SnapshotIdentity } from "./incremental-audit.js";
 import type { TestSandbox } from "./test-sandbox.js";
 import type { TransportFactoryOptions } from "@arbitra/providers/registry.js";
+import type { HttpClient } from "@arbitra/providers/transport-contract.js";
 import type { PlanIR } from "@arbitra/schemas/plan.js";
 import { loadActivityTraces } from "@arbitra/persistence/trace.js";
 import { indexedTraceEntry, indexedTracePage } from "./trace-browser.js";
@@ -103,6 +105,9 @@ export interface OrchestratorOptions {
    * held or watched.
    */
   readonly host?: RunHost;
+  /** The client the pre-run API key check asks providers through. Without it the check asks through fetch, and only
+   * when calls would reach real providers (no `providerOptions.client`). */
+  readonly keyCheckClient?: HttpClient;
 }
 
 export interface PreflightReport {
@@ -113,6 +118,8 @@ export interface PreflightReport {
   /** False for a scripted Audit (no model profiles); null when the schema is invalid. */
   readonly modelBacked: boolean | null;
   readonly diagnostics: readonly PreflightDiagnostic[];
+  /** Each API key endpoint, as its provider answered before the run: asked only when calls would reach real providers. */
+  readonly apiKeys?: readonly ApiKeyCheck[];
 }
 
 export type RequirementsCheckpointResource = { readonly artifactId: string; readonly kind: "requirements"; readonly pendingAmbiguityIds: readonly string[]; readonly revisionProposalArtifactId?: string };
@@ -192,6 +199,7 @@ export class Orchestrator {
   /** Runs paused on a usage limit that resume by themselves once it resets. */
   readonly #wakeups = new Map<string, ReturnType<typeof setTimeout>>();
   readonly #providerOptions: TransportFactoryOptions;
+  readonly #keyCheckClient: HttpClient | undefined;
   readonly #testSandbox: TestSandbox | undefined;
   readonly #graphs: Readonly<Record<string, RunnerGraph>>;
   readonly #gatePolicies: GatePolicyRegistry;
@@ -213,6 +221,7 @@ export class Orchestrator {
     this.#host = options.host;
     // Every model call of every run reads the host's suspends through the provider options its stages already pass on.
     this.#providerOptions = withHostSuspends(options.providerOptions ?? {}, options.host);
+    this.#keyCheckClient = options.keyCheckClient;
     this.#testSandbox = options.testSandbox;
     for (const id of Object.keys(options.graphs ?? {})) {
       if (PRESET_NAMES.includes(id)) throw new Error(`DUPLICATE_WORKFLOW_PRESET:${id}`);
@@ -291,11 +300,14 @@ export class Orchestrator {
     }
     const saved = await this.#savedGraph(config);
     const configuration = [...saved.diagnostics, ...configurationDiagnostics(config, this.#preflightOptions(config, saved.graph))];
-    const environment = await environmentDiagnostics(config, this.#environmentOptions());
+    // Whether each API key is taken and its models known, asked of the provider without a generation.
+    const keys = this.#keyCheckClient === undefined && this.#providerOptions.client !== undefined ? null
+      : await apiKeyChecks(config, { credential: this.#environmentOptions().credential, ...(this.#keyCheckClient === undefined ? {} : { client: this.#keyCheckClient }) });
+    const environment = [...await environmentDiagnostics(config, this.#environmentOptions()), ...keys?.diagnostics ?? []];
     const valid = !configuration.some(({ severity }) => severity === "error");
     const preset = presetOf(config) ?? (valid ? (saved.graph ?? graphForConfiguration(config, this.#graphs)).id : null);
     return Object.freeze({ valid, ready: valid && !environment.some(({ severity }) => severity === "error"), mode: config.mode, preset,
-      modelBacked: config.mode !== "audit" || Object.keys(config.models).length > 0, diagnostics: Object.freeze([...configuration, ...environment]) });
+      modelBacked: config.mode !== "audit" || Object.keys(config.models).length > 0, diagnostics: Object.freeze([...configuration, ...environment]), ...(keys === null ? {} : { apiKeys: keys.checks }) });
   }
 
   #preflightOptions(config: RunConfig, savedGraph?: RunnerGraph): ConfigurationPreflightOptions {

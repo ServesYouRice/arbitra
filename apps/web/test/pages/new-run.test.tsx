@@ -580,6 +580,29 @@ describe("the new-run page", () => {
     expect([getIn(sent, ["models", "auditor-a", "transport"]), getIn(sent, ["models", "auditor-a", "modelId"]), getIn(sent, ["models", "auditor-b", "transport"])]).toEqual(["anthropic-messages", "claude-sonnet-5-5", "openai-responses"]);
   });
 
+  it("says beside the other checks whether each API key is accepted and its models known, before Start", async () => {
+    // Observed live (memoria, November 2026): only starting the run showed the Anthropic API route refused every call.
+    stubBrowser();
+    const unknown = { code: "PROVIDER_MODEL_UNKNOWN:auditor-b", severity: "error", scope: "environment", path: "models.auditor-b.modelId", message: "openai has no model \"gpt-9\" for the key in ARBITRA_OPENAI_API_KEY (profile auditor-b). Check the model's name, or whether this key's account may use it." };
+    stubControlPlane({ ...BASE_ROUTES, "GET /diagnostics/environment": ENVIRONMENT, "POST /preflight": { ...READY, ready: false, diagnostics: [unknown], apiKeys: [
+      { endpointId: "anthropic", providerId: "anthropic", variable: "ARBITRA_ANTHROPIC_API_KEY", state: "accepted", models: [{ profiles: ["auditor-a"], modelId: "claude-sonnet-5-5", known: true }], detail: null, cost: "models_route" },
+      { endpointId: "openai", providerId: "openai", variable: "ARBITRA_OPENAI_API_KEY", state: "accepted", models: [{ profiles: ["auditor-b"], modelId: "gpt-9", known: false }], detail: null, cost: "models_route" },
+      { endpointId: "gemini", providerId: "google", variable: "ARBITRA_GEMINI_API_KEY", state: "refused", models: [], detail: "INVALID_ARGUMENT API key not valid.", cost: "models_route" }] } });
+    visit("?page=new-run");
+    render(<App />);
+    await screen.findByRole("table", { name: "CLIs on this computer" });
+    fireEvent.click(screen.getByRole("radio", { name: "API keys" }));
+    project("/work/fixture");
+    const table = screen.getByRole("table", { name: "CLIs on this computer" });
+    expect((await within(table).findByText(/accepted by anthropic/u, {}, AFTER_CHECK)).textContent).toBe("accepted by anthropic, which knows claude-sonnet-5-5");
+    expect(within(table).getByText(/accepted by openai/u).textContent).toBe("accepted by openai, which has no model gpt-9");
+    expect(within(table).getByText(/refused by google/u).textContent).toBe("refused by google: INVALID_ARGUMENT API key not valid.");
+    expect(within(table).getAllByText("asked without a model call")).toHaveLength(3);
+    expect(within(table).getByRole("rowheader", { name: "API key ARBITRA_GEMINI_API_KEY" })).toBeTruthy();
+    // Start is held until the lineup names a model the key can use.
+    expect(screen.getByText("Not ready: 1 problem on this computer.")).toBeTruthy();
+  });
+
   it("starts the run from this project's last start, saved, and opens it", async () => {
     stubBrowser();
     const calls = stubControlPlane({ ...BASE_ROUTES, "POST /preflight": READY,
