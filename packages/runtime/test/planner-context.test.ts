@@ -403,7 +403,10 @@ describe("an audit plan written in sections side by side", () => {
     expect(plan.tasks.map(({ acceptanceCriteria }) => acceptanceCriteria[0])).toEqual([...Array(3).fill(`VAL-001 holds once ${plan.unresolvedQuestions[0]?.id} is answered.`), ...Array(2).fill(`VAL-002 holds once ${plan.unresolvedQuestions[1]?.id} is answered.`)]);
     expect(plan.tasks.map(({ implementationGuidance }) => implementationGuidance[0])).toEqual(["Start here.", "Build on TASK-001, not TASK-0010.", "Build on TASK-002, not TASK-0010.", "Start here.", "Build on TASK-004, not TASK-0010."]);
     expect(plan.acceptedIssueIds).toEqual(["C-1", "C-2", "C-3", "C-4", "C-5"]);
-    expect(artifacts.get("planner-composition")).toMatchObject({ kind: "sections_side_by_side", sections: 2, logicalModelCalls: 2 });
+    // The plan has one short title; each section's own title is kept where the sections are listed.
+    // Observed live (memoria, November 2026): 24 section titles joined with ";" were the plan's title.
+    expect(plan.title).toBe("Audit plan in 2 sections");
+    expect(artifacts.get("planner-composition")).toMatchObject({ kind: "sections_side_by_side", sections: 2, sectionTitles: ["Plan for C-1, C-3, C-5", "Plan for C-2, C-4"], logicalModelCalls: 2 });
   });
 
   it("plans a section that does not fit as two halves, and leaves a plan within one section to one call", async () => {

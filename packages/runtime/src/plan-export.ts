@@ -171,7 +171,9 @@ export async function exportPlan(orchestrator: Orchestrator, runId: string): Pro
   const data: PremiseData = { version: 1, run: runId, folder, savedAt: new Date().toISOString(), repositoryMatched: matched,
     prompts: Object.fromEntries([...looked].map(([id, { file, hints }]) => [id, { file: file.replace(/\\/gu, "/"), hints, premises: settled.get(id) ?? [] }])) };
   files.set(PREMISE_DATA, `${JSON.stringify(data)}\n`);
-  files.set("README.md", readme(plan, ordered, runId, overview.workflowId ?? "unknown", { unsettled, unverified, alsoFound: alsoFound.length, kept, notes, premises: premiseCounts }));
+  const composition = await read<{ sectionTitles?: unknown }>("planner-composition");
+  const sectionTitles = Array.isArray(composition?.sectionTitles) && composition.sectionTitles.length > 0 && composition.sectionTitles.every((title) => typeof title === "string") ? composition.sectionTitles as readonly string[] : undefined;
+  files.set("README.md", readme(plan, ordered, runId, overview.workflowId ?? "unknown", { unsettled, unverified, alsoFound: alsoFound.length, kept, notes, premises: premiseCounts, sectionTitles }));
   const openQuestions = plan.unresolvedQuestions.filter(({ blocking }) => !blocking);
   if (openQuestions.length > 0) files.set("questions.md", ["# Open questions", "",
     "Not blocking: the plan went ahead on each one's default. Answer one to change what the tasks that cite it do; each prompt repeats the questions it depends on.", "",
@@ -327,13 +329,15 @@ function agents(ordered: readonly ExportTask[], checks: number, commands: readon
 interface SeverityKept { readonly candidateId: string; readonly foundAs: string; readonly loweredTo: string; readonly by: string; readonly reason: string }
 
 interface PremiseCounts { readonly script: string; readonly found: number; readonly notFound: number; readonly elsewhere: number; readonly byPrompt: ReadonlyMap<string, number> }
-function readme(plan: ExportPlan, ordered: readonly ExportTask[], runId: string, workflow: string, { unsettled, unverified, alsoFound, kept, notes, premises }: { readonly unsettled: readonly ExportIssue[]; readonly unverified: number; readonly alsoFound: number; readonly kept: readonly (SeverityKept & { readonly title: string })[]; readonly notes: readonly string[]; readonly premises: PremiseCounts }): string {
+function readme(plan: ExportPlan, ordered: readonly ExportTask[], runId: string, workflow: string, { unsettled, unverified, alsoFound, kept, notes, premises, sectionTitles }: { readonly unsettled: readonly ExportIssue[]; readonly unverified: number; readonly alsoFound: number; readonly kept: readonly (SeverityKept & { readonly title: string })[]; readonly notes: readonly string[]; readonly premises: PremiseCounts; readonly sectionTitles: readonly string[] | undefined }): string {
   const marked = [...premises.byPrompt.values()].filter((count) => count > 0).length;
   const notFound = (id: string) => { const count = premises.byPrompt.get(id) ?? 0; return count === 0 ? "" : ` · ${count} not found`; };
   const blocking = plan.unresolvedQuestions.filter(({ blocking: isBlocking }) => isBlocking);
-  // A plan written in sections carries every section's title joined into one; it reads as a summary, not a heading.
+  // A plan written in sections lists its sections' titles, recorded apart; one saved before that carries them joined
+  // into its own title. Either reads as a summary, not a heading.
   const fixes = new Set(ordered.flatMap((task) => task.addresses.issues)).size;
-  return [`# Plan · ${ordered.length} ${ordered.length === 1 ? "task" : "tasks"} for ${fixes} ${fixes === 1 ? "issue" : "issues"}`, "", plan.title.split(/;\s+/u).map((part) => `- ${part}`).join("\n"), "", `From arbitra run \`${runId}\` (${workflow}).`, "",
+  const summary = sectionTitles ?? plan.title.split(/;\s+/u);
+  return [`# Plan · ${ordered.length} ${ordered.length === 1 ? "task" : "tasks"} for ${fixes} ${fixes === 1 ? "issue" : "issues"}`, "", summary.map((part) => `- ${part}`).join("\n"), "", `From arbitra run \`${runId}\` (${workflow}).`, "",
     "Work through the prompts in the order below. Each one is self-contained: paste it into your coding agent (Claude Code, Codex or another), or follow it yourself. The folder says which kind of model each task suits.", "",
     "This folder lists every open issue the audit found. A public repository that commits it publishes them all, so keep it out of one until they are fixed.", "",
     `Each defect is proven before it is fixed: a test that fails on the current code, then passes with the fix. Record each issue's result in \`${RESULTS_FILE}\`; arbitra reads it back and reports how many defects a failing test proved and how many were fixed.`, "",
