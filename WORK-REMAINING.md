@@ -26,6 +26,14 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
   - **Open:** the automatic resume after a usage limit lives only in the server process; a restart drops it, so the run
     had to be resumed by hand. New run should also check the API key route before Start, and offer a dollar cap.
   - Sol's ChatGPT Plus window ran out twice (18:49 and 22:27); a project this size takes more than one window.
+  - November 11: Antigravity's Gemini allowance ran out for 72 hours after 5 units. A resume can now leave a finder out
+    (`leaveOut`, f3f0971): its unanswered 99 units are gaps, and it reviews nothing.
+  - Consensus put all 684 issues to Opus at about $0.25 each, low ones too; a resume can now skip those below the plan's
+    scope (`skipBelowPlanScope`, a10f773), which left 305. **Cost finding:** cache writes were $65 of verification's
+    ~$80 (13.0M written, 32.0M read): each question writes its own ~11k-token start, read back only ~2.5 times.
+  - **State at 10:30Z:** paused on Sol's Codex window (second opinions) until 12:17Z, server timer set (build
+    `main-a10f773`, port 4181). 306 issues asked; the API credit is nearly spent (~$82 since 08:18Z), so the plan may
+    need more credit.
 - **Default lineup:** New run starts on Claude Code and Codex (`subscription-audit`: two finders at depth deep, no
   peer-review round, plan critic off); balanced and cheap depths, a third finder and the critic are separate
   choices in New run (October 25). Gemini is only ever the opt-in third finder, labelled with Google's terms. The Feature templates still use Antigravity as

@@ -572,6 +572,37 @@ describe("composed model audits", () => {
     expect(context.modelConfiguration.verification["belowPlanScope"]).toBe("skip");
   });
 
+  it("gives a stage not yet started to a profile a resume adds, keeping every recorded answer", async () => {
+    // Observed live (memoria, November 11, 2026): the API credit ran out before the plan, and the owner's Claude
+    // subscription had room for it.
+    const { create, config, requests, quotaDiscovery } = await fixture();
+    quotaDiscovery("auditor-c");
+    const core = create(); const result = await core.run(config);
+    expect(result.state).toBe("SUSPENDED_RATE_LIMIT");
+    const profile = config.models["auditor-b"];
+    await expect(core.resume(result.runId, { reassign: { roles: { planner: "auditor-a" }, models: { "auditor-a": profile } } })).rejects.toThrow("REASSIGN_REPLACES_PROFILE");
+    await expect(core.resume(result.runId, { reassign: { roles: { planner: "planner-b" }, models: { "planner-b": profile } } })).rejects.toThrow("REASSIGN_ENDPOINT_REQUIRED:planner-b");
+    quotaDiscovery(null);
+    const discovered = requests.filter(({ stage, url }) => stage === "discovery" && !url.includes("auditor-c")).length;
+    await core.resume(result.runId, { reassign: { roles: { planner: "planner-b" }, models: { "planner-b": profile }, modelEndpoints: { "planner-b": "auditor-b" } } });
+    const finished = await core.wait(result.runId); const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(finished.state, JSON.stringify(events.slice(-3))).toBe("COMPLETED");
+    // The other finders' discovery is not asked again, and the plan is made through the profile the resume added.
+    expect(requests.filter(({ stage, url }) => stage === "discovery" && !url.includes("auditor-c"))).toHaveLength(discovered);
+    const planned = requests.filter(({ stage }) => stage === "planner" || stage.startsWith("planner-"));
+    expect(planned.length).toBeGreaterThan(0);
+    expect(planned.every(({ url }) => url.includes("auditor-b"))).toBe(true);
+  });
+
+  it("keeps the profile of a stage that has started when a resume would give its role away", async () => {
+    const { create, config, quotaCritic } = await fixture();
+    quotaCritic(new Date(Date.now() + 3_600_000).toISOString());
+    const core = create(); const result = await core.run(config);
+    expect(result.state).toBe("SUSPENDED_RATE_LIMIT");
+    await expect(core.resume(result.runId, { reassign: { roles: { critic: "critic-a" }, models: { "critic-a": config.models["auditor-a"] }, modelEndpoints: { "critic-a": "auditor-a" } } }))
+      .rejects.toThrow(/REASSIGN_STAGE_STARTED: secondOpinion \(verification\), critic \(planner\)/u);
+  });
+
   it("waits for answers to blocking plan questions, then applies them with one planner call", async () => {
     // Observed live: an Audit plan correctly left "throw or clamp?" open and failed its gate, with no way to answer it.
     const { directory, create, config, requests } = await fixture({ planQuestion: true });

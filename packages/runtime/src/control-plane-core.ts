@@ -4,7 +4,7 @@ import { CrossProtocolComparisonError } from "@arbitra/persistence/metrics/queri
 import { realpath, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { RunConfig } from "@arbitra/schemas/config.js";
-import type { Orchestrator } from "./orchestrator.js";
+import type { Orchestrator, RoleReassignment } from "./orchestrator.js";
 import { withIncrementalBase } from "./incremental-audit.js";
 
 /**
@@ -79,7 +79,7 @@ export function controlPlaneCore(orchestrator: Orchestrator) {
       },
       start: async (body: unknown) => { const request = await configured(body); return orchestrator.start(request.config, request.repository); },
       status: (id: string) => orchestrator.status(id),
-      resume: (id: string, body?: unknown) => orchestrator.resume(id, { ...raisedLimit(body), ...leftOut(body), ...belowPlanScope(body) }),
+      resume: (id: string, body?: unknown) => orchestrator.resume(id, { ...raisedLimit(body), ...leftOut(body), ...belowPlanScope(body), ...reassigned(body) }),
       events: (id: string) => orchestrator.events(id),
       cancel: async (id: string) => orchestrator.cancel(id),
       respondCheckpoint: (id: string, checkpointId: string, body: unknown) => orchestrator.respondCheckpoint(id, checkpointId, body),
@@ -186,6 +186,17 @@ function belowPlanScope(body: unknown): { readonly skipBelowPlanScope?: boolean 
   if (value === undefined) return {};
   if (typeof value !== "boolean") throw Object.assign(new Error("INVALID_SKIP_BELOW_PLAN_SCOPE"), { statusCode: 400 });
   return { skipBelowPlanScope: value };
+}
+
+/** `reassign`: roles given to model profiles the resume adds, with those profiles and their endpoints. */
+function reassigned(body: unknown): { readonly reassign?: RoleReassignment } {
+  const value = typeof body === "object" && body !== null ? (body as { reassign?: unknown }).reassign : undefined;
+  if (value === undefined) return {};
+  const plain = (entry: unknown): entry is Record<string, unknown> => typeof entry === "object" && entry !== null && !Array.isArray(entry);
+  if (!plain(value) || !plain(value["roles"]) || !Object.values(value["roles"]).every((id) => typeof id === "string") || value["models"] !== undefined && !plain(value["models"])
+    || value["endpoints"] !== undefined && (!Array.isArray(value["endpoints"]) || !value["endpoints"].every((endpoint) => plain(endpoint) && typeof endpoint["id"] === "string"))
+    || value["modelEndpoints"] !== undefined && (!plain(value["modelEndpoints"]) || !Object.values(value["modelEndpoints"]).every((id) => typeof id === "string"))) throw Object.assign(new Error("INVALID_REASSIGN"), { statusCode: 400 });
+  return { reassign: value as unknown as RoleReassignment };
 }
 
 async function repositoryPath(value: unknown): Promise<string> {

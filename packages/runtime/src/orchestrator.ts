@@ -38,7 +38,8 @@ import { readRequirementsProposal } from "./requirements-revision.js";
 import { GraphCheckpoints, validateGraphCheckpoints, type CheckpointView, type GatePolicyRegistry } from "@arbitra/core/runner/graph-checkpoints.js";
 import { checkpointPolicySchema, checkpointResponseSchema, PLAN_QUESTIONS_CHECKPOINT_ID, type CheckpointPolicy } from "@arbitra/schemas/checkpoint-policy.js";
 import { PlanQuestionsCheckpoint, type PlanQuestionsCheckpointResource } from "./plan-questions.js";
-import { batchResolutionRequestSchema } from "@arbitra/schemas/provider-execution.js";
+import { batchResolutionRequestSchema, providerExecutionSchema } from "@arbitra/schemas/provider-execution.js";
+import { checkerProfile, mergerProfile, secondOpinionProfile, type AuditRoles } from "./audit-roles.js";
 import { ModelActivities } from "./model-activities.js";
 import { graphCheckpointStore } from "./graph-checkpoint-store.js";
 import { canonicalJson } from "@arbitra/core/config/config-store.js";
@@ -598,13 +599,15 @@ export class Orchestrator {
     finally { this.#resuming.delete(runId); }
   }
 
-  async #resume(runId: string, { maximumTokens, leaveOut, skipBelowPlanScope }: ResumeOptions): Promise<RunResource> {
+  async #resume(runId: string, { maximumTokens, leaveOut, skipBelowPlanScope, reassign }: ResumeOptions): Promise<RunResource> {
     const previous = await this.status(runId);
     if (!previous.resumable) throw new Error(`RUN_NOT_RESUMABLE:${runId}`);
     const store = new RunStore(this.#runsDirectory, runId);
     const raised = maximumTokens === undefined ? await store.loadContext() : await raisedTokenLimit(store, await store.loadContext(), maximumTokens);
     const narrowed = skipBelowPlanScope === true ? await skippedBelowPlanScope(store, raised) : raised;
-    const storedContext = leaveOut === undefined ? narrowed : await finderLeftOut(store, narrowed, auditorIdsFor((await store.definitions().load(runId)).graph), leaveOut);
+    const finders = auditorIdsFor((await store.definitions().load(runId)).graph);
+    const kept = leaveOut === undefined ? narrowed : await finderLeftOut(store, narrowed, finders, leaveOut);
+    const storedContext = reassign === undefined ? kept : await reassignedRoles(store, kept, finders, reassign);
     const snapshot = await snapshotRepository(storedContext.repository, SNAPSHOT_FILE_LIMIT, { scope: storedContext.scope, ...testingSnapshotOptions(storedContext.modelConfiguration) });
     if (snapshotDigest(snapshot) !== storedContext.repositoryDigest) {
       // A model Audit's finished discovery is not lost with it: a new run of the project as it is now reuses it.
@@ -1592,7 +1595,63 @@ async function approvedRequirements(source: RunStore, sourceConfig: RunConfig, c
  * run has charged stays charged, and every other setting stays the one it started with.
  */
 /** What a resume may change first: see `Orchestrator.resume`. */
-export interface ResumeOptions { readonly maximumTokens?: number; readonly leaveOut?: readonly string[]; readonly skipBelowPlanScope?: boolean }
+export interface ResumeOptions { readonly maximumTokens?: number; readonly leaveOut?: readonly string[]; readonly skipBelowPlanScope?: boolean; readonly reassign?: RoleReassignment }
+
+/**
+ * Roles given to model profiles the resume adds (`reassign`): a stage not yet started may run on another route, such as
+ * the owner's Claude subscription instead of API credit. Profiles and endpoints already in the run stay as they are.
+ */
+export interface RoleReassignment {
+  readonly roles: Readonly<Record<string, string>>;
+  readonly models?: Readonly<Record<string, unknown>>;
+  readonly endpoints?: readonly { readonly id: string }[];
+  readonly modelEndpoints?: Readonly<Record<string, string>>;
+}
+
+/** The profile each use of a role resolves to, and the graph node that makes the calls. */
+function roleUses(roles: AuditRoles, auditorIds: readonly string[]): readonly { readonly use: string; readonly node: string; readonly profile: string | undefined }[] {
+  return [
+    { use: "merger", node: "consensus", profile: mergerProfile(roles) },
+    { use: "verifier", node: "verification", profile: roles.verifier },
+    { use: "mediumVerifier", node: "verification", profile: checkerProfile(roles, "medium") },
+    { use: "secondOpinion", node: "verification", profile: secondOpinionProfile(roles, auditorIds) },
+    { use: "planner", node: "planner", profile: roles.planner },
+    { use: "critic", node: "planner", profile: roles.critic },
+    { use: "critiqueChecker", node: "planner", profile: roles.critiqueChecker },
+    { use: "variantSearcher", node: VARIANT_SEARCH_NODE_ID, profile: roles.variantSearcher },
+  ];
+}
+
+/**
+ * The context of a model audit whose roles `reassign` gives to profiles it adds. A role whose stage has started keeps
+ * its profile, and so does every use another role's default makes of it (the merger is the verifier unless named), so
+ * no recorded answer changes its model. Observed live (memoria, November 11, 2026): the API credit ran out before the
+ * plan, while the owner's Claude subscription had room for it.
+ */
+async function reassignedRoles(store: RunStore, context: StoredRunContext, auditorIds: readonly string[], reassign: RoleReassignment): Promise<StoredRunContext> {
+  const configuration = context.modelConfiguration;
+  if (configuration?.mode !== "audit") throw Object.assign(new Error("REASSIGN_NEEDS_MODEL_AUDIT"), { statusCode: 409 });
+  const execution = providerExecutionSchema.parse(configuration.workflow["modelExecution"]);
+  if (execution.roles === undefined) throw Object.assign(new Error("MODEL_EXECUTION_ROLES_REQUIRED"), { statusCode: 409 });
+  const added = reassign.models ?? {};
+  const replaced = [...Object.keys(added).filter((id) => Object.hasOwn(configuration.models, id)), ...(reassign.endpoints ?? []).map(({ id }) => id).filter((id) => execution.endpoints.some((endpoint) => endpoint.id === id)),
+    ...Object.keys(reassign.modelEndpoints ?? {}).filter((id) => !Object.hasOwn(added, id))];
+  if (replaced.length > 0) throw Object.assign(new Error(`REASSIGN_REPLACES_PROFILE: ${replaced.join(", ")} is already in the run; add a profile under a new name`), { statusCode: 400 });
+  const roles = { ...execution.roles, ...reassign.roles } as AuditRoles;
+  const endpointIds = new Set([...execution.endpoints, ...(reassign.endpoints ?? [])].map(({ id }) => id));
+  for (const id of Object.keys(added)) if (!endpointIds.has(reassign.modelEndpoints?.[id] ?? "")) throw Object.assign(new Error(`REASSIGN_ENDPOINT_REQUIRED:${id}`), { statusCode: 400 });
+  const next = runConfigSchema.parse({ ...configuration, models: { ...configuration.models, ...added },
+    workflow: { ...configuration.workflow, modelExecution: { ...configuration.workflow["modelExecution"] as object, endpoints: [...execution.endpoints, ...(reassign.endpoints ?? [])], modelEndpoints: { ...execution.modelEndpoints, ...reassign.modelEndpoints }, roles } } });
+  providerExecutionSchema.parse(next.workflow["modelExecution"]);
+  for (const id of Object.values(roles)) if (id !== undefined && !Object.hasOwn(next.models, id)) throw Object.assign(new Error(`MODEL_PROFILE_REQUIRED:${id}`), { statusCode: 400 });
+  const started = new Set((await store.loadEvents()).flatMap((event) => event.t === "node_dispatched" ? [event.nodeId] : []));
+  const after = roleUses(roles, auditorIds);
+  const moved = roleUses(execution.roles, auditorIds).filter(({ use, node, profile }) => started.has(node) && after.find((entry) => entry.use === use)?.profile !== profile);
+  if (moved.length > 0) throw Object.assign(new Error(`REASSIGN_STAGE_STARTED: ${moved.map(({ use, node }) => `${use} (${node})`).join(", ")} has started and keeps its profile`), { statusCode: 409 });
+  const reassigned: StoredRunContext = { ...context, modelConfiguration: next };
+  await store.replaceContext(reassigned);
+  return reassigned;
+}
 
 /**
  * The context of a model audit whose verifier is no longer asked about issues below the plan's minimum severity

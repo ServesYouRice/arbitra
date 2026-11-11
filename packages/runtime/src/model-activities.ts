@@ -102,6 +102,11 @@ export interface ActivityReplaySource {
   reject(request: { readonly activityId: string; readonly key: string }, reason: string): Promise<void>;
 }
 
+/** Whether a recorded request sent the same protocol, profile, messages and tools as this one. */
+function sameRequest(recorded: { readonly protocol?: unknown; readonly modelProfileId?: unknown; readonly messages?: unknown; readonly tools?: unknown }, current: { readonly protocol: string; readonly modelProfileId: string; readonly messages: unknown; readonly tools: unknown }): boolean {
+  return recorded.protocol === current.protocol && recorded.modelProfileId === current.modelProfileId && canonicalJson(recorded.messages) === canonicalJson(current.messages) && canonicalJson(recorded.tools) === canonicalJson(current.tools);
+}
+
 /**
  * The transport code of a call a finder left out by a resume would have made. Its provider is not asked: the call fails
  * at once, for this unit alone, so the unit is a gap (`provider_failed`) and the finder goes on to its next. Observed
@@ -233,9 +238,12 @@ export class ModelActivities {
   private async execute<T>(input: ModelActivityRequest<T>, messages: readonly TransportMessage[], fingerprint: string, key: string, replayIdentity: string, legacy: string): Promise<T> {
     const profile = this.#config.models[input.modelProfileId];
     if (profile === undefined) throw new Error("TRACE_PROFILE_ABSENT");
-    const existing = await this.read(key) as { fingerprint?: unknown; value?: unknown } | null;
+    const existing = await this.read(key) as { fingerprint?: unknown; value?: unknown; replayIdentity?: unknown } | null;
     if (existing !== null) {
-      if (existing.fingerprint !== fingerprint && existing.fingerprint !== legacy) throw await this.#inputChanged(input.activityId);
+      // The fingerprint binds the run's whole execution settings; the replay identity binds only what the call meant
+      // (its request, model and endpoint). An answer of the same meaning is kept when a resume gave another stage's
+      // role to a new profile, which changes those settings and nothing this call sent.
+      if (existing.fingerprint !== fingerprint && existing.fingerprint !== legacy && existing.replayIdentity !== replayIdentity) throw await this.#inputChanged(input.activityId);
       return input.schema.parse(existing.value);
     }
     // A paid answer is saved, then its trace, then the mapping above. When the mapping write fails, or the process
@@ -275,8 +283,8 @@ export class ModelActivities {
     if (this.#leftOut.has(input.modelProfileId)) throw new ProviderInvocationFailure(`${FINDER_LEFT_OUT}: ${input.modelProfileId} was left out when the run was resumed`, 0, "LEFT_OUT", FINDER_LEFT_OUT);
     // Record identity before spend so a failed or interrupted activity cannot be
     // resumed with a different prompt/profile under the same durable activity ID.
-    const identity = await this.read(`${key}-input`) as { fingerprint?: unknown } | null;
-    if (identity !== null && identity.fingerprint !== fingerprint && identity.fingerprint !== legacy) throw await this.#inputChanged(input.activityId);
+    const identity = await this.read(`${key}-input`) as { fingerprint?: unknown; protocol?: unknown; modelProfileId?: unknown; messages?: unknown; tools?: unknown } | null;
+    if (identity !== null && identity.fingerprint !== fingerprint && identity.fingerprint !== legacy && !sameRequest(identity, { protocol: input.protocol, modelProfileId: input.modelProfileId, messages, tools: input.tools ?? [] })) throw await this.#inputChanged(input.activityId);
     const requestArtifact = await this.store.publish(`${key}-input`, { activityId: input.activityId, fingerprint, protocol: input.protocol, modelProfileId: input.modelProfileId, messages, tools: input.tools ?? [] });
     const maximumOutputTokens = input.maximumOutputTokens ?? outputCeiling(this.#config, input.modelProfileId);
     // UTF-8 bytes at the run's rate provide an admission estimate, not actual token usage. Input admitted as
