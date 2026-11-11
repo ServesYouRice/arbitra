@@ -1,6 +1,6 @@
 # Remaining work
 
-Updated November 1, 2026, on `main`. This file lists open work only, each item with its next step and its place in
+Updated November 11, 2026, on `main`. This file lists open work only, each item with its next step and its place in
 the order below; an item is deleted once it is done, and Git keeps its history. Run records and measurements are in
 [real-project runs](docs/qa/real-runs.md), phase status in the [completion plan](docs/completion-plan.md), the design
 review in the [design audit](docs/design-audit.md), the research behind the pipeline in [research](docs/research.md),
@@ -14,35 +14,32 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
   `main`; [`TESTERS.md`](TESTERS.md) is the testers' guide.
 - **nananananana, November 1:** audited on v0.3.2 ([real runs](docs/qa/real-runs.md#the-runs)); its plan is in the owner's
   checkout, and the owner has started carrying it out. New projects come next: the owner would rather not run earlier ones again.
-- **memoria, November 10, in progress** (`run-bcd4fc1e`, 567 files, 88,659 lines, tests left out): Opus 5.5 xhigh
-  through the owner's **Anthropic API key** (finder, checker, planner; $200 of credit to use up), Sol through Codex,
-  Gemini 3.8 Flash high through Antigravity. Found while running, fixed on `main`:
-  - The Anthropic API route had never run against a current model: every call was refused (effort sent as
-    `thinking.effort`), nothing was cached, and thinking blocks were not replayed (664e9fa). With the fix Opus's
-    discovery made 755 calls without an error, 96 units, 601 findings, about $115 (cache writes and output dominate).
-  - Antigravity 1.5.4 follows Gemini's reply with "improperly formatted function call" and retries by itself: 6 of
-    Gemini's first 10 units failed and three in a row ended its discovery. A whole reply is now kept (1906cfd), and the
-    failure no longer counts towards the row (5d4b08b).
-  - **Open:** the automatic resume after a usage limit lives only in the server process; a restart drops it, so the run
-    had to be resumed by hand. New run should also check the API key route before Start, and offer a dollar cap.
-  - Sol's ChatGPT Plus window ran out twice (18:49 and 22:27); a project this size takes more than one window.
-  - November 11: Antigravity's Gemini allowance ran out for 72 hours after 5 units. A resume can now leave a finder out
-    (`leaveOut`, f3f0971): its unanswered 99 units are gaps, and it reviews nothing.
-  - Consensus put all 684 issues to Opus at about $0.25 each, low ones too; a resume can now skip those below the plan's
-    scope (`skipBelowPlanScope`, a10f773), which left 305. **Cost finding:** cache writes were $65 of verification's
-    ~$80 (13.0M written, 32.0M read): each question writes its own ~11k-token start, read back only ~2.5 times.
-  - The API credit was nearly spent (~$82 on verification since 08:18Z) before the plan: a resume can now give a stage
-    not yet started to a profile it adds (`reassign`, b0a0803), and the plan ran on Opus through Claude Code on the
-    owner's Max login (46 calls). The `claude` on PATH (npm, 2.0.51) is refused by current models; the run used the
-    VS Code extension's 2.1.322 through ARBITRA_CLAUDE_CODE_EXECUTABLE.
-  - **Completed November 11, 13:3xZ:** 684 issues (44 high, 261 medium, 364 low, 15 informational), 305 verified,
-    292 accepted into a plan of 243 tasks; 130.3M tokens. **Finding:** the plan's title is every section's title joined
-    with ";" (24 of them), not one title. Still to write up in docs/qa/real-runs.md.
+- **memoria, November 10–11** (`run-bcd4fc1e`, 562 files, 87,971 lines by the run's preflight, tests left out):
+  Opus 5.5 xhigh through the owner's **Anthropic API key** (finder, checker), Sol through Codex, Gemini 3.8 Flash high
+  through Antigravity; the plan on Opus through Claude Code. 684 issues, 305 verified, 292 confirmed, a plan of 243
+  tasks, 130.3M tokens, $195 of API at list prices; written up in
+  [real runs](docs/qa/real-runs.md#memoria-measured-november-11). It set up none of "To test next week". Fixed on
+  `main` while it ran: the Anthropic API route (37f7334), Antigravity's malformed function calls (db7a0b2, b3c5026),
+  and three resume options, `leaveOut` (7fefa29), `skipBelowPlanScope` (c197da9) and `reassign` (ec08507).
+  Built after it on November 11: the run helper's steps 1 and 2 (a restart no longer drops a usage-limit wait), a
+  fallback between an API key and a subscription with a dollar cap, an API key check in New run, and one title for a
+  plan written in sections. Open from it:
+  - **API cache mark:** `anthropic-messages.ts` caches only the end of a request, so every unit and question writes
+    its shared start again ($113 of the $195 was cache writes; 0 of 305 questions read a first call from the cache).
+    Mark the shared start too, then measure.
+  - **The second opinion held the run 3 h 04** on Codex's window (`roles.secondOpinion` on Sol) after Opus had
+    answered everything else; it should not hold a stage on another vendor's window, or fall back.
+  - Sol's Plus window ran out three times (27 and 44 minutes of Sol at xhigh); a project this size needs more than one.
+  - Checking confirmed 96% (Sol's issues 100%): leniency cannot be told from precise finders until the plan is carried out.
+  - Tokens a line were 1,482, above New run's deep basis (1,290 to 1,330).
+  - New run counted 567 files where the run's preflight counted 562; the export writes "lines 20" for one line.
+  - The `claude` on PATH (npm 2.0.51) is refused by current models; the run used the VS Code extension's 2.1.322
+    through ARBITRA_CLAUDE_CODE_EXECUTABLE.
 - **Default lineup:** New run starts on Claude Code and Codex (`subscription-audit`: two finders at depth deep, no
   peer-review round, plan critic off); balanced and cheap depths, a third finder and the critic are separate
   choices in New run (October 25). Gemini is only ever the opt-in third finder, labelled with Google's terms. The Feature templates still use Antigravity as
   their second reviewer behind the same warning.
-- **Evidence:** nine real projects audited; nextra's plan carried out on its `dev` branch: all 126 confirmed issues
+- **Evidence:** ten real projects audited; nextra's plan carried out on its `dev` branch: all 126 confirmed issues
   were real, 118 shown by a failing test, and 14 more defects were found while fixing. P20 is closed on its pilot
   (October 19); its held-out set stays unrun by design.
 - **Research review, October 25:** every step checked against other labs, products and our own runs
@@ -67,12 +64,14 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
    premise-check and write-scope measurements under "Measure on the next runs".
 3. **Measure first** (no model calls, or one cheap run): they decide what to cut before anything is built.
 4. **Small builds before the next real runs** ("Need design", marked *before veritra*).
-5. **The next real runs:** projects not audited yet (game, memoria, spectra), from the week of November 2, on the
-   current build, with "Measure on the next runs". The owner would rather not run earlier projects again.
+5. **The next real runs:** first **properties** (small and new), to try the November 11 builds (the run helper, the
+   API ↔ subscription fallback with a dollar cap, the key check) and the experiments under "To test next week", one
+   change per run; then spectra and game, on the current build, with "Measure on the next runs". The owner will set
+   the order again after the November 11 push, and would rather not run earlier projects again.
 6. **UI phase**: built on the `ui` branch, merged into `main` and released in 0.3.0; the owner's review and the
    testers' reports go on.
-7. **Improvements the measurements support** (the rest of "Need design"). The run helper's steps 1 and 2 can be built
-   alongside, since they spend no model calls; steps 3 and 4 wait for its measurements.
+7. **Improvements the measurements support** (the rest of "Need design"). The run helper's steps 1 and 2 are built;
+   steps 3 and 4 wait for their measurements.
 8. **P21**, the completion report and the docs reconciled with the final build, then a release.
 
 ## To test next week
@@ -116,6 +115,16 @@ From the research review; each decides a cut or a build.
 
 ## Measure on the next runs
 
+- **The API ↔ subscription fallback and dollar caps** (built November 11, from memoria's hand-made `reassign`):
+  `workflow.modelExecution.fallbacks`, `maximumCostUsd` (API profiles only) and `fallbackWaitMs` (30 minutes: a
+  subscription limit resetting sooner is waited for, a later one switches; a subscription goes back after its reset).
+  Switches are `model_route_switched` events and the `model-routes` artifact; replay identity is the profile the stage
+  asked for; prices in `packages/providers/src/pricing.ts` (`PRICES_AS_OF`, Claude only). No live run has switched
+  yet: shake it down with cheap models first. Open: the native harness path is not routed; OpenAI and Gemini are not
+  priced, so they take no cap; a routed call leaves the batch lane.
+- **The API key check** (built November 11) proves the key and the model name through the models routes, at no cost,
+  but not the credit or the request's shape: memoria's refused `thinking.effort` would have passed it. A count-tokens
+  check with the encoded request would catch that; verify it live first.
 - **Discovery reading beyond its unit** (production-audit 2.0.0, cheaper from 2.1.0): on nananananana (November 1,
   [real runs](docs/qa/real-runs.md#the-runs)) every unit read beyond itself (about 12 files, against 7 to 12 in the
   unit), 151 of 175 confirmed issues cite a file beyond their unit, and it doubled the tokens a line, with 70
@@ -283,11 +292,7 @@ waiting, resuming, counting tries and recording are plain functions and runners,
 called only where code cannot decide: the interview's questions and the request it writes, a stop no rule names, and
 a repair proposal. Its model is a frontier one by default (Opus 5.5), chosen by the user in settings
 (`helper.model`, any profile the lineup could use), and each call gets only the facts the code gathered (the reason,
-the run's status, the report's lines that matter), never the whole run. Today arbitra already sends a failed model
-call again (up to 3 attempts) and after the computer slept, and a run paused on a usage limit whose reset time is
-known resumes by itself a minute after it (`#wakeups` in `orchestrator.ts`, kept only in memory while arbitra is open).
-Every other stop, a time-out or a provider failure among them, stays stopped until the person presses Resume; step 2
-adds those, and moves the usage-limit wakeup into the helper so there is one place that resumes.
+the run's status, the report's lines that matter), never the whole run.
 
 ```text
  owner ──► interview ──► Feature request ──► run starts
@@ -300,29 +305,16 @@ adds those, and moves the usage-limit wakeup into the helper so there is one pla
    resume)      wait)          no resume)        report, no resume)
 ```
 
-1. **Move the failure reading out of the web app.** `failureWords` and `resumeRefusalWords` live in
-   `apps/web/src/app/words.ts`; the helper runs on the server, so the rules that sort a reason into the four kinds
-   move to `packages/runtime` (for example `failure-kinds.ts`) and return a kind (`resume-now`, `fix-computer`,
-   `start-again`, `inside-arbitra`) plus the facts the words need (the CLI, the variable, the sleep times). The web
-   words are then built from that kind, so the page and the helper can never disagree. Its tests are today's word
-   tests, moved, plus one per kind. No model calls.
-2. **Auto-resume, no model.** A `RunHelper` in `packages/runtime`, started by the server (`apps/server/src/serve.ts`),
-   follows each run through `orchestrator.events(id)`. When a run fails:
-   - `resume-now`: a usage limit waits until its reset, as the orchestrator's `#wakeups` does today, and when no
-     reset time was given, until `usage-windows.ts` says the window has room (today such a run waits for the person);
-     a time-out or provider failure waits a few minutes; then it calls `orchestrator.resume(id)`.
-   - Any other kind: no resume; it records why and shows the owner the same words the run page shows.
-   - Limits: at most 2 automatic resumes per run and none for a reason that already came back after one; a run the
-     owner cancelled is never resumed; on by default (owner, November 4), with a switch per run
-     (`workflow.autoResume`) and a global one in settings to turn it off. It only ever resumes `resume-now` stops, so
-     on by default cannot repeat a stop that a resume would only repeat.
-   - A stop no rule names (today's `inside-arbitra` fallback) goes to the helper's model once, with the reason and the
-     report's last lines, which answers one of the four kinds or "unknown"; "unknown" is never resumed.
-   - Every action is a record in the run's store (`helper-actions`: time, reason read, action, result) and an event
-     on the run's stream, so the run page shows "resumed by the helper at 14:02, because …".
-   - Tests with an injected orchestrator and clock: each kind, the retry limit, a cancel during the wait, a server
-     restart during the wait (the wait is stored, not only in memory).
-   Measure on the next real runs: how many stops it resumed, and how many of those then finished.
+1. **Failure kinds** and 2. **auto-resume, no model** are built (November 11): `packages/runtime/src/failure-kinds.ts`
+   reads a reason as a kind and rule that the web words are built from; a `RunHelper` started by the server resumes
+   `resume-now` stops (a usage limit at its reset or when `usage-windows.ts` shows room, a time-out or provider
+   failure after 5 minutes; at most 2 a run, never after a cancel), with its waits and actions in
+   `runs/<id>/helper-actions.json`, so a restart keeps them, and `helper_action` events on the run page. Switches:
+   `workflow.autoResume` and `helper.autoResume` in `<state>/settings.json`, both on. A run paused at its dollar cap is
+   `fix-computer` and never resumed by itself. Open: the model reading of a stop no rule names (`StopReader`, not
+   built: such a stop is never resumed), a web switch for `helper.autoResume` and `helper.model`, a stopped run's
+   page shows a later resume only after a reload; measure on the next real runs how many stops it resumed and how
+   many of those then finished.
 3. **The interview for Feature requests.** A model step before Feature mode's own requirements step
    (`model-requirements.ts`): from the owner's first sentence and the project's snapshot it asks at most about 5
    questions at a time, in plain words, each with a proposed answer, over at most 3 rounds; then it writes the
