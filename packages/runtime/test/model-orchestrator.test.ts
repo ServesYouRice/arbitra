@@ -1,12 +1,13 @@
 import { cp, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { runConfigSchema, type RunConfig } from "@arbitra/schemas/config.js";
 import { planIRSchema } from "@arbitra/schemas/plan.js";
 import { TransportError, type HttpRequest, type HttpResponse, type TransportRequest } from "@arbitra/providers/transport-contract.js";
 import { BUILTIN_TRANSPORT_FACTORIES, type TransportFactory, type TransportFactoryOptions } from "@arbitra/providers/registry.js";
 import { Orchestrator } from "../src/orchestrator.js";
+import { RunHelper } from "../src/run-helper.js";
 import { controlPlaneCore } from "../src/control-plane-core.js";
 import { orchestratorCore } from "../src/cli-core.js";
 import { ModelActivities, type ModelActivityRequest } from "../src/model-activities.js";
@@ -515,12 +516,13 @@ describe("composed model audits", () => {
     expect(JSON.parse((await resumed.artifact(result.runId, descriptor.artifactId) as { content: string }).content).title).toBe("Revised plan");
   });
 
-  it("pauses on a used-up usage allowance instead of failing, and goes on by itself after the reset", async () => {
+  it("pauses on a used-up usage allowance instead of failing, and the run helper resumes it after the reset", async () => {
     // Observed live: the Codex five-hour window ran out at the critic and failed a run whose audit and plan were done.
     const { create, config, requests, quotaCritic } = await fixture();
-    // The reset is already past, so the wake-up resumes the run at once.
+    // The reset is already past, so the helper resumes the run at once.
     quotaCritic(new Date(Date.now() - 120_000).toISOString());
-    const core = create(); const result = await core.run(config);
+    const core = create(); const helper = new RunHelper({ orchestrator: core }); await helper.start(); onTestFinished(() => { helper.stop(); });
+    const result = await core.run(config);
     expect(result.state).toBe("SUSPENDED_RATE_LIMIT");
     expect((await core.overview(result.runId)).reason).toMatch(/^ProviderUsageLimitError: .*insufficient_quota/u);
     await vi.waitFor(async () => { expect((await core.status(result.runId)).state).toBe("COMPLETED"); }, { timeout: 15_000, interval: 100 });

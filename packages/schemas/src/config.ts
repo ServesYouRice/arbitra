@@ -95,6 +95,8 @@ export const runConfigSchema = z.object({
       if (typeof workflow["variantSearch"] !== "boolean") context.addIssue({ code: "custom", path: ["variantSearch"], message: "Expected true or false" });
       else if (workflow["graph"] !== undefined) context.addIssue({ code: "custom", path: ["variantSearch"], message: "A saved workflow graph decides its own steps" });
     }
+    // `autoResume: false` keeps the run helper from resuming this run by itself (packages/runtime/src/run-helper.ts); on unless set.
+    if (workflow["autoResume"] !== undefined && typeof workflow["autoResume"] !== "boolean") context.addIssue({ code: "custom", path: ["autoResume"], message: "Expected true or false" });
     if (workflow["modelExecution"] === undefined) return;
     const result = providerExecutionSchema.safeParse(workflow["modelExecution"]);
     if (!result.success) for (const issue of result.error.issues) context.addIssue({ ...issue, path: ["modelExecution", ...issue.path] });

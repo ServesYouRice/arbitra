@@ -9,7 +9,7 @@ import { formatTime, gateReasonLabel, isActive } from "../../app/format.js";
 import { GateVerdict } from "../../app/marks.js";
 import { Link, type RunTab } from "../../app/router.js";
 import { tokens as limitWords } from "../../app/token-limit.js";
-import { counted, duration, failureWords, partsReadWords, SEVERITIES, severityWord, sleptSpans, sleptWords, stepDoing, tokenWords, type Mode } from "../../app/words.js";
+import { counted, duration, failureWords, helperWaiting, helperWords, partsReadWords, SEVERITIES, severityWord, sleptSpans, sleptWords, stepDoing, tokenWords, type Mode } from "../../app/words.js";
 import { CopyButton } from "../../controls/CopyButton.js";
 import { useEvaluationMetrics, type ConfirmedYield } from "../../views/evaluation/api.js";
 import { FeatureOutcome, HandoffDownload } from "../../views/feature/FeatureView.js";
@@ -95,6 +95,7 @@ function WatchView(props: SummaryProps & { readonly state: string }): ReactEleme
       {facts.length === 0 ? null : <p className="watch-now__facts">{facts.join(" · ")}</p>}
       {progress.error === null ? null : <p className="note">The run's progress could not be read just now, so the stages below follow its live events and show no times. The page tries again by itself.</p>}
       <SleptNote events={props.events} />
+      <HelperNote events={props.events} stopped={false} mode={props.mode} />
     </section>
     <section aria-labelledby="stages-title" className="summary-section">
       <h2 className="panel-title" id="stages-title">Stages</h2>
@@ -116,6 +117,12 @@ function WatchView(props: SummaryProps & { readonly state: string }): ReactEleme
 function SleptNote({ events }: { readonly events: readonly RunEvent[] }): ReactElement | null {
   const words = sleptWords(sleptSpans(events));
   return words === null ? null : <p className="note" data-slept="true">{words}</p>;
+}
+
+/** What the run helper did: "Resumed by the helper at 26 Oct, 14:02, because …", and while the run is stopped, what it waits for. */
+function HelperNote({ events, stopped, mode }: { readonly events: readonly RunEvent[]; readonly stopped: boolean; readonly mode: Mode }): ReactElement | null {
+  const lines = helperWords(events, stopped, mode);
+  return lines.length === 0 ? null : <>{lines.map((line, index) => <p className="note" data-helper="true" key={index}>{line}</p>)}</>;
 }
 
 function Restarted({ restarted }: { readonly restarted: RunProgress["restarted"] }): ReactElement {
@@ -159,13 +166,14 @@ function Stopped(props: SummaryProps & { readonly state: string }): ReactElement
   const why = reason ?? overview?.reason ?? null;
   const limit = record(record(overview?.configuration?.["workflow"])["modelExecution"])["maximumTokens"];
   const note: ReactNode = state === "FAILED" ? <FailureNote runId={runId} reason={why} mode={props.mode} reuse={reusesFinishedWork(props.mode, overview)} />
-    : state === "SUSPENDED_RATE_LIMIT" ? <UsageLimitPause reason={why} />
+    : state === "SUSPENDED_RATE_LIMIT" ? <UsageLimitPause reason={why} helper={helperWaiting(props.events)} />
     : state === "SUSPENDED_BUDGET" ? <Alert title="Paused at its token limit">The run reached its limit{typeof limit === "number" ? ` of ${limitWords(limit)} tokens` : ""}, with everything it has done kept. Raise the limit in the header to go on from where it stopped.</Alert>
     : state === "CANCELLED" ? <Alert title="Cancelled">The run was cancelled. What it finished is kept: resume it from the header to go on from where it stopped.</Alert>
     : state === "BLOCKED" ? <Alert title="Needs you" tone="attention">The run waits on the decisions above. Each is recorded at once; the run goes on when you resume it.</Alert>
     : <Alert title="Stopped">The run is not working and its state is not one this page knows.</Alert>;
   return <>
     {note}
+    <HelperNote events={props.events} stopped mode={props.mode} />
     <SleptNote events={props.events} />
     {data === null ? null : <section aria-labelledby="stages-title" className="summary-section">
       <h2 className="panel-title" id="stages-title">Where it stopped</h2>
@@ -199,14 +207,14 @@ function FailureNote({ runId, reason, mode, reuse }: { readonly runId: string; r
   </Alert>;
 }
 
-/** Which allowance ran out and, when the provider said, when arbitra goes on by itself. */
-export function UsageLimitPause({ reason }: { readonly reason: string | null }): ReactElement {
+/** Which allowance ran out and, when the provider said, when it resets; `helper`: the run helper waits to resume it (its note says when). */
+export function UsageLimitPause({ reason, helper = false }: { readonly reason: string | null; readonly helper?: boolean }): ReactElement {
   const reading = readFailure(reason);
   const until = reading.rule === "usage-limit" ? reading.resetsAt ?? undefined : undefined;
   const who = reading.rule === "usage-limit" ? reading.cli ?? reading.provider ?? undefined : undefined;
   return <Alert title="Paused for usage">
     <p className="prose">The run paused because {who === undefined ? "a model's" : `${who}'s`} usage limit was reached. Everything it has done is kept.{" "}
-      {until === undefined ? "Resume it from the header once the limit has reset." : <>The limit resets at {formatTime(until)}; arbitra resumes the run by itself a minute later while it stays open, or resume it from the header then.</>}</p>
+      {until === undefined ? helper ? "" : "Resume it from the header once the limit has reset." : <>The limit resets at {formatTime(until)}{helper ? "." : "; resume it from the header then."}</>}</p>
   </Alert>;
 }
 
@@ -226,6 +234,7 @@ function AuditDone(props: SummaryProps): ReactElement {
     <IssueCounts runId={runId} />
     <RanFacts runId={runId} mode="audit" overview={overview} progress={progress.value} confirmed={confirmed} critique={data?.critique ?? null} criticResult={data?.criticResult ?? null} workflow={props.run?.workflow ?? null} />
     <SleptNote events={props.events} />
+    <HelperNote events={props.events} stopped={false} mode="audit" />
   </>;
 }
 

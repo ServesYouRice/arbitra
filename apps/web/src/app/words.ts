@@ -197,6 +197,34 @@ export function resumeRefusalWords(refusal: string, mode: Mode = "audit"): { rea
   return { what: "The resume was refused, so the run is as it was.", todo: "Try again. If it is refused the same way, copy the details below and send them to whoever helps you." };
 }
 
+/** A run event as the helper's words read it: a `helper_action` event (packages/runtime/src/run-helper.ts) or any other. */
+export interface HelperEvent { readonly t: string; readonly action?: string; readonly reason?: string; readonly kind?: string; readonly result?: string; readonly until?: string; readonly at?: string }
+
+const lowerFirst = (text: string): string => text.charAt(0).toLowerCase() + text.slice(1);
+
+/**
+ * What the run helper did about the run's stops, from its events: each resume ("Resumed by the helper at 26 Oct, 14:02,
+ * because a model's usage limit was reached."), and while the run is stopped, what it is doing now: waiting until a
+ * time, or leaving a stop it would resume to the person, and why. Its reason is read with the same words as the page's.
+ */
+export function helperWords(events: readonly HelperEvent[], stopped: boolean, mode: Mode = "audit"): readonly string[] {
+  const actions = events.filter(({ t }) => t === "helper_action");
+  const lines = actions.filter(({ action }) => action === "resume").map(({ at, reason }) => `Resumed by the helper at ${formatTime(at ?? null)}, because ${lowerFirst(failureWords(reason ?? null, mode).what)}`);
+  const last = actions.at(-1);
+  // Only the helper's action after the run's last stop says where it stands now; a run working again has none.
+  if (!stopped || last === undefined || events.at(-1) !== last) return lines;
+  if (last.action === "wait" && last.until !== undefined) return [...lines, `The helper waits until ${formatTime(last.until)}. ${last.result ?? ""}`.trim()];
+  if (last.action === "leave" && last.kind === "resume-now") return [...lines, `The helper did not resume it: ${lowerFirst(last.result ?? "")}`];
+  if (last.action === "resume-refused") return [...lines, `The helper tried to resume it, and ${lowerFirst(last.result ?? "")}`];
+  return lines;
+}
+
+/** Whether the helper is waiting to resume the run now, from its events. */
+export function helperWaiting(events: readonly HelperEvent[]): boolean {
+  const last = events.at(-1);
+  return last?.t === "helper_action" && last.action === "wait";
+}
+
 /** The files a refusal names as changed since the run read them, and how many it names in all. */
 export interface ChangedFiles { readonly total: number; readonly files: readonly { readonly path: string; readonly change: "changed" | "added" | "removed" }[]; readonly more: number }
 
