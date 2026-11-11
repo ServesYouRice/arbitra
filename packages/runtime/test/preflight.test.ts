@@ -37,6 +37,26 @@ describe("configuration preflight", () => {
     expect(configurationDiagnostics(await template(name)).filter(({ code }) => code.startsWith("MODEL_EFFORT"))).toEqual([]);
   });
 
+  it("says when a fallback is another model, and refuses a dollar cap on a model with no known price", async () => {
+    const config = mutable(await template("audit-mixed-providers"));
+    const bound = execution(config)["modelEndpoints"] as Record<string, string>;
+    const endpoints = execution(config)["endpoints"] as { id: string; apiKeyEnvVar?: string }[];
+    const api = Object.keys(bound).filter((id) => endpoints.find((endpoint) => endpoint.id === bound[id])?.apiKeyEnvVar !== undefined);
+    const [first, second] = api;
+    if (first === undefined || second === undefined) throw new Error("FIXTURE_PROFILES_ABSENT");
+    const model = (id: string) => { const profile = config.models[id]; if (profile === undefined) throw new Error("FIXTURE_PROFILE_ABSENT"); return profile; };
+    execution(config)["fallbacks"] = { [first]: second };
+    model(first)["modelId"] = "claude-opus-5-5"; model(second)["modelId"] = "claude-sonnet-5-5";
+    const said = (code: string) => configurationDiagnostics(config as unknown as RunConfig).filter((diagnostic) => diagnostic.code === code).map(({ severity, path }) => `${severity} ${path}`);
+    expect(said("FALLBACK_IS_ANOTHER_MODEL")).toEqual([`warning workflow.modelExecution.fallbacks.${first}`]);
+    model(second)["modelId"] = "claude-opus-5-5";
+    expect(said("FALLBACK_IS_ANOTHER_MODEL")).toEqual([]);
+    execution(config)["maximumCostUsd"] = { [first]: 50 };
+    expect(said("COST_CAP_UNPRICED")).toEqual([]);
+    model(first)["modelId"] = "claude-unreleased";
+    expect(said("COST_CAP_UNPRICED")).toEqual([`error workflow.modelExecution.maximumCostUsd.${first}`]);
+  });
+
   it("names missing Audit roles and the preset's auditor profiles", async () => {
     const config = mutable(await template("audit-mixed-providers"));
     delete execution(config)["roles"];

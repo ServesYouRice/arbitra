@@ -599,7 +599,7 @@ export class Orchestrator {
     finally { this.#resuming.delete(runId); }
   }
 
-  async #resume(runId: string, { maximumTokens, leaveOut, skipBelowPlanScope, reassign }: ResumeOptions): Promise<RunResource> {
+  async #resume(runId: string, { maximumTokens, leaveOut, skipBelowPlanScope, reassign, maximumCostUsd }: ResumeOptions): Promise<RunResource> {
     const previous = await this.status(runId);
     if (!previous.resumable) throw new Error(`RUN_NOT_RESUMABLE:${runId}`);
     const store = new RunStore(this.#runsDirectory, runId);
@@ -607,7 +607,8 @@ export class Orchestrator {
     const narrowed = skipBelowPlanScope === true ? await skippedBelowPlanScope(store, raised) : raised;
     const finders = auditorIdsFor((await store.definitions().load(runId)).graph);
     const kept = leaveOut === undefined ? narrowed : await finderLeftOut(store, narrowed, finders, leaveOut);
-    const storedContext = reassign === undefined ? kept : await reassignedRoles(store, kept, finders, reassign);
+    const reassigned = reassign === undefined ? kept : await reassignedRoles(store, kept, finders, reassign);
+    const storedContext = maximumCostUsd === undefined ? reassigned : await raisedCostCaps(store, reassigned, maximumCostUsd);
     const snapshot = await snapshotRepository(storedContext.repository, SNAPSHOT_FILE_LIMIT, { scope: storedContext.scope, ...testingSnapshotOptions(storedContext.modelConfiguration) });
     if (snapshotDigest(snapshot) !== storedContext.repositoryDigest) {
       // A model Audit's finished discovery is not lost with it: a new run of the project as it is now reuses it.
@@ -1595,7 +1596,7 @@ async function approvedRequirements(source: RunStore, sourceConfig: RunConfig, c
  * run has charged stays charged, and every other setting stays the one it started with.
  */
 /** What a resume may change first: see `Orchestrator.resume`. */
-export interface ResumeOptions { readonly maximumTokens?: number; readonly leaveOut?: readonly string[]; readonly skipBelowPlanScope?: boolean; readonly reassign?: RoleReassignment }
+export interface ResumeOptions { readonly maximumTokens?: number; readonly leaveOut?: readonly string[]; readonly skipBelowPlanScope?: boolean; readonly reassign?: RoleReassignment; readonly maximumCostUsd?: Readonly<Record<string, number>> }
 
 /**
  * Roles given to model profiles the resume adds (`reassign`): a stage not yet started may run on another route, such as
@@ -1684,6 +1685,22 @@ async function finderLeftOut(store: RunStore, context: StoredRunContext, auditor
   const left: StoredRunContext = { ...context, leftOutFinders: leftOut };
   await store.replaceContext(left);
   return left;
+}
+
+/**
+ * The context of a run whose API profiles a resume gives new dollar caps (`maximumCostUsd`), each set as given; the
+ * others stay. A profile paused at its cap goes on once its spend is below the new one (see ModelRoutes).
+ */
+async function raisedCostCaps(store: RunStore, context: StoredRunContext, caps: Readonly<Record<string, number>>): Promise<StoredRunContext> {
+  const configuration = context.modelConfiguration;
+  const execution = configuration?.workflow["modelExecution"] as Record<string, unknown> | undefined;
+  if (configuration === undefined || execution === undefined) throw Object.assign(new Error("RUN_HAS_NO_MODEL_EXECUTION"), { statusCode: 409 });
+  const next = { ...execution, maximumCostUsd: { ...execution["maximumCostUsd"] as Record<string, number> | undefined, ...caps } };
+  const parsed = providerExecutionSchema.safeParse(next);
+  if (!parsed.success) throw Object.assign(new Error(`INVALID_COST_CAP: ${parsed.error.issues.map(({ path, message }) => `${path.join(".")}: ${message}`).join("; ")}`), { statusCode: 400 });
+  const raised: StoredRunContext = { ...context, modelConfiguration: { ...configuration, workflow: { ...configuration.workflow, modelExecution: next } } };
+  await store.replaceContext(raised);
+  return raised;
 }
 
 async function raisedTokenLimit(store: RunStore, context: StoredRunContext, maximumTokens: number): Promise<StoredRunContext> {

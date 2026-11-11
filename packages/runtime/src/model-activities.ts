@@ -5,7 +5,7 @@ import { ProviderRegistry, type TransportFactoryOptions } from "@arbitra/provide
 import { RateLimitScheduler } from "@arbitra/providers/scheduler.js";
 import { DurableTokenBudget } from "@arbitra/providers/token-budget.js";
 import { ContinuationStateStore } from "@arbitra/providers/continuation/store.js";
-import { ProviderBudgetSuspendedError, ProviderInvocationFailure, ProviderTimeLimitError, type InvocationTrace, type TraceSink } from "@arbitra/providers/runtime.js";
+import { ProviderBudgetSuspendedError, ProviderInvocationFailure, ProviderTimeLimitError, ProviderUsageLimitError, type InvocationTrace, type TraceSink } from "@arbitra/providers/runtime.js";
 import { BatchItemFailedError, BatchLane, type BatchResolution, type BatchSubmissionRecord, type BatchSubmissionView } from "@arbitra/providers/batch/lane.js";
 import { inputBytesPerToken, ModelOutputLimitError, ModelTimeLimitError, outputCeiling, requestCeiling } from "./context-budget.js";
 import type { TransportMessage, TransportTool } from "@arbitra/providers/transport-contract.js";
@@ -18,6 +18,7 @@ import type { PinnedProtocol } from "@arbitra/protocols/registry.js";
 import type { ModelActivityTraceRecord } from "@arbitra/persistence/trace.js";
 import { batchLaneFor, runStoreBatchBackend, validateBatchLanes } from "./model-batch-lane.js";
 import { ENVIRONMENT_VERSIONS_KIND } from "./preflight.js";
+import { ModelRoutes } from "./model-routes.js";
 
 export interface ModelActivityRequest<T> {
   readonly activityId: string;
@@ -127,6 +128,8 @@ export class ModelActivities {
   readonly #replay: ActivityReplaySource | undefined;
   readonly #budget: DurableTokenBudget;
   readonly #registry: ProviderRegistry;
+  /** Which profile answers a call of the profile its stage asked for, once an account has run out (`fallbacks`). */
+  readonly #routes: ModelRoutes;
 
   readonly #leftOut: ReadonlySet<string>;
 
@@ -138,6 +141,7 @@ export class ModelActivities {
     const execution = this.#execution;
     const registry = new ProviderRegistry(execution.endpoints, options);
     this.#registry = registry;
+    this.#routes = new ModelRoutes(store, this.#config, execution);
     const budget = new DurableTokenBudget(execution.maximumTokens, {
       load: () => this.read("model-token-budget"),
       save: async (state) => { await store.publish("model-token-budget", state); },
@@ -203,10 +207,11 @@ export class ModelActivities {
     const redacted = structuredClone(input.messages).map((message) => ({ ...message, content: redactSecrets(message.content).text }));
     const messages = profile.quirks.systemPromptSupport === "full" ? redacted : redacted.map((message) => message.role === "system" ? { ...message, role: "user" as const } : message);
     // The run's token limit bounds its spending; it is not part of what a call is sent, so a run paused on its budget
-    // and resumed with a raised limit keeps its activities. Records made before this carry the limit (`legacy`).
+    // and resumed with a raised limit keeps its activities. Records made before this carry the limit (`legacy`). Nor
+    // are the fallbacks and dollar caps: they choose which route answers, not what the call asks.
     const identity = (execution: unknown) => hash({ protocol: input.protocol, protocolIdentity: input.protocolIdentity ?? null, modelProfileId: input.modelProfileId, profile, execution, messages, effort: input.effort ?? null, responseMode: input.responseMode ?? "json", tools: input.tools ?? [], harnessIdentity: input.harnessIdentity ?? null, sourcePaths: input.sourcePaths === undefined ? null : [...input.sourcePaths].sort(),
       ...(input.maximumOutputTokens === undefined ? {} : { maximumOutputTokens: input.maximumOutputTokens }), ...(input.advisor === undefined ? {} : { advisor: input.advisor }) });
-    const fingerprint = identity({ ...this.#execution, maximumTokens: undefined });
+    const fingerprint = identity({ ...this.#execution, maximumTokens: undefined, fallbacks: undefined, maximumCostUsd: undefined, fallbackWaitMs: undefined });
     const legacy = identity(this.#execution);
     const replayIdentity = this.#replayIdentity(input, profile, messages);
     const key = `model-activity-${hash(input.activityId)}`;
@@ -281,6 +286,9 @@ export class ModelActivities {
     }
     // A finder a resume left out answers from what it recorded only.
     if (this.#leftOut.has(input.modelProfileId)) throw new ProviderInvocationFailure(`${FINDER_LEFT_OUT}: ${input.modelProfileId} was left out when the run was resumed`, 0, "LEFT_OUT", FINDER_LEFT_OUT);
+    // The profile that answers: the one the stage asked for, or its fallback once its account has run out. A run whose
+    // profiles are all out pauses here, before anything is sent.
+    let route = await this.#routes.route(input.modelProfileId, input.effort);
     // Record identity before spend so a failed or interrupted activity cannot be
     // resumed with a different prompt/profile under the same durable activity ID.
     const identity = await this.read(`${key}-input`) as { fingerprint?: unknown; protocol?: unknown; modelProfileId?: unknown; messages?: unknown; tools?: unknown } | null;
@@ -296,19 +304,20 @@ export class ModelActivities {
     let outputValidated = false;
     let failure: unknown = null;
     let outputArtifactRef: string | null = null;
+    let costUsd: number | null = null;
     const startedAt = Date.now();
     try {
-      const invocation = {
-        activityId: input.activityId, modelProfileId: input.modelProfileId, estimatedTokens,
-        maximumRetries: this.#execution.maximumRetries, timeoutMs: this.#execution.timeoutMs,
-        signal: input.signal, ...(input.effort === undefined ? {} : { effort: input.effort }), ...(input.splitOnTimeLimit === true ? { retryTimeouts: false } : {}),
-      };
-      const request = { messages, maximumOutputTokens, ...(input.tools === undefined ? {} : { tools: input.tools }) };
-      // Only explicitly configured (model, node) pairs use the batch lane; tool-bearing
-      // requests are interactive by definition and never move onto it.
-      const lane = this.#batch === null || (input.tools?.length ?? 0) > 0 || input.advisor !== undefined ? undefined : batchLaneFor(this.#execution, input.modelProfileId, input.activityId);
-      result = this.#batch === null || lane === undefined ? await this.#pool.invoke(request, invocation)
-        : await this.#pool.invokeBatch(request, { ...invocation, lane: this.#batch, settings: lane, fingerprint, traceId: key });
+      // A call refused because its account ran out is sent again to the profile's fallback, when it has one: the
+      // calls left of a stage already running go there too, and the run goes on instead of pausing.
+      for (;;) {
+        try { result = await this.#send(input, messages, route, estimatedTokens, maximumOutputTokens, fingerprint, key); break; }
+        catch (error) {
+          const next = error instanceof ProviderUsageLimitError && !input.signal.aborted ? await this.#routes.exhausted(route, error, input.effort) : null;
+          if (next === null) throw error;
+          route = next;
+        }
+      }
+      costUsd = await this.#routes.charge(route, result.response.usage, input.effort);
       const harnessTurn = input.responseMode === "harness_turn";
       if (!harnessTurn && result.response.refusal !== null) throw new Error("MODEL_ACTIVITY_REFUSED");
       if (!harnessTurn && result.response.toolCalls.length > 0) throw new Error("MODEL_ACTIVITY_UNEXPECTED_TOOL_CALLS");
@@ -334,7 +343,8 @@ export class ModelActivities {
       const traces = this.#traces.get(input.activityId) ?? [];
       this.#traces.delete(input.activityId);
       const executions = await this.store.nextModelTraceAttempt(input.activityId);
-      const endpointId = this.#execution.modelEndpoints[input.modelProfileId];
+      const answering = this.#config.models[route] ?? profile;
+      const endpointId = this.#execution.modelEndpoints[route];
       const endpoint = this.#execution.endpoints.find(({ id }) => id === endpointId);
       const refusal = result?.response.refusal ?? null;
       const outcome = input.signal.aborted ? "cancelled" : refusal !== null ? "refusal" : failure !== null ? "error" : "success";
@@ -342,14 +352,14 @@ export class ModelActivities {
       const usage = traces.some((entry) => entry.outcome !== "completed" && entry.released === undefined) ? null : result?.response.usage ?? null;
       const fullTrace: ModelActivityTraceRecord = {
         schemaVersion: 1, runId: this.store.runId, nodeId: input.activityId.split("/")[0] ?? input.activityId, activityId: input.activityId, attempt: executions,
-        modelId: profile.modelId, modelProfileVersion: hash(profile), transportId: profile.transport, transportVersion: result?.response.transportVersion ?? "1.0.0",
+        modelId: answering.modelId, modelProfileVersion: hash(answering), transportId: answering.transport, transportVersion: result?.response.transportVersion ?? "1.0.0",
         harnessId: input.advisor !== undefined ? ADVISOR_HARNESS_ID : input.harnessIdentity?.id ?? "direct-json", harnessVersion: input.harnessIdentity?.version ?? "1.0.0", harnessPolicyHash: input.harnessIdentity?.policyHash ?? hash({ tools: input.tools ?? [] }),
         protocolId: input.protocolIdentity?.protocolId ?? input.protocol.split("@")[0] ?? input.protocol,
         protocolVersion: input.protocolIdentity?.protocolVersion ?? input.protocol.split("@")[1] ?? "unversioned",
-        protocolHash: input.protocolIdentity?.protocolHash ?? hash(input.protocol), promptHash: hash({ messages, tools: input.tools ?? [] }), resolvedProviderConfigHash: hash({ endpoint, modelId: profile.modelId, effort: result?.effort ?? null }),
-        capability: profile.capabilityTier, effortRequested: input.effort ?? null, effortResolved: result?.effort?.applied ?? null,
+        protocolHash: input.protocolIdentity?.protocolHash ?? hash(input.protocol), promptHash: hash({ messages, tools: input.tools ?? [] }), resolvedProviderConfigHash: hash({ endpoint, modelId: answering.modelId, effort: result?.effort ?? null }),
+        capability: answering.capabilityTier, effortRequested: input.effort ?? null, effortResolved: result?.effort?.applied ?? null,
         inputArtifactRefs: [requestArtifact.ref.relativePath], outputArtifactRef,
-        durationMs: Math.max(0, Date.now() - startedAt), tokenUsage: usage, costUsd: null,
+        durationMs: Math.max(0, Date.now() - startedAt), tokenUsage: usage, costUsd,
         cacheHitRate: usage?.inputTokens != null && usage.inputTokens > 0 && usage.cacheReadTokens !== null ? Math.min(1, usage.cacheReadTokens / usage.inputTokens) : null,
         toolCallCount: result?.response.toolCalls.length ?? 0, toolCallErrors: input.toolCallErrors ?? 0, repairCount: input.repairCount ?? 0,
         refusal: outcome === "refusal" ? refusal : null,
@@ -363,6 +373,8 @@ export class ModelActivities {
         activityId: input.activityId, protocol: input.protocol, fingerprint,
         protocolIdentity: input.protocolIdentity ?? null,
         modelProfileId: input.modelProfileId,
+        // The fallback that answered, when the profile asked for had run out.
+        ...(route === input.modelProfileId ? {} : { answeredBy: route }),
         outputValidated,
         executions, terminal: fullTrace,
         attempts: [...(prior?.attempts ?? []), ...traces],
@@ -374,9 +386,36 @@ export class ModelActivities {
         },
       }, input.activityId);
     }
-    await this.store.publish(key, { fingerprint, value, replayIdentity }, input.activityId);
+    await this.store.publish(key, { fingerprint, value, replayIdentity, ...(route === input.modelProfileId ? {} : { answeredBy: route }) }, input.activityId);
     return value;
   }
+
+  /**
+   * One call of a request on `route`: the profile its stage asked for, or the fallback that answers for it. The
+   * request keeps its identity (what the stage asked, of which profile); only what the answering profile cannot take
+   * is fitted to it: system messages, when it reads none, and the output ceiling, when its own is lower.
+   */
+  async #send(input: ModelActivityRequest<unknown>, messages: readonly TransportMessage[], route: string, estimatedTokens: number, maximumOutputTokens: number, fingerprint: string, key: string): Promise<ModelInvocationResult> {
+    const asked = route === input.modelProfileId;
+    const answering = this.#config.models[route];
+    if (answering === undefined) throw new Error(`UNKNOWN_MODEL_PROFILE:${route}`);
+    const sent = asked || answering.quirks.systemPromptSupport === "full" ? messages : messages.map((message) => message.role === "system" ? { ...message, role: "user" as const } : message);
+    const ceiling = asked ? maximumOutputTokens : Math.min(maximumOutputTokens, answering.limits.maxOutputTokens ?? maximumOutputTokens);
+    const invocation = {
+      activityId: input.activityId, modelProfileId: route, estimatedTokens: estimatedTokens - maximumOutputTokens + ceiling,
+      maximumRetries: this.#execution.maximumRetries, timeoutMs: this.#execution.timeoutMs,
+      signal: input.signal, ...(input.effort === undefined ? {} : { effort: input.effort }), ...(input.splitOnTimeLimit === true ? { retryTimeouts: false } : {}),
+    };
+    const request = { messages: sent, maximumOutputTokens: ceiling, ...(input.tools === undefined ? {} : { tools: input.tools }) };
+    // Only explicitly configured (model, node) pairs use the batch lane; tool-bearing
+    // requests are interactive by definition and never move onto it.
+    const lane = this.#batch === null || (input.tools?.length ?? 0) > 0 || input.advisor !== undefined ? undefined : batchLaneFor(this.#execution, route, input.activityId);
+    return this.#batch === null || lane === undefined ? this.#pool.invoke(request, invocation)
+      : this.#pool.invokeBatch(request, { ...invocation, lane: this.#batch, settings: lane, fingerprint, traceId: key });
+  }
+
+  /** What the run has spent on its priced API profiles, and the switches its profiles made. */
+  async routes() { return this.#routes.state(); }
 
   /**
    * Charge an activity that runs outside the provider pool (a native harness process)

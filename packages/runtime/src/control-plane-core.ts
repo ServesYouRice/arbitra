@@ -79,7 +79,7 @@ export function controlPlaneCore(orchestrator: Orchestrator) {
       },
       start: async (body: unknown) => { const request = await configured(body); return orchestrator.start(request.config, request.repository); },
       status: (id: string) => orchestrator.status(id),
-      resume: (id: string, body?: unknown) => orchestrator.resume(id, { ...raisedLimit(body), ...leftOut(body), ...belowPlanScope(body), ...reassigned(body) }),
+      resume: (id: string, body?: unknown) => orchestrator.resume(id, { ...raisedLimit(body), ...leftOut(body), ...belowPlanScope(body), ...reassigned(body), ...costCaps(body) }),
       events: (id: string) => orchestrator.events(id),
       cancel: async (id: string) => orchestrator.cancel(id),
       respondCheckpoint: (id: string, checkpointId: string, body: unknown) => orchestrator.respondCheckpoint(id, checkpointId, body),
@@ -170,6 +170,14 @@ function raisedLimit(body: unknown): { readonly maximumTokens?: number } {
   if (value === undefined) return {};
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) throw Object.assign(new Error("INVALID_TOKEN_LIMIT"), { statusCode: 400 });
   return { maximumTokens: value };
+}
+
+/** `maximumCostUsd`: new dollar caps for API profiles, by profile id, each a positive number. */
+function costCaps(body: unknown): { readonly maximumCostUsd?: Readonly<Record<string, number>> } {
+  const value = typeof body === "object" && body !== null ? (body as { maximumCostUsd?: unknown }).maximumCostUsd : undefined;
+  if (value === undefined) return {};
+  if (typeof value !== "object" || value === null || Array.isArray(value) || !Object.values(value).every((cap) => typeof cap === "number" && Number.isFinite(cap) && cap > 0)) throw Object.assign(new Error("INVALID_COST_CAP"), { statusCode: 400 });
+  return { maximumCostUsd: value as Record<string, number> };
 }
 
 /** The finders a resume goes on without (`leaveOut`): ids of the run's own finders, checked by the orchestrator. */

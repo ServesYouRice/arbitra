@@ -552,6 +552,50 @@ describe("composed model audits", () => {
     expect(context.leftOutFinders).toEqual(["auditor-c"]);
   });
 
+  it("hands a profile's work to its fallback when its account runs out mid-stage, and the run goes on to its plan", async () => {
+    // Observed live (memoria, November 10–11, 2026): the API credit ran out, and the run could go on only by a resume
+    // made by hand that gave the plan to the same model through the owner's subscription.
+    const { create, config, requests, quotaDiscovery } = await fixture();
+    const execution = config.workflow["modelExecution"] as { endpoints: Record<string, unknown>[]; modelEndpoints: Record<string, string>; fallbacks?: Record<string, string> };
+    const gemini = config.models["auditor-c"]; if (gemini === undefined) throw new Error("FIXTURE_PROFILE_ABSENT");
+    config.models["auditor-c-backup"] = gemini;
+    execution.endpoints.push({ id: "auditor-c-backup", providerId: "google", transport: "gemini-native", endpoint: "https://auditor-c-backup.example/v1", apiKeyEnvVar: "FIXTURE_KEY" });
+    execution.modelEndpoints["auditor-c-backup"] = "auditor-c-backup";
+    execution.fallbacks = { "auditor-c": "auditor-c-backup" };
+    quotaDiscovery("auditor-c.example");
+    const core = create(); const result = await core.run(config);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.slice(-3))).toBe("COMPLETED");
+    expect(events.filter(({ t }) => t === "model_route_switched")).toMatchObject([{ from: "auditor-c", to: "auditor-c-backup", reason: "credit_out", spentUsd: null }]);
+    // The refused call was sent again to the fallback, and every later call of the profile went there.
+    const refused = requests.filter(({ url }) => url.includes("auditor-c.example"));
+    expect(refused).toHaveLength(1);
+    const first = requests.findIndex(({ url }) => url.includes("auditor-c-backup"));
+    expect(requests.filter(({ stage, url }) => stage === "discovery" && url.includes("auditor-c-backup")).length).toBeGreaterThan(0);
+    expect(requests.findIndex(({ url }) => url.includes("auditor-c.example"))).toBeLessThan(first);
+    expect(requests.filter(({ stage }) => stage !== "discovery").some(({ url }) => url.includes("auditor-c-backup"))).toBe(true);
+  });
+
+  it("pauses at an API profile's dollar cap when it has no fallback, saying why, and goes on when a resume raises the cap", async () => {
+    const { create, config } = await fixture();
+    const claude = config.models["auditor-b"]; if (claude === undefined) throw new Error("FIXTURE_PROFILE_ABSENT");
+    // Priced as Opus 5.5: each fixture answer (10 tokens in, 20 out) costs $0.00044, so the first one meets the cap.
+    claude.modelId = "claude-opus-5-5";
+    (config.workflow["modelExecution"] as Record<string, unknown>)["maximumCostUsd"] = { "auditor-b": 0.0001 };
+    const core = create(); const result = await core.run(config);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state).toBe("SUSPENDED_BUDGET");
+    expect(events.filter(({ t }) => t === "model_route_switched")).toMatchObject([{ from: "auditor-b", to: null, reason: "cost_cap", spentUsd: 0 }]);
+    const paused = events.filter(({ t }) => t === "run_transition").at(-1) as { reason?: string } | undefined;
+    expect(paused?.reason).toMatch(/MODEL_COST_CAP_REACHED:auditor-b: auditor-b has spent \$0\.00 of its \$0\.00 cap and has no fallback/u);
+    await expect(core.resume(result.runId, { maximumCostUsd: { "auditor-b": -1 } })).rejects.toThrow("INVALID_COST_CAP");
+    await core.resume(result.runId, { maximumCostUsd: { "auditor-b": 100 } });
+    const finished = await core.wait(result.runId);
+    const after = []; for await (const event of core.events(result.runId)) after.push(event);
+    expect(finished.state, JSON.stringify(after.slice(-3))).toBe("COMPLETED");
+    expect(after.filter(({ t }) => t === "model_route_switched").map((event) => (event as { reason: string }).reason)).toEqual(["cost_cap", "reset"]);
+  });
+
   it("stops verifying issues below the plan's scope when a resume asks, and only for a run that has one", async () => {
     // Observed live (memoria, November 11, 2026): low issues were put to an API-billed verifier the plan would not use.
     const unscoped = await fixture();

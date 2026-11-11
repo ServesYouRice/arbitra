@@ -21,6 +21,7 @@ import { probeCliReadiness, type CliProbe } from "@arbitra/providers/transports/
 import { cliModelMinimumVersion, cliTooOldForModel, cliTransportSupport } from "@arbitra/providers/transports/cli/support.js";
 import { compareVersions } from "@arbitra/providers/semver.js";
 import type { CliTransportOptions } from "@arbitra/providers/transports/cli/transport.js";
+import { priceOf } from "@arbitra/providers/pricing.js";
 
 /**
  * Runtime preflight: everything that can be established about a configuration before
@@ -119,10 +120,28 @@ export function configurationDiagnostics(config: RunConfig, options: Configurati
       diagnostics.push(error(codeOf(message, "BATCH_LANE_INVALID"), "workflow.modelExecution.batch", `${message}. A batch lane must name a configured, endpoint-bound profile that declares supports.batch, on a transport with a batch driver.`));
     }
   }
+  if (execution !== undefined) fallbackDiagnostics(config, execution, diagnostics);
   if (config.mode === "audit") auditDiagnostics(config, graph, execution, diagnostics);
   if (config.mode === "feature") featureDiagnostics(config, diagnostics);
   if (config.mode === "testing") testingDiagnostics(config, diagnostics);
   return Object.freeze(diagnostics);
+}
+
+/**
+ * A fallback to another model, or a dollar cap that could not be kept: the first is said, the second refused. A cap is
+ * counted by the price table in packages/providers/src/pricing.ts, which lists no model it has no price for.
+ */
+function fallbackDiagnostics(config: RunConfig, execution: ProviderExecution, diagnostics: PreflightDiagnostic[]): void {
+  for (const [from, to] of Object.entries(execution.fallbacks ?? {})) {
+    const [asked, fallback] = [config.models[from]?.modelId, config.models[to]?.modelId];
+    if (asked !== undefined && fallback !== undefined && asked !== fallback) {
+      diagnostics.push(warning("FALLBACK_IS_ANOTHER_MODEL", `workflow.modelExecution.fallbacks.${from}`, `${from} (${asked}) falls back to ${to}, which is another model (${fallback}). When ${from} runs out its work goes on with ${fallback}, and the run's record says so; for the same answers, fall back to ${asked} by another route.`));
+    }
+  }
+  for (const id of Object.keys(execution.maximumCostUsd ?? {})) {
+    const model = config.models[id]?.modelId;
+    if (model !== undefined && priceOf(model) === null) diagnostics.push(error("COST_CAP_UNPRICED", `workflow.modelExecution.maximumCostUsd.${id}`, `No price is known for ${model}, so ${id}'s dollar cap could not be kept. Add the model to packages/providers/src/pricing.ts, or remove the cap.`));
+  }
 }
 
 /**
