@@ -19,11 +19,14 @@ the P20 pilot in `git show e917ec7:WORK-REMAINING.md`, the first narratives of t
 | veritra, Oct 25 | `run-e5546c4c` | 416 files, 103,575 lines | about 5 h 25 | 1,451 | 70.0M (675) | 256 of 929 confirmed (36 high, 220 medium) | 273K | 133 / 50 / — |
 | Java and React project (MacBook), Oct 26–27 | `run-755a4cc3` | about 33,000 lines | 28 h wall, most of it asleep or stopped | 917 | 42.6M (about 1,290) | 84 of 275 confirmed (1 critical, 18 high, 65 medium) | 507K | 19 / 11 / 19 |
 | nananananana, Nov 1 | `run-b1997046` | 572 files, 84,380 lines, no tests | 3 h 17 (6 h 19 with its pause) | 1,627 | 112.2M (1,330) | 175 of 434 confirmed (36 high, 139 medium) | 641K | 81 / 51 / — |
+| memoria, Nov 10–11 | `run-bcd4fc1e` | 562 files, 87,971 lines, no tests | about 4 h 30 (21 h 09 with its pauses) | 2,252 | 130.3M (1,482) | 292 of 684 confirmed (42 high, 250 medium) | 446K | 134 / 89 / 4 |
 
 beachflag ran before confirmed issues were reported, so its counts are accepted issues. beachflag, rokavatar and
 blog ran with one peer-review round; commentanywhere, nextra and rokbot without one, the default since October 23.
 Gemini ran at high thinking on beachflag and rokavatar, at medium after that; rokbot ran on the two-auditor default
-(Claude Code and Codex) with the plan critic.
+(Claude Code and Codex) with the plan critic. memoria ran three finders at depth deep (Opus 5.5 xhigh through the
+owner's Anthropic API key, GPT-6.1 Sol xhigh through Codex, Gemini 3.8 Flash high through Antigravity), checking on
+the same Opus at high, the plan on Claude Code, critic and variant search off.
 
 What each run changed:
 
@@ -109,12 +112,28 @@ What each run changed:
   Because of it, New run now estimates from the runs that read this way (it said 600 to 700 tokens a line), offers
   one click to leave out a file over the 512 KB limit, and keeps the tests' tick when a project over the file limit
   is read again without them.
+- **memoria**, the first run through the Anthropic API key, from a clone at fe02fa0 with the tests, `scripts`,
+  `implementation`, `docs`, `public` and the test and lint settings left out (New run counted 567 files and 88,659
+  lines; the run's own preflight 562 and 87,971, used here). Wall time: Opus's discovery 1 h 50 (96 units and one
+  injection follow-up, 59.3M tokens); Sol's 53 units in three stretches between Codex's limits (16.6M); Gemini 5 of
+  its 104 units (2.7M); merging 4 minutes (0.4M); checking about 39 minutes of calls (45.5M, 305 questions in 1,100
+  calls); the plan 39 minutes on Claude Code (5.9M, 46 calls; 243 tasks). It stopped five times, each resumed with the
+  finished work replayed (measured below). Fixed on `main` because of it: the API transport had never run against a
+  current model, so every call was refused (effort sent as `thinking.effort`), nothing was cached and thinking was not
+  replayed (37f7334); Antigravity 1.5.4 follows Gemini's reply with "improperly formatted function call", which lost
+  the reply and ended Gemini's discovery after three such units (db7a0b2, b3c5026); and a resume can now leave out a
+  finder whose allowance is out for days (`leaveOut`, 7fefa29), stop checking issues below the plan's scope
+  (`skipBelowPlanScope`, c197da9) and give a stage not yet started to a profile it adds (`reassign`, ec08507), each
+  for a stop this run met. The run used these as builds 664e9fa, 1906cfd, 5d4b08b, f3f0971, a10f773 and b0a0803,
+  before they were rebased onto `main`. The `claude` on PATH (npm, 2.0.51) is refused by current models; the plan ran
+  on the VS Code extension's 2.1.322 through `ARBITRA_CLAUDE_CODE_EXECUTABLE`.
 
 Verification costs 75K to 86K tokens a question. Gemini's confirmed finds that no other model made, against what its
 audit cost: rokavatar 0 for 2.1M tokens at high thinking (560 call-minutes; 17 of 51 calls lost, 12 to its content
 filter and 5 to its output ceiling), 7 in that run's replay; blog 2 for 1.9M at medium (135 call-minutes; 9 of 47
 calls refused); commentanywhere 2 for 1.1M (6 of 21 refused); nextra 3 for 2.0M (2 of 39 refused); the MacBook run 19 for 5.0M
-(200 call-minutes; 8 of 94 calls failed, most before the fix for agy 1.4.7). Gemini has been
+(200 call-minutes; 8 of 94 calls failed, most before the fix for agy 1.4.7); memoria 4 for 2.7M at high (263
+call-minutes; 25 of 70 calls failed, and 99 of its 104 units were never answered). Gemini has been
 opt-in since v0.2.1, so its share is measured only on a run that uses it.
 
 ## What the reading costs (November 1)
@@ -146,6 +165,159 @@ A cheap run of the v0.4.0 build (November 1, 11,689 lines from nananananana, Son
 took 6 minutes and 4.9M tokens with no failed call, 2 units each and no finding rejected for its quotes. `repo_symbol` was
 used 11 times for 52 names, and the saved plan is no longer ignored by Git. Luna's second unit read 156K of 307K from the
 cache; Sonnet's read none. A cheap run of 11,689 lines is too small to measure the savings, which wait for a real project.
+
+## memoria measured (November 11)
+
+From `run-bcd4fc1e`'s records (`metrics/model-activity.jsonl`, the discovery, verification and plan artifacts, the
+events), with no model calls. Times are UTC, from the events and the times the call records were written.
+
+| Stage | Model, route | Calls (failed) | Call-minutes | Tokens | Read from the cache / written |
+|---|---|---|---|---|---|
+| Discovery | Opus 5.5 xhigh, API | 755 (0) | 429 | 59.3M | 47.2M / 9.2M |
+| Discovery | Sol xhigh, Codex 0.162.1 | 277 (5) | 317 | 16.6M | 12.2M / — |
+| Discovery | Gemini 3.8 Flash high, Antigravity 1.5.4, then 1.5.5 | 70 (25) | 263 | 2.7M | 2.0M / — |
+| Merging | Opus 5.5 low, API | 4 (0) | 3 | 0.4M | 0 / 0.4M |
+| Checking | Opus 5.5 high, API | 1,097 (0) | 143 | 45.4M | 32.0M / 13.0M |
+| Second opinion | Sol high, Codex | 3 (1) | 1 | 0.04M | — |
+| Plan | Opus 5.5 high, Claude Code 2.1.322 | 46 (0) | 139 | 5.9M | 2.2M / 2.8M |
+
+2,252 calls, 31 failed, 130.3M tokens (125.2M in, 5.2M out). Discovery was 60% of the tokens (nananananana 69%),
+checking 35%. By vendor: Anthropic 85%, Codex 13%, Antigravity 2% (New run's three-finder shares are 81, 12 and 7).
+
+**What the API cost.** No call recorded a price (`costUsd` is empty), so this is the recorded tokens at Opus 5.5's list
+prices: $4 a million uncached input, $5 a five-minute cache write (the only kind the transport asks for), $0.20 a
+cache read, $20 output. The plan on the Max login and Sol and Gemini on their subscriptions have no price.
+- **Discovery $112.88:** cache writes $45.91 (9.18M), reads $9.44 (47.2M), output $57.52 (2.88M).
+- **Merging $2.46. Checking $80.09:** writes $65.05 (13.01M), reads $6.40 (32.0M), output $8.63 (0.43M); $38.86 before
+  the stop at 09:04, $41.22 after it.
+- **Together $195.43:** cache writes $112.98 (58%), output $66.59, reads $15.84, uncached input $0.02.
+- **Nothing is shared across conversations:** the transport marks only the end of a request for the cache
+  (`cache_control` in `anthropic-messages.ts`), so a call reads only what an earlier turn of its own conversation
+  wrote. 0 of the 98 first discovery calls and 0 of the 305 first question calls read anything, though each begins
+  with the same instructions, and discovery's with the same index. Discovery's first calls wrote $22.43, checking's
+  $57.
+
+**Reading beyond the unit** (`toolUseOfUnits` and `readsBeyondUnits`; nananananana's figures in brackets, from its
+records counted the same way):
+
+| | Opus | Sol | Gemini |
+|---|---|---|---|
+| Units | 97 [84] | 53 [49] | 5 of 104 |
+| Turns a unit | 7.8 [9 to 10] | 5.1 [5] | 9 |
+| Units at their last tool turn | 33 [about half] | 0 | 5 |
+| Tool calls a unit | 25 [32] | 21 [24] | 24 |
+| Input a unit, share from the cache | 581K, 84% [715K, 86%] | 300K, 77% [292K, 75%] | 480K, 81% |
+| Files read beyond a unit, median | 35 [13] | 32 [11] | 23 |
+| Bytes read beyond a unit | 53 KB [46 KB] | 63 KB [64 KB] | 44 KB |
+| Reads refused at the budget | 231 [10] | 261 [99] | 0 |
+| Limitations that name the budget | 35 [35] | 19 [35] | 1 |
+
+- **Calls by tool:** Opus `repo_search` 1,071, `repo_read_file` 1,065, `repo_symbol` 297, `repo_list_tree` 18,
+  `repo_stat` 3, `artifact_read` 2; Sol `repo_read_file` 667, `repo_symbol` 221, `repo_search` 219, `repo_list_tree`
+  19; Gemini `repo_read_file` 62, `repo_search` 51, `repo_symbol` 3. Failed tool calls: Opus 56, Sol 61, Gemini 4.
+- **`repo_symbol`** looked up 1,281 names for Opus (in 96 of its 97 units), 977 for Sol (all 53) and 12 for Gemini.
+  The records count the names; the names themselves are only in each call's transcript. No unit asked for a tool
+  after its last tool turn (`askedPastLimit` 0).
+- **The citations hold:** 247 of the 292 confirmed issues cite a file beyond their unit (nananananana 151 of 175).
+  Of the checked issues, 247 of the 253 that cite beyond their unit were confirmed, and 45 of the 52 that do not.
+- **Tokens a line:** 1,482 (nananananana 1,330), discovery alone 892 (920). The rise is checking: 305 questions
+  against 197. New run's deep estimate is built on 1,290 and 1,330 a line.
+
+**The verification questions** (Opus only; targeted-verification 1.1.0 on every call here, 1.0.0 through Claude Code
+on the other two):
+
+| | memoria | nananananana | veritra |
+|---|---|---|---|
+| Questions | 305 | 197 | 377 |
+| Calls a question | 3.6 | 3.1 | 2.8 |
+| Tool calls a question | 4.2 | 4.6 | 4.1 |
+| Tokens a question | 149K | 159K | 115K |
+| Written to the cache by the first call | 37.8K | 48.2K | 36.7K |
+| First calls that read the cache | 0 of 305 | 0 of 197 | 0 of 377 |
+| Tokens read back for each one written | 2.5 | 1.9 | 1.7 |
+| First calls' share of the list price | 75% | 80% | 79% |
+| A question at API list prices | $0.26 | $0.31 | $0.25 |
+
+- **The related source ran:** `verification-related-source` has an entry for each of the 305 questions, 1.2 KB at the
+  mean (the estimate was 2.8 KB), 8 with nothing found, none left out. Tool calls a question fell 9% from nananananana,
+  near the estimate of about 10%, but on another project and another route, so it is not a clean comparison. The
+  locked layer in Claude Code's system prompt did not run, since checking went through the API.
+- **No answer needed a repair** (0 of 1,097 calls), so the verifier's required reason cost nothing here.
+- **292 of 305 confirmed** (96%; nananananana 89%), 5 rejected, 8 unsettled. By finder: Sol 154 of its 154 checked,
+  Opus 199 of 206, Gemini 5 of 11. The one severe rejection got its second opinion from Sol, which rejected it too.
+
+**Units and issues by finder.** Sizing still reserves each model's whole output ceiling (Opus 128,000 tokens, Sol
+64,000, Gemini 65,536): Opus had 96 units of 30 KB at the median (5 files), Sol 53 of 52 KB (9 files), Gemini 104 of
+28 KB (5 files), measured on the clone at the audited commit. The 805 findings (Opus 601, Sol 192, Gemini 12) made 684
+issues:
+- **Opus** is in 567 (493 alone), 199 confirmed (134 alone); it raised 346 of the 364 low issues and all 15
+  informational ones, which the plan's scope leaves unchecked.
+- **Sol** is in 180 (106 alone), 154 confirmed (89 alone).
+- **Gemini** is in 12 (11 alone), 5 confirmed (4 alone).
+- **Together:** Opus and Sol 73 issues, 64 confirmed; all three 1, confirmed.
+
+**Gemini.** 17 of its 104 units were sent: 5 answered, 3 were blocked by Gemini's filter, and 9 failed on
+Antigravity's "improperly formatted function call" (18 calls, each after three attempts, up to 23 minutes a call).
+Then its allowance ran out for 72 hours (4 calls) and the resume left it out, so 99 units are gaps. With the tools
+preamble it reads: each answered unit used all 8 tool turns, 40 of its 45 answered calls asked for the snapshot's
+tools (the other 5 are the final answers), 121 tool calls in all. Calls to Antigravity's own tools are not recorded
+apart. 5 confirmed of 11 checked is too few to say whether reading changes what it confirms.
+
+**Sol at xhigh.** Its 277 discovery calls took 42 seconds at the median, 189 at the 90th percentile and 430 at most,
+none near the 15-minute limit (nananananana 37 and 359), at 30 output tokens a second at the median. No unit split at
+the time limit (`timeLimitSplits` is empty for all three finders). No turn ran at high, so the two efforts are still
+to compare.
+
+**The stops.** Paused or stopped for 16 h 37 of the 21 h 09:
+1. **Codex, 17:49:34:** Sol's last answer before the five-hour limit came at 16:26, 27 minutes in (88 calls, 5.1M in,
+   0.20M out); the run paused when Opus's discovery ended. Reset 20:41; the server's wakeup resumed it at 20:42:34.
+2. **Codex, 21:27:20:** after 171 calls in 44 minutes (10.1M in, 0.39M out); reset 01:43. A restart for a new build at
+   21:28 dropped the wakeup, and the run was resumed by hand at 07:14:53, 5 h 32 after the reset.
+3. **Antigravity, 07:49:08:** out for 72 h 49, until November 14, 08:28. Resumed at 08:18:18 with Gemini left out.
+4. **A restart:** checking was stopped for the `skipBelowPlanScope` build after its last answer at 08:40:48 (the stop's
+   own time is not recorded) and resumed at 09:04:12.
+5. **Codex, 09:22:32,** on the one second-opinion question, when Opus had answered every other question. That window
+   had seen 13 discovery calls (0.73M in, 0.06M out); whether other use of the same ChatGPT account shared it is not
+   recorded. Reset 12:17; resumed by hand at 12:26:56 with the plan given to Claude Code. The second opinion took 2
+   calls, the plan 39 minutes, and the run completed at 13:07:56.
+
+**The plan.** 243 tasks for the 292 accepted issues (43 for a strong model, 161 balanced, 39 fast), then the 8 unsure
+reports, 12 blocking questions and 110 more with a default; 23 sections of up to 13 issues and one call merging their
+questions. Its title is the 23 sections' titles joined with ";" (3,709 characters: `planner-sections.ts` joins them
+when there is more than one section), and the README shows it as 23 bullets under "Plan · 243 tasks for 292 issues".
+The premise check found 4,905 of the 5,006 things the prompts name; 101 were not found, in 69 prompts, and 21 quotes
+sat at other lines. The note on the one instruction-shaped line says "`src/lib/ai/sort-piles.ts` lines 20".
+
+**What it answered** of the lists in [remaining work](../../WORK-REMAINING.md). Nothing under "To test next week" was
+set up: the run used deep's default efforts (xhigh, xhigh and high for finding, high for checking and the plan, low
+for merging), and its one departure from the default lineup, Opus through the API key in place of Claude Code, is not
+one of those experiments. Two of them got data in passing: units still split 96 to 53 by output ceiling, and none of
+the 98 first discovery calls read the shared index from the cache. Of "Measure on the next runs":
+- **Answered:** discovery reading beyond its unit (above; `PLAN_WINDOWS` not checked), the verifier's required reason,
+  Claude Code's cache on first calls (the plan's 26 first calls wrote 2.58M and read none), and what a verification
+  question costs with 1.1.0's related source.
+- **In part:** Gemini with the tools preamble (it reads; its own tools are not recorded), Sol at xhigh (no turn at
+  high), the time-limit splits (none happened), the premise check (when the plan was saved, not by an agent), and the
+  injection scanner (one uncited hit, not read).
+- **Not touched:** test files packed with their source (tests left out), the new export, the variant search, Codex's
+  system skills, the Sonnet second look, eight units at a time, the critic's source and the four October measurements.
+
+What it says about arbitra:
+- **The API route pays for its cache writes in full:** with one cache mark at the end of a request, the shared start
+  of every unit and every question is written again, never read. Cache writes were 58% of the $195.
+- **An optional step can hold the run:** the one second opinion waited 3 h 04 on Codex's window while Opus had
+  answered every other question and the plan, on another login, could have run.
+- **A restart loses the wakeup:** twice here, the longer one 5 h 32 past the reset.
+- **Codex's Plus window lasts well under an hour of Sol at xhigh on a project this size:** 27 and 44 minutes, and the
+  run met Codex's limit three times.
+- **Gemini through Antigravity is the least reliable finder:** 5 of 104 units answered, 263 call-minutes for 4
+  confirmed issues no other finder found.
+- **Checking confirms nearly all it is asked** (96%; Sol 154 of 154). Until the plan is carried out, a lenient
+  checker cannot be told from precise finders.
+- **Reading grew again:** nearly three times the files beyond a unit and four and a half times the refused reads of
+  nananananana, with fewer of Opus's units at their last turn; 1,482 tokens a line is above New run's basis.
+- **Small defects:** the plan's title joins every section's title; the instruction note says "lines 20" for one line;
+  New run and the run's preflight disagree on the project's size (567 files and 88,659 lines against 562 and 87,971).
 
 ## Peer review measured (October 23)
 
