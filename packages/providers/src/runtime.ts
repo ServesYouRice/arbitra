@@ -79,7 +79,8 @@ function transportCode(error: TransportError): string | null {
  */
 export class ProviderUsageLimitError extends ProviderInvocationFailure {
   readonly state = "SUSPENDED_RATE_LIMIT" as const;
-  constructor(message: string, attempts: number) { super(message, attempts, "QUOTA"); this.name = "ProviderUsageLimitError"; }
+  /** How long until the allowance resets, when the provider said (a subscription CLI's window); null when it did not. */
+  constructor(message: string, attempts: number, readonly retryAfterMs: number | null = null) { super(message, attempts, "QUOTA"); this.name = "ProviderUsageLimitError"; }
 }
 /**
  * A call ran past its time limit, stopped, and was not sent again, because its caller sends less work instead
@@ -193,7 +194,7 @@ export class ProviderInvocationRuntime {
     const code = lastError instanceof TransportError ? lastError.code : "UNKNOWN";
     // Transport messages are bounded and redacted at the source (providerErrorDetail).
     const detail = lastError instanceof TransportError ? `: ${lastError.message.slice(0, 300)}` : "";
-    if (code === "QUOTA") throw new ProviderUsageLimitError(`Provider ${context.providerId} reached its usage limit (${code}${detail}); the run pauses with its completed work kept and goes on when resumed after the reset.`, attempts);
+    if (code === "QUOTA") throw new ProviderUsageLimitError(`Provider ${context.providerId} reached its usage limit (${code}${detail}); the run pauses with its completed work kept and goes on when resumed after the reset.`, attempts, lastError instanceof TransportError ? lastError.retryAfterMs : null);
     if (cut && slept !== null) {
       throw new HostSuspendedError(`The computer slept from ${new Date(slept.from).toISOString()} to ${new Date(slept.to).toISOString()} while a call to ${context.providerId} was in flight, and the call could not finish across it (${code}${detail}). `
         + `The sleep stopped it, not ${context.providerId}: keep the computer awake while the run works, then resume it; completed artifacts are preserved.`, attempts, code, slept);

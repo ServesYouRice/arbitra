@@ -121,6 +121,20 @@ export const providerExecutionSchema = z.object({
     maxConcurrent: z.number().int().positive(),
   }).strict()),
   batch: z.object({ lanes: z.array(batchLaneSchema).min(1) }).strict().optional(),
+  /** When a profile's account runs out, the profile the rest of its work goes to, the calls left of a stage already
+   * running included: `{ "opus-api": "opus-cc", "opus-cc": "opus-api" }`, the same model through an API key and
+   * through a subscription CLI, either way round. A profile runs out when its provider says the account cannot pay
+   * (credit or quota exhausted), when a subscription's usage limit resets later than `fallbackWaitMs`, or when it
+   * reaches its `maximumCostUsd`. A fallback that runs out goes on to its own fallback; without one the run pauses. The
+   * two profiles should be the same model: a switch to another model is said so where it is recorded. */
+  fallbacks: z.record(identifier, identifier).optional(),
+  /** Dollars a profile on an API endpoint may spend in this run, priced by the table in
+   * packages/providers/src/pricing.ts (cache writes and reads apart). Once it is reached the profile's work goes to its
+   * fallback, or the run pauses. Calls already in flight finish, so a run can pass the cap by what they cost. */
+  maximumCostUsd: z.record(identifier, z.number().positive().max(1_000_000)).optional(),
+  /** A subscription's usage limit that resets within this many milliseconds is waited for, and the run pauses until
+   * then, rather than switched from (default 30 minutes; see DEFAULT_FALLBACK_WAIT_MS). */
+  fallbackWaitMs: z.number().int().min(0).max(7 * 24 * 60 * 60 * 1_000).optional(),
 }).strict().superRefine((value, context) => {
   const ids = new Set<string>();
   for (const [index, endpoint] of value.endpoints.entries()) {
@@ -138,10 +152,29 @@ export const providerExecutionSchema = z.object({
     laned.add(lane.modelProfileId);
     if (new Set(lane.activityGroups).size !== lane.activityGroups.length) context.addIssue({ code: "custom", path: ["batch", "lanes", index, "activityGroups"], message: "Duplicate batch lane activity group" });
   }
+  for (const [from, to] of Object.entries(value.fallbacks ?? {})) {
+    if (!Object.hasOwn(value.modelEndpoints, from)) context.addIssue({ code: "custom", path: ["fallbacks", from], message: "Fallback for a model with no endpoint binding" });
+    if (!Object.hasOwn(value.modelEndpoints, to)) context.addIssue({ code: "custom", path: ["fallbacks", from], message: "Fallback model has no endpoint binding" });
+    if (from === to) context.addIssue({ code: "custom", path: ["fallbacks", from], message: "A model cannot be its own fallback" });
+  }
+  for (const id of Object.keys(value.maximumCostUsd ?? {})) {
+    const endpoint = value.endpoints.find((entry) => entry.id === value.modelEndpoints[id]);
+    if (endpoint === undefined) context.addIssue({ code: "custom", path: ["maximumCostUsd", id], message: "Cost cap for a model with no endpoint binding" });
+    else if ("auth" in endpoint) context.addIssue({ code: "custom", path: ["maximumCostUsd", id], message: "A subscription CLI is paid by its plan, not per token: only a model on an API endpoint takes a cost cap" });
+  }
   if (value.maximumTokens < value.maximumOutputTokens) context.addIssue({ code: "custom", path: ["maximumTokens"], message: "Token budget cannot be smaller than the output reserve" });
   if (value.maximumDiscoveryTokens !== undefined && value.maximumDiscoveryTokens <= value.maximumOutputTokens) context.addIssue({ code: "custom", path: ["maximumDiscoveryTokens"], message: "Discovery context budget must leave room beyond the output reserve" });
   if (value.maximumContextTokens !== undefined && value.maximumContextTokens <= value.maximumOutputTokens) context.addIssue({ code: "custom", path: ["maximumContextTokens"], message: "Context budget must leave room beyond the output reserve" });
 });
+
+/**
+ * How long a subscription's usage limit may take to reset and still be waited for rather than switched from: 30
+ * minutes. A Claude or Codex window is five hours, so a limit met late in one resets soon, and a wait that short costs
+ * the run less than the API would charge for the calls it saves (memoria, November 2026: Opus spent nearly $200 of
+ * API credit before its plan). The run pauses as rate limited and goes on when resumed after the reset. A weekly limit, or a window hours
+ * from resetting, switches.
+ */
+export const DEFAULT_FALLBACK_WAIT_MS = 30 * 60 * 1_000;
 
 /** Batch submission IDs are 32 hex characters and appear in URLs and artifact kinds. */
 export const BATCH_SUBMISSION_ID_PATTERN = /^[a-f0-9]{32}$/u;
