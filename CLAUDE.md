@@ -1,5 +1,7 @@
 # arbitra
 
+@AGENTS.md
+
 ## Claude web sessions: checks before push
 
 - Dependencies and browsers for the full checks are installed by `.claude/hooks/session-start.sh` when a Claude web session starts.
