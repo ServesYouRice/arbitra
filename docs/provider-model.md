@@ -269,7 +269,7 @@ the same model name. Request model identity must also match the trace context.
 The run schema validates optional `workflow.modelExecution` settings: `endpoints`,
 `modelEndpoints`, `maximumOutputTokens`, optional `maximumDiscoveryTokens` and
 `maximumContextTokens`, `timeoutMs`, `maximumRetries`, `maximumTokens`,
-per-provider `rateLimits`, optional `batch` lanes (see [Batch lane](#batch-lane)), and `roles` (`planner`, `verifier`, optional `critic`, `critiqueChecker` and `secondOpinion`, the model asked again when `verification.secondOpinion: "severe_rejections"` and the verifier rejects a critical or high issue a reviewer backed; by default the critic, or another auditor than the verifier). Endpoint credentials are named by `apiKeyEnvVar`; values
+per-provider `rateLimits`, optional `batch` lanes (see [Batch lane](#batch-lane)), and `roles` (`planner`, `verifier`, optional `critic`, `critiqueChecker` and `secondOpinion`, the model asked again when `verification.secondOpinion: "severe_rejections"` and the verifier rejects a critical or high issue a reviewer backed; by default the critic, or another auditor than the verifier; and optional `answerChecker`, the model of another vendor than the planner's that answers the plan's blocking questions on its own, by default the critic, else the second opinion, else a finder, whichever is first of another vendor; see [plan questions](workflows.md)). Endpoint credentials are named by `apiKeyEnvVar`; values
 are resolved only at dispatch; `run` first checks that each referenced variable is set
 (`PROVIDER_CREDENTIAL_MISSING:<endpoint>`) without reading the value into any output.
 The check before Start (`preflight`, the New run page) also asks each API key endpoint's
@@ -569,10 +569,11 @@ that the review had not rejected.
   from a guessed line.
 
 `stageEffort` sets the effort of each step (`discovery`, `clustering`, `peerReview`,
-`verification`, `secondOpinion`, `critiqueCheck`, `planner`, `critic`, `revision`; each `low`,
-`medium`, `high`, `xhigh` or `max`, the CLIs' own words, or one per profile), as the model
-profile's `effort.params` sends it. The second opinion and the critique check follow
-`verification` when left out; any other step left out runs at the depth's level. The shipped
+`verification`, `secondOpinion`, `critiqueCheck`, `planner`, `critic`, `revision`,
+`answerCheck`; each `low`, `medium`, `high`, `xhigh` or `max`, the CLIs' own words, or one per
+profile), as the model profile's `effort.params` sends it. The second opinion and the critique
+check follow `verification` when left out, and the answer check `planner`; any other step left
+out runs at the depth's level. The shipped
 deep audits find at `xhigh`, check and plan at `high` and merge at `low`: a provider's highest
 effort is for work where a gain was measured, and a check is a narrower task than the audit.
 The depth presets are in [setup](setup.md#depths-finders-and-the-plan-critic).

@@ -434,6 +434,63 @@ describe("the run page", () => {
     expect(calls.indexOf("POST /runs/run-1/checkpoints/approval")).toBeLessThan(calls.indexOf("POST /runs/run-1/resume"));
   });
 
+  it("lists each question's suggested answer first and another model's next, and accepts together only those both answered alike", async () => {
+    stubBrowser();
+    const version = "c".repeat(64);
+    const questions: PlanQuestionsCheckpointResource = { kind: "plan-questions", checkpointId: "plan-questions", version, status: "pending", check: { status: "answered", profile: "gpt" },
+      questions: [
+        { id: "Q-1", question: "Throw or clamp an out-of-range value?", blastRadius: "medium", suggestion: { answer: "Throw a RangeError.", reason: "Callers already catch it." }, choices: ["Throw a RangeError.", "Clamp to the bounds."],
+          check: { answer: "Throw a RangeError.", reason: "Callers catch it.", choice: 0, blastRadius: "low", agrees: true, profile: "gpt" }, acceptable: true },
+        { id: "Q-2", question: "Keep the old log format?", blastRadius: "low", suggestion: { answer: "Keep it.", reason: "Dashboards parse it." }, choices: ["Keep it.", "Switch to JSON.", "Keep it for a release, then switch."],
+          check: { answer: "Keep it for a release, then switch.", reason: "Dashboards need time to move.", choice: 2, blastRadius: "medium", agrees: false, profile: "gpt" }, acceptable: false },
+        { id: "Q-3", question: "Drop the legacy column?", blastRadius: "high", suggestion: { answer: "Keep it.", reason: "Old readers use it." }, choices: ["Keep it.", "Drop it."],
+          check: { answer: "Keep it.", reason: "Old readers use it.", choice: 0, blastRadius: "high", agrees: true, profile: "gpt" }, acceptable: false },
+      ] };
+    let sent: unknown;
+    const calls = stubControlPlane({
+      "GET /runs/run-1": () => resource({ state: "BLOCKED", resumable: true, checkpoints: [sent === undefined ? questions : { ...questions, status: "answered" }] }),
+      "GET /runs/run-1/overview": () => overview({ state: "BLOCKED", executor: "models", gate: null, pendingDecisions: sent === undefined ? 1 : 0 }),
+      "POST /runs/run-1/checkpoints/plan-questions": ({ body }: { body: unknown }) => { sent = body; return { accepted: true }; },
+      ...artifactRoutes("run-1"),
+    });
+    visit("?run=run-1");
+    render(<App />);
+    const form = await screen.findByRole("form", { name: "plan questions" });
+    // The suggestion is listed first, the other model's own answer next, then the rest; none is chosen in advance.
+    const second = within(form).getByRole("group", { name: /Q-2 · low impact/u });
+    expect(within(second).getAllByRole("radio").map((radio) => radio.closest("label")?.textContent?.split(/(?=Suggested|Another model)/u)[0])).toEqual(["Keep it.", "Keep it for a release, then switch.", "Switch to JSON.", "Other"]);
+    expect(within(second).getAllByRole("radio").some((radio) => (radio as HTMLInputElement).checked)).toBe(false);
+    expect(second.textContent).toContain("Another model (gpt) answered this: Dashboards need time to move.");
+    expect(within(form).getByRole("group", { name: /Q-3 · high impact · both models agree/u })).toBeTruthy();
+    // Accepting all suggested takes only Q-1; Q-2 and Q-3 (high impact) stay to be answered one by one.
+    const send = within(form).getByRole("button", { name: "send answers" }) as HTMLButtonElement;
+    fireEvent.click(within(form).getByRole("checkbox", { name: /Accept all suggested: the question both models answered alike/u }));
+    expect(within(form).queryByRole("group", { name: /Q-1/u })).toBeNull();
+    expect(send.disabled).toBe(true);
+    fireEvent.click(within(second).getByRole("radio", { name: /Keep it for a release, then switch\./u }));
+    const third = within(form).getByRole("group", { name: /Q-3/u });
+    fireEvent.click(within(third).getByRole("radio", { name: "Other" }));
+    expect(send.disabled).toBe(true);
+    fireEvent.change(within(third).getByRole("textbox", { name: "Q-3 · your answer" }), { target: { value: " Keep it until the readers move. " } });
+    expect(send.disabled).toBe(false);
+    fireEvent.click(send);
+    await waitFor(() => expect(sent).toEqual({ version, answers: [{ questionId: "Q-2", choice: 2 }, { questionId: "Q-3", answer: "Keep it until the readers move." }], acceptSuggested: true }));
+    expect(calls.filter((call) => call === "POST /runs/run-1/checkpoints/plan-questions")).toHaveLength(1);
+  });
+
+  it("says why no other model answered the plan's questions, and offers no answers to accept together", async () => {
+    stubBrowser();
+    const version = "d".repeat(64);
+    const questions: PlanQuestionsCheckpointResource = { kind: "plan-questions", checkpointId: "plan-questions", version, status: "pending", check: { status: "skipped", profile: "gpt", reason: "its allowance is used up" },
+      questions: [{ id: "Q-1", question: "Throw or clamp?", blastRadius: "low", suggestion: { answer: "Throw.", reason: "Callers catch it." }, choices: ["Throw.", "Clamp."], acceptable: false }] };
+    stubControlPlane({ "GET /runs/run-1": () => resource({ state: "BLOCKED", resumable: true, checkpoints: [questions] }), "GET /runs/run-1/overview": () => overview({ state: "BLOCKED", executor: "models", gate: null, pendingDecisions: 1 }), ...artifactRoutes("run-1") });
+    visit("?run=run-1");
+    render(<App />);
+    const form = await screen.findByRole("form", { name: "plan questions" });
+    expect(form.textContent).toContain("The second model (gpt) could not answer them this time: its allowance is used up. Answer each question one by one.");
+    expect(within(form).queryByRole("checkbox")).toBeNull();
+  });
+
   it("takes an answer to every blocking plan question, sends them once for the plan's version, then offers resume", async () => {
     stubBrowser();
     const version = "b".repeat(64);

@@ -206,7 +206,7 @@ credentials and continuation state. Roles are always named explicitly:
 | Mode | Where | Required |
 |---|---|---|
 | Audit | `models` keys | `auditor-a`, `auditor-b` (and `auditor-c` for `audit-three-finders`) — the preset's finders |
-| Audit | `workflow.modelExecution.roles` | `planner`, `verifier`; `critic` when `workflow.critic` is `true`; `variantSearcher` when `workflow.variantSearch` is `true`. Optional: `mediumVerifier`, `merger`, `secondOpinion`, `critiqueChecker` (see [Depths, finders and the plan critic](#depths-finders-and-the-plan-critic)) |
+| Audit | `workflow.modelExecution.roles` | `planner`, `verifier`; `critic` when `workflow.critic` is `true`; `variantSearcher` when `workflow.variantSearch` is `true`. Optional: `mediumVerifier`, `merger`, `secondOpinion`, `critiqueChecker`, `answerChecker` (see [Depths, finders and the plan critic](#depths-finders-and-the-plan-critic)) |
 | Feature | `workflow.feature.roles` | `requirements`, `exploration`, `planner`; `reviewers` (two or more distinct `independenceGroup`s) and `critic` (independent of the planner) for anything above low risk |
 | Testing | `workflow.testing.roles` | `analyst` (capability tier `frontier`), `planner` |
 | Testing execute | `workflow.testing.execution.models` | `fast`, `balanced`, `frontier` writers — tool-capable and at or above that tier |

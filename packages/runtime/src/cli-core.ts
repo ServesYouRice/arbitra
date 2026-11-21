@@ -66,12 +66,13 @@ export function orchestratorCore(orchestrator: Orchestrator) {
       return { disposition: "passed", value: await orchestrator.applyRequirementsRevision(runId, artifactId) };
     },
     /** Record one decision for the current version of a generic human checkpoint. For the
-     * plan-questions checkpoint, `decision` is a JSON file of `{"answers": [{questionId, answer}]}`. */
+     * plan-questions checkpoint, `decision` is a JSON file of `{"answers": [{questionId, answer} or {questionId, choice}],
+     * "acceptSuggested": true}`; with `acceptSuggested`, `answers` may be left out. */
     async respondCheckpoint(runId: string, checkpointId: string, version: string, decision: string): Promise<CoreCommandResult> {
       if (checkpointId !== PLAN_QUESTIONS_CHECKPOINT_ID) return { disposition: "passed", value: await orchestrator.respondCheckpoint(runId, checkpointId, { version, decision }) };
       const file: unknown = JSON.parse(await readFile(resolve(decision), "utf8"));
-      const answers = typeof file === "object" && file !== null && !Array.isArray(file) ? (file as { answers?: unknown }).answers : undefined;
-      return { disposition: "passed", value: await orchestrator.respondCheckpoint(runId, checkpointId, { version, answers }) };
+      const { answers, acceptSuggested } = typeof file === "object" && file !== null && !Array.isArray(file) ? file as { answers?: unknown; acceptSuggested?: unknown } : { answers: undefined, acceptSuggested: undefined };
+      return { disposition: "passed", value: await orchestrator.respondCheckpoint(runId, checkpointId, { version, answers: answers ?? (acceptSuggested === true ? [] : undefined), ...(acceptSuggested === undefined ? {} : { acceptSuggested }) }) };
     },
     /** The run's batch submissions. Unresolved uncertain submissions suspend (exit 3) until an operator decides. */
     async batches(runId: string): Promise<CoreCommandResult> {

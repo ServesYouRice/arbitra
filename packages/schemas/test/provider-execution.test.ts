@@ -72,6 +72,16 @@ describe("provider execution configuration", () => {
     expect(paths({ variantSearch: true, graph: { id: "saved", version: "a".repeat(64) } })).toEqual(["workflow.variantSearch"]);
     expect(paths({ variantSearch: true }, "feature")).toContain("workflow.variantSearch");
   });
+  it("names the answer checker and its effort, and takes the answer check switch only as an Audit's true or false", () => {
+    const parsed = providerExecutionSchema.parse({ ...valid, roles: { planner: "auditor", verifier: "auditor", answerChecker: "auditor" }, stageEffort: { answerCheck: "high" } });
+    expect([parsed.roles?.answerChecker, parsed.stageEffort?.answerCheck]).toEqual(["auditor", "high"]);
+    const config = runConfigSchema.parse(JSON.parse(readFileSync(new URL("./golden/run-config.valid.json", import.meta.url), "utf8")) as unknown);
+    const paths = (workflow: Record<string, unknown>, mode = config.mode) => runConfigSchema.safeParse({ ...config, mode, workflow }).error?.issues.map(({ path }) => path.join(".")) ?? [];
+    expect(paths({ answerCheck: true })).toEqual([]);
+    expect(paths({ answerCheck: false })).toEqual([]);
+    expect(paths({ answerCheck: "yes" })).toEqual(["workflow.answerCheck"]);
+    expect(paths({ answerCheck: false }, "feature")).toContain("workflow.answerCheck");
+  });
   it("takes the run helper's switch for a run only as true or false, in every mode", () => {
     const config = runConfigSchema.parse(JSON.parse(readFileSync(new URL("./golden/run-config.valid.json", import.meta.url), "utf8")) as unknown);
     const paths = (workflow: Record<string, unknown>, mode = config.mode) => runConfigSchema.safeParse({ ...config, mode, workflow }).error?.issues.map(({ path }) => path.join(".")) ?? [];

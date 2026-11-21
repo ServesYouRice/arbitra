@@ -443,6 +443,15 @@ describe("an audit plan written in sections side by side", () => {
     expect(() => stage?.schema.parse({ groups: [{ questionIds: [kept, "Q-9"], reason: "Unknown." }] })).toThrow("PLANNER_QUESTION_GROUPS_INVALID");
   });
 
+  it("keeps the first section's suggested answer to a question two sections asked, with the other's among the answers weighed", async () => {
+    const { input, records, port } = await sections((ids) => ({ questions: [ids.includes("C-1")
+      ? { id: "Q-1", question: "Which forwarded headers are trusted?", blocking: true, blastRadius: "medium", suggestion: { answer: "The rightmost X-Forwarded-For entry.", reason: "The proxy appends it.", alternatives: ["None."] } }
+      : { id: "Q-1", question: "Which deployment model defines trusted forwarded headers?", blocking: true, blastRadius: "medium", suggestion: { answer: "None.", reason: "The proxy is unknown.", alternatives: ["The rightmost X-Forwarded-For entry.", "The Forwarded header."] } }], context: [] }),
+    (questions) => ({ groups: [{ questionIds: questions.map(({ id }) => id), reason: "Both ask which forwarded headers to trust." }] }));
+    const plan = await planWithContext(input, { ...port, fits: async (stage) => /^planner\/(?:section|questions)\//u.test(stage.activityId) }, { records, recordsPerSection: 3 });
+    expect(plan.unresolvedQuestions.map(({ suggestion }) => suggestion)).toEqual([{ answer: "The rightmost X-Forwarded-For entry.", reason: "The proxy appends it.", alternatives: ["None.", "The Forwarded header."] }]);
+  });
+
   it.each([
     ["stays invalid after its repairs", () => Object.assign(new Error("PLANNER_QUESTION_GROUPS_INVALID"), { modelOutputRejected: true }), "PLANNER_QUESTION_GROUPS_INVALID"],
     ["is declined", () => new ModelRefusalError("planner/questions/x", "declined"), "MODEL_ACTIVITY_REFUSED:planner/questions/x"],

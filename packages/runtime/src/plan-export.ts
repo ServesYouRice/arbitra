@@ -11,6 +11,9 @@ import { premiseKit, premiseScript, type PremiseData, type PremiseSource, type S
 import { PROJECT_COMMANDS_KIND, type ProjectCommand } from "./project-commands.js";
 import { ENVIRONMENT_VERSIONS_KIND } from "./preflight.js";
 import { resultsKit, resultsScript } from "./results-check.js";
+import type { PlanIR, UnresolvedQuestion } from "@arbitra/schemas/plan.js";
+import { answerCheckKind } from "./answer-check.js";
+import { planQuestionsVersion, questionsMarkdown, type AnswerCheck, type AnsweredQuestion } from "./plan-questions.js";
 
 interface ExportTask {
   readonly id: string; readonly title: string;
@@ -25,7 +28,7 @@ interface ExportTask {
   readonly rollbackPlan: readonly string[];
 }
 interface ExportValidation { readonly id: string; readonly assertion: string; readonly evidence: readonly string[] }
-interface ExportQuestion { readonly id: string; readonly question: string; readonly blocking: boolean }
+interface ExportQuestion { readonly id: string; readonly question: string; readonly blocking: boolean; readonly suggestion?: { readonly answer: string } }
 interface ExportPlan {
   readonly title: string; readonly tasks: readonly ExportTask[]; readonly unresolvedQuestions: readonly ExportQuestion[];
   readonly validationContract?: { readonly validation?: readonly ExportValidation[] };
@@ -192,10 +195,13 @@ export async function exportPlan(orchestrator: Orchestrator, runId: string): Pro
   const composition = await read<{ sectionTitles?: unknown }>("planner-composition");
   const sectionTitles = Array.isArray(composition?.sectionTitles) && composition.sectionTitles.length > 0 && composition.sectionTitles.every((title) => typeof title === "string") ? composition.sectionTitles as readonly string[] : undefined;
   files.set("README.md", readme(plan, ordered, runId, overview.workflowId ?? "unknown", { unsettled, unverified, alsoFound: alsoFound.length, kept, notes, premises: premiseCounts, sectionTitles, results: resultsCheck }));
-  const openQuestions = plan.unresolvedQuestions.filter(({ blocking }) => !blocking);
-  if (openQuestions.length > 0) files.set("questions.md", ["# Open questions", "",
-    "Not blocking: the plan went ahead on each one's default. Answer one to change what the tasks that cite it do; each prompt repeats the questions it depends on.", "",
-    ...openQuestions.map(({ id, question }) => `- **${id}**: ${question}`), ""].join("\n"));
+  // The questions answered while the plan was written, with how; the open ones with their suggested answers, and what
+  // another model answered to the blocking ones.
+  type Rounds = { readonly rounds?: readonly { readonly answers?: readonly AnsweredQuestion[] }[] };
+  const answered = [...(await read<Rounds>("plan-question-resolutions"))?.rounds ?? [], ...(await read<Rounds>("plan-revision-question-resolutions"))?.rounds ?? []].flatMap(({ answers }) => answers ?? []);
+  const check = await read<AnswerCheck>(answerCheckKind(planQuestionsVersion(plan as unknown as PlanIR)));
+  const questions = questionsMarkdown(plan.unresolvedQuestions as readonly UnresolvedQuestion[], answered, check ?? undefined);
+  if (questions !== null) files.set("questions.md", questions);
   if (alsoFound.length > 0) files.set("also-found.md", ["# Also found, not planned", "",
     "The reviewers agreed these are real, but no task fixes them; most are below the plan's minimum severity. Fix them when convenient: each says where the defect is and what goes wrong.", "",
     ...alsoFound.map((issue) => `## ${issue.claim.title}\n\n${issue.severity} · ${issue.candidateId}\n\n${issue.claim.description}\n`)].join("\n"));
@@ -366,7 +372,8 @@ function readme(plan: ExportPlan, ordered: readonly ExportTask[], runId: string,
     `Each defect is proven before it is fixed: a test that fails on the current code, then passes with the fix. Record each issue's result in \`${RESULTS_FILE}\`; arbitra reads it back and reports how many defects a failing test proved and how many were fixed.`, "",
     `\`${RESULTS_SCRIPT}\` checks that file by the rules arbitra reads it with: run \`${results} --task <task id>\` when a task is done, and without \`--task\` once every task is. It exits 1 while an issue of a task ticked in PROGRESS.md has no result, a field has the wrong type, or a proof only points to commit messages instead of holding the failing output or the test's name.`, "",
     ...(notes.length === 0 ? [] : ["## Read this first", "", ...notes.map((note) => `- ${note}`), ""]),
-    ...(blocking.length === 0 ? [] : ["## Answer these first", "", ...blocking.map(({ id, question }) => `- **${id}**: ${question}`), ""]),
+    ...(blocking.length === 0 ? [] : ["## Answer these first", "", ...blocking.map(({ id, question }) => `- **${id}**: ${question}`), "",
+      ...(blocking.some(({ suggestion }) => suggestion !== undefined) ? ["`questions.md` gives each one's suggested answer and the others weighed.", ""] : [])]),
     ...(blocking.length === plan.unresolvedQuestions.length ? [] : [`\`questions.md\` lists ${plan.unresolvedQuestions.length - blocking.length} more open ${plan.unresolvedQuestions.length - blocking.length === 1 ? "question" : "questions"} the plan went ahead on with a default.`, ""]),
     ...(kept.length === 0 ? [] : ["## Severity kept", "",
       `One reviewer alone lowered ${kept.length === 1 ? "this issue" : `these ${kept.length} issues`} below the plan's minimum severity, so ${kept.length === 1 ? "it was" : "they were"} verified and planned at the severity ${kept.length === 1 ? "it was" : "they were"} found with. The reviewer's reason is worth weighing when you fix ${kept.length === 1 ? "it" : "them"}.`, "",

@@ -5,11 +5,25 @@ import { validationContractSchema } from "./validation-contract.js";
 
 export const PLAN_IR_SCHEMA_VERSION = 1 as const;
 
+/**
+ * The planner's proposed answer to a question it leaves open (planner protocol 1.1.0): the answer it recommends, why,
+ * and the other answers it weighed, so a person answers by choosing one (Spec Kit's `/speckit.clarify` shape). For a
+ * question that does not block, the recommended answer is the default the plan went ahead on. Plans written before it
+ * have none. Observed on a real project (October 2026): 218 of a plan's 227 tasks were done in a day, and the last ten
+ * days waited on answers to its blocking questions, given at last in one sitting of options a, b and c.
+ */
+export const questionSuggestionSchema = z.object({
+  answer: z.string().min(1),
+  reason: z.string().min(1),
+  alternatives: z.array(z.string().min(1)),
+}).strict();
+
 export const unresolvedQuestionSchema = z.object({
   id: z.string().min(1),
   question: z.string().min(1),
   blocking: z.boolean(),
   blastRadius: z.enum(["low", "medium", "high"]),
+  suggestion: questionSuggestionSchema.optional(),
 }).strict();
 
 export const planTaskIRSchema = taskIRSchema.extend({
@@ -50,5 +64,6 @@ export const planIRSchema = z.object({
 }).strict();
 
 export type UnresolvedQuestion = z.infer<typeof unresolvedQuestionSchema>;
+export type QuestionSuggestion = z.infer<typeof questionSuggestionSchema>;
 export type PlanIR = z.infer<typeof planIRSchema>;
 export type PlanTaskIR = z.infer<typeof planTaskIRSchema>;

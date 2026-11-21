@@ -115,9 +115,10 @@ function checkedGroups(value: unknown, owners: ReadonlyMap<string, number>): Pla
 
 /**
  * Each group, in plan order, becomes its first question: that question's id, its wording followed by the others' (each
- * section's wording carries the default its tasks went ahead on), and the strictest blocking flag and blast radius of
- * them. Every mention of a merged question names the kept one. A task that settled a question by itself (`resolves:`)
- * waits for the answer once the kept question is blocking with a high blast radius, which no task may settle silently.
+ * section's wording carries the default its tasks went ahead on), the first one's suggestion with the others' answers
+ * among its alternatives, and the strictest blocking flag and blast radius of them. Every mention of a merged question
+ * names the kept one. A task that settled a question by itself (`resolves:`) waits for the answer once the kept
+ * question is blocking with a high blast radius, which no task may settle silently.
  */
 function withQuestionsMerged(plan: PlanIR, groups: readonly (readonly string[])[]): PlanIR {
   const names = new Map(groups.flatMap(([kept, ...merged]) => kept === undefined ? [] : merged.map((id) => [id, kept] as const)));
@@ -128,9 +129,14 @@ function withQuestionsMerged(plan: PlanIR, groups: readonly (readonly string[])[
     if (question !== undefined) asked.set(kept, [...asked.get(kept) ?? [], question]);
   });
   const radius = ["low", "medium", "high"] as const;
-  const questions = [...asked].map(([id, members]): UnresolvedQuestion => ({ id,
-    question: members.map(({ question }, index) => index === 0 ? question : `Also asked by another section: ${question}`).join(" "),
-    blocking: members.some(({ blocking }) => blocking), blastRadius: radius[Math.max(...members.map(({ blastRadius }) => radius.indexOf(blastRadius)))] ?? "high" }));
+  const questions = [...asked].map(([id, members]): UnresolvedQuestion => {
+    // The first section's suggestion is kept; the answers the others recommended become its alternatives.
+    const [first] = members; const suggestion = first?.suggestion;
+    const alternatives = suggestion === undefined ? [] : [...new Set([...suggestion.alternatives, ...members.slice(1).flatMap((member) => member.suggestion === undefined ? [] : [member.suggestion.answer, ...member.suggestion.alternatives])])].filter((answer) => answer !== suggestion.answer);
+    return { id, question: members.map(({ question }, index) => index === 0 ? question : `Also asked by another section: ${question}`).join(" "),
+      blocking: members.some(({ blocking }) => blocking), blastRadius: radius[Math.max(...members.map(({ blastRadius }) => radius.indexOf(blastRadius)))] ?? "high",
+      ...(suggestion === undefined ? {} : { suggestion: { ...suggestion, alternatives } }) };
+  });
   const waiting = new Set(questions.filter(({ id, blocking, blastRadius }) => blocking && blastRadius === "high" && (asked.get(id)?.length ?? 0) > 1).map(({ id }) => id));
   return { ...named, premiseReport: plan.premiseReport, unresolvedQuestions: questions,
     tasks: named.tasks.map((task) => ({ ...task, context: task.context.map((line) => line.startsWith("resolves:") && waiting.has(line.slice(9)) ? `Waits for the answer to ${line.slice(9)}.` : line) })) };

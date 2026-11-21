@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { modelVariantSearchResultSchema, modelVerificationGroupResultSchema, modelVerificationResultSchema } from "../src/model-results.js";
+import { modelAnswerCheckSchema, modelVariantSearchResultSchema, modelVerificationGroupResultSchema, modelVerificationResultSchema } from "../src/model-results.js";
+import { unresolvedQuestionSchema } from "../src/plan.js";
 
 describe("model verification answers", () => {
   it("carry a reason, required in the schema sent to providers, alone and in a group", () => {
@@ -23,5 +24,25 @@ describe("variant search answers", () => {
     expect(modelVariantSearchResultSchema.safeParse({ findings: [finding], limitations: [] }).success).toBe(false);
     expect(modelVariantSearchResultSchema.safeParse({ findings: [{ ...finding, variantOf: "C-1", note: "extra" }], limitations: [] }).success).toBe(false);
     expect(modelVariantSearchResultSchema.toJSONSchema()).toMatchObject({ properties: { findings: { items: { required: expect.arrayContaining(["variantOf", "evidence"]) as unknown } } } });
+  });
+});
+
+describe("another vendor's answers to a plan's questions", () => {
+  it("name an option or none, with the answer, why, and how far a wrong answer reaches, every field required", () => {
+    const answer = { questionId: "Q-1", option: "B", answer: "Throw a RangeError.", reason: "Callers catch it.", blastRadius: "medium" };
+    expect(modelAnswerCheckSchema.parse({ answers: [answer] }).answers[0]).toEqual(answer);
+    expect(modelAnswerCheckSchema.safeParse({ answers: [{ ...answer, blastRadius: "severe" }] }).success).toBe(false);
+    expect(modelAnswerCheckSchema.safeParse({ answers: [{ ...answer, recommended: true }] }).success).toBe(false);
+    expect(modelAnswerCheckSchema.toJSONSchema()).toMatchObject({ properties: { answers: { items: { required: ["questionId", "option", "answer", "reason", "blastRadius"] } } } });
+  });
+});
+
+describe("a plan question's suggestion", () => {
+  it("is optional, so plans written before it still parse, and carries the answer, why and the others weighed", () => {
+    const question = { id: "Q-1", question: "Throw or clamp?", blocking: true, blastRadius: "high" };
+    expect(unresolvedQuestionSchema.parse(question)).toEqual(question);
+    const suggestion = { answer: "Throw.", reason: "Callers catch it.", alternatives: ["Clamp."] };
+    expect(unresolvedQuestionSchema.parse({ ...question, suggestion }).suggestion).toEqual(suggestion);
+    expect(unresolvedQuestionSchema.safeParse({ ...question, suggestion: { answer: "Throw.", reason: "Callers catch it." } }).success).toBe(false);
   });
 });

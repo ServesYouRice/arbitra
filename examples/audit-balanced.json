@@ -168,7 +168,7 @@
   "protocols": {
     "audit": "2.1.0",
     "peer-review": "1.0.0",
-    "planner": "1.0.0"
+    "planner": "1.1.0"
   },
   "promptOverrides": {},
   "contextPolicies": {}

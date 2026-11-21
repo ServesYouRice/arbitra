@@ -17,6 +17,13 @@
 .decision { display: grid; gap: var(--s3); padding: var(--s4); border: var(--hairline) solid var(--ink); border-inline-start: var(--stripe) solid var(--ink); background: var(--surface); }
 .decision__title { font: 600 var(--t-body)/var(--lh-tight) var(--font-display); }
 .decision__item { display: grid; gap: var(--s2); padding-block-end: var(--s3); border-block-end: var(--hairline) solid var(--line-soft); }
+/* A plan question's answers to choose from: the suggestion, the other model's, the rest, or one written out. */
+.plan-answer__question { margin: 0; padding: 0; border: 0; min-width: 0; }
+.plan-answer__question > legend { padding: 0; }
+.plan-answer { display: flex; gap: var(--s2); align-items: flex-start; color: var(--ink); font: 400 var(--t-micro)/var(--lh-body) var(--font-body); cursor: pointer; }
+.plan-answer > span { display: grid; gap: var(--s1); min-width: 0; overflow-wrap: anywhere; }
+.plan-answer > input { width: var(--s4); height: var(--s4); min-height: 0; margin: 0; padding: 0; flex: none; accent-color: var(--ink); }
+.plan-answers__together { display: grid; gap: var(--s1); }
 
 .run-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s4); align-items: start; }
 .run-body[data-details="true"] { grid-template-columns: minmax(0, 1fr) minmax(360px, 440px); }

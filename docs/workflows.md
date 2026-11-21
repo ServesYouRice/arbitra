@@ -115,21 +115,50 @@ left "throw or clamp?" open and failed, and nothing could answer it and resume.
   of the exact plan), `status` (`pending` or `answered`) and the blocking `questions`. Until
   it is answered, the public gate reports `checkpoint_pending:plan-questions` and
   `blocking_plan_questions`.
+- From planner protocol 1.1.0 (the Audit default since November 21, 2026; a run pinned at
+  1.0.0 is sent the schema it was always sent) every question the plan leaves open carries a
+  `suggestion`: the answer the planner recommends, why, and the other answers it weighed. For
+  a question that does not block, the recommended answer is the default the plan went ahead on.
+- Before the run waits, a model of another vendor than the planner's answers the blocking
+  questions on its own, in one call (`answer-check/<version>`, protocol `answer-check`). It is
+  shown the answers the planner weighed in alphabetical order under neutral labels, never which
+  one is recommended or why, and it gives a label or its own answer, a reason, and the blast
+  radius of a wrong answer. The profile is `roles.answerChecker`, else the critic, else the
+  second opinion, else a finder, whichever is first of another vendor (the profile's
+  `provider`); its effort follows `planner` unless `stageEffort.answerCheck` sets it.
+  `workflow.answerCheck: false` switches it off; it is on by default only when the lineup has
+  another vendor. It never holds the run: a vendor that is out, limited or failing, or a reply
+  that cannot be used, is recorded as `skipped` with the reason, and the run goes on. The result
+  is kept per plan version (`answer-check-<version prefix>`), so a resume does not ask again.
+- Each question in the checkpoint lists `choices` (the suggestion first, then the others
+  weighed, then the other model's own answer when it is none of them), the other model's
+  `check` (its answer as a choice, its reason, its blast radius, and whether it `agrees`), and
+  `acceptable`: both models proposed the same answer, and neither rates a wrong answer's blast
+  radius high. The record's `check` says whether the other model was asked, or why not (`off`,
+  `no_other_vendor`, `nothing_to_check`, `skipped`).
 - The operator answers every question once, for the current version:
 
   ```text
   node apps/cli/dist/src/bin.js respond-checkpoint <run-id> plan-questions <version> answers.json
-  POST /runs/:id/checkpoints/plan-questions   {"version": "<64 hex>", "answers": [{"questionId": "Q-1", "answer": "Throw a typed error."}]}
+  POST /runs/:id/checkpoints/plan-questions   {"version": "<64 hex>", "answers": [{"questionId": "Q-1", "answer": "Throw a typed error."}, {"questionId": "Q-2", "choice": 1}], "acceptSuggested": true}
   ```
 
-  `answers.json` holds `{"answers": [...]}`. In the web app, the run page's decision banner
-  shows one field per question. A missing, unknown or repeated question ID is refused with
+  `answers.json` holds `{"answers": [...], "acceptSuggested": true}`. An answer is written out
+  (`answer`) or one of the question's `choices` by index (`choice`). `acceptSuggested` takes
+  the suggestion of every question marked `acceptable` that `answers` leaves out; every other
+  question is answered one by one, since people shown a wrong suggestion tend to follow it.
+  With no model of another vendor, nothing is `acceptable`. In the web app, the run page's
+  decision banner lists each question's choices with none chosen in advance, an "Other"
+  answer, and "Accept all suggested" for the questions both models answered alike. A missing,
+  unknown or repeated question ID, or a choice the question does not list, is refused with
   400. A stale version or a second set of answers for the same version is refused with 409.
 - On `resume`, the stored planner activities replay. Exactly one new activity,
   `planner/answers/<version>`, revises the plan with the answers. The runtime, not the
   model, then removes the answered questions. `plan-question-resolutions` records each
-  round: the version, the activity and the operator's answers. If the revised plan asks new
-  blocking questions, the run waits again under a new version.
+  round: the version, the activity and the operator's answers, each with the suggestion, the
+  other model's answer and how it was given (`as_suggested`, `chosen_otherwise` or `written`;
+  `together` when "accept all suggested" took it). The planner is told only the answers. If
+  the revised plan asks new blocking questions, the run waits again under a new version.
 - The critic's revision waits at the same checkpoint, in the critic node, when it leaves
   blocking questions: one for each critique item it could not revise, and any a fix needs.
   The answers are applied before a recheck (`review.recheckRevisedPlan`) reads the plan, and
@@ -138,7 +167,13 @@ left "throw or clamp?" open and failed, and nothing could answer it and resume.
 - A revision that cannot fit the planner's context fails with
   `PLAN_QUESTION_REVISION_CONTEXT_EXCEEDED:<version>`. No graph may use `plan-questions`
   as a gate or human node ID (`RESERVED_CHECKPOINT_ID`). Automatic mode and runs without a
-  checkpoint policy keep the old behaviour: blocking questions fail the gate.
+  checkpoint policy keep the old behaviour: blocking questions fail the gate. The other model
+  still answers the final plan's blocking questions before the handoff.
+- The saved plan's `questions.md` lists the questions answered while the plan was written
+  (with the suggestion, the other model's answer and how each was answered), the blocking
+  questions still open (with the suggestion, the answers weighed, the other model's answer or
+  why it was not asked, and which both models agree on), and the questions that do not block,
+  each with its default.
 
 ### Operator-authored graphs
 

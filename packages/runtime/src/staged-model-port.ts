@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { PinnedProtocol } from "@arbitra/protocols/registry.js";
+import { plannerOutputSchema } from "./answer-check.js";
 import { allocateModelContext } from "./model-context.js";
 import { isCapacityError, ModelOutputLimitError } from "./context-budget.js";
 import type { ModelActivityRequest } from "./model-activities.js";
@@ -32,12 +33,15 @@ export interface HarnessStagePortOptions {
 export function harnessStagePort(options: HarnessStagePortOptions): PlannerCompositionPort {
   const { protocol } = options;
   const isFull = (stage: PlannerStage) => stage.activityId === options.full.stageActivityId;
+  // A planner asks for each question's suggestion from planner 1.1.0; a Feature or Testing run pinned earlier, as they
+  // are unless they select it, sends the schema it sent.
+  const outputSchema = (schema: unknown) => protocol.protocolId === "planner" ? plannerOutputSchema(schema, protocol.protocolVersion) : schema;
   const activityId = (stage: PlannerStage) => isFull(stage) ? options.full.activityId : `${options.stagePrefix}/${stage.activityId}`;
   const request = (stage: PlannerStage, payload: unknown): ModelActivityRequest<unknown> => ({
     activityId: activityId(stage), modelProfileId: options.modelProfileId, signal: options.signal, effort: options.effort ?? "high",
     protocol: `${protocol.protocolId}@${protocol.protocolVersion}`, protocolAsset: protocol,
     protocolIdentity: { protocolId: protocol.protocolId, protocolVersion: protocol.protocolVersion, protocolHash: protocol.protocolHash },
-    schema: isFull(stage) ? options.full.schema : stage.schema, outputSchema: isFull(stage) ? options.full.outputSchema : stage.jsonSchema, messages: [
+    schema: isFull(stage) ? options.full.schema : stage.schema, outputSchema: outputSchema(isFull(stage) ? options.full.outputSchema : stage.jsonSchema), messages: [
       { role: "system", content: isFull(stage) ? options.full.instruction : `${stage.instruction} ${options.instructionSuffix} Source may be excerpted; consult contextCoverage and read-only source tools. Return only JSON matching the locked schema.` },
       { role: "user", content: JSON.stringify(payload) },
     ] });

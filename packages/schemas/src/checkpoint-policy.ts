@@ -36,9 +36,24 @@ export type CheckpointResponse = z.infer<typeof checkpointResponseSchema>;
  */
 export const PLAN_QUESTIONS_CHECKPOINT_ID = "plan-questions";
 
-/** Operator answers to every blocking question of one plan-questions version, given once. */
+/**
+ * One answer: written out (`answer`), or one of the answers the checkpoint lists for the question (`choice`, its
+ * index; the first is the planner's suggestion).
+ */
+export const planQuestionAnswerSchema = z.union([
+  z.strictObject({ questionId: z.string().min(1), answer: z.string().refine((value) => value.trim().length > 0, "Expected a nonempty answer") }),
+  z.strictObject({ questionId: z.string().min(1), choice: z.number().int().min(0) }),
+]);
+
+/**
+ * Operator answers to every blocking question of one plan-questions version, given once. `acceptSuggested` takes the
+ * suggestion of every question the checkpoint marks `acceptable` (both models proposed it, and neither rates its
+ * blast radius high) that `answers` leaves out; every other question is answered in `answers`, one by one.
+ */
 export const planQuestionAnswersSchema = z.strictObject({
   version: z.string().regex(/^[a-f0-9]{64}$/u),
-  answers: z.array(z.strictObject({ questionId: z.string().min(1), answer: z.string().refine((value) => value.trim().length > 0, "Expected a nonempty answer") })).min(1),
-});
+  answers: z.array(planQuestionAnswerSchema),
+  acceptSuggested: z.literal(true).optional(),
+}).refine((value) => value.answers.length > 0 || value.acceptSuggested === true, { path: ["answers"], message: "Expected at least one answer, or acceptSuggested" });
+export type PlanQuestionAnswer = z.infer<typeof planQuestionAnswerSchema>;
 export type PlanQuestionAnswers = z.infer<typeof planQuestionAnswersSchema>;

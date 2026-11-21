@@ -32,8 +32,22 @@ export const PROGRESS_POLL_MS = 5_000;
 /** A generic human checkpoint; answer its current `version`, then resume the run. */
 export interface HumanCheckpointResource { readonly kind: "human"; readonly checkpointId: string; readonly version: string; readonly mode: "interactive" | "automatic"; readonly status: "pending" | "approved" | "rejected"; readonly prompt: string; readonly decisions: readonly ("approve" | "reject")[]; readonly nodeId?: string }
 export interface RequirementsCheckpointResource { readonly kind: "requirements"; readonly artifactId: string; readonly pendingAmbiguityIds: readonly string[]; readonly revisionProposalArtifactId?: string }
-/** An interactive Audit's blocking plan questions; answer every one for the current `version`, then resume. */
-export interface PlanQuestionsCheckpointResource { readonly kind: "plan-questions"; readonly checkpointId: "plan-questions"; readonly version: string; readonly status: "pending" | "answered"; readonly questions: readonly { readonly id: string; readonly question: string; readonly blastRadius: string }[] }
+/**
+ * An interactive Audit's blocking plan questions; answer every one for the current `version`, then resume. A question
+ * the planner suggested an answer for lists the answers to choose from (`choices`, the suggestion first), what a model
+ * of another vendor answered on its own (`check`), and whether "accept all suggested" may take it (`acceptable`).
+ * `check` on the record says whether that model was asked, or why not. Checkpoints made before suggestions have none.
+ */
+export interface PlanQuestionsCheckpointResource { readonly kind: "plan-questions"; readonly checkpointId: "plan-questions"; readonly version: string; readonly status: "pending" | "answered"; readonly questions: readonly PlanQuestion[];
+  readonly check?: { readonly status: "answered" | "off" | "no_other_vendor" | "nothing_to_check" | "skipped"; readonly profile?: string; readonly reason?: string } }
+export interface PlanQuestion {
+  readonly id: string; readonly question: string; readonly blastRadius: string;
+  readonly suggestion?: { readonly answer: string; readonly reason: string }; readonly choices?: readonly string[];
+  readonly check?: { readonly answer: string; readonly reason: string; readonly choice: number; readonly blastRadius: string; readonly agrees: boolean; readonly profile?: string };
+  readonly acceptable?: boolean;
+}
+/** One answer: one of the question's `choices` by index, or written out. */
+export type PlanQuestionAnswer = { readonly questionId: string; readonly choice: number } | { readonly questionId: string; readonly answer: string };
 export type CheckpointResource = HumanCheckpointResource | RequirementsCheckpointResource | PlanQuestionsCheckpointResource;
 export interface RunResource { readonly runId: string; readonly state: string; readonly resumable: boolean; readonly checkpoints: readonly CheckpointResource[]; readonly eventsCursor?: string; readonly preservedArtifacts?: number; readonly workflow?: WorkflowJson; /** Present when the run executes a saved operator-authored graph. */ readonly workflowGraph?: { readonly id: string; readonly version: string; readonly executedVersion: string } }
 export interface EstimateResource { readonly estimate: { readonly files: number; readonly lines: number; readonly nodes: number; readonly auditors: number; readonly variantSearch?: boolean; readonly providerCalls: number | null; readonly costUsd: number | null; readonly currency: string | null; readonly basis: string };
@@ -132,7 +146,8 @@ export class RunApi {
   /** A new audit of the run's project as it is now, with the run's own settings and the run as its incremental base: it reuses what the run finished. */
   startIncremental(baseRunId: string): Promise<RunResource> { return this.request(`/runs/${encodeURIComponent(baseRunId)}/incremental`, { method: "POST" }); }
   respondCheckpoint(runId: string, checkpointId: string, version: string, decision: "approve" | "reject"): Promise<{ readonly accepted: true }> { return this.request(`/runs/${encodeURIComponent(runId)}/checkpoints/${encodeURIComponent(checkpointId)}`, { method: "POST", body: JSON.stringify({ version, decision }) }); }
-  answerPlanQuestions(runId: string, version: string, answers: readonly { readonly questionId: string; readonly answer: string }[]): Promise<{ readonly accepted: true }> { return this.request(`/runs/${encodeURIComponent(runId)}/checkpoints/plan-questions`, { method: "POST", body: JSON.stringify({ version, answers }) }); }
+  /** `acceptSuggested` takes the suggestion of every question marked acceptable that `answers` leaves out. */
+  answerPlanQuestions(runId: string, version: string, answers: readonly PlanQuestionAnswer[], acceptSuggested = false): Promise<{ readonly accepted: true }> { return this.request(`/runs/${encodeURIComponent(runId)}/checkpoints/plan-questions`, { method: "POST", body: JSON.stringify({ version, answers, ...(acceptSuggested ? { acceptSuggested: true } : {}) }) }); }
   eventsUrl(runId: string): string { return `${this.baseUrl}/runs/${encodeURIComponent(runId)}/events`; }
   // Bodiless POSTs (resume, cancel) must not declare a JSON body: the server rejects an empty
   // `application/json` body with 400, which the browser QA found silently broke both controls.

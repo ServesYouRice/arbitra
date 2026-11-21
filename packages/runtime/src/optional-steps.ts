@@ -2,6 +2,7 @@ import type { OptionalStep } from "@arbitra/core/runner/events.js";
 import type { ProviderUsageLimitError } from "@arbitra/providers/runtime.js";
 import type { RunConfig } from "@arbitra/schemas/config.js";
 import { providerExecutionSchema } from "@arbitra/schemas/provider-execution.js";
+import { isGemini } from "./audit-roles.js";
 import type { RunStore } from "./run-store.js";
 
 /** The artifact that holds the models a run found out of their allowance, and where its optional steps went instead. */
@@ -123,11 +124,6 @@ export function limitedWords(config: RunConfig, profile: string, until: string |
 }
 
 const RANK: Readonly<Record<string, number>> = Object.freeze({ fast: 0, balanced: 1, frontier: 2 });
-
-/** Google's transports, as the new-run page tells a Gemini profile apart: through Antigravity, the Gemini CLI or Gemini's API. */
-const GEMINI_TRANSPORTS: ReadonlySet<string> = new Set(["antigravity-cli", "gemini-cli", "gemini-native"]);
-/** Whether a profile is a Gemini model: by its vendor or by the transport that reaches it. */
-const isGemini = (model: { readonly provider: string; readonly transport: string }): boolean => model.provider === "google" || GEMINI_TRANSPORTS.has(model.transport);
 
 /**
  * The profiles that may answer a second opinion in place of `asked` once its allowance is out, in order: of another

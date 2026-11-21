@@ -107,7 +107,7 @@ function activityStep(activityId: string): string {
   const stage = activityId.split("/")[0] ?? "";
   if (stage.startsWith("auditor-")) return "finding issues";
   const steps: Readonly<Record<string, string>> = { "peer-review": "merging duplicates", "peer-conflict": "merging duplicates", "semantic-clustering": "merging duplicates",
-    verification: "checking each issue", "variant-search": "searching for variants", planner: "writing the plan", critic: "reviewing the plan", "critique-check": "reviewing the plan" };
+    verification: "checking each issue", "variant-search": "searching for variants", planner: "writing the plan", critic: "reviewing the plan", "critique-check": "reviewing the plan", "answer-check": "checking the plan's questions" };
   return steps[stage] ?? stage;
 }
 
