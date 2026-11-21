@@ -41,7 +41,7 @@ export function WhatToRead({ files, complete, wholeProject, suggestions, exclude
           <td>{on ? share(groupLines, read.lines) : "left out"}</td>
         </tr>;
       })}{uncounted.map((entry) => <tr data-read="false" key={`left out ${entry}`}>
-        <td><input aria-label={`read ${entry}`} checked={false} type="checkbox" onChange={() => onExclude(withPath(exclude, leaveOutPath(entry), false))} /></td>
+        <td><input aria-label={`read ${entry}`} checked={false} type="checkbox" onChange={() => onExclude(withPath(exclude, leaveOutPath(entry) ?? entry, false))} /></td>
         <td>{entry}</td><td colSpan={2}>not counted</td><td>left out</td>
       </tr>)}</tbody>
     </table></div>

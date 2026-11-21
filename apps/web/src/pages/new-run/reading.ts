@@ -1,14 +1,13 @@
-import type { ReadFile } from "../../api/runs.js";
-
 /**
  * What a run reads, counted from the check's list of every file the scope reads before its leave-outs
  * (`estimate.read`), so a folder, the tests or a generated file can be left out or read again without reading the
- * project again. A leave-out is a path in `scope.exclude`; it covers the path itself and everything below it, as the
- * snapshot reads it (`packages/runtime/src/repository.ts`).
+ * project again. A leave-out is a path in `scope.exclude`; it covers the path itself and everything below it, read by
+ * the snapshot's own rule (`packages/runtime/src/leave-outs.ts`), so the count is what the run reads.
  */
-export function leaveOutPath(entry: string): string { return entry.trim().replaceAll("\\", "/").replace(/^(?:\.\/)+/u, "").replace(/\/+$/u, ""); }
-export function covers(entry: string, path: string): boolean { const prefix = leaveOutPath(entry); return prefix !== "" && (path === prefix || path.startsWith(`${prefix}/`)); }
-export function leftOut(exclude: readonly string[], path: string): boolean { return exclude.some((entry) => covers(entry, path)); }
+import { covers, leaveOutPath, leftOut } from "@arbitra/runtime/leave-outs.js";
+import type { ReadFile } from "../../api/runs.js";
+
+export { covers, leaveOutPath, leftOut };
 
 export interface Reading { readonly files: number; readonly lines: number; readonly testFiles: number; readonly testLines: number }
 export function reading(files: readonly ReadFile[], exclude: readonly string[]): Reading {
@@ -19,11 +18,13 @@ export function reading(files: readonly ReadFile[], exclude: readonly string[]):
 
 /**
  * What is known of a project's files after another read. A project over the file limit lists only what its leave-outs
- * let through, so the list keeps what earlier reads named: the tests stay a tick, a folder left out stays its row.
+ * (`exclude`, the ones that read sent) let through, so the list keeps what earlier reads named and these leave out: the
+ * tests stay a tick, a folder left out stays its row. A file an earlier read named that these do not leave out, and this
+ * read does not list, is no longer in what the scope reads, and is not counted.
  */
-export function knownFiles(earlier: readonly ReadFile[], files: readonly ReadFile[]): readonly ReadFile[] {
+export function knownFiles(earlier: readonly ReadFile[], files: readonly ReadFile[], exclude: readonly string[]): readonly ReadFile[] {
   const listed = new Set(files.map(({ path }) => path));
-  return [...earlier.filter(({ path }) => !listed.has(path)), ...files];
+  return [...earlier.filter(({ path }) => !listed.has(path) && leftOut(exclude, path)), ...files];
 }
 
 /** A row of the folder table: a folder, or the files directly in one, and what leaving it out adds to the leave-outs. */
@@ -101,7 +102,7 @@ export function withTests(exclude: readonly string[], files: readonly ReadFile[]
 
 /** The leave-outs with one path left out, or that exact entry taken away. */
 export function withPath(exclude: readonly string[], path: string, leave: boolean): readonly string[] {
-  return leave ? unique([...exclude, path]) : exclude.filter((entry) => leaveOutPath(entry) !== path);
+  return leave ? unique([...exclude, path]) : exclude.filter((entry) => (leaveOutPath(entry) ?? entry) !== path);
 }
 
 export function sum(files: readonly { readonly lines: number }[]): number { return files.reduce((total, { lines }) => total + lines, 0); }

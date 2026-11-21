@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ReadFile } from "../src/api/runs.js";
-import { covers, folderGroups, groupRead, reading, testCover, testsRead, withGroup, withPath, withTests } from "../src/pages/new-run/reading.js";
+import { covers, folderGroups, groupRead, knownFiles, reading, testCover, testsRead, withGroup, withPath, withTests } from "../src/pages/new-run/reading.js";
 
 const file = (path: string, lines: number, test = false): ReadFile => ({ path, lines, test, leftOut: false });
 // veritra's shape (October 25, 2026): four folders, tests beside the code and in their own folder, generated Dart.
@@ -16,6 +16,23 @@ describe("what a run reads", () => {
       .toEqual([true, true, true, false, true]);
     expect(reading(VERITRA, [])).toEqual({ files: 8, lines: 103_171, testFiles: 2, testLines: 14_654 });
     expect(reading(VERITRA, ["mobile/lib/db.g.dart", "scripts"])).toEqual({ files: 6, lines: 88_404, testFiles: 2, testLines: 14_654 });
+  });
+
+  it("reads a leave-out by the snapshot's own rule however it is written, and one outside the project as covering nothing", () => {
+    // Observed live (November 11, 2026): New run and the run's preflight disagreed on a project's size; these spellings
+    // were read one way here and another by the snapshot (packages/runtime/test/orchestrator.test.ts runs both).
+    expect([covers("src//gen", "src/gen/a.ts"), covers("./lib/./vendor", "lib/vendor/v.js"), covers("tools/../scripts", "scripts/build.sh"), covers(" docs ", "docs/a.html")])
+      .toEqual([true, true, true, true]);
+    expect([covers("../docs", "docs/a.html"), covers("C:\\work\\docs", "docs/a.html"), covers("/work/docs", "docs/a.html"), covers(".", "docs/a.html")]).toEqual([false, false, false, false]);
+  });
+
+  it("keeps a file an earlier read listed only while the leave-outs of the last read cover it", () => {
+    // A project over the file limit lists only what its leave-outs let through: the tests left out stay known, and a
+    // file no read lists any more is not counted.
+    const earlier = [file("src/a.ts", 10), file("tests/a.test.ts", 5, true), file("src/gone.ts", 7)];
+    const files = knownFiles(earlier, [file("src/a.ts", 12)], ["tests"]);
+    expect(files.map(({ path }) => path)).toEqual(["tests/a.test.ts", "src/a.ts"]);
+    expect(reading(files, ["tests"])).toEqual({ files: 1, lines: 12, testFiles: 0, testLines: 0 });
   });
 
   it("groups the files by folder, the files at the top on their own, and opens a folder that holds most of the project", () => {

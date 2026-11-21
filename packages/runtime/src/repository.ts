@@ -5,6 +5,7 @@ import { join, relative, sep } from "node:path";
 import { RepositoryPathGuard } from "@arbitra/security/path-guard";
 import { maskPrivateKeyBlocks } from "@arbitra/security/redaction";
 import type { RunScope } from "@arbitra/schemas/config.js";
+import { leaveOutPath, leftOut } from "./leave-outs.js";
 
 export interface SourceFile {
   readonly path: string;
@@ -69,10 +70,13 @@ export async function snapshotRepository(root: string, maximumFiles = SNAPSHOT_F
   const guard = await RepositoryPathGuard.create(root);
   const scope = options.scope ?? { kind: "repository" };
   const additional = new Set((options.additionalPaths ?? []).map((path) => relative(guard.root, guard.resolve(path)).split(sep).join("/")));
-  const exclusions = (scope.exclude ?? []).map((path) => relative(guard.root, guard.resolve(path)).split(sep).join("/").replace(/\/$/u, ""));
-  // An exclusion covering the whole repository would leave nothing to audit; reject it rather than guess.
-  if (exclusions.some((prefix) => prefix === "")) throw new Error("SCOPE_EXCLUSION_COVERS_REPOSITORY");
-  const excluded = (path: string): boolean => exclusions.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+  // Leave-outs are read by the rule New run counts with (`leave-outs.ts`). One that names nothing inside the project,
+  // and one covering the whole of it, which would leave nothing to audit, are refused rather than guessed at.
+  const exclude = scope.exclude ?? [];
+  const outside = exclude.find((entry) => leaveOutPath(entry) === null);
+  if (outside !== undefined) throw new Error(`SCOPE_EXCLUSION_NOT_IN_REPOSITORY:${outside}`);
+  if (exclude.some((entry) => leaveOutPath(entry) === "")) throw new Error("SCOPE_EXCLUSION_COVERS_REPOSITORY");
+  const excluded = (path: string): boolean => leftOut(exclude, path);
   const eligible = (path: string): boolean => !excluded(path) && (SCANNED_EXTENSIONS.has(path.slice(path.lastIndexOf(".")).toLowerCase()) || options.includeTestMetadata === true && (TEST_METADATA.has(path.split("/").at(-1) ?? "") || additional.has(path)));
   if (scope.kind === "diff") return snapshotDiff(guard, scope, maximumFiles, options.git ?? defaultGit, eligible);
   const paths = await sourcePaths(root, guard, scope, maximumFiles + 1, options.git ?? defaultGit, eligible, excluded);
