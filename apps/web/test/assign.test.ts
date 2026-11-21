@@ -65,7 +65,7 @@ describe("a step's model and effort, changed in place", () => {
   it("offers Gemini only for optional work, first there, with Argon when Antigravity offers it", () => {
     const three = withThirdFinder(template("subscription-audit"), "default", OFFERED);
     const names = (seat: Parameters<typeof seatOptions>[1]) => seatOptions(three, seat, OFFERED).map(({ key, models }) => `${key.slice(2)}: ${models.map(({ modelId }) => modelId).join(", ")}`);
-    expect(names({ kind: "role", role: "planner" })).toEqual(["claude-code-cli: claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5, claude-sonnet-5, claude-haiku-4-5-20251001", "codex-cli: gpt-6.1-sol, gpt-6-luna, gpt-5.6-luna"]);
+    expect(names({ kind: "role", role: "planner" })).toEqual(["claude-code-cli: claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5, claude-sonnet-5, claude-haiku-4-5-20251001", "codex-cli: gpt-6.1-sol, gpt-6.2-sol, gpt-6-luna, gpt-5.6-luna"]);
     expect(names({ kind: "finder", alias: "auditor-a" })).toEqual(["claude-code-cli: claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5, claude-sonnet-5, claude-haiku-4-5-20251001"]);
     expect(names({ kind: "finder", alias: "auditor-c" })[0]).toBe("antigravity-cli: gemini-4-argon, gemini-3.8-flash-high");
     expect(names({ kind: "finder", alias: "auditor-c" })).toHaveLength(3);
