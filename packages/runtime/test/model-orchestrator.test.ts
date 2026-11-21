@@ -784,8 +784,9 @@ describe("composed model audits", () => {
     const interactive = { ...config, workflow: { ...config.workflow, checkpoints: { mode: "interactive" } } };
     const core = create(); const result = await core.run(interactive);
     expect(result.state).toBe("BLOCKED");
-    // One call, to the critic's profile (Google; the planner is OpenAI's), before anyone is asked.
-    expect(requests.filter(({ stage }) => stage === "answer-check").map(({ url }) => url)).toEqual([expect.stringContaining("auditor-c")]);
+    // One call, before anyone is asked, to a model of another vendor than the planner's (OpenAI's): not the critic, which
+    // is Gemini and so never answers the plan's questions unless the run names it, but the verifier's (Anthropic's).
+    expect(requests.filter(({ stage }) => stage === "answer-check").map(({ url }) => url)).toEqual([expect.stringContaining("auditor-b")]);
     // It sees the answers the planner weighed in alphabetical order under letters, and not which it recommends or why.
     expect(answerCheckInputs[0]?.questions.map(({ questionId, options }) => [questionId, options])).toEqual([
       ["Q-null", [{ label: "A", answer: "Default to zero." }, { label: "B", answer: "Throw a typed error." }]],
@@ -793,7 +794,7 @@ describe("composed model audits", () => {
     expect(JSON.stringify(answerCheckInputs[0])).not.toMatch(/Callers already handle typed errors|blastRadius|Q-name/u);
     const pending = (await core.status(result.runId)).checkpoints.find((checkpoint) => checkpoint.kind === "plan-questions");
     if (pending?.kind !== "plan-questions") throw new Error("PLAN_QUESTIONS_CHECKPOINT_ABSENT");
-    expect(pending).toMatchObject({ check: { status: "answered", profile: "auditor-c" }, questions: [
+    expect(pending).toMatchObject({ check: { status: "answered", profile: "auditor-b" }, questions: [
       { id: "Q-null", suggestion: { answer: "Throw a typed error.", reason: "Callers already handle typed errors." }, choices: ["Throw a typed error.", "Default to zero."], check: { agrees: true, choice: 0, blastRadius: "low" }, acceptable: true },
       { id: "Q-log", choices: ["Log at warn level.", "Do not log it.", "Log at debug level."], check: { agrees: false, choice: 2, answer: "Log at debug level.", reason: "Warn is too loud for a routine value." }, acceptable: false }] });
     // Accepting every suggestion takes only the question both models answered alike; the other is answered one by one.
@@ -854,7 +855,7 @@ describe("composed model audits", () => {
     const artifacts = await core.artifacts(result.runId);
     const descriptor = artifacts.find(({ kind }) => kind.startsWith("answer-check-"));
     const check = JSON.parse((await core.artifact(result.runId, descriptor?.artifactId ?? "") as { content: string }).content) as { status: string; profile: string; reason: string };
-    expect(check).toMatchObject({ status: "skipped", profile: "auditor-c" });
+    expect(check).toMatchObject({ status: "skipped", profile: "auditor-b" });
     expect(check.reason).toMatch(/quota/u);
     expect((await core.gate(result.runId)).reasons).toContain("blocking_plan_questions");
     // The handoff was rendered from the final plan all the same.

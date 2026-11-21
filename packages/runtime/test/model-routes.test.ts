@@ -107,18 +107,25 @@ describe("fallbacks between an API profile and a subscription profile of one mod
   });
 
   it("goes on through the API key when the subscription's limit resets later than the run waits, and back once it has reset", async () => {
-    const f = await fixture({ fallbacks: { "opus-api": "opus-cc", "opus-cc": "opus-api" }, fallbackWaitMs: 100 });
-    f.cli.push({ quotaInMs: 300 }, { text: "unused" });
-    const activities = f.create();
-    expect(await activities.invoke(request("critic/1", "opus-cc"))).toEqual({ answer: "api:critic/1" });
-    const [switched] = await f.switches();
-    expect(switched).toMatchObject({ from: "opus-cc", to: "opus-api", reason: "usage_limit", spentUsd: null });
-    expect(Date.parse(switched?.resetsAt ?? "")).toBeGreaterThan(Date.now());
-    expect(await activities.invoke(request("critic/2", "opus-cc"))).toEqual({ answer: "api:critic/2" });
-    // Once the window has reset, the subscription answers again, and the run says so.
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    expect(await activities.invoke(request("critic/3", "opus-cc"))).toEqual({ answer: "cc:critic/3" });
-    expect((await f.switches()).map(({ from, to, reason }) => `${from}>${to}:${reason}`)).toEqual(["opus-cc>opus-api:usage_limit", "opus-api>opus-cc:reset"]);
+    // The clock moves only when the test moves it, so a slow machine cannot let the window reset between the first two
+    // calls (it did once under a full parallel suite).
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() });
+    try {
+      const f = await fixture({ fallbacks: { "opus-api": "opus-cc", "opus-cc": "opus-api" }, fallbackWaitMs: 100 });
+      f.cli.push({ quotaInMs: 300 }, { text: "unused" });
+      const activities = f.create();
+      expect(await activities.invoke(request("critic/1", "opus-cc"))).toEqual({ answer: "api:critic/1" });
+      const [switched] = await f.switches();
+      expect(switched).toMatchObject({ from: "opus-cc", to: "opus-api", reason: "usage_limit", spentUsd: null });
+      expect(Date.parse(switched?.resetsAt ?? "")).toBeGreaterThan(Date.now());
+      expect(await activities.invoke(request("critic/2", "opus-cc"))).toEqual({ answer: "api:critic/2" });
+      // Once the window has reset, the subscription answers again, and the run says so.
+      vi.setSystemTime(Date.now() + 400);
+      expect(await activities.invoke(request("critic/3", "opus-cc"))).toEqual({ answer: "cc:critic/3" });
+      expect((await f.switches()).map(({ from, to, reason }) => `${from}>${to}:${reason}`)).toEqual(["opus-cc>opus-api:usage_limit", "opus-api>opus-cc:reset"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("waits for a subscription's limit that resets soon, and pauses as rate limited rather than pay for the API", async () => {
