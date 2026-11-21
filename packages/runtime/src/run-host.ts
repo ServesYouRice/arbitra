@@ -26,7 +26,7 @@ export function processHost(): RunHost {
  * The provider options every stage passes on to its model calls, with the host's suspends, so each call waits for the
  * computer to be awake and is sent again when a sleep cuts it. Suspends the options name already (a test's) are kept.
  */
-export function withHostSuspends(options: TransportFactoryOptions, host: RunHost | undefined): TransportFactoryOptions {
+export function withHostSuspends<T extends TransportFactoryOptions>(options: T, host: RunHost | undefined): T & TransportFactoryOptions {
   return host === undefined || options.suspends !== undefined ? options : { ...options, suspends: host.suspends };
 }
 

@@ -9,7 +9,7 @@ import { formatTime, gateReasonLabel, isActive } from "../../app/format.js";
 import { GateVerdict } from "../../app/marks.js";
 import { Link, type RunTab } from "../../app/router.js";
 import { tokens as limitWords } from "../../app/token-limit.js";
-import { counted, dollars, duration, failureWords, helperWaiting, helperWords, optionalStepWords, partsReadWords, routeSwitchWords, routeWord, SEVERITIES, severityWord, sleptSpans, sleptWords, stepDoing, tokenWords, type Mode } from "../../app/words.js";
+import { counted, dollars, duration, failureWords, helperWaiting, helperWords, limitWaits, limitWaitWords, optionalStepWords, partsReadWords, routeSwitchWords, routeWord, SEVERITIES, severityWord, sleptSpans, sleptWords, stepDoing, tokenWords, type Mode } from "../../app/words.js";
 import { CopyButton } from "../../controls/CopyButton.js";
 import { useEvaluationMetrics, type ConfirmedYield } from "../../views/evaluation/api.js";
 import { FeatureOutcome, HandoffDownload } from "../../views/feature/FeatureView.js";
@@ -139,7 +139,9 @@ function profileOf(overview: RunOverview | null, id: string): { readonly model: 
  * Each time a model's work went to its fallback, or the run paused with none, in a line: "Switched Opus 5.5 · xhigh
  * from API key to Claude Code at 11 Nov, 08:14, credit out ($182 spent)." Observed live (memoria, November 10–11,
  * 2026): the API credit ran out before the plan, and the switch to the subscription was made by hand. Beside them,
- * each optional step that went to another model, or was left out, when its model's allowance was out.
+ * each optional step that went to another model, or was left out, when its model's allowance was out, and each wait of
+ * a model's calls for its subscription's limit to reset: "Codex's limit for GPT-6.1 Sol resets at 21 Nov, 12:27; GPT-6.1
+ * Sol waits and goes on at 21 Nov, 12:28, while the rest of the run goes on."
  */
 export function RouteNotes({ events, overview }: { readonly events: readonly RunEvent[]; readonly overview: RunOverview | null }): ReactElement | null {
   const caps = record(record(record(overview?.configuration?.["workflow"])["modelExecution"])["maximumCostUsd"]);
@@ -154,6 +156,9 @@ export function RouteNotes({ events, overview }: { readonly events: readonly Run
     return [routeSwitchWords({ model: subject.model, effort: event.effort ?? null, from: from.route, to: to?.route ?? null, toModel: to?.model ?? null, at: event.at ?? null,
       reason: event.reason ?? "", spentUsd: typeof event.spentUsd === "number" ? event.spentUsd : null, capUsd: typeof cap === "number" ? cap : null, resetsAt: event.resetsAt ?? null })];
   });
+  // A model's calls waiting in place for its subscription's usage limit to reset, while the rest of the run goes on.
+  const waits = limitWaits(events).map((wait) => { const profile = profileOf(overview, wait.profile); return limitWaitWords(wait, profile.model, profile.route, overview?.live === true); });
+  lines.push(...waits);
   return lines.length === 0 ? null : <ul aria-label="model switches" className="plain-list note" data-switches="">{lines.map((line, index) => <li key={`${index}:${line}`}>{line}</li>)}</ul>;
 }
 

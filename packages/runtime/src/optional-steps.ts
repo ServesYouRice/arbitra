@@ -29,9 +29,11 @@ const EMPTY: OptionalStepState = Object.freeze({ schemaVersion: 1, limited: {}, 
  * The owner's rule (November 2026): an optional step never holds a core stage on another vendor's usage window. The
  * second opinion before a severe rejection, the variant search, a finder the run can go on without and the plan critic
  * are optional; finding with the two finders the roles need, checking, merging and the plan are core. When an optional
- * step's model is out of its allowance, the run waits only as it would for any model (a subscription's limit that
- * resets within `fallbackWaitMs`, ModelRoutes.waits); else the profile's fallback answers when it has one
- * (ModelRoutes); else the step goes to another model where it has a stand-in, or the run goes on without it. Each
+ * step's model is out of its allowance, its call waits only as any model's does: in place, for a subscription's limit
+ * that resets within `fallbackWaitMs` (ModelActivities), while the run's other work goes on, and not when the step is
+ * no longer needed (a finder left out stops waiting at once). Else, or when the limit is met again after that wait,
+ * the profile's fallback answers when it has one (ModelRoutes); else the step goes to another model where it has a
+ * stand-in, or the run goes on without it. Each
  * move is recorded in the run (this artifact) and as an `optional_step_limited` event, once for each step, model and
  * stand-in, and a model found out is not asked again until its reset, so a resume keeps the decision.
  *

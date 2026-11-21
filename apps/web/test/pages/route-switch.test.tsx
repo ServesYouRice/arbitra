@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../src/app/App.js";
 import { formatTime } from "../../src/app/format.js";
 import { stubBrowser, stubControlPlane, visit } from "../support.js";
-import { artifactRoutes, finishedProgress, MODEL_CONFIGURATION, modelOverview, resource } from "./fixtures.js";
+import { artifactRoutes, discoveryProgress, EMPTY_TRACES, finishedProgress, MODEL_CONFIGURATION, modelOverview, resource } from "./fixtures.js";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); visit(""); });
 
@@ -55,6 +55,27 @@ describe("a run whose model switched route", () => {
     const when = `at ${formatTime(at)}: usage limit reached, until ${formatTime(resetsAt)}.`;
     expect(within(lines).getByText(`The second opinion went from GPT-6.1 Sol to Opus 5.5 ${when}`)).toBeTruthy();
     expect(within(lines).getByText(`The plan review on GPT-6.1 Sol was left out ${when} The plan went on unreviewed.`)).toBeTruthy();
+  });
+
+  it("says a model waiting in place for its subscription's limit to reset while the run goes on, and how its wait ended", async () => {
+    // Observed live (a real-project audit, November 21, 2026): Sol met Codex's limit at 12:20, seven minutes before its
+    // reset, and sat idle two hours with nothing on the page saying why.
+    stubBrowser(); const stream = eventStream();
+    stubControlPlane({ "GET /runs/run-1": resource({ state: "DISCOVERY_RUNNING", resumable: true }), "GET /runs/run-1/overview": modelOverview({ state: "DISCOVERY_RUNNING", gate: null, live: true }),
+      "GET /runs/run-1/progress": discoveryProgress(), "GET /runs/run-1/traces*": EMPTY_TRACES, ...artifactRoutes("run-1", {}) });
+    visit("?run=run-1");
+    render(<App />);
+    await screen.findByRole("region", { name: "now" });
+    const since = "2026-11-21T11:20:00.000Z"; const resetsAt = "2026-11-21T11:27:00.000Z"; const until = "2026-11-21T11:28:00.000Z";
+    stream.emit({ t: "model_waiting", runId: "run-1", profile: "auditor-b", resetsAt, until, detail: "CLI_USAGE_LIMIT_REACHED", at: since });
+    const lines = await screen.findByRole("list", { name: "model switches" });
+    expect(within(lines).getByText(`Codex's limit for GPT-6.1 Sol resets at ${formatTime(resetsAt)}; GPT-6.1 Sol waits and goes on at ${formatTime(until)}, while the rest of the run goes on.`)).toBeTruthy();
+    stream.emit({ t: "model_wait_ended", runId: "run-1", profile: "auditor-b", outcome: "went_on", at: until });
+    expect(await within(lines).findByText(`GPT-6.1 Sol waited for Codex's limit to reset from ${formatTime(since)} to ${formatTime(until)}, then went on.`)).toBeTruthy();
+    // A wait the run stopped during, as when arbitra itself was stopped: what a resume does.
+    stream.emit({ t: "model_waiting", runId: "run-1", profile: "auditor-b", resetsAt: "2026-11-21T16:27:00.000Z", until: "2026-11-21T16:28:00.000Z", at: "2026-11-21T16:20:00.000Z" });
+    stream.emit({ t: "run_transition", runId: "run-1", state: "FAILED", reason: "Error: stopped", at: "2026-11-21T16:21:00.000Z" });
+    expect(await screen.findByText(`GPT-6.1 Sol was waiting for Codex's limit to reset, until ${formatTime("2026-11-21T16:28:00.000Z")}, when the run stopped. A resume sends its calls again.`)).toBeTruthy();
   });
 
   it("says a pause at the dollar cap as the cap, with what to do next", async () => {

@@ -135,8 +135,9 @@ export const providerExecutionSchema = z.object({
    * packages/providers/src/pricing.ts (cache writes and reads apart). Once it is reached the profile's work goes to its
    * fallback, or the run pauses. Calls already in flight finish, so a run can pass the cap by what they cost. */
   maximumCostUsd: z.record(identifier, z.number().positive().max(1_000_000)).optional(),
-  /** A subscription's usage limit that resets within this many milliseconds is waited for, and the run pauses until
-   * then, rather than switched from (default 30 minutes; see DEFAULT_FALLBACK_WAIT_MS). */
+  /** A subscription's usage limit that resets within this many milliseconds is waited for rather than switched from
+   * (default 30 minutes; see DEFAULT_FALLBACK_WAIT_MS): each call it refuses waits in place until a minute after the
+   * reset (AFTER_RESET_MS) and is then sent again, while the run's other calls go on. */
   fallbackWaitMs: z.number().int().min(0).max(7 * 24 * 60 * 60 * 1_000).optional(),
 }).strict().superRefine((value, context) => {
   const ids = new Set<string>();
@@ -174,10 +175,18 @@ export const providerExecutionSchema = z.object({
  * How long a subscription's usage limit may take to reset and still be waited for rather than switched from: 30
  * minutes. A Claude or Codex window is five hours, so a limit met late in one resets soon, and a wait that short costs
  * the run less than the API would charge for the calls it saves (memoria, November 2026: Opus spent nearly $200 of
- * API credit before its plan). The run pauses as rate limited and goes on when resumed after the reset. A weekly limit, or a window hours
- * from resetting, switches.
+ * API credit before its plan). A call the limit refuses waits in place until a minute after the reset and is sent again,
+ * while the run's other calls go on; it waits again only while the resets it has waited for add up to no more than this,
+ * then fails, and the run pauses as rate limited for the run helper to resume. A weekly limit, or a window hours from
+ * resetting, switches.
  */
 export const DEFAULT_FALLBACK_WAIT_MS = 30 * 60 * 1_000;
+
+/**
+ * A usage limit is waited for until this long after its reset: by a call that waits in place for it (ModelActivities)
+ * and by the run helper before it resumes a run paused on one, so neither is refused again by a reset a little late.
+ */
+export const AFTER_RESET_MS = 60_000;
 
 /** Batch submission IDs are 32 hex characters and appear in URLs and artifact kinds. */
 export const BATCH_SUBMISSION_ID_PATTERN = /^[a-f0-9]{32}$/u;

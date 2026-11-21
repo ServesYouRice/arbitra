@@ -120,7 +120,13 @@ From the research review; each decides a cut or a build.
 
 - **The API ↔ subscription fallback and dollar caps** (built November 11, from memoria's hand-made `reassign`):
   `workflow.modelExecution.fallbacks`, `maximumCostUsd` (API profiles only) and `fallbackWaitMs` (30 minutes: a
-  subscription limit resetting sooner is waited for, a later one switches; a subscription goes back after its reset).
+  subscription limit resetting sooner is waited for in place by the call it refused, until a minute after the reset,
+  while the run's other calls and stages go on, shown on the run page; a later one switches; a subscription goes back
+  after its reset). Built November 21, after a real-project audit's Sol sat idle two hours on a limit that reset in
+  seven minutes: until then the limit failed the finder's discovery, and the run paused only once the other finder's
+  discovery had ended. A call waits again only while the resets add up to `fallbackWaitMs`, at most three times; then
+  it fails as before and the run pauses for the run helper. Count on the next runs how often a call waited, for how
+  long, and whether any wait ended in a pause.
   Switches are `model_route_switched` events and the `model-routes` artifact; replay identity is the profile the stage
   asked for; prices in `packages/providers/src/pricing.ts` (`PRICES_AS_OF`, Claude only). No live run has switched
   yet: shake it down with cheap models first. Open: the native harness path is not routed; OpenAI and Gemini are not
@@ -140,7 +146,9 @@ From the research review; each decides a cut or a build.
   window: a fallback route, else a stand-in of another vendor (never Gemini) for a second opinion, else the step goes
   without it and a severe rejection stays unsettled; `optional_step_limited` events and the `optional-steps` artifact.
   Count on the next runs how often it moved a step and what it cost in unsettled issues. Still pausing: a finder out
-  during peer review or conflict votes, and an optional profile at its dollar cap.
+  during peer review or conflict votes, and an optional profile at its dollar cap. A limit resetting within
+  `fallbackWaitMs` is waited for in place by the step's call; a second opinion does so in its question's place among
+  the questions asked side by side, so one fewer is asked meanwhile. Watch whether that slows verification.
 - **The plan's new checks** (built November 21): whether executing agents run `check-results.mjs` and leave
   `results.json` complete (a messaging app's plan left it half empty), and how many unsure reports hold on the next plan
   carried out (7 of 20, then 24 of 35 so far).
@@ -337,13 +345,17 @@ the run's status, the report's lines that matter), never the whole run.
 1. **Failure kinds** and 2. **auto-resume, no model** are built (November 11): `packages/runtime/src/failure-kinds.ts`
    reads a reason as a kind and rule that the web words are built from; a `RunHelper` started by the server resumes
    `resume-now` stops (a usage limit at its reset or when `usage-windows.ts` shows room, a time-out or provider
-   failure after 5 minutes; at most 2 a run, never after a cancel), with its waits and actions in
+   failure after 5 minutes; at most 2 a run for time-outs and failures, never after a cancel), with its waits and actions in
    `runs/<id>/helper-actions.json`, so a restart keeps them, and `helper_action` events on the run page. Switches:
    `workflow.autoResume` and `helper.autoResume` in `<state>/settings.json`, both on. A run paused at its dollar cap is
    `fix-computer` and never resumed by itself. Open: the model reading of a stop no rule names (`StopReader`, not
    built: such a stop is never resumed); measure on the next real runs how many stops it resumed and how many of those
    then finished. Built November 21: the Settings page sets `helper.autoResume` and `helper.model` (nothing calls the
-   model yet), and an open run page now picks up the helper's decision and a later resume without a reload.
+   model yet), and an open run page now picks up the helper's decision and a later resume without a reload. Also
+   November 21, after a real-project audit's second Codex window was left to the owner as "the same stop": a usage
+   limit's resumes count apart, and it is resumed again whenever it resets later than the one last resumed for, or
+   with no reset given when calls were answered since; the same reset met again, or a limit met again after two
+   resumes in a row that no call was answered after, is left to the owner (`limitResumes` in the record).
 3. **The interview for Feature requests.** A model step before Feature mode's own requirements step
    (`model-requirements.ts`): from the owner's first sentence and the project's snapshot it asks at most about 5
    questions at a time, in plain words, each with a proposed answer, over at most 3 rounds; then it writes the

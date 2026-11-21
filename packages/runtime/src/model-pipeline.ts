@@ -11,9 +11,8 @@ import { plannerNode, type PlannerInput } from "@arbitra/workflow/nodes/planner/
 import { criticNode, type StructuredCritique } from "@arbitra/workflow/nodes/critic/node.js";
 import { verifyItems, type ModelVerificationRequest, type ModelVerificationResponse, type VerificationIssueOperation } from "@arbitra/workflow/nodes/verification/engine.js";
 import type { VerificationAttempt, VerificationItem, VerificationTools } from "@arbitra/workflow/nodes/verification/ladder.js";
-import type { TransportFactoryOptions } from "@arbitra/providers/registry.js";
 import { promptByteLimit } from "@arbitra/providers/transports/cli/dialects.js";
-import { FINDER_LEFT_OUT, ModelActivities } from "./model-activities.js";
+import { FINDER_LEFT_OUT, ModelActivities, type ModelActivityOptions } from "./model-activities.js";
 import { AUDIT_PROTOCOL_DEFAULTS, ModelProtocols } from "./model-protocols.js";
 import { isModelOutputRejection, ModelHarness } from "./model-harness.js";
 import { discoverWithModel, groundFindings } from "./model-discovery.js";
@@ -219,7 +218,7 @@ export class ModelAuditPipeline {
   #leaving: Promise<unknown> = Promise.resolve();
   /** Why each finder this process left out was left out, for the units of it still in flight. */
   readonly #leftOutWords = new Map<string, string>();
-  constructor(private readonly context: AuditContext, private readonly config: RunConfig, options: TransportFactoryOptions = {}, sandbox?: TestSandbox, units?: AuditUnitOptions) {
+  constructor(private readonly context: AuditContext, private readonly config: RunConfig, options: ModelActivityOptions = {}, sandbox?: TestSandbox, units?: AuditUnitOptions) {
     this.#verificationExecutor = new VerificationExecutor(context.store, sandbox);
     validateModelAudit(config, context.auditors.map(({ auditorId }) => auditorId), context.criticEnabled, context.variantSearchEnabled === true);
     const roles = providerExecutionSchema.parse(config.workflow["modelExecution"]).roles;
@@ -814,7 +813,8 @@ export class ModelAuditPipeline {
               first, second: { activityId: answer.activityId, outcome: answer.outcome, confidence: answer.confidence } });
             return { answer };
           } catch (error) {
-            // A limit that resets within the run's wait holds the run as any model's does; so does a cancelled run.
+            // A limit that resets within the run's wait was waited for in place by the call; one the run still waits for
+            // holds the run as any model's does, and so does a cancelled run.
             if (!(error instanceof ProviderUsageLimitError) || signal.aborted || this.#activities.waitsFor(profile, error)) throw error;
             limited.push({ modelProfileId: profile, until: await this.#optional.limited(profile, error) });
           }

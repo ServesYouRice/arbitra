@@ -10,7 +10,7 @@ import { BatchItemFailedError, BatchLane, type BatchResolution, type BatchSubmis
 import { inputBytesPerToken, ModelOutputLimitError, ModelTimeLimitError, outputCeiling, requestCeiling } from "./context-budget.js";
 import type { TransportMessage, TransportTool } from "@arbitra/providers/transport-contract.js";
 import { runConfigSchema, type RunConfig } from "@arbitra/schemas/config.js";
-import { providerExecutionSchema } from "@arbitra/schemas/provider-execution.js";
+import { AFTER_RESET_MS, DEFAULT_FALLBACK_WAIT_MS, providerExecutionSchema } from "@arbitra/schemas/provider-execution.js";
 import { redactSecrets } from "@arbitra/security/redaction";
 import type { RunStore } from "./run-store.js";
 import type { ProtocolIdentity } from "@arbitra/protocols/versioning.js";
@@ -19,6 +19,17 @@ import type { ModelActivityTraceRecord } from "@arbitra/persistence/trace.js";
 import { batchLaneFor, runStoreBatchBackend, validateBatchLanes } from "./model-batch-lane.js";
 import { ENVIRONMENT_VERSIONS_KIND } from "./preflight.js";
 import { ModelRoutes } from "./model-routes.js";
+import { LimitWaits, SYSTEM_WAIT_CLOCK, type LimitReset, type WaitClock } from "./limit-waits.js";
+
+/** The transports' options, and the clock a call that waits in place for a usage limit reads (a test's; the computer's by default). */
+export interface ModelActivityOptions extends TransportFactoryOptions { readonly waitClock?: WaitClock }
+
+/**
+ * At most this many waits in one call for its usage limit to reset. A call refused again after a reset (a reset that
+ * moved, or a window other use shares) waits again while the resets it has waited for add up to no more than
+ * `fallbackWaitMs`, and no more than this many times; then it fails as a limit the run does not wait for.
+ */
+export const MAXIMUM_LIMIT_WAITS = 3;
 
 export interface ModelActivityRequest<T> {
   readonly activityId: string;
@@ -151,8 +162,15 @@ export class ModelActivities {
 
   /** Finders the run goes on without: left out by a resume, or once their allowance ran out (optional-steps.ts). */
   readonly #leftOut: Set<string>;
+  /** Ends the waits for a usage limit of a finder's calls once it is left out (leaveOut). */
+  readonly #leaving = new Map<string, AbortController>();
+  /** The calls that wait in place for their subscription's usage limit to reset, by profile. */
+  readonly #waits: LimitWaits;
+  readonly #clock: WaitClock;
+  /** `fallbackWaitMs`: the resets one call may wait for add up to no more than this. */
+  readonly #wait: number;
 
-  constructor(private readonly store: RunStore, config: RunConfig, options: TransportFactoryOptions = {}, replay?: ActivityReplaySource, leftOut: readonly string[] = []) {
+  constructor(private readonly store: RunStore, config: RunConfig, options: ModelActivityOptions = {}, replay?: ActivityReplaySource, leftOut: readonly string[] = []) {
     this.#replay = replay;
     this.#leftOut = new Set(leftOut);
     this.#config = runConfigSchema.parse(config);
@@ -161,6 +179,9 @@ export class ModelActivities {
     const registry = new ProviderRegistry(execution.endpoints, options);
     this.#registry = registry;
     this.#routes = new ModelRoutes(store, this.#config, execution);
+    this.#clock = options.waitClock ?? SYSTEM_WAIT_CLOCK;
+    this.#waits = new LimitWaits(store, this.#clock);
+    this.#wait = execution.fallbackWaitMs ?? DEFAULT_FALLBACK_WAIT_MS;
     const budget = new DurableTokenBudget(execution.maximumTokens, {
       load: () => this.read("model-token-budget"),
       save: async (state) => { await store.publish("model-token-budget", state); },
@@ -326,16 +347,30 @@ export class ModelActivities {
     let failure: unknown = null;
     let outputArtifactRef: string | null = null;
     let costUsd: number | null = null;
+    // The waits this call made for a usage limit to reset: how many, the resets they waited for, and how long they took.
+    const waited: Waited = { count: 0, resetsMs: 0, ms: 0 };
     const startedAt = Date.now();
     try {
       // A call refused because its account ran out is sent again to the profile's fallback, when it has one: the
-      // calls left of a stage already running go there too, and the run goes on instead of pausing.
+      // calls left of a stage already running go there too, and the run goes on instead of pausing. One refused by a
+      // subscription's limit that resets within `fallbackWaitMs` waits in place until a minute after the reset and is
+      // sent again, while the run's other calls go on; a call of a profile whose calls wait so waits with them, unsent.
+      // A waiting call holds no budget reservation or scheduler slot (each send takes and gives back its own), and the
+      // wait counts toward neither its time limit nor its retries, which start afresh with each send. Observed live (a
+      // real-project audit, November 21, 2026): Sol met Codex's five-hour limit seven minutes before its reset, its
+      // discovery failed, and Sol sat idle for two hours until Opus's discovery ended and the run could pause and resume.
       for (;;) {
+        const pending = waited.count === 0 ? this.#waits.pending(route) : undefined;
+        if (pending !== undefined && this.#mayWait(waited, pending.resetsAt - this.#clock.now())) { await this.#waitForReset(input, route, pending, "", waited); continue; }
         try { result = await this.#send(input, messages, route, estimatedTokens, maximumOutputTokens, fingerprint, key); break; }
         catch (error) {
-          const next = error instanceof ProviderUsageLimitError && !input.signal.aborted ? await this.#routes.exhausted(route, error, input.effort) : null;
-          if (next === null) throw error;
-          route = next;
+          if (!(error instanceof ProviderUsageLimitError) || input.signal.aborted) throw error;
+          const resetIn = error.retryAfterMs;
+          const next = await this.#routes.exhausted(route, error, input.effort, resetIn !== null && this.#mayWait(waited, resetIn));
+          if (next === null) throw waited.count === 0 ? error : new UsageLimitAfterWaitError(error, waited.ms);
+          if (next !== "wait") { route = next.route; continue; }
+          const now = this.#clock.now();
+          await this.#waitForReset(input, route, { resetsAt: now + (resetIn ?? 0), until: now + (resetIn ?? 0) + AFTER_RESET_MS }, error.message, waited);
         }
       }
       costUsd = await this.#routes.charge(route, result.response.usage, input.effort);
@@ -380,7 +415,8 @@ export class ModelActivities {
         protocolHash: input.protocolIdentity?.protocolHash ?? hash(input.protocol), promptHash: hash({ messages, tools: input.tools ?? [] }), resolvedProviderConfigHash: hash({ endpoint, modelId: answering.modelId, effort: result?.effort ?? null }),
         capability: answering.capabilityTier, effortRequested: input.effort ?? null, effortResolved: result?.effort?.applied ?? null,
         inputArtifactRefs: [requestArtifact.ref.relativePath], outputArtifactRef,
-        durationMs: Math.max(0, Date.now() - startedAt), tokenUsage: usage, costUsd,
+        // A wait for a usage limit to reset is not the call's own time.
+        durationMs: Math.max(0, Date.now() - startedAt - waited.ms), tokenUsage: usage, costUsd,
         cacheHitRate: usage?.inputTokens != null && usage.inputTokens > 0 && usage.cacheReadTokens !== null ? Math.min(1, usage.cacheReadTokens / usage.inputTokens) : null,
         toolCallCount: result?.response.toolCalls.length ?? 0, toolCallErrors: input.toolCallErrors ?? 0, repairCount: input.repairCount ?? 0,
         refusal: outcome === "refusal" ? refusal : null,
@@ -396,6 +432,8 @@ export class ModelActivities {
         modelProfileId: input.modelProfileId,
         // The fallback that answered, when the profile asked for had run out.
         ...(route === input.modelProfileId ? {} : { answeredBy: route }),
+        // The waits it made in place for its usage limit to reset, and how long they took.
+        ...(waited.count === 0 ? {} : { waitedForLimit: { waits: waited.count, ms: waited.ms } }),
         outputValidated,
         executions, terminal: fullTrace,
         attempts: [...(prior?.attempts ?? []), ...traces],
@@ -435,14 +473,48 @@ export class ModelActivities {
       : this.#pool.invokeBatch(request, { ...invocation, lane: this.#batch, settings: lane, fingerprint, traceId: key });
   }
 
+  /** Whether a call that has waited `waited` may wait for a reset `resetIn` milliseconds away (MAXIMUM_LIMIT_WAITS). */
+  #mayWait(waited: Waited, resetIn: number): boolean {
+    return waited.count < MAXIMUM_LIMIT_WAITS && waited.resetsMs + Math.max(0, resetIn) <= this.#wait;
+  }
+
+  /**
+   * Waits in place for the usage limit `route` met to reset (LimitWaits). A run cancelled meanwhile ends the wait at
+   * once, and so does a finder left out of the run, whose answer is no longer needed: the call then fails as cancelled,
+   * or as left out, and is not sent.
+   */
+  async #waitForReset(input: ModelActivityRequest<unknown>, route: string, reset: LimitReset, detail: string, waited: Waited): Promise<void> {
+    const resetIn = Math.max(0, reset.resetsAt - this.#clock.now());
+    const ended = await this.#waits.wait(route, { ...reset, detail }, { cancelled: input.signal, leftOut: this.#leavingSignal(input.modelProfileId) });
+    waited.count += 1; waited.resetsMs += resetIn; waited.ms += ended.waitedMs;
+    if (ended.outcome === "cancelled") throw new ProviderInvocationFailure("Provider request cancelled while it waited for its usage limit to reset", 0, "CANCELLED");
+    if (ended.outcome === "left_out") throw new ProviderInvocationFailure(`${FINDER_LEFT_OUT}: ${input.modelProfileId} was left out of the run`, 0, "LEFT_OUT", FINDER_LEFT_OUT);
+  }
+
+  /** Aborts when `profile` is left out of the run (leaveOut). */
+  #leavingSignal(profile: string): AbortSignal {
+    let leaving = this.#leaving.get(profile);
+    if (leaving === undefined) {
+      leaving = new AbortController();
+      if (this.#leftOut.has(profile)) leaving.abort();
+      this.#leaving.set(profile, leaving);
+    }
+    return leaving.signal;
+  }
+
   /** What the run has spent on its priced API profiles, and the switches its profiles made. */
   async routes() { return this.#routes.state(); }
 
-  /** Whether the run waits for this usage limit rather than go on without the call (ModelRoutes.waits). */
-  waitsFor(profile: string, error: ProviderUsageLimitError): boolean { return this.#routes.waits(profile, error); }
+  /**
+   * Whether the run waits for this usage limit rather than go on without the call (ModelRoutes.waits). A call waits in
+   * place for a limit the run waits for, so its stage meets one only from a call that could not; and one a call met again
+   * after it had waited as long as the run waits (UsageLimitAfterWaitError) is not waited for again: an optional step
+   * goes on without its model, as for a limit that resets later.
+   */
+  waitsFor(profile: string, error: ProviderUsageLimitError): boolean { return !(error instanceof UsageLimitAfterWaitError) && this.#routes.waits(profile, error); }
 
-  /** From now on a call of this finder fails at once, unsent, as for a finder a resume left out. */
-  leaveOut(profile: string): void { this.#leftOut.add(profile); }
+  /** From now on a call of this finder fails at once, unsent, as for a finder a resume left out; one that waits for its usage limit stops waiting. */
+  leaveOut(profile: string): void { this.#leftOut.add(profile); this.#leaving.get(profile)?.abort(); }
 
   /**
    * Charge an activity that runs outside the provider pool (a native harness process)
@@ -502,6 +574,23 @@ export class ModelActivityInputChangedError extends Error {
     this.name = "ModelActivityInputChangedError";
   }
 }
+
+/**
+ * A usage limit a call met again after it had waited in place for resets as long as the run waits (`fallbackWaitMs`,
+ * MAXIMUM_LIMIT_WAITS times at most). The call does not wait again: a core stage pauses the run as rate limited, as for
+ * any usage limit, and the run helper resumes it after the reset; an optional step goes on without its model
+ * (ModelActivities.waitsFor). The reason says how long the call had waited.
+ */
+export class UsageLimitAfterWaitError extends ProviderUsageLimitError {
+  constructor(error: ProviderUsageLimitError, readonly waitedMs: number) {
+    const minutes = Math.max(1, Math.round(waitedMs / 60_000));
+    super(`${error.message} The call had already waited ${minutes} minute${minutes === 1 ? "" : "s"} in place for its limit to reset.`, error.attempts, error.retryAfterMs);
+    this.name = "ProviderUsageLimitError";
+  }
+}
+
+/** The waits one call made for a usage limit to reset: how many, the resets they waited for, and how long they took. */
+interface Waited { count: number; resetsMs: number; ms: number }
 
 /** The `-trace` artifact of an activity, as far as a later call of it reads it. */
 interface ActivityTraceArtifact { readonly attempts?: InvocationTrace[]; readonly executions?: number; readonly fingerprint?: unknown; readonly outputValidated?: unknown; readonly terminal?: { readonly outputArtifactRef?: unknown } }

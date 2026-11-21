@@ -52,7 +52,18 @@ export type RunEvent =
    * opinion before a severe rejection, the variant search, a finder the run can go on without, or the plan critic.
    * `resetsAt`: when the allowance resets, when the provider said. The composition root records it; the runner never
    * does. */
-  | { readonly t: "optional_step_limited"; readonly runId: string; readonly step: OptionalStep; readonly from: string; readonly to: string | null; readonly resetsAt?: string; readonly detail?: string; readonly at?: string };
+  | { readonly t: "optional_step_limited"; readonly runId: string; readonly step: OptionalStep; readonly from: string; readonly to: string | null; readonly resetsAt?: string; readonly detail?: string; readonly at?: string }
+  /** Calls of a model profile met its subscription's usage limit, which resets within `fallbackWaitMs` (`resetsAt`, as
+   * the provider gave it, with its words in `detail`), and wait in place until a minute after it (`until`), when they
+   * are sent again; the run's other calls go on meanwhile. Recorded when the first of the profile's calls starts to wait,
+   * and again when one waits for a later reset. The composition root records it; the runner never does. */
+  | { readonly t: "model_waiting"; readonly runId: string; readonly profile: string; readonly resetsAt: string; readonly until: string; readonly detail?: string; readonly at?: string }
+  /** The last of a profile's calls that waited for its usage limit stopped waiting: they went on (`went_on`), the run was
+   * cancelled (`cancelled`), or the finder was left out of the run and its answers are not needed (`left_out`). */
+  | { readonly t: "model_wait_ended"; readonly runId: string; readonly profile: string; readonly outcome: ModelWaitOutcome; readonly at?: string };
+
+export const MODEL_WAIT_OUTCOMES = ["went_on", "cancelled", "left_out"] as const;
+export type ModelWaitOutcome = (typeof MODEL_WAIT_OUTCOMES)[number];
 
 export const MODEL_ROUTE_REASONS = ["credit_out", "usage_limit", "cost_cap", "reset"] as const;
 export type ModelRouteReason = (typeof MODEL_ROUTE_REASONS)[number];
@@ -84,5 +95,8 @@ export function isRunEvent(record: unknown): record is RunEvent {
     && (value["effort"] === undefined || typeof value["effort"] === "string") && (value["detail"] === undefined || typeof value["detail"] === "string");
   if (value["t"] === "optional_step_limited") return OPTIONAL_STEPS.includes(value["step"] as OptionalStep) && typeof value["from"] === "string" && value["from"] !== "" && (value["to"] === null || typeof value["to"] === "string" && value["to"] !== "")
     && (value["resetsAt"] === undefined || typeof value["resetsAt"] === "string" && !Number.isNaN(Date.parse(value["resetsAt"]))) && (value["detail"] === undefined || typeof value["detail"] === "string");
+  if (value["t"] === "model_waiting") return typeof value["profile"] === "string" && value["profile"] !== "" && [value["resetsAt"], value["until"]].every((time) => typeof time === "string" && !Number.isNaN(Date.parse(time)))
+    && (value["detail"] === undefined || typeof value["detail"] === "string");
+  if (value["t"] === "model_wait_ended") return typeof value["profile"] === "string" && value["profile"] !== "" && MODEL_WAIT_OUTCOMES.includes(value["outcome"] as ModelWaitOutcome);
   return false;
 }

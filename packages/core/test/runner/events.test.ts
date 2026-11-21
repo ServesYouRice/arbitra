@@ -41,4 +41,19 @@ describe("run events", () => {
     expect(isRunEvent({ ...limited, to: "" })).toBe(false);
     expect(isRunEvent({ ...limited, resetsAt: "soon" })).toBe(false);
   });
+
+  it("records a profile's calls waiting in place for its usage limit to reset, and how their wait ended", () => {
+    // Observed live (a real-project audit, November 21, 2026): Sol sat idle two hours on a limit that reset in seven minutes.
+    const waiting = { t: "model_waiting", runId: "run-1", profile: "auditor-b", resetsAt: "2026-11-21T11:27:00.000Z", until: "2026-11-21T11:28:00.000Z", detail: "CLI_USAGE_LIMIT_REACHED", at: "2026-11-21T11:20:00.000Z" };
+    expect(isRunEvent(waiting)).toBe(true);
+    expect(isRunEvent({ ...waiting, detail: undefined })).toBe(true);
+    expect(isRunEvent({ ...waiting, profile: "" })).toBe(false);
+    expect(isRunEvent({ ...waiting, until: undefined })).toBe(false);
+    expect(isRunEvent({ ...waiting, resetsAt: "soon" })).toBe(false);
+    expect(isRunEvent({ ...waiting, detail: 7 })).toBe(false);
+    const ended = { t: "model_wait_ended", runId: "run-1", profile: "auditor-b", outcome: "went_on", at: "2026-11-21T11:28:00.000Z" };
+    for (const outcome of ["went_on", "cancelled", "left_out"]) expect(isRunEvent({ ...ended, outcome })).toBe(true);
+    expect(isRunEvent({ ...ended, outcome: "gave_up" })).toBe(false);
+    expect(isRunEvent({ ...ended, profile: undefined })).toBe(false);
+  });
 });
