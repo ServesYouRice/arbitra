@@ -15,8 +15,10 @@ afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root,
 const ACCEPTANCE = [1, 2].map((index) => ({ id: `acc-${index}`, assertion: `Exact acceptance ${index}: ` + `Preference ${index} must survive session renewal without widening access. `.repeat(420) }));
 
 function decode(request: HttpRequest): { system: string; input: Record<string, unknown> } {
-  const body = request.body as { input?: { role: string; content: string }[]; messages?: { content: string }[] };
-  const user = body.input?.find(({ role }) => role === "user")?.content ?? body.messages?.[0]?.content ?? "";
+  const body = request.body as { input?: { role: string; content: string }[]; messages?: { content: string | { text?: string }[] }[] };
+  // Anthropic's first message comes as text blocks when its shared start is marked for the cache.
+  const first = body.messages?.[0]?.content;
+  const user = body.input?.find(({ role }) => role === "user")?.content ?? (Array.isArray(first) ? first.map(({ text }) => text ?? "").join("") : first) ?? "";
   const layers = user.split("\n").map((line) => JSON.parse(line) as { layer: string; value: { instruction?: string; artifacts?: string[] } });
   const framed = layers.flatMap(({ value }) => value.artifacts ?? [])[0] ?? "";
   const content = /-->\n([\s\S]*)\n<\/repository_content>$/u.exec(framed)?.[1] ?? "{}";

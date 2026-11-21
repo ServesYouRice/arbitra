@@ -11,7 +11,7 @@ import type { RequirementsContract } from "@arbitra/workflow/nodes/requirements/
 import { validateFeatureExploration } from "../src/feature-exploration.js";
 import { ModelActivities } from "../src/model-activities.js";
 import { discoverWithModel } from "../src/model-discovery.js";
-import { initialMessagesOf, isModelOutputRejection, ModelHarness } from "../src/model-harness.js";
+import { initialMessagesOf, isModelOutputRejection, ModelHarness, sharedStartOf } from "../src/model-harness.js";
 import { RunStore } from "../src/run-store.js";
 import { snapshotTools, SNAPSHOT_TOOLS } from "../src/snapshot-tools.js";
 
@@ -369,6 +369,53 @@ describe("durable canonical model harness", () => {
     expect(claude[1]?.content.startsWith("{\"layer\":\"stable_repository\"")).toBe(true);
     for (const other of [initialMessagesOf(compiled, false, { transport: "claude-code-cli", quirks: { systemPromptSupport: "full" } }), initialMessagesOf(compiled, true, { transport: "codex-cli", quirks: { systemPromptSupport: "full" } }), initialMessagesOf(compiled, true, { transport: "claude-code-cli", quirks: { systemPromptSupport: "discouraged" } })])
       expect(other).toEqual([{ role: "user", content: compiled.text }]);
+  });
+
+  it("finds the start every call of a stage sends alike: its layers, then the shared part of an input, and no further than the prompt holds it", () => {
+    const security = { redact: (text: string) => ({ text: text.replace(/SECRET\w*/gu, "[masked]"), redactionCount: 0 }), frame: (text: string, meta: { sourceId: string }) => `<repository_content trust="untrusted" source_id="${meta.sourceId}">\n${text}\n</repository_content>` };
+    const spec = (stable: readonly string[], round: readonly string[]) => ({ protocol: { protocolId: "production-audit", protocolVersion: "2.1.0", protocolHash: "0".repeat(64), content: "Audit the scope." }, outputSchema: {}, toolDefinitions: [{ name: "repo_read_file" }], projectContext: { mode: "audit" },
+      stableRepositoryArtifacts: stable.map((content) => ({ sourceId: "discovery:input-0", content })), roundArtifacts: round.map((content) => ({ sourceId: "targeted-verification@1.1.0:input-0", content })), overrides: {}, instruction: "Answer.", outputContract: "JSON.", nodeId: "n", modelId: "m", security });
+    const at = (stable: readonly string[], round: readonly string[], sharedInput?: number) => { const value = spec(stable, round); const compiled = compile(value); const end = sharedStartOf(value, compiled, sharedInput); return { text: compiled.text, start: compiled.text.slice(0, end), rest: compiled.text.slice(end) }; };
+    // A question's input is its own: the start runs through the locked and stable layers.
+    const question = at([], ["{\"request\":\"C-1\"}"]);
+    expect(question.start.endsWith("{\"layer\":\"stable_repository\",\"value\":{\"artifacts\":[],\"projectContext\":{\"mode\":\"audit\"}}}\n")).toBe(true);
+    expect(question.rest.startsWith("{\"layer\":\"round\"")).toBe(true);
+    // A unit's input opens with the index: with its length, the start runs through it, and the unit's files follow.
+    const index = "{\"trust\":\"untrusted_repository_data\",\"repositoryIndex\":{\"a.ts\":\"1\"}";
+    const [left, right] = ["a.ts", "b.ts"].map((path) => at([`${index},"files":["${path}"]}`], [], index.length));
+    expect(left?.start).toBe(right?.start);
+    expect(left?.start.endsWith("{\\\"a.ts\\\":\\\"1\\\"}")).toBe(true);
+    expect(left?.rest.startsWith(",\\\"files\\\":[\\\"a.ts\\\"]")).toBe(true);
+    expect(right?.rest.startsWith(",\\\"files\\\":[\\\"b.ts\\\"]")).toBe(true);
+    // Without it, a unit's start is the locked layer alone: the stable layer holds the unit's files.
+    expect(at([`${index},"files":["a.ts"]}`], []).rest.startsWith("{\"layer\":\"stable_repository\"")).toBe(true);
+    // Where masking runs across the end of the shared part, the prompt does not hold that start; the layers stand.
+    const masked = "{\"repositoryIndex\":\"SECRET";
+    expect(at([`${masked}xyz,"files":[]}`], [], masked.length).rest.startsWith("{\"layer\":\"stable_repository\"")).toBe(true);
+    // Out of range, the shared part is ignored.
+    expect(at([`${index},"files":[]}`], [], index.length + 100).rest.startsWith("{\"layer\":\"stable_repository\"")).toBe(true);
+  });
+
+  it("marks the shared start of each question on Anthropic's API, the same in every question, with the question's own input after it", async () => {
+    const { config, store } = await setup(0);
+    const profile = config.models["auditor-a"]; if (profile === undefined) throw new Error("FIXTURE_PROFILE_ABSENT");
+    const anthropic = runConfigSchema.parse({ ...config, models: { "auditor-a": { ...profile, provider: "anthropic", transport: "anthropic-messages", structuredOutputDialect: "anthropic_tool" } }, workflow: { modelExecution: {
+      endpoints: [{ id: "anthropic", providerId: "anthropic", transport: "anthropic-messages", endpoint: "https://anthropic.fixture.example/v1", apiKeyEnvVar: "FIXTURE_KEY" }],
+      modelEndpoints: { "auditor-a": "anthropic" }, maximumOutputTokens: 500, maximumTokens: 100_000, timeoutMs: 1_000, maximumRetries: 0, rateLimits: { anthropic: { rpm: 100, tpm: 100_000, maxConcurrent: 4 } } } } });
+    const bodies: { messages: { content: { text: string; cache_control?: unknown }[] }[] }[] = [];
+    const send = vi.fn<HttpClient["send"]>(async (value) => { bodies.push(value.body as (typeof bodies)[number]); return { status: 200, headers: {}, body: { content: [{ type: "text", text: "{\"answer\":\"ok\"}" }], stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 10 } } }; });
+    const harness = new ModelHarness(new ModelActivities(store, anthropic, { client: { send }, credential: () => "fixture-credential" }), anthropic, snapshot, store);
+    const protocolAsset = { protocolId: "targeted-verification", protocolVersion: "1.1.0", protocolHash: "0".repeat(64), content: "Check the claim." } as unknown as PinnedProtocol;
+    // The third is labelled by its activity (no cache layout), so the length of its input it claims is shared is not read.
+    for (const [candidate, cacheLayout] of [["C-1", true], ["C-2", true], ["C-3", false]] as const) await harness.invoke({ ...request(), activityId: `verification/${candidate}/question`, protocol: "targeted-verification@1.1.0", protocolAsset, outputSchema: {},
+      ...(cacheLayout ? { cacheLayout } : { sharedInput: 5 }), messages: [{ role: "system" as const, content: "Answer." }, { role: "user" as const, content: JSON.stringify({ request: { candidateId: candidate } }) }] });
+    const [one, two, three] = bodies.map((body) => body.messages[0]?.content ?? []);
+    expect(one?.[0]).toMatchObject({ cache_control: { type: "ephemeral" } });
+    expect(one?.[0]?.text).toBe(two?.[0]?.text);
+    expect(three?.[0]?.text).toBe(one?.[0]?.text);
+    expect(one?.[0]?.text.endsWith("\"projectContext\":{\"mode\":\"audit\"}}}\n")).toBe(true);
+    expect(one?.[1]?.text).toContain("C-1"); expect(two?.[1]?.text).toContain("C-2"); expect(three?.[1]?.text).toContain("verification/C-3/question:input-0");
+    expect(one?.[1]?.cache_control).toBeUndefined();
   });
 
   it("offers a model no tool that cannot work on a snapshot: the Git tools are neither offered nor reachable", async () => {

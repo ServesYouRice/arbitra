@@ -90,10 +90,12 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
   let failRevisionPatch = false;
   let blockDiscovery: (() => void) | undefined;
   const send = async (request: HttpRequest): Promise<HttpResponse> => {
-    const body = request.body as { input?: { role: string; content: string }[]; system?: string; messages?: { content: string }[]; systemInstruction?: { parts: { text: string }[] }; contents?: { parts: { text: string }[] }[]; max_tokens?: number; max_output_tokens?: number; generationConfig?: { maxOutputTokens?: number } };
+    const body = request.body as { input?: { role: string; content: string }[]; system?: { text: string }[]; messages?: { content: string | { text?: string }[] }[]; systemInstruction?: { parts: { text: string }[] }; contents?: { parts: { text: string }[] }[]; max_tokens?: number; max_output_tokens?: number; generationConfig?: { maxOutputTokens?: number } };
     const ceiling = body.max_tokens ?? body.max_output_tokens ?? body.generationConfig?.maxOutputTokens;
-    let system = body.input?.find(({ role }) => role === "system")?.content ?? body.system ?? body.systemInstruction?.parts[0]?.text ?? "";
-    let user = body.input?.find(({ role }) => role === "user")?.content ?? body.messages?.[0]?.content ?? body.contents?.[0]?.parts[0]?.text ?? "{}";
+    // Anthropic's system prompt, and its first message when its shared start is marked for the cache, come as text blocks.
+    const blocks = (content: string | { text?: string }[] | undefined) => Array.isArray(content) ? content.map(({ text }) => text ?? "").join("") : content;
+    let system = body.input?.find(({ role }) => role === "system")?.content ?? blocks(body.system) ?? body.systemInstruction?.parts[0]?.text ?? "";
+    let user = body.input?.find(({ role }) => role === "user")?.content ?? blocks(body.messages?.[0]?.content) ?? body.contents?.[0]?.parts[0]?.text ?? "{}";
     let label = "";
     // From production-audit 2.1.0 a discovery unit's locked layer is its system message.
     if (user.startsWith('{"layer":"locked"') || user.startsWith('{"layer":"stable_repository"')) {

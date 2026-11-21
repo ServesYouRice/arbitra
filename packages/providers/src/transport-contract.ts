@@ -7,6 +7,13 @@ export interface TransportMessage {
   readonly toolCallId?: string;
   readonly toolName?: string;
   readonly toolCalls?: readonly TransportToolCall[];
+  /**
+   * On a request's first message after its system prompt: how many UTF-16 code units at the start of `content` every
+   * call of its stage sends alike (the prompt's locked layer, and for discovery the repository index). A transport that
+   * marks its provider's prompt cache marks the end of that start too, so one call reads what another wrote. It changes
+   * how the message is sent, never what, so it is not part of a request's identity.
+   */
+  readonly sharedStart?: number;
 }
 export interface TransportTool {
   readonly name: string;

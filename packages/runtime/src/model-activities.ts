@@ -38,6 +38,10 @@ export interface ModelActivityRequest<T> {
    * and not the activity, so the prompts of all its calls start alike, and a Claude Code call has the locked layer in
    * its system prompt. Part of the identity through the messages it changes. */
   readonly cacheLayout?: boolean;
+  /** Never part of the identity: how many characters at the start of the first input every call of the stage sends
+   * alike (discovery: the repository index). The harness marks where they end in the prompt for a provider's cache
+   * (`TransportMessage.sharedStart`); what is sent is unchanged. Read only for an input whose label names no call. */
+  readonly sharedInput?: number;
   readonly sourcePaths?: readonly string[];
   /** With `sourcePaths`: the tools may also read every other file of the snapshot, up to this many bytes a call.
    * Part of the identity through the harness policy. */
@@ -101,6 +105,20 @@ export interface ActivityReplaySource {
   lookup(request: { readonly activityId: string; readonly key: string; readonly replayIdentity: string; readonly lowerCeiling?: LowerCeilingIdentity }): Promise<{ readonly value: unknown; readonly sourceRunId: string; readonly sourceArtifactId: string } | null>;
   /** Record that a looked-up output could not be used after all, e.g. it fails its schema. */
   reject(request: { readonly activityId: string; readonly key: string }, reason: string): Promise<void>;
+}
+
+/** A message without its shared start, as it is identified, recorded and measured. */
+function withoutSharedStart(message: TransportMessage): TransportMessage {
+  const { sharedStart, ...rest } = message;
+  return sharedStart === undefined ? message : rest;
+}
+
+/** The messages as sent, with the shared starts the stage marked, where redaction left that start as it was. */
+function withSharedStarts(sent: readonly TransportMessage[], marked: readonly TransportMessage[]): readonly TransportMessage[] {
+  return sent.map((message, index) => {
+    const original = marked[index];
+    return original?.sharedStart === undefined || !message.content.startsWith(original.content.slice(0, original.sharedStart)) ? message : { ...message, sharedStart: original.sharedStart };
+  });
 }
 
 /** Whether a recorded request sent the same protocol, profile, messages and tools as this one. */
@@ -204,7 +222,9 @@ export class ModelActivities {
     }
     const profile = Object.hasOwn(this.#config.models, input.modelProfileId) ? this.#config.models[input.modelProfileId] : undefined;
     if (profile === undefined) throw new Error(`UNKNOWN_MODEL_PROFILE:${input.modelProfileId}`);
-    const redacted = structuredClone(input.messages).map((message) => ({ ...message, content: redactSecrets(message.content).text }));
+    // A shared start says how a message is sent, not what: the identity, the recorded request and the estimate leave it
+    // out, so a run recorded before it was marked resumes and replays, and it is marked again only as the call is sent.
+    const redacted = structuredClone(input.messages).map((message) => ({ ...withoutSharedStart(message), content: redactSecrets(message.content).text }));
     const messages = profile.quirks.systemPromptSupport === "full" ? redacted : redacted.map((message) => message.role === "system" ? { ...message, role: "user" as const } : message);
     // The run's token limit bounds its spending; it is not part of what a call is sent, so a run paused on its budget
     // and resumed with a raised limit keeps its activities. Records made before this carry the limit (`legacy`). Nor
@@ -399,7 +419,7 @@ export class ModelActivities {
     const asked = route === input.modelProfileId;
     const answering = this.#config.models[route];
     if (answering === undefined) throw new Error(`UNKNOWN_MODEL_PROFILE:${route}`);
-    const sent = asked || answering.quirks.systemPromptSupport === "full" ? messages : messages.map((message) => message.role === "system" ? { ...message, role: "user" as const } : message);
+    const sent = withSharedStarts(asked || answering.quirks.systemPromptSupport === "full" ? messages : messages.map((message) => message.role === "system" ? { ...message, role: "user" as const } : message), input.messages);
     const ceiling = asked ? maximumOutputTokens : Math.min(maximumOutputTokens, answering.limits.maxOutputTokens ?? maximumOutputTokens);
     const invocation = {
       activityId: input.activityId, modelProfileId: route, estimatedTokens: estimatedTokens - maximumOutputTokens + ceiling,

@@ -183,6 +183,54 @@ describe("native wire formats", () => {
     expect(client.requests[1]?.body).toMatchObject({ messages: [{ role: "user" }, { role: "assistant", content: [thinking, { type: "tool_use", id: "call-1" }] }, { role: "user" }] });
     expect((client.requests[1]?.body as Record<string, unknown>)["thinking"]).toBeUndefined();
   });
+  it("marks the cache at the end of the start every call of a stage shares, the call's own text after it, within four marks", async () => {
+    // Observed live (November 11, 2026): with only the request's end marked, none of 98 first discovery calls read the
+    // instructions and index they all began with; each wrote them again.
+    const shared = "{\"layer\":\"locked\"}\n{\"trust\":\"untrusted_repository_data\",\"repositoryIndex\":{\"a.ts\":\"1 line\"}";
+    const unit = (path: string): TransportRequest => ({ ...request(), tools: [tool()], effortParams: { effort: "high" },
+      messages: [{ role: "system", content: "Audit." }, { role: "user", content: `${shared},"files":[{"path":"${path}"}]}`, sharedStart: shared.length }] });
+    const client = new ScriptedHttpClient([http(200, anthropicBody("success")), http(200, anthropicBody("success"))]);
+    const transport = factory(AnthropicMessagesTransport)(client);
+    for (const path of ["left.ts", "right.ts"]) await transport.send(unit(path), signal());
+    const bodies = client.requests.map(({ body }) => body as { tools: unknown; system: unknown; messages: { content: { text: string; cache_control?: unknown }[] }[]; cache_control: unknown });
+    for (const [index, body] of bodies.entries()) {
+      // The system prompt (with the tools before it), the shared start, and the request's end: three of the four marks.
+      expect(JSON.stringify(body).match(/"cache_control"/gu)).toHaveLength(3);
+      expect(body.system).toEqual([{ type: "text", text: "Audit.", cache_control: { type: "ephemeral" } }]);
+      expect(body.cache_control).toEqual({ type: "ephemeral" });
+      const [start, rest] = body.messages[0]?.content ?? [];
+      expect(start).toEqual({ type: "text", text: shared, cache_control: { type: "ephemeral" } });
+      // What is the call's own comes after the mark, unmarked, and the two blocks are the message as written.
+      expect(rest).toEqual({ type: "text", text: `,"files":[{"path":"${index === 0 ? "left.ts" : "right.ts"}"}]}` });
+      expect(`${start?.text}${rest?.text}`).toBe(unit(index === 0 ? "left.ts" : "right.ts").messages[1]?.content);
+    }
+    // Two units of the stage send the same bytes up to the mark: tools, system and the shared start.
+    const [left, right] = bodies.map((body) => JSON.stringify({ tools: body.tools, system: body.system, start: body.messages[0]?.content[0] }));
+    expect(left).toBe(right);
+    expect(JSON.stringify(bodies[0]?.messages[0]?.content[1])).not.toBe(JSON.stringify(bodies[1]?.messages[0]?.content[1]));
+  });
+  it("keeps the shared start marked on every turn of a tool loop, and sends a message whole where its mark would not hold", async () => {
+    const thinking = { type: "thinking", thinking: "", signature: "sig-1" };
+    const replies = [{ content: [thinking, { type: "tool_use", id: "call-1", name: "lookup", input: { q: "x" } }], stop_reason: "tool_use", usage: {} }, ...Array.from({ length: 6 }, () => anthropicBody("success"))];
+    const client = new ScriptedHttpClient(replies.map((reply) => http(200, reply)));
+    const transport = factory(AnthropicMessagesTransport)(client);
+    const first = await transport.send({ ...request(), messages: [{ role: "user", content: "shared start, then the unit", sharedStart: 12 }] }, signal());
+    await transport.send({ ...request(), messages: [{ role: "user", content: "shared start, then the unit", sharedStart: 12 }, { role: "assistant", content: "", toolCalls: first.toolCalls }, { role: "tool", toolCallId: "call-1", toolName: "lookup", content: "found", sharedStart: 2 }] }, signal());
+    const turn = client.requests[1]?.body as { messages: { content: unknown }[] };
+    expect(turn.messages[0]?.content).toEqual([{ type: "text", text: "shared start", cache_control: { type: "ephemeral" } }, { type: "text", text: ", then the unit" }]);
+    // Only the first message carries a shared start; the tool result is sent as before, and the end mark is the top-level one.
+    expect(turn.messages[2]?.content).toEqual([{ type: "tool_result", tool_use_id: "call-1", content: "found" }]);
+    expect(JSON.stringify(turn).match(/"cache_control"/gu)).toHaveLength(2);
+    // No system prompt, no system mark; a start that is the whole message is one marked block.
+    await transport.send({ ...request(), messages: [{ role: "user", content: "all of it", sharedStart: 9 }] }, signal());
+    expect(client.requests[2]?.body).toMatchObject({ messages: [{ content: [{ type: "text", text: "all of it", cache_control: { type: "ephemeral" } }] }] });
+    expect((client.requests[2]?.body as { system?: unknown }).system).toBeUndefined();
+    // Out of range, not a whole number, or through the middle of a surrogate pair: no mark, the text as before.
+    for (const [content, sharedStart] of [["hello", 0], ["hello", 6], ["hello", 2.5], ["a\u{1F600}b", 2]] as const) {
+      await transport.send({ ...request(), messages: [{ role: "user", content, sharedStart }] }, signal());
+      expect((client.requests.at(-1)?.body as { messages: { content: unknown }[] }).messages[0]?.content, `${content} at ${sharedStart}`).toBe(content);
+    }
+  });
   it("does not retry local encoding failures as network failures", async () => {
     const client = new ScriptedHttpClient([]);
     await expect(factory(GeminiNativeTransport)(client).send({ ...request(), modelId: "../../unsafe" }, signal())).rejects.toMatchObject({ code: "INVALID_REQUEST", retryable: false });

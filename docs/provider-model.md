@@ -639,9 +639,17 @@ engine support and unsuccessful checks remain visible as coverage gaps.
   scheduler: runs side by side (one process each, as the P20 runners are) do not share
   `maxConcurrent`, the per-minute rates or a retry hint. Only an exhausted usage window is
   shared, through the CLI limit ledger.
-- No production path sets prompt-cache control: the API codecs send no `cache_control` or
-  `cachedContent`. Cache reads come from the providers' automatic caching and the CLIs'
-  own; usage reports them per call as cache reads and writes.
+- Only the Anthropic Messages codec marks the prompt cache (`cache_control`, five minutes): at
+  the end of the system prompt, at the end of the start every call of a stage sends alike, and at
+  the request's end, which each later turn of a tool loop reads back. The shared start is the
+  prompt's locked layer (protocol, output schema, tools), the stable layer when it holds no call's
+  own input, and for discovery the repository index (`TransportMessage.sharedStart`, placed by
+  `sharedStartOf` in `model-harness.ts`). It is not part of a call's identity, so runs recorded
+  before it resume and replay; each compiled prompt records the start's length and hash. Until
+  November 21, 2026 only the end was marked, and no first call read what another wrote (none of
+  98 first discovery calls and 305 first questions on a run of November 11). The other codecs send
+  no `cachedContent` or marks: OpenAI and Google cache automatically, the CLIs their own way. Usage
+  reports cache reads and writes per call.
 - `packages/providers/src/continuation/store.ts` provides optional persistence for
   provider continuation handles. Composed model activities currently disable that store
   and send explicit durable context on each call. Completed recorded turns are reused;

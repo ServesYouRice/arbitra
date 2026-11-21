@@ -220,7 +220,7 @@ Open:
 | Feature, Testing | Selected README and spec files as untrusted evidence | The snapshot holds source only, so intent documented outside comments and the request cannot be read | small to medium |
 | Paid APIs | Opaque turn state per assistant message: Anthropic thinking and redacted-thinking blocks, Responses reasoning items, `reasoning_content` on compatible endpoints | The codecs keep text and tool calls only. Anthropic needs thinking kept while a tool use waits ([thinking](https://platform.claude.com/docs/en/build-with-claude/thinking)); OpenAI advises passing reasoning items back ([reasoning items](https://developers.openai.com/cookbook/examples/responses_api/reasoning_items)); DeepSeek refuses a follow-up without its reasoning ([thinking mode](https://api-docs.deepseek.com/guides/thinking_mode)); Kimi and GLM keep reasoning across tool turns. The `round_trip_opaque` quirk is parsed but unused | medium |
 | Paid APIs | Native output schemas, in a final turn without tools | The canonical path sends no schema, and the CLI dialects switch it off whenever tools are offered | medium |
-| Paid APIs | Explicit cache control (`cache_control`, `cachedContent`) at measured reuse points | The API codecs send none, and the Messages API caches nothing without it | small |
+| Paid APIs | Explicit cache control (`cachedContent`) at measured reuse points | The Anthropic codec marks each stage's shared start since November 21, 2026 (unmeasured live); the Gemini codec sends no `cachedContent` | small |
 | Tests | Native harness stand-ins that run on Windows | `stand-in.ts` writes POSIX shebang scripts, so those tests stop at spawn on Windows; the suite runs in Linux Docker meanwhile | medium |
 
 Added to the comparisons above:
