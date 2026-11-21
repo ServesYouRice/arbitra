@@ -35,6 +35,13 @@ describe("models as people name them", () => {
     expect(effortFor(config, "variant-searcher", "variantSearch")).toBe("high");
     expect(modelNodeLabels(config).get("variant-search")).toBe("Sonnet 5.5 · high");
   });
+
+  it("reads a Gemini model's thinking level from its ID, xhigh too, and does not repeat it", () => {
+    const config = { mode: "audit", auditDepth: "deep", models: { "auditor-c": { modelId: "gemini-4-neon-xhigh", effort: { params: {} } } },
+      workflow: { modelExecution: { roles: {}, stageEffort: { discovery: { "auditor-c": "high" } } } } };
+    expect(effortFor(config, "auditor-c", "discovery")).toBe("xhigh");
+    expect(modelNodeLabels(config).get("auditor-c")).toBe("Gemini 4 Neon xhigh");
+  });
 });
 
 describe("the model catalog", () => {

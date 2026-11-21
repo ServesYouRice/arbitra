@@ -85,7 +85,7 @@ export function effortFor(config: Readonly<Record<string, unknown>>, alias: stri
   const params = record(record(record(record(config["models"])[alias])["effort"])["params"])[level];
   const vendor = record(params)["effort"] ?? record(params)["reasoning_effort"];
   if (typeof vendor === "string") return vendor;
-  const slug = /-(low|medium|high|max)$/u.exec(String(record(record(config["models"])[alias])["modelId"] ?? ""))?.[1];
+  const slug = /-(low|medium|high|xhigh|max)$/u.exec(String(record(record(config["models"])[alias])["modelId"] ?? ""))?.[1];
   return slug ?? level;
 }
 
@@ -97,7 +97,7 @@ export function roleEffort(config: Readonly<Record<string, unknown>>, alias: str
 }
 
 /** Each model node's label as the model that ran it and its effort, such as `Opus 5.5 · xhigh`, for graphs. */
-const LEVEL_IN_ID = /-(low|medium|high|max)$/u;
+const LEVEL_IN_ID = /-(low|medium|high|xhigh|max)$/u;
 
 export function modelNodeLabels(config: Readonly<Record<string, unknown>> | null): ReadonlyMap<string, string> {
   if (config === null || config["mode"] !== "audit") return new Map();
