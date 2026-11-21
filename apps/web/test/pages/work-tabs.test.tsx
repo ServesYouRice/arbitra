@@ -19,7 +19,7 @@ const CONFIGURATION = Object.freeze({
   models: { "auditor-a": profile("anthropic", "claude-opus-5-5", "effort"), "auditor-b": profile("openai", "gpt-6.1-sol", "reasoning_effort"), "checker-medium": { ...profile("anthropic", "claude-sonnet-5-5", "effort"), capabilityTier: "balanced" } },
   workflow: { modelExecution: { roles: { planner: "auditor-a", verifier: "auditor-a", mediumVerifier: "checker-medium", critic: "auditor-b" }, stageEffort: { verification: "medium", planner: "medium", critic: "medium" } } },
 });
-const OVERVIEW = modelOverview({ configuration: CONFIGURATION, repository: "/work/rokbot" });
+const OVERVIEW = modelOverview({ configuration: CONFIGURATION, repository: "/work/deskapp" });
 
 const LONG_PATH = "frontend/src/components/teaching/advanced-editor/StructuredFieldsAndAdvancedJsonSynchronisation.tsx";
 const finding = (id: string, title: string, severity: string, path: string, line: number, evidence: string) => ({ sourceFindingId: id, category: "CORRECTNESS", title, severity, status: "confirmed", productionBlocker: false,
@@ -252,13 +252,13 @@ describe("the Plan tab", () => {
     stubBrowser();
     const saved: unknown[] = [];
     const calls = stubControlPlane(routes({ "GET /handoff/runs/run-1": () => ({ saved }),
-      "POST /handoff/runs/run-1": () => { saved.push({ directory: "/work/rokbot/.arbitra/plans/2026-10-25-run1", relative: ".arbitra/plans/2026-10-25-run1", savedAt: "2026-10-25T09:30:00.000Z", premises: { named: 120, notFound: 7, prompts: 3 } });
-        return { directory: "/work/rokbot/.arbitra/plans/2026-10-25-run1", files: ["README.md"], premises: { named: 120, notFound: 7, prompts: 3 } }; } }));
+      "POST /handoff/runs/run-1": () => { saved.push({ directory: "/work/deskapp/.arbitra/plans/2026-10-25-run1", relative: ".arbitra/plans/2026-10-25-run1", savedAt: "2026-10-25T09:30:00.000Z", premises: { named: 120, notFound: 7, prompts: 3 } });
+        return { directory: "/work/deskapp/.arbitra/plans/2026-10-25-run1", files: ["README.md"], premises: { named: 120, notFound: 7, prompts: 3 } }; } }));
     visit("?run=run-1&view=plan");
     render(<App />);
     const card = await screen.findByRole("region", { name: "The plan is ready · 3 tasks for 3 issues" });
     fireEvent.click(await within(card).findByRole("button", { name: "Save the plan into the project" }));
-    expect(await within(card).findByText("/work/rokbot/.arbitra/plans/2026-10-25-run1")).toBeTruthy();
+    expect(await within(card).findByText("/work/deskapp/.arbitra/plans/2026-10-25-run1")).toBeTruthy();
     expect(within(card).getByText(/^Next: open the project in Claude Code or Codex/u)).toBeTruthy();
     expect(within(card).getByText("7 of the 120 things the prompts name were not found in the code, in 3 prompts. Each of those prompts lists them, and the agent finds the real code or reports the premise false.")).toBeTruthy();
     expect(within(card).queryByRole("button", { name: "Save the plan into the project" })).toBeNull();
@@ -290,7 +290,7 @@ describe("the Results tab", () => {
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Not carried out yet" })).toBeTruthy();
     expect(screen.getByText(/it records each issue's result in/u).textContent).toContain("results.json");
-    record = { directory: "/work/rokbot/.arbitra/plans/2026-10-25-run1", relative: ".arbitra/plans/2026-10-25-run1", modifiedAt: "2026-10-25T12:00:00.000Z",
+    record = { directory: "/work/deskapp/.arbitra/plans/2026-10-25-run1", relative: ".arbitra/plans/2026-10-25-run1", modifiedAt: "2026-10-25T12:00:00.000Z",
       summary: { directory: "", issues: 1, reported: 1, results: { fixed: 1, not_reproducible: 0, no_change_needed: 0, blocked: 0 }, provenByFailingTest: 1, notProvenByTest: 0, checkedEndToEnd: 0, foundWhileFixing: { reported: 0, provenByFailingTest: 0 } },
       issues: [{ issue: "C-crit", title: "Role check missing on update", severity: "critical", task: "TASK-001", result: "fixed", failedBefore: true, test: "test/roles.test.ts", proof: "expected 403, got 200", checkedEndToEnd: false }], foundWhileFixing: [] };
     fireEvent.click(screen.getByRole("button", { name: "Read results again" }));
@@ -302,7 +302,7 @@ describe("the Results tab", () => {
     stubBrowser();
     const entry = (issueId: string, title: string, severity: string, task: string, result: string | null, failedBefore: boolean | null, checkedEndToEnd: boolean | null = null) =>
       ({ issue: issueId, title, severity, task, result, failedBefore, test: failedBefore === true ? "test/a.test.ts" : null, proof: `${title}: the proof.`, checkedEndToEnd });
-    stubControlPlane(routes({ "GET /handoff/runs/run-1/results": { results: { directory: "/work/rokbot/.arbitra/plans/2026-10-25-run1", relative: ".arbitra/plans/2026-10-25-run1", modifiedAt: "2026-10-25T12:00:00.000Z",
+    stubControlPlane(routes({ "GET /handoff/runs/run-1/results": { results: { directory: "/work/deskapp/.arbitra/plans/2026-10-25-run1", relative: ".arbitra/plans/2026-10-25-run1", modifiedAt: "2026-10-25T12:00:00.000Z",
       summary: { directory: "", issues: 6, reported: 5, results: { fixed: 2, not_reproducible: 1, no_change_needed: 1, blocked: 1 }, provenByFailingTest: 1, notProvenByTest: 2, checkedEndToEnd: 1, foundWhileFixing: { reported: 1, provenByFailingTest: 1 } },
       issues: [entry("C-crit", "Role check missing on update", "critical", "TASK-001", "fixed", true, true), entry("C-med", "Retry loop never gives up", "medium", "TASK-002", "fixed", false),
         entry("C-var", "Advanced JSON edits are overwritten", "medium", "TASK-002", "fixed by TASK-001", null), entry("C-uns", "Session token may leak in logs", "high", "check 01", "no_change_needed", false),

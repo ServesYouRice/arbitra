@@ -733,8 +733,9 @@ export class ModelAuditPipeline {
     const notAsked: { candidateId: string; activityId: string }[] = [];
     const allowed = (candidateId: string, activityId: string) => { if (spare >= 1) { spare -= 1; return true; } notAsked.push({ candidateId, activityId }); return false; };
     // A question that stops at its output ceiling is sent once more at twice the ceiling, up to what its model writes
-    // (nananananana, November 1: 2 of 197 stopped at 16,000). The first attempt is untouched, and the second is an
-    // activity of its own, so a finished run replays as it ran. The raise is recorded (`verification-ceiling-raised-*`).
+    // (a social blogging platform, November 1: 2 of 197 stopped at 16,000). The first attempt is untouched, and the
+    // second is an activity of its own, so a finished run replays as it ran. The raise is recorded
+    // (`verification-ceiling-raised-*`).
     const askOne = async <T extends object>(stage: ModelStageInput<T> & { maximumOutputTokens: number }, candidateId: string): Promise<T & { activityId: string; artifactRefs: never[] }> => {
       try { return { ...await this.call(stage), activityId: stage.activityId, artifactRefs: [] }; }
       catch (error) {
@@ -783,7 +784,7 @@ export class ModelAuditPipeline {
     };
     // A critical or high issue a reviewer backed is rejected only when a second model, asked the same blind question,
     // rejects it too; when the two disagree it stays open for a person or an agent to settle (`verification.
-    // secondOpinion`). Observed live (rokavatar, October 21, 2026): 12 such issues were rejected by one Opus question
+    // secondOpinion`). Observed live (a web app, October 21, 2026): 12 such issues were rejected by one Opus question
     // at medium effort, 4 of them without opening a file it was not given.
     // Without peer review no reviewer votes, and the finder's report is the only backing: every severe rejection gets
     // the second question (blog without review, October 22: 7 severe rejections, none asked twice).
@@ -1469,7 +1470,7 @@ export class ModelAuditPipeline {
   /**
    * Issues one reviewer alone lowered below the plan's minimum severity, back at the severity they were found with:
    * that severity decides whether they are verified and planned, and the lowering stays on record. Two reviewers
-   * lowering it, or a run without a minimum, leave the board's severity as it is. Observed live (rokavatar, October
+   * lowering it, or a run without a minimum, leave the board's severity as it is. Observed live (a web app, October
    * 21, 2026): 25 issues found at medium or higher were lowered to low by one reviewer each and were neither verified
    * nor planned; four had been found as high.
    */

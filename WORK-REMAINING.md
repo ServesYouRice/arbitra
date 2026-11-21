@@ -12,8 +12,9 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
 - **Releases:** v0.4.0 (November 1, 301aa45: the Windows exe and the source zip) is the latest: cheaper reading and checking, a
   Codex usage warning, tests left out of an audit until ticked in, and plans no longer ignored by Git. Work continues on
   `main`; [`TESTERS.md`](TESTERS.md) is the testers' guide.
-- **nananananana, November 1:** audited on v0.3.2 ([real runs](docs/qa/real-runs.md#the-runs)); its plan is in the owner's
-  checkout, and the owner has started carrying it out. New projects come next: the owner would rather not run earlier ones again.
+- **A social blogging platform, November 1:** audited on v0.3.2 ([real runs](docs/qa/real-runs.md#the-runs)); its plan
+  is in the owner's checkout, and the owner has started carrying it out. New projects come next: the owner would
+  rather not run earlier ones again.
 - **memoria, November 10–11** (`run-bcd4fc1e`, 562 files, 87,971 lines by the run's preflight, tests left out):
   Opus 5.5 xhigh through the owner's **Anthropic API key** (finder, checker), Sol through Codex, Gemini 3.8 Flash high
   through Antigravity; the plan on Opus through Claude Code. 684 issues, 305 verified, 292 confirmed, a plan of 243
@@ -63,11 +64,12 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
    the computer awake.
 2. **Measure first** (no model calls, or one cheap run): they decide what to cut before anything is built.
 3. **Small builds before the next real runs** ("Need design", marked *before veritra*).
-4. **The next real runs:** first **properties** (small and new), on the subscriptions, to try the November 11 and 21
+4. **The next real runs:** first **a property-management app**, on the subscriptions, to try the November 11 and 21
    builds (the run helper, an optional step's wait, suggested answers, the plan's new checks) and the experiments
    under "To test next week", one change per run. What needs API credit waits for it (owner, November 21): the
-   API ↔ subscription fallback with a dollar cap, the key check and the cache marks. Then spectra and game, later, on
-   a newer build, with "Measure on the next runs". The owner would rather not run earlier projects again.
+   API ↔ subscription fallback with a dollar cap, the key check and the cache marks. Then a rating and discovery site
+   and a strategy game, later, on a newer build, with "Measure on the next runs". The owner would rather not run
+   earlier projects again.
 5. **UI phase**: built on the `ui` branch, merged into `main` and released in 0.3.0; the owner's review and the
    testers' reports go on.
 6. **Improvements the measurements support** (the rest of "Need design"). The run helper's steps 1 and 2 are built;
@@ -80,7 +82,7 @@ On the projects not audited yet, one change at a time; each decides a default. T
 of November 1 (its sources are named in [real runs](docs/qa/real-runs.md#what-the-reading-costs-november-1)).
 
 - **Unit sizes:** Opus's units are smaller than Sol's only because sizing reserves each model's whole output ceiling
-  (84 units against 49 on nananananana). Even them out and compare confirmed issues and tokens.
+  (84 units against 49 on the social blogging platform). Even them out and compare confirmed issues and tokens.
 - **Effort across whole units:** about 15 units at xhigh against high and medium on both vendors, counting confirmed
   issues and quota. Effort cannot change inside a tool loop. No study measures effort on finding bugs.
 - **A scout for the reading:** Sonnet or Haiku writes a read list for about 15 units; compare it with the files the
@@ -89,7 +91,8 @@ of November 1 (its sources are named in [real runs](docs/qa/real-runs.md#what-th
 - **The cited files in a question:** send the lines around a location instead of a whole file over about 16 KB, and
   compare verdicts. This is the largest lever on checking, and it removes what the checker can see.
 - **Balanced and cheap:** neither has a measured run on a real project. A run of each sets their estimates, and tests
-  turn limits of 6 and 5, which would have touched at most 9 and 17 of nananananana's 175 confirmed issues.
+  turn limits of 6 and 5, which would have touched at most 9 and 17 of the social blogging platform's 175 confirmed
+  issues.
 - **Cheap's wide pass, then a deep pass,** or the union of repeated cheap runs, for cheap only.
 - **Luna as the second finder at deep or balanced:** it costs 1/20 of Sol's Codex credits and Codex's window is the limit.
 - **The index in the system prompt:** about 2.6% of Opus's discovery cost, but it gives repository text the authority of
@@ -141,10 +144,10 @@ From the research review; each decides a cut or a build.
 - **The plan's new checks** (built November 21): whether executing agents run `check-results.mjs` and leave
   `results.json` complete (a messaging app's plan left it half empty), and how many unsure reports hold on the next plan
   carried out (7 of 20, then 24 of 35 so far).
-- **Discovery reading beyond its unit** (production-audit 2.0.0, cheaper from 2.1.0): on nananananana (November 1,
-  [real runs](docs/qa/real-runs.md#the-runs)) every unit read beyond itself (about 12 files, against 7 to 12 in the
-  unit), 151 of 175 confirmed issues cite a file beyond their unit, and it doubled the tokens a line, with 70
-  limitations where the budget ran out and half of Opus's units at their last turn. It stays. Built November 1:
+- **Discovery reading beyond its unit** (production-audit 2.0.0, cheaper from 2.1.0): on the social blogging platform
+  (November 1, [real runs](docs/qa/real-runs.md#the-runs)) every unit read beyond itself (about 12 files, against 7
+  to 12 in the unit), 151 of 175 confirmed issues cite a file beyond their unit, and it doubled the tokens a line,
+  with 70 limitations where the budget ran out and half of Opus's units at their last turn. It stays. Built November 1:
   `repo_symbol`, search context, asking for all lookups in one reply, the turns left in the last result of a turn,
   tool-turn limits by depth (deep 8, balanced 6, cheap 5). On the next runs: `toolUseOfUnits` (turns, calls by tool,
   names looked up), whether the citations hold, tokens a line against 1,330, and whether New run's estimate and
@@ -157,8 +160,8 @@ From the research review; each decides a cut or a build.
   task, act on `<not_found>` (16 of 2,132 on nextra, most of them library names), and need fewer workarounds for
   moved lines (201 moved over nextra's fixes).
 - **The variant search** (built October 25, `workflow.variantSearch`, off at every depth): replay it on the six
-  finished runs (beachflag, rokavatar, raquelsblog, commentanywhere, nextra, rokbot) with
-  `tooling/variant-replay/replay.mjs`, Sonnet 5.5 · high searching (`--searcher-copy` from a Claude Code profile),
+  finished runs (a beach-status map, a web app, a blog with a CMS, a comments service, nextra, a desktop automation
+  app) with `tooling/variant-replay/replay.mjs`, Sonnet 5.5 · high searching (`--searcher-copy` from a Claude Code profile),
   Gemini 3.8 Flash high where the run had three finders. How many variants it proposes, how many survive validation
   and the duplicate check, how many verification confirms and how many of those are real (nextra's 14 defects found
   while fixing are a check), and what the search and the checking of its proposals cost in tokens and minutes. That
@@ -172,8 +175,8 @@ From the research review; each decides a cut or a build.
   corrective turn in the same conversation instead), and whether reading changes what it confirms. On the MacBook
   run it confirmed 19 issues no other finder found, as many as Opus, with no tool call at all.
 - **GPT-6.1 Sol's discovery at xhigh** (#3): awake, its turns took 5 to 12 minutes at 1 to 3 output tokens a second,
-  most of the 15-minute limit, where its first turns took 25 to 60 seconds; on nananananana, with reads in small turns,
-  37 seconds at the median and 359 at most. Compare a run's Sol turns at xhigh and
+  most of the 15-minute limit, where its first turns took 25 to 60 seconds; on the social blogging platform, with
+  reads in small turns, 37 seconds at the median and 359 at most. Compare a run's Sol turns at xhigh and
   at high before the limit or the default effort changes.
 - **Codex's system skills:** every Codex call installs its system skills under `~/.codex` (on October 26, calls side
   by side printed "failed to install system skills" to stderr). Check whether skills instructions reach the prompt,
@@ -185,12 +188,12 @@ From the research review; each decides a cut or a build.
 - **Claude Code's cache on first calls:** 72 first calls in one run wrote 1.18M tokens and read none.
 - **Whether the critic still lacks its source** (`critic-result.citedSourceLeftOut`), if it stays: on veritra's
   227-task plan its 12 batches carried none of the 254 files the plan cites.
-- **What a verification question costs:** 159K tokens on nananananana (197 questions, 31.4M, 3 calls a question), 116K
-  on veritra, 75K to 86K before that. About 70% of a question's cost is its first call, which writes the whole cited
-  files to the cache (48 KB on average, each file sent 5.3 times), and a later turn is mostly cheap cache reads. Built
-  November 1 (targeted-verification 1.1.0): related source up front (2.8 KB a question), questions in the order of the
-  files they cite, the locked layer in Claude Code's system prompt. The run report's `verification questions` shows
-  what it does; the estimate is about 10% fewer tool calls and no net change in tokens.
+- **What a verification question costs:** 159K tokens on the social blogging platform (197 questions, 31.4M, 3 calls
+  a question), 116K on veritra, 75K to 86K before that. About 70% of a question's cost is its first call, which
+  writes the whole cited files to the cache (48 KB on average, each file sent 5.3 times), and a later turn is mostly
+  cheap cache reads. Built November 1 (targeted-verification 1.1.0): related source up front (2.8 KB a question),
+  questions in the order of the files they cite, the locked layer in Claude Code's system prompt. The run report's
+  `verification questions` shows what it does; the estimate is about 10% fewer tool calls and no net change in tokens.
 - **What the injection scanner's hits hold**, before sending them to model follow-ups.
 - **Four measurements from October 11 to 13:** prompts sized at one byte a token outside the stages that set
   `estimatedBytesPerToken`, discovery source as one JSON object a line, Gemini's output nearly all thinking, a pinned
@@ -444,5 +447,6 @@ Out of the plan until the named event happens.
 - **An operator's cancel releases the call's slot at once**, before its CLI stops: if it ever overlaps a new run.
 - **The plan critic's other spec triggers** (migration, deployment, auth redesign, cross-service, large task graph) have
   no data source in audit mode: if the critic stays.
-- **The other six run plans** (beachflag, rokavatar, raquelsblog, commentanywhere, rokbot, nananananana; its 7 open questions wait for the owner): when the owner wants
+- **The other six run plans** (a beach-status map, a web app, a blog with a CMS, a comments service, a desktop
+  automation app and the social blogging platform, whose 7 open questions wait for the owner): when the owner wants
   those projects fixed. Re-export each first so it gets the current export.

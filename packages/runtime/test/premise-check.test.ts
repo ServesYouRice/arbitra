@@ -37,7 +37,7 @@ describe("reading what a prompt names", () => {
     expect(found.filter(({ kind, text }) => kind === "quote" && text.includes("connect-transport'"))).toHaveLength(1);
   });
 
-  it("reads an Elixir name/arity as the name, and still reports a missing one (nananananana, November 1)", () => {
+  it("reads an Elixir name/arity as the name, and still reports a missing one (a social blogging platform, November 1)", () => {
     const names = (text: string) => kit.extract([premise(text)]).map(({ kind, text }) => `${kind}:${text}`);
     expect(names("Call `check_rate/4`, `Media.legacy_object_kept?/1`, `reset!/2` and `:ets.update_counter/4`.")).toEqual(["symbol:check_rate", "symbol:Media.legacy_object_kept", "symbol:reset", "symbol:ets.update_counter"]);
     const files = { "lib/rate.ex": "defmodule Rate do\n  def check_rate(a, b, c, d), do: a\n  def valid?(x), do: x\nend\n" };

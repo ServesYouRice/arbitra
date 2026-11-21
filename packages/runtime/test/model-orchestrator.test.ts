@@ -1669,7 +1669,7 @@ describe("composed model audits", () => {
   });
 
   it.each([["one", "high"], ["two", "low"]] as const)("keeps an issue in the plan's scope unless two reviewers lower it below: lowered by %s", async (lowered, severity) => {
-    // Observed live (rokavatar): 25 issues found at medium or higher were lowered to low by one reviewer each, so they
+    // Observed live (a web app): 25 issues found at medium or higher were lowered to low by one reviewer each, so they
     // were neither verified nor planned.
     const { create, config, verificationInputs } = await fixture({ lowerSeverity: lowered });
     (config.workflow["modelExecution"] as { planScope?: { minimumSeverity: string } }).planScope = { minimumSeverity: "medium" };
@@ -1690,7 +1690,7 @@ describe("composed model audits", () => {
   });
 
   it.each([["CONFIRMED", "needs_verification"], ["REJECTED", "rejected"]] as const)("asks a second model before rejecting a severe issue a reviewer backed: second answer %s", async (second, disposition) => {
-    // Observed live (rokavatar): 12 critical or high issues a reviewer backed were rejected by one question.
+    // Observed live (a web app): 12 critical or high issues a reviewer backed were rejected by one question.
     const { create, config, requests } = await fixture({ severeRejection: second });
     const core = create(); const result = await core.run({ ...config, verification: { ...config.verification, secondOpinion: "severe_rejections" } });
     expect(result.state).toBe("COMPLETED");
@@ -2064,7 +2064,8 @@ describe("composed model audits", () => {
   });
 
   it("sends a verification question that stops at its output ceiling once more at twice the ceiling, and records it", async () => {
-    // Observed (nananananana, November 1, 2026): 2 of 197 questions stopped at 16,000 tokens and went unanswered.
+    // Observed (a social blogging platform, November 1, 2026): 2 of 197 questions stopped at 16,000 tokens and went
+    // unanswered.
     const { create, config, requests } = await fixture({ verificationOutputLimit: "first" });
     (config.workflow["modelExecution"] as { maximumOutputTokens: number }).maximumOutputTokens = 64_000;
     const core = create(); const result = await core.run(config);

@@ -21,7 +21,8 @@ const MARKERS: readonly RegExp[] = [
 ];
 const NAMES: readonly (readonly [RegExp, string])[] = [
   [/\.min\.(?:js|css)$/u, "named like minified code"],
-  // rokbot's (October 24, 2026) OpenAPI client is `frontend/src/api/generated.ts`, 3,713 lines with no marker.
+  // A desktop automation app's (October 24, 2026) OpenAPI client is `frontend/src/api/generated.ts`, 3,713 lines with
+  // no marker.
   [/\.(?:g|freezed|gr|mocks)\.dart$|\.pb\.go$|_pb2(?:_grpc)?\.pyi?$|\.pb\.(?:cc|h)$|[._]generated\.[a-z]+$|(?:^|\/)generated\.[a-z]+$|(?:^|\/)__generated__\/|\.Designer\.cs$/u, "named like generated code"],
 ];
 const MINIFIED_LINE = 5_000;

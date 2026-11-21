@@ -43,11 +43,11 @@ export const DISCOVERY_READ_BEYOND_UNIT_BYTES = 65_536;
 export const DISCOVERY_READS_BY_NAME_FROM = "2.1.0";
 
 /**
- * Tool turns of one discovery unit by depth; a depth absent here keeps its model profile's limit (8). Of nananananana's
- * 175 confirmed issues (November 1, 2026, Opus and Sol at xhigh, 8 turns), every finding of 9 (1 high) cited a file first
- * read after the sixth tool turn, and of 17 (2 high) after the fifth; none after the eighth, the last there was, so the
- * limit may have cut more: deep keeps it. The same turns ask for more at once from this protocol on, so these bound what
- * a depth gives up rather than predict it.
+ * Tool turns of one discovery unit by depth; a depth absent here keeps its model profile's limit (8). Of a social
+ * blogging platform's 175 confirmed issues (November 1, 2026, Opus and Sol at xhigh, 8 turns), every finding of 9 (1
+ * high) cited a file first read after the sixth tool turn, and of 17 (2 high) after the fifth; none after the eighth,
+ * the last there was, so the limit may have cut more: deep keeps it. The same turns ask for more at once from this
+ * protocol on, so these bound what a depth gives up rather than predict it.
  */
 export const DISCOVERY_TOOL_TURNS: Readonly<Partial<Record<NonNullable<ModelDiscoveryOptions["depth"]>, number>>> = Object.freeze({ balanced: 6, cheap: 5, fast: 5 });
 

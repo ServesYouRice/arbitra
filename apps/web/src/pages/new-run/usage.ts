@@ -15,23 +15,23 @@ const ratesOf = (basis: Basis): readonly number[] => basis.tokensPerLine ?? basi
 
 /**
  * At deep, no review round. The tokens are from the runs since finders read beyond their unit: the MacBook run (three
- * finders, October 26 to 27, its time mostly asleep) and nananananana (two, November 1); the three before used half
- * as many (605 to 688). The time counts those three too, with the plan critic on.
+ * finders, October 26 to 27, its time mostly asleep) and a social blogging platform (two, November 1); the three
+ * before used half as many (605 to 688). The time counts those three too, with the plan critic on.
  */
 const DEEP: Basis = { what: "2 runs at deep since finders read beyond their unit for the tokens, 4 runs for the time", tokensPerLine: [1_290, 1_330], runs: [
-  { project: "commentanywhere", lines: 11_719, minutes: 40, tokensPerLine: 640 },
-  { project: "rokbot", lines: 26_100, minutes: 71, tokensPerLine: 605 },
+  { project: "a comments service", lines: 11_719, minutes: 40, tokensPerLine: 640 },
+  { project: "a desktop automation app", lines: 26_100, minutes: 71, tokensPerLine: 605 },
   { project: "nextra", lines: 38_967, minutes: 105, tokensPerLine: 688 },
-  { project: "nananananana", lines: 84_380, minutes: 197, tokensPerLine: 1_330 },
+  { project: "a social blogging platform", lines: 84_380, minutes: 197, tokensPerLine: 1_330 },
 ] };
 /** At deep with one review round and Gemini as the third finder (October 20 to 22, 2026), on earlier builds. */
 const REVIEWED: Basis = { what: "3 runs at deep with one review round on October 20 to 22", runs: [
-  { project: "rokavatar", lines: 10_716, minutes: 110, tokensPerLine: 1_455 },
-  { project: "beachflag", lines: 11_291, minutes: 80, tokensPerLine: 1_560 },
-  { project: "blog", lines: 14_204, minutes: 63, tokensPerLine: 922 },
+  { project: "a web app", lines: 10_716, minutes: 110, tokensPerLine: 1_455 },
+  { project: "a beach-status map", lines: 11_291, minutes: 80, tokensPerLine: 1_560 },
+  { project: "a blog with a CMS", lines: 14_204, minutes: 63, tokensPerLine: 922 },
 ] };
 const SIZE_MARGIN = 0.1;
-/** Each vendor's share of a deep run's tokens, by finder count: rokbot ran two finders, nextra three. */
+/** Each vendor's share of a deep run's tokens, by finder count: the desktop automation app ran two finders, nextra three. */
 const SHARES: Readonly<Record<2 | 3, readonly (readonly [string, number])[]>> = { 2: [["Claude Code", 0.87], ["Codex", 0.13]], 3: [["Claude Code", 0.81], ["Codex", 0.12], ["Antigravity", 0.07]] };
 
 /** `names` says what reaches each finder in this lineup ("Anthropic's API", "the third finder"); the shares are the measured ones. */
@@ -109,7 +109,7 @@ export interface PlanWindow {
 }
 export const PLAN_WINDOWS: readonly PlanWindow[] = [
   { vendor: "Codex", window: "five-hour", tokens: 10_600_000, atLeast: false, plan: "ChatGPT Plus",
-    source: "November 1, 2026, nananananana (84,380 lines, Opus and Sol at xhigh): Codex's five-hour window went from 0 to 100% for about 10.6M tokens, Sol's share of the whole run was 14.8M, and the run paused for 3 hours" },
+    source: "November 1, 2026, a social blogging platform (84,380 lines, Opus and Sol at xhigh): Codex's five-hour window went from 0 to 100% for about 10.6M tokens, Sol's share of the whole run was 14.8M, and the run paused for 3 hours" },
   // Claude's five-hour window has no row: October's about 57M does not hold, since on November 1 Opus used 62.8M in
   // under two hours and no limit was reached.
   { vendor: "Claude Code", window: "weekly", tokens: 315_000_000, atLeast: true, plan: "Claude Max 20x",

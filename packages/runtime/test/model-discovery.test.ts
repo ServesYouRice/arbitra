@@ -436,7 +436,8 @@ describe("independent model discovery", () => {
   });
 
   it("leaves a window unexamined for that auditor when its model never stops asking for tools, and goes on", async () => {
-    // Observed live (commentanywhere, October 23): Gemini asked for tools past its limit on one window, and the run failed.
+    // Observed live (a comments service, October 23): Gemini asked for tools past its limit on one window, and the run
+    // failed.
     const root = await mkdtemp(join(tmpdir(), "arbitra-discovery-tool-loop-")); directories.push(root);
     const store = new RunStore(root, "run-tool-loop");
     const lines = Array.from({ length: 8 }, (_, index) => `const value${index + 1} = ${index === 1 ? "null" : index === 6 ? "looping" : index};`);

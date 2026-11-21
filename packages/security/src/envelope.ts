@@ -81,9 +81,9 @@ export function deriveEnvelope(
  * Planner output may request less authority, but can never create more authority. Beyond the envelope's files, two
  * kinds of file are granted by rule, never by the plan's say: a test file anywhere, and a new file directly in a folder
  * of the envelope other than the repository root, where tools look for their configuration. Neither may sit in a
- * folder or have a name that starts with a dot. Observed on rokbot's plan (October 25, 2026): its API tests reach the
- * code through the app, so no import ties them to the module they test, and 41 of 84 tasks named such a test outside
- * their modules; proving each defect with a test is the plan's first step.
+ * folder or have a name that starts with a dot. Observed on a desktop automation app's plan (October 25, 2026): its
+ * API tests reach the code through the app, so no import ties them to the module they test, and 41 of 84 tasks named
+ * such a test outside their modules; proving each defect with a test is the plan's first step.
  */
 export function intersectScope(
   proposed: ProposedScope | readonly string[],

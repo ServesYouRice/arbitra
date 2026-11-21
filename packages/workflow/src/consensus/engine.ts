@@ -45,7 +45,8 @@ function decide(candidate: ConsensusCandidate, policy: ConsensusPolicy, auditors
   else if (verification.length > 0 || candidate.counterEvidence.length > 0 && accepts.length > 0) { outcome = "needs_verification"; reason = "Evidence is incomplete or conflicting."; }
   else if (evidenceBackedAccept.length >= policy.quorum && (!isHighRisk(candidate) || representedGroups.size >= policy.minimumIndependentGroupsForHighRisk)) { outcome = "accepted"; reason = "Evidence-backed acceptance met quorum and independence policy with no blocking objection."; }
   else if (evidenceBackedReject.length >= policy.quorum && evidenceBackedAccept.length === 0) { outcome = "rejected"; reason = "Evidence-backed rejection met quorum with no significant supported dissent."; }
-  // Observed live (commentanywhere, October 23): with no review round, all 150 candidates said review rounds were exhausted.
+  // Observed live (a comments service, October 23): with no review round, all 150 candidates said review rounds were
+  // exhausted.
   else if (exhausted && unreviewed) { outcome = "non_consensus"; reason = "No peer-review round was run; only verification checks this issue."; }
   else if (exhausted) { outcome = "non_consensus"; reason = "Review rounds exhausted without policy convergence."; }
   else { outcome = "needs_verification"; reason = "Consensus requirements are not yet satisfied."; }

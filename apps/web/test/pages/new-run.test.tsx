@@ -35,7 +35,7 @@ const READY = { valid: true, ready: true, mode: "audit", preset: "audit-two-find
   estimate: { estimate: { files: 4, lines: 1000, nodes: 7, auditors: 2, providerCalls: null, costUsd: null, currency: null, basis: "configured_models_cost_unknown_without_pricing_and_outputs" },
     read: { complete: true, files: FILES }, suggestedLeaveOut: [], gate: "clear" } };
 
-/** A project of the size of the one that paused Codex's five-hour window (nananananana, November 1, 2026). */
+/** A project of the size of the one that paused Codex's five-hour window (a social blogging platform, November 1, 2026). */
 const sized = (lines: number) => ({ ...READY, estimate: { ...READY.estimate, estimate: { ...READY.estimate.estimate, files: 1, lines }, read: { complete: true, files: [{ path: "src/big.ts", lines, test: false, leftOut: false }] } } });
 const BIG = sized(84_380);
 
@@ -143,7 +143,7 @@ describe("the new-run page", () => {
     const deep = screen.getByRole("radio", { name: "Deep" }).closest(".lineup-card")?.textContent ?? "";
     expect(deep).toContain("≈ 1.1M–1.3M tokens");
     expect(deep).toContain("Claude Code ≈ 940K–1.1M · Codex ≈ 140K–164K");
-    expect(deep).toContain("time not measured at this size: the smallest measured, commentanywhere, 11,719 lines, took 40 min");
+    expect(deep).toContain("time not measured at this size: the smallest measured, a comments service, 11,719 lines, took 40 min");
     expect(deep).toContain("basis: 2 measured runs, 1,290–1,330 tokens a line");
     // The whole basis is one click down, below the cards.
     expect(screen.getByText("How the estimates are made").closest("details")?.textContent).toContain("basis: 2 runs at deep since finders read beyond their unit for the tokens, 4 runs for the time, 11,719 to 84,380 lines");
@@ -479,7 +479,7 @@ describe("the new-run page", () => {
     expect(screen.queryByText(/on Claude Code's five-hour window/u)).toBeNull();
     expect((screen.getByRole("button", { name: "Start audit" }) as HTMLButtonElement).disabled).toBe(false);
     // Where each window was measured is one click down.
-    expect(screen.getByText(/Codex's five-hour window, about 10\.6M tokens on ChatGPT Plus: November 1, 2026, nananananana/u)).toBeTruthy();
+    expect(screen.getByText(/Codex's five-hour window, about 10\.6M tokens on ChatGPT Plus: November 1, 2026, a social blogging platform/u)).toBeTruthy();
   });
 
   it("says nothing alarming when the meters cannot be read, and warns of a window already used when a smaller run would not fit what is left", async () => {

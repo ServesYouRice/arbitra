@@ -2,7 +2,8 @@
  * Definitions and references of every name in a snapshot, from line patterns alone: pure JavaScript, no parser or native
  * module, so it runs in the single-file app, and the same text gives the same answer. A pattern can miss a definition or
  * end a body early; the model still has the literal search and the file reads, and what it is shown is always exact lines.
- * Observed (nananananana, November 1, 2026): 951 of 1,510 discovery searches were a bare name, with a read to follow.
+ * Observed (a social blogging platform, November 1, 2026): 951 of 1,510 discovery searches were a bare name, with a
+ * read to follow.
  */
 export interface SourceLines { readonly path: string; readonly lines: readonly string[] }
 export interface SymbolDefinition {
