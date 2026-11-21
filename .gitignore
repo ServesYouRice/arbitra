@@ -89,3 +89,4 @@ Thumbs.db
 
 # Single-file app builds (tooling/package/build.mjs)
 /dist-package/
+/dist-release/

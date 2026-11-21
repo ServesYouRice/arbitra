@@ -74,12 +74,6 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
    steps 3 and 4 wait for their measurements.
 7. **P21**, the completion report and the docs reconciled with the final build, then a release.
 
-## Repository chores (November 21)
-
-- **One release command:** the Node download checked against its pinned SHA-256, `postject` in the lockfile, and
-  a command that runs the full check, builds the package, writes its SHA-256 and prints what to tag and upload
-  (it tags and uploads nothing). Next: build it.
-
 ## To test next week
 
 On the projects not audited yet, one change at a time; each decides a default. The research is in the session's report

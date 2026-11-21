@@ -1,17 +1,18 @@
 // Builds the single-file app: `node tooling/package/build.mjs <win-x64|darwin-arm64|darwin-x64> [version]` after
 // `pnpm build`. It bundles the server into one CommonJS file, packs it with the web app and protocol assets into one
 // asset, and injects that with tooling/package/bootstrap.cjs into an official Node binary (Node's single executable
-// applications). Output: dist-package/<target>/arbitra(.exe). Runs on this machine only; no hosted CI.
+// applications). Output: dist-package/<target>/arbitra(.exe). Runs on this machine only; no hosted CI. The Node
+// download is checked against its pinned SHA-256 (node-download.mjs), and postject is the locked dev dependency.
+// `pnpm release` (tooling/package/release.mjs) runs the full check first and writes the release files.
 import { execFileSync } from "node:child_process";
-import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, copyFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, copyFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join, relative, resolve } from "node:path";
-import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
-import { createGunzip } from "node:zlib";
 import { build } from "esbuild";
 import { createHash } from "node:crypto";
+import { NODE_DOWNLOADS, NODE_VERSION, nodeBinary } from "./node-download.mjs";
 
-const NODE_VERSION = "22.23.2";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const [target = "win-x64", requested] = process.argv.slice(2);
 if (!["win-x64", "darwin-arm64", "darwin-x64"].includes(target)) throw new Error(`unknown target ${target}`);
@@ -45,22 +46,9 @@ const header = Buffer.alloc(4); header.writeUInt32LE(index.length, 0);
 writeFileSync(join(work, "app.bin"), Buffer.concat([header, index, ...files.map(({ data }) => data)]));
 say(`${files.length} files packed`);
 
-// 3. The Node binary for the target, downloaded once.
-const binary = join(cache, `node-${NODE_VERSION}-${target}${target.startsWith("win") ? ".exe" : ""}`);
-if (!existsSync(binary)) {
-  say(`downloading Node ${NODE_VERSION} for ${target}`);
-  if (target.startsWith("win")) {
-    const response = await fetch(`https://nodejs.org/dist/v${NODE_VERSION}/win-x64/node.exe`);
-    if (!response.ok) throw new Error(`download failed: ${response.status}`);
-    writeFileSync(binary, Buffer.from(await response.arrayBuffer()));
-  } else {
-    const response = await fetch(`https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-${target}.tar.gz`);
-    if (!response.ok) throw new Error(`download failed: ${response.status}`);
-    const tar = join(cache, `node-${NODE_VERSION}-${target}.tar`);
-    await pipeline(response.body, createGunzip(), createWriteStream(tar));
-    writeFileSync(binary, tarEntry(readFileSync(tar), `node-v${NODE_VERSION}-${target}/bin/node`));
-  }
-}
+// 3. The Node binary for the target, downloaded once and checked against its pinned hash on every build.
+const binary = join(work, `node-${NODE_VERSION}-${target}${target.startsWith("win") ? ".exe" : ""}`);
+writeFileSync(binary, await nodeBinary(target, cache, { say }), { mode: 0o755 });
 
 // 4. The blob, injected into a copy of the binary.
 const main = join(work, "bootstrap.cjs");
@@ -70,14 +58,15 @@ say("making the blob");
 // The blob holds no code cache or snapshot, so any Node of the same version makes it: a Mac build made on Windows
 // uses the Windows binary, which can run here.
 const host = `${process.platform === "win32" ? "win" : process.platform}-${process.arch}`;
-const maker = host === target ? binary : join(cache, `node-${NODE_VERSION}-${host}${process.platform === "win32" ? ".exe" : ""}`);
-if (!existsSync(maker)) throw new Error(`build ${host} first: its Node ${NODE_VERSION} makes the blob`);
+if (NODE_DOWNLOADS[host] === undefined) throw new Error(`no pinned Node ${NODE_VERSION} for this machine (${host}) to make the blob`);
+const maker = host === target ? binary : join(work, `node-${NODE_VERSION}-${host}${process.platform === "win32" ? ".exe" : ""}`);
+if (host !== target) writeFileSync(maker, await nodeBinary(host, cache, { say }), { mode: 0o755 });
 execFileSync(maker, ["--experimental-sea-config", join(work, "sea-config.json")], { stdio: "inherit" });
 const output = join(work, target.startsWith("win") ? "arbitra.exe" : "arbitra");
 copyFileSync(binary, output);
 say("injecting");
-const postject = ["-y", "postject@1.0.0-alpha.6", output, "NODE_SEA_BLOB", join(work, "sea.blob"), "--sentinel-fuse", "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2", ...(target.startsWith("darwin") ? ["--macho-segment-name", "NODE_SEA"] : [])];
-execFileSync(process.platform === "win32" ? "npx.cmd" : "npx", postject, { stdio: "inherit", shell: process.platform === "win32" });
+const postject = [createRequire(import.meta.url).resolve("postject/dist/cli.js"), output, "NODE_SEA_BLOB", join(work, "sea.blob"), "--sentinel-fuse", "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2", ...(target.startsWith("darwin") ? ["--macho-segment-name", "NODE_SEA"] : [])];
+execFileSync(process.execPath, postject, { stdio: "inherit" });
 say(`${relative(root, output)} · ${(statSync(output).size / 1e6).toFixed(0)} MB`);
 
 // 5. On macOS the binary goes into arbitra.app, whose launcher opens it in a Terminal window: the window shows what
@@ -101,17 +90,4 @@ if (target.startsWith("darwin")) {
 </dict></plist>
 `);
   say(`${relative(root, join(work, "arbitra.app"))}: finish it on a Mac with tooling/package/make-dmg.sh`);
-}
-
-/** One file's bytes from an uncompressed tar. */
-function tarEntry(tar, wanted) {
-  for (let offset = 0; offset + 512 <= tar.length;) {
-    const name = tar.subarray(offset, offset + 100).toString("utf8").replace(/\0.*$/su, "");
-    const prefix = tar.subarray(offset + 345, offset + 500).toString("utf8").replace(/\0.*$/su, "");
-    const size = parseInt(tar.subarray(offset + 124, offset + 136).toString("utf8").replace(/\0.*$/su, "").trim() || "0", 8);
-    if (name === "") break;
-    if ((prefix === "" ? name : `${prefix}/${name}`) === wanted) return tar.subarray(offset + 512, offset + 512 + size);
-    offset += 512 + Math.ceil(size / 512) * 512;
-  }
-  throw new Error(`${wanted} not found in the Node archive`);
 }

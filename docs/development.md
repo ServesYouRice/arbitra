@@ -63,6 +63,11 @@ evidence.
    them under This computer. Claude Code's appear only in a model call (`rate_limit_event`), so New run says "not read".
    What a window held on the plans measured is in `PLAN_WINDOWS` (`apps/web/src/pages/new-run/usage.ts`), the one place to
    update them.
+8. **A release.** `pnpm release <version>` on a clean checkout runs the full check, builds the Windows app
+   (`tooling/package/build.mjs`, on an official Node whose download must match the SHA-256 pinned in
+   `tooling/package/node-download.mjs`), writes `dist-release/v<version>/arbitra-<version>-windows.exe` and its
+   `.sha256`, and prints the tag and upload commands. It runs none of them: the owner tags and uploads. The macOS app
+   is finished on a Mac with `tooling/package/make-dmg.sh`.
 
 Evidence per item is in [docs/qa](qa/README.md); the subscription runs are in
 [qa/p03-subscription](qa/p03-subscription/README.md).
