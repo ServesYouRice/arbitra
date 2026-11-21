@@ -105,12 +105,12 @@ and how to run each part.
 ## Requirements
 
 Node 22.13 or newer (`>=22.13`; the whole check passes on 22.13, 24, 25 and 26) and pnpm 10 (`>=10 <11`). No API key is needed to run the test
-suites: the default suites make no network calls, and real-provider suites are
-environment-gated and skipped unless their variables are set.
+suites: the default suites make no network calls (only the dependency audit in `pnpm run ci` asks the npm
+registry), and real-provider suites are environment-gated and skipped unless their variables are set.
 
 ```bash
 pnpm install
-pnpm run ci # typecheck, lint, tests, example validation, design integrity, privacy
+pnpm run ci # typecheck, lint, tests, example validation, design integrity, privacy, dependency audit
 ```
 
 **New here? Follow [Getting started](docs/setup.md).** It covers validating every

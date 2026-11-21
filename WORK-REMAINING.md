@@ -76,7 +76,6 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
 
 ## Repository chores (November 21)
 
-- **A dependency audit in `pnpm run ci`:** production dependencies, high and above fail. Next: add it.
 - **One release command:** the Node download checked against its pinned SHA-256, `postject` in the lockfile, and
   a command that runs the full check, builds the package, writes its SHA-256 and prints what to tag and upload
   (it tags and uploads nothing). Next: build it.

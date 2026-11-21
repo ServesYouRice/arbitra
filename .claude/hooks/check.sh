@@ -8,7 +8,8 @@ cd "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 
 run_checks() {
   # The full check (docs/qa/README.md): `pnpm run ci` (typecheck, lint,
-  # tests, lint-rule tests, example validation, design integrity, privacy) and
+  # tests, lint-rule tests, example validation, design integrity, privacy, and
+  # `pnpm audit` of the production dependencies, which fails at high) and
   # `pnpm build`, plus the web app's Playwright acceptance on Chromium,
   # Firefox and WebKit (kept out of `pnpm test` because it needs browsers).
   # Left out: the Docker sandbox acceptance (ARBITRA_DOCKER_ACCEPTANCE, needs
