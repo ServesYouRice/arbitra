@@ -773,6 +773,8 @@ export function premiseKit() {
 
   const where = (place: Place | null): string => place === null || place.path === "" ? "" : place.start === 0 ? place.path : `${place.path}:${place.start}${place.end === place.start ? "" : `-${place.end}`}`;
   const LABEL: Readonly<Record<PremiseKind, string>> = { path: "file", symbol: "name", route: "route", event: "event", quote: "quote", lines: "lines" };
+  // One cited line is a "line", as the export writes it (`line-span.ts`), which this script cannot import.
+  const label = (premise: Premise): string => premise.kind === "lines" && premise.expected !== undefined && premise.expected.end <= premise.expected.start ? "line" : LABEL[premise.kind];
   // Plain ASCII: the script prints to any console, and a legacy Windows code page garbles "…".
   const clip = (text: string, size = 90): string => { const one = text.replace(/\s+/gu, " ").trim(); return one.length <= size ? one : `${one.slice(0, size - 3)}...`; };
   const describe = (premise: Premise): string => premise.kind === "lines" ? premise.text : premise.kind === "route" && premise.words !== undefined ? `"${premise.text}"` : `\`${clip(premise.text).replace(/`/gu, "'")}\``;
@@ -785,7 +787,7 @@ export function premiseKit() {
       : premise.kind === "route" && premise.words !== undefined ? "no HTTP route or socket event in the code has that name"
         : premise.kind === "path" ? "no such file" : premise.kind === "lines" ? saved.note ?? "not in the code"
           : `not in the code${premise.expected === undefined ? "" : ` (the prompt places it at ${where(premise.expected)})`}`;
-    return `${LABEL[premise.kind]} ${describe(premise)}: ${detail}`;
+    return `${label(premise)} ${describe(premise)}: ${detail}`;
   }
 
   function report(id: string, prompt: PromptPremises, comparisons: readonly Comparison[], root: string, data: PremiseData): string[] {
@@ -794,16 +796,16 @@ export function premiseKit() {
       `The plan was saved on ${data.savedAt.slice(0, 10)}${data.repositoryMatched ? "" : ", from files that had changed since the audit"}; this prompt names ${comparisons.length} ${comparisons.length === 1 ? "thing" : "things"} in the code.`, ""];
     const moved = of("moved");
     if (moved.length > 0) lines.push(`Moved since the plan was saved (${moved.length}): the same code, now at these lines.`,
-      ...moved.map(({ premise, now }) => `  ${LABEL[premise.kind]} ${describe(premise)}: now ${where(now.place)} (was ${where(premise.saved.place)})`), "");
+      ...moved.map(({ premise, now }) => `  ${label(premise)} ${describe(premise)}: now ${where(now.place)} (was ${where(premise.saved.place)})`), "");
     const gone = of("gone");
     if (gone.length > 0) lines.push(`Gone since the plan was saved (${gone.length}): changed or removed, by an earlier task or another change.`,
-      ...gone.map(({ premise, now }) => `  ${LABEL[premise.kind]} ${describe(premise)}: was ${where(premise.saved.place)}; ${now.status !== "partial" ? now.note ?? "not found now"
+      ...gone.map(({ premise, now }) => `  ${label(premise)} ${describe(premise)}: was ${where(premise.saved.place)}; ${now.status !== "partial" ? now.note ?? "not found now"
         : now.note === REORDERED ? `now ${now.note}, at ${where(now.place)}` : `now only part of it, at ${where(now.place)}; not found: ${fragments(now)}`}`), "");
     const never = of("never_found");
     if (never.length > 0) lines.push(`Never found, not when the plan was saved and not now (${never.length}):`, ...never.map(({ premise }) => `  ${notFoundLine(premise)}`), "");
     const late = [...of("found_now"), ...of("created")];
     if (late.length > 0) lines.push(`In the code now, not when the plan was saved (${late.length}): an earlier task or this one added it.`,
-      ...late.map(({ premise, now }) => `  ${LABEL[premise.kind]} ${describe(premise)}: ${where(now.place)}`), "");
+      ...late.map(({ premise, now }) => `  ${label(premise)} ${describe(premise)}: ${where(now.place)}`), "");
     const pending = of("not_yet").length;
     lines.push(`Unchanged: ${of("unchanged").length}.${pending === 0 ? "" : ` Not in the code yet, as the prompt adds ${pending === 1 ? "it" : "them"} or says ${pending === 1 ? "it is" : "they are"} missing: ${pending}.`}`, "");
     lines.push(moved.length + gone.length + never.length === 0 ? "Everything this prompt names is where the plan saw it."

@@ -127,6 +127,12 @@ describe("looking it up in the code", () => {
     const moved = kit.compare(lines === undefined ? [] : [lines], repository({ "a.js": "zero();\none();\nconst two = makeTwo();\n" }), []);
     expect(moved[0]).toMatchObject({ change: "moved", now: { place: { path: "a.js", start: 3, end: 3 } } });
   });
+
+  it("calls one cited line a line and more than one lines", () => {
+    // Observed live (November 11, 2026): the export's note on one line said "lines 20".
+    const cited = checked({ "a.js": "one();\ntwo();\n" }, [premise("a.js:9 does it, and a.js:8-9 around it.")]).filter(({ kind }) => kind === "lines");
+    expect(cited.map(kit.notFoundLine)).toEqual(["line a.js:9: the file has 3 lines", "lines a.js:8-9: the file has 3 lines"]);
+  });
 });
 
 it("ships as one script with no imports but Node's own", () => {

@@ -11,6 +11,8 @@ export default defineConfig({
     "@arbitra/schemas/http-control-plane": fileURLToPath(new URL("../../packages/schemas/src/http-control-plane.ts", import.meta.url)),
     // The rules that read a failure's kind, shared with the server's run helper; the module imports nothing.
     "@arbitra/runtime/failure-kinds.js": fileURLToPath(new URL("../../packages/runtime/src/failure-kinds.ts", import.meta.url)),
+    // How lines and places read, shared with the plan export; the module imports nothing.
+    "@arbitra/runtime/line-span.js": fileURLToPath(new URL("../../packages/runtime/src/line-span.ts", import.meta.url)),
   } },
   // The entry chunk is what the size warning is for, and it sits near 300 kB. The only
   // chunk above the 500 kB default is elkjs, a single 1.4 MB vendor module that cannot be

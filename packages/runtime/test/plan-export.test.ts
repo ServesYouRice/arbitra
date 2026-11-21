@@ -129,7 +129,7 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
     // What changed since the audit, and text that reads like instructions, come before the work.
     expect(readme).toContain("## Read this first\n\n- The project's files changed after the audit read them");
     expect(readme).toContain("- The `claude-code` CLI moved from version 2.1.296 to 2.1.301 when the run resumed");
-    expect(readme).toContain("- `src/auth.ts` lines 2 reads like instructions to a model (model_directed_phrase), and no finding cites it.");
+    expect(readme).toContain("- `src/auth.ts` line 2 reads like instructions to a model (model_directed_phrase), and no finding cites it.");
     // An issue of the plan's scope the audit left open gets a prompt to settle it, after the tasks; one below the scope
     // is only counted.
     expect(readme.indexOf("## Unsure: check after the tasks, if at all")).toBeGreaterThan(readme.indexOf("## Order of work"));

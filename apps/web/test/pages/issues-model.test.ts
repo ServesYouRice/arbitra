@@ -31,6 +31,7 @@ describe("the Issues tab's reading of the records", () => {
     expect(matches(view, "role  AUTHENTICATED")).toBe(true);
     expect(matches(view, "roles.ts billing")).toBe(false);
     expect(placeRange({ id: "l", path: "a.ts", startLine: 3, endLine: 3 })).toBe("a.ts:3");
+    expect(placeRange({ id: "l", path: "a.ts", startLine: 3, endLine: 7 })).toBe("a.ts:3–7");
   });
 
   it("names a checker by the model and effort its attempt ran at, else as the configuration assigns it by severity", () => {
@@ -59,6 +60,10 @@ describe("the Issues tab's reading of the records", () => {
     expect(describeUnexaminedSurface(7)).toBe("7");
     expect(describeUnexaminedSurface({ surfaceId: "billing", paths: ["src/billing"], weight: "critical", riskScore: 0.9, reasons: ["security_sensitive_category"] })).toBe("billing · critical · risk 0.9 · src/billing · security_sensitive_category");
     expect(describeSuppressionCandidate({ path: "src/auth.ts" })).toBe("src/auth.ts · instruction risk unavailable · read by no auditor · unavailable");
+    // The lines that read like instructions, one line read as a line (the plan export writes them the same way).
+    expect(describeSuppressionCandidate({ path: "src/auth.ts", lines: [{ startLine: 20, endLine: 20 }], instructionRisk: "high", readBy: ["auditor-a"], note: "no finding cites it" }))
+      .toBe("src/auth.ts line 20 · instruction risk high · read by auditor-a · no finding cites it");
+    expect(describeSuppressionCandidate({ path: "src/auth.ts", lines: [{ startLine: 2, endLine: 4 }, { startLine: 9, endLine: 9 }] })).toBe("src/auth.ts lines 2–4, 9 · instruction risk unavailable · read by no auditor · unavailable");
   });
 
   it("draws severity as stripe width, never hue, and outlines the selected row where colours are forced", () => {
