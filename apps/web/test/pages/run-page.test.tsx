@@ -35,7 +35,7 @@ describe("the run page", () => {
     const needs = screen.getByRole("region", { name: "Needs you" });
     expect(within(needs).getAllByRole("link").map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
       ["1 question only you can answer, before the tasksAnswer →", "/?run=run-1&view=plan"],
-      // The saved plan checks them after its tasks (plan-export.ts): most such reports do not hold.
+      // The saved plan checks each after its tasks, as part of the work, and records its result (plan-export.ts).
       ["20 issues the check could not settle: the plan checks them after its tasksSee them →", "/?run=run-1&view=issues"],
     ]);
     const issues = await screen.findByRole("region", { name: "Issues · 415 found" });

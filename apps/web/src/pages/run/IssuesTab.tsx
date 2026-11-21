@@ -17,7 +17,7 @@ export const NO_REASONS = "This run's check gave no reasons: runs before October
 
 const GROUP_NOTES: Readonly<Record<Verdict, string>> = Object.freeze({
   confirmed: "Checked against the code and upheld.",
-  unsettled: "The check could not settle these from the code alone. The plan checks them after its tasks; most such issues do not hold.",
+  unsettled: "The check could not settle these from the code alone. The plan checks each one after its tasks and records what it found: on the plans carried out so far, between a third and two thirds of such issues held.",
   rejected: "The check found these are not problems, each with its reason.",
   "not checked": "Below the plan's bar, or left open: kept here, and not planned.",
 });

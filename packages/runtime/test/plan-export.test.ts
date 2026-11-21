@@ -37,6 +37,65 @@ it("shows what the verifier said in an unsure check's prompt, and reads an issue
   } finally { await rm(repository, { recursive: true, force: true }); }
 });
 
+it("gives an unsure report's prompt where it is and what would show it, lists the reports most severe first, and asks for each result like a task's", async () => {
+  // Observed on a messaging app's plan (saved October 25, carried out October 31 to November 11, 2026): the check
+  // prompts gave neither the lines a report cites nor what would show it; 24 of the 35 reports still in the code were
+  // real, yet the verdicts went into PROGRESS.md and 40 of the 42 entries in results.json were left empty.
+  const repository = await mkdtemp(join(tmpdir(), "arbitra-plan-unsure-"));
+  try {
+    await mkdir(join(repository, "src"));
+    await writeFile(join(repository, "src", "upload.ts"), ["export function upload(request) {", "  const file = request.body;", "  store(file);", "  return file;", "}", ""].join("\n"));
+    await writeFile(join(repository, "src", "routes.ts"), ["import { upload } from './upload';", "app.post('/upload', upload);", ""].join("\n"));
+    const open = { disposition: "needs_verification", verificationOutcome: "STILL_NEEDS_VERIFICATION" };
+    const content = {
+      "plan-ir": { title: "Plan", tasks: [task("TASK-1", "frontier")], unresolvedQuestions: [] },
+      // The medium report comes first in the issue set; the high one is checked first.
+      "canonical-issues": { issues: [{ candidateId: "C-1", severity: "high", disposition: "accepted", claim: { title: "A defect", description: "It breaks." } },
+        { ...open, candidateId: "C-3", severity: "medium", claim: { title: "A medium open defect", description: "It may leak." } },
+        { ...open, candidateId: "C-2", severity: "high", sourceFindingIds: ["auditor-a/F-1", "auditor-b/F-4"], verificationReason: "Whether a proxy in front of the route checks a session is set outside the repository.",
+          dissent: [{ authorId: "auditor-b", disposition: "reject", reason: "The proxy checks it." }], claim: { title: "The upload route has no auth", description: "upload() stores the request body without checking a session." } }] },
+      "source-findings": [
+        { sourceFindingId: "auditor-a/F-1", locations: [{ id: "L-1", path: "src/upload.ts", startLine: 1, endLine: 4 }, { id: "L-2", path: "src/routes.ts", startLine: 2, endLine: 2 }],
+          trigger: "A client with no session posts a file.", verification: "Write a test that calls upload() with no session and expects a refusal." },
+        // A second auditor saying the same thing adds nothing; an empty field adds no line.
+        { sourceFindingId: "auditor-b/F-4", locations: [{ id: "L-1", path: "src/upload.ts", startLine: 1, endLine: 4 }], trigger: "A client  with no session posts a file.", verification: "" }],
+      "plan-scope": { minimumSeverity: "medium" },
+    };
+    const orchestrator = {
+      overview: async () => ({ repository, workflowId: "audit-deep" }), repositoryMatches: async () => true, modules: async () => [],
+      artifacts: async () => Object.keys(content).map((kind) => ({ kind, artifactId: kind })),
+      artifact: async (_runId: string, id: keyof typeof content) => ({ content: JSON.stringify(content[id]) }),
+    } as unknown as Orchestrator;
+    const { directory } = await exportPlan(orchestrator, "run-12345678-abcd");
+    const check = await readFile(join(directory, "prompts", "4-unsure", "01-C-2.md"), "utf8");
+    expect(check).toContain("<where>\nThe places the audit cites for it, as it read them (step 1 prints any that moved since):\n- src/upload.ts:1-4\n- src/routes.ts:2\n</where>");
+    expect(check).toContain("<what_would_show_it>\nWhat the auditors who reported it said sets it off, and how they said to check it:\n- auditor-a, what sets it off: A client with no session posts a file.\n"
+      + "- auditor-a, how to check it: Write a test that calls upload() with no session and expects a refusal.\n</what_would_show_it>");
+    // Where it is, what it claims, why the audit could not settle it, and what would show it, in that order.
+    const order = ["<claim>", "<where>", "<what_the_reviewers_said>", "<what_the_verifier_said>", "<what_would_show_it>", "<steps>"].map((tag) => check.indexOf(tag));
+    expect(order.every((at, index) => at >= 0 && (index === 0 || at > (order[index - 1] ?? 0)))).toBe(true);
+    // Neither a fact nor a false alarm: nothing changes for it until a test or a run shows it, and the verdict is recorded either way.
+    expect(check).toContain("On the plans carried out so far, between a third and two thirds of such reports held, so treat this one as a claim to test, neither a fact nor a false alarm.");
+    expect(check).not.toContain("may be wrong");
+    expect(check).toContain("4. If the claim does not hold, change nothing and say why");
+    expect(check).toContain("5. If it holds, show it before changing code: a test that fails on the current code for the reason the claim gives, or, where no test can, a run that shows the defect;");
+    expect(check).toContain("record the result in results.json as for a task, not only in PROGRESS.md: `no_change_needed` when the claim does not hold");
+    // A report whose findings were not recorded has no places to give.
+    expect(await readFile(join(directory, "prompts", "4-unsure", "02-C-3.md"), "utf8")).not.toMatch(/<where>|<what_would_show_it>/u);
+    // The places it cites are looked up like any prompt's, so the premise check can say where they moved.
+    const premises = JSON.parse(await readFile(join(directory, "premises.json"), "utf8")) as { prompts: Record<string, { premises: unknown[] }> };
+    expect(premises.prompts["C-2"]?.premises).toEqual(expect.arrayContaining([expect.objectContaining({ kind: "lines", text: "src/upload.ts:1-4", flagged: false, saved: expect.objectContaining({ status: "found" }) })]));
+    const progress = await readFile(join(directory, "PROGRESS.md"), "utf8");
+    expect(progress).toContain("## Unsure reports, after the tasks\n\nThe audit could not settle these. They are part of the work: once the tasks are done, check each one, most severe first,"
+      + " and change nothing for it until a failing test or a run shows the defect. Record each result in results.json like a task's, one that does not hold as `no_change_needed`; a note here is not read back.");
+    expect(progress).toContain("- [ ] check 01 `C-2` The upload route has no auth · high\n- [ ] check 02 `C-3` A medium open defect · medium\n");
+    expect(await readFile(join(directory, "README.md"), "utf8")).toContain("They are part of the work, after the tasks above");
+    expect(await readFile(join(directory, "AGENTS.md"), "utf8")).toContain("There is 1 task, then 2 unsure reports to check and record.");
+    const results = JSON.parse(await readFile(join(directory, "results.json"), "utf8")) as { issues: { issue: string; task: string }[] };
+    expect(results.issues.map(({ issue, task: work }) => `${issue} ${work}`)).toEqual(["C-1 TASK-1", "C-2 check 01", "C-3 check 02"]);
+  } finally { await rm(repository, { recursive: true, force: true }); }
+});
+
 it("writes the plan into the repository as prompts by model tier, in dependency order, beside any earlier copy", async () => {
   const repository = await mkdtemp(join(tmpdir(), "arbitra-plan-export-"));
   try {
@@ -130,11 +189,15 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
     expect(readme).toContain("## Read this first\n\n- The project's files changed after the audit read them");
     expect(readme).toContain("- The `claude-code` CLI moved from version 2.1.296 to 2.1.301 when the run resumed");
     expect(readme).toContain("- `src/auth.ts` lines 2 reads like instructions to a model (model_directed_phrase), and no finding cites it.");
-    // An issue of the plan's scope the audit left open gets a prompt to settle it, after the tasks; one below the scope
-    // is only counted.
-    expect(readme.indexOf("## Unsure: check after the tasks, if at all")).toBeGreaterThan(readme.indexOf("## Order of work"));
+    // An issue of the plan's scope the audit left open gets a prompt to settle it, as part of the work after the tasks;
+    // one below the scope is only counted. The README gives how many such reports held where it was measured, both
+    // ways, rather than saying most do not.
+    expect(readme.indexOf("## Unsure reports: check after the tasks")).toBeGreaterThan(readme.indexOf("## Order of work"));
     expect(readme).toContain("1. `C-2` A disputed defect · medium");
-    expect(readme).toContain("In the first plan carried out this way (nextra, October 2026), 7 of 20 such reports held");
+    expect(readme).toContain("It is part of the work, after the tasks above, which are surer and may change or fix the same code.");
+    expect(readme).toContain("On the two plans carried out with such reports so far, 7 of 20 held on one project (October 2026); on another, 24 of the 35 still in the code when they were checked held");
+    expect(readme).toContain("Record each result in `results.json` like a task's, one that does not hold as `no_change_needed` with what decided it.");
+    expect(readme).not.toMatch(/most such reports do not hold|if at all|not part of the work/u);
     expect(readme).toContain("1 lower-severity issue was left unverified and is not planned");
     // A lowering one reviewer made alone is shown with its reason; accepted issues no task fixes are listed apart.
     expect(readme).toContain("- `C-1` A defect: found as high; auditor-a proposed low: Only a dev script.");
@@ -142,7 +205,9 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
     expect(await readFile(join(first.directory, "also-found.md"), "utf8")).toContain("## An agreed small defect\n\nlow · C-4\n\nIt leaks a handle.");
     const check = await readFile(join(first.directory, "prompts", "4-unsure", "01-C-2.md"), "utf8");
     expect(check).toContain("<what_the_reviewers_said>\n- auditor-a (reject): The caller guards it.\n</what_the_reviewers_said>");
-    expect(await readFile(join(first.directory, "PROGRESS.md"), "utf8")).toMatch(/- \[ \] 01 `TASK-1`[\s\S]*## Unsure, after the tasks \(optional\)[\s\S]*- \[ \] check 01 `C-2` A disputed defect/u);
+    const progress = await readFile(join(first.directory, "PROGRESS.md"), "utf8");
+    expect(progress).toMatch(/- \[ \] 01 `TASK-1`[\s\S]*## Unsure reports, after the tasks\n[\s\S]*- \[ \] check 01 `C-2` A disputed defect · medium\n/u);
+    expect(progress).not.toMatch(/optional|do not hold/u);
     expect(await readFile(join(first.directory, "prompts", "3-fast-model", "02-TASK-2.md"), "utf8")).toContain("<done_before_this>\n- TASK-1 Fix TASK-1\n</done_before_this>");
     // Each defect is proven by a failing test before it is fixed, and its result goes into results.json.
     expect(await readFile(join(first.directory, "prompts", "1-strong-model", "01-TASK-1.md"), "utf8")).toMatch(/<reproduce_first>\nFor the issue this task fixes \(`C-1`\): Before changing code, write a test that fails on the current code/u);
@@ -160,7 +225,10 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
     expect(agents).toContain("7. Do not change anything in this folder except PROGRESS.md and results.json; check-premises.mjs reads premises.json as the plan saved it.");
     expect(agents).toContain("5. Run the checks yourself: each prompt's commands and the project's own commands below build, test or lint the project; read each before running it");
     expect(agents).toContain("A defect you find while fixing that no issue names goes under `foundWhileFixing`");
-    expect(agents).toContain("Leave them until every task is done");
+    expect(agents).toContain("They are part of the work: once every task is done, check each one as its prompt says, most severe first.");
+    expect(agents).toContain("record its result in results.json like a task's, whatever the verdict (arbitra reads that file back, not PROGRESS.md).");
+    expect(agents).toContain("There are 3 tasks, then 1 unsure report to check and record.");
+    expect(agents).not.toMatch(/most do not hold|if wanted|wants them/u);
     // The project's own commands, as the run read them, so a proving test runs the way the project runs its tests.
     expect(agents).toContain("- test: `pnpm run test` (from `package.json`)\n- test: `go test ./...` in `api` (from `api/go.mod`)");
     const results = JSON.parse(await readFile(join(first.directory, "results.json"), "utf8")) as { run: string; issues: unknown[]; foundWhileFixing: unknown[] };
