@@ -760,6 +760,8 @@ function discoveryRequest(options: ScopeOptions): ModelActivityRequest<ReturnTyp
     lines: file.lines.map((text, index) => ({ line: index + 1, text })).filter(({ line }) => window === undefined || line >= window.startLine && line <= window.endLine).map(({ line, text }) => ({ line, text: redactSecrets(text).text })) }));
   const index = options.repository.index;
   const reading = readingPolicy(options);
+  // What every unit's input opens with: the repository index, ahead of the unit's own files.
+  const shared = { trust: "untrusted_repository_data", ...(index === null ? {} : { repositoryIndex: index }) };
   return {
     activityId: discoveryActivityId(options), sourcePaths: snapshot.files.map(({ path }) => path), readBeyondSource: { maximumBytes: DISCOVERY_READ_BEYOND_UNIT_BYTES, ...(reading === undefined ? {} : { reading }) },
     ...(options.splitOnTimeLimit === true ? { splitOnTimeLimit: true } : {}),
@@ -787,8 +789,10 @@ function discoveryRequest(options: ScopeOptions): ModelActivityRequest<ReturnTyp
         JSON.stringify(modelDiscoveryResultSchema.toJSONSchema()),
       ].join("\n") },
       // The index comes before the unit's files: it is the same for every unit, so their prompts share it as a prefix.
-      { role: "user", content: JSON.stringify({ trust: "untrusted_repository_data", ...(index === null ? {} : { repositoryIndex: index }), files, ...(reported === undefined ? {} : { reportedInstructionShapedText: reported }) }) },
+      { role: "user", content: JSON.stringify({ ...shared, files, ...(reported === undefined ? {} : { reportedInstructionShapedText: reported }) }) },
     ],
+    // Through the index, without the brace that closes it there: the harness marks the prompt's cache at its end.
+    sharedInput: JSON.stringify(shared).length - 1,
     schema: { parse(value: unknown) {
       const parsed = modelDiscoveryResultSchema.parse(value);
       const seen = new Set<string>();

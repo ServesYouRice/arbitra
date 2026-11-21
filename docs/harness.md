@@ -217,7 +217,9 @@ truncated. When they do not fit, the stage is recomposed:
   nothing from the cache. On Claude Code the locked layer (protocol, output schema, tools) now goes in
   the system prompt, which has a boundary of its own. No unit waits for another: the shared part is
   worth about $0.02 a finder against about 40 seconds. The index stays in the user's message: it is
-  text from the repository, which has no authority in a system prompt.
+  text from the repository, which has no authority in a system prompt. Through Anthropic's API, from
+  November 21, 2026, the user's message is sent as two blocks, the first through the index and
+  marked for the cache (`sharedInput`, `sharedStartOf`); the text is unchanged, so no version moves.
 - A run pinned to production-audit 2.0.0 sends what it always sent, tools, prompt and tool turns, so it
   resumes and replays as it was; `discovery-reading.test.ts` holds it to the hash of its requests.
 - **The variant search reads the same way.** Its tools read the files its issues cite freely and

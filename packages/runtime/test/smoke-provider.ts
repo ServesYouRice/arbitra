@@ -162,7 +162,7 @@ function protocolOf(url: string): WireProtocol {
 }
 
 interface WireBody {
-  input?: { role?: string; content?: unknown }[]; messages?: { role?: string; content?: unknown }[]; system?: string;
+  input?: { role?: string; content?: unknown }[]; messages?: { role?: string; content?: unknown }[]; system?: unknown;
   systemInstruction?: { parts: { text: string }[] }; contents?: { parts: { text?: string }[] }[];
 }
 function decode(protocol: WireProtocol, value: unknown): { system: string; input: Record<string, unknown> } {
@@ -171,7 +171,7 @@ function decode(protocol: WireProtocol, value: unknown): { system: string; input
   let system = ""; let user = "";
   if (protocol === "openai-responses") { system = text(body.input?.find(({ role }) => role === "system")?.content); user = text(body.input?.find(({ role }) => role === "user")?.content); }
   if (protocol === "openai-chat") { system = text(body.messages?.find(({ role }) => role === "system")?.content); user = text(body.messages?.find(({ role }) => role === "user")?.content); }
-  if (protocol === "anthropic-messages") { system = body.system ?? ""; user = text(body.messages?.find(({ role }) => role === "user")?.content); }
+  if (protocol === "anthropic-messages") { system = text(body.system); user = text(body.messages?.find(({ role }) => role === "user")?.content); }
   if (protocol === "gemini-native") { system = body.systemInstruction?.parts.map(({ text: part }) => part).join("\n") ?? ""; user = body.contents?.[0]?.parts.map(({ text: part }) => part ?? "").join("") ?? ""; }
   return decodeCompiled(system, user);
 }

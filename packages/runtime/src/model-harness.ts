@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { compile, PromptTextLimitError, type CompiledPrompt } from "@arbitra/core/prompt/compiler.js";
+import type { PromptCompileSpec } from "@arbitra/core/prompt/layers.js";
 import { CanonicalHarnessAdapter, TOOL_TURN_LIMIT_REACHED } from "@arbitra/harness/canonical/adapter.js";
 import type { HarnessEvent } from "@arbitra/harness/adapter.js";
 import { CANONICAL_HARNESS_PROFILE, CANONICAL_TESTING_HARNESS_PROFILE } from "@arbitra/harness/profile.js";
@@ -199,10 +200,17 @@ export class ModelHarness {
   }
 
   private async invokeTurns<T>(input: ModelActivityRequest<T>): Promise<T> {
-    const { profile, execution, tools, compiled, initialMessages, discovery } = prepareModelInput(input, this.config, this.testing);
+    const { profile, execution, tools, spec, compiled, initialMessages, discovery } = prepareModelInput(input, this.config, this.testing);
     const harnessProfile = this.testing === undefined ? CANONICAL_HARNESS_PROFILE : CANONICAL_TESTING_HARNESS_PROFILE;
     const key = createHash("sha256").update(input.activityId).digest("hex");
-    if (compiled !== undefined) await this.store.publish(`compiled-prompt-${key}`, { text: compiled.text, provenance: compiled.provenance, breakpoints: compiled.breakpoints }, input.activityId);
+    // The start of the prompt every call of the stage sends alike, marked on the first message of each turn after its
+    // history is bounded, so it is measured as before. A Claude Code call of the cache layout sends no mark: its locked
+    // layer is its system prompt. The start's length and hash are kept with the prompt, so a run can tell what a first
+    // call could read from the cache.
+    const sharedStart = spec === undefined || compiled === undefined || initialMessages.length !== 1 ? undefined
+      : sharedStartOf(spec, compiled, discovery || input.cacheLayout === true ? input.sharedInput : undefined);
+    if (compiled !== undefined) await this.store.publish(`compiled-prompt-${key}`, { text: compiled.text, provenance: compiled.provenance, breakpoints: compiled.breakpoints,
+      ...(sharedStart === undefined ? {} : { sharedStart: { length: sharedStart, hash: createHash("sha256").update(compiled.text.slice(0, sharedStart)).digest("hex") } }) }, input.activityId);
     const allowedPaths = input.sourcePaths === undefined ? null : new Set(input.sourcePaths);
     const beyond = input.readBeyondSource;
     const toolSet = allowedPaths === null ? snapshotTools(this.snapshot, this.store, input.activityId)
@@ -217,8 +225,10 @@ export class ModelHarness {
       const bounded = await boundModelHistory(initialMessages, context.turn === 0 ? [] : request.messages.slice(1),
         (messages) => promptTokens(Buffer.byteLength(JSON.stringify({ messages, tools: request.tools }), "utf8"), rate, profile.transport) + requestCeiling(this.config, input) <= maximumContext, toolSet.archive);
       if (bounded.archiveRef !== null) await this.store.publish(`model-history-${key}-${context.turn}`, { activityId: input.activityId, turn: context.turn, archiveRef: bounded.archiveRef, archivedMessages: bounded.archivedMessages, maximumEstimatedTokens: maximumContext });
+      const [opening, ...rest] = bounded.messages;
+      const messages = sharedStart === undefined || opening === undefined ? bounded.messages : [{ ...opening, sharedStart }, ...rest];
       const answered = this.activities.invoke({
-        ...input, activityId: `${input.activityId}/turn-${context.turn}`, messages: bounded.messages,
+        ...input, activityId: `${input.activityId}/turn-${context.turn}`, messages,
         tools: request.tools, responseMode: "harness_turn", schema: modelTurnResultSchema,
         // Traced only. A repair is counted once, on its first turn; the previous turn's tool calls ran (and failed)
         // after that turn's trace was written, so this turn, which reads their results, carries their failures.
@@ -301,7 +311,7 @@ function prepareModelInput(input: ModelActivityRequest<unknown>, config: RunConf
     // no unit: the prompts of all the units then start with the same text, which a provider can read from its cache.
     // A stage that asks for the cache layout does the same: its label names the protocol.
     const contextArtifacts = input.messages.filter(({ role }) => role !== "system").map(({ content }, index) => ({ sourceId: discovery ? `discovery:input-${index}` : `${input.cacheLayout === true ? input.protocol : input.activityId}:input-${index}`, content }));
-    const compiled = input.protocolAsset === undefined ? undefined : compile({
+    const spec: PromptCompileSpec | undefined = input.protocolAsset === undefined ? undefined : {
       protocol: input.protocolAsset, outputSchema: input.outputSchema ?? {}, toolDefinitions: tools,
       projectContext: { mode: config.mode },
       stableRepositoryArtifacts: discovery ? contextArtifacts : [], roundArtifacts: discovery ? [] : contextArtifacts,
@@ -309,10 +319,36 @@ function prepareModelInput(input: ModelActivityRequest<unknown>, config: RunConf
       instruction: input.messages.filter(({ role }) => role === "system").map(({ content }) => content).join("\n"),
       outputContract: "Return only JSON matching the locked output schema.", nodeId: input.activityId, modelId: profile.modelId,
       security: { redact: (text) => { const result = redactSecrets(text); return { text: result.text, redactionCount: result.redactions.length }; }, frame: frameUntrusted },
-    });
+    };
+    const compiled = spec === undefined ? undefined : compile(spec);
     // A discovery unit keeps its protocol out of the prompt's untrusted layers the same way, on Claude Code only.
     const initialMessages = compiled === undefined ? input.messages : initialMessagesOf(compiled, input.cacheLayout === true || reading, profile);
-    return { profile, execution, tools, compiled, initialMessages, discovery };
+    return { profile, execution, tools, spec, compiled, initialMessages, discovery };
+}
+
+/**
+ * Where the start that every call of a stage sends alike ends in its compiled prompt, in UTF-16 code units. It runs
+ * through the locked layer (protocol, output schema and tool definitions), and through the stable layer too when that
+ * carries no call's own input. `sharedInput`, given only for an input whose label names no call, runs it on through
+ * that many characters of the first input: discovery's repository index. That end is where two prompts first differ
+ * that differ only after it, so it holds however the compiler frames, escapes and redacts the input; a prompt that
+ * does not start with the same text keeps the end of its layers.
+ */
+export function sharedStartOf(spec: PromptCompileSpec, compiled: CompiledPrompt, sharedInput?: number): number {
+  const decoder = new TextDecoder();
+  const layerEnd = (index: number) => decoder.decode(compiled.bytes.subarray(0, compiled.breakpoints[index]?.endByte ?? 0)).length;
+  const stable = spec.stableRepositoryArtifacts.length > 0;
+  const layers = layerEnd(stable ? 0 : 1);
+  const first = (stable ? spec.stableRepositoryArtifacts : spec.roundArtifacts)[0];
+  if (first === undefined || sharedInput === undefined || !Number.isSafeInteger(sharedInput) || sharedInput < 0 || sharedInput > first.content.length) return layers;
+  const probe = (next: string) => {
+    const input = [{ ...first, content: `${first.content.slice(0, sharedInput)}${next}` }];
+    return compile({ ...spec, ...(stable ? { stableRepositoryArtifacts: input } : { roundArtifacts: input }) }).text;
+  };
+  const one = probe("a"); const other = probe("b");
+  let end = 0;
+  while (end < one.length && one[end] === other[end]) end += 1;
+  return end > layers && compiled.text.startsWith(one.slice(0, end)) ? end : layers;
 }
 
 /**

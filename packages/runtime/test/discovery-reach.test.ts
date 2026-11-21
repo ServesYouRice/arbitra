@@ -168,6 +168,65 @@ describe("discovery reads beyond its unit", () => {
   });
 });
 
+describe("the prompt cache of a finder on Anthropic's API", () => {
+  it("marks every unit's first call at the end of the index, the same bytes in each unit, with the unit's own files after it", async () => {
+    // Observed live (November 11, 2026): none of 98 first discovery calls read the index from the cache, though every
+    // unit's prompt began with it, because only the end of a request was marked.
+    const root = await mkdtemp(join(tmpdir(), "arbitra-discovery-cache-")); directories.push(root);
+    const example = runConfigSchema.parse(JSON.parse(await readFile(new URL("../../../examples/audit-balanced.json", import.meta.url), "utf8")));
+    const profile = example.models["auditor-a"];
+    if (profile === undefined) throw new Error("FIXTURE_PROFILE_ABSENT");
+    const config = runConfigSchema.parse({ ...example, models: { "auditor-a": { ...profile, provider: "anthropic", transport: "anthropic-messages", structuredOutputDialect: "anthropic_tool" } }, workflow: { modelExecution: {
+      endpoints: [{ id: "anthropic", providerId: "anthropic", transport: "anthropic-messages", endpoint: "https://anthropic.fixture.example/v1", apiKeyEnvVar: "FIXTURE_KEY" }],
+      modelEndpoints: { "auditor-a": "anthropic" }, maximumOutputTokens: 500, maximumTokens: 1_000_000, timeoutMs: 1_000, maximumRetries: 0, maximumOutputRepairs: 0,
+      rateLimits: { anthropic: { rpm: 1_000, tpm: 10_000_000, maxConcurrent: 4 } },
+    } } });
+    const store = new RunStore(root, "run-1");
+    const requests: HttpRequest[] = [];
+    const send = vi.fn<HttpClient["send"]>(async (request) => {
+      requests.push(request);
+      return { status: 200, headers: {}, body: { content: [{ type: "text", text: JSON.stringify({ findings: [], truncated: false, unexaminedDueToBudget: [], limitations: [] }) }], stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 10 } } };
+    });
+    const model = new ModelHarness(new ModelActivities(store, config, { client: { send }, credential: () => "fixture-credential" }), config, repository, store);
+    // The protocol a new run pins.
+    const protocol = await new ModelProtocols(store, {}, undefined, AUDIT_PROTOCOL_DEFAULTS).resolve("production-audit");
+    await discoverWithModel({ auditorId: "auditor-a", modelProfileId: "auditor-a", snapshot: repository, activities: perFile(model), store, signal: new AbortController().signal, maximumInputTokens: 15_000, protocol });
+    type Block = { type: string; text: string; cache_control?: unknown };
+    const bodies = requests.map(({ body }) => body as { tools: unknown; system?: unknown; messages: { content: Block[] }[] });
+    expect(bodies).toHaveLength(2);
+    const units = ["client/api.ts", "server/rooms.ts"];
+    const starts = bodies.map((body) => {
+      // The shared start and the request's end: two marks, of the four a request may carry.
+      expect(JSON.stringify(body).match(/"cache_control"/gu)).toHaveLength(2);
+      expect(body.system).toBeUndefined();
+      const [start, rest, ...more] = body.messages[0]?.content ?? [];
+      expect(more).toEqual([]);
+      expect(start?.cache_control).toEqual({ type: "ephemeral" });
+      expect(rest?.cache_control).toBeUndefined();
+      // The start ends where the index does; the unit's own files are after it. The text is the prompt as compiled.
+      expect(start?.text).toContain("\\\"repositoryIndex\\\":");
+      expect(start?.text.endsWith("rooms.ts 4: deleteRoomHandler\\\"]}}")).toBe(true);
+      expect(start?.text).not.toContain("\\\"files\\\":");
+      expect(rest?.text.startsWith(",\\\"files\\\":[")).toBe(true);
+      return { start: start?.text ?? "", rest: rest?.text ?? "", tools: JSON.stringify(body.tools) };
+    });
+    const [left, right] = starts;
+    expect(left?.start).toBe(right?.start);
+    expect(left?.tools).toBe(right?.tools);
+    expect(units.map((path) => starts.findIndex(({ rest }) => rest.includes(`\\"path\\":\\"${path}\\"`)))).toEqual(expect.arrayContaining([0, 1]));
+    // The prompt keeps the start's length and hash, and what a call is recorded as sending carries no mark.
+    for (const path of units) {
+      const key = createHash("sha256").update(`auditor-a/${await unitScope(store, path)}/discovery`).digest("hex");
+      const compiled = await artifact(store, `compiled-prompt-${key}`) as { text: string; sharedStart: { length: number; hash: string } };
+      expect(compiled.sharedStart).toEqual({ length: left?.start.length, hash: createHash("sha256").update(left?.start ?? "").digest("hex") });
+      expect(`${compiled.text.slice(0, compiled.sharedStart.length)}`).toBe(left?.start);
+    }
+    const recorded = (await store.listArtifacts()).filter(({ kind }) => kind.startsWith("model-activity-") && kind.endsWith("-input"));
+    expect(recorded).toHaveLength(2);
+    for (const { artifactId } of recorded) expect((await store.readArtifact(artifactId)).content).not.toContain("sharedStart");
+  });
+});
+
 describe("a run whose discovery was pinned before production-audit 2.0.0", () => {
   it("is refused when its discovery would go on, and resumes once every auditor has its findings", async () => {
     const root = await mkdtemp(join(tmpdir(), "arbitra-discovery-retired-")); directories.push(root);

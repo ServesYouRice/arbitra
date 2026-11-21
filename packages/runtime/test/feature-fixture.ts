@@ -37,8 +37,10 @@ export async function featureFixture(root: string, options: { interactive?: bool
   let failRevisionReview = options.failRevisionReview ?? false;
   let failRequirementsRevision = options.failRequirementsRevision ?? false;
   const providerOptions = { credential: () => "fixture-credential", client: { async send(request: HttpRequest) {
-    const body = request.body as { input?: { role: string; content: string }[]; messages?: { content: string }[] };
-    const user = body.input?.find(({ role }) => role === "user")?.content ?? body.messages?.[0]?.content ?? "";
+    const body = request.body as { input?: { role: string; content: string }[]; messages?: { content: string | { text?: string }[] }[] };
+    // Anthropic's first message comes as text blocks when its shared start is marked for the cache.
+    const first = body.messages?.[0]?.content;
+    const user = body.input?.find(({ role }) => role === "user")?.content ?? (Array.isArray(first) ? first.map(({ text }) => text ?? "").join("") : first) ?? "";
     const layers = user.split("\n").map((line) => JSON.parse(line) as { layer: string; value: { instruction?: string; artifacts?: string[] } });
     const system = layers.find(({ layer }) => layer === "instruction")?.value.instruction ?? "";
     const framed = layers.flatMap(({ value }) => value.artifacts ?? [])[0] ?? "";

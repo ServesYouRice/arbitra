@@ -63,6 +63,19 @@ describe("durable model activities", () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 
+  it("leaves a shared start out of a call's identity and recorded request, so a call recorded before it was marked is reused", async () => {
+    const { create, send, store } = await fixture();
+    expect(await create().invoke(request())).toEqual({ answer: "ok" });
+    const marked = { ...request(), messages: [{ role: "user" as const, content: "Return a JSON answer.", sharedStart: 6 }] };
+    expect(await create().invoke(marked)).toEqual({ answer: "ok" });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(await create().invoke({ ...marked, activityId: "auditor-a/other" })).toEqual({ answer: "ok" });
+    expect(send).toHaveBeenCalledTimes(2);
+    const recorded = (await store.listArtifacts()).filter(({ kind }) => kind.endsWith("-input"));
+    expect(recorded).toHaveLength(2);
+    for (const { artifactId } of recorded) expect((await store.readArtifact(artifactId)).content).not.toContain("sharedStart");
+  });
+
   it("says which recorded activity no longer matches, and to resume with the version the run started on or start again", async () => {
     // Observed live (veritra, October 25): a code change altered one sentence every critic batch carries, and the resume
     // failed with the bare code MODEL_ACTIVITY_INPUT_CHANGED.

@@ -116,7 +116,7 @@ describe("Anthropic Message Batches driver", () => {
     const driver = new AnthropicBatchDriver(configuration(base), options(client));
     await expect(driver.submit({ submissionKey: "k", modelId: "configured-model", items: [{ customId: "a1-a", request }] }, signal)).resolves.toEqual({ providerJobId: "msgbatch_1" });
     expect(requests[0]).toMatchObject({ headers: { "x-api-key": "secret-value", "anthropic-version": "2023-06-01" },
-      body: { requests: [{ custom_id: "a1-a", params: { model: "configured-model", system: "be brief", max_tokens: 10, messages: [{ role: "user", content: "hello" }] } }] } });
+      body: { requests: [{ custom_id: "a1-a", params: { model: "configured-model", system: [{ type: "text", text: "be brief", cache_control: { type: "ephemeral" } }], max_tokens: 10, messages: [{ role: "user", content: "hello" }] } }] } });
     await expect(driver.status("msgbatch_1", signal)).resolves.toEqual({ ended: true, providerStatus: "ended", jobFailure: null });
     const results = await driver.results("msgbatch_1", signal);
     expect(results.map(({ customId, outcome, error }) => ({ customId, outcome, code: error?.code ?? null }))).toEqual([

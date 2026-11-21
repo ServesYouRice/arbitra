@@ -82,5 +82,6 @@ statement found on driving `codex exec` from another tool; ChatGPT's terms gover
 It needs funded API accounts, which the project's own testing does not use
 ([completion plan](completion-plan.md#deferred-the-paid-api-bundle)): the OpenAI Responses, OpenAI Chat and
 Anthropic Messages protocols live (P03); P08's live context limits; each P15 batch driver; and from the engineering
-review, opaque reasoning state per message, native output schemas and explicit cache control.
+review, opaque reasoning state per message, native output schemas and explicit cache control (the Anthropic codec's
+marks are built, not yet measured live).
 

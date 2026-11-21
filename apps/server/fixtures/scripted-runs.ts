@@ -97,7 +97,9 @@ export function scriptedRuntime(root: string, options: { newRunId?: () => string
     const state = scenarios.get(key);
     if (state === undefined) throw new Error(`UNKNOWN_FIXTURE_ENDPOINT:${request.url}`);
     const body = request.body as { input?: { role?: string; content?: string; type?: string }[]; messages?: { content: unknown }[] };
-    const user = body.input?.find(({ role }) => role === "user")?.content ?? (typeof body.messages?.[0]?.content === "string" ? body.messages[0].content : "");
+    // Anthropic's first message comes as text blocks when its shared start is marked for the cache.
+    const first = body.messages?.[0]?.content;
+    const user = body.input?.find(({ role }) => role === "user")?.content ?? (typeof first === "string" ? first : Array.isArray(first) ? first.map((part: { text?: unknown }) => typeof part.text === "string" ? part.text : "").join("") : "");
     const layers = user.split("\n").filter((line) => line.trim() !== "").map((line) => JSON.parse(line) as { layer: string; value: { instruction?: string; artifacts?: string[] } });
     const system = layers.find(({ layer }) => layer === "instruction")?.value.instruction ?? "";
     if (body.input?.some(({ type }) => type === "function_call_output") !== true) calls.push(CALL_STAGES.find(([prefix]) => system.startsWith(prefix))?.[1] ?? "unexpected");
