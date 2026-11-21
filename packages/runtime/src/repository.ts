@@ -108,7 +108,7 @@ async function sourcePaths(root: string, guard: RepositoryPathGuard, scope: RunS
   const modulePaths = modules?.map((path) => relative(guard.root, guard.resolve(path)).split(sep).join("/").replace(/\/$/u, ""));
   const included = (path: string): boolean => modulePaths === undefined || modulePaths.some((prefix) => prefix === "" || path === prefix || path.startsWith(`${prefix}/`));
   // In a Git work tree, files Git ignores are left out: they are generated (test reports, coverage, builds), and one
-  // oversized report refused a whole project (beachflag's playwright-report/index.html, October 20, 2026).
+  // oversized report refused a whole project (a beach-status map's playwright-report/index.html, October 20, 2026).
   const listed = await gitListedFiles(guard.root, git);
   const listedDirectories = listed === null ? null : new Set([...listed].flatMap((path) => path.split("/").slice(0, -1).map((_, index, parts) => parts.slice(0, index + 1).join("/"))));
   // A directory that cannot hold a file of the snapshot is not entered: an excluded, unselected or ignored tree costs

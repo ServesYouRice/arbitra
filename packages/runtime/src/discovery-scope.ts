@@ -157,7 +157,7 @@ function dartImports(files: readonly { readonly path: string; readonly content: 
 
 /**
  * The files a Python module imports: `from a.b import c` and `import a.b` resolved against each folder above the
- * importing file (so `from rokbot.backup import x` in `backend/tests/` finds `backend/rokbot/backup.py`), and
+ * importing file (so `from app.backup import x` in `backend/tests/` finds `backend/app/backup.py`), and
  * relative imports against the file's own package. A name after `import` may itself be a module (`from . import db`).
  */
 function pythonImports(from: string, content: string, paths: ReadonlySet<string>): readonly string[] {

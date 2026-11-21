@@ -124,9 +124,9 @@ other change needs the person's approval. A task with no located issue gets no f
 every change. An unsure report's prompt gets the envelope of the places it cites, since it allows a
 fix only once a test shows the defect. Feature and Testing plans fix no located issue and carry no
 write scope. Measured on four saved plans (October 25, 2026), the tasks that name a likely file
-outside their envelope were 17 of 84 on rokbot, 2 of 105 on nextra, 7 of 40 on commendanywhere and
-3 of 35 on raquelsblog, each for a file beyond its modules (other source, a test setup file or
-fixture, a script, a migration); before tests were open, 41 of rokbot's 84 named a test. The envelope is advice to the executing agent: arbitra
+outside their envelope were 17 of 84 on the desktop automation app, 2 of 105 on nextra, 7 of 40 on the comments service and
+3 of 35 on the blog with a CMS, each for a file beyond its modules (other source, a test setup file or
+fixture, a script, a migration); before tests were open, 41 of the desktop automation app's 84 named a test. The envelope is advice to the executing agent: arbitra
 does not run the plan, so nothing enforces it.
 
 ## Command policy

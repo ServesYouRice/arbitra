@@ -10,42 +10,42 @@ the P20 pilot in `git show e917ec7:WORK-REMAINING.md`, the first narratives of t
 
 | Project, date | Run | Size | Time | Calls | Tokens (per line) | Outcome | Tokens per confirmed issue | Found alone: Opus / Sol / Gemini |
 |---|---|---|---|---|---|---|---|---|
-| beachflag, Oct 20 | — | 84 files, 11,291 lines | 80 min | 613 | 17.6M (1,560) | 81 accepted (3 high, 25 medium, 52 low), 40 rejected, 11 open | — | — |
-| rokavatar, Oct 21 | `run-757824f4` | 117 files, 10,716 lines | about 110 min | 480 | 15.6M (1,455) | 23 of 212 confirmed (3 high, 20 medium) | 677K | 12 / 2 / 0 |
-| blog, Oct 22 | `run-7fb6177a` | 164 files, 14,204 lines | 63 min | 359 | 13.1M (922) | 41 of 180 confirmed (3 high, 38 medium) | 320K | 16 / 7 / 2 |
-| commentanywhere, Oct 23 | `run-5a90c75d` | 93 files, 11,719 lines | 40 min | 234 | 7.5M (640) | 51 of 150 confirmed (1 critical, 7 high, 43 medium) | 146K | 20 / 8 / 2 |
+| A beach-status map (Next.js), Oct 20 | — | 84 files, 11,291 lines | 80 min | 613 | 17.6M (1,560) | 81 accepted (3 high, 25 medium, 52 low), 40 rejected, 11 open | — | — |
+| A web app (TanStack Start), Oct 21 | `run-757824f4` | 117 files, 10,716 lines | about 110 min | 480 | 15.6M (1,455) | 23 of 212 confirmed (3 high, 20 medium) | 677K | 12 / 2 / 0 |
+| A blog with a CMS, Oct 22 | `run-7fb6177a` | 164 files, 14,204 lines | 63 min | 359 | 13.1M (922) | 41 of 180 confirmed (3 high, 38 medium) | 320K | 16 / 7 / 2 |
+| A comments service, Oct 23 | `run-5a90c75d` | 93 files, 11,719 lines | 40 min | 234 | 7.5M (640) | 51 of 150 confirmed (1 critical, 7 high, 43 medium) | 146K | 20 / 8 / 2 |
 | nextra, Oct 23 | `run-ccd3ccea` | 172 files, 38,967 lines | 105 min | 683 | 26.8M (688) | 126 of 415 confirmed (1 critical, 21 high, 104 medium) | 213K | 40 / 30 / 3 |
-| rokbot, Oct 24 | `run-869f90f0` | 125 files, about 26,100 lines | 71 min | 418 | 15.8M (605) | 102 of 300 confirmed (10 high, 92 medium) | 155K | 45 / 15 / — |
+| A desktop automation app (Python and React), Oct 24 | `run-869f90f0` | 125 files, about 26,100 lines | 71 min | 418 | 15.8M (605) | 102 of 300 confirmed (10 high, 92 medium) | 155K | 45 / 15 / — |
 | veritra, Oct 25 | `run-e5546c4c` | 416 files, 103,575 lines | about 5 h 25 | 1,451 | 70.0M (675) | 256 of 929 confirmed (36 high, 220 medium) | 273K | 133 / 50 / — |
 | Java and React project (MacBook), Oct 26–27 | `run-755a4cc3` | about 33,000 lines | 28 h wall, most of it asleep or stopped | 917 | 42.6M (about 1,290) | 84 of 275 confirmed (1 critical, 18 high, 65 medium) | 507K | 19 / 11 / 19 |
-| nananananana, Nov 1 | `run-b1997046` | 572 files, 84,380 lines, no tests | 3 h 17 (6 h 19 with its pause) | 1,627 | 112.2M (1,330) | 175 of 434 confirmed (36 high, 139 medium) | 641K | 81 / 51 / — |
+| A social web app (Elixir and Next.js), Nov 1 | `run-b1997046` | 572 files, 84,380 lines, no tests | 3 h 17 (6 h 19 with its pause) | 1,627 | 112.2M (1,330) | 175 of 434 confirmed (36 high, 139 medium) | 641K | 81 / 51 / — |
 | memoria, Nov 10–11 | `run-bcd4fc1e` | 562 files, 87,971 lines, no tests | about 4 h 30 (21 h 09 with its pauses) | 2,252 | 130.3M (1,482) | 292 of 684 confirmed (42 high, 250 medium) | 446K | 134 / 89 / 4 |
 
-beachflag ran before confirmed issues were reported, so its counts are accepted issues. beachflag, rokavatar and
-blog ran with one peer-review round; commentanywhere, nextra and rokbot without one, the default since October 23.
-Gemini ran at high thinking on beachflag and rokavatar, at medium after that; rokbot ran on the two-auditor default
+The beach-status map ran before confirmed issues were reported, so its counts are accepted issues. The beach-status map, the web app and
+the blog ran with one peer-review round; the comments service, nextra and the desktop automation app without one, the default since October 23.
+Gemini ran at high thinking on the beach-status map and the web app, at medium after that; the desktop automation app ran on the two-auditor default
 (Claude Code and Codex) with the plan critic. memoria ran three finders at depth deep (Opus 5.5 xhigh through the
 owner's Anthropic API key, GPT-6.1 Sol xhigh through Codex, Gemini 3.8 Flash high through Antigravity), checking on
 the same Opus at high, the plan on Claude Code, critic and variant search off.
 
 What each run changed:
 
-- **beachflag** (Gemini critic, every issue verified; verification 10.6M of its tokens): Sol as critic and Opus as
+- **The beach-status map** (Gemini critic, every issue verified; verification 10.6M of its tokens): Sol as critic and Opus as
   critique checker; verification only of the issues the plan covers (58% of the candidates were below it); the token
   limit sized from the project (3,500 tokens a line, about twice the measured 1,560); raising the limit of a paused
   run; files Git ignores left out of the snapshot (a 600 KB Playwright report refused the project); model-activity
   artifacts open again (their IDs were too long a route).
-- **rokavatar** stopped at the critic on the Codex five-hour window and was resumed. Because of it: a usage limit
+- **The web app** stopped at the critic on the Codex five-hour window and was resumed. Because of it: a usage limit
   pauses the run and resumes it after the reset (475ca4e); "last activity" and the report's state during a stage
   (557d265); and safeguards against losing issues (db282ef, 11bd2cb): check-first prompts for issues the verifier
   could not settle, a severity lowered by one reviewer alone no longer takes an issue out of the plan's scope (25
   such issues here), a second model before a critical or high issue a reviewer backed is rejected (12 here), and the
   accepted issues no task fixes listed in the saved plan (48 here). Together these add about 37 questions to a run
   of this size, about 3M tokens.
-- **blog** showed that the snapshot read a fixed list of extensions and left out all 30 `.astro` files;
+- **The blog** showed that the snapshot read a fixed list of extensions and left out all 30 `.astro` files;
   Astro, shell, C-family and other common sources are now read (ede4b14). Its replay without peer review is
   `run-d6fbbf98` (experiment 11 below).
-- **commentanywhere**, the first run without peer review. A first attempt failed when Gemini asked for a ninth tool
+- **The comments service**, the first run without peer review. A first attempt failed when Gemini asked for a ninth tool
   turn on one discovery window: a tool call past the limit is now answered unrun with `TOOL_TURN_LIMIT_REACHED` and
   the model gets one more turn, and a model that still asks gives a rejected reply that the stage records as a gap
   (26e13e4). With no review round, the consensus reason now says that no review ran (b386e0e).
@@ -59,7 +59,7 @@ What each run changed:
   run whose gate fails only on work left for a person reads "done · needs you" in the web app, with the issues to
   check by hand, the questions only the project owner can answer and what the run could not see. Without peer
   review no auditor is counted as a missing reviewer. The CLI gate is unchanged and still exits 1.
-- **rokbot**, the first default run on two auditors with the plan critic (fixed that morning, see below), audited
+- **The desktop automation app**, the first default run on two auditors with the plan critic (fixed that morning, see below), audited
   from a clone of its `origin/main`. No call failed. Verification took 8.9M of the 15.8M tokens (319 calls), the
   critic and its check 1.4M (9%), planning and revision 2.2M. 83 of the plan's 84 tasks verify with the project's
   own commands, read from its manifests. The snapshot masked three lines of code as secrets
@@ -93,7 +93,7 @@ What each run changed:
   finder's whole discovery, Gemini's after 5 of 32 units (#6); five unrelated files edited the next morning made
   the failed run unresumable and its finished discovery unusable (#8). Gemini, with no tool call, confirmed 19
   issues no other finder found, as many as Opus, for 5.0M discovery tokens against Opus's 18.3M.
-- **nananananana**, the first run of v0.3.2 here, on the two-finder deep lineup with the plan critic off, from a clone
+- **The social web app**, the first run of v0.3.2 here, on the two-finder deep lineup with the plan critic off, from a clone
   of its `origin/main` (9e3a070). A first attempt with the tests in (909 files, 173,244 lines) was cancelled after 12
   minutes by the owner's choice: this run leaves out the tests, the generated files, `design`, `implementation`,
   `scripts` and the test and lint settings. Wall time: Opus's discovery 1 h 45 (84 units, 62.8M tokens), Sol's 2 h 30
@@ -129,16 +129,16 @@ What each run changed:
   on the VS Code extension's 2.1.322 through `ARBITRA_CLAUDE_CODE_EXECUTABLE`.
 
 Verification costs 75K to 86K tokens a question. Gemini's confirmed finds that no other model made, against what its
-audit cost: rokavatar 0 for 2.1M tokens at high thinking (560 call-minutes; 17 of 51 calls lost, 12 to its content
-filter and 5 to its output ceiling), 7 in that run's replay; blog 2 for 1.9M at medium (135 call-minutes; 9 of 47
-calls refused); commentanywhere 2 for 1.1M (6 of 21 refused); nextra 3 for 2.0M (2 of 39 refused); the MacBook run 19 for 5.0M
+audit cost: the web app 0 for 2.1M tokens at high thinking (560 call-minutes; 17 of 51 calls lost, 12 to its content
+filter and 5 to its output ceiling), 7 in that run's replay; the blog 2 for 1.9M at medium (135 call-minutes; 9 of 47
+calls refused); the comments service 2 for 1.1M (6 of 21 refused); nextra 3 for 2.0M (2 of 39 refused); the MacBook run 19 for 5.0M
 (200 call-minutes; 8 of 94 calls failed, most before the fix for agy 1.4.7); memoria 4 for 2.7M at high (263
 call-minutes; 25 of 70 calls failed, and 99 of its 104 units were never answered). Gemini has been
 opt-in since v0.2.1, so its share is measured only on a run that uses it.
 
 ## What the reading costs (November 1)
 
-From nananananana's records. At list prices the run would cost about $106 for Opus's discovery alone, an estimate; a
+From the social web app's records. At list prices the run would cost about $106 for Opus's discovery alone, an estimate; a
 subscription's meter may weigh these differently: output about half, cache writes $41, cached reads $10. So pruning old
 tool results in a loop can raise the cost, since an edit rewrites what follows it. Why Opus used 4× Sol's tokens: 84 units
 against 49 (sizing reserves each model's whole output ceiling, 128K against 64K), 9 to 10 turns a unit against 5, 79K
@@ -161,7 +161,7 @@ Sources that shaped what was built and what is left to test, seen as abstracts o
 [a CVE portfolio study](https://icml.cc/virtual/2026/78010) (abstract only). None measures a cheaper model choosing what a
 stronger one reads for bug finding.
 
-A cheap run of the v0.4.0 build (November 1, 11,689 lines from nananananana, Sonnet 5.5 and GPT-6 Luna, `run-26ae97b0`)
+A cheap run of the v0.4.0 build (November 1, 11,689 lines from the social web app, Sonnet 5.5 and GPT-6 Luna, `run-26ae97b0`)
 took 6 minutes and 4.9M tokens with no failed call, 2 units each and no finding rejected for its quotes. `repo_symbol` was
 used 11 times for 52 names, and the saved plan is no longer ignored by Git. Luna's second unit read 156K of 307K from the
 cache; Sonnet's read none. A cheap run of 11,689 lines is too small to measure the savings, which wait for a real project.
@@ -181,7 +181,7 @@ events), with no model calls. Times are UTC, from the events and the times the c
 | Second opinion | Sol high, Codex | 3 (1) | 1 | 0.04M | — |
 | Plan | Opus 5.5 high, Claude Code 2.1.322 | 46 (0) | 139 | 5.9M | 2.2M / 2.8M |
 
-2,252 calls, 31 failed, 130.3M tokens (125.2M in, 5.2M out). Discovery was 60% of the tokens (nananananana 69%),
+2,252 calls, 31 failed, 130.3M tokens (125.2M in, 5.2M out). Discovery was 60% of the tokens (the social web app 69%),
 checking 35%. By vendor: Anthropic 85%, Codex 13%, Antigravity 2% (New run's three-finder shares are 81, 12 and 7).
 
 **What the API cost.** No call recorded a price (`costUsd` is empty), so this is the recorded tokens at Opus 5.5's list
@@ -197,7 +197,7 @@ cache read, $20 output. The plan on the Max login and Sol and Gemini on their su
   with the same instructions, and discovery's with the same index. Discovery's first calls wrote $22.43, checking's
   $57.
 
-**Reading beyond the unit** (`toolUseOfUnits` and `readsBeyondUnits`; nananananana's figures in brackets, from its
+**Reading beyond the unit** (`toolUseOfUnits` and `readsBeyondUnits`; the social web app's figures in brackets, from its
 records counted the same way):
 
 | | Opus | Sol | Gemini |
@@ -218,15 +218,15 @@ records counted the same way):
 - **`repo_symbol`** looked up 1,281 names for Opus (in 96 of its 97 units), 977 for Sol (all 53) and 12 for Gemini.
   The records count the names; the names themselves are only in each call's transcript. No unit asked for a tool
   after its last tool turn (`askedPastLimit` 0).
-- **The citations hold:** 247 of the 292 confirmed issues cite a file beyond their unit (nananananana 151 of 175).
+- **The citations hold:** 247 of the 292 confirmed issues cite a file beyond their unit (the social web app 151 of 175).
   Of the checked issues, 247 of the 253 that cite beyond their unit were confirmed, and 45 of the 52 that do not.
-- **Tokens a line:** 1,482 (nananananana 1,330), discovery alone 892 (920). The rise is checking: 305 questions
+- **Tokens a line:** 1,482 (the social web app 1,330), discovery alone 892 (920). The rise is checking: 305 questions
   against 197. New run's deep estimate is built on 1,290 and 1,330 a line.
 
 **The verification questions** (Opus only; targeted-verification 1.1.0 on every call here, 1.0.0 through Claude Code
 on the other two):
 
-| | memoria | nananananana | veritra |
+| | memoria | the social web app | veritra |
 |---|---|---|---|
 | Questions | 305 | 197 | 377 |
 | Calls a question | 3.6 | 3.1 | 2.8 |
@@ -239,11 +239,11 @@ on the other two):
 | A question at API list prices | $0.26 | $0.31 | $0.25 |
 
 - **The related source ran:** `verification-related-source` has an entry for each of the 305 questions, 1.2 KB at the
-  mean (the estimate was 2.8 KB), 8 with nothing found, none left out. Tool calls a question fell 9% from nananananana,
+  mean (the estimate was 2.8 KB), 8 with nothing found, none left out. Tool calls a question fell 9% from the social web app,
   near the estimate of about 10%, but on another project and another route, so it is not a clean comparison. The
   locked layer in Claude Code's system prompt did not run, since checking went through the API.
 - **No answer needed a repair** (0 of 1,097 calls), so the verifier's required reason cost nothing here.
-- **292 of 305 confirmed** (96%; nananananana 89%), 5 rejected, 8 unsettled. By finder: Sol 154 of its 154 checked,
+- **292 of 305 confirmed** (96%; the social web app 89%), 5 rejected, 8 unsettled. By finder: Sol 154 of its 154 checked,
   Opus 199 of 206, Gemini 5 of 11. The one severe rejection got its second opinion from Sol, which rejected it too.
 
 **Units and issues by finder.** Sizing still reserves each model's whole output ceiling (Opus 128,000 tokens, Sol
@@ -264,7 +264,7 @@ tools (the other 5 are the final answers), 121 tool calls in all. Calls to Antig
 apart. 5 confirmed of 11 checked is too few to say whether reading changes what it confirms.
 
 **Sol at xhigh.** Its 277 discovery calls took 42 seconds at the median, 189 at the 90th percentile and 430 at most,
-none near the 15-minute limit (nananananana 37 and 359), at 30 output tokens a second at the median. No unit split at
+none near the 15-minute limit (the social web app 37 and 359), at 30 output tokens a second at the median. No unit split at
 the time limit (`timeLimitSplits` is empty for all three finders). No turn ran at high, so the two efforts are still
 to compare.
 
@@ -315,7 +315,7 @@ What it says about arbitra:
 - **Checking confirms nearly all it is asked** (96%; Sol 154 of 154). Until the plan is carried out, a lenient
   checker cannot be told from precise finders.
 - **Reading grew again:** nearly three times the files beyond a unit and four and a half times the refused reads of
-  nananananana, with fewer of Opus's units at their last turn; 1,482 tokens a line is above New run's basis.
+  the social web app, with fewer of Opus's units at their last turn; 1,482 tokens a line is above New run's basis.
 - **Small defects:** the plan's title joins every section's title; the instruction note says "lines 20" for one line;
   New run and the run's preflight disagree on the project's size (567 files and 88,659 lines against 562 and 87,971).
 
@@ -325,14 +325,14 @@ Item 11 of the design audit, no peer review, is measured and is now the default 
 subscription Audit template (October 23; the API-key templates keep one round, so the smoke checks still cover
 the review path). Each finished run was replayed with zero rounds on its own discovery
 (`replay <run> --max-rounds 0`):
-- blog, same build: 44 confirmed against 41 with review, 39 the same; after discovery 3.9M tokens against
+- The blog, same build: 44 confirmed against 41 with review, 39 the same; after discovery 3.9M tokens against
   9.4M (the whole run about 7.6M against 13.1M). Review's one addition was a defect a reviewer raised, confirmed
   twice under two titles. The five only the replay confirmed were most likely lowered below the plan's minimum by
   review and never verified.
-- rokavatar (its run predates later fixes, so only indicative): 39 confirmed against 23, 21 the same, 2 added by
+- The web app (its run predates later fixes, so only indicative): 39 confirmed against 23, 21 the same, 2 added by
   review; after discovery 6.4M tokens against about 11.8M.
 - Without review no reviewer votes, so the second opinion before rejecting a severe issue never fired (7 severe
-  rejections on blog). Every severe rejection now gets it when no review ran.
+  rejections on the blog). Every severe rejection now gets it when no review ran.
 
 ## A cheaper verifier measured (October 24)
 
@@ -521,16 +521,16 @@ calls.
 ### The plan critic, scored (October 25)
 
 nextra's critic items were checked against the code and against what carrying out the plan met, and a sample of
-rokbot's against its source, with no model calls.
+the desktop automation app's against its source, with no model calls.
 - **Precision is high:** 18 of nextra's 20 distinct items were real, and the 2 that were not are the 2 the critique
-  check rejected. All 10 of rokbot's items checked rest on true facts.
+  check rejected. All 10 of the desktop automation app's items checked rest on true facts.
 - **Recall of what execution met is near zero:** none of the 8 named problems above (five wrong premises, question 1's
   unworkable answer, check 19's wrong file, stale lines), and 1 of the 21 plan errors the dev-notes record (TASK-051
   and 052's exit clash, which the revision fixed). The critic saw almost no source (`citedSourceLeftOut`: 124 files on
-  nextra, 88 on rokbot), and those problems are about the source.
+  nextra, 88 on the desktop automation app), and those problems are about the source.
 - **The revision added errors:** TASK-091's wrong premise ("so onReconnect can retry") is not in the plan before the
   critique, the 10 prompts with wrong validation ids are all revised tasks, and TASK-092's step 8 had to be
   overridden.
 - **Cost:** the critic, its check and the revision took 11.5% of nextra's tokens and 8.6% of its time (3.1M, 9 of 105
-  minutes), and 16.9% and 10.6% of rokbot's.
+  minutes), and 16.9% and 10.6% of the desktop automation app's.
 - No prompt carries the 6 non-blocking items, and the agents dealt with 5 of them on their own.
