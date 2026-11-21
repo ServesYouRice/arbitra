@@ -120,7 +120,10 @@ describe("the Issues tab", () => {
     const rejected = screen.getByRole("tabpanel", { name: "rejected issues" });
     expect(within(rejected).getByText("The admin router asserts the role in its middleware first.")).toBeTruthy();
     fireEvent.click(within(verdicts).getByRole("tab", { name: "Unsettled · 1" }));
-    expect(within(screen.getByRole("tabpanel", { name: "unsettled issues" })).getByText(/The plan checks them after its tasks/u)).toBeTruthy();
+    // What the plan does with them, and how many such issues held where it was measured, not a guess that most are false.
+    const unsettled = within(screen.getByRole("tabpanel", { name: "unsettled issues" }));
+    expect(unsettled.getByText(/The plan checks each one after its tasks and records what it found: on the plans carried out so far, between a third and two thirds of such issues held\./u)).toBeTruthy();
+    expect(unsettled.queryByText(/do not hold/u)).toBeNull();
     fireEvent.click(within(verdicts).getByRole("tab", { name: "Not checked · 1" }));
     expect(within(row("A comment misspells receive")).getByText("not checked: below the plan's bar")).toBeTruthy();
     // Words on the main line, codes in the details.
@@ -216,7 +219,10 @@ describe("the Plan tab", () => {
     expect([...tasks.querySelectorAll(".plan-task")].map((task) => task.textContent)).toEqual(["1TASK-001Enforce the role guardstrongest", "2TASK-002Bound the retry loopmid · after TASK-001", "3TASK-003Rename the log fieldlight · same files as TASK-002"]);
     const checks = screen.getByRole("region", { name: "3 · Check after the tasks · 1 issue" });
     expect(within(checks).getByRole("link", { name: "Session token may leak in logs" })).toBeTruthy();
-    expect(within(checks).getByText(/most such issues do not hold/u)).toBeTruthy();
+    // They are part of the work, after the tasks, with how many such issues held where it was measured.
+    expect(within(checks).getByText(/^The audit could not settle these\. They are part of the work, after the tasks, which are surer and may change the same code; on the plans carried out so far, between a third and two thirds of such issues held\./u)).toBeTruthy();
+    expect(within(checks).getByText(/and to record the result either way\.$/u)).toBeTruthy();
+    expect(checks.textContent).not.toMatch(/do not hold|optional/u);
     const review = (screen.getByText("Review of the plan · 1 objection · 1 answered by the revised plan")).closest("details") as HTMLDetailsElement;
     expect(within(review).getByText("TASK-001 logs and continues when the lock fails.")).toBeTruthy();
     expect(document.querySelectorAll("main .button--primary")).toHaveLength(1);
@@ -288,7 +294,7 @@ describe("the Results tab", () => {
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Results · 5 issues reported of 6" })).toBeTruthy();
     expect([...document.querySelectorAll(".verdict")].map((cell) => cell.textContent)).toEqual(["2fixed, of 6", "1proven by a test that failed first", "1no change needed", "1more defects found while fixing"]);
-    // The tasks' issues and the issues checked after them, apart: most unsettled issues do not hold.
+    // The tasks' issues and the issues checked after them, apart: how many unsettled issues held is counted on its own.
     expect(screen.getByText("The tasks' 5 issues: 2 fixed, 1 could not be reproduced, 1 blocked, 1 recorded in the agent's own words.")).toBeTruthy();
     expect(screen.getByText("1 issue checked after the tasks: 1 did not hold.")).toBeTruthy();
     const fixed = screen.getByRole("region", { name: "Fixed · 2" });

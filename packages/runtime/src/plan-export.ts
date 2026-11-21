@@ -37,6 +37,11 @@ interface ExportIssue {
   /** The verifier's sentence on its outcome; issue sets saved before it was asked for one have none. */
   readonly verificationReason?: string;
 }
+/** An auditor's finding as the run recorded it: where it is, what sets the defect off, and how its auditor said to check it. */
+interface ExportFinding {
+  readonly sourceFindingId: string; readonly locations: readonly { readonly path: string; readonly startLine?: number; readonly endLine?: number }[];
+  readonly trigger?: string; readonly verification?: string;
+}
 /** No reviewer voted on it: a run without a peer-review round. Such a report is unchecked, not disputed. */
 const unreviewed = (issue: ExportIssue): boolean => issue.singleSource !== true && issue.coverage?.reviewedBy?.length === 0;
 /** Why the audit left these reports open, for the README: auditors who disagreed, or a run with no peer review. */
@@ -45,8 +50,9 @@ function whyUnsettled(issues: readonly ExportIssue[]): string {
   return none === 0 ? "the auditors disagreed" : none === issues.length ? "no peer review checked " + (issues.length === 1 ? "it" : "them") : "the auditors disagreed or no peer review checked them";
 }
 const SEVERITIES = ["informational", "low", "medium", "high", "critical"];
-// Reports the audit could not settle come after the tasks: observed live (nextra, October 24, 2026), 5 of the first 6
-// did not hold, and a folder named to sort first sent the executing agent's strongest model to them before any task.
+// Reports the audit could not settle are part of the work, after the tasks: the tasks are surer, and may change or fix
+// the same code. Observed live (one earlier project, October 24, 2026): a folder named to sort first sent the executing
+// agent's strongest model to them before any task.
 const UNSURE = "4-unsure";
 /** The executor's report, one entry per issue, which arbitra reads back (`plan-results.ts`). */
 export const RESULTS_FILE = "results.json";
@@ -72,8 +78,12 @@ const SCOPE_ORIGIN = "arbitra derived them from where the issues are in the code
 const TEST_FILES = "test files (named like `a.test.ts`, `test_a.py` or `a_test.go`), which you may also add anywhere";
 /** A file path, not a pattern or a description such as "callers of fetchAll (likely src/b.ts)". */
 const CONCRETE_PATH = /^[^\s*?[\]]+$/u;
-// Of nextra's unsure reports, decided by the executing agents with the code and a test (October 24, 2026).
-const UNSURE_RATE = "In the first plan carried out this way (nextra, October 2026), 7 of 20 such reports held: 5 of 10 medium, and 2 of 10 high or critical, both security defects.";
+// How many unsure reports held, decided by the executing agents with the code and a test. "Most do not hold" came from
+// the first 6 of one project's 20 (5 did not; October 24, 2026); all 20 gave 7 that held. A messaging app's 42 (carried
+// out October 31 to November 11, 2026) gave 24 real defects among the 35 still in the code, 7 fixed by then and 11 that
+// were not bugs. Neither "most hold" nor "most do not" is safe, so each is checked and its result recorded.
+const UNSURE_RATE = "On the two plans carried out with such reports so far, 7 of 20 held on one project (October 2026); on another, 24 of the 35 still in the code when they were checked held, and 7 more had been fixed by then (November 2026).";
+const UNSURE_ODDS = "On the plans carried out so far, between a third and two thirds of such reports held";
 
 const TIERS = {
   frontier: { folder: "1-strong-model", model: "your strongest model (such as Claude Opus)", why: "reasoning across files, or a fix that is easy to get subtly wrong" },
@@ -129,8 +139,8 @@ export async function exportPlan(orchestrator: Orchestrator, runId: string): Pro
   // What a prompt may change comes from where its issues are in the code and the modules that hold them, never from the
   // plan's text, so a plan written from untrusted text in the project cannot widen it (to `.github/workflows/`, say).
   // A plan with no issues the audit located (Feature, Testing) comes with none.
-  const located = new Map(((await read<readonly { readonly sourceFindingId: string; readonly locations: readonly { readonly path: string }[] }[]>("source-findings")) ?? [])
-    .map(({ sourceFindingId, locations }) => [sourceFindingId, locations]));
+  const findings = new Map(((await read<readonly ExportFinding[]>("source-findings")) ?? []).map((finding) => [finding.sourceFindingId, finding]));
+  const located = new Map([...findings].map(([id, { locations }]) => [id, locations]));
   const modules = canonical === null ? [] : await orchestrator.modules(runId);
   const scoped = (ids: readonly string[], accepted: (issue: ExportIssue) => boolean, task?: ExportTask) => canonical === null ? null : writeScope(deriveEnvelope(ids.flatMap((id) => {
     const issue = issues.get(id);
@@ -150,15 +160,17 @@ export async function exportPlan(orchestrator: Orchestrator, runId: string): Pro
     const hints = hintsFor([...task.readFirst, ...task.scope.likelyFiles, ...places(task.addresses.issues)]);
     looked.set(task.id, { file: taskFile(task, index), hints, premises: kit.check(kit.extract(taskSources(task, issues)), code, hints) });
   });
+  const details = new Map(unsettled.map((issue) => [issue.candidateId, reportDetails(issue, findings)]));
+  const detailsOf = (issue: ExportIssue) => details.get(issue.candidateId) ?? { places: [], said: [] };
   unsettled.forEach((issue, index) => {
     const hints = hintsFor(places([issue.candidateId]));
-    looked.set(issue.candidateId, { file: checkFile(issue, index), hints, premises: kit.check(kit.extract(checkSources(issue)), code, hints) });
+    looked.set(issue.candidateId, { file: checkFile(issue, index), hints, premises: kit.check(kit.extract(checkSources(issue, detailsOf(issue))), code, hints) });
   });
   const settled = kit.settle(new Map([...looked].map(([id, { premises }]) => [id, premises])));
   const premisesOf = (id: string) => ({ command: `node .arbitra/plans/${folder}/${PREMISE_SCRIPT} ${id}`, notFound: (settled.get(id) ?? []).filter(({ flagged }) => flagged).map(kit.notFoundLine) });
   // A report to check is not accepted, but the places it cites were checked against the code like an accepted one's,
   // and its prompt allows a fix only once a test or a run shows the defect.
-  unsettled.forEach((issue, index) => files.set(checkFile(issue, index), checkPrompt(issue, related.get(issue.candidateId) ?? [], scoped([issue.candidateId], () => true), premisesOf(issue.candidateId))));
+  unsettled.forEach((issue, index) => files.set(checkFile(issue, index), checkPrompt(issue, detailsOf(issue), related.get(issue.candidateId) ?? [], scoped([issue.candidateId], () => true), premisesOf(issue.candidateId))));
   const cited = { validation: new Map((plan.validationContract?.validation ?? []).map((entry) => [entry.id, entry])), questions: new Map(plan.unresolvedQuestions.map((entry) => [entry.id, entry])),
     links: new Map((plan.traceability?.issueToValidation ?? []).map(({ issueId, validationIds }) => [issueId, validationIds])) };
   ordered.forEach((task, index) => files.set(taskFile(task, index),
@@ -187,9 +199,11 @@ export async function exportPlan(orchestrator: Orchestrator, runId: string): Pro
   files.set("CLAUDE.md", "Read AGENTS.md in this folder and follow it.\n");
   files.set("PROGRESS.md", ["# Progress", "", "Tick a task when it is done and verified; note anything left open under it.", "",
     ...ordered.map((task, index) => `- [ ] ${String(index + 1).padStart(2, "0")} \`${task.id}\` ${task.title}`), "",
-    ...(unsettled.length === 0 ? [] : ["## Unsure, after the tasks (optional)", "",
-      "The audit could not settle these, and most such reports do not hold. Check one only when the tasks are done, and change nothing for it unless a test or a run shows the defect.", "",
-      ...unsettled.map((issue, index) => `- [ ] ${checkName(index)} \`${issue.candidateId}\` ${issue.claim.title}`), ""])].join("\n"));
+    // Observed live (a messaging app, November 2026): every check was ticked here with its verdict, and 40 of their 42
+    // entries in results.json were left empty, so the run page counted them as not reported.
+    ...(unsettled.length === 0 ? [] : ["## Unsure reports, after the tasks", "",
+      `The audit could not settle these. They are part of the work: once the tasks are done, check each one, most severe first, and change nothing for it until a failing test or a run shows the defect. Record each result in ${RESULTS_FILE} like a task's, one that does not hold as \`no_change_needed\`; a note here is not read back. Tick one when its result is recorded.`, "",
+      ...unsettled.map((issue, index) => `- [ ] ${checkName(index)} \`${issue.candidateId}\` ${issue.claim.title} · ${issue.severity}`), ""])].join("\n"));
   files.set("issues.md", ["# Issues this plan fixes", "", ...[...new Set(ordered.flatMap((task) => task.addresses.issues))].map((id) => issues.get(id)).filter((issue): issue is ExportIssue => issue !== undefined)
     .map((issue) => `## ${issue.claim.title}\n\n${issue.severity} · ${issue.disposition} · ${issue.candidateId}\n\n${issue.claim.description}\n`)].join("\n"));
   files.set(RESULTS_FILE, `${JSON.stringify(resultsTemplate(runId, unsettled, ordered, issues), null, 2)}\n`);
@@ -237,7 +251,7 @@ export interface PlanOutline {
   /** The questions only the person can answer, blocking ones first. */
   readonly questions: readonly { readonly id: string; readonly question: string; readonly blocking: boolean }[];
   readonly tasks: readonly { readonly id: string; readonly title: string; readonly tier: keyof typeof TIERS; readonly folder: string; readonly after: readonly string[]; readonly sameFilesAs: readonly string[]; readonly issues: readonly string[] }[];
-  /** Reports the audit could not settle, most severe first: checked after the tasks, if at all. */
+  /** Reports the audit could not settle, most severe first: part of the work, checked after the tasks. */
   readonly checks: readonly { readonly candidateId: string; readonly title: string; readonly severity: string }[];
   readonly checksFolder: string;
   readonly alsoFound: number;
@@ -310,7 +324,7 @@ function agents(ordered: readonly ExportTask[], checks: number, commands: readon
     "1. Read README.md for the order of work and any questions to answer first. If a question is marked as blocking, ask the person you are working with before starting the tasks it affects.",
     "2. Take the first unticked task in PROGRESS.md and open its prompt under `prompts/`. Follow that prompt; it says what to read, what not to change, and how to check the result.",
     `   Before you start it, run \`node ${script} <task id>\` (\`TASK-012\`, or an unsure report's issue id) from the repository root. It looks up what the prompt names (files, names, routes, socket events, quoted code and cited lines) in the code as it is now, and prints what moved since the plan was saved (with the new lines), what is gone, and what was never found. Work from the code it shows. In a git worktree of the project this folder is absent (Git ignores it): run the main checkout's copy from the worktree, and it checks the worktree.`,
-    ...(checks === 0 ? [] : [`   The items under "Unsure" in PROGRESS.md (prompts in \`prompts/${UNSURE}\`) are reports the audit could not settle, and most do not hold. Leave them until every task is done, take them only if the person you are working with wants them, and treat each as a claim to test: if no test or run shows the defect, change nothing.`]),
+    ...(checks === 0 ? [] : [`   The items under "Unsure" in PROGRESS.md (prompts in \`prompts/${UNSURE}\`) are reports the audit could not settle. They are part of the work: once every task is done, check each one as its prompt says, most severe first. Treat each as a claim to test, neither a fact nor a false alarm: change nothing for it until a failing test or a run shows the defect, and record its result in ${RESULTS_FILE} like a task's, whatever the verdict (arbitra reads that file back, not PROGRESS.md).`]),
     "3. Do one task at a time. Prove each defect before fixing it: a test that fails on the current code for the reason the issue gives. If an existing test asserts the defective behaviour, change it as little as keeps its intent and name it in results.json; never weaken or remove a test only to make a check pass.",
     `4. A prompt is a starting point, not a script. ${CLAIMS_TO_CHECK}`,
     `5. Run the checks yourself: each prompt's commands and the project's own commands below build, test or lint the project; ${ASK_FIRST}. ${END_TO_END} Unit tests alone can pass a fix that does not work. Verify the task as its prompt says before you tick it in PROGRESS.md; if a check fails, stop and report instead of guessing.`,
@@ -319,11 +333,11 @@ function agents(ordered: readonly ExportTask[], checks: number, commands: readon
     ...(scoped ? [`8. Keep to each prompt's \`<write_scope>\`: the files its task may change and the folders it may add files to, and ${TEST_FILES}. ${SCOPE_ORIGIN} Changing or adding any other file needs the approval of the person you are working with: ask first, naming the file and why.`] : []), "",
     "The prompt folders say which kind of model each task suits:", "",
     ...Object.values(TIERS).map(({ folder, model, why }) => `- \`${folder}\`: ${model}, for ${why}.`),
-    ...(checks === 0 ? [] : [`- \`${UNSURE}\`: your strongest model, after the tasks, to decide whether a report the audit could not settle holds, and to fix it only if it does.`]), "",
+    ...(checks === 0 ? [] : [`- \`${UNSURE}\`: your strongest model, after the tasks, to decide whether each report the audit could not settle holds, and to fix it once a test or a run shows it.`]), "",
     // The project's own commands, so a test that proves a defect runs the way the project runs its tests.
     ...(commands.length === 0 ? [] : ["The project's own commands, read from its manifests when it was audited (check them before relying on them; run each from the repository root unless a directory is given):", "",
       ...commands.map(({ purpose, command, directory, sourcePath }) => `- ${purpose}: \`${command}\`${directory === "" ? "" : ` in \`${directory}\``} (from \`${sourcePath}\`)`), ""]),
-    `There are ${ordered.length} tasks${checks === 0 ? "" : `, and ${checks} unsure ${checks === 1 ? "report" : "reports"} to check after them if wanted`}.`, ""].join("\n");
+    `There ${ordered.length === 1 ? "is 1 task" : `are ${ordered.length} tasks`}${checks === 0 ? "" : `, then ${checks} unsure ${checks === 1 ? "report" : "reports"} to check and record`}.`, ""].join("\n");
 }
 
 interface SeverityKept { readonly candidateId: string; readonly foundAs: string; readonly loweredTo: string; readonly by: string; readonly reason: string }
@@ -358,8 +372,8 @@ function readme(plan: ExportPlan, ordered: readonly ExportTask[], runId: string,
       const { after, sameFilesAs } = orderOf(task);
       return `${index + 1}. \`${task.id}\` ${task.title} · ${TIERS[task.routing.capability].folder}${after.length === 0 ? "" : ` · after ${after.join(", ")}`}${sameFilesAs.length === 0 ? "" : ` · same files as ${sameFilesAs.join(", ")}`}${notFound(task.id)}`;
     }), "",
-    ...(unsettled.length === 0 ? [] : ["## Unsure: check after the tasks, if at all", "",
-      `The audit could not settle ${unsettled.length === 1 ? "this report" : `these ${unsettled.length} reports`}: ${whyUnsettled(unsettled)}, and the verifier could not decide from the code it was shown. They are not part of the work above, and most such reports do not hold. ${UNSURE_RATE} Each prompt in \`prompts/${UNSURE}\` asks a strong model to decide whether the defect is real, by reading the code and running it where that helps, and to fix it only if a test or a run shows it. They are listed most severe first.`, "",
+    ...(unsettled.length === 0 ? [] : ["## Unsure reports: check after the tasks", "",
+      `The audit could not settle ${unsettled.length === 1 ? "this report" : `these ${unsettled.length} reports`}: ${whyUnsettled(unsettled)}, and the verifier could not decide from the code it was shown. ${unsettled.length === 1 ? "It is" : "They are"} part of the work, after the tasks above, which are surer and may change or fix the same code. ${UNSURE_RATE} So treat each as a claim to test, neither a fact nor a false alarm. Each prompt in \`prompts/${UNSURE}\` says where the report is, what it claims, why the audit could not settle it and what would show it; it asks a strong model to decide whether the defect is real, by reading the code and running it where that helps, and to change nothing for it until a failing test or a run shows the defect. Record each result in \`${RESULTS_FILE}\` like a task's, one that does not hold as \`no_change_needed\` with what decided it. They are listed most severe first.`, "",
       ...unsettled.map((issue, index) => `${index + 1}. \`${issue.candidateId}\` ${issue.claim.title} · ${issue.severity}${notFound(issue.candidateId)}`), ""]),
     "## Model tiers", "", ...Object.values(TIERS).map(({ folder, model, why }) => `- \`${folder}\`: ${model}, for ${why}.`), ""].join("\n");
 }
@@ -513,26 +527,55 @@ function unsettledIssues(issues: readonly ExportIssue[], tasks: readonly ExportT
     .sort((a, b) => SEVERITIES.indexOf(b.severity) - SEVERITIES.indexOf(a.severity));
 }
 
-/** A prompt to settle one issue the audit left open: decide whether it holds, from the code and by running it, then fix it if it does. */
-function checkPrompt(issue: ExportIssue, related: readonly string[], scope: string | null, premises: PromptPremiseCheck): string {
+/** Where an unsure report is and what would show it, from its auditors' own findings. */
+interface ReportDetails { readonly places: readonly string[]; readonly said: readonly { readonly by: string; readonly what: "what sets it off" | "how to check it"; readonly text: string }[] }
+/** How many places an unsure report's prompt lists before "and N more". */
+const PLACES_SHOWN = 12;
+/**
+ * The places an unsure report's findings cite, and what each auditor said sets the defect off and how to check it, so
+ * its prompt carries enough to act on. The check prompts a messaging app's plan was saved with (October 25, 2026) gave
+ * the claim and the doubts about it, but not the lines it cites or what would show it.
+ */
+function reportDetails(issue: ExportIssue, findings: ReadonlyMap<string, ExportFinding>): ReportDetails {
+  const own = (issue.sourceFindingIds ?? []).flatMap((id) => { const finding = findings.get(id); return finding === undefined ? [] : [finding]; });
+  const places = [...new Set(own.flatMap(({ locations }) => locations.map(({ path, startLine, endLine }) =>
+    startLine === undefined ? path : `${path}:${startLine}${endLine === undefined || endLine === startLine ? "" : `-${endLine}`}`)))];
+  const said = own.flatMap(({ sourceFindingId, trigger, verification }) => ([{ what: "what sets it off", text: trigger }, { what: "how to check it", text: verification }] as const).flatMap(({ what, text }) => {
+    const clean = (text ?? "").replace(/\s+/gu, " ").trim();
+    return clean === "" ? [] : [{ by: sourceFindingId.split("/")[0] ?? sourceFindingId, what, text: clean.slice(0, 1_200) }];
+  }));
+  // Two auditors who said the same thing make one line, the first one's.
+  return { places, said: said.filter((entry, index) => said.findIndex(({ what, text }) => what === entry.what && text === entry.text) === index) };
+}
+
+/**
+ * A prompt to settle one issue the audit left open: where it is, what it claims, why the audit could not settle it and
+ * what would show it; then decide whether it holds, from the code and by running it, and fix it once a test or a run
+ * shows the defect. Its result is recorded like a task's, whatever the verdict.
+ */
+function checkPrompt(issue: ExportIssue, details: ReportDetails, related: readonly string[], scope: string | null, premises: PromptPremiseCheck): string {
   const section = (tag: string, body: string) => `<${tag}>\n${body}\n</${tag}>`;
   const views = (issue.dissent ?? []).map(({ authorId, disposition, reason }) => `- ${authorId} (${disposition.replace(/_/gu, " ")}): ${reason.replace(/\s+/gu, " ").slice(0, 1_200)}`);
   // What the source could not show, in the verifier's words, so the check starts there instead of in its tool trace.
   const verifier = issue.verificationReason === undefined ? null : `${(issue.verificationOutcome ?? "no outcome").toLowerCase().replace(/_/gu, " ")}: ${issue.verificationReason.replace(/\s+/gu, " ").slice(0, 1_200)}`;
+  const { places, said } = details;
   return [`# Check ${issue.candidateId} · ${issue.claim.title}`, "", `Suggested model: ${TIERS.frontier.model}, effort high. Why: the audit could not settle this by reading alone.`, "",
-    `You are a careful senior engineer checking one reported defect in this repository before anyone fixes it. Several models audited the project; ${unreviewed(issue) ? "no peer review checked this one" : "they disagreed about this one"}, and arbitra's verifier could not decide from the code it was shown. The report may be wrong, so treat it as a claim to test, not a fact.`, "",
+    `You are a careful senior engineer settling one reported defect in this repository. Several models audited the project; ${unreviewed(issue) ? "no peer review checked this one" : "they disagreed about this one"}, and arbitra's verifier could not decide from the code it was shown. ${UNSURE_ODDS}, so treat this one as a claim to test, neither a fact nor a false alarm. Settling it is part of the plan's work, and its result is recorded like a task's.`, "",
     section("claim", `${issue.claim.title} (${issue.severity})\n\n${issue.claim.description.replace(/\s+/gu, " ").slice(0, 2_000)}`), "",
+    ...(places.length === 0 ? [] : [section("where", `The places the audit cites for it, as it read them (step 1 prints any that moved since):\n${[...places.slice(0, PLACES_SHOWN).map((place) => `- ${place}`),
+      ...places.length > PLACES_SHOWN ? [`- and ${places.length - PLACES_SHOWN} more ${places.length - PLACES_SHOWN === 1 ? "place" : "places"}`] : []].join("\n")}`), ""]),
     ...(views.length === 0 ? [] : [section("what_the_reviewers_said", views.join("\n")), ""]),
     ...(verifier === null ? [] : [section("what_the_verifier_said", verifier), ""]),
+    ...(said.length === 0 ? [] : [section("what_would_show_it", `What the auditors who reported it said sets it off, and how they said to check it:\n${said.map(({ by, what, text }) => `- ${by}, ${what}: ${text}`).join("\n")}`), ""]),
     ...(related.length === 0 ? [] : [section("related_reports", `${RELATED_NOTE}\n${related.map((item) => `- ${item}`).join("\n")}`), ""]),
     ...(scope === null ? [] : [section("write_scope", scope), ""]),
     ...notFoundSection(premises),
     section("steps", [`1. ${premiseStep(premises)}`, "2. Read the code the claim names, and what it calls, until you can say whether the claim holds.",
-      "3. Where reading cannot decide it, run the smallest check that can: an existing test, a short script, or the command the claim depends on. Ask before running anything that changes data or reaches the network.",
+      "3. Where reading cannot decide it, run the smallest check that can: a test written for it, an existing test, a short script, or the command the claim depends on. Ask before running anything that changes data or reaches the network.",
       "4. If the claim does not hold, change nothing and say why, citing the lines or the output that decide it.",
-      "5. If it holds, make the smallest fix, add a test that fails without it, and run the project's checks."].join("\n")), "",
-    section("success_criteria", "- A clear verdict, holds or does not hold, with the lines or output that decide it.\n- If it holds: the fix and its test, with the project's checks passing."), "",
-    `When you finish, record the result in ${RESULTS_FILE} (\`no_change_needed\` when the claim does not hold), and report the verdict, what you changed, and how you checked it.`, ""].join("\n");
+      "5. If it holds, show it before changing code: a test that fails on the current code for the reason the claim gives, or, where no test can, a run that shows the defect; keep its output. Then make the smallest fix; the same test must pass, with the project's checks."].join("\n")), "",
+    section("success_criteria", `- A clear verdict, holds or does not hold, with the lines or output that decide it.\n- If it holds: the failing test or run that showed it, the fix, and the project's checks passing.\n- Its entry in ${RESULTS_FILE} filled in, whatever the verdict.`), "",
+    `When you finish, record the result in ${RESULTS_FILE} as for a task, not only in PROGRESS.md: \`no_change_needed\` when the claim does not hold, with the lines or output that decide it in the proof; \`fixed\` when it held and is fixed, or when earlier work had already fixed it, naming that work. Then report the verdict, what you changed, and how you checked it.`, ""].join("\n");
 }
 
 /**
@@ -551,10 +594,17 @@ function taskSources(task: ExportTask, issues: ReadonlyMap<string, ExportIssue>)
       .map((text): PremiseSource => ({ text, role: "change" })),
   ];
 }
-/** The text an unsure report's prompt is built from: the claim and what the reviewers and the verifier said of it. */
-function checkSources(issue: ExportIssue): PremiseSource[] {
-  return [issue.claim.title, issue.claim.description, ...(issue.dissent ?? []).map(({ reason }) => reason), ...issue.verificationReason === undefined ? [] : [issue.verificationReason]]
-    .map((text): PremiseSource => ({ text, role: "premise" }));
+/**
+ * The text an unsure report's prompt is built from: the claim, the places it cites, what the reviewers and the verifier
+ * said of it and what sets it off, apart from how its auditors said to check it, whose new tests are no fault.
+ */
+function checkSources(issue: ExportIssue, { places, said }: ReportDetails): PremiseSource[] {
+  return [
+    ...[issue.claim.title, issue.claim.description, ...(issue.dissent ?? []).map(({ reason }) => reason), ...issue.verificationReason === undefined ? [] : [issue.verificationReason]]
+      .map((text): PremiseSource => ({ text, role: "premise" })),
+    ...places.slice(0, PLACES_SHOWN).map((text): PremiseSource => ({ text, role: "premise", list: true })),
+    ...said.map(({ what, text }): PremiseSource => ({ text, role: what === "how to check it" ? "change" : "premise" })),
+  ];
 }
 
 /** One entry per issue the plan fixes or asks to check, for the executor to fill in. */

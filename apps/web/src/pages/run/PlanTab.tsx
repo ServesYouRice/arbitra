@@ -24,8 +24,8 @@ const TIERS = [{ tier: "frontier", name: "Strongest model", otherwise: "Claude O
 /**
  * The plan as its saved folder has it: the hand-over first (save it, or where it was saved and what next), then the
  * questions only the person can answer, the tasks in the order of work with the model each needs and what it waits
- * for, the issues the audit could not settle (checked after the tasks), and the plan's review folded. The order of
- * work is the export's own (`GET /handoff/runs/:id/outline`), so the page and the README never disagree.
+ * for, the issues the audit could not settle (part of the work, after the tasks), and the plan's review folded. The
+ * order of work is the export's own (`GET /handoff/runs/:id/outline`), so the page and the README never disagree.
  */
 export function PlanTab({ runId, overview, artifacts, refreshKey, selectedTask, onSelectTask }: {
   readonly runId: string; readonly overview: RunOverview | null; readonly artifacts: readonly ArtifactDescriptor[]; readonly refreshKey: unknown;
@@ -95,7 +95,7 @@ function Work({ runId, outline, configuration, selectedTask, onSelectTask }: { r
     </section>
     {outline.checks.length === 0 ? null : <section aria-labelledby="plan-checks-title" className="summary-section">
       <h2 className="panel-title" id="plan-checks-title">{heading(`Check after the tasks · ${counted(outline.checks.length, "issue")}`)}</h2>
-      <p className="note">The audit could not settle these, and most such issues do not hold. Each prompt in prompts/{outline.checksFolder} asks your strongest model to decide whether the defect is real, and to fix it only if a test or a run shows it.</p>
+      <p className="note">The audit could not settle these. They are part of the work, after the tasks, which are surer and may change the same code; on the plans carried out so far, between a third and two thirds of such issues held. Each prompt in prompts/{outline.checksFolder} asks your strongest model to decide whether the defect is real, to fix it only once a test or a run shows it, and to record the result either way.</p>
       <ul className="plan-checks">{outline.checks.map(({ candidateId, title, severity }) => <li data-severity={severity} key={candidateId}>
         <span className="plan-checks__severity">{severityWord(severity)}</span>
         <Link to={{ page: "run", runId, tab: "issues", item: `issue:${candidateId}` }}>{title}</Link>

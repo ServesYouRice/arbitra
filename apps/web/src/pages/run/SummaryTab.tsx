@@ -287,7 +287,7 @@ const KNOWN_GATE_REASONS = new Set(["unresolved_issues", "blocking_plan_question
 function NeedsYou({ runId, questions, confirmed, reasons }: { readonly runId: string; readonly questions: number; readonly confirmed: ConfirmedYield | null; readonly reasons: readonly string[] }): ReactElement {
   const items: { readonly text: string; readonly tab: RunTab; readonly action: string }[] = [
     ...(questions > 0 ? [{ text: `${counted(questions, "question")} only you can answer, before the tasks`, tab: "plan" as const, action: "Answer" }] : []),
-    // The saved plan checks them after its tasks (plan-export.ts): most such reports do not hold.
+    // The saved plan checks each after its tasks, as part of the work, and records its result (plan-export.ts).
     ...(confirmed !== null && confirmed.unsettled > 0 ? [{ text: `${counted(confirmed.unsettled, "issue")} the check could not settle: the plan checks them after its tasks`, tab: "issues" as const, action: "See them" }] : []),
     ...(reasons.includes("blocking_critic_feedback") ? [{ text: "An objection to the plan that its revision does not answer", tab: "plan" as const, action: "Read it" }] : []),
     // Any other reason the gate failed is not work the plan names: it is said as recorded, in words.
