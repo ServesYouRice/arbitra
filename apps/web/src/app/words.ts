@@ -198,6 +198,56 @@ export function optionalStepWords(move: OptionalStepMove): string {
   return `${step} on ${move.model} was left out${when}: ${why}. ${WITHOUT_IT[move.step] ?? "The run went on without it."}`;
 }
 
+/**
+ * One wait of a model profile's calls for its subscription's usage limit to reset, from its `model_waiting` events to
+ * its `model_wait_ended` one: when it began (`since`), the reset (`resetsAt`) and when the calls go on (`until`), and
+ * how it ended (`outcome`, at `endedAt`); still open (null) while the calls wait, or when the run stopped before they
+ * stopped waiting (`stopped`, as when arbitra itself was stopped during the wait).
+ */
+export interface LimitWait {
+  readonly profile: string; readonly since: string | null; readonly resetsAt: string; readonly until: string;
+  readonly outcome: string | null; readonly endedAt: string | null;
+}
+
+/** The run's waits for usage limits, in the order they began, from its events. */
+export function limitWaits(events: readonly { readonly t: string; readonly profile?: string; readonly resetsAt?: string; readonly until?: string; readonly outcome?: string; readonly state?: string; readonly at?: string }[]): readonly LimitWait[] {
+  const waits: LimitWait[] = [];
+  const open = new Map<string, number>();
+  const close = (index: number, outcome: string, at: string | undefined): void => { const wait = waits[index]; if (wait !== undefined) waits[index] = { ...wait, outcome, endedAt: at ?? null }; };
+  for (const event of events) {
+    if (event.t === "model_waiting" && event.profile !== undefined && event.resetsAt !== undefined && event.until !== undefined) {
+      const index = open.get(event.profile);
+      // A later reset for calls already waiting is the same wait, which now goes on later.
+      if (index !== undefined) { const wait = waits[index]; if (wait !== undefined) waits[index] = { ...wait, resetsAt: event.resetsAt, until: event.until }; continue; }
+      open.set(event.profile, waits.length);
+      waits.push({ profile: event.profile, since: event.at ?? null, resetsAt: event.resetsAt, until: event.until, outcome: null, endedAt: null });
+    } else if (event.t === "model_wait_ended" && event.profile !== undefined) {
+      const index = open.get(event.profile);
+      if (index !== undefined) { close(index, event.outcome ?? "went_on", event.at); open.delete(event.profile); }
+    } else if (event.t === "run_transition" && event.state !== undefined && STOPPED_STATES.has(event.state)) {
+      for (const index of open.values()) close(index, "stopped", event.at);
+      open.clear();
+    }
+  }
+  return waits;
+}
+
+const STOPPED_STATES: ReadonlySet<string> = new Set(["COMPLETED", "FAILED", "BLOCKED", "CANCELLED", "SUSPENDED_BUDGET", "SUSPENDED_RATE_LIMIT"]);
+
+/**
+ * A wait for a usage limit as one line, its model and route named: "Codex's limit for GPT-6.1 Sol resets at 21 Nov,
+ * 12:27; GPT-6.1 Sol waits and goes on at 21 Nov, 12:28, while the rest of the run goes on." while it waits (`live`:
+ * the run is working), and once it is over, how it ended.
+ */
+export function limitWaitWords(wait: LimitWait, model: string, route: string, live: boolean): string {
+  const limit = `${route}'s limit`;
+  if (wait.outcome === "went_on") return `${model} waited for ${limit} to reset${wait.since === null ? "" : ` from ${formatTime(wait.since)}`}${wait.endedAt === null ? "" : ` to ${formatTime(wait.endedAt)}`}, then went on.`;
+  if (wait.outcome === "left_out") return `${model} stopped waiting for ${limit} to reset${wait.endedAt === null ? "" : ` at ${formatTime(wait.endedAt)}`}: it was left out of the run.`;
+  if (wait.outcome === null && live) return `${limit} for ${model} resets at ${formatTime(wait.resetsAt)}; ${model} waits and goes on at ${formatTime(wait.until)}, while the rest of the run goes on.`;
+  // Cancelled, stopped with the run, or open on a run that is no longer working (arbitra was stopped during the wait).
+  return `${model} was waiting for ${limit} to reset, until ${formatTime(wait.until)}, when the run stopped. A resume sends its calls again.`;
+}
+
 const AWAKE = "Keep the computer awake while the run works (on a Mac, with its lid open), then resume the run: it goes on from where it stopped, and calls already finished are kept.";
 
 /** What a failure means for the person: what happened, what to do, and whether resuming can help. */

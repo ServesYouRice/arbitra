@@ -1,7 +1,9 @@
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { RunEvent } from "@arbitra/core/runner/events.js";
+import { loadActivityTraces } from "@arbitra/persistence/trace.js";
 import { BUILTIN_TRANSPORT_FACTORIES } from "@arbitra/providers/registry.js";
+import { AFTER_RESET_MS } from "@arbitra/schemas/provider-execution.js";
 import { readFailure, readResumeRefusal, type FailureKind, type FailureReading } from "./failure-kinds.js";
 import type { RunObserver } from "./orchestrator.js";
 import { atomicJson, RunStore, runsDirectoryOf } from "./run-store.js";
@@ -14,8 +16,12 @@ import { readUsageWindows, type UsageWindow, type UsageWindows, type VendorUsage
  * - a usage limit waits until its reset (a minute after it), and with no reset given, until the vendor's usage
  *   window has room (usage-windows.ts); a window that cannot be read is left to the owner;
  * - a time-out or a provider failure waits a few minutes;
- * - at most two automatic resumes per run, none for a stop that came back after one, and none for a run the owner
- *   cancelled;
+ * - at most two automatic resumes per run after a time-out or a failure, none for one that came back after a resume,
+ *   and none for a run the owner cancelled;
+ * - a subscription's usage limit comes back by nature on a long run, so its resumes count apart: it is resumed again
+ *   when it resets later than the limit the helper last resumed for, or, with no reset given, when calls were answered
+ *   since that resume; the same reset met again is left to the owner, and so is a limit met again after two resumes
+ *   in a row that no call was answered after (`#limitStop`);
  * - on by default, off for a run with `workflow.autoResume: false` and for all runs with `helper.autoResume: false`
  *   in `<state directory>/settings.json`, which the Settings page changes (apps/server/src/settings.ts).
  *
@@ -163,28 +169,61 @@ export interface HelperWait {
   readonly kind: FailureKind | "unknown";
   readonly rule: string;
   readonly vendor?: "codex" | "claude";
+  /**
+   * For a usage limit: the reset it waits for (null when the provider gave none), and how many of the helper's resumes
+   * for this limit, the last ones in a row, no model call was answered after. Absent in a wait recorded before
+   * November 21, 2026.
+   */
+  readonly limit?: { readonly resetsAt: string | null; readonly idle: number };
 }
-/** The helper's record of one run, in `helper-actions.json` beside its events. */
+/**
+ * A resume after a subscription's usage limit: the stop (`<rule>:<provider>`, as in `resumedFor`), the reset it waited
+ * for (null when the provider gave none), how many model calls the run had traced then (null when they could not be
+ * read), so the next stop can tell whether one was answered since, and how many of the resumes before it, the last
+ * ones in a row, no call was answered after.
+ */
+export interface LimitResume {
+  readonly at: string;
+  readonly stop: string;
+  readonly resetsAt: string | null;
+  readonly calls: number | null;
+  readonly idle: number;
+}
+/**
+ * The helper's record of one run, in `helper-actions.json` beside its events. A record written before November 21,
+ * 2026 has no `limitResumes`; its usage-limit resumes are read from its actions (`limitResumes`).
+ */
 export interface HelperRecord {
   readonly version: 1;
   readonly actions: readonly HelperAction[];
   readonly wait: HelperWait | null;
+  /** Every resume the helper made, a usage limit's among them. */
   readonly resumes: number;
-  /** The stops the helper resumed after (`<rule>:<provider>`); one that comes back is not resumed again. */
+  /**
+   * The stops the helper resumed after (`<rule>:<provider>`), one for each resume. A time-out or a failure that comes
+   * back is not resumed again; a usage limit is told apart by its reset (`limitResumes`).
+   */
   readonly resumedFor: readonly string[];
+  /** The resumes after a usage limit, which do not count toward MAXIMUM_AUTOMATIC_RESUMES. */
+  readonly limitResumes?: readonly LimitResume[];
   readonly cancelled: boolean;
   /** The last stop decided on, by the position of its transition in the run's events; -1 before any. */
   readonly handledStop: number;
 }
 
-const EMPTY: HelperRecord = Object.freeze({ version: 1, actions: [], wait: null, resumes: 0, resumedFor: [], cancelled: false, handledStop: -1 });
+const EMPTY: HelperRecord = Object.freeze({ version: 1, actions: [], wait: null, resumes: 0, resumedFor: [], limitResumes: [], cancelled: false, handledStop: -1 });
 
-/** At most this many automatic resumes per run. */
+/** At most this many automatic resumes per run after a time-out or a failure; a usage limit's count apart. */
 export const MAXIMUM_AUTOMATIC_RESUMES = 2;
+/**
+ * A usage limit is resumed at most this many times in a row with no model call answered after the resume: a limit the
+ * resume meets again at once, with a later reset each time, is then left to the owner.
+ */
+export const MAXIMUM_IDLE_LIMIT_RESUMES = 2;
 /** A time-out or a provider failure is resumed this long after it. */
 export const RETRY_WAIT_MS = 5 * 60_000;
-/** A usage limit is resumed this long after its reset. */
-export const AFTER_RESET_MS = 60_000;
+/** A usage limit is resumed this long after its reset, as a call that waits in place for one is sent again. */
+export { AFTER_RESET_MS };
 /** How often a full usage window with no reset time is read again. */
 export const WINDOW_RECHECK_MS = 30 * 60_000;
 /** Seven days covers a weekly allowance; a reset further away is left to the owner. */
@@ -322,12 +361,19 @@ export class RunHelper {
     if (record.cancelled) return await leave("The owner cancelled this run, so the helper does not resume it.");
     if (kind !== "resume-now") return await leave(LEFT[kind]);
     if (!await this.#enabled(runId)) return await leave("Automatic resume is off for this run, so it waits for you.");
-    if (record.resumes >= MAXIMUM_AUTOMATIC_RESUMES) return await leave(`The helper has resumed this run ${MAXIMUM_AUTOMATIC_RESUMES} times already, so it waits for you.`);
     const key = stopKey(reading);
-    if (record.resumedFor.includes(key)) return await leave("The same stop came back after the helper resumed the run, so another resume would likely repeat it.");
+    let limit: HelperWait["limit"];
+    if (reading.rule === "usage-limit") {
+      const decided = await this.#limitStop(runId, record, key, reading.resetsAt);
+      if ("leave" in decided) return await leave(decided.leave);
+      limit = { resetsAt: reading.resetsAt, idle: decided.idle };
+    } else {
+      if (record.resumedFor.filter((resumed) => !isLimitStop(resumed)).length >= MAXIMUM_AUTOMATIC_RESUMES) return await leave(`The helper has resumed this run ${MAXIMUM_AUTOMATIC_RESUMES} times already after a time-out or a failure, so it waits for you.`);
+      if (record.resumedFor.includes(key)) return await leave("The same stop came back after the helper resumed the run, so another resume would likely repeat it.");
+    }
     const plan = await this.#waitFor(reading);
     if ("leave" in plan) return await leave(plan.leave);
-    const wait: HelperWait = { ...read, until: plan.until, then: plan.then, stopIndex: stop.index, stop: key, ...(plan.vendor === undefined ? {} : { vendor: plan.vendor }) };
+    const wait: HelperWait = { ...read, until: plan.until, then: plan.then, stopIndex: stop.index, stop: key, ...(plan.vendor === undefined ? {} : { vendor: plan.vendor }), ...(limit === undefined ? {} : { limit }) };
     await this.#act(runId, { ...handled, wait }, { ...read, action: "wait", result: plan.result, until: plan.until });
     this.#schedule(runId, plan.until);
   }
@@ -335,6 +381,39 @@ export class RunHelper {
   async #readUnnamed(stop: { readonly state: string; readonly reason: string }): Promise<FailureKind | "unknown"> {
     if (this.#reader === undefined) return "unknown";
     try { return await this.#reader.read({ reason: stop.reason, state: stop.state }); } catch { return "unknown"; }
+  }
+
+  /**
+   * Whether a usage-limit stop (`key`) is a new one the helper resumes, and how many resumes in a row before it no call
+   * was answered after; or why it is left to the owner. A subscription's limit comes back by nature on a long run, so
+   * it is told apart from the one the helper last resumed for by its reset, not by its rule and provider. Observed live
+   * (a real-project audit, November 21, 2026): the helper resumed a run after Codex's five-hour limit, and when the next
+   * window filled hours later, left the run to the owner as "the same stop".
+   */
+  async #limitStop(runId: string, record: HelperRecord, key: string, resetsAt: string | null): Promise<{ readonly idle: number } | { readonly leave: string }> {
+    const last = limitResumes(record).findLast(({ stop }) => stop === key);
+    if (last === undefined) return { idle: 0 };
+    const answered = await this.#answeredSince(runId, last.calls);
+    if (resetsAt !== null && last.resetsAt !== null) {
+      // A reset a little later is the same one, reckoned again from the provider's time, or a reset come late.
+      if (Date.parse(resetsAt) <= Date.parse(last.resetsAt) + AFTER_RESET_MS) return { leave: "The limit came back with the same reset after the helper resumed the run, so another resume would likely repeat it." };
+    } else if (!answered) return { leave: "The limit came back before any call was answered since the helper resumed the run, so another resume would likely repeat it." };
+    if (answered) return { idle: 0 };
+    const idle = last.idle + 1;
+    if (idle >= MAXIMUM_IDLE_LIMIT_RESUMES) return { leave: `The helper resumed this run ${idle} times in a row after a usage limit with no call answered since, so it waits for you.` };
+    return { idle };
+  }
+
+  /** Whether a model call was answered after the run had traced `calls` of them; unknown (null) reads as none. */
+  async #answeredSince(runId: string, calls: number | null): Promise<boolean> {
+    if (calls === null) return false;
+    const traces = await loadActivityTraces(this.#runs, runId).catch(() => null);
+    return traces !== null && traces.slice(calls).some(({ outcome }) => outcome === "success");
+  }
+
+  /** How many model calls the run has traced; null when they cannot be read. */
+  async #calls(runId: string): Promise<number | null> {
+    return await loadActivityTraces(this.#runs, runId).then(({ length }) => length, () => null);
   }
 
   async #enabled(runId: string): Promise<boolean> {
@@ -401,7 +480,14 @@ export class RunHelper {
         return this.#schedule(runId, window.until);
       }
     }
-    await this.#act(runId, { ...ended, resumes: record.resumes + 1, resumedFor: [...record.resumedFor, wait.stop] }, { ...read, action: "resume", result: "The helper resumed the run." });
+    const resumed: HelperRecord = { ...ended, resumes: record.resumes + 1, resumedFor: [...record.resumedFor, wait.stop] };
+    if (wait.rule !== "usage-limit") await this.#act(runId, resumed, { ...read, action: "resume", result: "The helper resumed the run." });
+    else {
+      // A wait recorded before limits were told apart by their reset reads its reset from the reason.
+      const limit = wait.limit ?? { resetsAt: resetOf(wait.reason), idle: 0 };
+      const resume: LimitResume = { at: iso(this.#clock.now()), stop: wait.stop, resetsAt: limit.resetsAt, calls: await this.#calls(runId), idle: limit.idle };
+      await this.#act(runId, { ...resumed, limitResumes: [...limitResumes(record), resume] }, { ...read, action: "resume", result: limit.resetsAt === null ? "The helper resumed the run once the usage window had room." : "The helper resumed the run after the usage limit reset." });
+    }
     this.#resuming.add(runId);
     try { await this.#orchestrator.resume(runId); }
     catch (error) {
@@ -464,6 +550,27 @@ function stopKey(reading: FailureReading): string {
   return `${reading.rule}:${"provider" in reading ? reading.provider ?? "" : ""}`;
 }
 
+/** Whether a stop (`stopKey`) is a usage limit, whose resumes count apart. */
+function isLimitStop(key: string): boolean { return key.startsWith("usage-limit:"); }
+
+/** The reset a usage limit's reason names; null when it names none. */
+function resetOf(reason: string): string | null {
+  const reading = readFailure(reason);
+  return reading.rule === "usage-limit" ? reading.resetsAt : null;
+}
+
+/**
+ * The helper's resumes of a run after a usage limit. A record written before November 21, 2026 lists none: they are
+ * read from its actions, the stop and the reset from each resume's reason, with the calls traced then unknown.
+ */
+function limitResumes(record: HelperRecord): readonly LimitResume[] {
+  if (record.limitResumes !== undefined) return record.limitResumes;
+  return record.actions.flatMap(({ action, rule, reason, at }) => {
+    const reading = readFailure(reason);
+    return action === "resume" && rule === "usage-limit" && reading.rule === "usage-limit" ? [{ at, stop: stopKey(reading), resetsAt: reading.resetsAt, calls: null, idle: 0 }] : [];
+  });
+}
+
 /** The vendor whose usage window a subscription's limit is, from the CLI the reason names; an API's credit has none. */
 function vendorOf(cli: string | null): "codex" | "claude" | null {
   if (cli === null) return null;
@@ -475,5 +582,6 @@ const iso = (time: number): string => new Date(time).toISOString();
 function isRecord(value: unknown): value is HelperRecord {
   if (typeof value !== "object" || value === null) return false;
   const record = value as Partial<HelperRecord>;
-  return record.version === 1 && Array.isArray(record.actions) && typeof record.resumes === "number" && Array.isArray(record.resumedFor) && typeof record.cancelled === "boolean" && typeof record.handledStop === "number";
+  return record.version === 1 && Array.isArray(record.actions) && typeof record.resumes === "number" && Array.isArray(record.resumedFor) && typeof record.cancelled === "boolean" && typeof record.handledStop === "number"
+    && (record.limitResumes === undefined || Array.isArray(record.limitResumes));
 }

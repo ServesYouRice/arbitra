@@ -6,9 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RunEvent, RunState } from "@arbitra/core/runner/events.js";
 import { runConfigSchema } from "@arbitra/schemas/config.js";
 import type { RunObserver } from "../src/orchestrator.js";
-import { AFTER_RESET_MS, RETRY_WAIT_MS, RunHelper, WINDOW_RECHECK_MS, type HelperClock, type HelperOrchestrator } from "../src/run-helper.js";
+import { AFTER_RESET_MS, MAXIMUM_IDLE_LIMIT_RESUMES, RETRY_WAIT_MS, RunHelper, WINDOW_RECHECK_MS, type HelperClock, type HelperOrchestrator } from "../src/run-helper.js";
 import { listRunIds, RunStore, runsDirectoryOf } from "../src/run-store.js";
 import type { UsageWindows, VendorUsage } from "../src/usage-windows.js";
+import { syntheticTrace } from "./trace-fixture.js";
 
 const START = Date.parse("2026-11-11T12:00:00.000Z");
 const MINUTE = 60_000;
@@ -16,6 +17,7 @@ const at = (offset: number): string => new Date(START + offset).toISOString();
 const usage = (until: string | null, cli = "Codex CLI"): string =>
   `ProviderUsageLimitError: Provider openai reached its usage limit (QUOTA: CLI_USAGE_LIMIT_REACHED: the ${cli} subscription's usage allowance is exhausted${until === null ? "" : ` until ${until}`}); the run pauses with its completed work kept and goes on when resumed after the reset.`;
 const TIMEOUT = "ProviderInvocationFailure: Provider openai failed after 3 attempts (TIMEOUT: Provider stage timed out after 900000ms)";
+const HOUR = 60 * MINUTE;
 const UPSTREAM = "ProviderInvocationFailure: Provider anthropic failed after 1 attempt (HTTP: CLI_UPSTREAM_ERROR: Claude Code could not reach its service); completed artifacts are preserved and the run may resume with degraded completeness.";
 
 /** A clock whose time moves only when a test moves it, firing the timers that come due on the way. */
@@ -106,6 +108,15 @@ describe("the run helper", () => {
   // The record is saved before the wait's timer is set, so a test lets the helper finish before it moves the clock: a
   // timer set after the move would wait for the next one (seen once on a loaded machine, November 21, 2026).
   const waiting = async (made: RunHelper, runId: string) => { await vi.waitFor(async () => { expect((await made.record(runId)).handledStop).toBeGreaterThanOrEqual(0); }); await made.idle(runId); return await made.record(runId); };
+  /** Lets the helper finish setting a wait until `until`, so the clock can move past it. */
+  const waitingUntil = async (made: RunHelper, runId: string, until: string) => { await vi.waitFor(async () => { expect((await made.record(runId)).wait?.until).toBe(until); }); await made.idle(runId); };
+  /** A resumed run whose model calls answer (`answered`) or not, and which then stops on the next of `stops`, or completes. */
+  const resumedThen = (stops: string[], answered = true) => async (runId: string) => {
+    if (answered) await orchestrator.store(runId).recordModelTrace(syntheticTrace(runId, 0));
+    const reason = stops.shift();
+    if (reason === undefined) await orchestrator.end(runId, "COMPLETED");
+    else await orchestrator.end(runId, reason.startsWith("ProviderUsageLimitError") ? "SUSPENDED_RATE_LIMIT" : "FAILED", reason);
+  };
 
   beforeEach(async () => {
     directory = await mkdtemp(join(tmpdir(), "arbitra-helper-"));
@@ -196,21 +207,23 @@ describe("the run helper", () => {
     expect(read).toHaveBeenCalledWith({ reason: "Error: something new", state: "FAILED" });
   });
 
-  it("resumes a run at most twice, and not for a stop that came back after a resume", async () => {
+  it("resumes a run at most twice after a time-out or a failure, and not for one that came back after a resume", async () => {
     const made = await helper();
-    // The first resume stops again on a time-out, the second on a provider failure, which is then left to the owner.
-    const after = [TIMEOUT, UPSTREAM];
-    orchestrator.afterResume = async (runId) => { await orchestrator.end(runId, "FAILED", after.shift() ?? TIMEOUT); };
+    // A usage limit's resume counts apart. Then a time-out and a provider failure are resumed, and a time-out of
+    // another provider, a stop not met before, is left to the owner.
+    orchestrator.afterResume = resumedThen([TIMEOUT, UPSTREAM, TIMEOUT.replace("openai", "anthropic")], false);
     await orchestrator.stops("run-1", "SUSPENDED_RATE_LIMIT", usage(at(0)));
     await waiting(made, "run-1");
     clock.advance(AFTER_RESET_MS);
-    await vi.waitFor(async () => { expect((await made.record("run-1")).wait?.rule).toBe("time-limit"); });
-    await made.idle("run-1");
-    clock.advance(RETRY_WAIT_MS);
+    for (const rule of ["time-limit", "provider-failure"]) {
+      await vi.waitFor(async () => { expect((await made.record("run-1")).wait?.rule).toBe(rule); });
+      await made.idle("run-1");
+      clock.advance(RETRY_WAIT_MS);
+    }
     await vi.waitFor(async () => { expect((await actions("run-1")).at(-1)?.action).toBe("leave"); });
-    expect(orchestrator.resumed).toEqual(["run-1", "run-1"]);
-    expect((await made.record("run-1")).actions.map(({ action, rule }) => `${action}:${rule}`)).toEqual(["wait:usage-limit", "resume:usage-limit", "wait:time-limit", "resume:time-limit", "leave:provider-failure"]);
-    expect((await actions("run-1")).at(-1)?.result).toBe("The helper has resumed this run 2 times already, so it waits for you.");
+    expect(orchestrator.resumed).toEqual(["run-1", "run-1", "run-1"]);
+    expect((await made.record("run-1")).actions.map(({ action, rule }) => `${action}:${rule}`)).toEqual(["wait:usage-limit", "resume:usage-limit", "wait:time-limit", "resume:time-limit", "wait:provider-failure", "resume:provider-failure", "leave:time-limit"]);
+    expect((await actions("run-1")).at(-1)?.result).toBe("The helper has resumed this run 2 times already after a time-out or a failure, so it waits for you.");
 
     // A time-out resumed once that comes back is not resumed again.
     orchestrator.afterResume = async (runId) => { await orchestrator.end(runId, "FAILED", TIMEOUT); };
@@ -220,6 +233,92 @@ describe("the run helper", () => {
     await vi.waitFor(async () => { expect((await actions("run-2")).at(-1)?.action).toBe("leave"); });
     expect((await actions("run-2")).map(({ action }) => action)).toEqual(["wait", "resume", "leave"]);
     expect((await actions("run-2")).at(-1)?.result).toMatch(/^The same stop came back after the helper resumed the run/u);
+  });
+
+  // Observed live (a real-project audit, November 21, 2026): the helper resumed a run after Codex's five-hour limit,
+  // and when the next window filled hours later, left the run to the owner as "the same stop came back".
+  it("resumes each new window of a subscription's usage limit, beyond the resumes a time-out or a failure gets", async () => {
+    const made = await helper();
+    // Each resume answers calls for five hours, until the next window fills; after the third window, a time-out.
+    orchestrator.afterResume = resumedThen([usage(at(5 * HOUR)), usage(at(10 * HOUR)), TIMEOUT]);
+    await orchestrator.stops("run-1", "SUSPENDED_RATE_LIMIT", usage(at(0)));
+    for (const reset of [0, 5 * HOUR, 10 * HOUR]) {
+      await waitingUntil(made, "run-1", at(reset + AFTER_RESET_MS));
+      clock.advance(START + reset + AFTER_RESET_MS - clock.now());
+    }
+    // Three resumes for the limit, and the time-out is still resumed: a limit's resumes do not count toward its two.
+    await waitingUntil(made, "run-1", at(10 * HOUR + AFTER_RESET_MS + RETRY_WAIT_MS));
+    clock.advance(RETRY_WAIT_MS);
+    await vi.waitFor(async () => { expect((await orchestrator.status("run-1")).state).toBe("COMPLETED"); });
+    expect(orchestrator.resumed).toEqual(["run-1", "run-1", "run-1", "run-1"]);
+    const record = await made.record("run-1");
+    expect(record.actions.map(({ action, rule }) => `${action}:${rule}`)).toEqual(["wait:usage-limit", "resume:usage-limit", "wait:usage-limit", "resume:usage-limit", "wait:usage-limit", "resume:usage-limit", "wait:time-limit", "resume:time-limit"]);
+    expect(record).toMatchObject({ resumes: 4, resumedFor: ["usage-limit:openai", "usage-limit:openai", "usage-limit:openai", "time-limit:openai"] });
+    // What each was resumed for: the reset, and the calls the run had made by then, by which the next stop is read.
+    expect(record.limitResumes).toEqual([0, 5 * HOUR, 10 * HOUR].map((reset, calls) => ({ at: at(reset + AFTER_RESET_MS), stop: "usage-limit:openai", resetsAt: at(reset), calls, idle: 0 })));
+    expect((await actions("run-1")).filter(({ action }) => action === "resume").map(({ result }) => result))
+      .toEqual(["after the usage limit reset", "after the usage limit reset", "after the usage limit reset", ""].map((after) => `The helper resumed the run${after === "" ? "" : ` ${after}`}.`));
+  });
+
+  it("leaves a usage limit that comes back with the same reset, or with none and no call answered since the resume", async () => {
+    const made = await helper();
+    // Met again at once after the reset, which the provider now gives thirty seconds later: the same reset.
+    orchestrator.afterResume = resumedThen([usage(at(30 * MINUTE + 30_000))]);
+    await orchestrator.stops("run-1", "SUSPENDED_RATE_LIMIT", usage(at(30 * MINUTE)));
+    await waitingUntil(made, "run-1", at(30 * MINUTE + AFTER_RESET_MS));
+    clock.advance(30 * MINUTE + AFTER_RESET_MS);
+    await vi.waitFor(async () => { expect((await actions("run-1")).at(-1)?.action).toBe("leave"); });
+    expect((await actions("run-1")).at(-1)?.result).toBe("The limit came back with the same reset after the helper resumed the run, so another resume would likely repeat it.");
+    expect(orchestrator.resumed).toEqual(["run-1"]);
+
+    // No reset given, and the usage window has room: resumed again when calls were answered since, left when none was.
+    orchestrator.afterResume = async (runId) => { await resumedThen([usage(null)], runId === "run-2")(runId); };
+    for (const runId of ["run-2", "run-3"]) {
+      await orchestrator.stops(runId, "SUSPENDED_RATE_LIMIT", usage(null));
+      await waitingUntil(made, runId, at(30 * MINUTE + AFTER_RESET_MS + RETRY_WAIT_MS));
+    }
+    clock.advance(RETRY_WAIT_MS);
+    await vi.waitFor(async () => { expect((await actions("run-3")).at(-1)?.action).toBe("leave"); });
+    expect((await actions("run-3")).at(-1)?.result).toBe("The limit came back before any call was answered since the helper resumed the run, so another resume would likely repeat it.");
+    await waitingUntil(made, "run-2", at(30 * MINUTE + AFTER_RESET_MS + 2 * RETRY_WAIT_MS));
+    expect((await actions("run-2")).map(({ action }) => action)).toEqual(["wait", "resume", "wait"]);
+  });
+
+  it(`leaves a usage limit that each resume meets again at once, after ${MAXIMUM_IDLE_LIMIT_RESUMES} resumes in a row`, async () => {
+    const made = await helper();
+    // A reset that moves two minutes later each time, with no call answered in between.
+    orchestrator.afterResume = resumedThen([usage(at(2 * MINUTE)), usage(at(4 * MINUTE))], false);
+    await orchestrator.stops("run-1", "SUSPENDED_RATE_LIMIT", usage(at(0)));
+    for (const reset of [0, 2 * MINUTE]) {
+      await waitingUntil(made, "run-1", at(reset + AFTER_RESET_MS));
+      clock.advance(START + reset + AFTER_RESET_MS - clock.now());
+    }
+    await vi.waitFor(async () => { expect((await actions("run-1")).at(-1)?.action).toBe("leave"); });
+    expect(orchestrator.resumed).toEqual(["run-1", "run-1"]);
+    expect((await actions("run-1")).at(-1)?.result).toBe("The helper resumed this run 2 times in a row after a usage limit with no call answered since, so it waits for you.");
+    expect((await made.record("run-1")).limitResumes?.map(({ idle }) => idle)).toEqual([0, 1]);
+  });
+
+  it("reads a record written before usage limits were told apart by their reset", async () => {
+    // The live run's record: one resume after Codex's limit, which then counted as one of two and as a stop seen.
+    const store = orchestrator.store("run-1");
+    await store.appendEvent({ t: "run_transition", runId: "run-1", state: "CREATED" });
+    await store.appendEvent({ t: "run_transition", runId: "run-1", state: "SUSPENDED_RATE_LIMIT", reason: usage(at(0)) });
+    const resumed = { reason: usage(at(0)), kind: "resume-now", rule: "usage-limit" };
+    await store.saveHelperActions({ version: 1, wait: null, resumes: 1, resumedFor: ["usage-limit:openai"], cancelled: false, handledStop: 1,
+      actions: [{ ...resumed, at: at(0), action: "wait", result: "The helper resumes the run a minute after the limit resets.", until: at(AFTER_RESET_MS) }, { ...resumed, at: at(AFTER_RESET_MS), action: "resume", result: "The helper resumed the run." }] });
+    const made = await helper();
+    orchestrator.afterResume = resumedThen([usage(at(5 * HOUR))]);
+    await orchestrator.stops("run-1", "SUSPENDED_RATE_LIMIT", usage(at(5 * HOUR)));
+    // Resumed for the next window; met again with the same reset, left.
+    await waitingUntil(made, "run-1", at(5 * HOUR + AFTER_RESET_MS));
+    clock.advance(5 * HOUR + AFTER_RESET_MS);
+    await vi.waitFor(async () => { expect((await actions("run-1")).at(-1)?.action).toBe("leave"); });
+    expect(orchestrator.resumed).toEqual(["run-1"]);
+    expect((await actions("run-1")).at(-1)?.result).toMatch(/^The limit came back with the same reset/u);
+    // Whether calls were answered after the first resume cannot be told, so it counts as one no call was answered after.
+    expect(await made.record("run-1")).toMatchObject({ resumes: 2, resumedFor: ["usage-limit:openai", "usage-limit:openai"],
+      limitResumes: [{ at: at(AFTER_RESET_MS), resetsAt: at(0), calls: null, idle: 0 }, { at: at(5 * HOUR + AFTER_RESET_MS), resetsAt: at(5 * HOUR), calls: 0, idle: 1 }] });
   });
 
   it("never resumes a run the owner cancels during the wait, nor after", async () => {

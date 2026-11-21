@@ -15,6 +15,9 @@ export interface RouteSwitch {
   readonly spentUsd: number | null; readonly resetsAt?: string; readonly effort?: string; readonly detail?: string;
 }
 
+/** What a call refused because its account ran out does next (ModelRoutes.exhausted): go to `route`, wait in place, or neither. */
+export type AfterLimit = { readonly route: string } | "wait" | null;
+
 /** Why a profile is out, and until when (ISO-8601; null for the rest of the run, or until its cap is raised). */
 interface Out { readonly reason: Exclude<ModelRouteReason, "reset">; readonly until: string | null }
 
@@ -57,16 +60,18 @@ export class ModelRoutes {
   route(requested: string, effort?: string): Promise<string> { return this.#serial(() => this.#route(requested, effort)); }
 
   /**
-   * A call on `profile` was refused because its account ran out. Returns the profile the call is sent to instead, or
-   * null when the run should pause: a subscription's limit that resets within `fallbackWaitMs`, or no fallback left.
+   * A call on `profile` was refused because its account ran out. Returns what the call does next: it is sent to another
+   * profile (`route`); it waits in place for a subscription's limit that resets within `fallbackWaitMs` (`wait`), when
+   * `waits` says the call may still wait (ModelActivities); or neither (null), and the run pauses: no fallback is left. A
+   * subscription's near limit the call may not wait for again is switched from as a later one is.
    */
-  exhausted(profile: string, error: ProviderUsageLimitError, effort?: string): Promise<string | null> {
-    return this.#serial(async () => {
+  exhausted(profile: string, error: ProviderUsageLimitError, effort?: string, waits = true): Promise<AfterLimit> {
+    return this.#serial(async (): Promise<AfterLimit> => {
       const state = await this.#load();
       // A call in flight beside the one that switched: it follows the switch.
-      if (state.out[profile] !== undefined) { try { return await this.#route(profile, effort); } catch { return null; } }
+      if (state.out[profile] !== undefined) { try { return { route: await this.#route(profile, effort) }; } catch { return null; } }
       const subscription = this.#subscription(profile);
-      if (subscription && error.retryAfterMs !== null && error.retryAfterMs <= this.#wait) return null;
+      if (waits && subscription && error.retryAfterMs !== null && error.retryAfterMs <= this.#wait) return "wait";
       const next = this.execution.fallbacks?.[profile];
       if (next === undefined) return null;
       const resetsAt = subscription && error.retryAfterMs !== null ? new Date(this.now() + error.retryAfterMs).toISOString() : null;
@@ -74,14 +79,15 @@ export class ModelRoutes {
       const target = await this.#reachable(next, new Set([profile]));
       if (target === null) return null;
       await this.#switch(profile, target, { reason, until: resetsAt }, effort, error.message);
-      return target;
+      return { route: target };
     });
   }
 
   /**
-   * Whether the run waits for a usage limit a call of `profile` met, and pauses until then, rather than go on without
-   * it: a subscription's limit, the profile's own or that of a fallback it went to, that resets within `fallbackWaitMs`.
-   * An optional step asks this before it goes on without its model (optional-steps.ts).
+   * Whether the run waits for a usage limit a call of `profile` met rather than go on without it: a subscription's
+   * limit, the profile's own or that of a fallback it went to, that resets within `fallbackWaitMs`. A call waits for
+   * such a limit in place (ModelActivities), so a stage meets one only from a call that could not wait for it. An
+   * optional step asks this before it goes on without its model (optional-steps.ts).
    */
   waits(profile: string, error: ProviderUsageLimitError): boolean {
     if (error.retryAfterMs === null || error.retryAfterMs > this.#wait) return false;

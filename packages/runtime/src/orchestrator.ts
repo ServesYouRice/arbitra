@@ -22,7 +22,6 @@ import { listRunIds, RunStore, runsDirectoryOf, type ArtifactDescriptor, type St
 import { ModelAuditPipeline, validateModelAudit, type AuditUnitOptions } from "./model-pipeline.js";
 import { captureSnapshotIdentity, INCREMENTAL_CONTRACT_KIND, incrementalReport, incrementalRequestOf, IncrementalSeed, planIncrementalAudit, readIncrementalArtifact, SNAPSHOT_IDENTITY_KIND, snapshotChanges, withIncrementalBase, type IncrementalContract, type SnapshotIdentity } from "./incremental-audit.js";
 import type { TestSandbox } from "./test-sandbox.js";
-import type { TransportFactoryOptions } from "@arbitra/providers/registry.js";
 import type { HttpClient } from "@arbitra/providers/transport-contract.js";
 import type { PlanIR } from "@arbitra/schemas/plan.js";
 import { loadActivityTraces } from "@arbitra/persistence/trace.js";
@@ -42,7 +41,7 @@ import { checkpointPolicySchema, checkpointResponseSchema, PLAN_QUESTIONS_CHECKP
 import { PlanQuestionsCheckpoint, type PlanQuestionsCheckpointResource } from "./plan-questions.js";
 import { batchResolutionRequestSchema, providerExecutionSchema } from "@arbitra/schemas/provider-execution.js";
 import { answerCheckerProfile, checkerProfile, mergerProfile, secondOpinionProfile, type AuditRoles } from "./audit-roles.js";
-import { ModelActivities } from "./model-activities.js";
+import { ModelActivities, type ModelActivityOptions } from "./model-activities.js";
 import { graphCheckpointStore } from "./graph-checkpoint-store.js";
 import { canonicalJson } from "@arbitra/core/config/config-store.js";
 import { replayRequestSchema, type FeatureReplayRequest, type ReplayRequest, type TestingReplayRequest } from "@arbitra/schemas/replay.js";
@@ -83,7 +82,7 @@ export interface OrchestratorOptions {
   readonly stateDirectory?: string;
   readonly repository?: string;
   readonly newRunId?: () => string;
-  readonly providerOptions?: TransportFactoryOptions;
+  readonly providerOptions?: ModelActivityOptions;
   readonly testSandbox?: TestSandbox;
   /**
    * Additional audit-mode graphs dispatched by preset ID. They cannot replace a shipped
@@ -210,7 +209,7 @@ export class Orchestrator {
   readonly #resuming = new Set<string>();
   /** Who follows runs from outside them, such as the run helper (run-helper.ts), which resumes the stops a resume helps. */
   readonly #observers = new Set<RunObserver>();
-  readonly #providerOptions: TransportFactoryOptions;
+  readonly #providerOptions: ModelActivityOptions;
   readonly #keyCheckClient: HttpClient | undefined;
   readonly #testSandbox: TestSandbox | undefined;
   readonly #graphs: Readonly<Record<string, RunnerGraph>>;

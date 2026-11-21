@@ -353,10 +353,23 @@ severe rejection it leaves without a second opinion stays open.
 An optional step never holds the run on a model whose usage allowance is out
 (`packages/runtime/src/optional-steps.ts`). The optional steps are the second opinion, the variant
 search, the plan critic, and a finder the run can go on without (two others stay, and it holds
-no role but the variant search). When such a step's model meets a usage limit, the run waits only as it
-would for any model: a subscription's limit that resets within `fallbackWaitMs` (30 minutes by
-default) pauses the run until then. Otherwise the model's fallback answers when it has one
-(`workflow.modelExecution.fallbacks`). Failing that, a second opinion goes to another of the run's
+no role but the variant search). When such a step's model meets a usage limit, its call waits only as
+any model's does. A call refused by a subscription's limit that resets within `fallbackWaitMs` (30
+minutes by default) waits in place until a minute after the reset and is then sent again, in every
+stage (`ModelActivities`, `limit-waits.ts`): it holds no budget reservation and no provider slot, its
+wait counts toward neither its time-out nor its retries, the run's other calls and stages go on, and a
+later call of the same profile waits with it, unsent. The run records the wait as `model_waiting` and
+`model_wait_ended` events, which the run page shows ("Codex's limit for GPT-6.1 Sol resets at 12:27;
+GPT-6.1 Sol waits and goes on at 12:28, while the rest of the run goes on"). A cancel ends the wait at
+once, and so does leaving the finder out, whose answers are then not needed. The call waits again only
+while the resets it waited for add up to `fallbackWaitMs`, at most three times; met again after that, the
+limit fails the call as one that resets later does, and the run pauses for the run helper (a core stage)
+or goes on without the step (an optional one). Observed live (a real-project audit, November 21, 2026):
+before, the limit failed the finder's discovery, and the run paused only once the other finder's
+discovery had ended, two hours later, on a limit that had reset seven minutes after it was met. A
+server stopped during a wait leaves the run as any stopped live run: resumed from the header, the call
+is sent again and waits again if the limit is still there. Otherwise the model's fallback answers when
+it has one (`workflow.modelExecution.fallbacks`). Failing that, a second opinion goes to another of the run's
 models: of another vendor than the verifier that rejected the issue, on another account than any
 found out, at least as capable, and never Gemini, which only does optional work (a third finder,
 the variant search) and is not trusted with checking. With none, the issue stays open, never
@@ -615,7 +628,7 @@ after the provider's own retries, for a cause in that call alone (a model call t
 transport cannot read, a part past its time limit again, a server error), is left unexamined for that auditor
 without a split (`discovery-declined-*` with cause `provider_failed`, limitation `discovery_provider_failed`), and
 the auditor goes on with its other units. A failure no one unit causes still fails the auditor's discovery, and with
-it the run, as before: a sign-in, a usage limit (which pauses the run), a throttle, a request refused whatever it
+it the run, as before: a sign-in, a usage limit (which pauses the run, unless the call waited for it in place), a throttle, a request refused whatever it
 holds (`INVALID_REQUEST`, such as a model the account is not offered or a missing CLI, and an HTTP 4xx), a token
 budget, a cancelled run, a CLI that left processes running, a failure arbitra cannot class, and three units in a
 row that failed with none answered between them (`MAXIMUM_FAILED_UNITS_IN_A_ROW`), or every unit, since a sleeping

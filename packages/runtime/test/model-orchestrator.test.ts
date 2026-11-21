@@ -5,15 +5,16 @@ import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { runConfigSchema, type RunConfig } from "@arbitra/schemas/config.js";
 import { planIRSchema } from "@arbitra/schemas/plan.js";
 import { TransportError, type HttpRequest, type HttpResponse, type TransportRequest } from "@arbitra/providers/transport-contract.js";
-import { BUILTIN_TRANSPORT_FACTORIES, type TransportFactory, type TransportFactoryOptions } from "@arbitra/providers/registry.js";
+import { BUILTIN_TRANSPORT_FACTORIES, type TransportFactory } from "@arbitra/providers/registry.js";
 import { Orchestrator } from "../src/orchestrator.js";
 import { RunHelper } from "../src/run-helper.js";
 import { controlPlaneCore } from "../src/control-plane-core.js";
 import { orchestratorCore } from "../src/cli-core.js";
-import { ModelActivities, type ModelActivityRequest } from "../src/model-activities.js";
+import { ModelActivities, type ModelActivityOptions, type ModelActivityRequest } from "../src/model-activities.js";
 import { taskOutline } from "../src/planner-context.js";
 import type { PlannerBrief, PlannerTaskOutline } from "@arbitra/schemas/planner-composition.js";
 import type { TestSandbox } from "../src/test-sandbox.js";
+import { FakeWaitClock } from "./wait-clock.js";
 
 const directories: string[] = [];
 /** A plan's questions with the planner's suggested answers (planner 1.1.0): two that block and one that does not. */
@@ -335,7 +336,7 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
       : { output_text: text, usage: { input_tokens: 10, output_tokens: 20 } };
     return { status: 200, headers: {}, body: response };
   };
-  const create = (testSandbox?: TestSandbox, providerOptions: TransportFactoryOptions & { readonly factories?: Readonly<Record<string, TransportFactory>> } = {}, build?: string) => new Orchestrator({ repository: directory, stateDirectory: join(directory, ".runs"), providerOptions: { client: { send }, credential: () => "fixture-credential", ...providerOptions }, ...(testSandbox === undefined ? {} : { testSandbox }), ...(build === undefined ? {} : { build }) });
+  const create = (testSandbox?: TestSandbox, providerOptions: ModelActivityOptions & { readonly factories?: Readonly<Record<string, TransportFactory>> } = {}, build?: string) => new Orchestrator({ repository: directory, stateDirectory: join(directory, ".runs"), providerOptions: { client: { send }, credential: () => "fixture-credential", ...providerOptions }, ...(testSandbox === undefined ? {} : { testSandbox }), ...(build === undefined ? {} : { build }) });
   return { directory, create, config, requests, verificationInputs, answerCheckInputs, operatorAnswers, plannerContexts, plannerConstraints, plannerReads, reviewInputs, packedChecks, criticIssueIds, verificationFlight, mergedListedPair: () => mergedListedPair, failRevisionPatch: (value: boolean) => { failRevisionPatch = value; }, failExpansion: (value: boolean) => { failExpansion = value; }, failCritic: (value: boolean) => { failCritic = value; }, quotaCritic: (until: string) => { quotaUntil = until; }, quotaDiscovery: (auditorId: string | null) => { quotaDiscovery = auditorId; }, quotaWhen: (when: typeof quotaWhen) => { quotaWhen = when; }, failVerification: (value: boolean) => { failVerification = value; }, blockDiscovery: (callback: () => void) => { blockDiscovery = callback; } };
 }
 
@@ -563,6 +564,48 @@ describe("composed model audits", () => {
     expect((await core.overview(result.runId)).reason).toMatch(/^ProviderUsageLimitError: .*insufficient_quota/u);
     await vi.waitFor(async () => { expect((await core.status(result.runId)).state).toBe("COMPLETED"); }, { timeout: 15_000, interval: 100 });
     expect(requests.filter(({ stage }) => stage.startsWith("planner")).length).toBeGreaterThan(1);
+  });
+
+  it("has a finder met by its subscription's limit wait in place for the reset while the others find, and the run never pauses", async () => {
+    // Observed live (a real-project audit, November 21, 2026): Sol met Codex's five-hour limit seven minutes before its
+    // reset. The limit failed Sol's discovery, the run paused only once Opus's discovery had ended, two hours later,
+    // and Sol sat idle all that time.
+    const { create, config, requests } = await fixture();
+    const execution = config.workflow["modelExecution"] as { endpoints: Record<string, unknown>[] };
+    // auditor-a reaches its model through a stand-in for Codex here, a subscription CLI the fixture answers for as for its API.
+    execution.endpoints[0] = { id: "auditor-a", providerId: "openai", transport: "fixture-cli", endpoint: "cli://fixture", auth: "subscription_login" };
+    const profile = config.models["auditor-a"]; if (profile === undefined) throw new Error("FIXTURE_PROFILE_ABSENT");
+    config.models["auditor-a"] = { ...profile, transport: "fixture-cli" };
+    const clock = new FakeWaitClock(Date.now());
+    let refused = 0;
+    const codex: TransportFactory = (_configuration, options) => {
+      const api = BUILTIN_TRANSPORT_FACTORIES["openai-responses"]?.({ endpoint: "https://auditor-a.example/v1", apiKeyEnv: "FIXTURE_KEY" }, options);
+      if (api === undefined) throw new Error("FIXTURE_TRANSPORT_ABSENT");
+      return { id: "fixture-cli", send: async (request: TransportRequest, signal: AbortSignal) => {
+        // Its first call meets the limit, which resets in seven minutes.
+        refused += 1;
+        if (refused === 1) throw new TransportError("QUOTA", `CLI_USAGE_LIMIT_REACHED: the Codex CLI subscription's usage allowance is exhausted until ${new Date(clock.now() + 7 * 60_000).toISOString()}`, false, 7 * 60_000);
+        return await api.send(request, signal);
+      } };
+    };
+    const core = create(undefined, { factories: { "fixture-cli": codex }, waitClock: clock });
+    const running = core.run(config);
+    await vi.waitFor(() => { expect(clock.pending.length).toBeGreaterThan(0); }, { timeout: 15_000, interval: 20 });
+    // While auditor-a waits, the other finders' discovery is sent and answered; the run waits for auditor-a's before
+    // it reviews, and does not pause.
+    const finders = () => new Set(requests.filter(({ stage }) => stage === "discovery").map(({ url }) => /auditor-[a-c]/u.exec(url)?.[0]));
+    await vi.waitFor(() => { expect(finders()).toEqual(new Set(["auditor-b", "auditor-c"])); }, { timeout: 15_000, interval: 20 });
+    const [runId] = await core.runIds(); if (runId === undefined) throw new Error("RUN_ABSENT");
+    expect((await core.status(runId)).state).toBe("DISCOVERY_RUNNING");
+    expect(requests.filter(({ stage }) => stage === "review")).toEqual([]);
+    clock.advance(8 * 60_000);
+    const result = await running;
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.slice(-3))).toBe("COMPLETED");
+    expect(events.filter((event) => event.t === "run_transition" && event.state.startsWith("SUSPENDED"))).toEqual([]);
+    expect(events.filter(({ t }) => t === "model_waiting" || t === "model_wait_ended")).toMatchObject([{ t: "model_waiting", profile: "auditor-a" }, { t: "model_wait_ended", profile: "auditor-a", outcome: "went_on" }]);
+    expect(events.filter(({ t }) => t === "optional_step_limited" || t === "model_route_switched")).toEqual([]);
+    expect(finders()).toEqual(new Set(["auditor-a", "auditor-b", "auditor-c"]));
   });
 
   it("goes on without the plan critic whose allowance is out, the gate saying the plan went unreviewed", async () => {
