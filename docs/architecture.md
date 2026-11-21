@@ -275,6 +275,10 @@ selected item are a link and the back button walks them:
   see [Operator-authored graphs](workflows.md#operator-authored-graphs). A saved version
   links to a new run that executes it. Unsaved edits guard every way out: in-app links, the
   back button and `beforeunload`.
+- **Settings** (`pages/SettingsPage.tsx`) reads and saves the run helper's part of
+  `<state>/settings.json` (`helper.autoResume`, `helper.model`) through `GET` and `PUT /settings`,
+  a route of the local app (`apps/server/src/settings.ts`), as each is changed. The helper
+  reads the file at each decision, so no restart is needed.
 
 The run tabs reuse the views: the Issue Board (`views/issue-board/`), one line per canonical
 issue with its dissent on the row and its full record in the details panel; the Plan view
