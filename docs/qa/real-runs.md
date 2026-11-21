@@ -482,6 +482,26 @@ cost. No confirmed issue turned out unreal (the proofs are checked below). Decid
 before the plan stays an option, off by default in both modes, since carrying out the check costs the same and proves
 the answer; the plan's README gives this rate.
 
+### A messaging app's plan, October 31 to November 11
+
+The 227-task plan of `run-e5546c4c` (audited October 25), read on November 21 from the project's own history and its
+plan folder. It was carried out on the project's `main` through feature branches, not one `dev` branch.
+- **All 227 tasks ticked.** 258 of the 288 commits naming a task or check came on October 31, the rest from November 1
+  to 11. One task needed no change: its policy question was answered by documenting the residual.
+- **The tail was the owner's answers:** ten days waited on the blocking questions behind eight tasks, answered in one
+  sitting on November 7, and on a feature the project was building at the time. Built from it: suggested answers to
+  the plan's questions (November 21).
+- **Unsure reports:** of 42, 24 held and were fixed, 7 had been fixed before they were checked, and 11 did not hold:
+  24 of the 35 still in the code. With the 7 of 20 above, between a third and two thirds held; the plan's README gave
+  "most such reports do not hold", from the first 6 decided, and now gives both measurements (November 21).
+- **`results.json` was left half empty** while every task in PROGRESS.md was ticked: 122 of 257 task entries and 40 of
+  42 check entries had no result; 116 proofs said only that the evidence was in each commit message; `failedBefore` was
+  true for 36 of 135 fixed and held a sentence once; one defect was recorded as found while fixing. The verdicts went
+  into notes in PROGRESS.md, which arbitra does not read. So the proof replay and the export's measurements cannot be
+  taken from this plan. Built from it: `check-results.mjs` in every plan folder, and the run page lists entries that
+  break its rules (November 21).
+- **The code moved on:** 7 of the unsure reports had been fixed by other work between the audit and the check.
+
 ### The proofs, checked (October 25)
 
 Each of the 124 proofs was classed by hand from nextra's `results.json`, dev-notes and `dev` history, with no model

@@ -1,6 +1,6 @@
 # Remaining work
 
-Updated November 11, 2026, on `main`. This file lists open work only, each item with its next step and its place in
+Updated November 21, 2026, on `main`. This file lists open work only, each item with its next step and its place in
 the order below; an item is deleted once it is done, and Git keeps its history. Run records and measurements are in
 [real-project runs](docs/qa/real-runs.md), phase status in the [completion plan](docs/completion-plan.md), the design
 review in the [design audit](docs/design-audit.md), the research behind the pipeline in [research](docs/research.md),
@@ -23,16 +23,13 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
   and three resume options, `leaveOut` (7fefa29), `skipBelowPlanScope` (c197da9) and `reassign` (ec08507).
   Built after it on November 11: the run helper's steps 1 and 2 (a restart no longer drops a usage-limit wait), a
   fallback between an API key and a subscription with a dollar cap, an API key check in New run, and one title for a
-  plan written in sections. Open from it:
-  - **API cache mark:** `anthropic-messages.ts` caches only the end of a request, so every unit and question writes
-    its shared start again ($113 of the $195 was cache writes; 0 of 305 questions read a first call from the cache).
-    Mark the shared start too, then measure.
-  - **The second opinion held the run 3 h 04** on Codex's window (`roles.secondOpinion` on Sol) after Opus had
-    answered everything else; it should not hold a stage on another vendor's window, or fall back.
+  plan written in sections. Built from it on November 21 (measure under "Measure on the next runs"): the cache marks
+  on the API's shared start, an optional step that no longer holds the run on another vendor's window, "line 20" for
+  one line, and New run's count read by the run's own leave-out rules (the 567 against 562 was two saved lineups'
+  leave-outs; the two sides also read a leave-out differently, now one function). Open from it:
   - Sol's Plus window ran out three times (27 and 44 minutes of Sol at xhigh); a project this size needs more than one.
   - Checking confirmed 96% (Sol's issues 100%): leniency cannot be told from precise finders until the plan is carried out.
   - Tokens a line were 1,482, above New run's deep basis (1,290 to 1,330).
-  - New run counted 567 files where the run's preflight counted 562; the export writes "lines 20" for one line.
   - The `claude` on PATH (npm 2.0.51) is refused by current models; the run used the VS Code extension's 2.1.322
     through ARBITRA_CLAUDE_CODE_EXECUTABLE.
 - **Default lineup:** New run starts on Claude Code and Codex (`subscription-audit`: two finders at depth deep, no
@@ -49,6 +46,11 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
   45ed1d2, finished on that build plus the critic and revision fixes it showed were needed
   ([real runs](docs/qa/real-runs.md#the-runs)). The 400-file snapshot limit refused it and is now 1,000. The builds
   marked *before veritra* were not in it, so this run is their baseline.
+- **The messaging app's plan** (`run-e5546c4c`), carried out October 31 to November 11 and read on November 21
+  ([real runs](docs/qa/real-runs.md#a-messaging-apps-plan-october-31-to-november-11)): all 227 tasks done, one
+  needing no change; the last ten days waited on the owner's answers; 24 of the 35 unsure reports still in the code
+  held; `results.json` was left half empty. Built from it on November 21: the unsure reports as part of the work with
+  both measured rates, `check-results.mjs` in every plan folder, and suggested answers to the plan's questions.
 
 ## Order of work
 
@@ -59,20 +61,18 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
    reuses a stopped run (its refusal names `run <config> --incremental <id>`); native-harness and batch-lane calls get
    no sleep handling; stage and run times on the run page still count time asleep; the P20 premise driver does not keep
    the computer awake.
-2. **veritra's plan,** after the reset on October 31: re-export run `run-e5546c4c` on the current build, carry its 227
-   tasks out on veritra's `dev` branch (never `main`), count what the prompts did not cover, and take the export,
-   premise-check and write-scope measurements under "Measure on the next runs".
-3. **Measure first** (no model calls, or one cheap run): they decide what to cut before anything is built.
-4. **Small builds before the next real runs** ("Need design", marked *before veritra*).
-5. **The next real runs:** first **properties** (small and new), to try the November 11 builds (the run helper, the
-   API ↔ subscription fallback with a dollar cap, the key check) and the experiments under "To test next week", one
-   change per run; then spectra and game, on the current build, with "Measure on the next runs". The owner will set
-   the order again after the November 11 push, and would rather not run earlier projects again.
-6. **UI phase**: built on the `ui` branch, merged into `main` and released in 0.3.0; the owner's review and the
+2. **Measure first** (no model calls, or one cheap run): they decide what to cut before anything is built.
+3. **Small builds before the next real runs** ("Need design", marked *before veritra*).
+4. **The next real runs:** first **properties** (small and new), on the subscriptions, to try the November 11 and 21
+   builds (the run helper, an optional step's wait, suggested answers, the plan's new checks) and the experiments
+   under "To test next week", one change per run. What needs API credit waits for it (owner, November 21): the
+   API ↔ subscription fallback with a dollar cap, the key check and the cache marks. Then spectra and game, later, on
+   a newer build, with "Measure on the next runs". The owner would rather not run earlier projects again.
+5. **UI phase**: built on the `ui` branch, merged into `main` and released in 0.3.0; the owner's review and the
    testers' reports go on.
-7. **Improvements the measurements support** (the rest of "Need design"). The run helper's steps 1 and 2 are built;
+6. **Improvements the measurements support** (the rest of "Need design"). The run helper's steps 1 and 2 are built;
    steps 3 and 4 wait for their measurements.
-8. **P21**, the completion report and the docs reconciled with the final build, then a release.
+7. **P21**, the completion report and the docs reconciled with the final build, then a release.
 
 ## To test next week
 
@@ -125,6 +125,22 @@ From the research review; each decides a cut or a build.
 - **The API key check** (built November 11) proves the key and the model name through the models routes, at no cost,
   but not the credit or the request's shape: memoria's refused `thinking.effort` would have passed it. A count-tokens
   check with the encoded request would catch that; verify it live first.
+- **The API cache marks** (built November 21, needs API credit): the end of the system prompt and of each stage's
+  shared start (discovery's through the repository index, about 13.4K tokens; a question's layers, about 3.7K) are
+  marked besides the request's end. Estimated from memoria's prompts: 29% of a first discovery call and 10% of a first
+  question read instead of written, about $11 of the $195. Check on the first API run: first calls'
+  `cache_read_input_tokens` near the shared start after the first few, no 400s, the compiled prompt's `sharedStart.hash`
+  the same across a stage's units, cache writes down by about that much. Next if it holds: mark a question's first
+  cited file too (19% of first-call tokens against 4%).
+- **An optional step out of allowance** (built November 21, `optional-steps.ts`): a second opinion, the variant
+  search, the critic or a finder's remaining units no longer hold the run past `fallbackWaitMs` on their model's
+  window: a fallback route, else a stand-in of another vendor (never Gemini) for a second opinion, else the step goes
+  without it and a severe rejection stays unsettled; `optional_step_limited` events and the `optional-steps` artifact.
+  Count on the next runs how often it moved a step and what it cost in unsettled issues. Still pausing: a finder out
+  during peer review or conflict votes, and an optional profile at its dollar cap.
+- **The plan's new checks** (built November 21): whether executing agents run `check-results.mjs` and leave
+  `results.json` complete (a messaging app's plan left it half empty), and how many unsure reports hold on the next plan
+  carried out (7 of 20, then 24 of 35 so far).
 - **Discovery reading beyond its unit** (production-audit 2.0.0, cheaper from 2.1.0): on nananananana (November 1,
   [real runs](docs/qa/real-runs.md#the-runs)) every unit read beyond itself (about 12 files, against 7 to 12 in the
   unit), 151 of 175 confirmed issues cite a file beyond their unit, and it doubled the tokens a line, with 70
@@ -312,9 +328,9 @@ the run's status, the report's lines that matter), never the whole run.
    `runs/<id>/helper-actions.json`, so a restart keeps them, and `helper_action` events on the run page. Switches:
    `workflow.autoResume` and `helper.autoResume` in `<state>/settings.json`, both on. A run paused at its dollar cap is
    `fix-computer` and never resumed by itself. Open: the model reading of a stop no rule names (`StopReader`, not
-   built: such a stop is never resumed), a web switch for `helper.autoResume` and `helper.model`, a stopped run's
-   page shows a later resume only after a reload; measure on the next real runs how many stops it resumed and how
-   many of those then finished.
+   built: such a stop is never resumed); measure on the next real runs how many stops it resumed and how many of those
+   then finished. Built November 21: the Settings page sets `helper.autoResume` and `helper.model` (nothing calls the
+   model yet), and an open run page now picks up the helper's decision and a later resume without a reload.
 3. **The interview for Feature requests.** A model step before Feature mode's own requirements step
    (`model-requirements.ts`): from the owner's first sentence and the project's snapshot it asks at most about 5
    questions at a time, in plain words, each with a proposed answer, over at most 3 rounds; then it writes the
@@ -379,12 +395,13 @@ is needed, and code everywhere else.
    - New: read the project's own `AGENTS.md`, `CLAUDE.md`, `.cursorrules` and Copilot instruction files, matching
      names in any case, as untrusted context for the finders (CodeRabbit misses `claude.md` by matching exact case).
    - The estimate and what was chosen are shown before Start, each changeable; nothing is hidden. No model call.
-3. **Suggested answers to the plan's questions.** Each blocking question in `plan-questions.ts` gets a proposed
-   answer with its reason, the recommended option first, and an "Other" box (Spec Kit's `/speckit.clarify` shape:
-   at most 5 questions, answers saved with the plan). "Accept all suggested" covers only questions where the
-   planner and the other vendor's model proposed the same answer; a question they disagree on, or whose blast radius
-   is high, must be answered one by one, since people shown a wrong suggestion follow it (one study: 14 points of
-   accuracy lost). The record says which answers were taken as suggested.
+3. **Suggested answers to the plan's questions.** Built November 21 (planner 1.1.0, `answer-check` 1.0.0,
+   `workflow.answerCheck`, on when the lineup has another vendor): each blocking question carries the planner's
+   suggestion and reason; one batched call of another vendor's model, never Gemini unless the run names it, answers
+   them blind; "Accept all suggested" takes only the ones they agree on whose blast radius is not high; each answer is
+   recorded as taken as suggested, chosen otherwise or written, and `questions.md` shows all of it. Open: a live run
+   (cheap models first) to see whether the suggestions and the other model's answers are good; no browser test covers
+   the new form; an incremental run asks the other model again.
 4. **Short summary.** The Summary opens with at most 3 issues to worry about, each in two plain sentences (what can
    go wrong, who can trigger it) with its evidence one click down. Ranking is code: severity, then the verifier's
    verdict, then how many vendors found it; one of the 3 places is kept for a confirmed critical or high issue only
