@@ -9,8 +9,9 @@ import type { RunStore } from "./run-store.js";
  * beyond its unit from production-audit 2.0.0 (October 25, 2026), and refuses to resume a run pinned earlier; from 2.1.0
  * (November 1, 2026) it looks names up and is told its tool turns left, and a run pinned at 2.0.0 goes on as it was. A
  * verification question carries related source and a layout for caches from targeted-verification 1.1.0 (November 1,
- * 2026); a run pinned at 1.0.0 asks as it did. */
-export const AUDIT_PROTOCOL_DEFAULTS: Readonly<Record<string, string>> = Object.freeze({ "plan-critic": "1.1.0", "production-audit": "2.1.0", "targeted-verification": "1.1.0" });
+ * 2026); a run pinned at 1.0.0 asks as it did. Every question a plan leaves open carries a suggested answer from planner
+ * 1.1.0 (November 21, 2026); a run pinned at 1.0.0 is sent the schema it was always sent. */
+export const AUDIT_PROTOCOL_DEFAULTS: Readonly<Record<string, string>> = Object.freeze({ "plan-critic": "1.1.0", planner: "1.1.0", "production-audit": "2.1.0", "targeted-verification": "1.1.0" });
 
 /**
  * Pins trusted bytes once per run. Restarts and replays read the recorded content. `selections` are the run's own

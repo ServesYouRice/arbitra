@@ -97,6 +97,9 @@ export const runConfigSchema = z.object({
     }
     // `autoResume: false` keeps the run helper from resuming this run by itself (packages/runtime/src/run-helper.ts); on unless set.
     if (workflow["autoResume"] !== undefined && typeof workflow["autoResume"] !== "boolean") context.addIssue({ code: "custom", path: ["autoResume"], message: "Expected true or false" });
+    // `answerCheck` has a model of another vendor answer the plan's blocking questions on its own; unless set, on when
+    // the lineup has a model of another vendor than the planner's (packages/runtime/src/answer-check.ts).
+    if (workflow["answerCheck"] !== undefined && typeof workflow["answerCheck"] !== "boolean") context.addIssue({ code: "custom", path: ["answerCheck"], message: "Expected true or false" });
     if (workflow["modelExecution"] === undefined) return;
     const result = providerExecutionSchema.safeParse(workflow["modelExecution"]);
     if (!result.success) for (const issue of result.error.issues) context.addIssue({ ...issue, path: ["modelExecution", ...issue.path] });
@@ -112,6 +115,7 @@ export const runConfigSchema = z.object({
   if (config.workflow["graph"] !== undefined && config.mode !== "audit") context.addIssue({ code: "custom", path: ["workflow", "graph"], message: "Saved workflow graphs require audit mode" });
   if (config.workflow["critic"] !== undefined && config.mode !== "audit") context.addIssue({ code: "custom", path: ["workflow", "critic"], message: "The plan critic switch applies only to Audit runs; a Feature names its critic in workflow.feature.roles" });
   if (config.workflow["variantSearch"] !== undefined && config.mode !== "audit") context.addIssue({ code: "custom", path: ["workflow", "variantSearch"], message: "The variant search applies only to Audit runs" });
+  if (config.workflow["answerCheck"] !== undefined && config.mode !== "audit") context.addIssue({ code: "custom", path: ["workflow", "answerCheck"], message: "The answer check applies only to Audit plans' questions" });
   if (config.workflow["testing"] !== undefined) {
     const testing = testingExecutionSchema.safeParse(config.workflow["testing"]);
     if (config.mode !== "testing") context.addIssue({ code: "custom", path: ["workflow", "testing"], message: "Testing settings require testing mode" });

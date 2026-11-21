@@ -148,6 +148,28 @@ describe("configuration preflight", () => {
     expect(configurationDiagnostics(config as unknown as RunConfig).filter(({ code }) => code.startsWith("MODEL_EFFORT"))).toEqual([]);
   });
 
+  it("checks the answer checker's effort, and warns when no model of another vendor can answer the plan's questions", async () => {
+    const config = mutable(await template("subscription-audit"));
+    // The planner is Claude, and the critic (Codex) answers the plan's questions too, at the effort it is set.
+    (config.models["auditor-b"] as Record<string, unknown>)["effort"] = { supported: ["low", "medium", "high"], collapse: {}, params: { low: { effort: "low" }, medium: { effort: "medium" }, high: { effort: "high" } } };
+    execution(config)["stageEffort"] = { answerCheck: "xhigh" };
+    expect(codes(configurationDiagnostics(config as unknown as RunConfig))).toEqual(["MODEL_EFFORT_UNSUPPORTED:auditor-b"]);
+    execution(config)["stageEffort"] = {};
+    const answerCodes = () => configurationDiagnostics(config as unknown as RunConfig).filter(({ code }) => code.startsWith("MODEL_ANSWER_CHECK")).map(({ code, severity }) => [code, severity]);
+    expect(answerCodes()).toEqual([]);
+    // A named checker of the planner's vendor is no second opinion.
+    execution(config)["roles"] = { ...(execution(config)["roles"] as object), answerChecker: "auditor-a" };
+    expect(answerCodes()).toEqual([["MODEL_ANSWER_CHECKER_SAME_VENDOR", "warning"]]);
+    // A lineup of one vendor has none, which the run only says when the check is asked for by name.
+    execution(config)["roles"] = { planner: "auditor-a", verifier: "auditor-a" };
+    (config.models["auditor-b"] as Record<string, unknown>)["provider"] = "anthropic";
+    expect(answerCodes()).toEqual([]);
+    config.workflow["answerCheck"] = true;
+    expect(answerCodes()).toEqual([["MODEL_ANSWER_CHECK_NO_OTHER_VENDOR", "warning"]]);
+    config.workflow["answerCheck"] = false;
+    expect(answerCodes()).toEqual([]);
+  });
+
   it("warns when the medium verifier outranks the verifier, which checks the critical and high issues", async () => {
     const config = mutable(await template("subscription-audit"));
     (config.models["auditor-a"] as Record<string, unknown>)["capabilityTier"] = "balanced";

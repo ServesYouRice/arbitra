@@ -62,6 +62,21 @@ export const modelVerificationGroupResultSchema = z.object({
   }).strict()),
 }).strict();
 
+/**
+ * A model of another vendor than the planner's answers a plan's blocking questions on its own (`workflow.answerCheck`):
+ * for each, the label of the option it would take, or `none` with its own answer; why; and how much a wrong answer
+ * would cost (`blastRadius`). It is never shown which option the planner recommends.
+ */
+export const modelAnswerCheckSchema = z.object({
+  answers: z.array(z.object({
+    questionId: z.string().min(1),
+    option: z.string().min(1),
+    answer: z.string().min(1),
+    reason: z.string().min(1),
+    blastRadius: z.enum(["low", "medium", "high"]),
+  }).strict()),
+}).strict();
+
 /** Whether a blocking critique of a plan holds, as a second model judges it against the plan and the source. */
 export const modelCritiqueCheckSchema = z.object({
   verdict: z.enum(["HOLDS", "DOES_NOT_HOLD", "UNCLEAR"]),

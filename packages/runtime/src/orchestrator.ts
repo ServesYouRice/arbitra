@@ -41,7 +41,7 @@ import { GraphCheckpoints, validateGraphCheckpoints, type CheckpointView, type G
 import { checkpointPolicySchema, checkpointResponseSchema, PLAN_QUESTIONS_CHECKPOINT_ID, type CheckpointPolicy } from "@arbitra/schemas/checkpoint-policy.js";
 import { PlanQuestionsCheckpoint, type PlanQuestionsCheckpointResource } from "./plan-questions.js";
 import { batchResolutionRequestSchema, providerExecutionSchema } from "@arbitra/schemas/provider-execution.js";
-import { checkerProfile, mergerProfile, secondOpinionProfile, type AuditRoles } from "./audit-roles.js";
+import { answerCheckerProfile, checkerProfile, mergerProfile, secondOpinionProfile, type AuditRoles } from "./audit-roles.js";
 import { ModelActivities } from "./model-activities.js";
 import { graphCheckpointStore } from "./graph-checkpoint-store.js";
 import { canonicalJson } from "@arbitra/core/config/config-store.js";
@@ -1316,7 +1316,7 @@ export class Orchestrator {
             const issues = await readStage<CanonicalIssueSet>(store, "canonical-issues");
             const produced = models === undefined ? await plan(context, issues) : await models.plan(issues, signal);
             // Without a critic the plan is final here, and the handoff is rendered from it.
-            if (models !== undefined && !context.criticEnabled) await models.handoff();
+            if (models !== undefined && !context.criticEnabled) { await models.checkOpenQuestions(signal); await models.handoff(); }
             return { tasks: produced.tasks.length, acceptedIssues: produced.acceptedIssueIds.length };
           }
           if (node.id === VARIANT_SEARCH_NODE_ID) {
@@ -1326,7 +1326,7 @@ export class Orchestrator {
           if (node.id === "critic") {
             const issues = await readStage<CanonicalIssueSet>(store, "canonical-issues");
             const reviewed = models === undefined ? await critique(context, await readStage<Plan>(store, "plan-ir"), issues) : await models.critique(await readStage<PlanIR>(store, "plan-ir"), issues, signal);
-            if (models !== undefined) await models.handoff();
+            if (models !== undefined) { await models.checkOpenQuestions(signal); await models.handoff(); }
             return { items: reviewed?.items.length ?? 0, blocking: reviewed?.items.filter(({ blocking }) => blocking).length ?? 0 };
           }
           const discovered = reusedFindings === undefined ? models === undefined ? discover(context, node.id) : await models.discover(node.id, signal) : reusedFindings[node.id];
@@ -1619,7 +1619,7 @@ export interface RoleReassignment {
 }
 
 /** The profile each use of a role resolves to, and the graph node that makes the calls. */
-function roleUses(roles: AuditRoles, auditorIds: readonly string[]): readonly { readonly use: string; readonly node: string; readonly profile: string | undefined }[] {
+function roleUses(roles: AuditRoles, auditorIds: readonly string[], models: Parameters<typeof answerCheckerProfile>[2]): readonly { readonly use: string; readonly node: string; readonly profile: string | undefined }[] {
   return [
     { use: "merger", node: "consensus", profile: mergerProfile(roles) },
     { use: "verifier", node: "verification", profile: roles.verifier },
@@ -1628,6 +1628,7 @@ function roleUses(roles: AuditRoles, auditorIds: readonly string[]): readonly { 
     { use: "planner", node: "planner", profile: roles.planner },
     { use: "critic", node: "planner", profile: roles.critic },
     { use: "critiqueChecker", node: "planner", profile: roles.critiqueChecker },
+    { use: "answerChecker", node: "planner", profile: answerCheckerProfile(roles, auditorIds, models) },
     { use: "variantSearcher", node: VARIANT_SEARCH_NODE_ID, profile: roles.variantSearcher },
   ];
 }
@@ -1655,8 +1656,8 @@ async function reassignedRoles(store: RunStore, context: StoredRunContext, audit
   providerExecutionSchema.parse(next.workflow["modelExecution"]);
   for (const id of Object.values(roles)) if (id !== undefined && !Object.hasOwn(next.models, id)) throw Object.assign(new Error(`MODEL_PROFILE_REQUIRED:${id}`), { statusCode: 400 });
   const started = new Set((await store.loadEvents()).flatMap((event) => event.t === "node_dispatched" ? [event.nodeId] : []));
-  const after = roleUses(roles, auditorIds);
-  const moved = roleUses(execution.roles, auditorIds).filter(({ use, node, profile }) => started.has(node) && after.find((entry) => entry.use === use)?.profile !== profile);
+  const after = roleUses(roles, auditorIds, next.models);
+  const moved = roleUses(execution.roles, auditorIds, configuration.models).filter(({ use, node, profile }) => started.has(node) && after.find((entry) => entry.use === use)?.profile !== profile);
   if (moved.length > 0) throw Object.assign(new Error(`REASSIGN_STAGE_STARTED: ${moved.map(({ use, node }) => `${use} (${node})`).join(", ")} has started and keeps its profile`), { statusCode: 409 });
   const reassigned: StoredRunContext = { ...context, modelConfiguration: next };
   await store.replaceContext(reassigned);

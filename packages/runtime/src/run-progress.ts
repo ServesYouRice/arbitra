@@ -6,7 +6,7 @@ import { PROGRESS_SEVERITIES, type AuditorProgress, type FinderCoverage, type Fo
 /** States in which the run is not working: it finished, failed, waits on a person or on a limit. */
 const STOPPED = new Set(["COMPLETED", "FAILED", "BLOCKED", "CANCELLED", "SUSPENDED_BUDGET", "SUSPENDED_RATE_LIMIT"]);
 /** Model activities recorded under a name of their own that belong to a graph node's work. */
-const ACTIVITY_STAGES: Readonly<Record<string, string>> = Object.freeze({ "semantic-clustering": "consensus", "peer-review": "consensus", "peer-conflict": "consensus", "critique-check": "critic" });
+const ACTIVITY_STAGES: Readonly<Record<string, string>> = Object.freeze({ "semantic-clustering": "consensus", "peer-review": "consensus", "peer-conflict": "consensus", "critique-check": "critic", "answer-check": "planner" });
 const UNIT_FINDINGS = /^findings-(.+)-((?:scope|window)-[0-9a-f]{24})$/u;
 const DECLINED_UNIT = /^discovery-declined-(.+)-((?:scope|window|whole)[0-9a-f-]*)$/u;
 const ACTIVITY_TRACE = /^model-activity-[0-9a-f]{64}-trace$/u;

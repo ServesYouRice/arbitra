@@ -9,6 +9,7 @@ import { testingExecutionSchema } from "@arbitra/schemas/testing.js";
 import { verificationExecutionSchema, type VerificationExecution } from "@arbitra/schemas/verification-execution.js";
 import { concreteWritePath } from "@arbitra/security/write-partitions";
 import { auditorIdsFor, graphForPreset, VARIANT_SEARCH_NODE_ID, withCritic, withVariantSearch } from "./graphs.js";
+import { answerCheckSetting } from "./answer-check.js";
 import { mergerProfile, secondOpinionProfile } from "./audit-roles.js";
 import { stageEffort, type EffortStage } from "./stage-effort.js";
 import type { TestSandbox } from "./test-sandbox.js";
@@ -266,6 +267,8 @@ function auditStageProfiles(config: RunConfig, graph: RunnerGraph, execution: Pr
     if (roles.critiqueChecker !== undefined) pairs.push(["critiqueCheck", roles.critiqueChecker]);
   }
   if (graph.nodes.some(({ id }) => id === VARIANT_SEARCH_NODE_ID) && roles.variantSearcher !== undefined) pairs.push(["variantSearch", roles.variantSearcher]);
+  const answerCheck = answerCheckSetting(config, roles, auditors);
+  if (answerCheck.on) pairs.push(["answerCheck", answerCheck.profile]);
   return pairs.filter(([, id]) => Object.hasOwn(config.models, id));
 }
 
@@ -287,6 +290,16 @@ function auditDiagnostics(config: RunConfig, graph: RunnerGraph | undefined, exe
   }
   if (roles !== undefined && graph.nodes.some(({ id }) => id === VARIANT_SEARCH_NODE_ID) && roles.variantSearcher === undefined) {
     diagnostics.push(error("MODEL_VARIANT_SEARCHER_PROFILE_REQUIRED", "workflow.modelExecution.roles.variantSearcher", "workflow.variantSearch is on, so a model looks for the confirmed issues' variants. Set roles.variantSearcher to a configured profile (New run uses Gemini 3.8 Flash when Gemini is a finder, else Sonnet 5.5), or set workflow.variantSearch to false."));
+  }
+  // The answer check needs a model of another vendor than the planner's; without one the run goes on, and every
+  // question of its plan is answered one by one.
+  if (roles !== undefined && config.workflow["answerCheck"] !== false && answerCheckSetting(config, roles, auditors).on === false) {
+    const planner = config.models[roles.planner]?.provider ?? "unknown";
+    if (roles.answerChecker !== undefined) {
+      diagnostics.push(warning("MODEL_ANSWER_CHECKER_SAME_VENDOR", "workflow.modelExecution.roles.answerChecker", `roles.answerChecker (${roles.answerChecker}) is of the planner's vendor (${planner}), so no other model answers the plan's questions, and none can be accepted together. Name a profile of another vendor, or leave the role out.`));
+    } else if (config.workflow["answerCheck"] === true) {
+      diagnostics.push(warning("MODEL_ANSWER_CHECK_NO_OTHER_VENDOR", "workflow.answerCheck", `workflow.answerCheck is on, but every model in the lineup is of the planner's vendor (${planner}), so no other model answers the plan's questions, and each is answered one by one. Add a model of another vendor as a finder, critic or roles.answerChecker.`));
+    }
   }
   // Critical and high issues go to the verifier, so it should be the strongest checker the run names.
   const strong = roles === undefined ? undefined : config.models[roles.verifier];

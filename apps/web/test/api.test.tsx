@@ -17,11 +17,13 @@ describe("control-plane clients", () => {
     await api.list(); await api.overview("run-1"); await api.selectedRepository(); await api.selectRepository("/work"); await api.preflight({ mode: "audit" }, "/work"); await api.preflight({ mode: "audit" }, " ");
     await api.estimate("cfg-1", "/work"); await api.start("cfg-1"); await api.status("run-1"); await api.resume("run-1"); await api.cancel("run-1"); await api.respondCheckpoint("run-1", "cp", "v", "reject");
     await api.answerPlanQuestions("run-1", "v", [{ questionId: "Q-1", answer: "Throw." }]);
+    await api.answerPlanQuestions("run-1", "v", [{ questionId: "Q-2", choice: 1 }], true);
     expect(calls).toEqual([
       "GET /runs", "GET /runs/run-1/overview", "GET /repositories/selected", `POST /repositories/select {"path":"/work"}`,
       `POST /preflight {"config":{"mode":"audit"},"repository":"/work"}`, `POST /preflight {"config":{"mode":"audit"}}`,
       `POST /estimate {"configurationId":"cfg-1","repository":"/work"}`, `POST /runs {"configurationId":"cfg-1"}`, "GET /runs/run-1", "POST /runs/run-1/resume", "POST /runs/run-1/cancel",
       `POST /runs/run-1/checkpoints/cp {"version":"v","decision":"reject"}`, `POST /runs/run-1/checkpoints/plan-questions {"version":"v","answers":[{"questionId":"Q-1","answer":"Throw."}]}`,
+      `POST /runs/run-1/checkpoints/plan-questions {"version":"v","answers":[{"questionId":"Q-2","choice":1}],"acceptSuggested":true}`,
     ]);
     vi.stubGlobal("fetch", async () => json({ statusCode: 404, error: "REQUEST_FAILED", message: "REPOSITORY_NOT_FOUND:/work" }, 404));
     await expect(api.start("cfg-1", "/work")).rejects.toThrow("REPOSITORY_NOT_FOUND:/work (RUN_API_404)");

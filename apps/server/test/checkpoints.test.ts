@@ -57,6 +57,10 @@ it("serves durable generic checkpoints that agree with the CLI port and survive 
     // Plan questions take answers, not a decision; this run has none to answer.
     const answers = await app.inject({ method: "POST", url: `/runs/${runId}/checkpoints/plan-questions`, payload: { version, answers: [{ questionId: "Q-1", answer: "Throw." }] } });
     expect(answers.statusCode, answers.body).toBe(404);
+    // An answer may also name one of a question's listed answers by index, and the suggestions both models agree on may be accepted together.
+    const chosen = await app.inject({ method: "POST", url: `/runs/${runId}/checkpoints/plan-questions`, payload: { version, answers: [{ questionId: "Q-1", choice: 0 }], acceptSuggested: true } });
+    expect(chosen.statusCode, chosen.body).toBe(404);
+    expect((await app.inject({ method: "POST", url: `/runs/${runId}/checkpoints/plan-questions`, payload: { version, answers: [{ questionId: "Q-1", choice: "first" }] } })).statusCode).toBe(400);
     expect((await app.inject({ method: "POST", url, payload: { version, answers: [{ questionId: "Q-1", answer: "Throw." }] } })).statusCode).toBe(400);
 
     // Restart: a new server and orchestrator over the same state directory.

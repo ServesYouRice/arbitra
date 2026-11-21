@@ -16,9 +16,15 @@ import type { PlannerBrief, PlannerTaskOutline } from "@arbitra/schemas/planner-
 import type { TestSandbox } from "../src/test-sandbox.js";
 
 const directories: string[] = [];
+/** A plan's questions with the planner's suggested answers (planner 1.1.0): two that block and one that does not. */
+const SUGGESTED_QUESTIONS = [
+  { id: "Q-null", question: "Throw or default when the value is null?", blocking: true, blastRadius: "medium", suggestion: { answer: "Throw a typed error.", reason: "Callers already handle typed errors.", alternatives: ["Default to zero."] } },
+  { id: "Q-log", question: "Log the rejected value?", blocking: true, blastRadius: "low", suggestion: { answer: "Log at warn level.", reason: "It is rare and worth seeing.", alternatives: ["Do not log it."] } },
+  { id: "Q-name", question: "What is the error class called?", blocking: false, blastRadius: "low", suggestion: { answer: "NullValueError", reason: "It matches the other error classes.", alternatives: [] } },
+] as const;
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
-async function fixture(options: { secondFile?: boolean; revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: true | "every"; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; conflictFault?: "invalid" | "output_limit"; ambiguousClustering?: boolean; oversizedRepository?: boolean; packedReviewSource?: boolean; planQuestion?: boolean; verifierContextTokens?: number; invalidVerification?: boolean; verificationOutputLimit?: "first" | "always"; invalidGroupVerification?: boolean; unanimousReview?: boolean; verificationByPlace?: boolean; holdingPlaces?: readonly string[]; placeBesideMerge?: boolean; severities?: readonly string[]; critiqueVerdict?: "HOLDS" | "DOES_NOT_HOLD"; lowerSeverity?: "one" | "two"; severeRejection?: "REJECTED" | "CONFIRMED"; revisionQuestion?: boolean; revisionPatchOutputLimit?: boolean; depth?: "fast" | "balanced" | "deep"; finding?: { readonly severity?: string; readonly category?: string }; abstainAt?: string; confidenceByLine?: boolean; relatedSource?: boolean } = {}) {
+async function fixture(options: { secondFile?: boolean; revision?: "resolved" | "still_blocking" | "invalid_traceability" | "missing_resolution"; largePlannerContext?: boolean; largeCriticContext?: boolean; largePeerContext?: boolean; packedPeerContext?: boolean; mergeListedPair?: boolean; reviewOutputLimit?: true | "every"; lowRisk?: boolean; structuralReview?: boolean; conflictingReview?: boolean; invalidReview?: boolean; voteFlip?: "repairs" | "persists"; conflictResolution?: "retain_original" | "proposal-1"; conflictFault?: "invalid" | "output_limit"; ambiguousClustering?: boolean; oversizedRepository?: boolean; packedReviewSource?: boolean; planQuestion?: boolean; verifierContextTokens?: number; invalidVerification?: boolean; verificationOutputLimit?: "first" | "always"; invalidGroupVerification?: boolean; unanimousReview?: boolean; verificationByPlace?: boolean; holdingPlaces?: readonly string[]; placeBesideMerge?: boolean; severities?: readonly string[]; critiqueVerdict?: "HOLDS" | "DOES_NOT_HOLD"; lowerSeverity?: "one" | "two"; severeRejection?: "REJECTED" | "CONFIRMED"; revisionQuestion?: boolean; revisionPatchOutputLimit?: boolean; depth?: "fast" | "balanced" | "deep"; finding?: { readonly severity?: string; readonly category?: string }; abstainAt?: string; confidenceByLine?: boolean; relatedSource?: boolean; suggestedQuestions?: boolean; answerCheck?: "answers" | "quota" } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "arbitra-model-run-")); directories.push(directory);
   const manyIssues = options.largePeerContext === true || options.largePlannerContext === true;
   // A cited line that names a function another file defines: the question is handed that definition.
@@ -78,6 +84,10 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
     plannerReads.push({ stage, sourcePaths: read.repositoryContext.map(({ ref }) => ref), locationIds: read.projectContext.sourceLocations.map(({ id }) => id), sourceFindingIds: (read.canonicalIssues ?? []).flatMap(({ sourceFindingIds }) => sourceFindingIds) });
   };
   const packedChecks: (readonly [string, string])[][] = [];
+  // The answers the planner is told to apply.
+  const operatorAnswers: { questionId: string; question: string; answer: string }[] = [];
+  // What the other vendor is asked about the plan's questions.
+  const answerCheckInputs: { questions: { questionId: string; question: string; options: { label: string; answer: string }[]; dependingTaskIds: string[] }[] }[] = [];
   const criticIssueIds: string[][] = [];
   const verificationFlight = { now: 0, most: 0 };
   let mergedListedPair: readonly [string, string] | undefined;
@@ -253,11 +263,13 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
       const acceptedIssueIds = input.canonicalIssues.map(({ candidateId }) => candidateId);
       output = { ...planTemplate, acceptedIssueIds, tasks: planTemplate.tasks.map((task) => ({ ...task, addresses: { ...task.addresses, issues: acceptedIssueIds } })),
         traceability: { ...planTemplate.traceability, issueToValidation: acceptedIssueIds.map((issueId) => ({ issueId, validationIds: ["VAL-001"] })) }, premiseReport: input.premiseReport,
-        ...(options.planQuestion === true ? { unresolvedQuestions: [{ id: "Q-null", question: "Throw or default when the value is null?", blocking: true, blastRadius: "high" }] } : {}) };
+        ...(options.planQuestion === true ? { unresolvedQuestions: [{ id: "Q-null", question: "Throw or default when the value is null?", blocking: true, blastRadius: "high" }] } : {}),
+        ...(options.suggestedQuestions === true ? { unresolvedQuestions: SUGGESTED_QUESTIONS } : {}) };
     } else if (system.startsWith("Revise the supplied Plan IR to apply the operator's answers")) {
       requests.push({ stage: "plan-answers", url: request.url });
-      const input = JSON.parse(user) as { plan: ReturnType<typeof planIRSchema.parse>; operatorAnswers: { questionId: string; answer: string }[] };
-      expect(input.operatorAnswers).toEqual(options.revisionQuestion === true ? [{ questionId: "Q-revision", question: "Keep the old default for callers that pass no value?", answer: "Keep it." }]
+      const input = JSON.parse(user) as { plan: ReturnType<typeof planIRSchema.parse>; operatorAnswers: { questionId: string; question: string; answer: string }[] };
+      operatorAnswers.push(...input.operatorAnswers);
+      if (options.suggestedQuestions !== true) expect(input.operatorAnswers).toEqual(options.revisionQuestion === true ? [{ questionId: "Q-revision", question: "Keep the old default for callers that pass no value?", answer: "Keep it." }]
         : options.revisionPatchOutputLimit === true ? expect.arrayContaining([expect.objectContaining({ questionId: expect.stringMatching(/\/not-revised\//u), answer: "Leave the task as it is." })])
         : [{ questionId: "Q-null", question: "Throw or default when the value is null?", answer: "Throw a typed error." }]);
       // The reply keeps the answered question; the runtime removes it.
@@ -287,6 +299,16 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
       const input = JSON.parse(user) as { critique: { summary: string }; tasks: { id: string }[] };
       expect(input.tasks.length).toBeGreaterThan(0);
       output = { verdict: options.critiqueVerdict ?? "HOLDS", reason: "Fixture check of the named task against the source" };
+    } else if (system.startsWith("Answer each supplied open question")) {
+      requests.push({ stage: "answer-check", url: request.url });
+      const input = JSON.parse(user) as (typeof answerCheckInputs)[number];
+      answerCheckInputs.push(input);
+      if (options.answerCheck === "quota") return { status: 429, headers: {}, body: { error: { code: "insufficient_quota", message: "You exceeded your current quota until 2099-01-01T00:00:00Z" } } };
+      // It takes the planner's suggestion for the null value, and answers the logging question its own way.
+      const label = (questionId: string, answer: string) => input.questions.find((question) => question.questionId === questionId)?.options.find((option) => option.answer === answer)?.label ?? "none";
+      output = { answers: input.questions.map(({ questionId }) => questionId === "Q-null"
+        ? { questionId, option: label(questionId, "Throw a typed error."), answer: "Throw a typed error.", reason: "Every caller already catches typed errors.", blastRadius: "low" }
+        : { questionId, option: "none", answer: "Log at debug level.", reason: "Warn is too loud for a routine value.", blastRadius: "low" }) };
     } else if (system.startsWith("Critique the plan")) {
       requests.push({ stage: "critic", url: request.url });
       if (failCritic && requests.filter(({ stage }) => stage === "critic").length === 2) return { status: 503, headers: {}, body: {} };
@@ -304,7 +326,7 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
     return { status: 200, headers: {}, body: response };
   };
   const create = (testSandbox?: TestSandbox, providerOptions: TransportFactoryOptions & { readonly factories?: Readonly<Record<string, TransportFactory>> } = {}, build?: string) => new Orchestrator({ repository: directory, stateDirectory: join(directory, ".runs"), providerOptions: { client: { send }, credential: () => "fixture-credential", ...providerOptions }, ...(testSandbox === undefined ? {} : { testSandbox }), ...(build === undefined ? {} : { build }) });
-  return { directory, create, config, requests, verificationInputs, plannerContexts, plannerConstraints, plannerReads, reviewInputs, packedChecks, criticIssueIds, verificationFlight, mergedListedPair: () => mergedListedPair, failRevisionPatch: (value: boolean) => { failRevisionPatch = value; }, failExpansion: (value: boolean) => { failExpansion = value; }, failCritic: (value: boolean) => { failCritic = value; }, quotaCritic: (until: string) => { quotaUntil = until; }, quotaDiscovery: (auditorId: string | null) => { quotaDiscovery = auditorId; }, failVerification: (value: boolean) => { failVerification = value; }, blockDiscovery: (callback: () => void) => { blockDiscovery = callback; } };
+  return { directory, create, config, requests, verificationInputs, answerCheckInputs, operatorAnswers, plannerContexts, plannerConstraints, plannerReads, reviewInputs, packedChecks, criticIssueIds, verificationFlight, mergedListedPair: () => mergedListedPair, failRevisionPatch: (value: boolean) => { failRevisionPatch = value; }, failExpansion: (value: boolean) => { failExpansion = value; }, failCritic: (value: boolean) => { failCritic = value; }, quotaCritic: (until: string) => { quotaUntil = until; }, quotaDiscovery: (auditorId: string | null) => { quotaDiscovery = auditorId; }, failVerification: (value: boolean) => { failVerification = value; }, blockDiscovery: (callback: () => void) => { blockDiscovery = callback; } };
 }
 
 describe("composed model audits", () => {
@@ -658,7 +680,10 @@ describe("composed model audits", () => {
     const status = await core.status(result.runId);
     const pending = status.checkpoints.find((checkpoint) => checkpoint.kind === "plan-questions");
     if (pending?.kind !== "plan-questions") throw new Error("PLAN_QUESTIONS_CHECKPOINT_ABSENT");
-    expect(pending).toMatchObject({ checkpointId: "plan-questions", status: "pending", questions: [{ id: "Q-null", blastRadius: "high" }] });
+    expect(pending).toMatchObject({ checkpointId: "plan-questions", status: "pending", questions: [{ id: "Q-null", blastRadius: "high" }], check: { status: "nothing_to_check" } });
+    // The planner suggested no answer, so another model has nothing to compare, and is not asked.
+    expect(pending.questions[0]?.acceptable).toBeUndefined();
+    expect(requests.filter(({ stage }) => stage === "answer-check")).toHaveLength(0);
     expect((await core.gate(result.runId)).reasons).toEqual(expect.arrayContaining(["checkpoint_pending:plan-questions", "blocking_plan_questions"]));
     // The run list counts the unanswered questions as the run's one pending decision.
     const listed = async () => (await core.listRuns()).find(({ runId }) => runId === result.runId);
@@ -693,6 +718,88 @@ describe("composed model audits", () => {
     const gate = await resumed.gate(result.runId);
     expect(gate.reasons).not.toContain("blocking_plan_questions");
     expect(gate.reasons).not.toContain("checkpoint_pending:plan-questions");
+  });
+
+  it("suggests an answer to each question, has another vendor answer the blocking ones on its own, and takes together only those both answered alike", async () => {
+    const { create, config, requests, answerCheckInputs, operatorAnswers } = await fixture({ suggestedQuestions: true, answerCheck: "answers" });
+    const interactive = { ...config, workflow: { ...config.workflow, checkpoints: { mode: "interactive" } } };
+    const core = create(); const result = await core.run(interactive);
+    expect(result.state).toBe("BLOCKED");
+    // One call, to the critic's profile (Google; the planner is OpenAI's), before anyone is asked.
+    expect(requests.filter(({ stage }) => stage === "answer-check").map(({ url }) => url)).toEqual([expect.stringContaining("auditor-c")]);
+    // It sees the answers the planner weighed in alphabetical order under letters, and not which it recommends or why.
+    expect(answerCheckInputs[0]?.questions.map(({ questionId, options }) => [questionId, options])).toEqual([
+      ["Q-null", [{ label: "A", answer: "Default to zero." }, { label: "B", answer: "Throw a typed error." }]],
+      ["Q-log", [{ label: "A", answer: "Do not log it." }, { label: "B", answer: "Log at warn level." }]]]);
+    expect(JSON.stringify(answerCheckInputs[0])).not.toMatch(/Callers already handle typed errors|blastRadius|Q-name/u);
+    const pending = (await core.status(result.runId)).checkpoints.find((checkpoint) => checkpoint.kind === "plan-questions");
+    if (pending?.kind !== "plan-questions") throw new Error("PLAN_QUESTIONS_CHECKPOINT_ABSENT");
+    expect(pending).toMatchObject({ check: { status: "answered", profile: "auditor-c" }, questions: [
+      { id: "Q-null", suggestion: { answer: "Throw a typed error.", reason: "Callers already handle typed errors." }, choices: ["Throw a typed error.", "Default to zero."], check: { agrees: true, choice: 0, blastRadius: "low" }, acceptable: true },
+      { id: "Q-log", choices: ["Log at warn level.", "Do not log it.", "Log at debug level."], check: { agrees: false, choice: 2, answer: "Log at debug level.", reason: "Warn is too loud for a routine value." }, acceptable: false }] });
+    // Accepting every suggestion takes only the question both models answered alike; the other is answered one by one.
+    await expect(core.respondCheckpoint(result.runId, "plan-questions", { version: pending.version, answers: [], acceptSuggested: true })).rejects.toThrow(/unanswered: Q-log \(accept all suggested takes only/u);
+    await expect(core.respondCheckpoint(result.runId, "plan-questions", { version: pending.version, answers: [{ questionId: "Q-log", choice: 3 }], acceptSuggested: true })).rejects.toThrow("PLAN_QUESTION_CHOICE_INVALID");
+    await expect(core.respondCheckpoint(result.runId, "plan-questions", { version: pending.version, answers: [] })).rejects.toThrow("PLAN_QUESTION_ANSWERS_INVALID");
+    // The CLI's answers file takes the same shape.
+    const answersDirectory = await mkdtemp(join(tmpdir(), "arbitra-plan-answers-")); directories.push(answersDirectory);
+    await writeFile(join(answersDirectory, "answers.json"), JSON.stringify({ acceptSuggested: true, answers: [{ questionId: "Q-log", choice: 2 }] }), "utf8");
+    await orchestratorCore(core).respondCheckpoint(result.runId, "plan-questions", pending.version, join(answersDirectory, "answers.json"));
+    const resumed = create(); await resumed.resume(result.runId);
+    expect((await resumed.wait(result.runId)).state).toBe("COMPLETED");
+    // The check is read from its record on resume; the planner is told only the answers.
+    expect(requests.filter(({ stage }) => stage === "answer-check")).toHaveLength(1);
+    expect(operatorAnswers).toEqual([{ questionId: "Q-null", question: "Throw or default when the value is null?", answer: "Throw a typed error." }, { questionId: "Q-log", question: "Log the rejected value?", answer: "Log at debug level." }]);
+    expect(requests.filter(({ stage }) => stage === "plan-answers")).toHaveLength(1);
+    const read = async (kind: string) => {
+      const descriptor = (await resumed.artifacts(result.runId)).find((entry) => entry.kind === kind);
+      if (descriptor === undefined) throw new Error(`ARTIFACT_ABSENT:${kind}`);
+      return JSON.parse((await resumed.artifact(result.runId, descriptor.artifactId) as { content: string }).content) as Record<string, unknown>;
+    };
+    expect(await read("plan-question-resolutions")).toMatchObject({ rounds: [{ version: pending.version, answers: [
+      { questionId: "Q-null", answer: "Throw a typed error.", how: "as_suggested", together: true, blastRadius: "medium", suggestion: { answer: "Throw a typed error." }, check: { agrees: true } },
+      { questionId: "Q-log", answer: "Log at debug level.", how: "chosen_otherwise", blastRadius: "low", check: { agrees: false } }] }] });
+    expect(await read("plan-ir")).toMatchObject({ unresolvedQuestions: [{ id: "Q-name", blocking: false, suggestion: { answer: "NullValueError" } }] });
+  });
+
+  it.each([["the run switches the check off", "off"], ["the answer checker it names is of the planner's vendor", "no_other_vendor"]] as const)("asks no other model when %s, and takes no answer together", async (_, status) => {
+    const { create, config, requests, operatorAnswers } = await fixture({ suggestedQuestions: true, answerCheck: "answers" });
+    if (status === "no_other_vendor") (config.workflow["modelExecution"] as { roles: Record<string, string> }).roles["answerChecker"] = "auditor-a";
+    const interactive = { ...config, workflow: { ...config.workflow, checkpoints: { mode: "interactive" }, ...(status === "off" ? { answerCheck: false } : {}) } };
+    const core = create(); const result = await core.run(interactive);
+    expect(result.state).toBe("BLOCKED");
+    expect(requests.filter(({ stage }) => stage === "answer-check")).toHaveLength(0);
+    const pending = (await core.status(result.runId)).checkpoints.find((checkpoint) => checkpoint.kind === "plan-questions");
+    if (pending?.kind !== "plan-questions") throw new Error("PLAN_QUESTIONS_CHECKPOINT_ABSENT");
+    expect(pending.check).toEqual({ status });
+    expect(pending.questions.map(({ acceptable }) => acceptable)).toEqual([false, false]);
+    // Each is answered one by one: written out, or as one of the planner's answers (written word for word counts as chosen).
+    await expect(core.respondCheckpoint(result.runId, "plan-questions", { version: pending.version, answers: [{ questionId: "Q-null", choice: 0 }], acceptSuggested: true })).rejects.toThrow(/unanswered: Q-log/u);
+    await core.respondCheckpoint(result.runId, "plan-questions", { version: pending.version, answers: [{ questionId: "Q-null", answer: "Default to zero, and warn." }, { questionId: "Q-log", answer: "  do not LOG it. " }] });
+    const resumed = create(); await resumed.resume(result.runId);
+    expect((await resumed.wait(result.runId)).state).toBe("COMPLETED");
+    expect(operatorAnswers.map(({ answer }) => answer)).toEqual(["Default to zero, and warn.", "Do not log it."]);
+    const descriptor = (await resumed.artifacts(result.runId)).find(({ kind }) => kind === "plan-question-resolutions");
+    const rounds = JSON.parse((await resumed.artifact(result.runId, descriptor?.artifactId ?? "") as { content: string }).content) as { rounds: { answers: Record<string, unknown>[] }[] };
+    expect(rounds.rounds[0]?.answers).toMatchObject([{ questionId: "Q-null", how: "written" }, { questionId: "Q-log", how: "chosen_otherwise" }]);
+    expect(rounds.rounds[0]?.answers.some((answer) => "together" in answer || "check" in answer)).toBe(false);
+  });
+
+  it("goes on without the other model's answers when its vendor is out, and says why", async () => {
+    // Automatic mode: no one answers during the run, so the final plan's questions are checked before its handoff.
+    const { create, config, requests } = await fixture({ suggestedQuestions: true, answerCheck: "quota" });
+    const core = create(); const result = await core.run(config);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.slice(-3))).toBe("COMPLETED");
+    expect(requests.filter(({ stage }) => stage === "answer-check")).toHaveLength(1);
+    const artifacts = await core.artifacts(result.runId);
+    const descriptor = artifacts.find(({ kind }) => kind.startsWith("answer-check-"));
+    const check = JSON.parse((await core.artifact(result.runId, descriptor?.artifactId ?? "") as { content: string }).content) as { status: string; profile: string; reason: string };
+    expect(check).toMatchObject({ status: "skipped", profile: "auditor-c" });
+    expect(check.reason).toMatch(/quota/u);
+    expect((await core.gate(result.runId)).reasons).toContain("blocking_plan_questions");
+    // The handoff was rendered from the final plan all the same.
+    expect(artifacts.some(({ kind }) => kind === "implementation")).toBe(true);
   });
 
   it.each([false, true])("waits for answers to the blocking questions a critic's revision asks, before any recheck reads the plan (recheck: %s)", async (recheck) => {
@@ -1740,6 +1847,10 @@ describe("composed model audits", () => {
     // Observed (nextra replay with Sonnet verifying, October 24, 2026): one question wrote to the 128,000-token ceiling.
     const { create, config, requests } = await fixture({ largePeerContext: true });
     (config.workflow["modelExecution"] as { maximumOutputTokens: number }).maximumOutputTokens = 64_000;
+    // The plan is still asked for in one call: with the planner protocol's suggested answers its prompt is some 800
+    // bytes longer, past 80% of a 128,000-token window less the 64,000 its answer may take. The tests of a plan read
+    // in parts set that up on purpose.
+    (config.workflow["modelExecution"] as { maximumContextTokens?: number }).maximumContextTokens = 132_000;
     config.verification = { ...config.verification, maxQuestionsPerCall: 3 };
     const core = create(); const result = await core.run(config);
     const events = []; for await (const event of core.events(result.runId)) events.push(event);

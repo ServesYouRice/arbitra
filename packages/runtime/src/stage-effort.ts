@@ -15,12 +15,12 @@ export function depthEffort(depth: RunConfig["auditDepth"]): EffortLevel {
 }
 
 /** Stages that run at another stage's effort when the configuration leaves them out. */
-const FOLLOWS: Partial<Record<EffortStage, EffortStage>> = Object.freeze({ secondOpinion: "verification", critiqueCheck: "verification" });
+const FOLLOWS: Partial<Record<EffortStage, EffortStage>> = Object.freeze({ secondOpinion: "verification", critiqueCheck: "verification", answerCheck: "planner" });
 
 /**
  * The effort one model profile is asked for at one stage (`workflow.modelExecution.stageEffort`): the stage's level,
- * or its level for that profile; else, for the second opinion and the critique check, verification's; else the
- * audit depth's. A call without a stage runs at the depth's level.
+ * or its level for that profile; else, for the second opinion and the critique check, verification's, and for the
+ * answer check the planner's; else the audit depth's. A call without a stage runs at the depth's level.
  */
 export function stageEffort(config: RunConfig, stage: EffortStage | undefined, profileId: string): EffortLevel {
   const configured = config.workflow["modelExecution"] === undefined ? undefined : providerExecutionSchema.parse(config.workflow["modelExecution"]).stageEffort;
