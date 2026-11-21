@@ -2,6 +2,10 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { redactSecrets } from "@arbitra/security/redaction";
 import { RESULT_VALUES, RESULTS_FILE } from "./plan-export.js";
+import { resultsKit, type ResultsList } from "./results-check.js";
+
+// The rules check-results.mjs holds the file to, so arbitra reads it as the executing agent's check did.
+const rules = resultsKit();
 
 /** What the executor of a saved plan reported, read back from the plan's `results.json`. */
 export interface PlanResults {
@@ -17,6 +21,8 @@ export interface PlanResults {
   readonly checkedEndToEnd: number;
   /** Defects no issue named that the executor found while fixing, and how many of them a failing test proved. */
   readonly foundWhileFixing: { readonly reported: number; readonly provenByFailingTest: number };
+  /** Entries, of either list, that break the rules `check-results.mjs` applies (`InvalidResultEntry`). */
+  readonly invalid: number;
 }
 
 /** One issue's entry as the executor wrote it; a field missing or of the wrong type is null, and a result arbitra does not know is kept as written. */
@@ -29,6 +35,16 @@ export interface FoundWhileFixingEntry {
   readonly title: string; readonly severity: string | null; readonly where: string | null; readonly result: string | null;
   readonly failedBefore: boolean | null; readonly test: string | null; readonly proof: string | null;
 }
+/**
+ * An entry that breaks the rules `check-results.mjs` applies (`results-check.ts`), with what is wrong: a field of the
+ * wrong type (read as not recorded, never trusted), a result arbitra does not know, a recorded result without what it
+ * needs, or a proof that only points elsewhere.
+ */
+export interface InvalidResultEntry {
+  /** The entry as the script names it: `issues[3] C-12 (TASK-012)` or `foundWhileFixing[0] "its title"`. */
+  readonly entry: string;
+  readonly problems: readonly string[];
+}
 /** The newest readable `results.json` of a run's saved plan, entry by entry, with the counts `planResults` gives. */
 export interface PlanResultRecord {
   readonly directory: string;
@@ -39,15 +55,25 @@ export interface PlanResultRecord {
   readonly summary: PlanResults;
   readonly issues: readonly PlanResultEntry[];
   readonly foundWhileFixing: readonly FoundWhileFixingEntry[];
+  readonly invalid: readonly InvalidResultEntry[];
 }
 
 type Entry = Record<string, unknown>;
-interface ReadResults { readonly directory: string; readonly modified: number; readonly entries: readonly Entry[]; readonly found: readonly Entry[] }
+interface ReadResults { readonly directory: string; readonly modified: number; readonly entries: readonly Entry[]; readonly found: readonly Entry[]; readonly invalid: readonly InvalidResultEntry[] }
+
+/** Each entry of a list that breaks the script's rules, with its errors; its warnings (a field nothing reads) are left out. */
+function invalidEntries(list: unknown, name: ResultsList): InvalidResultEntry[] {
+  return (Array.isArray(list) ? list as readonly unknown[] : []).flatMap((entry, index) => {
+    const problems = rules.entryFindings(entry, name, index).filter(({ level }) => level === "error").map(({ message }) => message);
+    return problems.length === 0 ? [] : [{ entry: rules.label(name, index, entry), problems }];
+  });
+}
 
 /**
  * The newest of a run's saved plan folders under `.arbitra/plans/` whose `results.json` parses, or null when the plan
  * was never saved or nothing is readable. The file is written by a coding agent, so only entries that are objects are
- * kept, and a defect found while fixing needs a title.
+ * kept, a defect found while fixing needs a title, and each entry that breaks the rules the plan's script applies is
+ * listed with what is wrong.
  */
 async function readResults(repository: string, runId: string): Promise<ReadResults | null> {
   const plans = join(repository, ".arbitra", "plans");
@@ -59,23 +85,27 @@ async function readResults(repository: string, runId: string): Promise<ReadResul
     return { directory: join(plans, name), path, modified };
   }));
   for (const candidate of candidates.filter(({ modified }) => modified !== null).sort((a, b) => (b.modified ?? 0) - (a.modified ?? 0))) {
-    const parsed = await readFile(candidate.path, "utf8").then((text) => JSON.parse(text) as unknown, () => null);
+    const read = await readFile(candidate.path, "utf8").then((text) => rules.parse(text), () => null);
+    const parsed = read !== null && "value" in read ? read.value : null;
     const entries = typeof parsed === "object" && parsed !== null && Array.isArray((parsed as { issues?: unknown }).issues) ? (parsed as { issues: unknown[] }).issues : null;
     if (entries === null) continue;
+    const listed = (parsed as { foundWhileFixing?: unknown }).foundWhileFixing;
     const objects = (list: unknown) => Array.isArray(list) ? list.filter((entry): entry is Entry => typeof entry === "object" && entry !== null) : [];
-    const found = objects((parsed as { foundWhileFixing?: unknown }).foundWhileFixing).filter((entry) => typeof entry["title"] === "string" && entry["title"].trim() !== "");
-    return { directory: candidate.directory, modified: candidate.modified ?? 0, entries: objects(entries), found };
+    const found = objects(listed).filter((entry) => typeof entry["title"] === "string" && entry["title"].trim() !== "");
+    return { directory: candidate.directory, modified: candidate.modified ?? 0, entries: objects(entries), found,
+      invalid: [...invalidEntries(entries, "issues"), ...invalidEntries(listed, "foundWhileFixing")] };
   }
   return null;
 }
 
-function summarise(directory: string, valid: readonly Entry[], found: readonly Entry[]): PlanResults {
+function summarise(directory: string, valid: readonly Entry[], found: readonly Entry[], invalid: readonly InvalidResultEntry[]): PlanResults {
   const result = (entry: Entry) => RESULT_VALUES.find((value) => value === entry["result"]);
   const results = Object.fromEntries(RESULT_VALUES.map((value) => [value, valid.filter((entry) => result(entry) === value).length])) as PlanResults["results"];
   return Object.freeze({ directory, issues: valid.length, reported: valid.filter((entry) => result(entry) !== undefined).length, results: Object.freeze(results),
     provenByFailingTest: valid.filter((entry) => entry["failedBefore"] === true).length, notProvenByTest: valid.filter((entry) => entry["failedBefore"] === false).length,
     checkedEndToEnd: valid.filter((entry) => entry["checkedEndToEnd"] === true).length,
-    foundWhileFixing: Object.freeze({ reported: found.length, provenByFailingTest: found.filter((entry) => entry["failedBefore"] === true).length }) });
+    foundWhileFixing: Object.freeze({ reported: found.length, provenByFailingTest: found.filter((entry) => entry["failedBefore"] === true).length }),
+    invalid: invalid.length });
 }
 
 /**
@@ -84,13 +114,13 @@ function summarise(directory: string, valid: readonly Entry[], found: readonly E
  */
 export async function planResults(repository: string, runId: string): Promise<PlanResults | null> {
   const read = await readResults(repository, runId);
-  return read === null ? null : summarise(read.directory, read.entries, read.found);
+  return read === null ? null : summarise(read.directory, read.entries, read.found, read.invalid);
 }
 
 /**
  * The same results entry by entry, for the run page to show what came of each issue. The text is the executing
  * agent's, read from the project, so each string passes the secret redactor before it leaves (a proof can quote a log
- * that printed a credential).
+ * that printed a credential); so do the problems of an invalid entry, which quote what it holds.
  */
 export async function planResultRecord(repository: string, runId: string): Promise<PlanResultRecord | null> {
   const read = await readResults(repository, runId);
@@ -99,12 +129,13 @@ export async function planResultRecord(repository: string, runId: string): Promi
   const flag = (value: unknown): boolean | null => typeof value === "boolean" ? value : null;
   return Object.freeze({
     directory: read.directory, relative: relative(repository, read.directory).replaceAll("\\", "/"), modifiedAt: new Date(read.modified).toISOString(),
-    summary: summarise(read.directory, read.entries, read.found),
+    summary: summarise(read.directory, read.entries, read.found, read.invalid),
     issues: Object.freeze(read.entries.filter((entry) => typeof entry["issue"] === "string").map((entry): PlanResultEntry => Object.freeze({
       issue: String(entry["issue"]), title: text(entry["title"]), severity: text(entry["severity"]), task: text(entry["task"]), result: text(entry["result"]),
       failedBefore: flag(entry["failedBefore"]), test: text(entry["test"]), proof: text(entry["proof"]), checkedEndToEnd: flag(entry["checkedEndToEnd"]) }))),
     foundWhileFixing: Object.freeze(read.found.map((entry): FoundWhileFixingEntry => Object.freeze({
       title: text(entry["title"]) ?? "", severity: text(entry["severity"]), where: text(entry["where"]), result: text(entry["result"]),
       failedBefore: flag(entry["failedBefore"]), test: text(entry["test"]), proof: text(entry["proof"]) }))),
+    invalid: Object.freeze(read.invalid.map(({ entry, problems }): InvalidResultEntry => Object.freeze({ entry: redactSecrets(entry).text, problems: Object.freeze(problems.map((problem) => redactSecrets(problem).text)) }))),
   });
 }

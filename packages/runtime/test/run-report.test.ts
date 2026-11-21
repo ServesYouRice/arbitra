@@ -51,4 +51,12 @@ describe("a run's report", () => {
     expect(lines).toContain("  not yet: none of the plan's 111 issues has a result");
     expect(lines.some((line) => line.includes("0 of 111 issues reported"))).toBe(false);
   });
+
+  it("says how many results entries break the plan's rules, and nothing when none does", async () => {
+    const carried = { issues: 4, reported: 3, provenByFailingTest: 1, notProvenByTest: 1, checkedEndToEnd: 0, results: { fixed: 3 }, foundWhileFixing: { reported: 0, provenByFailingTest: 0 }, invalid: 2 };
+    const lines = (await runReport(orchestrator([], carried), "run-1", null, "test")).split("\n");
+    expect(lines).toContain("  2 entries break the rules of the plan's check-results.mjs; a field of the wrong type counts as not recorded");
+    const clean = (await runReport(orchestrator([], { ...carried, invalid: 0 }), "run-1", null, "test")).split("\n");
+    expect(clean.some((line) => line.includes("check-results.mjs"))).toBe(false);
+  });
 });

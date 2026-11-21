@@ -231,7 +231,7 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
     expect(agents).not.toMatch(/most do not hold|if wanted|wants them/u);
     // The project's own commands, as the run read them, so a proving test runs the way the project runs its tests.
     expect(agents).toContain("- test: `pnpm run test` (from `package.json`)\n- test: `go test ./...` in `api` (from `api/go.mod`)");
-    const results = JSON.parse(await readFile(join(first.directory, "results.json"), "utf8")) as { run: string; issues: unknown[]; foundWhileFixing: unknown[] };
+    const results = JSON.parse(await readFile(join(first.directory, "results.json"), "utf8")) as { run: string; instructions: string; issues: unknown[]; foundWhileFixing: unknown[] };
     expect(results.run).toBe("run-12345678-abcd");
     expect(results.issues).toEqual([
       { issue: "C-1", title: "A defect", severity: "high", task: "TASK-1", result: null, failedBefore: null, test: null, proof: null, checkedEndToEnd: null },
@@ -239,8 +239,18 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
       { issue: "C-2", title: "A disputed defect", severity: "medium", task: "check 01", result: null, failedBefore: null, test: null, proof: null, checkedEndToEnd: null },
     ]);
     expect(results.foundWhileFixing).toEqual([]);
+    // The folder carries a check of results.json, and every place that asks for a result says to run it. Observed live
+    // (a messaging app's plan, November 2026): every task was ticked while half the entries had no result.
+    const resultsCheck = `node .arbitra/plans/${basename(first.directory)}/check-results.mjs`;
+    expect(first.files).toEqual(expect.arrayContaining([expect.stringMatching(/check-results\.mjs$/u)]));
+    expect(agents).toContain(`   Then run \`${resultsCheck} --task <task id>\` (an unsure report's issue id for one of those) and correct what it reports before the next task.`);
+    expect(readme).toContain(`\`check-results.mjs\` checks that file by the rules arbitra reads it with: run \`${resultsCheck} --task <task id>\` when a task is done`);
+    expect(balanced).toContain(`Then run \`${resultsCheck} --task TASK-3\` from the repository root and correct what it reports`);
+    expect(check).toContain(`Then run \`${resultsCheck} --task C-2\` from the repository root and correct what it reports`);
+    expect(await readFile(join(first.directory, "PROGRESS.md"), "utf8")).toContain(`its issues' results are in results.json (\`${resultsCheck} --task <task id>\` checks both)`);
+    expect(results.instructions).toContain(`When a task is done, run \`${resultsCheck} --task <task id>\``);
     // Nothing is reported until the executor fills an entry in.
-    expect(await planResults(repository, "run-12345678-abcd")).toMatchObject({ issues: 3, reported: 0, provenByFailingTest: 0, checkedEndToEnd: 0, foundWhileFixing: { reported: 0, provenByFailingTest: 0 } });
+    expect(await planResults(repository, "run-12345678-abcd")).toMatchObject({ issues: 3, reported: 0, provenByFailingTest: 0, checkedEndToEnd: 0, foundWhileFixing: { reported: 0, provenByFailingTest: 0 }, invalid: 0 });
     // Plans may be pushed, so no ignore is written; the README says a public repository would publish the open issues.
     await expect(readFile(join(repository, ".arbitra", ".gitignore"), "utf8")).rejects.toThrow("ENOENT");
     expect(await readFile(join(first.directory, "README.md"), "utf8")).toContain("A public repository that commits it publishes them all");
@@ -256,7 +266,7 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
       { issue: "C-9", result: "solved", failedBefore: "yes", checkedEndToEnd: "yes" }, "not an entry"],
     foundWhileFixing: [{ title: "The port search runs past 65535", failedBefore: true }, { title: "", failedBefore: true }, { title: "Untested", failedBefore: false }, 7] }));
     expect(await planResults(repository, "run-12345678-abcd")).toEqual({ directory: first.directory, issues: 3, reported: 2,
-      results: { fixed: 1, not_reproducible: 0, no_change_needed: 1, blocked: 0 }, provenByFailingTest: 1, notProvenByTest: 1, checkedEndToEnd: 1, foundWhileFixing: { reported: 2, provenByFailingTest: 1 } });
+      results: { fixed: 1, not_reproducible: 0, no_change_needed: 1, blocked: 0 }, provenByFailingTest: 1, notProvenByTest: 1, checkedEndToEnd: 1, foundWhileFixing: { reported: 2, provenByFailingTest: 1 }, invalid: 6 });
     // Each entry as the executor wrote it, for the run page: a result arbitra does not know is kept as written, and a
     // field of the wrong type reads as not recorded.
     const record = await planResultRecord(repository, "run-12345678-abcd");
@@ -269,6 +279,14 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
       { ...none, issue: "C-9", result: "solved", failedBefore: null }]);
     expect(record?.foundWhileFixing).toEqual([{ title: "The port search runs past 65535", severity: null, where: null, result: null, failedBefore: true, test: null, proof: null },
       { title: "Untested", severity: null, where: null, result: null, failedBefore: false, test: null, proof: null }]);
+    // An entry that breaks the rules the plan's check-results.mjs applies is listed with what is wrong, by the same
+    // rules: a sentence where true or false belongs is reported, not trusted and not a crash.
+    expect(record?.invalid.map(({ entry }) => entry)).toEqual(["issues[2] C-9", "issues[3]", "foundWhileFixing[0] \"The port search runs past 65535\"", "foundWhileFixing[1]", "foundWhileFixing[2] \"Untested\"", "foundWhileFixing[3]"]);
+    expect(record?.invalid[0]?.problems).toEqual(["failedBefore is \"yes\", not true or false (write it without quotes; a sentence belongs in proof).",
+      "checkedEndToEnd is \"yes\", not true or false (write it without quotes; a sentence belongs in proof).", "result is \"solved\", not one of fixed, not_reproducible, no_change_needed, blocked.",
+      "proof is empty: give the failing output, or why no test could show the defect."]);
+    expect(record?.invalid[1]?.problems).toEqual([expect.stringMatching(/^is "not an entry", not an entry: each is an object with issue, title,/u)]);
+    expect(record?.invalid[2]?.problems).toEqual(expect.arrayContaining(["where is empty: name the file and the symbol.", "failedBefore is true, but test is empty: name the test's file and the test."]));
     expect(await planResults(repository, "run-87654321-abcd")).toBeNull();
     expect(await planResultRecord(repository, "run-87654321-abcd")).toBeNull();
   } finally { await rm(repository, { recursive: true, force: true }); }
@@ -509,6 +527,37 @@ it("ships a script that re-checks a prompt's premises against the working tree a
     const data = JSON.parse(await readFile(join(directory, "premises.json"), "utf8")) as { prompts: Record<string, unknown> };
     await writeFile(join(directory, "premises.json"), JSON.stringify({ ...data, prompts: { ...data.prompts, "TASK-2": { file: "prompts/x.md", hints: [], premises: Array.from({ length: 6_000 }, (_, index) => ({ kind: "symbol", text: `name${index}`.padEnd(200, "x"), role: "premise", saved: { status: "missing", place: null }, flagged: true })) } } }));
     expect(run(repository, "TASK-1").out).toContain("Premise check for TASK-1");
+  } finally { await rm(repository, { recursive: true, force: true }); }
+});
+
+it("ships a script that checks results.json against the plan as saved and the ticks in PROGRESS.md", async () => {
+  // Observed live (a messaging app's plan of 227 tasks, November 2026): every task was ticked, but 122 of 257 task
+  // entries had no result and 116 proofs only pointed to commit messages; nothing checked the file.
+  const { repository, orchestrator } = await premiseProject();
+  try {
+    const { directory } = await exportPlan(orchestrator, "run-12345678-abcd");
+    const run = (...args: string[]) => {
+      const result = spawnSync(process.execPath, [join(directory, "check-results.mjs"), ...args], { cwd: repository, encoding: "utf8", windowsHide: true });
+      return { status: result.status, out: result.stdout };
+    };
+    // As saved: nothing recorded and nothing ticked, so nothing to correct yet.
+    expect(run()).toEqual({ status: 0, out: expect.stringContaining("1 issue entry checked, 0 with a result, and no defect found while fixing: nothing to correct.") });
+    // The task is ticked with its result left empty.
+    const progress = join(directory, "PROGRESS.md");
+    await writeFile(progress, (await readFile(progress, "utf8")).replace("- [ ] 01 `TASK-1`", "- [x] 01 `TASK-1`"));
+    const ticked = run("--task", "TASK-1");
+    expect(ticked.status).toBe(1);
+    expect(ticked.out).toContain("issues[0] C-1 (TASK-1):\n  error: TASK-1 is ticked in PROGRESS.md, but C-1 has no result: record it, or untick TASK-1 if it is not done.");
+    // Recorded with a pointer for a proof, then with the failing output.
+    const results = join(directory, "results.json");
+    const saved = JSON.parse(await readFile(results, "utf8")) as { issues: Record<string, unknown>[] };
+    const record = async (entry: Record<string, unknown>) => writeFile(results, JSON.stringify({ ...saved, issues: [{ ...saved.issues[0], ...entry }] }, null, 2));
+    await record({ result: "fixed", failedBefore: true, test: "test/rollback.test.js", proof: "The failing-test evidence is in each commit message", checkedEndToEnd: false });
+    expect(run("--task", "TASK-1").out).toContain("error: proof only points elsewhere");
+    await record({ result: "fixed", failedBefore: true, test: "test/rollback.test.js", proof: "expected the encoder file to be restored, received the new settings", checkedEndToEnd: false });
+    expect(run("--task", "TASK-1").status).toBe(0);
+    expect(run().status).toBe(0);
+    expect(run("--task", "TASK-9")).toEqual({ status: 2, out: "check-results: this plan has no task called TASK-9. Use a task id such as TASK-1, or an unsure report's issue id.\n" });
   } finally { await rm(repository, { recursive: true, force: true }); }
 });
 

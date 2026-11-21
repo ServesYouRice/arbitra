@@ -59,9 +59,16 @@ describe("the plan's hand-over routes", () => {
       await writeFile(join(folder, "results.json"), JSON.stringify({ issues: [{ issue: "C-1", task: "TASK-1", result: "fixed", failedBefore: true, test: "test/a.test.ts", proof: "printed sk-abcdefghijklmnopqrstuv", checkedEndToEnd: false }] }));
       const response = await app.inject({ method: "GET", url: "/handoff/runs/run-12345678-abcd/results" });
       expect(response.statusCode).toBe(200);
-      expect(response.json()).toMatchObject({ results: { relative: ".arbitra/plans/2026-10-25-12345678", summary: { issues: 1, reported: 1, provenByFailingTest: 1 },
-        issues: [{ issue: "C-1", task: "TASK-1", result: "fixed", failedBefore: true, checkedEndToEnd: false }], foundWhileFixing: [] } });
+      expect(response.json()).toMatchObject({ results: { relative: ".arbitra/plans/2026-10-25-12345678", summary: { issues: 1, reported: 1, provenByFailingTest: 1, invalid: 0 },
+        issues: [{ issue: "C-1", task: "TASK-1", result: "fixed", failedBefore: true, checkedEndToEnd: false }], foundWhileFixing: [], invalid: [] } });
       expect(response.body).not.toContain("sk-abcdefghijklmnop");
+      // A sentence where true or false belongs is reported as an invalid entry, not trusted and not a failed request.
+      await writeFile(join(folder, "results.json"), JSON.stringify({ issues: [{ issue: "C-1", task: "TASK-1", result: "fixed", failedBefore: "It failed with sk-abcdefghijklmnopqrstuv in the log", test: "test/a.test.ts", proof: "expected 1, got 2", checkedEndToEnd: false }] }));
+      const invalid = await app.inject({ method: "GET", url: "/handoff/runs/run-12345678-abcd/results" });
+      expect(invalid.statusCode).toBe(200);
+      expect(invalid.json()).toMatchObject({ results: { summary: { reported: 1, provenByFailingTest: 0, invalid: 1 }, issues: [{ issue: "C-1", failedBefore: null }],
+        invalid: [{ entry: "issues[0] C-1 (TASK-1)", problems: [expect.stringMatching(/^failedBefore is ".+", not true or false/u)] }] } });
+      expect(invalid.body).not.toContain("sk-abcdefghijklmnop");
     } finally { await app.close(); await rm(repository, { recursive: true, force: true }); }
   });
 

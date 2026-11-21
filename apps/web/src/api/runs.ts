@@ -20,9 +20,11 @@ export interface PlanOutline {
 /** What the executing agent wrote in the saved plan's results.json, entry by entry (`GET /handoff/runs/:id/results`). */
 export interface PlanResultRecord {
   readonly directory: string; readonly relative: string; readonly modifiedAt: string;
-  readonly summary: { readonly issues: number; readonly reported: number; readonly results: Readonly<Record<string, number>>; readonly provenByFailingTest: number; readonly notProvenByTest: number; readonly checkedEndToEnd: number; readonly foundWhileFixing: { readonly reported: number; readonly provenByFailingTest: number } };
+  readonly summary: { readonly issues: number; readonly reported: number; readonly results: Readonly<Record<string, number>>; readonly provenByFailingTest: number; readonly notProvenByTest: number; readonly checkedEndToEnd: number; readonly foundWhileFixing: { readonly reported: number; readonly provenByFailingTest: number }; readonly invalid?: number };
   readonly issues: readonly { readonly issue: string; readonly title: string | null; readonly severity: string | null; readonly task: string | null; readonly result: string | null; readonly failedBefore: boolean | null; readonly test: string | null; readonly proof: string | null; readonly checkedEndToEnd: boolean | null }[];
   readonly foundWhileFixing: readonly { readonly title: string; readonly severity: string | null; readonly where: string | null; readonly result: string | null; readonly failedBefore: boolean | null; readonly test: string | null; readonly proof: string | null }[];
+  /** Entries that break the rules the plan's `check-results.mjs` applies, each with what is wrong. Absent from an older server. */
+  readonly invalid?: readonly { readonly entry: string; readonly problems: readonly string[] }[];
 }
 /** How often a working run's progress is read again: a stage's parts land every few minutes, its clock every second. */
 export const PROGRESS_POLL_MS = 5_000;

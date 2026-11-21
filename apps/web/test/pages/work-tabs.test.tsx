@@ -310,6 +310,23 @@ describe("the Results tab", () => {
     const proof = within(fixed).getAllByText("Proof")[0]?.closest("details") as HTMLDetailsElement;
     expect(proof.open).toBe(false);
     expect(within(proof).getByText("Role check missing on update: the proof.")).toBeTruthy();
+    expect(screen.queryByRole("region", { name: /^Not as results\.json asks/u })).toBeNull();
+  });
+
+  it("lists the entries that break the plan's results rules, folded, with what is wrong with each", async () => {
+    // Observed live (a messaging app's plan, November 2026): one failedBefore held a sentence, and nothing said so.
+    stubBrowser();
+    stubControlPlane(routes({ "GET /handoff/runs/run-1/results": { results: { directory: "/work/app/.arbitra/plans/2026-11-11-run1", relative: ".arbitra/plans/2026-11-11-run1", modifiedAt: "2026-11-11T12:00:00.000Z",
+      summary: { directory: "", issues: 1, reported: 1, results: { fixed: 1, not_reproducible: 0, no_change_needed: 0, blocked: 0 }, provenByFailingTest: 0, notProvenByTest: 0, checkedEndToEnd: 0, foundWhileFixing: { reported: 0, provenByFailingTest: 0 }, invalid: 1 },
+      issues: [{ issue: "C-1", title: "Expired tokens are accepted", severity: "high", task: "TASK-001", result: "fixed", failedBefore: null, test: null, proof: "The failing-test evidence is in each commit message", checkedEndToEnd: null }], foundWhileFixing: [],
+      invalid: [{ entry: "issues[0] C-1 (TASK-001)", problems: ["failedBefore is \"The test failed with 401\", not true or false.", "proof only points elsewhere."] }] } } }));
+    visit("?run=run-1&view=results");
+    render(<App />);
+    const invalid = await screen.findByRole("region", { name: "Not as results.json asks · 1" });
+    expect(invalid.textContent).toContain("check-results.mjs");
+    const details = within(invalid).getByText("What is wrong with each").closest("details") as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    expect(within(details).getByText("issues[0] C-1 (TASK-001)").closest("li")?.textContent).toContain("failedBefore is \"The test failed with 401\", not true or false. · proof only points elsewhere.");
   });
 });
 

@@ -608,12 +608,15 @@ repository until those are fixed. An existing `.arbitra/.gitignore` is never cha
 | `prompts/4-unsure/` | One prompt per issue of the plan's scope that the audit could not settle and no task addresses, part of the work after the tasks: where it is (`<where>`, the places its findings cite), what it claims, why the audit could not settle it (the reviewers and the verifier) and what would show it (`<what_would_show_it>`, each finder's trigger and how it said to check it). It asks to decide whether the report holds, to change nothing until a failing test or a run shows the defect, and to record the result in `results.json` whatever the verdict; its `<write_scope>` is that of the issue's own places. On the plans carried out so far, between a third and two thirds of such reports held |
 | `issues.md`, `also-found.md` | The issues the plan fixes; accepted issues no task fixes (only when there are any) |
 | `questions.md` | The open questions that do not block, each with the default the plan went ahead on (only when there are any); each prompt also repeats the questions and validation checks it cites |
-| `results.json` | One entry per issue for the executor to fill in: `result` (`fixed`, `not_reproducible`, `no_change_needed` or `blocked`), `failedBefore`, `test` and `proof` |
+| `results.json` | One entry per issue for the executor to fill in: `result` (`fixed`, `not_reproducible`, `no_change_needed` or `blocked`), `failedBefore`, `test`, `proof` and `checkedEndToEnd`, and `foundWhileFixing` for defects no issue names |
+| `check-results.mjs` | The results check, plain Node with no dependencies (`packages/runtime/src/results-check.ts`), with the plan's tasks and the task each issue's entry belongs to written into it. Each prompt's last step runs `node .arbitra/plans/<folder>/check-results.mjs --task TASK-012`; without `--task` it checks the whole file. It reports each entry's field of the wrong type or result it does not know, a recorded result without `failedBefore`, a proof, the test when one failed or (for a fix) `checkedEndToEnd`, a proof that only points to commit messages, and a task ticked in PROGRESS.md whose issues have no result; it exits 1 while any is left |
 
 Each task prompt asks for a test that fails on the current code before the fix. arbitra reads
 `results.json` back from the run's newest saved folder (`packages/runtime/src/plan-results.ts`)
 and reports how many issues were reported, how many a failing test proved, and the count of
-each result: on an Audit's Results tab (and its Evaluation record) and in the run report. A run without a plan is
+each result: on an Audit's Results tab (and its Evaluation record) and in the run report. It applies the entry rules of
+`check-results.mjs` as it reads: a field of the wrong type counts as not recorded, and each entry that breaks a rule is
+listed with what is wrong (folded on the Results tab, counted in the run report). A run without a plan is
 refused with HTTP 409 (`RUN_HAS_NO_PLAN`), as is a run with no recorded repository
 (`RUN_REPOSITORY_UNKNOWN`).
 
