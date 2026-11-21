@@ -165,11 +165,14 @@ describe.each(VENDORS)("%s subscription CLI transport", { timeout: 30_000 }, (ve
     expect(error.message).toContain("CLI_USAGE_LIMIT_REACHED");
     // Claude Code refuses before any assistant output, so the attempt provably consumed nothing.
     expect((error as { evidence?: unknown }).evidence).toEqual(vendor === "claude-code" ? { consumption: "none", rule: "cli_usage_limit_refused" } : { consumption: "unknown" });
-    const recorded = await f.ledger.current(f.support.transport, Date.now());
-    expect(recorded?.transport).toBe(f.support.transport);
+    // The Antigravity CLI's limits are per model, so its limit is the model's (see the Antigravity CLI specifics below).
+    const perModel = vendor === "antigravity";
+    const recorded = await f.ledger.current(f.support.transport, Date.now(), perModel ? "model-x" : undefined);
+    expect(recorded).toMatchObject({ transport: f.support.transport, ...(perModel ? { modelId: "model-x" } : {}) });
     if (vendor !== "gemini") expect(recorded?.resetsAt).toBeGreaterThan(Date.now());
-    const readiness = await probeCliReadiness(f.support.transport, { lookup: (name) => f.env[name], auth: "subscription_login", oauthTokenEnv: null, limits: f.ledger });
-    expect(readiness.usageLimit?.transport).toBe(f.support.transport);
+    const readiness = await probeCliReadiness(f.support.transport, { lookup: (name) => f.env[name], auth: "subscription_login", oauthTokenEnv: null, limits: f.ledger, modelIds: ["model-x", "model-y"] });
+    expect(readiness.usageLimit?.transport ?? null).toBe(perModel ? null : f.support.transport);
+    expect(readiness.modelLimits?.map(({ modelId }) => modelId)).toEqual(perModel ? ["model-x"] : []);
   });
 
   it("classifies throttling as a retryable RATE_LIMIT with the CLI's retry hint", async () => {
@@ -589,6 +592,20 @@ describe("Antigravity CLI specifics", { timeout: 30_000 }, () => {
     const unreadable = await failure(send(identifier.transport));
     expect(unreadable).toMatchObject({ code: "HTTP", retryable: true });
     expect(unreadable.message).toMatch(/^CLI_MODEL_CALL_FAILED: the Antigravity CLI reported a failed model call and its reason could not be read \(the step held \d+ bytes; readable: .*8e2810e05a27466393bf43ac8c6e7157/u);
+  });
+
+  // Observed live (November 21, 2026, agy 1.5.14): Gemini 4 Argon High met a weekly limit of its own ("Individual quota
+  // reached ... Resets in 167h") while the other Gemini models had all of theirs.
+  it("records a usage limit for the model that met it, which another model's answer does not clear and its own does", async () => {
+    const f = await fixture({ vendor: "antigravity", replies: [{ kind: "usage_limit" }, { kind: "text", text: "pong" }, { kind: "text", text: "pong" }] });
+    expect(await failure(send(f.transport, request({ modelId: "gemini-4-argon-high" })))).toMatchObject({ code: "QUOTA" });
+    const now = Date.now();
+    expect([await f.ledger.current(f.support.transport, now), await f.ledger.current(f.support.transport, now, "gemini-4-neon-high")]).toEqual([null, null]);
+    expect(await f.ledger.current(f.support.transport, now, "gemini-4-argon-high")).toMatchObject({ transport: "antigravity-cli", modelId: "gemini-4-argon-high" });
+    await send(f.transport, request({ modelId: "gemini-4-neon-high" }));
+    expect(await f.ledger.current(f.support.transport, Date.now(), "gemini-4-argon-high")).not.toBeNull();
+    await send(f.transport, request({ modelId: "gemini-4-argon-high" }));
+    expect(await f.ledger.current(f.support.transport, Date.now(), "gemini-4-argon-high")).toBeNull();
   });
 
   it("does not count thinking twice when the CLI's output count already includes it", async () => {

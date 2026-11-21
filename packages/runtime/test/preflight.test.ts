@@ -272,15 +272,15 @@ describe("environment preflight", () => {
     expect(codes(await run({}))).toEqual([]);
     const diagnostics = await run({
       "claude-code-cli": { executable: { found: false, reason: "not_found", detail: "claude was not found" }, version: null, versionSupported: null, auth: null },
-      "codex-cli": { auth: "not_logged_in", version: "0.100.0", versionSupported: false },
-      "antigravity-cli": { auth: "not_logged_in", usageLimit: { transport: "antigravity-cli", observedAt: 0, resetsAt: Date.parse("2099-01-01T00:00:00Z"), message: "limit" } },
+      "codex-cli": { auth: "not_logged_in", version: "0.100.0", versionSupported: false, usageLimit: { transport: "codex-cli", observedAt: 0, resetsAt: Date.parse("2099-01-01T00:00:00Z"), message: "limit" } },
+      "antigravity-cli": { auth: "not_logged_in" },
     });
     expect(codes(diagnostics)).toEqual(["SUBSCRIPTION_CLI_NOT_INSTALLED:claude-code", "SUBSCRIPTION_CLI_VERSION_UNSUPPORTED:codex", "SUBSCRIPTION_CLI_NOT_LOGGED_IN:codex",
-      "SUBSCRIPTION_CLI_NOT_LOGGED_IN:antigravity", "SUBSCRIPTION_CLI_USAGE_LIMIT_REACHED:antigravity"]);
+      "SUBSCRIPTION_CLI_USAGE_LIMIT_REACHED:codex", "SUBSCRIPTION_CLI_NOT_LOGGED_IN:antigravity"]);
     const message = (code: string) => diagnostics.find((diagnostic) => diagnostic.code === code)?.message ?? "";
     expect(message("SUBSCRIPTION_CLI_NOT_INSTALLED:claude-code")).toContain("ARBITRA_CLAUDE_CODE_EXECUTABLE");
     expect(message("SUBSCRIPTION_CLI_NOT_LOGGED_IN:codex")).toContain("codex login");
-    expect(message("SUBSCRIPTION_CLI_USAGE_LIMIT_REACHED:antigravity")).toContain("2099-01-01T00:00:00.000Z");
+    expect(diagnostics.find(({ code }) => code === "SUBSCRIPTION_CLI_USAGE_LIMIT_REACHED:codex")).toMatchObject({ severity: "error", message: expect.stringContaining("2099-01-01T00:00:00.000Z") });
     expect(message("SUBSCRIPTION_CLI_NOT_LOGGED_IN:antigravity")).toContain("Run `agy` once");
     const warnings = (await run({ "antigravity-cli": { auth: "unverified" } })).filter(({ severity }) => severity === "warning").map(({ code }) => code);
     expect(warnings).toEqual(["SUBSCRIPTION_CLI_AUTH_UNVERIFIED:antigravity"]);
@@ -297,6 +297,27 @@ describe("environment preflight", () => {
     expect(codes(tooOld)).toEqual(["SUBSCRIPTION_CLI_TOO_OLD_FOR_MODEL:codex"]);
     expect(tooOld.find(({ severity }) => severity === "error")?.message).toContain("does not know gpt-6.1-sol, which needs 0.162.0 or later. Install the current Codex CLI (`npm install -g @openai/codex`)");
     expect(codes(await environmentDiagnostics(sol, { credential: absent, cliProbe: probe({ "codex-cli": { version: "0.164.0" } }) }))).toEqual([]);
+    // The Antigravity CLI's limits are per model. Observed live (November 21, 2026, agy 1.5.14): Gemini 4 Argon met a
+    // weekly limit of its own while the other Gemini models had all of theirs, and a limit kept for the whole CLI would
+    // have refused for a week a run whose Argon finder falls back to Neon. A model at its limit is said; the run is
+    // refused only when every model it calls through the CLI is out until a known time.
+    const geminiProfile = Object.entries(execution.modelEndpoints).find(([, endpoint]) => execution.endpoints.find(({ id }) => id === endpoint)?.transport === "antigravity-cli")?.[0] ?? "";
+    const argon = { ...config, models: { ...config.models, [geminiProfile]: { ...config.models[geminiProfile], modelId: "gemini-4-argon-high" }, "fallback-gemini": { ...config.models[geminiProfile], modelId: "gemini-4-neon-xhigh" } },
+      workflow: { ...config.workflow, modelExecution: { ...execution, modelEndpoints: { ...execution.modelEndpoints, "fallback-gemini": execution.modelEndpoints[geminiProfile] }, fallbacks: { [geminiProfile]: "fallback-gemini" } } } } as RunConfig;
+    const asked: (readonly string[] | undefined)[] = [];
+    const limit = (modelId: string) => ({ transport: "antigravity-cli", modelId, observedAt: 0, resetsAt: Date.parse("2099-01-01T00:00:00Z"), message: "Individual quota reached" });
+    const limited = (changes: Partial<CliReadiness>) => environmentDiagnostics(argon, { credential: absent, cliProbe: async (transport, options) => {
+      if (transport === "antigravity-cli") asked.push(options.modelIds);
+      return state(transport, transport === "antigravity-cli" ? changes : {});
+    } });
+    const argonOut = await limited({ modelLimits: [limit("gemini-4-argon-high")] });
+    expect(asked[0]).toEqual(["gemini-4-argon-high", "gemini-4-neon-xhigh"]);
+    expect(argonOut.map(({ code, severity }) => `${severity} ${code}`)).toEqual(["warning SUBSCRIPTION_CLI_USAGE_LIMIT_REACHED:antigravity"]);
+    expect(argonOut[0]?.message).toContain("gemini-4-argon-high until 2099-01-01T00:00:00.000Z");
+    expect((await limited({ modelLimits: [limit("gemini-4-argon-high"), limit("gemini-4-neon-xhigh")] })).map(({ code, severity }) => `${severity} ${code}`)).toEqual(["error SUBSCRIPTION_CLI_USAGE_LIMIT_REACHED:antigravity"]);
+    // A limit an earlier build recorded for the whole CLI does not say which model is out.
+    expect((await limited({ usageLimit: { transport: "antigravity-cli", observedAt: 0, resetsAt: Date.parse("2099-01-01T00:00:00Z"), message: "limit" } })).map(({ code, severity }) => `${severity} ${code}`))
+      .toEqual(["warning SUBSCRIPTION_CLI_USAGE_LIMIT_REACHED:antigravity"]);
   });
 
   it("refuses live dispatch of template placeholder model identities", async () => {

@@ -157,10 +157,14 @@ export interface RouteSwitch {
 
 /**
  * A switch as one line: "Switched Opus 5.5 · xhigh from API key to Claude Code at 11 Nov, 08:14, credit out ($182
- * spent)." A pause with no fallback, and a return once a limit has reset, are said in the same words.
+ * spent)." A switch to another model by the same route (a Gemini model through Antigravity, whose usage limits are per
+ * model) says the route once: "Switched Gemini 4 Argon high through Antigravity to Gemini 4 Neon xhigh …". A model
+ * whose ID carries its thinking level shows no effort beside it. A pause with no fallback, and a return once a limit
+ * has reset, are said in the same words.
  */
 export function routeSwitchWords(change: RouteSwitch): string {
-  const subject = `${change.model}${change.effort === null ? "" : ` · ${change.effort}`}`;
+  const carried = /\s(?:low|medium|high|xhigh)$/u.test(change.model);
+  const subject = `${change.model}${change.effort === null || carried ? "" : ` · ${change.effort}`}`;
   const when = change.at === null ? "" : ` at ${formatTime(change.at)}`;
   const spent = change.spentUsd === null ? "" : ` (${dollars(change.spentUsd)} spent)`;
   const why = change.reason === "credit_out" ? "credit out"
@@ -169,6 +173,7 @@ export function routeSwitchWords(change: RouteSwitch): string {
     : change.reason === "reset" ? "its limit has reset" : change.reason;
   if (change.to === null) return `${subject} through ${change.from} stopped${when}: ${why}${spent}. No fallback is set, so the run paused.`;
   if (change.reason === "reset") return `Went back to ${subject} through ${change.to}${when}: ${why}.`;
+  if (change.to === change.from && change.toModel !== null && change.toModel !== change.model) return `Switched ${subject} through ${change.from} to ${change.toModel}${when}, ${why}${spent}.`;
   const target = change.toModel === null || change.toModel === change.model ? change.to : `${change.toModel} through ${change.to}`;
   return `Switched ${subject} from ${change.from} to ${target}${when}, ${why}${spent}.`;
 }

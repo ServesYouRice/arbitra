@@ -10,7 +10,7 @@ import { useNavigation } from "../../app/router.js";
 import { counted } from "../../app/words.js";
 import { stableJson } from "../../graph/editor-model.js";
 import { modelProfiles, record } from "../run/models.js";
-import { withStrongestOffered } from "./model-catalog.js";
+import { withStrongestOffered, type OfferedModels } from "./model-catalog.js";
 import { getIn, modeOf, placeholders, setIn, suggestedName, withGraph, type Draft, type Mode } from "./draft.js";
 import { DEFAULT_START, SCRIPTED_AUDIT, TEMPLATES } from "./templates.js";
 import { isDepthLineup } from "./depth.js";
@@ -20,7 +20,7 @@ import { OverLimit, WhatToRead } from "./WhatToRead.js";
 import { antigravityState, missingClis, offeredModels, ThisComputer, type DetectedEnvironment } from "./ThisComputer.js";
 import type { UsageWindows, WindowsState } from "./windows.js";
 import { ChangeModels } from "./ChangeModels.js";
-import { withSyncedFallbacks } from "./fallback.js";
+import { withSyncedFallbacks, withUsageLimitFallbacks } from "./fallback.js";
 import { WhenRunOut } from "./WhenRunOut.js";
 import { MoreOptions, optionsSummary } from "./MoreOptions.js";
 import { FeatureFields, TestingFields } from "./ModeFields.js";
@@ -58,8 +58,10 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, setStoredDraft] = useState<Draft>(SCRIPTED_AUDIT);
+  // The Gemini models this machine's Antigravity lists, once read: a Gemini model's fallback is one of them.
+  const offeredRef = useRef<OfferedModels>({});
   // Every change goes through here, so a model's fallback follows the depth, model or effort chosen for it.
-  const setDraft = useMemo(() => (next: SetStateAction<Draft>): void => setStoredDraft((current) => withSyncedFallbacks(typeof next === "function" ? next(current) : next)), []);
+  const setDraft = useMemo(() => (next: SetStateAction<Draft>): void => setStoredDraft((current) => withSyncedFallbacks(typeof next === "function" ? next(current) : next, offeredRef.current)), []);
   // The project starts empty: the server's own folder is not a project (inventory, October 25, 2026).
   const [repository, setRepository] = useState("");
   const [check, setCheck] = useState<Checked | null>(null);
@@ -115,10 +117,12 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
   };
   useEffect(() => { loadWindows(false); }, []);
   const offered = useMemo(() => offeredModels(environment), [environment]);
-  // A template not yet edited takes the strongest Gemini this machine's CLI offers (Argon), as it does for the others.
+  offeredRef.current = offered;
+  // A template not yet edited takes the first Gemini this machine's CLI offers (Neon), as it does for the others, with
+  // the Gemini model of Antigravity's other usage limit (Argon) to go on with when its own is out.
   useEffect(() => {
     if (loaded === null || dirty || !(from === null || from.startsWith("template:"))) return;
-    const upgraded = withStrongestOffered(loaded.draft, offered);
+    const upgraded = withUsageLimitFallbacks(withStrongestOffered(loaded.draft, offered), offered);
     if (upgraded !== loaded.draft) { setLoaded({ ...loaded, draft: upgraded }); setDraft(upgraded); }
   }, [offered, loaded, dirty, from]);
   useEffect(() => { setGuard(dirty ? LEAVE : null); }, [dirty, setGuard]);
@@ -313,7 +317,7 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
         <summary>Change models: each model's details, and which model does what</summary>
         <ChangeModels draft={draft} edit={edit} offered={offered} />
       </details>}
-      {scripted ? null : <WhenRunOut draft={draft} setDraft={setDraft} />}
+      {scripted ? null : <WhenRunOut draft={draft} setDraft={setDraft} offered={offered} />}
     </Section> : <Section number={number()} title={mode === "feature" ? "What to plan" : "What to test"} id="what">
       {mode === "feature" ? <FeatureFields draft={draft} edit={edit} /> : <TestingFields draft={draft} edit={edit} />}
       <LineupChoice startKey={startKey} graph={graph} loaded={loaded} configurations={configurations} onChoose={(key) => navigate({ page: "new-run", from: key, graph: null }, { replace: true })} />
@@ -322,7 +326,7 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
         <summary>Models</summary>
         <ChangeModels draft={draft} edit={edit} offered={offered} />
       </details>
-      <WhenRunOut draft={draft} setDraft={setDraft} />
+      <WhenRunOut draft={draft} setDraft={setDraft} offered={offered} />
     </Section>}
 
     {mode === "audit" && !scripted ? <Section number={number()} title="Steps" id="steps">

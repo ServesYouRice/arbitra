@@ -36,6 +36,11 @@ export interface CliTransportSupport {
    * through an older CLI is refused before anything is sent, and preflight refuses the run.
    */
   readonly modelMinimumVersions?: Readonly<Record<string, string>>;
+  /**
+   * Whether the plan's usage limits are per model rather than per account, so a limit one model meets leaves the
+   * others answering: recorded per model (limits.ts) and, at preflight, a warning unless every model is out.
+   */
+  readonly limitsPerModel?: boolean;
 }
 
 export const CLI_TRANSPORT_SUPPORT: readonly CliTransportSupport[] = Object.freeze([
@@ -83,6 +88,9 @@ export const CLI_TRANSPORT_SUPPORT: readonly CliTransportSupport[] = Object.free
     authModes: Object.freeze(["subscription_login"] as const),
     loginInstruction: "Run `agy` once in a terminal and sign in with the Google account that holds your Google AI subscription; the login is kept in the operating system's keyring.",
     installInstruction: "Install the Antigravity CLI (`curl -fsSL https://antigravity.google/cli/install.sh | bash`, or `winget install Google.AntigravityCLI` on Windows) so `agy` is on PATH or in ~/.local/bin, or set ARBITRA_ANTIGRAVITY_EXECUTABLE to its absolute path.",
+    // Observed live (November 21, 2026, agy 1.5.14): Gemini 4 Argon High met a weekly limit of its own ("Individual quota
+    // reached ... Resets in 167h") after 34 minutes, while the other Gemini models, which share theirs, had all of it.
+    limitsPerModel: true,
   }),
 ] satisfies CliTransportSupport[]);
 

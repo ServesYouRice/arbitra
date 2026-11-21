@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { Orchestrator } from "../src/orchestrator.js";
 import { orchestratorCore } from "../src/cli-core.js";
+import { RunStore, runsDirectoryOf } from "../src/run-store.js";
 import { TestingWorktree, type TestingWorktreeHandle } from "../src/testing-worktree.js";
 import { SMOKE_SOURCE, SMOKE_TEST, smokeProvider, smokeRepository, type WireProtocol } from "./smoke-provider.js";
 
@@ -19,7 +20,7 @@ const roots: string[] = [];
 const exercised = new Set<WireProtocol>();
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 
-async function setup(name: string, options: { highImpactAmbiguity?: boolean; edit?: (config: Record<string, unknown>) => void } = {}) {
+async function setup(name: string, options: { highImpactAmbiguity?: boolean; edit?: (config: Record<string, unknown>) => void; usageLimited?: readonly string[] } = {}) {
   const root = await mkdtemp(join(tmpdir(), `arbitra-subscription-smoke-${name}-`)); roots.push(root);
   const repository = join(root, "repo");
   await smokeRepository(repository);
@@ -29,7 +30,7 @@ async function setup(name: string, options: { highImpactAmbiguity?: boolean; edi
   await writeFile(configPath, JSON.stringify(config));
   const provider = await smokeProvider({ ...options, root });
   const orchestrator = () => new Orchestrator({ repository, stateDirectory: join(repository, ".runs"), providerOptions: provider.providerOptions, testSandbox: provider.sandbox });
-  return { root: repository, configPath, provider, orchestrator, core: orchestratorCore(orchestrator()) };
+  return { root: repository, configPath, provider, orchestrator, core: orchestratorCore(orchestrator()), store: (runId: string) => new RunStore(runsDirectoryOf(join(repository, ".runs")), runId) };
 }
 
 const record = (calls: readonly { protocol: WireProtocol }[]) => { for (const call of calls) exercised.add(call.protocol); };
@@ -75,6 +76,45 @@ describe("subscription template smoke checks", () => {
     expect([...protocols].sort()).toEqual(["antigravity-cli", "claude-code-cli", "codex-cli"]);
     expect(await readFile(join(f.root, "src", "session.ts"), "utf8")).toBe(`${SMOKE_SOURCE}\n`);
     record(f.provider.calls);
+  }, 120_000);
+
+  // Observed live (November 21, 2026, agy 1.5.14): Gemini 4 Argon High met a weekly limit of its own after 34 minutes
+  // ("Individual quota reached ... Resets in 167h") and the finder was left out, while the other Gemini models, which
+  // share theirs, had all of it. A fallback through the same CLI to a model of the other limit keeps the finder.
+  it("goes on with the Gemini finder's fallback through the same Antigravity CLI when its model's usage limit is out for a week", async () => {
+    const f = await setup("subscription-audit-gemini", { usageLimited: ["gemini-4-argon-high"], edit: (config) => {
+      const models = config["models"] as Record<string, Record<string, unknown>>;
+      const execution = (config["workflow"] as { modelExecution: { modelEndpoints: Record<string, string>; fallbacks?: Record<string, string> } }).modelExecution;
+      models["auditor-c"] = { ...models["auditor-c"], modelId: "gemini-4-argon-high" };
+      models["fallback-auditor-c"] = { ...models["auditor-c"], modelId: "gemini-4-neon-xhigh" };
+      execution.modelEndpoints["fallback-auditor-c"] = execution.modelEndpoints["auditor-c"] ?? "";
+      execution.fallbacks = { "auditor-c": "fallback-auditor-c" };
+    } });
+    const validation = await f.core.validate(f.configPath);
+    const diagnostics = (validation.value as { ready: boolean; diagnostics: { code: string; severity: string; message: string }[] });
+    expect(diagnostics.diagnostics.filter(({ severity }) => severity === "error")).toEqual([]);
+    expect(diagnostics.diagnostics.find(({ code }) => code === "FALLBACK_IS_ANOTHER_MODEL")?.message).toContain("whose usage limits are per model");
+    const started = Date.now();
+    const result = await f.core.run(f.configPath);
+    const value = result.value as { runId: string; state: string };
+    expect(value.state).toBe("COMPLETED");
+    // Argon was asked once and refused; every discovery unit of the finder went on with Neon, on the same CLI.
+    expect(f.provider.limited.map(({ model, stage }) => `${model} ${stage}`)).toEqual(["gemini-4-argon-high discovery"]);
+    const neon = f.provider.calls.filter(({ protocol, model }) => protocol === "antigravity-cli" && model === "gemini-4-neon-xhigh");
+    expect(neon.map(({ stage }) => stage)).toContain("discovery");
+    expect(f.provider.calls.some(({ model }) => model === "gemini-4-argon-high")).toBe(false);
+    const store = f.store(value.runId);
+    const events = await store.loadEvents();
+    const switched = events.filter(({ t }) => t === "model_route_switched") as unknown as readonly { from: string; to: string | null; reason: string; resetsAt?: string }[];
+    expect(switched.map(({ from, to, reason }) => ({ from, to, reason }))).toEqual([{ from: "auditor-c", to: "fallback-auditor-c", reason: "usage_limit" }]);
+    const resets = Date.parse(switched[0]?.resetsAt ?? "") - started;
+    expect(resets).toBeGreaterThan(166 * 3_600_000);
+    expect(resets).toBeLessThan(168 * 3_600_000);
+    // The finder is not left out: no optional step moved, and its finding is the run's like the others'.
+    expect(events.some(({ t }) => t === "optional_step_limited")).toBe(false);
+    expect((await store.loadContext()).leftOutFinders).toBeUndefined();
+    const sources = (await f.orchestrator().artifacts(value.runId)).find(({ kind }) => kind === "source-findings");
+    expect((await f.orchestrator().artifact(value.runId, sources?.artifactId ?? "") as { content: string }).content).toContain("auditor-c/1");
   }, 120_000);
 
   it("mixes an API-key auditor with subscription auditors in one run", async () => {

@@ -3,7 +3,9 @@ import { formatTime } from "../src/app/format.js";
 import { dollars, optionalStepWords, routeSwitchWords } from "../src/app/words.js";
 import { withDepth } from "../src/pages/new-run/depth.js";
 import { getIn, type Draft } from "../src/pages/new-run/draft.js";
-import { fallbackChoices, withCostCap, withFallback, withSyncedFallbacks } from "../src/pages/new-run/fallback.js";
+import { withThirdFinder } from "../src/pages/new-run/assign.js";
+import { fallbackChoices, withCostCap, withFallback, withSyncedFallbacks, withUsageLimitFallbacks } from "../src/pages/new-run/fallback.js";
+import { withStrongestOffered } from "../src/pages/new-run/model-catalog.js";
 import { routeOf, withRoute } from "../src/pages/new-run/routes.js";
 import { TEMPLATES } from "../src/pages/new-run/templates.js";
 import { record } from "../src/pages/run/models.js";
@@ -59,11 +61,60 @@ describe("when a model runs out", () => {
     expect(fallbackChoices(back).find(({ alias }) => alias === "auditor-a")).toMatchObject({ route: "cli", cappable: false, capUsd: null });
   });
 
+  // Observed live (November 21, 2026, agy 1.5.14): Gemini 4 Argon High met a weekly limit of its own after 34 minutes and
+  // the finder was left out, while the other Gemini models, which share theirs, had all of it.
+  it("gives a Gemini finder through Antigravity the Gemini model of the other usage limit as its fallback, on the same endpoint", () => {
+    const offered = { "antigravity-cli": [{ id: "gemini-4-neon-high", name: "Gemini 4 Neon (High)" }, { id: "gemini-4-argon-medium", name: "Gemini 4 Argon (Medium)" },
+      { id: "gemini-4-argon-high", name: "Gemini 4 Argon (High)" }, { id: "gemini-pro-orchestrator-g1-pro", name: "Orchestrator (Argon)" }, { id: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)" }] };
+    const base = template("subscription-audit-gemini");
+    const neon = withUsageLimitFallbacks(withStrongestOffered(base, offered), offered);
+    expect([model(neon, "auditor-c")["modelId"], execution(neon)["fallbacks"]]).toEqual(["gemini-4-neon-high", { "auditor-c": "fallback-auditor-c" }]);
+    expect(model(neon, "fallback-auditor-c")).toMatchObject({ transport: "antigravity-cli", modelId: "gemini-4-argon-high", family: "gemini" });
+    const bindings = record(execution(neon)["modelEndpoints"]);
+    expect(bindings["fallback-auditor-c"]).toBe(bindings["auditor-c"]);
+    expect(execution(neon)["endpoints"]).toEqual(execution(base)["endpoints"]);
+    // Still a lineup through the CLIs, with its depth cards; Neon has no API equivalent, so the same model is the only way on.
+    expect(routeOf(neon)).toBe("cli");
+    expect(fallbackChoices(neon, offered).find(({ alias }) => alias === "auditor-c")).toMatchObject({ other: null, sameRoute: { modelId: "gemini-4-argon-high", model: "Gemini 4 Argon high" },
+      fallback: "fallback-auditor-c", kind: "model", optional: true, cappable: false });
+    expect(fallbackChoices(neon, offered).find(({ alias }) => alias === "auditor-a")).toMatchObject({ sameRoute: null, kind: null, optional: false });
+    // Added once: a lineup that has it, or one whose person took it away, is not given it again.
+    expect(withUsageLimitFallbacks(neon, offered)).toBe(neon);
+    const paused = withFallback(neon, "auditor-c", false, offered);
+    expect([execution(paused)["fallbacks"], model(paused, "fallback-auditor-c"), execution(paused)["endpoints"]]).toEqual([undefined, {}, execution(base)["endpoints"]]);
+    expect(withFallback(paused, "auditor-c", "model", offered)).toEqual(neon);
+    // Kept while the CLI's list is not read yet, and moved to Neon when the finder takes Argon.
+    expect(withSyncedFallbacks(neon)).toBe(neon);
+    expect(withSyncedFallbacks(neon, offered)).toBe(neon);
+    const argon = withSyncedFallbacks(withThirdFinder(neon, { transport: "antigravity-cli", modelId: "gemini-4-argon-high" }, offered), offered);
+    expect([model(argon, "auditor-c")["modelId"], model(argon, "fallback-auditor-c")["modelId"]]).toEqual(["gemini-4-argon-high", "gemini-4-neon-high"]);
+    // A CLI that lists one usage limit's models only offers no other to go on with.
+    const flashOnly = { "antigravity-cli": [{ id: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)" }] };
+    expect(withUsageLimitFallbacks(base, flashOnly)).toBe(base);
+    expect(fallbackChoices(base, flashOnly).find(({ alias }) => alias === "auditor-c")).toMatchObject({ other: "gemini-native", sameRoute: null });
+    expect(execution(withSyncedFallbacks(neon, flashOnly))["fallbacks"]).toBeUndefined();
+  });
+
+  it("starts a third finder through Antigravity with the other usage limit's model, and takes both away with it", () => {
+    const offered = { "antigravity-cli": [{ id: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)" }, { id: "gemini-4-argon", name: "Gemini 4 Argon" }] };
+    const two = template("subscription-audit");
+    const three = withThirdFinder(two, "default", offered);
+    expect([model(three, "auditor-c")["modelId"], model(three, "fallback-auditor-c")["modelId"], execution(three)["fallbacks"]]).toEqual(["gemini-3.8-flash-high", "gemini-4-argon", { "auditor-c": "fallback-auditor-c" }]);
+    // A finder already there keeps what its person chose.
+    const kept = withThirdFinder(withFallback(three, "auditor-c", false, offered), { transport: "antigravity-cli", modelId: "gemini-4-argon" }, offered);
+    expect(execution(kept)["fallbacks"]).toBeUndefined();
+    const removed = withThirdFinder(three, null, offered);
+    expect([model(removed, "auditor-c"), model(removed, "fallback-auditor-c"), execution(removed)["fallbacks"], execution(removed)["endpoints"]]).toEqual([{}, {}, undefined, execution(two)["endpoints"]]);
+  });
+
   it("says a switch, a pause at the cap and a return in one line each", () => {
     const base = { model: "Opus 5.5", effort: "xhigh", toModel: "Opus 5.5", at: null, spentUsd: 182.4, capUsd: null, resetsAt: null };
     expect(routeSwitchWords({ ...base, from: "API key", to: "Claude Code", reason: "credit_out" })).toBe("Switched Opus 5.5 · xhigh from API key to Claude Code, credit out ($182 spent).");
     expect(routeSwitchWords({ ...base, from: "API key", to: null, reason: "cost_cap", capUsd: 150, spentUsd: 150.2 })).toBe("Opus 5.5 · xhigh through API key stopped: its $150 cap reached ($150 spent). No fallback is set, so the run paused.");
     expect(routeSwitchWords({ ...base, from: "API key", to: "Claude Code", reason: "reset", spentUsd: null })).toBe("Went back to Opus 5.5 · xhigh through Claude Code: its limit has reset.");
+    // A switch to another model by the same route says the route once, and a model whose ID carries its thinking no effort.
+    expect(routeSwitchWords({ model: "Gemini 4 Argon high", effort: "high", from: "Antigravity", to: "Antigravity", toModel: "Gemini 4 Neon high", at: null, reason: "usage_limit",
+      spentUsd: null, capUsd: null, resetsAt: null })).toBe("Switched Gemini 4 Argon high through Antigravity to Gemini 4 Neon high, usage limit reached.");
     expect([dollars(182.4), dollars(3.4), dollars(0.001)]).toEqual(["$182", "$3.40", "under $0.01"]);
   });
 

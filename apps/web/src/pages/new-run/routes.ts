@@ -37,7 +37,10 @@ function template(transport: string): { readonly endpoint: Endpoint; readonly pr
   return undefined;
 }
 
-/** The profiles that stand in for another when it runs out (`workflow.modelExecution.fallbacks`): they take the other route. */
+/**
+ * The profiles that stand in for another when it runs out (`workflow.modelExecution.fallbacks`): they take the other
+ * route, or (a Gemini model through Antigravity) another model of the same route with a usage limit of its own.
+ */
 export function fallbackAliases(draft: Draft): ReadonlySet<string> {
   return new Set(Object.values(record(getIn(draft, ["workflow", "modelExecution", "fallbacks"]))).filter((alias): alias is string => typeof alias === "string"));
 }

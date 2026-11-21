@@ -73,7 +73,7 @@ describe("configuration drafts", () => {
     expect(placeholders(template("testing-execute").config)).toEqual(expect.arrayContaining(["workflow.testing.goal", "workflow.testing.execution.verification.execution.image"]));
   });
 
-  it("adds the Gemini models this machine's CLI offers, Argon first, and moves an untouched template to it", () => {
+  it("adds the Gemini models this machine's CLI offers, the strongest family first, and moves an untouched template to it", () => {
     const offered = { "antigravity-cli": [{ id: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)" }, { id: "gemini-4-argon", name: "Gemini 4 Argon" }, { id: "claude-opus-4-6-thinking", name: "Claude Opus 4.6" }] };
     expect(offeredCatalog("antigravity-cli", offered)?.map(({ modelId }) => modelId)).toEqual(["gemini-4-argon", "gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-3.8-flash-low"]);
     const audit = template("subscription-audit-gemini").config;
@@ -81,14 +81,18 @@ describe("configuration drafts", () => {
     expect(withStrongestOffered(audit, { "antigravity-cli": [] })).toBe(audit);
   });
 
-  it("offers Argon at its highest thinking first, and no orchestrator", () => {
+  it("offers Neon first, Google's recommended, then Argon, Hydrogen and Flash, each at its highest thinking first, and no orchestrator", () => {
     // Antigravity 1.5.14's list on November 21, 2026, in its own order (shortened).
     const offered = { "antigravity-cli": [{ id: "gemini-4-neon-high", name: "Gemini 4 Neon (High)" }, { id: "gemini-4-argon-medium", name: "Gemini 4 Argon (Medium)" },
       { id: "gemini-4-argon-high", name: "Gemini 4 Argon (High)" }, { id: "gemini-4-argon-low", name: "Gemini 4 Argon (Low)" }, { id: "gemini-pro-orchestrator-g1-pro", name: "Orchestrator (Argon)" },
-      { id: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)" }] };
-    expect(offeredCatalog("antigravity-cli", offered)?.map(({ modelId }) => modelId)).toEqual(["gemini-4-argon-high", "gemini-4-argon-medium", "gemini-4-argon-low",
-      "gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-3.8-flash-low", "gemini-4-neon-high"]);
-    expect(getIn(withStrongestOffered(template("subscription-audit-gemini").config, offered), ["models", "auditor-c", "modelId"])).toBe("gemini-4-argon-high");
+      { id: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)" }, { id: "gemini-4-hydrogen-low", name: "Gemini 4 Hydrogen (Low)" }, { id: "gemini-4-neon-xhigh", name: "Gemini 4 Neon (XHigh)" },
+      { id: "claude-opus-4-6-thinking", name: "Claude Opus 4.6" }] };
+    const catalog = offeredCatalog("antigravity-cli", offered) ?? [];
+    expect(catalog.map(({ modelId }) => modelId)).toEqual(["gemini-4-neon-xhigh", "gemini-4-neon-high", "gemini-4-argon-high", "gemini-4-argon-medium", "gemini-4-argon-low",
+      "gemini-4-hydrogen-low", "gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-3.8-flash-low"]);
+    expect(catalog.slice(0, 3).map(({ note }) => note)).toEqual(["frontier, Google's recommended", "frontier, Google's recommended", "earlier frontier, its own weekly limit"]);
+    expect(catalog.find(({ modelId }) => modelId === "gemini-4-hydrogen-low")?.note).toBe("fast");
+    expect(getIn(withStrongestOffered(template("subscription-audit-gemini").config, offered), ["models", "auditor-c", "modelId"])).toBe("gemini-4-neon-xhigh");
   });
 
   it("offers every model-backed template, each in the mode it says", () => {
@@ -527,7 +531,7 @@ describe("the new-run page", () => {
     expect((screen.getByRole("combobox", { name: "model: write the plan" }) as HTMLSelectElement).value).toBe("t:claude-code-cli|claude-opus-5-5");
   });
 
-  it("takes any model the lineup reaches as the third finder, Argon first when Antigravity offers it, and says it is not measured", async () => {
+  it("takes any model the lineup reaches as the third finder, Argon first when Antigravity offers it and no Neon, and says it is not measured", async () => {
     stubBrowser();
     const bodies: Body[] = [];
     stubControlPlane({ ...BASE_ROUTES, "GET /diagnostics/environment": ENVIRONMENT, "POST /preflight": ({ body }: { body: Body }) => { bodies.push(body); return READY; } });
@@ -537,7 +541,7 @@ describe("the new-run page", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "add a third finder" }));
     const third = screen.getByRole("combobox", { name: "model: third finder" }) as HTMLSelectElement;
     expect(third.value).toBe("t:antigravity-cli|gemini-3.8-flash");
-    expect([...third.options].map(({ textContent }) => textContent).slice(0, 3)).toEqual(["Gemini 4 Argon (strongest, offered by your CLI, not measured)", "Gemini 3.8 Flash", "Opus 5.5 (strongest, slowest)"]);
+    expect([...third.options].map(({ textContent }) => textContent).slice(0, 3)).toEqual(["Gemini 4 Argon (earlier frontier, its own weekly limit, not measured)", "Gemini 3.8 Flash", "Opus 5.5 (strongest, slowest)"]);
     expect([...third.options].at(-1)?.textContent).toBe("another model: an OpenAI-compatible endpoint…");
     fireEvent.change(third, { target: { value: "t:antigravity-cli|gemini-4-argon" } });
     expect(screen.getByText(/this model as a third finder is not measured/u)).toBeTruthy();
@@ -628,7 +632,7 @@ describe("the new-run page", () => {
     render(<App />);
     await screen.findByRole("table", { name: "CLIs on this computer" });
     fireEvent.click(screen.getByRole("radio", { name: "API keys" }));
-    fireEvent.change(screen.getByRole("combobox", { name: "when auditor-a runs out" }), { target: { value: "other" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "when auditor-a runs out" }), { target: { value: "route" } });
     fireEvent.change(screen.getByRole("spinbutton", { name: "dollar cap for auditor-a" }), { target: { value: "150" } });
     // The fallback does not make the lineup a mixed one: the depths stay, and a depth chosen holds for the fallback too.
     fireEvent.click(screen.getByRole("radio", { name: "Cheap" }));
@@ -639,6 +643,34 @@ describe("the new-run page", () => {
     expect(getIn(sent, ["workflow", "modelExecution", "fallbacks"])).toEqual({ "auditor-a": "fallback-auditor-a" });
     expect(getIn(sent, ["workflow", "modelExecution", "maximumCostUsd"])).toEqual({ "auditor-a": 150 });
     expect([getIn(sent, ["models", "fallback-auditor-a", "transport"]), getIn(sent, ["models", "fallback-auditor-a", "modelId"])]).toEqual(["claude-code-cli", "claude-sonnet-5-5"]);
+  });
+
+  // Observed live (November 21, 2026, agy 1.5.14): Gemini 4 Argon High met a weekly limit of its own after 34 minutes and
+  // the finder was left out, while the other Gemini models had all of theirs.
+  it("starts the Gemini finder on Neon with Argon, Antigravity's other usage limit, to go on with, and lets the person take it away", async () => {
+    stubBrowser();
+    const bodies: Body[] = [];
+    const [claude, codex, agy] = ENVIRONMENT.clis;
+    const antigravity = { ...agy, models: [{ id: "gemini-4-neon-high", name: "Gemini 4 Neon (High)" }, { id: "gemini-4-argon-high", name: "Gemini 4 Argon (High)" }, { id: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)" }] };
+    stubControlPlane({ ...BASE_ROUTES, "GET /diagnostics/environment": { ...ENVIRONMENT, clis: [claude, codex, antigravity] }, "POST /preflight": ({ body }: { body: Body }) => { bodies.push(body); return READY; } });
+    visit("?page=new-run&from=template:subscription-audit-gemini");
+    render(<App />);
+    const when = await screen.findByRole("combobox", { name: "when auditor-c runs out" }) as HTMLSelectElement;
+    await waitFor(() => expect(when.value).toBe("model"));
+    expect([...when.options].map(({ textContent }) => textContent)).toEqual(["go on without it", "go on with Gemini 4 Argon high"]);
+    expect(screen.getByText(/Antigravity's limits are per model/u)).toBeTruthy();
+    // The template is not changed by it: nothing to save before leaving.
+    expect(screen.getByRole("radio", { name: "Deep" }).closest(".lineup-card")?.textContent).not.toContain("changed");
+    project("/work/fixture");
+    await waitFor(() => expect(bodies).toHaveLength(1), AFTER_CHECK);
+    const sent = bodies[0]?.config ?? {};
+    const bindings = ["workflow", "modelExecution", "modelEndpoints"];
+    expect([getIn(sent, ["models", "auditor-c", "modelId"]), getIn(sent, ["workflow", "modelExecution", "fallbacks"]), getIn(sent, ["models", "fallback-auditor-c", "modelId"]), getIn(sent, [...bindings, "fallback-auditor-c"])])
+      .toEqual(["gemini-4-neon-high", { "auditor-c": "fallback-auditor-c" }, "gemini-4-argon-high", getIn(sent, [...bindings, "auditor-c"])]);
+    fireEvent.change(when, { target: { value: "pause" } });
+    await waitFor(() => expect(bodies).toHaveLength(2), AFTER_CHECK);
+    expect([getIn(bodies[1]?.config ?? {}, ["workflow", "modelExecution", "fallbacks"]), getIn(bodies[1]?.config ?? {}, ["models", "fallback-auditor-c"])]).toEqual([undefined, undefined]);
+    expect(when.value).toBe("pause");
   });
 
   it("starts the run from this project's last start, saved, and opens it", async () => {

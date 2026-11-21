@@ -18,11 +18,13 @@ import type { TestSandbox } from "../src/test-sandbox.js";
  */
 export type WireProtocol = "openai-responses" | "openai-chat" | "anthropic-messages" | "gemini-native" | "claude-code-cli" | "codex-cli" | "gemini-cli" | "antigravity-cli";
 /** `effort` is the word a subscription CLI was given on its command line (Claude Code `--effort`, Codex
- * `model_reasoning_effort`, the Antigravity CLI `--effort`), when it was given one. */
-export interface SmokeCall { readonly stage: string; readonly protocol: WireProtocol; readonly url: string; readonly effort?: string }
+ * `model_reasoning_effort`, the Antigravity CLI `--effort`), when it was given one; `model` is its `--model`. */
+export interface SmokeCall { readonly stage: string; readonly protocol: WireProtocol; readonly url: string; readonly effort?: string; readonly model?: string }
 
 export const SMOKE_SOURCE = "export const sessionVersion = 1;";
 export const SMOKE_TEST = "test('existing', () => {});";
+/** What the stand-in answers in place of a reply for a model at its usage limit. */
+const USAGE_LIMITED = Symbol("usage limited");
 
 /** A tiny repository matching the paths the templates grant and check. */
 export async function smokeRepository(root: string): Promise<void> {
@@ -33,7 +35,11 @@ export async function smokeRepository(root: string): Promise<void> {
   await writeFile(join(root, "package.json"), '{"name":"smoke","private":true,"scripts":{"test":"vitest run"}}\n');
 }
 
-export async function smokeProvider(options: { highImpactAmbiguity?: boolean; root?: string } = {}) {
+/**
+ * `usageLimited` names models the Antigravity stand-in answers as at their usage limit, in the words agy 1.5.14 used
+ * when Gemini 4 Argon met its weekly limit (November 21, 2026): every call to them fails, and `limited` counts them.
+ */
+export async function smokeProvider(options: { highImpactAmbiguity?: boolean; root?: string; usageLimited?: readonly string[] } = {}) {
   const template = planIRSchema.parse(JSON.parse(await readFile(new URL("../../schemas/test/golden/plan-ir.valid.json", import.meta.url), "utf8")));
   const calls: SmokeCall[] = [];
   const respond = (stage: string, input: Record<string, unknown>, system: string, body: string): unknown => {
@@ -97,10 +103,12 @@ export async function smokeProvider(options: { highImpactAmbiguity?: boolean; ro
       return { status: 200, headers: {}, body: encode(protocol, output) };
     } },
   };
-  const cli = options.root === undefined ? undefined : await smokeCli(options.root, (protocol, system, user, body, effort) => {
+  const limited: { readonly model: string; readonly stage: string }[] = [];
+  const cli = options.root === undefined ? undefined : await smokeCli(options.root, (protocol, system, user, body, effort, model) => {
     const decoded = decodeCompiled(system, user);
     const stage = stageOf(decoded.system);
-    calls.push({ stage, protocol, url: `cli://${protocol}`, ...(effort === undefined ? {} : { effort }) });
+    if (model !== undefined && options.usageLimited?.includes(model) === true) { limited.push({ model, stage }); return USAGE_LIMITED; }
+    calls.push({ stage, protocol, url: `cli://${protocol}`, ...(effort === undefined ? {} : { effort }), ...(model === undefined ? {} : { model }) });
     return respond(stage, decoded.input, decoded.system, body);
   });
   if (cli !== undefined) Object.assign(providerOptions, { cli });
@@ -113,7 +121,7 @@ export async function smokeProvider(options: { highImpactAmbiguity?: boolean; ro
       return { driver: "docker", image: policy.image, checkId: check.id, isolation: "read_only_snapshot_no_network", status: "exited", stopped: null, cleanupCompleted: true, exitCode: 0, stdout: "fixture verification", stderr: "" };
     },
   };
-  return { providerOptions, sandbox, calls, checks: () => checks };
+  return { providerOptions, sandbox, calls, limited, checks: () => checks };
 }
 
 function featurePlan(template: PlanIR): PlanIR {
@@ -212,7 +220,7 @@ function encode(protocol: WireProtocol, output: unknown): unknown {
  * and each model call in the vendor's own event format. Emulated tool calls use the same
  * envelope a real CLI's model returns, so the canonical harness's tool loop is exercised.
  */
-async function smokeCli(root: string, answer: (protocol: WireProtocol, system: string, user: string, body: string, effort: string | undefined) => unknown) {
+async function smokeCli(root: string, answer: (protocol: WireProtocol, system: string, user: string, body: string, effort: string | undefined, model: string | undefined) => unknown) {
   const bin = join(root, "cli-bin"); const home = join(root, "cli-home");
   await mkdir(bin, { recursive: true }); await mkdir(join(home, ".gemini"), { recursive: true });
   // The Gemini CLI has no status command; a cached Google login is its readiness evidence.
@@ -252,7 +260,12 @@ async function smokeCli(root: string, answer: (protocol: WireProtocol, system: s
     sessions.set(sessionId, asked);
     const reasoning = args.find((value) => value.startsWith("model_reasoning_effort="));
     const effort = vendor === "codex" ? reasoning === undefined ? undefined : JSON.parse(reasoning.slice("model_reasoning_effort=".length)) as string : after("--effort");
-    const output = answer(protocol, asked.instruction, asked.user, stdin.includes("<<<BEGIN tool-result") ? "\"role\":\"tool\"" : "", effort);
+    const output = answer(protocol, asked.instruction, asked.user, stdin.includes("<<<BEGIN tool-result") ? "\"role\":\"tool\"" : "", effort, after("--model"));
+    if (output === USAGE_LIMITED) {
+      const failed = { event: "result", result: { conversation_id: sessionId, status: "ERROR", response: "", error: "Individual quota reached for this model. Resets in 167h.", num_turns: 0 } };
+      request.onLine?.(JSON.stringify(failed));
+      return done("", 1);
+    }
     const call = (output as { toolCall?: { name: string; arguments: unknown } }).toolCall;
     const text = JSON.stringify(call === undefined ? output : { toolCalls: [{ name: call.name, arguments: call.arguments }] });
     const lines = vendor === "claude" ? [{ type: "system", subtype: "init", session_id: sessionId, tools: [], mcp_servers: [], apiKeySource: "none" }, { type: "result", is_error: false, result: text, session_id: sessionId, usage: { input_tokens: 20, output_tokens: 30 } }]

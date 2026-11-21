@@ -190,6 +190,11 @@ From the research review; each decides a cut or a build.
   runs, throttling (`RATE_LIMIT` retries by vendor), the CLI processes' load on Windows (memory and CPU with up to 8
   of each CLI at once, and no console windows), and whether the subscriptions' usage windows run out sooner. If one
   vendor throttles, give it its own numbers (Google first; its `rpm` was kept low on purpose) rather than lower all.
+- **The Gemini fallback between Antigravity's usage limits** (built November 21): a Gemini finder through Antigravity
+  starts with the model of the other limit as its fallback (Neon to Argon, Argon to Neon) on the same CLI, and the
+  CLI's limits are recorded per model. It has only run against the stand-in CLI: watch the first live switch (the
+  `model_route_switched` event on the run page, Neon's discovery units after it, no finder left out) and whether
+  Antigravity's limits hold as observed (Argon's own weekly limit, the others shared).
 - **Claude Code's cache on first calls:** 72 first calls in one run wrote 1.18M tokens and read none.
 - **Whether the critic still lacks its source** (`critic-result.citedSourceLeftOut`), if it stays: on veritra's
   227-task plan its 12 batches carried none of the 254 files the plan cites.

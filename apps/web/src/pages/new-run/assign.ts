@@ -2,6 +2,7 @@ import auditCompatibleChat from "../../../../../examples/model-backed/audit-comp
 import { modelName, record } from "../run/models.js";
 import { findersOf, withFinders, withoutUnusedProfiles } from "./depth.js";
 import { getIn, setIn, type Draft } from "./draft.js";
+import { withFallback, withUsageLimitFallbacks } from "./fallback.js";
 import { MODEL_CATALOG, modelSettings, offeredCatalog, type CatalogModel, type OfferedModels } from "./model-catalog.js";
 import { COMPATIBLE_TRANSPORT, profileFor, routeOf, transportFor, vendorOf, withEndpoint, withoutUnboundEndpoints } from "./routes.js";
 
@@ -56,7 +57,7 @@ export interface OptionGroup { readonly key: string; readonly label: string; rea
 /**
  * The models a seat can take, grouped by what reaches them: the lineup's CLIs or APIs, with their known models; each
  * OpenAI-compatible endpoint the lineup has, with the models named on it; and for optional work Gemini through the
- * lineup's route as well, first, with what Antigravity offers (Argon, its strongest, when it offers it). The first
+ * lineup's route as well, first, with what Antigravity offers (Neon, Google's recommended, first when it offers it). The first
  * finder stays a Claude model and the second a GPT one, so the finders stay independent and the depths apply.
  */
 export function seatOptions(draft: Draft, seat: Seat, offered: OfferedModels): readonly OptionGroup[] {
@@ -97,13 +98,14 @@ export function seatValue(draft: Draft, alias: string): string {
 
 /**
  * A model's name in a list, with what the catalog says of it. Gemini through Antigravity is listed without its
- * thinking level, which is its effort. A model arbitra has no list entry for (one a CLI offers, or one named on an
- * endpoint) says it is not measured.
+ * thinking level, which is its effort, and without the catalog's words for that level; a model its CLI offers keeps
+ * the words for its family ("frontier, Google's recommended"). A model arbitra has no list entry for (one a CLI
+ * offers, or one named on an endpoint) says it is not measured.
  */
 export function optionName(transport: string, model: CatalogModel): string {
   const name = modelName(baseModel(transport, model.modelId));
   const known = (MODEL_CATALOG[transport] ?? []).some(({ modelId }) => modelId === model.modelId);
-  const notes = [geminiLevels(transport, model.modelId) ? "" : model.note, known ? "" : "not measured"].filter((note) => note !== "");
+  const notes = [geminiLevels(transport, model.modelId) && known ? "" : model.note, known ? "" : "not measured"].filter((note) => note !== "");
   return notes.length === 0 ? name : `${name} (${notes.join(", ")})`;
 }
 
@@ -275,12 +277,15 @@ export function withCustomModel(draft: Draft, seat: Seat, custom: CustomModel, o
 
 /**
  * The draft with a third finder on a model, or without one. It is Gemini 3.8 Flash at high by default (withFinders);
- * any other model the lineup reaches, or one the person names, may take its place.
+ * any other model the lineup reaches, or one the person names, may take its place. A Gemini finder through Antigravity
+ * that is new to the lineup goes on with the Gemini model of Antigravity's other usage limit when its own is out
+ * (fallback.ts); a person can take that away under "when a model runs out".
  */
 export function withThirdFinder(draft: Draft, choice: { readonly transport: string; readonly modelId: string } | "default" | null, offered: OfferedModels): Draft {
-  if (choice === null) return withFinders(draft, 2);
-  const three = findersOf(draft) === 3 && models(draft)["auditor-c"] !== undefined ? draft : withFinders(draft, 3);
-  if (choice === "default") return three;
-  if (transportOf(three, "auditor-c") === choice.transport && baseModel(choice.transport, modelIdOf(three, "auditor-c")) === baseModel(choice.transport, choice.modelId)) return three;
-  return withSeatModel(three, { kind: "finder", alias: "auditor-c" }, choice.transport, choice.modelId, offered);
+  if (choice === null) { const two = withFinders(draft, 2); return models(two)["auditor-c"] === undefined ? withFallback(two, "auditor-c", false) : two; }
+  const added = findersOf(draft) !== 3 || models(draft)["auditor-c"] === undefined;
+  const three = added ? withFinders(draft, 3) : draft;
+  const same = choice === "default" || transportOf(three, "auditor-c") === choice.transport && baseModel(choice.transport, modelIdOf(three, "auditor-c")) === baseModel(choice.transport, choice.modelId);
+  const placed = same ? three : withSeatModel(three, { kind: "finder", alias: "auditor-c" }, choice.transport, choice.modelId, offered);
+  return added ? withUsageLimitFallbacks(placed, offered, ["auditor-c"]) : placed;
 }

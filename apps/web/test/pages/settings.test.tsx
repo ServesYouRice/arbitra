@@ -45,7 +45,7 @@ describe("the Settings page", () => {
     expect(server.saved).toEqual([{ helper: { autoResume: false } }]);
 
     // What Antigravity offers here is listed too, and chosen like any other.
-    const argon = await within(model).findByRole("option", { name: "Gemini 4 Argon (recommended) · strongest, offered by your CLI" });
+    const argon = await within(model).findByRole("option", { name: "Gemini 4 Argon (recommended) · earlier frontier, its own weekly limit" });
     fireEvent.change(model, { target: { value: (argon as HTMLOptionElement).value } });
     await waitFor(() => { expect(server.saved).toHaveLength(2); });
     expect(server.saved[1]).toEqual({ helper: { model: { transport: "antigravity-cli", modelId: "gemini-4-argon" } } });

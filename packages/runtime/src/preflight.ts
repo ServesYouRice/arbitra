@@ -18,7 +18,8 @@ import { validateAdvisorPolicy } from "./model-advisors.js";
 import { NATIVE_HARNESS_SUPPORT, unenforceableNativeTools } from "@arbitra/harness/native/support.js";
 import { isClaudeCodeControlPath } from "@arbitra/harness/native/claude-code/translation.js";
 import { NATIVE_TESTING_WRITER_STAGE } from "./native-testing-writer.js";
-import { probeCliReadiness, type CliProbe } from "@arbitra/providers/transports/cli/probe.js";
+import type { CliUsageLimit } from "@arbitra/providers/transports/cli/limits.js";
+import { probeCliReadiness, type CliProbe, type CliReadiness } from "@arbitra/providers/transports/cli/probe.js";
 import { cliModelMinimumVersion, cliTooOldForModel, cliTransportSupport } from "@arbitra/providers/transports/cli/support.js";
 import { compareVersions } from "@arbitra/providers/semver.js";
 import type { CliTransportOptions } from "@arbitra/providers/transports/cli/transport.js";
@@ -130,13 +131,18 @@ export function configurationDiagnostics(config: RunConfig, options: Configurati
 
 /**
  * A fallback to another model, or a dollar cap that could not be kept: the first is said, the second refused. A cap is
- * counted by the price table in packages/providers/src/pricing.ts, which lists no model it has no price for.
+ * counted by the price table in packages/providers/src/pricing.ts, which lists no model it has no price for. A fallback
+ * through the same CLI (a Gemini model of the Antigravity CLI's other usage limit) is another model by design: the
+ * same model by another route is not offered.
  */
 function fallbackDiagnostics(config: RunConfig, execution: ProviderExecution, diagnostics: PreflightDiagnostic[]): void {
   for (const [from, to] of Object.entries(execution.fallbacks ?? {})) {
     const [asked, fallback] = [config.models[from]?.modelId, config.models[to]?.modelId];
     if (asked !== undefined && fallback !== undefined && asked !== fallback) {
-      diagnostics.push(warning("FALLBACK_IS_ANOTHER_MODEL", `workflow.modelExecution.fallbacks.${from}`, `${from} (${asked}) falls back to ${to}, which is another model (${fallback}). When ${from} runs out its work goes on with ${fallback}, and the run's record says so; for the same answers, fall back to ${asked} by another route.`));
+      const transport = config.models[from]?.transport;
+      const sameCli = transport !== undefined && transport === config.models[to]?.transport && cliTransportSupport(transport)?.limitsPerModel === true;
+      diagnostics.push(warning("FALLBACK_IS_ANOTHER_MODEL", `workflow.modelExecution.fallbacks.${from}`, `${from} (${asked}) falls back to ${to}, which is another model (${fallback}). When ${from} runs out its work goes on with ${fallback}, and the run's record says so; ${sameCli
+        ? `both go through ${transport}, whose usage limits are per model, so ${fallback} answers on its own limit.` : `for the same answers, fall back to ${asked} by another route.`}`));
     }
   }
   for (const id of Object.keys(execution.maximumCostUsd ?? {})) {
@@ -511,6 +517,7 @@ async function cliDiagnostics(endpoint: { readonly id: string; readonly transpor
     lookup: options.cli?.lookup ?? options.credential, auth: endpoint.auth, oauthTokenEnv: endpoint.oauthTokenEnvVar ?? null,
     ...(options.cli?.process === undefined ? {} : { process: options.cli.process }), ...(options.cli?.platform === undefined ? {} : { platform: options.cli.platform }),
     ...(options.cli?.nodeExecutable === undefined ? {} : { nodeExecutable: options.cli.nodeExecutable }), ...(options.cli?.limits === undefined ? {} : { limits: options.cli.limits }),
+    modelIds,
   });
   options.cliVersions?.set(endpoint.id, readiness.version);
   if (!readiness.executable.found) {
@@ -532,11 +539,34 @@ async function cliDiagnostics(endpoint: { readonly id: string; readonly transpor
   }
   if (readiness.auth === "api_key_login") diagnostics.push(error(`SUBSCRIPTION_CLI_API_KEY_LOGIN:${endpoint.id}`, "$environment", `${who} is signed in with an API key${readiness.authDetail === null ? "" : ` (${readiness.authDetail})`}, which would spend API credit rather than the subscription. ${support.loginInstruction} To use an API key deliberately, bind this role to an API transport instead.`));
   if (readiness.auth === "unverified") diagnostics.push(warning(`SUBSCRIPTION_CLI_AUTH_UNVERIFIED:${endpoint.id}`, "$environment", `${who}: sign-in cannot be confirmed without a model call${readiness.authDetail === null ? "" : ` (${readiness.authDetail})`}; it is verified by the first call. If that call fails with CLI_NOT_LOGGED_IN: ${support.loginInstruction}`));
-  if (readiness.usageLimit !== null) {
+  if (support.limitsPerModel === true) modelLimitDiagnostics(endpoint.id, who, readiness, modelIds, diagnostics);
+  else if (readiness.usageLimit !== null) {
     const until = readiness.usageLimit.resetsAt === null ? null : new Date(readiness.usageLimit.resetsAt).toISOString();
     diagnostics.push((until === null ? warning : error)(`SUBSCRIPTION_CLI_USAGE_LIMIT_REACHED:${endpoint.id}`, "$environment", `${who} reported its subscription usage limit ${until === null ? "recently (reset time unknown)" : `and resets at ${until}`}. Wait for the reset, raise the plan's limit, or bind these roles to another endpoint for this run.`));
   }
   if (support.status === "declared_unverified") diagnostics.push(warning(`SUBSCRIPTION_CLI_UNVERIFIED:${endpoint.transport}`, path, `${support.displayName} support is declared but not yet verified by a recorded live run; it is tested against scripted stand-in executables only.`));
+}
+
+/**
+ * The usage limits recorded for a CLI whose limits are per model (the Antigravity CLI): a model at its limit leaves the
+ * others answering, and a profile on it goes on with its fallback, or is left out when it is a finder the run can do
+ * without, so the run is refused only when every model it calls through the CLI is out until a known time. Observed
+ * live (November 21, 2026): Gemini 4 Argon met a weekly limit of its own; a limit kept for the whole CLI would have
+ * refused for a week a run on the other Gemini models, Argon's own fallback among them. A limit recorded for the whole
+ * CLI (by an earlier build, which did not say the model) is a warning: it does not say which model is out.
+ */
+function modelLimitDiagnostics(endpointId: string, who: string, readiness: CliReadiness, modelIds: readonly string[], diagnostics: PreflightDiagnostic[]): void {
+  const until = (limit: CliUsageLimit): string => limit.resetsAt === null ? "recently (reset time unknown)" : `until ${new Date(limit.resetsAt).toISOString()}`;
+  const limits = readiness.modelLimits ?? [];
+  if (limits.length > 0) {
+    const every = new Set(modelIds).size === limits.length && limits.every(({ resetsAt }) => resetsAt !== null);
+    const named = limits.map((limit) => `${limit.modelId ?? "a model"} ${until(limit)}`).join("; ");
+    diagnostics.push((every ? error : warning)(`SUBSCRIPTION_CLI_USAGE_LIMIT_REACHED:${endpointId}`, "$environment", every
+      ? `${who}: every model it would call reported its usage limit (${named}). Wait for a reset, or bind these roles to another endpoint for this run.`
+      : `${who}: ${limits.length > 1 ? "these models reported their own usage limits" : "this model reported its own usage limit"} (${named}); the CLI's other models have their own. A profile on it goes on with its fallback when it has one; else the run pauses for it or, for a finder it can do without, leaves it out.`));
+    return;
+  }
+  if (readiness.usageLimit !== null) diagnostics.push(warning(`SUBSCRIPTION_CLI_USAGE_LIMIT_REACHED:${endpointId}`, "$environment", `${who} reported a usage limit ${until(readiness.usageLimit)} without saying for which model; its limits are per model, so the run's models may still answer. A model found out goes on with its fallback when it has one.`));
 }
 
 function sandboxRequirement(config: RunConfig): { readonly execution: VerificationExecution; readonly path: string; readonly required: boolean } | undefined {

@@ -179,7 +179,7 @@ export class CliTransport implements ProviderTransport {
       const refusal = this.dialect.refusal?.(outcome.text) ?? null;
       const text = sessionBoundary === undefined || sessionBoundary === prompt.boundary ? outcome.text : unframedAssistant(outcome.text, sessionBoundary);
       const reply = refusal === null ? interpretCliReply(text, request, prompt.boundary, outcome.structured, prompt.callIds) : { text: null, structured: null, toolCalls: Object.freeze([]) };
-      await this.#limits?.clear(this.id).catch(() => undefined);
+      await this.#limits?.clear(this.id, this.#support.limitsPerModel === true ? request.modelId : undefined).catch(() => undefined);
       if (session !== undefined && sessionBoundary !== undefined && reply.toolCalls.length > 0) {
         const key = conversationKey(request, request.messages.length, reply.toolCalls);
         this.#conversations.set(key, [...this.#conversations.get(key) ?? [], { sessionId: outcome.sessionId ?? session.id, boundary: sessionBoundary, directories, at: this.#now(), usage }]);
@@ -197,7 +197,8 @@ export class CliTransport implements ProviderTransport {
         ? new TransportError(caught.code, `CLI_MODEL_UNAVAILABLE: ${this.#support.displayName} ${version} (${executable.path}) refused ${request.modelId}${caught.message.slice(refused.length)}`, caught.retryable, caught.retryAfterMs, caught.evidence, caught.stream) : caught;
       if (error instanceof TransportError && error.code === "QUOTA") {
         const now = this.#now();
-        await this.#limits?.record({ transport: this.id, observedAt: now, resetsAt: error.retryAfterMs === null ? resetTime(error.message, now) : now + error.retryAfterMs, message: error.message }).catch(() => undefined);
+        await this.#limits?.record({ transport: this.id, ...(this.#support.limitsPerModel === true ? { modelId: request.modelId } : {}), observedAt: now,
+          resetsAt: error.retryAfterMs === null ? resetTime(error.message, now) : now + error.retryAfterMs, message: error.message }).catch(() => undefined);
       }
       // A call that ran fails with what its streams showed (its last event, how stderr ended), for its attempt's record.
       throw stream !== null && error instanceof TransportError && error.stream === null ? withStreamTrace(error, stream.trace(stderr)) : error;

@@ -5,7 +5,7 @@ import { setIn, type Draft } from "./draft.js";
  * one also sets the profile's family, capability tier, limits and effort words. A model not listed can still be named
  * ("another model ID"), and the full configuration stays editable as JSON. The first entry of each list is the
  * recommended one: the model the benchmark runs used, and Gemini at high thinking (the runs used medium only to
- * shorten them).
+ * shorten them). Through Antigravity, the models its CLI lists are ranked in (offeredCatalog).
  */
 export interface CatalogModel {
   readonly modelId: string; readonly family: string; readonly tier: "frontier" | "balanced" | "fast"; readonly note: string;
@@ -55,30 +55,71 @@ export const MODEL_CATALOG: Readonly<Record<string, readonly CatalogModel[]>> = 
 
 /** Models a CLI on this machine says the account can use, by transport (only Antigravity lists them). */
 export type OfferedModels = Readonly<Record<string, readonly { readonly id: string; readonly name: string }[]>>;
-const ARGON = /argon/iu;
 const ORCHESTRATOR = /orchestrator/iu;
 const THINKING = ["low", "medium", "high", "xhigh"] as const;
 /** A model ID's thinking level by its last word (`-high`), higher first when sorted; an ID without one ranks lowest. */
 const thinking = (modelId: string): number => THINKING.indexOf(modelId.slice(modelId.lastIndexOf("-") + 1) as typeof THINKING[number]);
 
 /**
+ * Gemini's families through Antigravity, strongest first, each with what it is. Google's Antigravity blog (November
+ * 2026, https://antigravity.google/blog/gemini-4-neon-in-google-antigravity/): Gemini 4 Neon brings frontier-level
+ * intelligence and "sits between Gemini 4 Carbon for your deepest long-horizon projects and Gemini 4 Hydrogen for rapid
+ * everyday execution"; Gemini 4 Argon (September 30, 2026) is the earlier frontier model. Carbon is not offered to the
+ * owner's account; it is ranked for when it is. A Gemini model of none of these families goes last.
+ */
+const GEMINI_FAMILIES: readonly { readonly pattern: RegExp; readonly tier: CatalogModel["tier"]; readonly note: string }[] = [
+  { pattern: /carbon/iu, tier: "frontier", note: "deepest, for long-horizon work" },
+  { pattern: /neon/iu, tier: "frontier", note: "frontier, Google's recommended" },
+  { pattern: /argon/iu, tier: "frontier", note: "earlier frontier, its own weekly limit" },
+  { pattern: /hydrogen/iu, tier: "balanced", note: "fast" },
+  { pattern: /flash/iu, tier: "frontier", note: "fast" },
+];
+const familyOf = (modelId: string): number => { const index = GEMINI_FAMILIES.findIndex(({ pattern }) => pattern.test(modelId)); return index < 0 ? GEMINI_FAMILIES.length : index; };
+
+/** A model Antigravity offers as a choice: the catalog's entry, or one made from its ID with its family's words. */
+export function antigravityModel(modelId: string): CatalogModel {
+  const known = GEMINI_CLI.find((model) => model.modelId === modelId);
+  if (known !== undefined) return known;
+  const family = GEMINI_FAMILIES[familyOf(modelId)];
+  return { modelId, family: "gemini", tier: family?.tier ?? "frontier", note: family?.note ?? "offered by your CLI", limits: GEMINI_LIMITS };
+}
+
+/**
  * A transport's choices with the models its CLI offers added. For Antigravity only Gemini models are added: it also
- * serves other vendors' models, whose findings would not be independent of the Claude and GPT auditors. An Argon
- * model, Gemini's strongest, goes first, as the recommended choice.
+ * serves other vendors' models, whose findings would not be independent of the Claude and GPT auditors. They are ranked
+ * by family (Carbon, Neon, Argon, Hydrogen, Flash) and each at its highest thinking first, so the first, Neon where it
+ * is offered, is the recommended choice.
  */
 export function offeredCatalog(transport: string, offered: OfferedModels): readonly CatalogModel[] | undefined {
   const base = MODEL_CATALOG[transport];
   const listed = offered[transport];
   if (base === undefined || transport !== "antigravity-cli" || listed === undefined) return base;
   // An orchestrator ("Orchestrator (Argon)") hands work to other models, so its findings are not one model's; a model at
-  // several thinking levels (`gemini-4-argon-low` to `-high`) is offered at its highest first.
-  const extra = listed.filter(({ id }) => /gemini|argon/iu.test(id) && !ORCHESTRATOR.test(id) && !base.some(({ modelId }) => modelId === id))
-    .map(({ id, name }): CatalogModel => ({ modelId: id, family: "gemini", tier: "frontier", note: ARGON.test(`${id} ${name}`) ? "strongest, offered by your CLI" : "offered by your CLI", limits: GEMINI_LIMITS }))
-    .sort((a, b) => thinking(b.modelId) - thinking(a.modelId));
-  return [...extra.filter(({ note }) => note.startsWith("strongest")), ...base, ...extra.filter(({ note }) => !note.startsWith("strongest"))];
+  // several thinking levels (`gemini-4-neon-low` to `-xhigh`) is offered at its highest first.
+  const extra = listed.filter(({ id }) => /gemini|argon/iu.test(id) && !ORCHESTRATOR.test(id) && !base.some(({ modelId }) => modelId === id)).map(({ id }) => antigravityModel(id));
+  return [...extra, ...base].sort((a, b) => familyOf(a.modelId) - familyOf(b.modelId) || thinking(b.modelId) - thinking(a.modelId));
 }
 
-/** A template's Gemini auditor moved from the default to Argon when this machine's CLI offers it. */
+/**
+ * Antigravity's usage limits are per group of models, not per account. Observed live (November 21, 2026, agy 1.5.14):
+ * Gemini 4 Argon High met a weekly limit of its own after 34 minutes of a finder ("Individual quota reached ... Resets in
+ * 167h"), while the other Gemini models (Neon, Hydrogen, Flash), which share a five-hour and a weekly limit, had all of
+ * theirs left. Carbon's group is not known; it is counted with the others.
+ */
+export const usageGroup = (modelId: string): "argon" | "gemini" => /argon/iu.test(modelId) ? "argon" : "gemini";
+
+/**
+ * The model a Gemini profile through Antigravity goes on with when its own usage limit is out: the first in the ranking
+ * of the other group, among the models the CLI lists (Argon for Neon, Hydrogen or Flash; Neon for Argon). Undefined
+ * for any other transport, or when the CLI lists none.
+ */
+export function otherLimitModel(transport: string, modelId: string, offered: OfferedModels): CatalogModel | undefined {
+  const listed = offered[transport];
+  if (transport !== "antigravity-cli" || listed === undefined || !/gemini|argon/iu.test(modelId)) return undefined;
+  return offeredCatalog(transport, offered)?.find((model) => usageGroup(model.modelId) !== usageGroup(modelId) && listed.some(({ id }) => id === model.modelId));
+}
+
+/** A template's Gemini auditor moved from the default to the first model this machine's CLI offers (Neon, where offered). */
 export function withStrongestOffered(config: Draft, offered: OfferedModels): Draft {
   const models = config["models"];
   const strongest = offeredCatalog("antigravity-cli", offered)?.[0];

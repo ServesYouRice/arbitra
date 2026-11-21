@@ -292,7 +292,9 @@ the OS keyring and Gemini's cached Google login is only evidence, so both warn
 `SUBSCRIPTION_CLI_AUTH_UNVERIFIED` until the first call), not signed in with an API key
 (`SUBSCRIPTION_CLI_API_KEY_LOGIN`), and not at a usage limit recorded by an earlier call
 (`SUBSCRIPTION_CLI_USAGE_LIMIT_REACHED`, kept in `~/Library/Caches/arbitra`,
-`$XDG_CACHE_HOME/arbitra` or `%LOCALAPPDATA%\arbitra`).
+`$XDG_CACHE_HOME/arbitra` or `%LOCALAPPDATA%\arbitra`). The Antigravity CLI's limits are per
+model and are recorded per model: a model at its limit is a warning unless every model the run
+calls through that CLI is out (see [provider model](provider-model.md#when-a-model-runs-out)).
 
 **Limits and terms.** Subscription use is subject to each vendor's terms of service and to
 the plan's personal usage limits; check that automated use through the official CLI is
@@ -372,6 +374,11 @@ An audit has three separate choices, each one setting in the configuration:
   optional third finder, at high thinking at every depth (`gemini-3.8-flash-high`): no depth gives
   it a check, a second opinion, a merge, the plan or the critic, and its findings are checked
   like any other. It stays opt-in because of Google's terms (see the [privacy](privacy.md) page).
+  Where the Antigravity CLI lists the Gemini 4 models, **New run** ranks them Carbon, Neon
+  (Google's recommended), Argon, Hydrogen, then Flash, each at its highest thinking first, and
+  starts an untouched template on the first; it gives the finder the first model of
+  Antigravity's other usage limit as its fallback (Argon for Neon), so a weekly limit does not
+  take the finder out (see [provider model](provider-model.md#when-a-model-runs-out)).
 - **The plan critic** (`workflow.critic`: `true` or `false`, off unless set) adds the critic, the
   check of its blocking items (`roles.critiqueChecker`) and one revision after the planner, at
   every depth. A critic role alone no longer turns it on. A saved workflow graph decides its own
@@ -721,7 +728,7 @@ See [Feature mode](workflows.md#feature-mode) for revision and the equivalent HT
 | `SANDBOX_ENGINE_UNAVAILABLE`, `SANDBOX_IMAGE_UNAVAILABLE:<image>` | environment | Start a Linux Docker engine; make the pinned image present locally |
 | `SUBSCRIPTION_CLI_NOT_INSTALLED:<endpoint>`, `SUBSCRIPTION_CLI_VERSION_UNREADABLE:<endpoint>`, `SUBSCRIPTION_CLI_VERSION_UNSUPPORTED:<endpoint>` | environment | Install a supported CLI version, or set its `ARBITRA_*_EXECUTABLE` to an absolute path |
 | `SUBSCRIPTION_CLI_NOT_LOGGED_IN:<endpoint>`, `SUBSCRIPTION_CLI_API_KEY_LOGIN:<endpoint>` | environment | Sign in with the subscription using the command in the message (`claude auth login`, `codex login`, `gemini`) |
-| `SUBSCRIPTION_CLI_USAGE_LIMIT_REACHED:<endpoint>` | environment | Wait for the reset shown, or bind those roles to another endpoint (warning when the reset time is unknown) |
+| `SUBSCRIPTION_CLI_USAGE_LIMIT_REACHED:<endpoint>` | environment | Wait for the reset shown, or bind those roles to another endpoint (warning when the reset time is unknown, and for the Antigravity CLI while another model it calls has its own limit left) |
 | `SUBSCRIPTION_CLI_AUTH_UNVERIFIED:<endpoint>`, `SUBSCRIPTION_CLI_UNVERIFIED:<transport>` | environment (warning) | Sign-in is confirmed only by the first call; the CLI has no recorded live verification yet |
 
 `run` reports these with exit `2` and reason `preflight_failed`, before a run

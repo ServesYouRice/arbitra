@@ -470,6 +470,31 @@ each duplicate paid for its own verification and task; in a three-model shakedow
 the structural rule joined a stock leak, an unbounded coupon and missing input checks into one
 issue of 9 findings, pairs the semantic check had judged unrelated.
 
+### When a model runs out
+
+A profile's fallback (`workflow.modelExecution.fallbacks`) takes the rest of its work when it runs out
+(`packages/runtime/src/model-routes.ts`): an API key whose credit is out or whose dollar cap
+(`maximumCostUsd`) is reached, or a subscription whose usage limit resets more than `fallbackWaitMs` later.
+The switch is recorded in the `model-routes` artifact and as a `model_route_switched` event, which the run
+page shows; a call is still identified by the profile its stage asked for, so a resume and a replay match
+whichever profile answered. A fallback is usually the same model by the other route, which New run offers
+per model under "when a model runs out".
+
+A Gemini model through the Antigravity CLI can also fall back to another Gemini model of the same CLI,
+because Antigravity's usage limits are per group of models, not per account: Gemini 4 Argon has a weekly
+limit of its own, and the other Gemini models (Neon, Hydrogen, Flash) share a five-hour and a weekly limit.
+Observed live (November 21, 2026, agy 1.5.14): Argon High met its weekly limit after 34 minutes of a finder
+("Individual quota reached ... Resets in 167h"), and the finder was left out while Neon had all of its
+allowance. New run gives a Gemini finder through Antigravity, in a template or added as the third finder, the
+first model of the other group that the CLI lists as its fallback (Argon for Neon, Hydrogen or Flash; Neon for
+Argon), on the same endpoint; a person can take it away there, and then the finder is left out as before. The
+fallback is another model by design (`FALLBACK_IS_ANOTHER_MODEL` says so): Neon and Argon are not offered
+through Gemini's API. Both share Google's `rateLimits` in the scheduler. The CLI limit ledger
+(`packages/providers/src/transports/cli/limits.ts`) records the Antigravity CLI's limits per model
+(`limitsPerModel` in `support.ts`), and preflight says a model at its limit as a warning, refusing the run only
+when every model it calls through that CLI is out until a known time
+(`SUBSCRIPTION_CLI_USAGE_LIMIT_REACHED`).
+
 ## One pass per review stage
 
 A run reads its material once in each review stage unless it asks for more. Measured on one
