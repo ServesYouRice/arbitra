@@ -186,7 +186,7 @@ const WITHOUT_IT: Readonly<Record<string, string>> = Object.freeze({
 
 /**
  * An optional step that did not hold the run on a model out of its allowance, as one line: "The second opinion went
- * from GPT-6.1 Sol to Gemini 3.8 Flash at 11 Nov, 09:13: usage limit reached, until 11 Nov, 12:17." or, with no model
+ * from GPT-6.1 Sol to Opus 5.5 at 11 Nov, 09:13: usage limit reached, until 11 Nov, 12:17." or, with no model
  * to go to, "The second opinion on GPT-6.1 Sol was left out at …: usage limit reached, until …. The severe issues it
  * would have checked stay open, not rejected."
  */

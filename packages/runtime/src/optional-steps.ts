@@ -124,11 +124,18 @@ export function limitedWords(config: RunConfig, profile: string, until: string |
 
 const RANK: Readonly<Record<string, number>> = Object.freeze({ fast: 0, balanced: 1, frontier: 2 });
 
+/** Google's transports, as the new-run page tells a Gemini profile apart: through Antigravity, the Gemini CLI or Gemini's API. */
+const GEMINI_TRANSPORTS: ReadonlySet<string> = new Set(["antigravity-cli", "gemini-cli", "gemini-native"]);
+/** Whether a profile is a Gemini model: by its vendor or by the transport that reaches it. */
+const isGemini = (model: { readonly provider: string; readonly transport: string }): boolean => model.provider === "google" || GEMINI_TRANSPORTS.has(model.transport);
+
 /**
  * The profiles that may answer a second opinion in place of `asked` once its allowance is out, in order: of another
  * vendor than `checker`, the model whose rejection the opinion checks, so the second look stays independent; on another
  * account than any model found out (`out`), since a CLI's window is its account's; at least as capable as `asked`;
- * and not a finder the run left out. The run's profiles are taken in the order of `preferred` (the critic, then the
+ * not a finder the run left out; and never Gemini, which by the owner's rule only does optional work (a third finder,
+ * the variant search) and is not trusted with checking, which a second opinion is. With none left the issue stays
+ * open, which is the safe outcome. The run's profiles are taken in the order of `preferred` (the critic, then the
  * finders), then the rest by name.
  */
 export function secondOpinionStandIns(config: RunConfig, { asked, checker, out, preferred, leftOut }: { readonly asked: string; readonly checker: string; readonly out: ReadonlySet<string>; readonly preferred: readonly string[]; readonly leftOut: ReadonlySet<string> }): readonly string[] {
@@ -139,6 +146,6 @@ export function secondOpinionStandIns(config: RunConfig, { asked, checker, out, 
   const ordered = [...new Set([...preferred, ...Object.keys(config.models).sort()])];
   return ordered.filter((id) => {
     const model = config.models[id];
-    return model !== undefined && id !== asked && !out.has(id) && !leftOut.has(id) && model.provider !== vendor && (RANK[model.capabilityTier] ?? 0) >= rank && !accounts.has(execution.modelEndpoints[id]);
+    return model !== undefined && id !== asked && !out.has(id) && !leftOut.has(id) && model.provider !== vendor && !isGemini(model) && (RANK[model.capabilityTier] ?? 0) >= rank && !accounts.has(execution.modelEndpoints[id]);
   });
 }

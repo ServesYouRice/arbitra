@@ -71,7 +71,7 @@ describe("when a model runs out", () => {
     // Observed live (November 11, 2026): one second opinion waited 3 h 04 on Codex's window, and nothing said why.
     const base = { model: "GPT-6.1 Sol", at: "2026-11-11T09:13:00.000Z", resetsAt: "2026-11-11T12:17:00.000Z" };
     const when = `at ${formatTime(base.at)}: usage limit reached, until ${formatTime(base.resetsAt)}.`;
-    expect(optionalStepWords({ ...base, step: "secondOpinion", toModel: "Gemini 3.8 Flash" })).toBe(`The second opinion went from GPT-6.1 Sol to Gemini 3.8 Flash ${when}`);
+    expect(optionalStepWords({ ...base, step: "secondOpinion", toModel: "Opus 5.5" })).toBe(`The second opinion went from GPT-6.1 Sol to Opus 5.5 ${when}`);
     expect(optionalStepWords({ ...base, step: "secondOpinion", toModel: null })).toBe(`The second opinion on GPT-6.1 Sol was left out ${when} The severe issues it would have checked stay open, not rejected.`);
     expect(optionalStepWords({ ...base, step: "critic", toModel: null, resetsAt: null, at: null })).toBe("The plan review on GPT-6.1 Sol was left out: usage limit reached. The plan went on unreviewed.");
     expect(optionalStepWords({ ...base, step: "finder", toModel: null, at: null })).toMatch(/^The finder on GPT-6\.1 Sol was left out: .* Its answered parts stand, and the other finders went on\.$/u);

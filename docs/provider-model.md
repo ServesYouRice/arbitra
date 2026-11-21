@@ -358,8 +358,9 @@ would for any model: a subscription's limit that resets within `fallbackWaitMs` 
 default) pauses the run until then. Otherwise the model's fallback answers when it has one
 (`workflow.modelExecution.fallbacks`). Failing that, a second opinion goes to another of the run's
 models: of another vendor than the verifier that rejected the issue, on another account than any
-found out, and at least as capable. With none, the issue stays open, never rejected on one model's
-word ("Second opinion unavailable: … limited until …"). The variant search's remaining batches
+found out, at least as capable, and never Gemini, which only does optional work (a third finder,
+the variant search) and is not trusted with checking. With none, the issue stays open, never
+rejected on one model's word ("Second opinion unavailable: … limited until …"). The variant search's remaining batches
 are recorded unanswered, the critic is skipped (the gate holds on `degraded_critic_coverage`), and
 the finder is left out as a resume's `leaveOut` would (its answered units stand). Each move is
 recorded in `optional-steps` and as an `optional_step_limited` event, which the run page shows;

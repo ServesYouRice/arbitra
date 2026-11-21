@@ -68,13 +68,13 @@ describe("optional steps on a model out of its allowance", () => {
     await steps.limited("sol", new ProviderUsageLimitError(CODEX, 1, null));
     const words = limitedWords(await lineup(), "sol", "2026-11-11T12:17:00.000Z");
     expect(words).toBe("gpt-6.1-sol (sol, openai) limited until 2026-11-11T12:17:00.000Z");
-    await Promise.all([steps.moved("secondOpinion", "sol", "gemini", words), steps.moved("secondOpinion", "sol", "gemini", words), steps.moved("critic", "sol", null, words)]);
+    await Promise.all([steps.moved("secondOpinion", "sol", "gpt-api", words), steps.moved("secondOpinion", "sol", "gpt-api", words), steps.moved("critic", "sol", null, words)]);
     const events = (await run.loadEvents()).filter(({ t }) => t === "optional_step_limited");
     expect(events).toEqual([
-      { t: "optional_step_limited", runId: "run-1", at: "2026-11-11T09:13:00.000Z", step: "secondOpinion", from: "sol", to: "gemini", resetsAt: "2026-11-11T12:17:00.000Z", detail: words },
+      { t: "optional_step_limited", runId: "run-1", at: "2026-11-11T09:13:00.000Z", step: "secondOpinion", from: "sol", to: "gpt-api", resetsAt: "2026-11-11T12:17:00.000Z", detail: words },
       { t: "optional_step_limited", runId: "run-1", at: "2026-11-11T09:13:00.000Z", step: "critic", from: "sol", to: null, resetsAt: "2026-11-11T12:17:00.000Z", detail: words },
     ]);
-    expect((await steps.moves("secondOpinion")).map(({ to }) => to)).toEqual(["gemini"]);
+    expect((await steps.moves("secondOpinion")).map(({ to }) => to)).toEqual(["gpt-api"]);
     const recorded = (await run.listArtifacts()).find(({ kind }) => kind === OPTIONAL_STEPS_KIND);
     expect(JSON.parse((await run.readArtifact(recorded?.artifactId ?? "")).content)).toMatchObject({ schemaVersion: 1, limited: { sol: { until: "2026-11-11T12:17:00.000Z" } }, moves: [{ step: "secondOpinion" }, { step: "critic" }] });
   });
@@ -88,10 +88,22 @@ describe("optional steps on a model out of its allowance", () => {
 
   it("gives a second opinion to a model of another vendor than the checker's, on another login than any out, and no less capable", async () => {
     const config = await lineup();
-    const standIns = (out: readonly string[], leftOut: readonly string[] = []) => secondOpinionStandIns(config, { asked: "sol", checker: "opus", out: new Set(out), preferred: ["luna", "opus", "gemini"], leftOut: new Set(leftOut) });
-    // Not Opus (the checker's vendor), not Luna (Codex, the login that is out), not the fast Gemini; the run's own order first.
-    expect(standIns(["sol"])).toEqual(["gemini", "gpt-api"]);
-    expect(standIns(["sol"], ["gemini"])).toEqual(["gpt-api"]);
-    expect(standIns(["sol", "gemini", "gpt-api"])).toEqual([]);
+    const standIns = (asked: string, out: readonly string[], leftOut: readonly string[] = []) => secondOpinionStandIns(config, { asked, checker: "opus", out: new Set(out), preferred: ["luna", "opus", "gemini"], leftOut: new Set(leftOut) });
+    // Not Opus (the checker's vendor), not Luna (Codex, the login that is out), and no Gemini.
+    expect(standIns("sol", ["sol"])).toEqual(["gpt-api"]);
+    expect(standIns("sol", ["sol"], ["gpt-api"])).toEqual([]);
+    // The run's own order first, then the rest by name.
+    expect(standIns("gpt-api", ["gpt-api"])).toEqual(["luna", "sol"]);
+  });
+
+  it("never gives a second opinion to Gemini, which only does optional work: with no other model the issue stays open", async () => {
+    const config = await lineup();
+    // Gemini at its best is on another login and as capable, but a second opinion is checking.
+    expect(secondOpinionStandIns(config, { asked: "sol", checker: "opus", out: new Set(["sol", "gpt-api"]), preferred: ["gemini", "luna", "opus"], leftOut: new Set() })).toEqual([]);
+    // A Gemini profile is told apart by its transport as well as its vendor.
+    const gemini = config.models["gemini"];
+    if (gemini === undefined) throw new Error("FIXTURE_PROFILE_ABSENT");
+    const relabelled = { ...config, models: { ...config.models, gemini: { ...gemini, provider: "gemini-fixture" } } };
+    expect(secondOpinionStandIns(relabelled, { asked: "sol", checker: "opus", out: new Set(["sol", "gpt-api"]), preferred: [], leftOut: new Set() })).toEqual([]);
   });
 });

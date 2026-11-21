@@ -1780,6 +1780,31 @@ describe("composed model audits", () => {
     expect(requests.some(({ stage }) => stage === "planner" || stage.startsWith("planner-"))).toBe(true);
   });
 
+  it("never hands a second opinion to Gemini: when it is the only other vendor left, the severe rejection stays open", async () => {
+    // The owner's rule: Gemini only does optional work (a third finder, the variant search) and is not trusted with
+    // checking, which a second opinion is. The second opinion is on the openai finder, out beyond the run's wait;
+    // Gemini (auditor-c), as capable and on another account, is the only other vendor than the verifier's left.
+    const { create, config, requests, quotaWhen } = await fixture({ severeRejection: "CONFIRMED" });
+    const execution = config.workflow["modelExecution"] as { roles: Record<string, string> };
+    execution.roles = { ...execution.roles, secondOpinion: "auditor-a" };
+    quotaWhen(({ stage, url }) => stage === "verification" && url.includes("auditor-a") ? "2099-01-01T00:00:00Z" : null);
+    const core = create(); const result = await core.run({ ...config, verification: { ...config.verification, secondOpinion: "severe_rejections" } });
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.slice(-3))).toBe("COMPLETED");
+    const artifacts = await core.artifacts(result.runId);
+    const read = async <T>(kind: string) => JSON.parse((await core.artifact(result.runId, artifacts.find((artifact) => artifact.kind === kind)?.artifactId ?? "") as { content: string }).content) as T;
+    const issues = (await read<{ issues: { candidateId: string; disposition: string; verificationReason?: string }[] }>("canonical-issues")).issues;
+    expect(issues.length).toBeGreaterThan(0);
+    expect(issues.map(({ disposition }) => disposition)).toEqual(issues.map(() => "needs_verification"));
+    const why = "auditor-a (auditor-a, openai) limited until 2099-01-01T00:00:00.000Z";
+    expect(issues[0]?.verificationReason).toBe(`The verifier rejected it: Fixture REJECTED at a.ts:1. Second opinion unavailable: ${why}.`);
+    expect(await read(`verification-second-opinion-${issues[0]?.candidateId ?? ""}`)).toMatchObject({ modelProfileId: "auditor-a", unavailable: why, second: null });
+    // Gemini is not asked a verification question at all; the second opinion's own model is asked once and found out.
+    expect(requests.filter(({ stage, url }) => stage === "verification" && url.includes("auditor-c"))).toEqual([]);
+    expect(requests.filter(({ stage, url }) => stage === "verification" && url.includes("auditor-a"))).toHaveLength(1);
+    expect(events.filter(({ t }) => t === "optional_step_limited")).toMatchObject([{ step: "secondOpinion", from: "auditor-a", to: null }]);
+  });
+
   it("gives a second opinion to its model's fallback when its account runs out, as any call's", async () => {
     const { create, config, requests, quotaWhen } = await fixture({ severeRejection: "CONFIRMED" });
     const execution = config.workflow["modelExecution"] as { endpoints: Record<string, unknown>[]; modelEndpoints: Record<string, string>; fallbacks?: Record<string, string> };
