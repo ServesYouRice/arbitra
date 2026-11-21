@@ -103,7 +103,9 @@ describe("the run helper", () => {
     helpers.push(made); await made.start(); return made;
   };
   const actions = async (runId: string, on = orchestrator) => (await on.store(runId).loadEvents()).flatMap((event) => event.t === "helper_action" ? [event] : []);
-  const waiting = async (made: RunHelper, runId: string) => { await vi.waitFor(async () => { expect((await made.record(runId)).handledStop).toBeGreaterThanOrEqual(0); }); return await made.record(runId); };
+  // The record is saved before the wait's timer is set, so a test lets the helper finish before it moves the clock: a
+  // timer set after the move would wait for the next one (seen once on a loaded machine, November 21, 2026).
+  const waiting = async (made: RunHelper, runId: string) => { await vi.waitFor(async () => { expect((await made.record(runId)).handledStop).toBeGreaterThanOrEqual(0); }); await made.idle(runId); return await made.record(runId); };
 
   beforeEach(async () => {
     directory = await mkdtemp(join(tmpdir(), "arbitra-helper-"));
@@ -142,6 +144,7 @@ describe("the run helper", () => {
     expect((await waiting(reading, "run-2")).wait).toMatchObject({ until: at(WINDOW_RECHECK_MS), then: "check-window" });
     clock.advance(WINDOW_RECHECK_MS);
     await vi.waitFor(async () => { expect((await reading.record("run-2")).actions).toHaveLength(2); });
+    await reading.idle("run-2");
     expect(orchestrator.resumed).toEqual([]);
     meter = room;
     clock.advance(WINDOW_RECHECK_MS);
@@ -202,6 +205,7 @@ describe("the run helper", () => {
     await waiting(made, "run-1");
     clock.advance(AFTER_RESET_MS);
     await vi.waitFor(async () => { expect((await made.record("run-1")).wait?.rule).toBe("time-limit"); });
+    await made.idle("run-1");
     clock.advance(RETRY_WAIT_MS);
     await vi.waitFor(async () => { expect((await actions("run-1")).at(-1)?.action).toBe("leave"); });
     expect(orchestrator.resumed).toEqual(["run-1", "run-1"]);
