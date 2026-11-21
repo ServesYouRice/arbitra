@@ -1,5 +1,5 @@
 /**
- * A run's token limit for a project of a given size. Measured once: the beachflag run (October 20, 2026; 84 files,
+ * A run's token limit for a project of a given size. Measured once: a beach-status map's run (October 20, 2026; 84 files,
  * 11,291 lines, three auditors, every issue verified) used 17.6M tokens, about 1,560 a line. The limit allows 3,500 a
  * line, a little over twice that, for projects that turn up more issues per line; it scales with the number of
  * auditors, rounds up to 5M and is never under 20M. More measured runs should replace the guess in the headroom.

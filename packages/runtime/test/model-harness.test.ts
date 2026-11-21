@@ -313,7 +313,7 @@ describe("durable canonical model harness", () => {
   });
 
   it("fails a model that asks for tools again after it was told none remain as a rejected reply, without a repair", async () => {
-    // A stage that can go on without this one answer records a gap; observed live (commentanywhere, October 23), the run failed.
+    // A stage that can go on without this one answer records a gap; observed live (a comments service, October 23), the run failed.
     const { create, send, requests } = await setup(0, 0, 1);
     send.mockImplementation(async (value) => { requests.push(value); return { status: 200, headers: {}, body: { output: [{ type: "function_call", call_id: `call-${requests.length}`, name: "repo_read_file", arguments: '{"path":"a.ts"}' }], usage: { input_tokens: 10, output_tokens: 10 } } }; });
     const error = await create().invoke(request()).then(() => null, (failure: unknown) => failure);

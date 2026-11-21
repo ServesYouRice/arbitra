@@ -55,7 +55,7 @@ describe("canonical harness", () => {
   });
 
   it("answers a tool request after the last tool turn unrun and takes the model's final answer", async () => {
-    // Observed live (commentanywhere, October 23): Gemini asked for a ninth tool turn and the run failed.
+    // Observed live (a comments service, October 23): Gemini asked for a ninth tool turn and the run failed.
     const requests: HarnessModelRequest[] = []; const ran: unknown[] = [];
     const runtime: HarnessProviderRuntime = { async invoke(request) {
       requests.push(request);

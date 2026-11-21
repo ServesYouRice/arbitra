@@ -293,7 +293,7 @@ it("writes the plan into the repository as prompts by model tier, in dependency 
 });
 
 it("does not say the auditors disagreed about a report no auditor reviewed", async () => {
-  // Observed live (commentanywhere, October 23, 2026): a run with no peer-review round recorded no vote on any issue,
+  // Observed live (a comments service, October 23, 2026): a run with no peer-review round recorded no vote on any issue,
   // so the reports it left open were not disputed, only unchecked by a second auditor.
   const repository = await mkdtemp(join(tmpdir(), "arbitra-plan-export-"));
   try {
