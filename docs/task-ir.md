@@ -232,8 +232,9 @@ Saving the plan into the project is a second, separate form
 as prompts under `.arbitra/plans/<date>-<run>/` in the audited repository, grouped by each
 task's `routing.capability`, with a `results.json` the executor fills in per issue and a
 premise check (`check-premises.mjs` and the `premises.json` it reads, `packages/runtime/src/premise-check.ts`)
-that looks up what each prompt names in the code before its task starts. The run
-reads that file back (`packages/runtime/src/plan-results.ts`) and reports how many issues a
+that looks up what each prompt names in the code before its task starts. A results check
+(`check-results.mjs`, `packages/runtime/src/results-check.ts`) holds `results.json` to its rules after each task. The
+run reads that file back (`packages/runtime/src/plan-results.ts`) by the same rules and reports how many issues a
 failing test proved and how many were fixed
 ([Export the plan into the project](setup.md#export-the-plan-into-the-project)).
 

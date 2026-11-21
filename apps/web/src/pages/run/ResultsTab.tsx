@@ -10,10 +10,10 @@ type Entry = PlanResultRecord["issues"][number];
 
 /**
  * What came of carrying out the plan, from the `results.json` the coding agent writes into the saved plan's folder:
- * the counts first, then each issue under what the agent recorded (fixed, no change needed, not reproducible, blocked,
- * or a result in its own words), whether a test failed before the fix and whether the fix was checked end to end, and
- * the defects it found while fixing. The proofs are one click down. Until the file exists the tab says so and how it
- * comes to exist; "Read results again" reads the folder afresh.
+ * the counts first, the entries that break the file's rules (folded), then each issue under what the agent recorded
+ * (fixed, no change needed, not reproducible, blocked, or a result in its own words), whether a test failed before the
+ * fix and whether the fix was checked end to end, and the defects it found while fixing. The proofs are one click down.
+ * Until the file exists the tab says so and how it comes to exist; "Read results again" reads the folder afresh.
  */
 export function ResultsTab({ runId, planned }: { readonly runId: string; readonly planned: boolean }): ReactElement {
   const { runs } = useApis();
@@ -82,6 +82,7 @@ function Carried({ record, again }: { readonly record: PlanResultRecord; readonl
       <p className="data">{summary.results["not_reproducible"] ?? 0} not reproducible · {summary.results["blocked"] ?? 0} blocked · {summary.notProvenByTest} no test could show · {summary.checkedEndToEnd} checked end to end</p>
       {lines.map((line) => <p className="prose" key={line}>{line}</p>)}
     </div>
+    <Invalid entries={record.invalid ?? []} />
     {GROUPS.map((result) => <ResultGroup key={result} title={RESULT_WORDS[result] ?? result} entries={record.issues.filter((entry) => entry.result === result)} />)}
     <ResultGroup title="As the agent wrote it" entries={own} ownWords />
     <ResultGroup title="Not reported yet" entries={unreported} />
@@ -94,6 +95,25 @@ function Carried({ record, again }: { readonly record: PlanResultRecord; readonl
       </li>)}</ul>
     </section>}
   </>;
+}
+
+/**
+ * The entries that break the rules the plan's `check-results.mjs` holds the file to, folded: arbitra read a field of the
+ * wrong type as not recorded rather than trust it, and the agent can run the script to see and correct the same list.
+ */
+function Invalid({ entries }: { readonly entries: NonNullable<PlanResultRecord["invalid"]> }): ReactElement | null {
+  if (entries.length === 0) return null;
+  return <section aria-labelledby="results-invalid-title" className="summary-section">
+    <h2 className="panel-title" id="results-invalid-title">Not as results.json asks · {entries.length.toLocaleString("en")}</h2>
+    <p className="prose">These entries break the rules of the plan's <code>check-results.mjs</code>. A field of the wrong type is read as not recorded, so a sentence where true or false belongs proves nothing here. Ask the coding agent to run the script and correct them.</p>
+    <details className="disclosure">
+      <summary>What is wrong with each</summary>
+      <ul className="result-list">{entries.map(({ entry, problems }) => <li key={entry}>
+        <span className="result-list__title">{entry}</span>
+        <span className="result-list__facts">{problems.join(" · ")}</span>
+      </li>)}</ul>
+    </details>
+  </section>;
 }
 
 function proven(failedBefore: boolean | null): string | null { return failedBefore === true ? "a test failed first" : failedBefore === false ? "no test could show it" : null; }

@@ -51,7 +51,9 @@ export async function runReport(orchestrator: Orchestrator, runId: string, envir
   if (carried !== null && carried.reported === 0 && carried.foundWhileFixing.reported === 0) add("", "plan carried out (results.json)", `  not yet: none of the plan's ${carried.issues} issues has a result`);
   else if (carried !== null) add("", "plan carried out (results.json)", `  ${carried.reported} of ${carried.issues} issues reported · ${carried.provenByFailingTest} proven by a failing test · ${carried.notProvenByTest} no test could show · ${carried.checkedEndToEnd} checked end to end`,
     `  ${Object.entries(carried.results).map(([result, count]) => `${result.replaceAll("_", " ")} ${count}`).join(" · ")}`,
-    ...(carried.foundWhileFixing.reported === 0 ? [] : [`  found while fixing, no issue named them: ${carried.foundWhileFixing.reported} · ${carried.foundWhileFixing.provenByFailingTest} proven by a failing test`]));
+    ...(carried.foundWhileFixing.reported === 0 ? [] : [`  found while fixing, no issue named them: ${carried.foundWhileFixing.reported} · ${carried.foundWhileFixing.provenByFailingTest} proven by a failing test`]),
+    // Entries the plan's check-results.mjs would reject: a field of the wrong type was counted as not recorded.
+    ...(carried.invalid > 0 ? [`  ${carried.invalid} ${carried.invalid === 1 ? "entry breaks" : "entries break"} the rules of the plan's check-results.mjs; a field of the wrong type counts as not recorded`] : []));
   const stages = new Map<string, { calls: number; failed: number; ms: number; tokens: number }>();
   for (const trace of traces) {
     const stage = stages.get(trace.nodeId) ?? { calls: 0, failed: 0, ms: 0, tokens: 0 };

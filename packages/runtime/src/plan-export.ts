@@ -9,6 +9,7 @@ import type { Orchestrator } from "./orchestrator.js";
 import { premiseKit, premiseScript, type PremiseData, type PremiseSource, type SavedPremise } from "./premise-check.js";
 import { PROJECT_COMMANDS_KIND, type ProjectCommand } from "./project-commands.js";
 import { ENVIRONMENT_VERSIONS_KIND } from "./preflight.js";
+import { resultsKit, resultsScript } from "./results-check.js";
 
 interface ExportTask {
   readonly id: string; readonly title: string;
@@ -53,10 +54,12 @@ export const RESULTS_FILE = "results.json";
 // The premise check shipped with a plan (`premise-check.ts`): the script and the premises it re-resolves.
 export const PREMISE_SCRIPT = "check-premises.mjs";
 export const PREMISE_DATA = "premises.json";
+// The results check shipped with a plan (`results-check.ts`): it holds results.json to the rules arbitra reads it by.
+export const RESULTS_SCRIPT = "check-results.mjs";
 // Observed live (nextra, October 24, 2026): prompts rested on a restore endpoint that did not exist, and their line
 // numbers and quoted code were stale once earlier tasks had landed. The plan critic caught none of it.
 const NOT_FOUND = "arbitra could not find these in the project's code when it saved this plan, so what this prompt says about them may be wrong. For each, find the real code it means; if there is none, the premise is false: say so in results.json's proof and in your report, and do not build the fix on it.";
-export const RESULT_VALUES = ["fixed", "not_reproducible", "no_change_needed", "blocked"] as const;
+export const RESULT_VALUES = resultsKit().results;
 // An existing test can pin the defect itself. Observed live (nextra, October 24, 2026): an agent stopped as blocked
 // on "never edit an existing test"; 12 later items changed such a test as little as kept its intent, and cited it.
 const REPRODUCE_FIRST = "Before changing code, write a test that fails on the current code for the reason the issue gives, run it, and keep its failing output. Then fix it; the same test must pass. If no test can show the defect, say why in results.json and go on. If an existing test asserts the defective behaviour, change it as little as keeps its intent and name it in results.json; never weaken or remove a test only to make a check pass.";
@@ -156,13 +159,15 @@ export async function exportPlan(orchestrator: Orchestrator, runId: string): Pro
   });
   const settled = kit.settle(new Map([...looked].map(([id, { premises }]) => [id, premises])));
   const premisesOf = (id: string) => ({ command: `node .arbitra/plans/${folder}/${PREMISE_SCRIPT} ${id}`, notFound: (settled.get(id) ?? []).filter(({ flagged }) => flagged).map(kit.notFoundLine) });
+  // The script saved beside results.json checks it after each task, by the rules arbitra reads it back with.
+  const resultsCheck = `node .arbitra/plans/${folder}/${RESULTS_SCRIPT}`;
   // A report to check is not accepted, but the places it cites were checked against the code like an accepted one's,
   // and its prompt allows a fix only once a test or a run shows the defect.
-  unsettled.forEach((issue, index) => files.set(checkFile(issue, index), checkPrompt(issue, related.get(issue.candidateId) ?? [], scoped([issue.candidateId], () => true), premisesOf(issue.candidateId))));
+  unsettled.forEach((issue, index) => files.set(checkFile(issue, index), checkPrompt(issue, related.get(issue.candidateId) ?? [], scoped([issue.candidateId], () => true), premisesOf(issue.candidateId), resultsCheck)));
   const cited = { validation: new Map((plan.validationContract?.validation ?? []).map((entry) => [entry.id, entry])), questions: new Map(plan.unresolvedQuestions.map((entry) => [entry.id, entry])),
     links: new Map((plan.traceability?.issueToValidation ?? []).map(({ issueId, validationIds }) => [issueId, validationIds])) };
   ordered.forEach((task, index) => files.set(taskFile(task, index),
-    prompt(task, issues, plan.tasks, cited, { related: [...new Set(task.addresses.issues.flatMap((id) => related.get(id) ?? []))], exists, scope: scoped(task.addresses.issues, isPlannable, task), premises: premisesOf(task.id) })));
+    prompt(task, issues, plan.tasks, cited, { related: [...new Set(task.addresses.issues.flatMap((id) => related.get(id) ?? []))], exists, scope: scoped(task.addresses.issues, isPlannable, task), premises: premisesOf(task.id), results: resultsCheck })));
   const all = [...settled.values()].flat();
   const premiseCounts = { script: `.arbitra/plans/${folder}/${PREMISE_SCRIPT}`, found: all.filter(({ saved }) => saved.status === "found").length, notFound: all.filter(({ flagged }) => flagged).length,
     elsewhere: all.filter(({ kind, saved, expected }) => (kind === "quote" || kind === "lines") && saved.status === "found" && expected !== undefined && expected.start > 0 && saved.place !== null && (saved.place.path !== expected.path || saved.place.start > expected.end || saved.place.end < expected.start)).length,
@@ -173,7 +178,7 @@ export async function exportPlan(orchestrator: Orchestrator, runId: string): Pro
   files.set(PREMISE_DATA, `${JSON.stringify(data)}\n`);
   const composition = await read<{ sectionTitles?: unknown }>("planner-composition");
   const sectionTitles = Array.isArray(composition?.sectionTitles) && composition.sectionTitles.length > 0 && composition.sectionTitles.every((title) => typeof title === "string") ? composition.sectionTitles as readonly string[] : undefined;
-  files.set("README.md", readme(plan, ordered, runId, overview.workflowId ?? "unknown", { unsettled, unverified, alsoFound: alsoFound.length, kept, notes, premises: premiseCounts, sectionTitles }));
+  files.set("README.md", readme(plan, ordered, runId, overview.workflowId ?? "unknown", { unsettled, unverified, alsoFound: alsoFound.length, kept, notes, premises: premiseCounts, sectionTitles, results: resultsCheck }));
   const openQuestions = plan.unresolvedQuestions.filter(({ blocking }) => !blocking);
   if (openQuestions.length > 0) files.set("questions.md", ["# Open questions", "",
     "Not blocking: the plan went ahead on each one's default. Answer one to change what the tasks that cite it do; each prompt repeats the questions it depends on.", "",
@@ -183,16 +188,18 @@ export async function exportPlan(orchestrator: Orchestrator, runId: string): Pro
     ...alsoFound.map((issue) => `## ${issue.claim.title}\n\n${issue.severity} · ${issue.candidateId}\n\n${issue.claim.description}\n`)].join("\n"));
   // A coding agent opened on the project, or on this folder alone, finds its instructions here; CLAUDE.md points
   // Claude Code at the same file.
-  files.set("AGENTS.md", agents(ordered, unsettled.length, (await read<{ readonly commands: readonly ProjectCommand[] }>(PROJECT_COMMANDS_KIND))?.commands ?? [], canonical !== null, premiseCounts.script));
+  files.set("AGENTS.md", agents(ordered, unsettled.length, (await read<{ readonly commands: readonly ProjectCommand[] }>(PROJECT_COMMANDS_KIND))?.commands ?? [], canonical !== null, premiseCounts.script, resultsCheck));
   files.set("CLAUDE.md", "Read AGENTS.md in this folder and follow it.\n");
-  files.set("PROGRESS.md", ["# Progress", "", "Tick a task when it is done and verified; note anything left open under it.", "",
+  files.set("PROGRESS.md", ["# Progress", "", `Tick a task when it is done and verified and its issues' results are in ${RESULTS_FILE} (\`${resultsCheck} --task <task id>\` checks both); note anything left open under it.`, "",
     ...ordered.map((task, index) => `- [ ] ${String(index + 1).padStart(2, "0")} \`${task.id}\` ${task.title}`), "",
     ...(unsettled.length === 0 ? [] : ["## Unsure, after the tasks (optional)", "",
       "The audit could not settle these, and most such reports do not hold. Check one only when the tasks are done, and change nothing for it unless a test or a run shows the defect.", "",
       ...unsettled.map((issue, index) => `- [ ] ${checkName(index)} \`${issue.candidateId}\` ${issue.claim.title}`), ""])].join("\n"));
   files.set("issues.md", ["# Issues this plan fixes", "", ...[...new Set(ordered.flatMap((task) => task.addresses.issues))].map((id) => issues.get(id)).filter((issue): issue is ExportIssue => issue !== undefined)
     .map((issue) => `## ${issue.claim.title}\n\n${issue.severity} · ${issue.disposition} · ${issue.candidateId}\n\n${issue.claim.description}\n`)].join("\n"));
-  files.set(RESULTS_FILE, `${JSON.stringify(resultsTemplate(runId, unsettled, ordered, issues), null, 2)}\n`);
+  const template = resultsTemplate(runId, unsettled, ordered, issues, resultsCheck);
+  files.set(RESULTS_FILE, `${JSON.stringify(template, null, 2)}\n`);
+  files.set(RESULTS_SCRIPT, resultsScript({ run: runId, tasks: [...ordered.map(({ id }) => id), ...unsettled.map((_, index) => checkName(index))], entries: template.issues.map(({ issue, task }) => ({ issue, task })) }));
   await mkdir(directory, { recursive: true });
   for (const [path, content] of files) {
     await mkdir(join(directory, path, ".."), { recursive: true });
@@ -303,7 +310,7 @@ export async function savedPlans(orchestrator: Pick<Orchestrator, "overview">, r
 }
 
 /** Instructions for a coding agent working through the folder, after Anthropic's guidance for agentic work: one task at a time, verify before moving on, keep state in a file. */
-function agents(ordered: readonly ExportTask[], checks: number, commands: readonly ProjectCommand[], scoped: boolean, script: string): string {
+function agents(ordered: readonly ExportTask[], checks: number, commands: readonly ProjectCommand[], scoped: boolean, script: string, results: string): string {
   return ["# Working through this plan", "",
     "This folder is a plan to fix defects found in the project it sits in. It was written by arbitra, which audited the project with several models and checked each finding against the code.", "",
     "How to work:", "",
@@ -315,6 +322,7 @@ function agents(ordered: readonly ExportTask[], checks: number, commands: readon
     `4. A prompt is a starting point, not a script. ${CLAIMS_TO_CHECK}`,
     `5. Run the checks yourself: each prompt's commands and the project's own commands below build, test or lint the project; ${ASK_FIRST}. ${END_TO_END} Unit tests alone can pass a fix that does not work. Verify the task as its prompt says before you tick it in PROGRESS.md; if a check fails, stop and report instead of guessing.`,
     `6. Record each issue's result in ${RESULTS_FILE} as you finish it: ${RESULT_VALUES.map((value) => `\`${value}\``).join(", ")}, whether its test failed before the fix, the test, the proof (the failing output, or why no test could show it), and whether the fix was checked end to end. A defect you find while fixing that no issue names goes under \`foundWhileFixing\`, proven the same way.`,
+    `   Then run \`${results} --task <task id>\` (an unsure report's issue id for one of those) and correct what it reports before the next task. It checks that task's entries and its tick in PROGRESS.md, and exits 1 until each issue has a result, each field has its type (true or false, not a sentence) and each proof holds the failing output or the test's name: a proof that only points to commit messages is not read. When every task is done, run it without \`--task\` to check the whole file.`,
     `7. Do not change anything in this folder except PROGRESS.md and ${RESULTS_FILE}; ${PREMISE_SCRIPT} reads ${PREMISE_DATA} as the plan saved it.`,
     ...(scoped ? [`8. Keep to each prompt's \`<write_scope>\`: the files its task may change and the folders it may add files to, and ${TEST_FILES}. ${SCOPE_ORIGIN} Changing or adding any other file needs the approval of the person you are working with: ask first, naming the file and why.`] : []), "",
     "The prompt folders say which kind of model each task suits:", "",
@@ -329,7 +337,7 @@ function agents(ordered: readonly ExportTask[], checks: number, commands: readon
 interface SeverityKept { readonly candidateId: string; readonly foundAs: string; readonly loweredTo: string; readonly by: string; readonly reason: string }
 
 interface PremiseCounts { readonly script: string; readonly found: number; readonly notFound: number; readonly elsewhere: number; readonly byPrompt: ReadonlyMap<string, number> }
-function readme(plan: ExportPlan, ordered: readonly ExportTask[], runId: string, workflow: string, { unsettled, unverified, alsoFound, kept, notes, premises, sectionTitles }: { readonly unsettled: readonly ExportIssue[]; readonly unverified: number; readonly alsoFound: number; readonly kept: readonly (SeverityKept & { readonly title: string })[]; readonly notes: readonly string[]; readonly premises: PremiseCounts; readonly sectionTitles: readonly string[] | undefined }): string {
+function readme(plan: ExportPlan, ordered: readonly ExportTask[], runId: string, workflow: string, { unsettled, unverified, alsoFound, kept, notes, premises, sectionTitles, results }: { readonly unsettled: readonly ExportIssue[]; readonly unverified: number; readonly alsoFound: number; readonly kept: readonly (SeverityKept & { readonly title: string })[]; readonly notes: readonly string[]; readonly premises: PremiseCounts; readonly sectionTitles: readonly string[] | undefined; readonly results: string }): string {
   const marked = [...premises.byPrompt.values()].filter((count) => count > 0).length;
   const notFound = (id: string) => { const count = premises.byPrompt.get(id) ?? 0; return count === 0 ? "" : ` · ${count} not found`; };
   const blocking = plan.unresolvedQuestions.filter(({ blocking: isBlocking }) => isBlocking);
@@ -341,6 +349,7 @@ function readme(plan: ExportPlan, ordered: readonly ExportTask[], runId: string,
     "Work through the prompts in the order below. Each one is self-contained: paste it into your coding agent (Claude Code, Codex or another), or follow it yourself. The folder says which kind of model each task suits.", "",
     "This folder lists every open issue the audit found. A public repository that commits it publishes them all, so keep it out of one until they are fixed.", "",
     `Each defect is proven before it is fixed: a test that fails on the current code, then passes with the fix. Record each issue's result in \`${RESULTS_FILE}\`; arbitra reads it back and reports how many defects a failing test proved and how many were fixed.`, "",
+    `\`${RESULTS_SCRIPT}\` checks that file by the rules arbitra reads it with: run \`${results} --task <task id>\` when a task is done, and without \`--task\` once every task is. It exits 1 while an issue of a task ticked in PROGRESS.md has no result, a field has the wrong type, or a proof only points to commit messages instead of holding the failing output or the test's name.`, "",
     ...(notes.length === 0 ? [] : ["## Read this first", "", ...notes.map((note) => `- ${note}`), ""]),
     ...(blocking.length === 0 ? [] : ["## Answer these first", "", ...blocking.map(({ id, question }) => `- **${id}**: ${question}`), ""]),
     ...(blocking.length === plan.unresolvedQuestions.length ? [] : [`\`questions.md\` lists ${plan.unresolvedQuestions.length - blocking.length} more open ${plan.unresolvedQuestions.length - blocking.length === 1 ? "question" : "questions"} the plan went ahead on with a default.`, ""]),
@@ -368,9 +377,11 @@ interface PromptPremiseCheck { readonly command: string; readonly notFound: read
 /** The first step of every prompt: look up what it names in the code as it is now. */
 const premiseStep = ({ command }: PromptPremiseCheck): string => `Before anything else, run \`${command}\` from the repository root. It looks up what this prompt names in the code as it is now and prints what moved since the plan was saved (with the new lines), what is gone and what was never found. Work from the code it shows: line numbers below may be stale.`;
 const notFoundSection = ({ notFound }: PromptPremiseCheck): string[] => notFound.length === 0 ? [] : [`<not_found>\n${NOT_FOUND}\n${notFound.map((line) => `- ${line}`).join("\n")}\n</not_found>`, ""];
+/** The last step of every prompt: check what it recorded in results.json, as arbitra will read it. */
+const resultsStep = (command: string, id: string): string => `Then run \`${command} --task ${id}\` from the repository root and correct what it reports: it exits 1 until each entry has a result, true or false where one is asked for, and a proof that holds the failing output or the test's name, not a pointer to a commit message.`;
 
 function prompt(task: ExportTask, issues: ReadonlyMap<string, ExportIssue>, all: readonly ExportTask[], cited: { readonly validation: ReadonlyMap<string, ExportValidation>; readonly questions: ReadonlyMap<string, ExportQuestion>; readonly links: ReadonlyMap<string, readonly string[]> },
-  { related, exists, scope, premises }: { readonly related: readonly string[]; readonly exists: (path: string) => boolean; readonly scope: string | null; readonly premises: PromptPremiseCheck }): string {
+  { related, exists, scope, premises, results }: { readonly related: readonly string[]; readonly exists: (path: string) => boolean; readonly scope: string | null; readonly premises: PromptPremiseCheck; readonly results: string }): string {
   const tier = TIERS[task.routing.capability];
   // The plan's validation contract and open questions, for the ids this task cites. Observed live (nextra, October
   // 24, 2026): 79 of 105 prompts named checks such as "VAL-003 tests exist and pass", and 47 named questions such as
@@ -418,7 +429,7 @@ function prompt(task: ExportTask, issues: ReadonlyMap<string, ExportIssue>, all:
     section("success_criteria", list([...task.goal.doneWhen, ...task.acceptanceCriteria])), "",
     section("verify", `${list([...task.verification.preconditions, ...task.verification.checks])}${commands.length === 0 ? "" : `\n\nCommands (run them yourself; ${ASK_FIRST}):\n${commands.join("\n")}`}\n\n${END_TO_END}`), "",
     ...(task.rollbackPlan.length === 0 ? [] : [section("if_it_goes_wrong", list(task.rollbackPlan)), ""]),
-    `When you finish, record each issue's result in ${RESULTS_FILE}, with whether the fix was checked end to end, and any defect you found while fixing that no issue names under \`foundWhileFixing\`. Report what you changed, how you checked it, and anything you could not do.`, ""].join("\n");
+    `When you finish, record each issue's result in ${RESULTS_FILE}, with whether the fix was checked end to end, and any defect you found while fixing that no issue names under \`foundWhileFixing\`. ${resultsStep(results, task.id)} Report what you changed, how you checked it, and anything you could not do.`, ""].join("\n");
 }
 
 /**
@@ -514,7 +525,7 @@ function unsettledIssues(issues: readonly ExportIssue[], tasks: readonly ExportT
 }
 
 /** A prompt to settle one issue the audit left open: decide whether it holds, from the code and by running it, then fix it if it does. */
-function checkPrompt(issue: ExportIssue, related: readonly string[], scope: string | null, premises: PromptPremiseCheck): string {
+function checkPrompt(issue: ExportIssue, related: readonly string[], scope: string | null, premises: PromptPremiseCheck, results: string): string {
   const section = (tag: string, body: string) => `<${tag}>\n${body}\n</${tag}>`;
   const views = (issue.dissent ?? []).map(({ authorId, disposition, reason }) => `- ${authorId} (${disposition.replace(/_/gu, " ")}): ${reason.replace(/\s+/gu, " ").slice(0, 1_200)}`);
   // What the source could not show, in the verifier's words, so the check starts there instead of in its tool trace.
@@ -532,7 +543,7 @@ function checkPrompt(issue: ExportIssue, related: readonly string[], scope: stri
       "4. If the claim does not hold, change nothing and say why, citing the lines or the output that decide it.",
       "5. If it holds, make the smallest fix, add a test that fails without it, and run the project's checks."].join("\n")), "",
     section("success_criteria", "- A clear verdict, holds or does not hold, with the lines or output that decide it.\n- If it holds: the fix and its test, with the project's checks passing."), "",
-    `When you finish, record the result in ${RESULTS_FILE} (\`no_change_needed\` when the claim does not hold), and report the verdict, what you changed, and how you checked it.`, ""].join("\n");
+    `When you finish, record the result in ${RESULTS_FILE} (\`no_change_needed\` when the claim does not hold). ${resultsStep(results, issue.candidateId)} Report the verdict, what you changed, and how you checked it.`, ""].join("\n");
 }
 
 /**
@@ -557,15 +568,15 @@ function checkSources(issue: ExportIssue): PremiseSource[] {
     .map((text): PremiseSource => ({ text, role: "premise" }));
 }
 
-/** One entry per issue the plan fixes or asks to check, for the executor to fill in. */
-function resultsTemplate(runId: string, unsettled: readonly ExportIssue[], ordered: readonly ExportTask[], issues: ReadonlyMap<string, ExportIssue>) {
+/** One entry per issue the plan fixes or asks to check, for the executor to fill in, and how to check them. */
+function resultsTemplate(runId: string, unsettled: readonly ExportIssue[], ordered: readonly ExportTask[], issues: ReadonlyMap<string, ExportIssue>, check: string) {
   const entry = (issue: ExportIssue, task: string) => ({ issue: issue.candidateId, title: issue.claim.title, severity: issue.severity, task, result: null, failedBefore: null, test: null, proof: null, checkedEndToEnd: null });
   const planned = [...new Set(ordered.flatMap((task) => task.addresses.issues))].flatMap((id) => {
     const issue = issues.get(id); const task = ordered.find((candidate) => candidate.addresses.issues.includes(id));
     return issue === undefined || task === undefined ? [] : [entry(issue, task.id)];
   });
   return { run: runId,
-    instructions: `Fill in an entry as you finish its task. result: ${RESULT_VALUES.join(", ")}. failedBefore: true when a test failed on the unchanged code for this issue's reason, false when none could be made to fail. test: the test's file and name. proof: the failing output, or why no test could show the defect. checkedEndToEnd: true when the fix was also checked by a browser or integration test or a run of the app, false when only by unit tests. foundWhileFixing: one entry for each defect you found while fixing that no issue names, with title, severity, where (file and symbol), result, failedBefore, test and proof as above.`,
+    instructions: `Fill in an entry as you finish its task. result: ${RESULT_VALUES.join(", ")}. failedBefore: true when a test failed on the unchanged code for this issue's reason, false when none could be made to fail. test: the test's file and name. proof: the failing output, or why no test could show the defect. checkedEndToEnd: true when the fix was also checked by a browser or integration test or a run of the app, false when only by unit tests. foundWhileFixing: one entry for each defect you found while fixing that no issue names, with title, severity, where (file and symbol), result, failedBefore, test and proof as above. A proof that only points to commit messages is not read: put the failing output or the test's name in it. When a task is done, run \`${check} --task <task id>\`: it checks that task's entries and its tick in PROGRESS.md, and exits 1 until they are complete. Without --task it checks the whole file.`,
     issues: [...planned, ...unsettled.map((issue, index) => entry(issue, `check ${String(index + 1).padStart(2, "0")}`))], foundWhileFixing: [] };
 }
 
