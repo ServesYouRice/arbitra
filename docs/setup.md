@@ -22,6 +22,8 @@ The default suites make no network calls and need no credentials. The repository
 `pnpm run privacy:check` (part of `ci`) refuses home-folder paths and email addresses other than
 placeholders in tracked files, and the hooks in `.githooks/` refuse them in a commit, its message
 and its author: commit with the GitHub noreply address (`<id>+<login>@users.noreply.github.com`).
+They also refuse any name listed, one a line, in the clone's `.git/info/private-names`, which Git
+never publishes: the maintainer lists the private projects whose runs the docs describe without naming.
 
 ## 2. Two kinds of example
 

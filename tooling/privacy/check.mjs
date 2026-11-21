@@ -1,13 +1,18 @@
 #!/usr/bin/env node
 // Refuses personal data in what the repository publishes: home-folder paths and email addresses other than
-// placeholders, and a commit identity that is not a noreply address. The repository is public, and a rewritten
-// history is the only way to take such data back out.
+// placeholders, a commit identity that is not a noreply address, and the names of the maintainer's private projects.
+// The repository is public, and a rewritten history is the only way to take such data back out.
+//
+// The private names are listed in the clone's `.git/info/private-names` (one a line, `#` starts a comment), which Git
+// never publishes; without that file, as in a fresh clone, there are none to look for. A name matches as a whole
+// word, in any case, in a file's text and in its path.
 //
 //   node tooling/privacy/check.mjs              every tracked file (part of `pnpm run ci`)
 //   node tooling/privacy/check.mjs --staged     the staged files and the commit identity (pre-commit hook)
 //   node tooling/privacy/check.mjs --message F  a commit message (commit-msg hook)
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const git = (...args) => execFileSync("git", args, { encoding: "buffer", maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
@@ -26,19 +31,37 @@ const isPlaceholderEmail = (email) => {
   return PLACEHOLDER_DOMAIN.test(domain) || /^(?:noreply|no-reply|git)$/iu.test(local);
 };
 
-export function findings(text) {
+const escaped = (word) => word.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+/** A pattern matching any of `lines` (blank lines and `#` comments skipped) as a whole word, in any case; null for none. */
+export function namesPattern(lines) {
+  const names = lines.map((line) => line.trim()).filter((line) => line !== "" && !line.startsWith("#"));
+  return names.length === 0 ? null : new RegExp(`(?<![\\p{L}\\p{N}_])(?:${names.map(escaped).join("|")})(?![\\p{L}\\p{N}_])`, "giu");
+}
+
+/** The private names this clone lists in `.git/info/private-names`, as a pattern; null when it lists none. */
+function privateNames() {
+  try {
+    const file = join(git("rev-parse", "--git-common-dir").toString("utf8").trim(), "info", "private-names");
+    return existsSync(file) ? namesPattern(readFileSync(file, "utf8").split(/\r?\n/u)) : null;
+  } catch { return null; }
+}
+
+export function findings(text, names = null) {
   const hits = [];
   for (const pattern of HOME_PATTERNS) for (const match of text.matchAll(pattern)) hits.push(`home folder ${match[0]}`);
   for (const match of text.matchAll(EMAIL)) if (!isPlaceholderEmail(match[0])) hits.push(`email ${match[0]}`);
+  if (names !== null) for (const match of text.matchAll(names)) hits.push(`private project name ${match[0]}`);
   return hits;
 }
 
 function scan(entries) {
+  const names = privateNames();
   const problems = [];
   for (const { path, content } of entries) {
+    if (names !== null) for (const match of path.matchAll(names)) problems.push(`${path}: private project name ${match[0]} in the path`);
     if (content.includes(0)) continue; // binary
     const text = content.toString("utf8");
-    text.split("\n").forEach((line, index) => { for (const hit of findings(line)) problems.push(`${path}:${index + 1}: ${hit}`); });
+    text.split("\n").forEach((line, index) => { for (const hit of findings(line, names)) problems.push(`${path}:${index + 1}: ${hit}`); });
   }
   return problems;
 }
