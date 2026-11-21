@@ -3,8 +3,12 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type APIRequestContext, type Page, type TestInfo } from "@playwright/test";
 
-/** Screenshots are retained evidence: docs/qa/p10/<browser>/<scenario>.jpg. */
-export const QA_DIRECTORY = resolve(dirname(fileURLToPath(import.meta.url)), "../../../docs/qa/p10");
+/**
+ * Screenshots are retained evidence: docs/qa/p10/<browser>/<scenario>.jpg. ARBITRA_QA_DIRECTORY puts them elsewhere
+ * (the full check in .claude/hooks/check.sh does, so that a pass leaves the tracked evidence as it was).
+ */
+export const QA_ROOT = process.env["ARBITRA_QA_DIRECTORY"] ?? resolve(dirname(fileURLToPath(import.meta.url)), "../../../docs/qa");
+export const QA_DIRECTORY = resolve(QA_ROOT, "p10");
 
 export async function createRun(request: APIRequestContext, scenario: string): Promise<string> {
   const response = await request.post(`/__fixture/runs/${scenario}`);
