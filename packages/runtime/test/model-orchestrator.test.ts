@@ -86,6 +86,9 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
   let failCritic = false;
   let quotaUntil: string | null = null;
   let quotaDiscovery: string | null = null;
+  // A call this says is out of its account's allowance is refused as one: an API quota until the time it returns, or
+  // with no time given when it returns "". It is handed the call's stage, endpoint and input.
+  let quotaWhen: ((asked: { readonly stage: string; readonly url: string }, user: string) => string | null) | undefined;
   let failExpansion = false;
   let failRevisionPatch = false;
   let blockDiscovery: (() => void) | undefined;
@@ -107,6 +110,8 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
       user = content.replaceAll("&quot;", '"').replaceAll("&apos;", "'").replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
     }
     let output: unknown;
+    // Each branch records its call before anything it awaits, so this call's record is the next one.
+    const at = requests.length;
     if (system.startsWith("Audit the supplied")) {
       requests.push({ stage: "discovery", url: request.url, ...(ceiling === undefined ? {} : { ceiling }) });
       if (blockDiscovery !== undefined) { blockDiscovery(); return new Promise(() => {}); }
@@ -299,6 +304,9 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
       const blocking = options.revision !== undefined && (input.plan.title !== "Revised plan" && !(input.plan.rolloutConcerns ?? []).includes("Revised plan") || options.revision === "still_blocking");
       output = { summary: "Fixture critique", items: options.largeCriticContext === true || blocking ? [{ id: "local-1", category: "weak_verification", blocking, summary: "Fixture mapped feedback", taskIds: [taskId], issueIds: [] }] : [] };
     } else throw new Error("UNKNOWN_FIXTURE_STAGE");
+    const asked = requests[at];
+    const until = asked === undefined ? null : quotaWhen?.(asked, user) ?? null;
+    if (until !== null) return { status: 429, headers: {}, body: { error: { code: "insufficient_quota", message: `You exceeded your current quota${until === "" ? "" : ` until ${until}`}` } } };
     const text = JSON.stringify(output);
     const response = request.url.includes("auditor-b") ? { content: [{ type: "text", text }], usage: { input_tokens: 10, output_tokens: 20 } }
       : request.url.includes("auditor-c") ? { candidates: [{ content: { parts: [{ text }] } }], usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 20 } }
@@ -306,7 +314,7 @@ async function fixture(options: { secondFile?: boolean; revision?: "resolved" | 
     return { status: 200, headers: {}, body: response };
   };
   const create = (testSandbox?: TestSandbox, providerOptions: TransportFactoryOptions & { readonly factories?: Readonly<Record<string, TransportFactory>> } = {}, build?: string) => new Orchestrator({ repository: directory, stateDirectory: join(directory, ".runs"), providerOptions: { client: { send }, credential: () => "fixture-credential", ...providerOptions }, ...(testSandbox === undefined ? {} : { testSandbox }), ...(build === undefined ? {} : { build }) });
-  return { directory, create, config, requests, verificationInputs, plannerContexts, plannerConstraints, plannerReads, reviewInputs, packedChecks, criticIssueIds, verificationFlight, mergedListedPair: () => mergedListedPair, failRevisionPatch: (value: boolean) => { failRevisionPatch = value; }, failExpansion: (value: boolean) => { failExpansion = value; }, failCritic: (value: boolean) => { failCritic = value; }, quotaCritic: (until: string) => { quotaUntil = until; }, quotaDiscovery: (auditorId: string | null) => { quotaDiscovery = auditorId; }, failVerification: (value: boolean) => { failVerification = value; }, blockDiscovery: (callback: () => void) => { blockDiscovery = callback; } };
+  return { directory, create, config, requests, verificationInputs, plannerContexts, plannerConstraints, plannerReads, reviewInputs, packedChecks, criticIssueIds, verificationFlight, mergedListedPair: () => mergedListedPair, failRevisionPatch: (value: boolean) => { failRevisionPatch = value; }, failExpansion: (value: boolean) => { failExpansion = value; }, failCritic: (value: boolean) => { failCritic = value; }, quotaCritic: (until: string) => { quotaUntil = until; }, quotaDiscovery: (auditorId: string | null) => { quotaDiscovery = auditorId; }, quotaWhen: (when: typeof quotaWhen) => { quotaWhen = when; }, failVerification: (value: boolean) => { failVerification = value; }, blockDiscovery: (callback: () => void) => { blockDiscovery = callback; } };
 }
 
 describe("composed model audits", () => {
@@ -520,37 +528,85 @@ describe("composed model audits", () => {
 
   it("pauses on a used-up usage allowance instead of failing, and the run helper resumes it after the reset", async () => {
     // Observed live: the Codex five-hour window ran out at the critic and failed a run whose audit and plan were done.
-    const { create, config, requests, quotaCritic } = await fixture();
+    // The critic is optional since November 2026 and the run goes on without it (below); the plan is not, so the
+    // run pauses when the planner's allowance is out.
+    const { create, config, requests, quotaWhen } = await fixture();
     // The reset is already past, so the helper resumes the run at once.
-    quotaCritic(new Date(Date.now() - 120_000).toISOString());
+    const until = new Date(Date.now() - 120_000).toISOString();
+    let refused = false;
+    quotaWhen(({ stage }) => { if (refused || !stage.startsWith("planner")) return null; refused = true; return until; });
     const core = create(); const helper = new RunHelper({ orchestrator: core }); await helper.start(); onTestFinished(() => { helper.stop(); });
     const result = await core.run(config);
     expect(result.state).toBe("SUSPENDED_RATE_LIMIT");
     expect((await core.overview(result.runId)).reason).toMatch(/^ProviderUsageLimitError: .*insufficient_quota/u);
     await vi.waitFor(async () => { expect((await core.status(result.runId)).state).toBe("COMPLETED"); }, { timeout: 15_000, interval: 100 });
-    expect(requests.filter(({ stage }) => stage === "critic").length).toBeGreaterThan(1);
+    expect(requests.filter(({ stage }) => stage.startsWith("planner")).length).toBeGreaterThan(1);
+  });
+
+  it("goes on without the plan critic whose allowance is out, the gate saying the plan went unreviewed", async () => {
+    // The owner's rule (November 2026): an optional step never holds the run on another vendor's usage window.
+    const { create, config, requests, quotaCritic } = await fixture();
+    quotaCritic("2099-01-01T00:00:00Z");
+    const core = create(); const result = await core.run(config);
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.slice(-3))).toBe("COMPLETED");
+    // Asked once, refused, and not asked again; the plan stands without its review.
+    expect(requests.filter(({ stage }) => stage === "critic")).toHaveLength(1);
+    expect(requests.filter(({ stage }) => stage === "revision" || stage === "critique-check")).toEqual([]);
+    const read = async <T>(kind: string) => { const descriptor = (await core.artifacts(result.runId)).find((artifact) => artifact.kind === kind); return JSON.parse((await core.artifact(result.runId, descriptor?.artifactId ?? "") as { content: string }).content) as T; };
+    const why = "auditor-c (auditor-c, google) limited until 2099-01-01T00:00:00.000Z";
+    expect(await read("critic-result")).toMatchObject({ status: "skipped", degradedReviewCoverage: true, unavailable: why });
+    expect(await read("critic-feedback")).toEqual({ summary: `critic skipped: ${why}`, items: [] });
+    expect((await core.gate(result.runId)).reasons).toContain("degraded_critic_coverage");
+    expect(events.filter(({ t }) => t === "optional_step_limited")).toMatchObject([{ step: "critic", from: "auditor-c", to: null, resetsAt: "2099-01-01T00:00:00.000Z", detail: why }]);
   });
 
   it("goes on without a finder whose allowance is out for days, its unanswered units gaps made without a call", async () => {
-    // Observed live (memoria, November 11, 2026): Antigravity's Gemini allowance ran out for 72 hours with 5 units answered.
-    const { directory, create, config, requests, quotaDiscovery } = await fixture();
+    // Observed live (November 11, 2026): Antigravity's Gemini allowance ran out for 72 hours with 5 units answered.
+    // A finder the run can do without (two others stay, and it holds no role) is left out once its allowance is out
+    // for longer than the run waits. The plan's allowance is out too here, so the run pauses later and is resumed.
+    const { directory, create, config, requests, quotaDiscovery, quotaWhen } = await fixture();
     const execution = config.workflow["modelExecution"] as { roles: Record<string, string> };
     execution.roles = { ...execution.roles, critic: "auditor-a" };
     quotaDiscovery("auditor-c");
+    quotaWhen(({ stage }) => stage.startsWith("planner") ? "2099-01-01T00:00:00Z" : null);
     const core = create(); const result = await core.run(config);
     expect(result.state).toBe("SUSPENDED_RATE_LIMIT");
-    // A finder the run needs after discovery, or one that is not the run's, cannot be left out, nor can all but one.
-    await expect(core.resume(result.runId, { leaveOut: ["auditor-b"] })).rejects.toThrow("LEAVE_OUT_HOLDS_ROLE: auditor-b is the run's verifier");
-    await expect(core.resume(result.runId, { leaveOut: ["auditor-z"] })).rejects.toThrow("LEAVE_OUT_UNKNOWN_FINDER");
-    await expect(core.resume(result.runId, { leaveOut: ["auditor-b", "auditor-c"] })).rejects.toThrow("LEAVE_OUT_TOO_MANY");
     const asked = requests.filter(({ stage, url }) => stage === "discovery" && url.includes("auditor-c")).length;
-    await core.resume(result.runId, { leaveOut: ["auditor-c"] });
+    expect(asked).toBeGreaterThan(0);
+    // It is left out in the run's context, as a resume's leaveOut leaves one out, so it stays out on a resume.
+    const context = JSON.parse(await readFile(join(directory, ".runs", "runs", result.runId, "context.json"), "utf8")) as { leftOutFinders?: string[] };
+    expect(context.leftOutFinders).toEqual(["auditor-c"]);
+    quotaWhen(undefined);
+    await core.resume(result.runId);
     const finished = await core.wait(result.runId); const events = []; for await (const event of core.events(result.runId)) events.push(event);
     expect(finished.state, JSON.stringify(events.slice(-3))).toBe("COMPLETED");
     // Gemini is asked nothing more: not for discovery, and not to review the others' findings.
     expect(requests.filter(({ url }) => url.includes("auditor-c"))).toHaveLength(asked);
     const read = async <T>(kind: string) => { const descriptor = (await core.artifacts(result.runId)).find((artifact) => artifact.kind === kind); return JSON.parse((await core.artifact(result.runId, descriptor?.artifactId ?? "") as { content: string }).content) as T; };
     expect(JSON.stringify(await read("discovery-validation-auditor-c"))).toContain("provider_failed");
+    expect(events.filter(({ t }) => t === "optional_step_limited")).toMatchObject([{ step: "finder", from: "auditor-c", to: null, resetsAt: "2099-01-01T00:00:00.000Z" }]);
+  });
+
+  it("leaves out a finder a resume names, but not one the run needs, nor all but one", async () => {
+    // A finder whose allowance runs out after its discovery (here while it reviews the others' findings) holds the run
+    // as a core step does; the operator may leave out one that holds no role.
+    const { directory, create, config, requests, quotaWhen } = await fixture();
+    const execution = config.workflow["modelExecution"] as { roles: Record<string, string> };
+    execution.roles = { ...execution.roles, critic: "auditor-a" };
+    quotaWhen(({ stage, url }) => stage === "review" && url.includes("auditor-c") ? "2099-01-01T00:00:00Z" : null);
+    const core = create(); const result = await core.run(config);
+    expect(result.state).toBe("SUSPENDED_RATE_LIMIT");
+    // A finder the run needs after discovery, or one that is not the run's, cannot be left out, nor can all but one.
+    await expect(core.resume(result.runId, { leaveOut: ["auditor-b"] })).rejects.toThrow("LEAVE_OUT_HOLDS_ROLE: auditor-b is the run's verifier");
+    await expect(core.resume(result.runId, { leaveOut: ["auditor-z"] })).rejects.toThrow("LEAVE_OUT_UNKNOWN_FINDER");
+    await expect(core.resume(result.runId, { leaveOut: ["auditor-b", "auditor-c"] })).rejects.toThrow("LEAVE_OUT_TOO_MANY");
+    const asked = requests.filter(({ url }) => url.includes("auditor-c")).length;
+    await core.resume(result.runId, { leaveOut: ["auditor-c"] });
+    const finished = await core.wait(result.runId); const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(finished.state, JSON.stringify(events.slice(-3))).toBe("COMPLETED");
+    // Gemini is asked nothing more: its answered discovery stands, and the others review the findings.
+    expect(requests.filter(({ url }) => url.includes("auditor-c"))).toHaveLength(asked);
     // It stays left out, should the run be resumed again.
     const context = JSON.parse(await readFile(join(directory, ".runs", "runs", result.runId, "context.json"), "utf8")) as { leftOutFinders?: string[] };
     expect(context.leftOutFinders).toEqual(["auditor-c"]);
@@ -643,8 +699,9 @@ describe("composed model audits", () => {
   });
 
   it("keeps the profile of a stage that has started when a resume would give its role away", async () => {
-    const { create, config, quotaCritic } = await fixture();
-    quotaCritic(new Date(Date.now() + 3_600_000).toISOString());
+    const { create, config, quotaWhen } = await fixture();
+    const until = new Date(Date.now() + 3_600_000).toISOString();
+    quotaWhen(({ stage }) => stage.startsWith("planner") ? until : null);
     const core = create(); const result = await core.run(config);
     expect(result.state).toBe("SUSPENDED_RATE_LIMIT");
     await expect(core.resume(result.runId, { reassign: { roles: { critic: "critic-a" }, models: { "critic-a": config.models["auditor-a"] }, modelEndpoints: { "critic-a": "auditor-a" } } }))
@@ -1680,6 +1737,120 @@ describe("composed model audits", () => {
     const artifacts = await core.artifacts(result.runId);
     expect(artifacts.filter(({ kind }) => kind.startsWith("verification-unanswered-"))).toHaveLength(unanswered);
     expect(artifacts.filter(({ kind }) => kind === "verification-questions-not-asked")).toHaveLength(notAsked);
+  });
+
+  it("asks another vendor's model for a second opinion when its own model's allowance is out, and records who answered", async () => {
+    // Observed live (November 11, 2026): one second opinion waited 3 h 04 on Codex's five-hour window. The critic's
+    // model (auditor-c, Google) is out; the openai finder answers in its place, never the verifier's vendor.
+    const { create, config, requests, quotaWhen } = await fixture({ severeRejection: "CONFIRMED" });
+    quotaWhen(({ stage, url }) => stage === "verification" && url.includes("auditor-c") ? "2099-01-01T00:00:00Z" : null);
+    const core = create(); const result = await core.run({ ...config, verification: { ...config.verification, secondOpinion: "severe_rejections" } });
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.slice(-3))).toBe("COMPLETED");
+    const artifacts = await core.artifacts(result.runId);
+    const read = async <T>(kind: string) => JSON.parse((await core.artifact(result.runId, artifacts.find((artifact) => artifact.kind === kind)?.artifactId ?? "") as { content: string }).content) as T;
+    const issues = (await read<{ issues: { candidateId: string; disposition: string; verificationReason?: string }[] }>("canonical-issues")).issues;
+    // The stand-in rejects it too (the fixture's models other than auditor-c reject), so the rejection stands on two vendors' word.
+    expect(issues.map(({ disposition }) => disposition)).toEqual(issues.map(() => "rejected"));
+    const [issue] = issues;
+    expect(await read(`verification-second-opinion-${issue?.candidateId ?? ""}`)).toMatchObject({ modelProfileId: "auditor-a", askedFor: "auditor-c",
+      limited: [{ modelProfileId: "auditor-c", until: "2099-01-01T00:00:00.000Z" }], first: { outcome: "REJECTED" }, second: { activityId: `verification/${issue?.candidateId ?? ""}/second-opinion/auditor-a`, outcome: "REJECTED" } });
+    // Once found out, auditor-c is not asked again: one refused question, whatever the number of issues.
+    expect(requests.filter(({ stage, url }) => stage === "verification" && url.includes("auditor-c"))).toHaveLength(1);
+    expect(requests.filter(({ stage, url }) => stage === "verification" && url.includes("auditor-a"))).toHaveLength(issues.length);
+    expect(events.filter(({ t }) => t === "optional_step_limited")).toMatchObject([{ step: "secondOpinion", from: "auditor-c", to: "auditor-a", resetsAt: "2099-01-01T00:00:00.000Z" }]);
+  });
+
+  it("leaves a severe rejection open, and goes on to the plan, when no model can give the second opinion", async () => {
+    // Every model of another vendor than the verifier's is out: the issue is not rejected on one model's word, and
+    // nothing waits for the reset.
+    const { create, config, requests, quotaWhen } = await fixture({ severeRejection: "CONFIRMED" });
+    quotaWhen(({ stage, url }) => stage === "verification" && (url.includes("auditor-c") || url.includes("auditor-a")) ? "2099-01-01T00:00:00Z" : null);
+    const core = create(); const result = await core.run({ ...config, verification: { ...config.verification, secondOpinion: "severe_rejections" } });
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.slice(-3))).toBe("COMPLETED");
+    const artifacts = await core.artifacts(result.runId);
+    const read = async <T>(kind: string) => JSON.parse((await core.artifact(result.runId, artifacts.find((artifact) => artifact.kind === kind)?.artifactId ?? "") as { content: string }).content) as T;
+    const issues = (await read<{ issues: { candidateId: string; disposition: string; verificationReason?: string }[] }>("canonical-issues")).issues;
+    expect(issues.map(({ disposition }) => disposition)).toEqual(issues.map(() => "needs_verification"));
+    const why = "auditor-c (auditor-c, google) limited until 2099-01-01T00:00:00.000Z; auditor-a (auditor-a, openai) limited until 2099-01-01T00:00:00.000Z";
+    expect(issues[0]?.verificationReason).toBe(`The verifier rejected it: Fixture REJECTED at a.ts:1. Second opinion unavailable: ${why}.`);
+    expect(await read(`verification-second-opinion-${issues[0]?.candidateId ?? ""}`)).toMatchObject({ modelProfileId: "auditor-c", unavailable: why, second: null });
+    // Each was asked once and found out; the verifier's vendor (auditor-b) is never asked for the second opinion.
+    expect(requests.filter(({ stage, url }) => stage === "verification" && !url.includes("auditor-b"))).toHaveLength(2);
+    expect(events.filter(({ t }) => t === "optional_step_limited")).toMatchObject([{ step: "secondOpinion", from: "auditor-c", to: "auditor-a" }, { step: "secondOpinion", from: "auditor-a", to: null }]);
+    expect(requests.some(({ stage }) => stage === "planner" || stage.startsWith("planner-"))).toBe(true);
+  });
+
+  it("never hands a second opinion to Gemini: when it is the only other vendor left, the severe rejection stays open", async () => {
+    // The owner's rule: Gemini only does optional work (a third finder, the variant search) and is not trusted with
+    // checking, which a second opinion is. The second opinion is on the openai finder, out beyond the run's wait;
+    // Gemini (auditor-c), as capable and on another account, is the only other vendor than the verifier's left.
+    const { create, config, requests, quotaWhen } = await fixture({ severeRejection: "CONFIRMED" });
+    const execution = config.workflow["modelExecution"] as { roles: Record<string, string> };
+    execution.roles = { ...execution.roles, secondOpinion: "auditor-a" };
+    quotaWhen(({ stage, url }) => stage === "verification" && url.includes("auditor-a") ? "2099-01-01T00:00:00Z" : null);
+    const core = create(); const result = await core.run({ ...config, verification: { ...config.verification, secondOpinion: "severe_rejections" } });
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.slice(-3))).toBe("COMPLETED");
+    const artifacts = await core.artifacts(result.runId);
+    const read = async <T>(kind: string) => JSON.parse((await core.artifact(result.runId, artifacts.find((artifact) => artifact.kind === kind)?.artifactId ?? "") as { content: string }).content) as T;
+    const issues = (await read<{ issues: { candidateId: string; disposition: string; verificationReason?: string }[] }>("canonical-issues")).issues;
+    expect(issues.length).toBeGreaterThan(0);
+    expect(issues.map(({ disposition }) => disposition)).toEqual(issues.map(() => "needs_verification"));
+    const why = "auditor-a (auditor-a, openai) limited until 2099-01-01T00:00:00.000Z";
+    expect(issues[0]?.verificationReason).toBe(`The verifier rejected it: Fixture REJECTED at a.ts:1. Second opinion unavailable: ${why}.`);
+    expect(await read(`verification-second-opinion-${issues[0]?.candidateId ?? ""}`)).toMatchObject({ modelProfileId: "auditor-a", unavailable: why, second: null });
+    // Gemini is not asked a verification question at all; the second opinion's own model is asked once and found out.
+    expect(requests.filter(({ stage, url }) => stage === "verification" && url.includes("auditor-c"))).toEqual([]);
+    expect(requests.filter(({ stage, url }) => stage === "verification" && url.includes("auditor-a"))).toHaveLength(1);
+    expect(events.filter(({ t }) => t === "optional_step_limited")).toMatchObject([{ step: "secondOpinion", from: "auditor-a", to: null }]);
+  });
+
+  it("gives a second opinion to its model's fallback when its account runs out, as any call's", async () => {
+    const { create, config, requests, quotaWhen } = await fixture({ severeRejection: "CONFIRMED" });
+    const execution = config.workflow["modelExecution"] as { endpoints: Record<string, unknown>[]; modelEndpoints: Record<string, string>; fallbacks?: Record<string, string> };
+    const gemini = config.models["auditor-c"]; if (gemini === undefined) throw new Error("FIXTURE_PROFILE_ABSENT");
+    config.models["auditor-c-backup"] = gemini;
+    execution.endpoints.push({ id: "auditor-c-backup", providerId: "google", transport: "gemini-native", endpoint: "https://auditor-c-backup.example/v1", apiKeyEnvVar: "FIXTURE_KEY" });
+    execution.modelEndpoints["auditor-c-backup"] = "auditor-c-backup";
+    execution.fallbacks = { "auditor-c": "auditor-c-backup" };
+    quotaWhen(({ stage, url }) => stage === "verification" && url.includes("auditor-c.example") ? "2099-01-01T00:00:00Z" : null);
+    const core = create(); const result = await core.run({ ...config, verification: { ...config.verification, secondOpinion: "severe_rejections" } });
+    const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(result.state, JSON.stringify(events.slice(-3))).toBe("COMPLETED");
+    expect(events.filter(({ t }) => t === "model_route_switched")).toMatchObject([{ from: "auditor-c", to: "auditor-c-backup", reason: "credit_out" }]);
+    expect(events.filter(({ t }) => t === "optional_step_limited")).toEqual([]);
+    const artifacts = await core.artifacts(result.runId);
+    const read = async <T>(kind: string) => JSON.parse((await core.artifact(result.runId, artifacts.find((artifact) => artifact.kind === kind)?.artifactId ?? "") as { content: string }).content) as T;
+    const issues = (await read<{ issues: { candidateId: string; disposition: string }[] }>("canonical-issues")).issues;
+    // The backup answers as auditor-c would: it upholds the issue, which stays open.
+    expect(issues.map(({ disposition }) => disposition)).toEqual(issues.map(() => "needs_verification"));
+    expect(await read(`verification-second-opinion-${issues[0]?.candidateId ?? ""}`)).toMatchObject({ modelProfileId: "auditor-c", second: { outcome: "CONFIRMED" } });
+    expect(requests.filter(({ stage, url }) => stage === "verification" && url.includes("auditor-c-backup")).length).toBeGreaterThan(0);
+  });
+
+  it("keeps a second opinion's stand-in on a resume, and asks its own model again only for the questions after it", async () => {
+    // The first issue's second opinion goes to a stand-in, its own model out with no reset given. The verifier's
+    // allowance then runs out on the second issue, a core question, and the run pauses. Resumed once both can answer,
+    // the first issue keeps the stand-in's recorded answer, and only the second issue's questions are asked.
+    const { create, config, requests, quotaWhen } = await fixture({ severeRejection: "CONFIRMED", placeBesideMerge: true });
+    let out = true;
+    quotaWhen(({ stage, url }, user) => !out || stage !== "verification" ? null : url.includes("auditor-c") ? "" : url.includes("auditor-b") && user.includes("a.ts:4") ? "2099-01-01T00:00:00Z" : null);
+    const core = create(); const result = await core.run({ ...config, verification: { ...config.verification, secondOpinion: "severe_rejections" } });
+    expect(result.state).toBe("SUSPENDED_RATE_LIMIT");
+    const asked = (profile: string) => requests.filter(({ stage, url }) => stage === "verification" && url.includes(profile)).length;
+    expect({ a: asked("auditor-a"), c: asked("auditor-c") }).toEqual({ a: 1, c: 1 });
+    out = false;
+    await core.resume(result.runId);
+    const finished = await core.wait(result.runId); const events = []; for await (const event of core.events(result.runId)) events.push(event);
+    expect(finished.state, JSON.stringify(events.slice(-3))).toBe("COMPLETED");
+    // The second issue's second opinion goes to auditor-c, which answers now; the first's is not asked again of either.
+    expect({ a: asked("auditor-a"), c: asked("auditor-c") }).toEqual({ a: 1, c: 2 });
+    const artifacts = await core.artifacts(result.runId);
+    const opinions = await Promise.all(artifacts.filter(({ kind }) => kind.startsWith("verification-second-opinion-")).map(async ({ artifactId }) => JSON.parse((await core.artifact(result.runId, artifactId) as { content: string }).content) as { modelProfileId: string; askedFor?: string }));
+    expect(new Set(opinions.map(({ modelProfileId, askedFor }) => `${modelProfileId}/${askedFor ?? ""}`))).toEqual(new Set(["auditor-a/auditor-c", "auditor-c/"]));
+    expect(events.filter(({ t }) => t === "optional_step_limited")).toMatchObject([{ step: "secondOpinion", from: "auditor-c", to: "auditor-a" }]);
   });
 
   it("leaves a severe rejection open when the question limit leaves no second opinion", async () => {

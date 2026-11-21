@@ -46,10 +46,20 @@ export type RunEvent =
    * from has reset and the work goes back (`reset`). `spentUsd` is what the profile had spent through its API, null
    * when it is not priced. The composition root records it; the runner never does. */
   | { readonly t: "model_route_switched"; readonly runId: string; readonly from: string; readonly to: string | null; readonly reason: ModelRouteReason;
-      readonly spentUsd: number | null; readonly resetsAt?: string; readonly effort?: string; readonly detail?: string; readonly at?: string };
+      readonly spentUsd: number | null; readonly resetsAt?: string; readonly effort?: string; readonly detail?: string; readonly at?: string }
+  /** An optional step's model (`from`) was out of its usage allowance past what the run waits for, with no fallback
+   * left, so the step went to another vendor's model (`to`) or the run went on without it (`to` null). `step`: the second
+   * opinion before a severe rejection, the variant search, a finder the run can go on without, or the plan critic.
+   * `resetsAt`: when the allowance resets, when the provider said. The composition root records it; the runner never
+   * does. */
+  | { readonly t: "optional_step_limited"; readonly runId: string; readonly step: OptionalStep; readonly from: string; readonly to: string | null; readonly resetsAt?: string; readonly detail?: string; readonly at?: string };
 
 export const MODEL_ROUTE_REASONS = ["credit_out", "usage_limit", "cost_cap", "reset"] as const;
 export type ModelRouteReason = (typeof MODEL_ROUTE_REASONS)[number];
+
+/** The steps a run goes on without when their model's allowance is out (packages/runtime/src/optional-steps.ts). */
+export const OPTIONAL_STEPS = ["secondOpinion", "variantSearch", "finder", "critic"] as const;
+export type OptionalStep = (typeof OPTIONAL_STEPS)[number];
 
 export type RunnerJournalRecord = ActivityRecord | RunEvent;
 
@@ -72,5 +82,7 @@ export function isRunEvent(record: unknown): record is RunEvent {
     && MODEL_ROUTE_REASONS.includes(value["reason"] as ModelRouteReason) && (value["spentUsd"] === null || typeof value["spentUsd"] === "number" && Number.isFinite(value["spentUsd"]) && value["spentUsd"] >= 0)
     && (value["resetsAt"] === undefined || typeof value["resetsAt"] === "string" && !Number.isNaN(Date.parse(value["resetsAt"])))
     && (value["effort"] === undefined || typeof value["effort"] === "string") && (value["detail"] === undefined || typeof value["detail"] === "string");
+  if (value["t"] === "optional_step_limited") return OPTIONAL_STEPS.includes(value["step"] as OptionalStep) && typeof value["from"] === "string" && value["from"] !== "" && (value["to"] === null || typeof value["to"] === "string" && value["to"] !== "")
+    && (value["resetsAt"] === undefined || typeof value["resetsAt"] === "string" && !Number.isNaN(Date.parse(value["resetsAt"]))) && (value["detail"] === undefined || typeof value["detail"] === "string");
   return false;
 }

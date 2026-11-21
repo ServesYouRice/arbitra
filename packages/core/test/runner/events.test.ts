@@ -29,4 +29,16 @@ describe("run events", () => {
     expect(isRunEvent({ ...switched, to: "" })).toBe(false);
     expect(isRunEvent({ ...switched, resetsAt: "soon" })).toBe(false);
   });
+
+  it("records an optional step that went to another model, or on without one, when its model's allowance was out", () => {
+    // Observed live (a real-project audit, November 11, 2026): one second opinion waited 3 h 04 on Codex's window.
+    const limited = { t: "optional_step_limited", runId: "run-1", step: "secondOpinion", from: "auditor-b", to: "auditor-c", resetsAt: "2026-11-11T12:17:00.000Z", at: "2026-11-11T09:22:32.000Z" };
+    expect(isRunEvent(limited)).toBe(true);
+    expect(isRunEvent({ ...limited, to: null, resetsAt: undefined })).toBe(true);
+    expect(isRunEvent({ ...limited, step: "finder", to: null })).toBe(true);
+    expect(isRunEvent({ ...limited, step: "planner" })).toBe(false);
+    expect(isRunEvent({ ...limited, from: "" })).toBe(false);
+    expect(isRunEvent({ ...limited, to: "" })).toBe(false);
+    expect(isRunEvent({ ...limited, resetsAt: "soon" })).toBe(false);
+  });
 });

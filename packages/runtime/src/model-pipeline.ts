@@ -1,5 +1,5 @@
 import type { RunConfig } from "@arbitra/schemas/config.js";
-import { providerExecutionSchema } from "@arbitra/schemas/provider-execution.js";
+import { DEFAULT_FALLBACK_WAIT_MS, providerExecutionSchema } from "@arbitra/schemas/provider-execution.js";
 import { planIRSchema, type PlanIR } from "@arbitra/schemas/plan.js";
 import { renderImplementation, type ImplementationManifest, type ManifestIssue } from "@arbitra/core/render/index.js";
 import { modelVerificationResultSchema, modelVerificationGroupResultSchema, modelCritiqueSchema, modelCritiqueCheckSchema, modelClusteringResultSchema, modelClusteringBatchResultSchema, modelConflictResolutionSchema, modelVariantSearchResultSchema } from "@arbitra/schemas/model-results.js";
@@ -13,14 +13,14 @@ import { verifyItems, type ModelVerificationRequest, type ModelVerificationRespo
 import type { VerificationAttempt, VerificationItem, VerificationTools } from "@arbitra/workflow/nodes/verification/ladder.js";
 import type { TransportFactoryOptions } from "@arbitra/providers/registry.js";
 import { promptByteLimit } from "@arbitra/providers/transports/cli/dialects.js";
-import { ModelActivities } from "./model-activities.js";
+import { FINDER_LEFT_OUT, ModelActivities } from "./model-activities.js";
 import { AUDIT_PROTOCOL_DEFAULTS, ModelProtocols } from "./model-protocols.js";
 import { isModelOutputRejection, ModelHarness } from "./model-harness.js";
 import { discoverWithModel, groundFindings } from "./model-discovery.js";
 import { repositoryIndex } from "./repository-index.js";
 import { pathsOfSeeds, reportedPlaces, VARIANT_SEARCH_ACTOR, VARIANT_SEARCH_INSTRUCTION, VARIANT_SEARCH_READ_BYTES, variantBatches, variantBatchId, variantCandidateId, variantSeeds, withoutDuplicates, type VariantFinding, type VariantSeed } from "./variant-search.js";
 import { AUDIT_PLAN_CONSTRAINT, INSTRUCTION_SHAPED_TEXT_RULE, PLAN_TEXT_RULE } from "./prompt-conventions.js";
-import { converge, readStage, reviewersOf, type AuditContext, type ConvergenceResult } from "./pipeline.js";
+import { converge, readStage, type AuditContext, type ConvergenceResult } from "./pipeline.js";
 import { plannerCommandContext, PROJECT_COMMANDS_KIND, type ProjectCommand } from "./project-commands.js";
 import { instructionRisk, INSTRUCTION_RISK_KIND } from "./instruction-risk.js";
 import type { AuditFinding } from "./auditors.js";
@@ -49,6 +49,8 @@ import { sideBySide } from "./side-by-side.js";
 import { validateBatchLanes } from "./model-batch-lane.js";
 import { relatedSourceFinder, type RelatedSource } from "./verification-context.js";
 import { compareSemver } from "@arbitra/protocols/versioning.js";
+import { ProviderInvocationFailure, ProviderUsageLimitError } from "@arbitra/providers/runtime.js";
+import { limitedWords, OptionalSteps, secondOpinionStandIns } from "./optional-steps.js";
 
 interface ModelStageInput<T> { activityId: string; modelProfileId: string; signal: AbortSignal; protocol: string; instruction: string; input: unknown; schema: { parse(value: unknown): T }; jsonSchema: unknown; preferredPaths?: readonly string[];
   /** The checking stage this call belongs to; its effort may be set apart from the audit's (`stageEffort`). */
@@ -140,6 +142,17 @@ interface VerificationAnswers {
   readonly held: ReadonlyMap<string, readonly AuditFinding[]>;
   readonly executedChecks: ReadonlyMap<string, Awaited<ReturnType<VerificationExecutor["execute"]>>>;
 }
+/** A model a second opinion could not be asked of, its allowance out until `until` (null: no reset was given). */
+interface SecondOpinionLimit { readonly modelProfileId: string; readonly until: string | null }
+/**
+ * A second opinion as the run records it (`verification-second-opinion-<candidate>`): the model that answered, the one
+ * it stood in for (`askedFor`), the models found out on the way, or why none could answer (`unavailable`, `second` null).
+ */
+interface SecondOpinionRecord {
+  readonly candidateId: string; readonly modelProfileId: string; readonly askedFor?: string;
+  readonly limited?: readonly SecondOpinionLimit[]; readonly unavailable?: string;
+  readonly second: { readonly activityId: string; readonly outcome: string; readonly confidence: number } | null;
+}
 const premiseReport = { status: "unavailable" as const, interpretation: "smoke_test_only_not_proof" as const, limitations: ["real_model_premise_requires_ground_truth_evaluation"] };
 
 export function validateModelAudit(config: RunConfig, auditorIds: readonly string[], criticEnabled: boolean, variantSearchEnabled = false): void {
@@ -196,12 +209,22 @@ export class ModelAuditPipeline {
   readonly #protocols: ModelProtocols;
   /** The lookup of definitions and callers over the snapshot, built when the first verification question needs it. */
   #relatedSource: ReturnType<typeof relatedSourceFinder> | undefined;
+  /** Finders the run goes on without: those a resume left out, and one whose allowance ran out while the run could do without it. */
+  readonly #leftOut: Set<string>;
+  /** The optional steps that went to another model, or on without one, when their model's allowance was out. */
+  readonly #optional: OptionalSteps;
+  /** One finder is left out at a time, so two out together cannot both go when only one may. */
+  #leaving: Promise<unknown> = Promise.resolve();
+  /** Why each finder this process left out was left out, for the units of it still in flight. */
+  readonly #leftOutWords = new Map<string, string>();
   constructor(private readonly context: AuditContext, private readonly config: RunConfig, options: TransportFactoryOptions = {}, sandbox?: TestSandbox, units?: AuditUnitOptions) {
     this.#verificationExecutor = new VerificationExecutor(context.store, sandbox);
     validateModelAudit(config, context.auditors.map(({ auditorId }) => auditorId), context.criticEnabled, context.variantSearchEnabled === true);
     const roles = providerExecutionSchema.parse(config.workflow["modelExecution"]).roles;
     if (roles === undefined) throw new Error("MODEL_EXECUTION_ROLES_REQUIRED");
     this.#roles = roles;
+    this.#leftOut = new Set(context.leftOut ?? []);
+    this.#optional = new OptionalSteps(context.store, providerExecutionSchema.parse(config.workflow["modelExecution"]).fallbackWaitMs ?? DEFAULT_FALLBACK_WAIT_MS);
     this.#activities = new ModelHarness(new ModelActivities(context.store, config, options, units?.seed, context.leftOut), config, context.snapshot, context.store);
     this.#units = units === undefined ? undefined : new DiscoveryUnits(context.store, config, context.snapshot, units.identity, units.seed);
     this.#peerReviewSeed = units?.seed?.contract.peerReviewSeed ?? undefined;
@@ -223,7 +246,18 @@ export class ModelAuditPipeline {
     const contextLimit = Math.min(execution.maximumContextTokens ?? 128_000, execution.maximumDiscoveryTokens ?? Number.POSITIVE_INFINITY, this.config.models[auditorId]?.limits.contextTokens ?? Number.POSITIVE_INFINITY);
     // A unit is sized at one byte a token whatever the run counts for later stages (estimatedBytesPerToken): the
     // size of a unit is how finely the audit reads the source, and a larger one is a different audit.
-    const activities = { invoke: <T>(request: ModelActivityRequest<T>) => this.#activities.invoke(request), estimateInitialTokens: (request: ModelActivityRequest<unknown>) => this.#activities.estimateInitialTokens(request, 1),
+    // A finder the run can go on without (two others stay, and it holds no role but the variant search) is left out
+    // once its allowance is out for longer than the run waits: its answered units stand and the rest are its gaps.
+    const invoke = async <T>(request: ModelActivityRequest<T>): Promise<T> => {
+      try { return await this.#activities.invoke(request); }
+      catch (error) {
+        if (!(error instanceof ProviderUsageLimitError) || signal.aborted || this.#activities.waitsFor(auditorId, error)) throw error;
+        const words = await this.#leaveOut(auditorId, error);
+        if (words === null) throw error;
+        throw new ProviderInvocationFailure(`${FINDER_LEFT_OUT}: ${auditorId} was left out of the run: ${words}`, 0, "LEFT_OUT", FINDER_LEFT_OUT);
+      }
+    };
+    const activities = { invoke, estimateInitialTokens: (request: ModelActivityRequest<unknown>) => this.#activities.estimateInitialTokens(request, 1),
       readsBeyondSource: (activityId: string) => this.#activities.readsBeyondSource(activityId), toolUse: (activityId: string) => this.#activities.toolUse(activityId) };
     return discoverWithModel({ auditorId, modelProfileId: auditorId, snapshot: this.context.snapshot, activities, store: this.context.store, signal, effort: stageEffort(this.config, "discovery", auditorId), protocol, depth: this.config.auditDepth, maximumInputTokens: Math.floor(contextLimit * 0.8), concurrency: execution.maximumParallelCalls ?? 1, ...(this.#units === undefined ? {} : { units: this.#units }) });
   }
@@ -303,8 +337,8 @@ export class ModelAuditPipeline {
     const conflictVotes = new Map<string, ConflictResolutionVote>();
     let { candidates, candidateFindings } = issueBoard.view();
     let consensus: ConsensusState = initial.consensus;
-    // A finder a resume left out reviews nothing; its findings are reviewed by the others.
-    const reviewers = reviewersOf(context);
+    // A finder left out reviews nothing; its findings are reviewed by the others.
+    const reviewers = this.#reviewers();
     for (let round = 1; round <= context.maximumRounds && reviewers.length > 1 && Object.keys(candidates).length > 0; round += 1) {
       if (round > 1 && issueBoard.conflicts.length > 0) {
         await this.resolveConflicts(issueBoard, round, signal, conflictVotes);
@@ -459,7 +493,7 @@ export class ModelAuditPipeline {
       const { together, waiting } = independentConflicts(pending.filter((conflict) => conflict.candidateIds.every((id) => Object.hasOwn(state.candidates, id))));
       const answered = await sideBySide(together, parallel, async (conflict) => {
         const id = conflictId(conflict);
-        const reviewers = reviewersOf(this.context);
+        const reviewers = this.#reviewers();
         const votes = await sideBySide(reviewers, reviewers.length, async ({ auditorId }): Promise<ConflictResolutionVote | null> => {
           const view = peerReviewView(conflict.candidateIds, state.candidateFindings, auditorId, new SeededRng(this.context.store.runId).forActivity(`conflict:${id}:${round}:${auditorId}`), state.candidates);
           if (conflict.candidateIds.some((candidateId) => !Object.hasOwn(view.candidates, candidateId))) return null;
@@ -751,18 +785,56 @@ export class ModelAuditPipeline {
     // Without peer review no reviewer votes, and the finder's report is the only backing: every severe rejection gets
     // the second question (blog without review, October 22: 7 severe rejections, none asked twice).
     const secondOpinion = this.config.verification["secondOpinion"] === "severe_rejections" ? this.#secondOpinionProfile() : undefined;
+    // The second opinion is optional: it never holds the run on another vendor's usage window (optional-steps.ts).
+    // When its model's allowance is out for longer than the run waits, and its fallback cannot answer either, the
+    // question goes to a model of another vendor than the verifier's that can; with none, the issue stays open, never
+    // rejected on one model's word, and checking and the plan go on. The stand-in asks under an activity of its own,
+    // and which model answered, or that none could, is recorded, so a resume asks no one again.
+    // Observed live (a real-project audit, November 11, 2026): one second opinion waited 3 h 04 on Codex's five-hour window.
+    const askSecondOpinion = async (request: ModelVerificationRequest, rejected: ModelVerificationResponse, asked: string): Promise<{ readonly answer: ModelVerificationResponse } | { readonly unavailable: string }> => {
+      const kind = `verification-second-opinion-${request.candidateId}`;
+      const recorded = await this.#recorded<SecondOpinionRecord>(kind);
+      if (recorded?.unavailable !== undefined) return { unavailable: recorded.unavailable };
+      const limited: SecondOpinionLimit[] = [...recorded?.limited ?? []];
+      const first = { activityId: rejected.activityId, outcome: rejected.outcome, confidence: rejected.confidence };
+      for (let profile = recorded?.modelProfileId ?? asked; ;) {
+        // A model that answered this question before answers it from what it recorded, whatever its allowance now.
+        const until = recorded?.modelProfileId === profile ? undefined : this.#leftOut.has(profile) ? null : await this.#optional.limitedUntil(profile);
+        if (until === undefined) {
+          const stage = { ...question(request, undefined, `verification/${request.candidateId}/second-opinion${profile === asked ? "" : `/${profile}`}`), modelProfileId: profile, stage: "secondOpinion" as const, maximumOutputTokens: answerCeiling(profile) };
+          try {
+            let answer: ModelVerificationResponse;
+            try { answer = await askOne(stage, request.candidateId); }
+            catch (error) { answer = await unanswered(request, stage.activityId, error); }
+            await context.store.publish(kind, { candidateId: request.candidateId, modelProfileId: profile, ...(profile === asked ? {} : { askedFor: asked }), ...(limited.length === 0 ? {} : { limited }),
+              first, second: { activityId: answer.activityId, outcome: answer.outcome, confidence: answer.confidence } });
+            return { answer };
+          } catch (error) {
+            // A limit that resets within the run's wait holds the run as any model's does; so does a cancelled run.
+            if (!(error instanceof ProviderUsageLimitError) || signal.aborted || this.#activities.waitsFor(profile, error)) throw error;
+            limited.push({ modelProfileId: profile, until: await this.#optional.limited(profile, error) });
+          }
+        } else limited.push({ modelProfileId: profile, until });
+        const standIn = secondOpinionStandIns(this.config, { asked, checker: checkerOf(request.candidateId), out: new Set(limited.map(({ modelProfileId }) => modelProfileId)), leftOut: this.#leftOut,
+          preferred: [...this.#roles.critic === undefined ? [] : [this.#roles.critic], ...this.#reviewers().map(({ auditorId }) => auditorId)] })[0];
+        const words = limited.map(({ modelProfileId, until: at }) => limitedWords(this.config, modelProfileId, at)).join("; ");
+        await this.#optional.moved("secondOpinion", profile, standIn ?? null, limitedWords(this.config, profile, limited.at(-1)?.until ?? null));
+        if (standIn === undefined) {
+          await context.store.publish(kind, { candidateId: request.candidateId, modelProfileId: asked, limited, unavailable: words, first, second: null });
+          return { unavailable: words };
+        }
+        profile = standIn;
+      }
+    };
     const confirmRejection = async (request: ModelVerificationRequest, rejected: ModelVerificationResponse): Promise<ModelVerificationResponse> => {
       const candidate = candidates[request.candidateId];
       if (secondOpinion === undefined || rejected.outcome !== "REJECTED" || candidate === undefined || !["critical", "high"].includes(severityOf(candidate))
         || candidate.votes.length > 0 && !candidate.votes.some(({ disposition }) => disposition !== "reject")) return rejected;
-      const stage = { ...question(request, undefined, `verification/${request.candidateId}/second-opinion`), modelProfileId: secondOpinion, stage: "secondOpinion" as const, maximumOutputTokens: answerCeiling(secondOpinion) };
       // Without the second question the rejection is not confirmed, so the issue stays open.
-      if (!allowed(request.candidateId, stage.activityId)) return { ...rejected, outcome: "STILL_NEEDS_VERIFICATION", reason: `The verifier rejected it: ${rejected.reason ?? "no reason given."} No second model was asked: the run's limit on verification questions was reached.` };
-      let answer: ModelVerificationResponse;
-      try { answer = await askOne(stage, request.candidateId); }
-      catch (error) { answer = await unanswered(request, stage.activityId, error); }
-      await context.store.publish(`verification-second-opinion-${request.candidateId}`, { candidateId: request.candidateId, modelProfileId: secondOpinion,
-        first: { activityId: rejected.activityId, outcome: rejected.outcome, confidence: rejected.confidence }, second: { activityId: answer.activityId, outcome: answer.outcome, confidence: answer.confidence } });
+      if (!allowed(request.candidateId, `verification/${request.candidateId}/second-opinion`)) return { ...rejected, outcome: "STILL_NEEDS_VERIFICATION", reason: `The verifier rejected it: ${rejected.reason ?? "no reason given."} No second model was asked: the run's limit on verification questions was reached.` };
+      const second = await askSecondOpinion(request, rejected, secondOpinion);
+      if ("unavailable" in second) return { ...rejected, outcome: "STILL_NEEDS_VERIFICATION", reason: `The verifier rejected it: ${rejected.reason ?? "no reason given."} Second opinion unavailable: ${second.unavailable}.` };
+      const { answer } = second;
       return answer.outcome === "REJECTED" ? rejected : { outcome: "STILL_NEEDS_VERIFICATION", evidenceIds: [...new Set([...rejected.evidenceIds, ...answer.evidenceIds])], artifactRefs: [], activityId: answer.activityId, confidence: Math.min(rejected.confidence, answer.confidence),
         reason: `The verifier rejected it: ${rejected.reason ?? "no reason given."} A second model answered ${answer.outcome}: ${answer.reason ?? "no reason given."}` };
     };
@@ -918,16 +990,26 @@ export class ModelAuditPipeline {
     type BatchRecord = { batchId: string; issueIds: readonly string[]; activityId: string; status: "answered" | "unanswered"; reason?: string; findings: readonly VariantFinding[]; rejectedOnValidation: number; limitations: readonly string[] };
     // A batch whose call does not fit, or stops at the output ceiling, goes on as two halves; the durable marker makes a
     // resumed run halve it the same way. One the provider declines, or whose reply stays invalid, is recorded and the
-    // run goes on: the search is optional, and the issues verification confirmed stand without it.
+    // run goes on: the search is optional, and the issues verification confirmed stand without it. So is one whose
+    // searcher's allowance is out for longer than the run waits (optional-steps.ts): it is not asked again, and the
+    // batches after it are recorded unanswered without a call.
     const search = async (batch: readonly VariantSeed[]): Promise<readonly BatchRecord[]> => {
       const batchId = variantBatchId(batch); const kind = `variant-search-batch-${batchId}`;
       if (has(kind)) return [await readStage<BatchRecord>(store, kind)];
       const request = requestFor(batch);
       const recorded = { batchId, issueIds: batch.map(({ issue }) => issue.candidateId), activityId: request.activityId };
+      const unavailable = async (words: string): Promise<readonly BatchRecord[]> => {
+        await this.#optional.moved("variantSearch", searcher, null, words);
+        await store.publish(kind, { ...recorded, status: "unanswered", reason: `VARIANT_SEARCH_UNAVAILABLE: ${words}`, findings: [], rejectedOnValidation: 0, limitations: [] } satisfies BatchRecord);
+        return [await readStage<BatchRecord>(store, kind)];
+      };
+      const until = this.#leftOut.has(searcher) ? null : await this.#optional.limitedUntil(searcher);
+      if (until !== undefined) return unavailable(this.#leftOut.has(searcher) ? this.#leftOutWords.get(searcher) ?? `${searcher} was left out of the run` : limitedWords(this.config, searcher, until));
       let result: { findings: readonly VariantFinding[]; limitations: readonly string[] };
       try { result = await this.call(request); }
       catch (error) {
         if (isCapacityError(error) && batch.length > 1) { const middle = Math.ceil(batch.length / 2); return [...await search(batch.slice(0, middle)), ...await search(batch.slice(middle))]; }
+        if (error instanceof ProviderUsageLimitError && !signal.aborted && !this.#activities.waitsFor(searcher, error)) return unavailable(limitedWords(this.config, searcher, await this.#optional.limited(searcher, error)));
         if (!isCapacityError(error) && !(error instanceof ModelRefusalError) && !isModelOutputRejection(error)) throw error;
         const unanswered: BatchRecord = { ...recorded, status: "unanswered", reason: (error as Error).message.slice(0, 1_000), findings: [], rejectedOnValidation: 0, limitations: [] };
         await store.publish(kind, unanswered);
@@ -1166,14 +1248,30 @@ export class ModelAuditPipeline {
     // plan errors and its revision added errors). critic-result still records the issues that would have required it.
     const categories = new Map((await readStage<readonly AuditFinding[]>(this.context.store, "source-findings")).map(({ sourceFindingId, category }) => [sourceFindingId, category]));
     const security = (ids: readonly string[]) => ids.some((id) => ["SECURITY", "PROMPT_INJECTION"].includes(categories.get(id) ?? ""));
-    const result = await critic.run({ plan, validationContract: plan.validationContract, canonicalIssues: planned, necessaryContext: this.repository().map(({ path, content }) => ({ ref: path, content, trust: "repo" })) }, {
+    const reviewed = (available: boolean) => critic.run({ plan, validationContract: plan.validationContract, canonicalIssues: planned, necessaryContext: this.repository().map(({ path, content }) => ({ ref: path, content, trust: "repo" })) }, {
       requirement: { switchedOn: true, hasCriticalIssue: planned.some(({ severity }) => severity === "critical"),
         hasHighSecurityIssue: planned.some(({ severity, sourceFindingIds }) => severity === "high" && security(sourceFindingIds)) },
       planner: { id: this.#roles.planner, capability: plannerProfile.capabilityTier, independenceGroup: plannerProfile.independenceGroup },
-      pool: [{ id: criticId, capability: criticProfile.capabilityTier, independenceGroup: criticProfile.independenceGroup, available: true }],
+      pool: [{ id: criticId, capability: criticProfile.capabilityTier, independenceGroup: criticProfile.independenceGroup, available }],
     });
-    await this.context.store.publish("critic-result", { ...result, criticCalls, citedSourceLeftOut: [...citedSourceLeftOut].sort() });
-    const critiqued = result.status === "completed" ? result.critique : { summary: `critic ${result.status}`, items: [] };
+    // The critic is optional: when its allowance is out for longer than the run waits (optional-steps.ts), the plan goes
+    // on unreviewed, and the gate says so (degraded_critic_coverage) as it does when no critic qualifies. That is
+    // recorded for each phase, so a resume does not ask the critic again.
+    const unavailableKind = phase === "initial" ? "critic-unavailable" : "critic-revision-unavailable";
+    let unavailable = (await this.#recorded<{ readonly reason: string }>(unavailableKind))?.reason;
+    let result: Awaited<ReturnType<typeof reviewed>> | undefined;
+    if (unavailable === undefined) {
+      try { result = await reviewed(true); }
+      catch (error) {
+        if (!(error instanceof ProviderUsageLimitError) || signal.aborted || this.#activities.waitsFor(criticId, error)) throw error;
+        unavailable = limitedWords(this.config, criticId, await this.#optional.limited(criticId, error));
+        await this.#optional.moved("critic", criticId, null, unavailable);
+        await this.context.store.publish(unavailableKind, { modelProfileId: criticId, reason: unavailable });
+      }
+    }
+    result ??= await reviewed(false);
+    await this.context.store.publish("critic-result", { ...result, criticCalls, citedSourceLeftOut: [...citedSourceLeftOut].sort(), ...(unavailable === undefined ? {} : { unavailable }) });
+    const critiqued = result.status === "completed" ? result.critique : { summary: `critic ${result.status}${unavailable === undefined ? "" : `: ${unavailable}`}`, items: [] };
     const feedback = phase === "initial" && result.status === "completed" && !result.degradedReviewCoverage ? await this.#checkCritique(critiqued, plan, planned, signal) : critiqued;
     await this.context.store.publish("critic-feedback", feedback);
     if (phase === "initial" && result.status === "completed" && !result.degradedReviewCoverage && feedback.items.some(({ blocking }) => blocking)) {
@@ -1351,7 +1449,35 @@ export class ModelAuditPipeline {
     if (record.length > 0) await this.context.store.publish("severity-restored", { minimumSeverity: minimum, issues: record });
     return restored;
   }
-  #secondOpinionProfile(): string | undefined { return secondOpinionProfile(this.#roles, reviewersOf(this.context).map(({ auditorId }) => auditorId)); }
+  #secondOpinionProfile(): string | undefined { return secondOpinionProfile(this.#roles, this.#reviewers().map(({ auditorId }) => auditorId)); }
+  /** The finders the run goes on with: all of them but those left out. */
+  #reviewers(): readonly AuditContext["auditors"][number][] { return this.context.auditors.filter(({ auditorId }) => !this.#leftOut.has(auditorId)); }
+  /** A stage's artifact as the run recorded it, or null when it has none yet. */
+  async #recorded<T>(kind: string): Promise<T | null> {
+    return (await this.context.store.listArtifacts()).some((artifact) => artifact.kind === kind) ? readStage<T>(this.context.store, kind) : null;
+  }
+  /**
+   * Leaves `auditorId` out of the run once its allowance is out for longer than the run waits, when the run can go on
+   * without it: two finders at least stay, and it holds no role but the variant search, which is optional too. The
+   * finder is recorded in the run's context as one a resume left out would be, so a resume goes on without it. Returns
+   * why, in words a reason gives, or null when the finder is needed and the run waits for it.
+   */
+  #leaveOut(auditorId: string, error: ProviderUsageLimitError): Promise<string | null> {
+    const leaving = this.#leaving.then(async () => {
+      if (this.#leftOut.has(auditorId)) return this.#leftOutWords.get(auditorId) ?? `${auditorId} was left out`;
+      const held = Object.entries(this.#roles).filter(([role, id]) => id === auditorId && role !== "variantSearcher");
+      if (held.length > 0 || this.context.auditors.filter(({ auditorId: id }) => !this.#leftOut.has(id) && id !== auditorId).length < 2) return null;
+      const words = limitedWords(this.config, auditorId, await this.#optional.limited(auditorId, error));
+      this.#leftOut.add(auditorId); this.#leftOutWords.set(auditorId, words);
+      this.#activities.leaveOut(auditorId);
+      const stored = await this.context.store.loadContext();
+      await this.context.store.replaceContext({ ...stored, leftOutFinders: [...new Set([...stored.leftOutFinders ?? [], auditorId])].sort() });
+      await this.#optional.moved("finder", auditorId, null, words);
+      return words;
+    });
+    this.#leaving = leaving.catch(() => undefined);
+    return leaving;
+  }
   /** The accepted issues the plan covers: all of them, or those of at least the run's minimum severity. Anthropic's
    * reviewers rank and fix the most important first; the plan and its critic cost grow with every task. */
   #planned(issues: CanonicalIssueSet): CanonicalIssueSet["issues"] {

@@ -30,7 +30,7 @@ afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm
 const line = (name: string) => `export const parse${name} = (text: string) => JSON.parse(text);`;
 type Body = Record<string, unknown>;
 
-async function fixture(options: { readonly variantSearch?: boolean; readonly failVariantCheckOnce?: boolean; readonly searcherFault?: "unknown_issue" | "output_limit"; readonly highOnly?: boolean } = {}) {
+async function fixture(options: { readonly variantSearch?: boolean; readonly failVariantCheckOnce?: boolean; readonly searcherFault?: "unknown_issue" | "output_limit" | "quota"; readonly highOnly?: boolean } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "arbitra-variant-search-")); directories.push(directory);
   for (const name of ["A", "B", "C", "D", "E"]) await writeFile(join(directory, `${name.toLowerCase()}.ts`), `${line(name)}\n`, "utf8");
   const example = runConfigSchema.parse(JSON.parse(await readFile(new URL("../../../examples/audit-balanced.json", import.meta.url), "utf8")));
@@ -75,6 +75,8 @@ async function fixture(options: { readonly variantSearch?: boolean; readonly fai
       calls.push({ stage: "variant-search", url: request.url, input: parsed });
       const prefix = /Every sourceFindingId must start with (\S+) and be unique/u.exec(system)?.[1] ?? "";
       const seed = (parsed["issues"] as { issueId: string }[])[0]?.issueId ?? "";
+      // The searcher's account is out of its allowance, as an API quota says it.
+      if (options.searcherFault === "quota") return { status: 429, headers: {}, body: { error: { code: "insufficient_quota", message: "You exceeded your current quota until 2099-01-01T00:00:00Z" } } };
       if (options.searcherFault === "output_limit") return { status: 200, headers: {}, body: { status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, output_text: '{"findings":', usage: { input_tokens: 10, output_tokens: 2_000 } } };
       if (options.searcherFault === "unknown_issue") reply = text({ findings: [finding(`${prefix}1`, "a.ts", "The same unchecked parse", "high", "C-unknown")], limitations: [] });
       else if (toolOutputs === 0) reply = { output: ["b.ts", "c.ts", "e.ts"].map((path, index) => ({ type: "function_call", call_id: `call-${index}`, name: "repo_read_file", arguments: JSON.stringify({ path }) })), usage: { input_tokens: 10, output_tokens: 5 } };
@@ -221,6 +223,23 @@ describe("the variant search", () => {
     expect(await setup.read(core, run.runId, "variant-search")).toMatchObject({ seeds: 1, batches: 1, unansweredBatches: 1, proposed: 0, added: [] });
     const record = (await core.artifacts(run.runId)).find(({ kind }) => kind.startsWith("variant-search-batch-"));
     expect(JSON.parse((await core.artifact(run.runId, record?.artifactId ?? "") as { content: string }).content)).toMatchObject({ status: "unanswered", reason: expect.stringContaining(searcherFault === "unknown_issue" ? "VARIANT_OF_UNKNOWN_ISSUE" : "MODEL_OUTPUT_LIMIT_REACHED") as unknown });
+  });
+
+  it("records the batch of a searcher whose allowance is out without holding the run, and asks it nothing more", async () => {
+    // The search is optional: it never holds the run on a model's usage window (optional-steps.ts).
+    const setup = await fixture({ searcherFault: "quota" });
+    const core = setup.create();
+    const run = await core.run(setup.config);
+    expect(run.state).toBe("COMPLETED");
+    const issues = await setup.read<{ issues: Issue[]; limitations: string[] }>(core, run.runId, "canonical-issues");
+    expect(issues.issues.filter(({ variantOf }) => variantOf !== undefined)).toEqual([]);
+    expect(issues.limitations).toContain("variant_search_batches_unanswered:1");
+    const record = (await core.artifacts(run.runId)).find(({ kind }) => kind.startsWith("variant-search-batch-"));
+    expect(JSON.parse((await core.artifact(run.runId, record?.artifactId ?? "") as { content: string }).content)).toMatchObject({ status: "unanswered", reason: "VARIANT_SEARCH_UNAVAILABLE: searcher (searcher, openai) limited until 2099-01-01T00:00:00.000Z" });
+    expect(setup.calls.filter(({ stage }) => stage === "variant-search")).toHaveLength(1);
+    const events = []; for await (const event of core.events(run.runId)) events.push(event);
+    expect(events.filter(({ t }) => t === "optional_step_limited")).toMatchObject([{ step: "variantSearch", from: "searcher", to: null, resetsAt: "2099-01-01T00:00:00.000Z" }]);
+    expect(setup.calls.some(({ stage }) => stage === "planner")).toBe(true);
   });
 
   it("leaves a variant below the plan's minimum severity unchecked, as verification leaves such an issue", async () => {
