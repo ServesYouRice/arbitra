@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { controlPlaneCore } from "@arbitra/runtime/control-plane-core.js";
 import { registerHandoffRoutes } from "../src/handoff.js";
+import { registerSettingsRoutes } from "../src/settings.js";
 import { buildServer, DEFAULT_SERVER_HOST } from "../src/main.js";
 import { serveWebApp } from "../src/web-app.js";
 import { SCRIPTED_SCENARIOS, scriptedRuntime, type ScriptedScenario } from "./scripted-runs.js";
@@ -31,6 +32,8 @@ app.post<{ Params: { scenario: string } }>("/__fixture/runs/:scenario", async (r
 app.post("/__fixture/repositories/audit", async () => ({ repository: await runtime.auditRepository() }));
 // The plan's hand-over routes, as the local app serves them: the Plan and Results tabs read them.
 registerHandoffRoutes(app, runtime.orchestrator);
+// The run helper's settings, which the Settings page reads and changes, in the fixture's own state directory.
+registerSettingsRoutes(app, runtime.orchestrator.stateDirectory);
 serveWebApp(app, webRoot);
 
 await app.listen({ host: DEFAULT_SERVER_HOST, port });

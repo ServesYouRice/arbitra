@@ -26,10 +26,13 @@ export function SettingsPage(): ReactElement {
     fetch("/diagnostics/environment").then(async (response) => response.ok ? await response.json() as DetectedEnvironment : null)
       .then((found) => { if (alive.current) setEnvironment(found); }, () => undefined);
   }, [apis.settings]);
+  // A control shows its change at once, and goes back to what was saved when the save fails.
   const save = (change: Partial<HelperSettings>): void => {
-    setSaving(true); setOutcome(null);
+    if (helper === null) return;
+    const before = helper;
+    setHelper({ ...before, ...change }); setSaving(true); setOutcome(null);
     apis.settings.save(change)
-      .then(({ helper: saved }) => { if (alive.current) { setHelper(saved); setOutcome({ saved: true }); } }, (error: unknown) => { if (alive.current) setOutcome({ saved: false, failure: message(error) }); })
+      .then(({ helper: saved }) => { if (alive.current) { setHelper(saved); setOutcome({ saved: true }); } }, (error: unknown) => { if (alive.current) { setHelper(before); setOutcome({ saved: false, failure: message(error) }); } })
       .finally(() => { if (alive.current) setSaving(false); });
   };
   return <>
