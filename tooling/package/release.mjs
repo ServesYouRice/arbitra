@@ -4,7 +4,8 @@
 // tag and upload it. It never runs them: a tag and a release are the owner's to make (AGENTS.md). GitHub adds the
 // source zip to the release from the tag.
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { sha256 } from "./node-download.mjs";
@@ -25,6 +26,19 @@ export function releaseFiles(version, bytes) {
   return { asset, checksum: `${asset}.sha256`, checksumText: `${sha256(bytes)}  ${asset}\n` };
 }
 
+/**
+ * The browser tests' environment: their screenshots go to `shots`, not over the tracked evidence in docs/qa, which
+ * would leave the checkout changed and stop the release (the same as .claude/hooks/check.sh).
+ */
+export const browserTestEnv = (env, shots) => ({ ...env, ARBITRA_QA_DIRECTORY: shots });
+
+/** Why the tag cannot be used, from the local tags and `git ls-remote --tags origin` for it; null when it is free. */
+export function tagTaken(version, localTags, remoteTags) {
+  if (localTags.trim() !== "") return `the tag v${version} already exists here`;
+  if (remoteTags.split("\n").some((line) => line.trim().endsWith(`refs/tags/v${version}`) || line.trim().endsWith(`refs/tags/v${version}^{}`))) return `the tag v${version} already exists on origin`;
+  return null;
+}
+
 /** What to run once the owner agrees to publish: the tag on the commit that passed, and the upload. */
 export function publishCommands(version, commit, paths) {
   return [
@@ -42,13 +56,19 @@ function main(argv) {
   const say = (text) => process.stdout.write(`release: ${text}\n`);
 
   if (git("status", "--porcelain") !== "") throw new Error("the working tree has changes: commit them, so the release is the commit that passed the check");
-  if (git("tag", "--list", `v${version}`) !== "") throw new Error(`the tag v${version} already exists`);
+  let remoteTags;
+  try { remoteTags = execFileSync("git", ["ls-remote", "--tags", "origin", `refs/tags/v${version}`], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }); }
+  catch { throw new Error(`could not reach origin to see whether v${version} is already tagged there; check the network and release again`); }
+  const taken = tagTaken(version, git("tag", "--list", `v${version}`), remoteTags);
+  if (taken !== null) throw new Error(taken);
   const commit = git("rev-parse", "HEAD");
 
   say(`the full check on ${commit.slice(0, 7)}`);
   run("pnpm", ["run", "ci"]);
   run("pnpm", ["build"]);
-  run("pnpm", ["--filter", "@arbitra/web", "e2e"]);
+  const shots = mkdtempSync(join(tmpdir(), "arbitra-release-shots-"));
+  try { run("pnpm", ["--filter", "@arbitra/web", "e2e"], { env: browserTestEnv(process.env, shots) }); }
+  finally { rmSync(shots, { recursive: true, force: true }); }
   say("building the Windows app");
   run(process.execPath, [join(root, "tooling", "package", "build.mjs"), "win-x64", version]);
   if (git("status", "--porcelain") !== "" || git("rev-parse", "HEAD") !== commit) throw new Error("the check or the build changed the checkout; review it and release again");

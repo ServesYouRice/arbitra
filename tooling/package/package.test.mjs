@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NODE_DOWNLOADS, NODE_VERSION, nodeBinary, sha256, verified } from "./node-download.mjs";
-import { publishCommands, releaseFiles, releaseVersion } from "./release.mjs";
+import { browserTestEnv, publishCommands, releaseFiles, releaseVersion, tagTaken } from "./release.mjs";
 
 const folder = () => mkdtempSync(join(tmpdir(), "arbitra-package-"));
 
@@ -60,4 +60,21 @@ test("the release prints the tag and upload commands for the commit that passed,
   ]);
   const source = readFileSync(new URL("./release.mjs", import.meta.url), "utf8");
   assert.doesNotMatch(source, /run\("git", \[|"tag", "-a"|"push"|run\("gh"/u);
+});
+
+test("the release's browser tests write their screenshots to the folder it gives them, and it removes that folder", () => {
+  assert.deepEqual(browserTestEnv({ PATH: "/bin" }, "/tmp/shots"), { PATH: "/bin", ARBITRA_QA_DIRECTORY: "/tmp/shots" });
+  const source = readFileSync(new URL("./release.mjs", import.meta.url), "utf8");
+  assert.match(source, /run\("pnpm", \["--filter", "@arbitra\/web", "e2e"\], \{ env: browserTestEnv\(process\.env, shots\) \}\)/u);
+  assert.match(source, /finally \{ rmSync\(shots, \{ recursive: true, force: true \}\); \}/u);
+});
+
+test("the release refuses a version already tagged here or on origin, and stops when origin cannot be reached", () => {
+  assert.equal(tagTaken("0.5.0", "", ""), null);
+  assert.equal(tagTaken("0.5.0", "", "abc\trefs/tags/v0.5.00\n"), null);
+  assert.equal(tagTaken("0.5.0", "v0.5.0\n", ""), "the tag v0.5.0 already exists here");
+  assert.equal(tagTaken("0.5.0", "", "abc\trefs/tags/v0.5.0\n"), "the tag v0.5.0 already exists on origin");
+  const source = readFileSync(new URL("./release.mjs", import.meta.url), "utf8");
+  assert.match(source, /"ls-remote", "--tags", "origin"/u);
+  assert.match(source, /could not reach origin/u);
 });

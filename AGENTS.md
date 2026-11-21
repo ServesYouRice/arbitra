@@ -27,5 +27,6 @@ Set by the owner in the handbook (GitHub: `ServesYouRice/handbook`; read its `RE
   tests (see `CLAUDE.md`). Hosted CI is allowed only to build and test on platforms the dev PC cannot run.
 - Do not name the owner's private projects in anything a reader of this repository sees. Describe them instead ("a web
   app", "a comments service"), the same description each time. `pnpm run privacy:check` refuses their names, which
-  it holds only as hashes; add a new private project's there the same way.
+  it holds only as hashes; add a new private project's there the same way. It can refuse an ordinary phrase that reads
+  like one of the names: reword the sentence, do not weaken the check.
 - Ask before destructive, hard-to-reverse or externally visible actions: a release, a tag, a push to `main`.
