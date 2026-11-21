@@ -33,6 +33,9 @@ export function stageNotes({ workflow, progress, preflight, critique }: { readon
 export function criticWords(critique: CritiqueRecord): string {
   const status = /^critic (not_required|skipped|disabled)/u.exec(critique.summary)?.[1];
   if (status === "not_required") return "not needed for this run";
+  // A critic whose allowance was out records why after the status ("critic skipped: <model> limited until <time>").
+  const limited = /^critic skipped: (.+)$/su.exec(critique.summary)?.[1];
+  if (limited !== undefined) return `skipped: ${limited}`;
   if (status === "skipped") return "skipped: no other model was free to review it";
   if (status === "disabled") return "not in this run";
   if (critique.items.length === 0) return "no objections";
@@ -40,8 +43,11 @@ export function criticWords(critique: CritiqueRecord): string {
   return `${counted(critique.items.length, "objection")}${unanswered === undefined ? "" : ` · ${critique.items.length - unanswered} answered by the revised plan`}`;
 }
 
-/** The critic's record of whether it ran (`critic-result`): reviewed, not required, or skipped for want of an independent model. */
-export interface CriticResultRecord { readonly status: "completed" | "not_required" | "skipped" }
+/**
+ * The critic's record of whether it ran (`critic-result`): reviewed, not required, or skipped for want of an independent
+ * model or, with `unavailable` saying why, because its model's allowance was out.
+ */
+export interface CriticResultRecord { readonly status: "completed" | "not_required" | "skipped"; readonly unavailable?: string }
 export interface PlanReview { readonly reviewed: boolean; readonly words: string }
 
 /**
@@ -53,7 +59,7 @@ export interface PlanReview { readonly reviewed: boolean; readonly words: string
 export function planReview({ workflow, result, feedback, state }: { readonly workflow: WorkflowJson; readonly result: CriticResultRecord | null; readonly feedback: CritiqueRecord | null; readonly state: string | null }): PlanReview {
   if (!workflow.nodes.some(({ id }) => id === "critic")) return { reviewed: false, words: "no: Review the plan was off for this run" };
   if (result?.status === "not_required") return { reviewed: false, words: "no: not needed for this run" };
-  if (result?.status === "skipped") return { reviewed: false, words: "no: no other model was free to review it" };
+  if (result?.status === "skipped") return { reviewed: false, words: result.unavailable === undefined ? "no: no other model was free to review it" : `no: ${result.unavailable}` };
   if (result?.status === "completed") return { reviewed: true, words: feedback === null ? "reviewed" : criticWords(feedback) };
   if (feedback !== null) {
     const words = criticWords(feedback);

@@ -173,6 +173,31 @@ export function routeSwitchWords(change: RouteSwitch): string {
   return `Switched ${subject} from ${change.from} to ${target}${when}, ${why}${spent}.`;
 }
 
+/** One optional step that left a model whose allowance was out (an `optional_step_limited` event), with its models named. */
+export interface OptionalStepMove { readonly step: string; readonly model: string; readonly toModel: string | null; readonly at: string | null; readonly resetsAt: string | null }
+
+const OPTIONAL_STEP_NAMES: Readonly<Record<string, string>> = Object.freeze({ secondOpinion: "The second opinion", variantSearch: "The variant search", finder: "The finder", critic: "The plan review" });
+const WITHOUT_IT: Readonly<Record<string, string>> = Object.freeze({
+  secondOpinion: "The severe issues it would have checked stay open, not rejected.",
+  variantSearch: "The issues it had left to search stand without it.",
+  finder: "Its answered parts stand, and the other finders went on.",
+  critic: "The plan went on unreviewed.",
+});
+
+/**
+ * An optional step that did not hold the run on a model out of its allowance, as one line: "The second opinion went
+ * from GPT-6.1 Sol to Gemini 3.8 Flash at 11 Nov, 09:13: usage limit reached, until 11 Nov, 12:17." or, with no model
+ * to go to, "The second opinion on GPT-6.1 Sol was left out at …: usage limit reached, until …. The severe issues it
+ * would have checked stay open, not rejected."
+ */
+export function optionalStepWords(move: OptionalStepMove): string {
+  const step = OPTIONAL_STEP_NAMES[move.step] ?? move.step;
+  const when = move.at === null ? "" : ` at ${formatTime(move.at)}`;
+  const why = `usage limit reached${move.resetsAt === null ? "" : `, until ${formatTime(move.resetsAt)}`}`;
+  if (move.toModel !== null) return `${step} went from ${move.model} to ${move.toModel}${when}: ${why}.`;
+  return `${step} on ${move.model} was left out${when}: ${why}. ${WITHOUT_IT[move.step] ?? "The run went on without it."}`;
+}
+
 const AWAKE = "Keep the computer awake while the run works (on a Mac, with its lid open), then resume the run: it goes on from where it stopped, and calls already finished are kept.";
 
 /** What a failure means for the person: what happened, what to do, and whether resuming can help. */

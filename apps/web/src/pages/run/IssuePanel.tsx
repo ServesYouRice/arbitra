@@ -10,8 +10,11 @@ import { placeRange, useCheckAttempts, useIssues, type IssueView } from "./issue
 import { dissentText, NO_REASONS } from "./IssuesTab.js";
 import { attemptLabel, listWords, profileLabel } from "./models.js";
 
-/** What the second model asked before a severe issue was rejected answered (`verification-second-opinion-<id>`). */
-interface SecondOpinion { readonly modelProfileId: string; readonly second?: { readonly activityId?: string; readonly outcome?: string } }
+/**
+ * What the second model asked before a severe issue was rejected answered (`verification-second-opinion-<id>`): the model
+ * that answered, the one it stood in for when that one's allowance was out (`askedFor`), or why none could (`unavailable`).
+ */
+interface SecondOpinion { readonly modelProfileId: string; readonly askedFor?: string; readonly unavailable?: string; readonly second?: { readonly activityId?: string; readonly outcome?: string } | null }
 
 const OUTCOME_WORDS: Readonly<Record<string, string>> = Object.freeze({ CONFIRMED: "confirmed", REJECTED: "rejected", STILL_NEEDS_VERIFICATION: "unsettled" });
 
@@ -67,7 +70,8 @@ function IssueRecord({ runId, view, reasoned, overview, artifacts, refreshKey }:
       <h4 className="panel-title">The check</h4>
       <p>{checked}</p>
       {issue.verificationReason === undefined ? checkedBy === null ? null : <p className="note">{reasoned ? "The check recorded no reason for it." : NO_REASONS}</p> : <p className="prose">{issue.verificationReason}</p>}
-      {second === null ? null : <p>Asked a second model before rejecting it: {secondModel} {secondSaid}.</p>}
+      {second === null ? null : second.unavailable !== undefined ? <p>No second model could be asked before rejecting it, so it stays open: {second.unavailable}.</p>
+        : <p>Asked a second model before rejecting it: {secondModel} {secondSaid}.{second.askedFor === undefined ? null : ` It stood in for ${profileLabel(configuration, second.askedFor, "secondOpinion") ?? second.askedFor}, whose allowance was out.`}</p>}
     </section>
     <dl className="facts">
       <div><dt>found by</dt><dd>{listWords(foundBy) || "not recorded"}</dd></div>

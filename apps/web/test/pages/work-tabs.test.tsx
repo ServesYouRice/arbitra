@@ -173,6 +173,24 @@ describe("the Issues tab", () => {
     expect(await within(rejected).findByText("Asked a second model before rejecting it: GPT-6.1 Sol · high also rejected it.")).toBeTruthy();
   });
 
+  it("says when no second model could be asked before a rejection, and when one stood in for the model asked", async () => {
+    // The second opinion never holds the run on a model out of its allowance: the issue stays open, or another vendor's model answers.
+    stubBrowser();
+    const why = "gpt-6.1-sol (auditor-b, openai) limited until 2026-11-11T12:17:00.000Z";
+    const first = { activityId: "verification/C-uns/question", confidence: 0.7, outcome: "REJECTED" };
+    stubControlPlane(routes(artifactRoutes("run-1", { ...CONTENT,
+      "verification-second-opinion-C-uns": { candidateId: "C-uns", modelProfileId: "auditor-b", limited: [{ modelProfileId: "auditor-b", until: "2026-11-11T12:17:00.000Z" }], unavailable: why, first, second: null },
+      "verification-second-opinion-C-rej": { candidateId: "C-rej", modelProfileId: "auditor-a", askedFor: "auditor-b", limited: [{ modelProfileId: "auditor-b", until: "2026-11-11T12:17:00.000Z" }], first, second: { activityId: "verification/C-rej/second-opinion/auditor-a", confidence: 0.9, outcome: "REJECTED" } } })));
+    visit("?run=run-1&view=issues&item=issue:C-uns");
+    render(<App />);
+    const open = await screen.findByRole("complementary", { name: "details · issue C-uns" });
+    expect(await within(open).findByText(`No second model could be asked before rejecting it, so it stays open: ${why}.`)).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Rejected · 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Admin route lacks a role check" }));
+    const rejected = await screen.findByRole("complementary", { name: "details · issue C-rej" });
+    expect(await within(rejected).findByText(/^Asked a second model before rejecting it: .+ also rejected it\. It stood in for .+, whose allowance was out\.$/u)).toBeTruthy();
+  });
+
   it("says once, not on every row, that a run from before the check gave reasons has none", async () => {
     stubBrowser();
     // The artifact is JSON, so an undefined reason is no reason at all.

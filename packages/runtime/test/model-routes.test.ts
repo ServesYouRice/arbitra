@@ -133,6 +133,36 @@ describe("fallbacks between an API profile and a subscription profile of one mod
     expect(await f.switches()).toMatchObject([{ from: "opus-cc", to: "opus-api", reason: "usage_limit" }]);
   });
 
+  it("tells an optional step to wait only for a subscription's limit that resets within the wait, its own or its fallback's", async () => {
+    // An optional step goes on without its model unless the run would wait for that model anyway (optional-steps.ts).
+    const f = await fixture({ fallbacks: { "opus-api": "opus-cc" }, fallbackWaitMs: 60_000 });
+    const activities = f.create();
+    let asked = 0;
+    const refused = async (profile: string): Promise<ProviderUsageLimitError> => {
+      asked += 1;
+      const error: unknown = await activities.invoke(request(`second-opinion/${asked}`, profile)).then(() => null, (failure: unknown) => failure);
+      if (!(error instanceof ProviderUsageLimitError)) throw new Error("FIXTURE_NOT_REFUSED");
+      return error;
+    };
+    f.cli.push({ quotaInMs: 30_000 });
+    expect(activities.waitsFor("opus-cc", await refused("opus-cc"))).toBe(true);
+    // Out for longer than the run waits, or with no reset given: the step goes on without it.
+    f.cli.splice(0, f.cli.length, { quotaInMs: 120_000 });
+    expect(activities.waitsFor("opus-cc", await refused("opus-cc"))).toBe(false);
+    f.cli.splice(0, f.cli.length, { quotaInMs: null });
+    expect(activities.waitsFor("opus-cc", await refused("opus-cc"))).toBe(false);
+    // The API key's credit is out and its fallback, the subscription, resets within the wait: the run waits for that.
+    f.setApiOut(true);
+    f.cli.splice(0, f.cli.length, { quotaInMs: 30_000 });
+    expect(activities.waitsFor("opus-api", await refused("opus-api"))).toBe(true);
+    // An API key with no fallback gives no reset, and is never waited for.
+    const alone = await fixture();
+    alone.setApiOut(true);
+    const credit: unknown = await alone.create().invoke(request("second-opinion/api")).then(() => null, (failure: unknown) => failure);
+    expect(credit).toBeInstanceOf(ProviderUsageLimitError);
+    expect(alone.create().waitsFor("opus-api", credit as ProviderUsageLimitError)).toBe(false);
+  });
+
   it("switches off the API at its dollar cap, counting cache writes and reads at their own prices", async () => {
     const f = await fixture({ fallbacks: { "opus-api": "opus-cc" }, maximumCostUsd: { "opus-api": 1.5 } });
     const activities = f.create();

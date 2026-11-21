@@ -14,6 +14,7 @@ import { promptByteLimit } from "@arbitra/providers/transports/cli/dialects.js";
 import { inputBytesPerToken, isModelOutputRejection, ModelOutputLimitError, ModelRefusalError, ModelTimeLimitError, outputLimitKind, refusalKind, requestCeiling, timeLimitKind } from "./context-budget.js";
 import { ModelActivities, parsePromptJson, type ModelActivityRequest } from "./model-activities.js";
 import type { TransportMessage } from "@arbitra/providers/transport-contract.js";
+import type { ProviderUsageLimitError } from "@arbitra/providers/runtime.js";
 import { READING_TOOLS, snapshotTools, SNAPSHOT_TOOLS, type ReadsBeyondUnit } from "./snapshot-tools.js";
 import type { RepositorySnapshot } from "./repository.js";
 import type { RunStore } from "./run-store.js";
@@ -62,6 +63,12 @@ export class ModelHarness {
 
   /** Closes the transports of the activities this harness drives, once the run that owns them settles. */
   async close(): Promise<void> { await this.activities.close(); }
+
+  /** Whether the run waits for this usage limit rather than go on without the call (ModelRoutes.waits). */
+  waitsFor(profile: string, error: ProviderUsageLimitError): boolean { return this.activities.waitsFor(profile, error); }
+
+  /** From now on a call of this finder fails at once, unsent (ModelActivities.leaveOut). */
+  leaveOut(profile: string): void { this.activities.leaveOut(profile); }
 
   /** Whether this durable activity previously stopped at the output ceiling. */
   async outputLimited(activityId: string): Promise<boolean> {

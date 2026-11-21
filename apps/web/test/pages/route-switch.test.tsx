@@ -40,6 +40,23 @@ describe("a run whose model switched route", () => {
     expect(within(switches).getByText(`Switched Opus 5.5 · xhigh from API key to Claude Code at ${formatTime("2026-11-11T08:14:00.000Z")}, credit out ($182 spent).`)).toBeTruthy();
   });
 
+  it("says each optional step that did not wait for a model out of its allowance, beside the switches", async () => {
+    // Observed live (November 11, 2026): one second opinion waited 3 h 04 on Codex's five-hour window.
+    stubBrowser(); const stream = eventStream();
+    stubControlPlane({ "GET /runs/run-1": resource(), "GET /runs/run-1/overview": modelOverview({ configuration: CONFIGURATION }), "GET /runs/run-1/progress": finishedProgress(),
+      ...artifactRoutes("run-1", { "model-routes": ROUTES }) });
+    visit("?run=run-1");
+    render(<App />);
+    await waitFor(() => { expect(screen.getByText(/^\$182 · /u)).toBeTruthy(); });
+    const at = "2026-11-11T09:13:00.000Z"; const resetsAt = "2026-11-11T12:17:00.000Z";
+    stream.emit({ t: "optional_step_limited", runId: "run-1", step: "secondOpinion", from: "auditor-b", to: "auditor-a", resetsAt, at });
+    stream.emit({ t: "optional_step_limited", runId: "run-1", step: "critic", from: "auditor-b", to: null, resetsAt, at });
+    const lines = await screen.findByRole("list", { name: "model switches" });
+    const when = `at ${formatTime(at)}: usage limit reached, until ${formatTime(resetsAt)}.`;
+    expect(within(lines).getByText(`The second opinion went from GPT-6.1 Sol to Opus 5.5 ${when}`)).toBeTruthy();
+    expect(within(lines).getByText(`The plan review on GPT-6.1 Sol was left out ${when} The plan went on unreviewed.`)).toBeTruthy();
+  });
+
   it("says a pause at the dollar cap as the cap, with what to do next", async () => {
     stubBrowser(); eventStream();
     const reason = "ProviderBudgetSuspendedError: MODEL_COST_CAP_REACHED:auditor-a: auditor-a has spent $150.20 of its $150.00 cap and has no fallback. The run pauses with its work kept; resume it with a higher cap, or start it again with a fallback.";

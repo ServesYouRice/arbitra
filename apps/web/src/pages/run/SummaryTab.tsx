@@ -9,7 +9,7 @@ import { formatTime, gateReasonLabel, isActive } from "../../app/format.js";
 import { GateVerdict } from "../../app/marks.js";
 import { Link, type RunTab } from "../../app/router.js";
 import { tokens as limitWords } from "../../app/token-limit.js";
-import { counted, dollars, duration, failureWords, helperWaiting, helperWords, partsReadWords, routeSwitchWords, routeWord, SEVERITIES, severityWord, sleptSpans, sleptWords, stepDoing, tokenWords, type Mode } from "../../app/words.js";
+import { counted, dollars, duration, failureWords, helperWaiting, helperWords, optionalStepWords, partsReadWords, routeSwitchWords, routeWord, SEVERITIES, severityWord, sleptSpans, sleptWords, stepDoing, tokenWords, type Mode } from "../../app/words.js";
 import { CopyButton } from "../../controls/CopyButton.js";
 import { useEvaluationMetrics, type ConfirmedYield } from "../../views/evaluation/api.js";
 import { FeatureOutcome, HandoffDownload } from "../../views/feature/FeatureView.js";
@@ -138,11 +138,15 @@ function profileOf(overview: RunOverview | null, id: string): { readonly model: 
 /**
  * Each time a model's work went to its fallback, or the run paused with none, in a line: "Switched Opus 5.5 · xhigh
  * from API key to Claude Code at 11 Nov, 08:14, credit out ($182 spent)." Observed live (memoria, November 10–11,
- * 2026): the API credit ran out before the plan, and the switch to the subscription was made by hand.
+ * 2026): the API credit ran out before the plan, and the switch to the subscription was made by hand. Beside them,
+ * each optional step that went to another model, or was left out, when its model's allowance was out.
  */
 export function RouteNotes({ events, overview }: { readonly events: readonly RunEvent[]; readonly overview: RunOverview | null }): ReactElement | null {
   const caps = record(record(record(overview?.configuration?.["workflow"])["modelExecution"])["maximumCostUsd"]);
   const lines = events.flatMap((event) => {
+    if (event.t === "optional_step_limited" && event.step !== undefined && event.from !== undefined && event.to !== undefined) {
+      return [optionalStepWords({ step: event.step, model: profileOf(overview, event.from).model, toModel: event.to === null ? null : profileOf(overview, event.to).model, at: event.at ?? null, resetsAt: event.resetsAt ?? null })];
+    }
     if (event.t !== "model_route_switched" || event.from === undefined || event.to === undefined) return [];
     const from = profileOf(overview, event.from); const to = event.to === null ? null : profileOf(overview, event.to);
     const subject = event.reason === "reset" && to !== null ? to : from;

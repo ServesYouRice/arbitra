@@ -349,7 +349,23 @@ list: on nextra's carried-out plan it was 0.70 to 0.86 for right and wrong verdi
 model verification): the re-asks of a merge's places, second opinions and a failed group's
 questions asked one at a time come out of what the first questions leave, a question it leaves
 out is listed (`verification-questions-not-asked`, `verification_questions_not_asked:<n>`), and a
-severe rejection it leaves without a second opinion stays open. An answer may write 16,000
+severe rejection it leaves without a second opinion stays open.
+An optional step never holds the run on a model whose usage allowance is out
+(`packages/runtime/src/optional-steps.ts`). The optional steps are the second opinion, the variant
+search, the plan critic, and a finder the run can go on without (two others stay, and it holds
+no role but the variant search). When such a step's model meets a usage limit, the run waits only as it
+would for any model: a subscription's limit that resets within `fallbackWaitMs` (30 minutes by
+default) pauses the run until then. Otherwise the model's fallback answers when it has one
+(`workflow.modelExecution.fallbacks`). Failing that, a second opinion goes to another of the run's
+models: of another vendor than the verifier that rejected the issue, on another account than any
+found out, and at least as capable. With none, the issue stays open, never rejected on one model's
+word ("Second opinion unavailable: … limited until …"). The variant search's remaining batches
+are recorded unanswered, the critic is skipped (the gate holds on `degraded_critic_coverage`), and
+the finder is left out as a resume's `leaveOut` would (its answered units stand). Each move is
+recorded in `optional-steps` and as an `optional_step_limited` event, which the run page shows;
+a model found out is not asked again until its reset, and a resume keeps each decision. Observed
+live (November 11, 2026): one second opinion waited 3 h 04 on Codex's five-hour window after
+every other question had been answered. An answer may write 16,000
 tokens, reasoning included, and a group that many a question: of about 5,500 measured
 verification turns the longest wrote 2,284, and one that ran on to a 128,000-token ceiling had
 looped. A question reads the files its candidate cites (every other file is a

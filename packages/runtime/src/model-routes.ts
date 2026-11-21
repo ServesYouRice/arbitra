@@ -78,6 +78,20 @@ export class ModelRoutes {
     });
   }
 
+  /**
+   * Whether the run waits for a usage limit a call of `profile` met, and pauses until then, rather than go on without
+   * it: a subscription's limit, the profile's own or that of a fallback it went to, that resets within `fallbackWaitMs`.
+   * An optional step asks this before it goes on without its model (optional-steps.ts).
+   */
+  waits(profile: string, error: ProviderUsageLimitError): boolean {
+    if (error.retryAfterMs === null || error.retryAfterMs > this.#wait) return false;
+    for (let id: string | undefined = profile, seen = new Set<string>(); id !== undefined && !seen.has(id); id = this.execution.fallbacks?.[id]) {
+      seen.add(id);
+      if (this.#subscription(id)) return true;
+    }
+    return false;
+  }
+
   /** Counts what a call answered on `profile` cost, when it is a priced API profile; returns the dollars, or null. */
   charge(profile: string, usage: TransportUsage | null, effort?: string): Promise<number | null> {
     const prices = this.#price(profile);

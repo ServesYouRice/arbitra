@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { dollars, routeSwitchWords } from "../src/app/words.js";
+import { formatTime } from "../src/app/format.js";
+import { dollars, optionalStepWords, routeSwitchWords } from "../src/app/words.js";
 import { withDepth } from "../src/pages/new-run/depth.js";
 import { getIn, type Draft } from "../src/pages/new-run/draft.js";
 import { fallbackChoices, withCostCap, withFallback, withSyncedFallbacks } from "../src/pages/new-run/fallback.js";
@@ -64,5 +65,16 @@ describe("when a model runs out", () => {
     expect(routeSwitchWords({ ...base, from: "API key", to: null, reason: "cost_cap", capUsd: 150, spentUsd: 150.2 })).toBe("Opus 5.5 · xhigh through API key stopped: its $150 cap reached ($150 spent). No fallback is set, so the run paused.");
     expect(routeSwitchWords({ ...base, from: "API key", to: "Claude Code", reason: "reset", spentUsd: null })).toBe("Went back to Opus 5.5 · xhigh through Claude Code: its limit has reset.");
     expect([dollars(182.4), dollars(3.4), dollars(0.001)]).toEqual(["$182", "$3.40", "under $0.01"]);
+  });
+
+  it("says an optional step that went to another model, or on without one, in one line with what that leaves", () => {
+    // Observed live (November 11, 2026): one second opinion waited 3 h 04 on Codex's window, and nothing said why.
+    const base = { model: "GPT-6.1 Sol", at: "2026-11-11T09:13:00.000Z", resetsAt: "2026-11-11T12:17:00.000Z" };
+    const when = `at ${formatTime(base.at)}: usage limit reached, until ${formatTime(base.resetsAt)}.`;
+    expect(optionalStepWords({ ...base, step: "secondOpinion", toModel: "Gemini 3.8 Flash" })).toBe(`The second opinion went from GPT-6.1 Sol to Gemini 3.8 Flash ${when}`);
+    expect(optionalStepWords({ ...base, step: "secondOpinion", toModel: null })).toBe(`The second opinion on GPT-6.1 Sol was left out ${when} The severe issues it would have checked stay open, not rejected.`);
+    expect(optionalStepWords({ ...base, step: "critic", toModel: null, resetsAt: null, at: null })).toBe("The plan review on GPT-6.1 Sol was left out: usage limit reached. The plan went on unreviewed.");
+    expect(optionalStepWords({ ...base, step: "finder", toModel: null, at: null })).toMatch(/^The finder on GPT-6\.1 Sol was left out: .* Its answered parts stand, and the other finders went on\.$/u);
+    expect(optionalStepWords({ ...base, step: "variantSearch", toModel: null, at: null })).toMatch(/^The variant search on GPT-6\.1 Sol was left out: .* The issues it had left to search stand without it\.$/u);
   });
 });

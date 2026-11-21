@@ -131,7 +131,8 @@ export class ModelActivities {
   /** Which profile answers a call of the profile its stage asked for, once an account has run out (`fallbacks`). */
   readonly #routes: ModelRoutes;
 
-  readonly #leftOut: ReadonlySet<string>;
+  /** Finders the run goes on without: left out by a resume, or once their allowance ran out (optional-steps.ts). */
+  readonly #leftOut: Set<string>;
 
   constructor(private readonly store: RunStore, config: RunConfig, options: TransportFactoryOptions = {}, replay?: ActivityReplaySource, leftOut: readonly string[] = []) {
     this.#replay = replay;
@@ -284,8 +285,8 @@ export class ModelActivities {
         }
       }
     }
-    // A finder a resume left out answers from what it recorded only.
-    if (this.#leftOut.has(input.modelProfileId)) throw new ProviderInvocationFailure(`${FINDER_LEFT_OUT}: ${input.modelProfileId} was left out when the run was resumed`, 0, "LEFT_OUT", FINDER_LEFT_OUT);
+    // A finder left out of the run answers from what it recorded only.
+    if (this.#leftOut.has(input.modelProfileId)) throw new ProviderInvocationFailure(`${FINDER_LEFT_OUT}: ${input.modelProfileId} was left out of the run`, 0, "LEFT_OUT", FINDER_LEFT_OUT);
     // The profile that answers: the one the stage asked for, or its fallback once its account has run out. A run whose
     // profiles are all out pauses here, before anything is sent.
     let route = await this.#routes.route(input.modelProfileId, input.effort);
@@ -416,6 +417,12 @@ export class ModelActivities {
 
   /** What the run has spent on its priced API profiles, and the switches its profiles made. */
   async routes() { return this.#routes.state(); }
+
+  /** Whether the run waits for this usage limit rather than go on without the call (ModelRoutes.waits). */
+  waitsFor(profile: string, error: ProviderUsageLimitError): boolean { return this.#routes.waits(profile, error); }
+
+  /** From now on a call of this finder fails at once, unsent, as for a finder a resume left out. */
+  leaveOut(profile: string): void { this.#leftOut.add(profile); }
 
   /**
    * Charge an activity that runs outside the provider pool (a native harness process)
