@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { arbitraBuild, detectEnvironment, type DetectedEnvironment } from "@arbitra/runtime/environment.js";
 import { pickFolder } from "./folder-picker.js";
 import { registerHandoffRoutes } from "./handoff.js";
+import { registerSettingsRoutes } from "./settings.js";
 import { runReport } from "@arbitra/runtime/run-report.js";
 import { readUsageWindows, type UsageWindows } from "@arbitra/runtime/usage-windows.js";
 import { processHost } from "@arbitra/runtime/run-host.js";
@@ -46,7 +47,8 @@ export async function serve(): Promise<Serving> {
   // The computer is kept awake while a run works, and its sleeps watched (see packages/runtime/src/run-host.ts).
   const orchestrator = new Orchestrator({ repository: process.env["ARBITRA_REPOSITORY"] ?? process.cwd(), host: processHost(), ...(recorded === null ? {} : { build: recorded }) });
   // The run helper resumes the stops a resume helps (a usage limit after its reset, a time-out, a provider failure) and
-  // takes up the waits recorded before this start; `helper.autoResume: false` in <state>/settings.json turns it off.
+  // takes up the waits recorded before this start; `helper.autoResume: false` in <state>/settings.json (the Settings
+  // page) turns it off.
   const helper = new RunHelper({ orchestrator });
   await helper.start();
   const app = buildServer(controlPlaneCore(orchestrator));
@@ -75,6 +77,8 @@ export async function serve(): Promise<Serving> {
   });
   // Writes a run's plan into its repository as prompts on the operator's explicit request only, and reads it back.
   registerHandoffRoutes(app, orchestrator);
+  // The run helper's settings, which the Settings page reads and changes.
+  registerSettingsRoutes(app, orchestrator.stateDirectory);
   app.post("/repositories/pick", async () => ({ path: await pickFolder("Choose the project folder for arbitra to read") }));
   app.get<{ Params: { runId: string } }>("/diagnostics/runs/:runId", async (request, reply) => {
     const text = await runReport(orchestrator, request.params.runId, await environment.catch(() => null), build);

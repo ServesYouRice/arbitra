@@ -8,6 +8,7 @@ import { controlPlaneCore } from "../src/control-plane-core.js";
 import { auditorIdsFor, graphForPreset } from "../src/graphs.js";
 import { Orchestrator } from "../src/orchestrator.js";
 import { DEFAULT_AUDITORS } from "../src/auditors.js";
+import { leftOut } from "../src/leave-outs.js";
 import { RunStore } from "../src/run-store.js";
 
 /**
@@ -286,6 +287,35 @@ describe("the control-plane port", () => {
       ] });
       // A generated file the scope already leaves out is still suggested, so the page can show it ticked.
       expect(estimated.suggestedLeaveOut.map(({ path }) => path)).toEqual(["mobile/db.g.dart"]);
+    } finally { rmSync(project, { recursive: true, force: true }); }
+  });
+
+  it("counts what New run counts and what the run's preflight reads with one leave-out rule, however a leave-out is written", async () => {
+    // Observed live (November 11, 2026): New run said 567 files where the run's preflight read 562. The web app and the
+    // snapshot each read a leave-out by a rule of its own, and those differed on each of these spellings.
+    const project = mkdtempSync(join(tmpdir(), "arbitra-leave-outs-"));
+    try {
+      const { mkdir, writeFile } = await import("node:fs/promises");
+      const files: Readonly<Record<string, string>> = { "src/main.ts": "a\n", "src/generated/api.ts": "g\ng\n", "lib/own.js": "o\n", "lib/vendor/v.js": "v\n", "scripts/build.sh": "s\n",
+        "tools/run.sh": "t\n", "docs/site.html": "d\n", "app/cache/c.js": "c\n", "app/main.ts": "m\n" };
+      for (const [path, content] of Object.entries(files)) { await mkdir(join(project, path, ".."), { recursive: true }); await writeFile(join(project, path), content, "utf8"); }
+      const exclude = ["src//generated", "./lib/./vendor", "tools/../scripts", " docs ", "app\\cache"];
+      const core = orchestrator();
+      const scoped = core.configurations.validate({ ...config, workflow: { preset: "diff-fast" }, maxConsensusRounds: 0, consensusPolicy: "minimal", scope: { kind: "repository", exclude } });
+      const estimated = await core.estimate(scoped, project) as { estimate: { files: number; lines: number }; read: { files: readonly { path: string; lines: number }[] } };
+      // New run's count: the list before the leave-outs, less what they cover (apps/web/src/pages/new-run/reading.ts).
+      const counted = estimated.read.files.filter(({ path }) => !leftOut(exclude, path));
+      expect(counted.map(({ path }) => path)).toEqual(["app/main.ts", "lib/own.js", "src/main.ts", "tools/run.sh"]);
+      const newRun = { files: counted.length, lines: counted.reduce((total, { lines }) => total + lines, 0) };
+      expect(newRun).toEqual({ files: estimated.estimate.files, lines: estimated.estimate.lines });
+      const started = await core.start(scoped, project);
+      await core.wait(started.runId);
+      const preflight = await read<{ fileCount: number; lineCount: number }>(core, started.runId, "preflight");
+      expect({ files: preflight.fileCount, lines: preflight.lineCount }).toEqual(newRun);
+      // A leave-out that names nothing inside the project is refused, where one side used to read it and the other not.
+      for (const outside of [join(project, "docs"), "../docs"]) {
+        await expect(core.estimate(core.configurations.validate({ ...config, scope: { kind: "repository", exclude: [outside] } }), project)).rejects.toThrow(`SCOPE_EXCLUSION_NOT_IN_REPOSITORY:${outside}`);
+      }
     } finally { rmSync(project, { recursive: true, force: true }); }
   });
 

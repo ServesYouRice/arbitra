@@ -174,7 +174,7 @@ export function NewRunPage({ from, graph }: { readonly from: string | null; read
       if (next !== value && start !== null && stableJson(value) === stableJson(start.draft)) setLoaded({ ...start, draft: next });
       if (next !== value) { draftRef.current = next; setDraft(next); }
       const read = result.estimate?.read;
-      const files = read === undefined ? null : read.complete ? read.files : knownFiles(listed.current?.repository === path ? listed.current.files : [], read.files);
+      const files = read === undefined ? null : read.complete ? read.files : knownFiles(listed.current?.repository === path ? listed.current.files : [], read.files, excludeOf(value));
       if (files !== null) listed.current = { repository: path, files };
       const checked = { result, key: checkKey(next, path, read?.complete === true), repository: path, draft: next, files };
       setCheck(checked);
@@ -420,6 +420,8 @@ export function readFailure(code: string, project: string): string {
   if (/REPOSITORY_NOT_FOUND/u.test(code)) return `There is no folder at ${project}.`;
   if (/REPOSITORY_NOT_DIRECTORY/u.test(code)) return `${project} is a file, not a folder.`;
   if (/SCOPE_EXCLUSION_COVERS_REPOSITORY/u.test(code)) return "The leave-outs cover the whole project, so there is nothing to read.";
+  const outside = /SCOPE_EXCLUSION_NOT_IN_REPOSITORY:(.*)$/su.exec(code);
+  if (outside !== null) return `The leave-out "${outside[1] ?? ""}" is not a path inside the project. Write it from the project's folder, such as docs or src/generated, under More options.`;
   if (/MODULE_SCOPE_EMPTY|MODULE_SCOPE_REQUIRED/u.test(code)) return "The folders to read hold no source file a run reads. Name others under More options.";
   if (/DIFF_REVISIONS_REQUIRED|INVALID_DIFF/u.test(code)) return "The diff needs a base and a head revision, under More options.";
   return "The project could not be read.";

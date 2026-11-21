@@ -121,6 +121,35 @@ test.describe("finding, starting and reading runs", () => {
     await shot(page, testInfo, "navigation-06-phone-summary");
   });
 
+  test("the Settings page saves the run helper's settings as they are changed, and a reload reads them back", async ({ page, browserName }) => {
+    // The fixture keeps one settings file, which two browsers changing it at once would race on; the page is plain form controls.
+    test.skip(browserName !== "chromium", "one browser changes the fixture's shared settings file");
+    await guard(page);
+    await page.goto("/");
+    await page.getByRole("navigation", { name: "main" }).getByRole("link", { name: "Settings" }).click();
+    await expect(page).toHaveURL(/\?page=settings$/u);
+    const helper = page.getByRole("region", { name: "run helper" });
+    const resume = helper.getByRole("checkbox", { name: /^resume stopped runs/u });
+    const model = helper.getByRole("combobox", { name: "helper's model" });
+    await expect(resume).toBeChecked();
+    await expect(model).toHaveValue("claude-code-cli|claude-opus-5-5");
+    expect(await accessibilityAudit(page)).toEqual([]);
+    await resume.uncheck();
+    await expect(page.getByRole("status")).toHaveText("saved");
+    await model.selectOption("codex-cli|gpt-6.1-sol");
+    await expect(model).toHaveValue("codex-cli|gpt-6.1-sol");
+    await page.reload();
+    await expect(resume).not.toBeChecked();
+    await expect(model).toHaveValue("codex-cli|gpt-6.1-sol");
+    // Put back, for a later run against the same fixture.
+    await resume.check();
+    await model.selectOption("claude-code-cli|claude-opus-5-5");
+    await expect(page.getByRole("status")).toHaveText("saved");
+    await expect(model).toHaveValue("claude-code-cli|claude-opus-5-5");
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+  });
+
   for (const width of [1100, 800]) {
     test(`no control is covered at ${width}px, and the details panel is a drawer there`, async ({ page, request }, testInfo) => {
       const runId = await createRun(request, "audit");

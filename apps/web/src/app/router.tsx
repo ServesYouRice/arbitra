@@ -15,7 +15,8 @@ export type Route =
   | { readonly page: "runs" }
   | { readonly page: "run"; readonly runId: string; readonly tab: RunTab | null; readonly item: string | null }
   | { readonly page: "new-run"; readonly from: string | null; readonly graph: string | null }
-  | { readonly page: "workflows"; readonly source: string | null };
+  | { readonly page: "workflows"; readonly source: string | null }
+  | { readonly page: "settings" };
 
 // Links written before the restructures name the old column-two views and the Overview tab, now the Summary.
 const LEGACY_VIEWS: Readonly<Record<string, RunTab>> = Object.freeze({ graph: "activity", traces: "activity", feature: "requirements", testing: "execution", overview: "summary" });
@@ -31,6 +32,7 @@ export function parseRoute(search: string): Route {
   const page = query.get("page");
   if (page === "new-run") return { page: "new-run", from: query.get("from"), graph: query.get("graph") };
   if (page === "workflows") return { page: "workflows", source: query.get("source") };
+  if (page === "settings") return { page: "settings" };
   return { page: "runs" };
 }
 
@@ -47,6 +49,8 @@ export function routeHref(route: Route, pathname = "/"): string {
   } else if (route.page === "workflows") {
     query.set("page", "workflows");
     if (route.source !== null) query.set("source", route.source);
+  } else if (route.page === "settings") {
+    query.set("page", "settings");
   }
   const text = query.toString();
   return text === "" ? pathname : `${pathname}?${text}`;

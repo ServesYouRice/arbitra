@@ -246,6 +246,11 @@ describe("the new-run page", () => {
     answer = json({ statusCode: 404, error: "Not Found", message: "REPOSITORY_NOT_FOUND:/work/absent" }, 404);
     project("/work/absent");
     expect(await screen.findByText("There is no folder at /work/absent.", {}, AFTER_CHECK)).toBeTruthy();
+    // A leave-out the snapshot cannot read as a path inside the project stops the check, rather than being read one
+    // way by the count and another by the run.
+    answer = { ...READY, ready: false, estimate: null, estimateError: "SCOPE_EXCLUSION_NOT_IN_REPOSITORY:/work/fixture/docs" };
+    project("/work/fixture");
+    expect(await screen.findByText("The leave-out \"/work/fixture/docs\" is not a path inside the project. Write it from the project's folder, such as docs or src/generated, under More options.", {}, AFTER_CHECK)).toBeTruthy();
   });
 
   it("lists the folders of a project over the file limit, and reads it again once folders are left out", async () => {

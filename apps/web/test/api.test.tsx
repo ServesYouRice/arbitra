@@ -2,12 +2,41 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ARTIFACT_CACHE_LIMIT, ArtifactApi } from "../src/api/artifacts.js";
-import { RunApi, useLoaded, useRehydratedRun, type RunResource } from "../src/api/runs.js";
+import { AFTER_HELPER_WAIT_MS, listenAgainIn, RunApi, useLoaded, useRehydratedRun, type RunResource } from "../src/api/runs.js";
 import { ArtifactView } from "../src/controls/ArtifactView.js";
 import { useRunArtifact } from "../src/views/issue-board/run-artifacts.js";
 import { json } from "./support.js";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+const USAGE = "ProviderUsageLimitError: Provider openai reached its usage limit (QUOTA: CLI_USAGE_LIMIT_REACHED: the Codex CLI subscription's usage allowance is exhausted until 2026-11-11T14:01:00.000Z)";
+
+/** Each event stream the hook opens, in order; a test sends a stream its events and ends it. */
+function fakeStreams(): { readonly sources: { readonly url: string; readonly closed: boolean }[]; send(index: number, events: readonly object[]): void; end(index: number): void } {
+  class Source {
+    onmessage: ((message: { data: string }) => void) | null = null;
+    onerror: (() => void) | null = null;
+    closed = false;
+    readonly listeners = new Map<string, () => void>();
+    constructor(readonly url: string) { sources.push(this); }
+    addEventListener(name: string, callback: () => void): void { this.listeners.set(name, callback); }
+    close(): void { this.closed = true; }
+  }
+  const sources: Source[] = [];
+  vi.stubGlobal("EventSource", Source);
+  const at = (index: number): Source => { const source = sources[index]; if (source === undefined) throw new Error(`no event stream ${index}`); return source; };
+  return {
+    sources,
+    send: (index, events) => { act(() => { for (const event of events) at(index).onmessage?.({ data: JSON.stringify({ runId: "run-1", ...event }) }); }); },
+    end: (index) => { act(() => at(index).listeners.get("end")?.()); },
+  };
+}
+
+/** The run's state and its events, a transition by its state and a helper action by its action. */
+function StreamFixture({ api, runId = "run-1" }: { readonly api: RunApi; readonly runId?: string }) {
+  const run = useRehydratedRun(api, runId);
+  return <p>{run.resource?.state ?? "none"}:{run.events.map(({ t, state, action }) => t === "run_transition" ? state : action ?? t).join(",")}</p>;
+}
 
 describe("control-plane clients", () => {
   it("maps every run operation to its declared route and keeps the server's explanation of a failure", async () => {
@@ -93,6 +122,100 @@ describe("live run state", () => {
     expect(order.slice(0, 2)).toEqual(["status", "stream"]);
     view.rerender(<Fixture runId={null} />);
     expect(await screen.findByText("none:0:no reason")).toBeTruthy();
+  });
+
+  it("listens again after the stream ends while the run helper may resume the run, shows only what is new, and stops on a finished run", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-11-11T11:00:00.000Z"));
+      const { sources, send, end } = fakeStreams();
+      const api = new RunApi();
+      let state = "SUSPENDED_RATE_LIMIT";
+      vi.spyOn(api, "status").mockImplementation(async (runId) => ({ runId, state, resumable: true, checkpoints: [] }));
+      render(<StreamFixture api={api} />);
+      await act(async () => { await Promise.resolve(); });
+      const paused = [{ t: "run_transition", state: "RUNNING", at: "2026-11-11T10:00:00.000Z" }, { t: "run_transition", state: "SUSPENDED_RATE_LIMIT", reason: USAGE, at: "2026-11-11T11:00:00.000Z" }];
+      send(0, paused); end(0);
+      // The helper decides once the stream ends: the page listens again in a moment, and adds only what is new.
+      await act(async () => { await vi.advanceTimersByTimeAsync(1_999); });
+      expect(sources).toHaveLength(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(sources).toHaveLength(2);
+      const wait = { t: "helper_action", action: "wait", reason: USAGE, kind: "resume-now", result: "The helper resumes the run a minute after the limit resets.", until: "2026-11-11T14:02:00.000Z", at: "2026-11-11T11:00:01.000Z" };
+      send(1, [...paused, wait]); end(1);
+      expect(screen.getByText("SUSPENDED_RATE_LIMIT:RUNNING,SUSPENDED_RATE_LIMIT,wait")).toBeTruthy();
+      // Then not until the time the helper waits for, and a little after it.
+      await act(async () => { await vi.advanceTimersByTimeAsync(Date.parse("2026-11-11T14:02:00.000Z") + AFTER_HELPER_WAIT_MS - Date.now() - 1); });
+      expect(sources).toHaveLength(2);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(sources).toHaveLength(3);
+      send(2, [...paused, wait, { t: "helper_action", action: "resume", reason: USAGE, kind: "resume-now", result: "The helper resumed the run.", at: "2026-11-11T14:02:00.000Z" }, { t: "run_transition", state: "CREATED", reason: "resumed", at: "2026-11-11T14:02:00.000Z" }, { t: "run_transition", state: "RUNNING", at: "2026-11-11T14:02:01.000Z" }]);
+      expect(screen.getByText("RUNNING:RUNNING,SUSPENDED_RATE_LIMIT,wait,resume,CREATED,RUNNING")).toBeTruthy();
+      // The resumed run's stream stays open while it works; once it has finished, nothing moves it on.
+      state = "COMPLETED";
+      send(2, [{ t: "run_transition", state: "COMPLETED", at: "2026-11-11T15:00:00.000Z" }]); end(2);
+      await act(async () => { await Promise.resolve(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(24 * 3_600_000); });
+      expect(sources).toHaveLength(3);
+      expect(screen.getByText("COMPLETED:RUNNING,SUSPENDED_RATE_LIMIT,wait,resume,CREATED,RUNNING,COMPLETED")).toBeTruthy();
+      expect(sources.every(({ closed }) => closed)).toBe(true);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("stops listening to a stopped run the helper never decides on, after a few tries, and when the page closes", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-11-11T11:00:00.000Z"));
+      const { sources, send, end } = fakeStreams();
+      const api = new RunApi();
+      vi.spyOn(api, "status").mockImplementation(async (runId) => ({ runId, state: "FAILED", resumable: true, checkpoints: [] }));
+      const view = render(<StreamFixture api={api} />);
+      await act(async () => { await Promise.resolve(); });
+      const failed = [{ t: "run_transition", state: "FAILED", reason: "PROVIDER_TIMEOUT", at: "2026-11-11T11:00:00.000Z" }];
+      send(0, failed); end(0);
+      // Six tries over a minute and a half, each further from the last, then none.
+      for (const [index, delay] of [2_000, 4_000, 8_000, 16_000, 30_000, 30_000].entries()) {
+        await act(async () => { await vi.advanceTimersByTimeAsync(delay - 1); });
+        expect(sources).toHaveLength(index + 1);
+        await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+        expect(sources).toHaveLength(index + 2);
+        send(index + 1, failed); end(index + 1);
+      }
+      await act(async () => { await vi.advanceTimersByTimeAsync(3_600_000); });
+      expect(sources).toHaveLength(7);
+      expect(screen.getByText("FAILED:FAILED")).toBeTruthy();
+
+      // A page closed while the helper waits opens nothing more.
+      view.rerender(<StreamFixture api={api} runId="run-2" />);
+      await act(async () => { await Promise.resolve(); });
+      const waiting = [{ t: "run_transition", state: "FAILED", reason: "PROVIDER_TIMEOUT", at: "2026-11-11T12:00:00.000Z" }, { t: "helper_action", action: "wait", reason: "PROVIDER_TIMEOUT", kind: "resume-now", result: "", until: "2026-11-11T12:35:00.000Z", at: "2026-11-11T12:00:00.000Z" }];
+      send(7, waiting.map((event) => ({ ...event, runId: "run-2" }))); end(7);
+      view.unmount();
+      await act(async () => { await vi.advanceTimersByTimeAsync(3_600_000); });
+      expect(sources).toHaveLength(8);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("reads when a stopped run's events are worth listening to again", () => {
+    const now = Date.parse("2026-11-11T11:00:30.000Z");
+    const stop = (state: string, at = "2026-11-11T11:00:00.000Z") => ({ t: "run_transition", runId: "run-1", state, at });
+    const helper = (action: string, until?: string) => ({ t: "helper_action", runId: "run-1", action, ...(until === undefined ? {} : { until }) });
+    // The helper acts only on a failed run and one paused for usage.
+    for (const state of ["COMPLETED", "CANCELLED", "BLOCKED", "SUSPENDED_BUDGET", "RUNNING"]) expect(listenAgainIn(state, [stop(state)], 0, now), state).toBeNull();
+    // A fresh stop: in a moment, then twice as long each time nothing new came, then not at all.
+    expect([0, 1, 2, 3, 4, 5, 6].map((quiet) => listenAgainIn("FAILED", [stop("FAILED")], quiet, now))).toEqual([2_000, 4_000, 8_000, 16_000, 30_000, 30_000, null]);
+    // A stop the helper never decided on is an old one, or one from before the helper, with no time.
+    expect(listenAgainIn("FAILED", [stop("FAILED", "2026-11-11T10:58:00.000Z")], 0, now)).toBeNull();
+    expect(listenAgainIn("FAILED", [{ t: "run_transition", runId: "run-1", state: "FAILED" }], 0, now)).toBeNull();
+    // At the time the helper waits for; soon once it is past, and after its resume.
+    expect(listenAgainIn("SUSPENDED_RATE_LIMIT", [stop("SUSPENDED_RATE_LIMIT"), helper("wait", "2026-11-11T12:00:30.000Z")], 0, now)).toBe(3_600_000 + AFTER_HELPER_WAIT_MS);
+    expect(listenAgainIn("SUSPENDED_RATE_LIMIT", [stop("SUSPENDED_RATE_LIMIT"), helper("wait", "2026-11-11T11:00:00.000Z")], 1, now)).toBe(4_000);
+    expect(listenAgainIn("FAILED", [stop("FAILED"), helper("resume")], 0, now)).toBe(2_000);
+    // A stop the helper left, or whose resume was refused, waits for the person.
+    expect(listenAgainIn("FAILED", [stop("FAILED"), helper("leave")], 0, now)).toBeNull();
+    expect(listenAgainIn("FAILED", [stop("FAILED"), helper("resume-refused")], 0, now)).toBeNull();
+    // Only a decision after the last stop counts.
+    expect(listenAgainIn("FAILED", [stop("FAILED", "2026-11-11T10:00:00.000Z"), helper("leave"), stop("RUNNING"), stop("FAILED")], 0, now)).toBe(2_000);
   });
 
   it("keeps a run's last known state while it re-subscribes after a decision, and starts empty for another run", async () => {

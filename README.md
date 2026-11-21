@@ -143,7 +143,8 @@ project, a card per depth with the model and effort of every step and a measured
 the steps with their switches and models, what to read, what goes into the plan, and the
 CLIs found on this computer, checked with the orchestrator's preflight as it is filled in.
 Other lineups (saved ones, API keys, Feature and Testing) are one choice away.
-**Workflows** is the graph editor. A run's page shows its state in words, what executed it
+**Workflows** is the graph editor. **Settings** says whether the run helper resumes stopped
+runs, and which model it would ask, saved as each is changed. A run's page shows its state in words, what executed it
 (models, or scripted detectors that make no model call) and any decision it waits on, then
 the tabs its mode has: Summary (while it works, the stage it is in and for how long, what it
 has read and found and the tokens; when done, the plan to save into the project first),

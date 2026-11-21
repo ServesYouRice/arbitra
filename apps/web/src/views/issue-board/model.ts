@@ -1,3 +1,5 @@
+import { lineSpan, type LineSpan } from "@arbitra/runtime/line-span.js";
+
 export type Severity = "critical" | "high" | "medium" | "low" | "informational";
 export type Disposition = "accepted" | "rejected" | "needs_verification" | "non_consensus" | "single_source" | "verified_single_source";
 export type VerificationOutcome = "CONFIRMED" | "REJECTED" | "STILL_NEEDS_VERIFICATION";
@@ -30,13 +32,17 @@ export function describeUnexaminedSurface(entry: PersistedCoverageEntry): string
   if (typeof fields["surface"] === "string") return `${fields["surface"]} · not examined by ${text(fields["auditorId"])} within its budget`;
   return recorded(entry);
 }
-/** One line for a suppression candidate; missing fields read as unavailable rather than failing the view. */
+/** One line for a suppression candidate, with the lines that read like instructions; missing fields read as unavailable rather than failing the view. */
 export function describeSuppressionCandidate(entry: PersistedCoverageEntry): string {
   const fields = record(entry);
   if (fields === null || typeof fields["path"] !== "string") return recorded(entry);
-  return `${fields["path"]} · instruction risk ${text(fields["instructionRisk"])} · read by ${strings(fields["readBy"]).join(", ") || "no auditor"} · ${text(fields["note"])}`;
+  const lines = lineSpan(spans(fields["lines"]));
+  return `${fields["path"]}${lines === "" ? "" : ` ${lines}`} · instruction risk ${text(fields["instructionRisk"])} · read by ${strings(fields["readBy"]).join(", ") || "no auditor"} · ${text(fields["note"])}`;
 }
 function record(value: unknown): Readonly<Record<string, unknown>> | null { return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Readonly<Record<string, unknown>> : null; }
 function text(value: unknown): string { return typeof value === "string" || typeof value === "number" || typeof value === "boolean" ? String(value) : "unavailable"; }
+function spans(value: unknown): readonly LineSpan[] {
+  return Array.isArray(value) ? value.flatMap((item) => { const span = record(item); return span !== null && typeof span["startLine"] === "number" && typeof span["endLine"] === "number" ? [{ startLine: span["startLine"], endLine: span["endLine"] }] : []; }) : [];
+}
 function strings(value: unknown): readonly string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []; }
 function recorded(value: unknown): string { return JSON.stringify(value) ?? String(value); }

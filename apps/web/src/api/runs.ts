@@ -177,35 +177,101 @@ export function useRehydratedRun(api: RunApi, runId: string | null, refreshKey: 
     if (runId === null) return;
     let active = true;
     let source: EventSource | null = null;
-    let ended = false;
-    void api.status(runId).then((initial) => {
-      if (!active) return;
-      setResource(initial);
-      try { source = new EventSource(api.eventsUrl(runId)); }
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    // What this subscription has received, and the run's state as it last heard it. A stream opened again replays the
+    // run's events from the start, and an event's position is its identity, so the ones already here are skipped.
+    const received: RunEvent[] = [];
+    let state: string | undefined;
+    let quiet = 0;
+    const listen = (): void => {
+      let ended = false;
+      let position = 0;
+      const before = received.length;
+      let stream: EventSource;
+      try { stream = new EventSource(api.eventsUrl(runId)); }
       catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); return; }
-      source.onmessage = ({ data }) => {
+      source = stream;
+      stream.onmessage = ({ data }) => {
         if (!active) return;
         try {
           const event: unknown = JSON.parse(data as string);
           if (!isRunEvent(event) || event.runId !== runId) throw new Error("INVALID_RUN_EVENT");
+          position += 1;
+          if (position <= received.length) return;
+          received.push(event);
           setError(null);
           setEvents((current) => Object.freeze([...current, event]));
           if (event.t === "run_transition" && event.state !== undefined) {
-            const state = event.state;
+            const next = event.state;
+            state = next;
             setReason(event.reason ?? null);
-            setResource((current) => current === null ? current : { ...current, state, resumable: state !== "COMPLETED" });
+            setResource((current) => current === null ? current : { ...current, state: next, resumable: next !== "COMPLETED" });
             // A run that stops (blocked on a checkpoint, finished, failed) has new durable
             // state the event does not carry: its checkpoints and its executed graph.
-            if (state !== "CREATED" && state !== "RUNNING") void api.status(runId).then((latest) => { if (active) setResource(latest); }, () => undefined);
+            if (next !== "CREATED" && next !== "RUNNING") void api.status(runId).then((latest) => { if (active) setResource(latest); }, () => undefined);
           }
-        } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); source?.close(); }
+        } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); stream.close(); }
       };
-      source.addEventListener?.("end", () => { ended = true; source?.close(); });
-      source.onerror = () => { if (active && !ended) { setError("RUN_EVENT_STREAM_UNAVAILABLE"); source?.close(); } };
+      // The stream ends once the run is not working. The run helper may still move it on (see `listenAgainIn`), so the
+      // page listens again then, instead of showing that only after a reload.
+      stream.addEventListener?.("end", () => {
+        ended = true; stream.close();
+        if (!active) return;
+        quiet = received.length > before ? 0 : quiet + 1;
+        const wait = listenAgainIn(state, received, quiet, Date.now());
+        if (wait !== null) timer = setTimeout(() => { timer = null; if (active) listen(); }, wait);
+      });
+      stream.onerror = () => { if (active && !ended) { setError("RUN_EVENT_STREAM_UNAVAILABLE"); stream.close(); } };
+    };
+    void api.status(runId).then((initial) => {
+      if (!active) return;
+      state = initial.state;
+      setResource(initial);
+      listen();
     }, (cause: unknown) => { if (active) setError(cause instanceof Error ? cause.message : String(cause)); });
-    return () => { active = false; source?.close(); };
+    return () => { active = false; source?.close(); if (timer !== null) clearTimeout(timer); };
   }, [api, runId, refreshKey]);
   return { resource, events, reason, error };
+}
+
+/** The states the run helper acts on (packages/runtime/src/run-helper.ts): a failed run, and one paused for usage. */
+const HELPER_STOPS = new Set(["FAILED", "SUSPENDED_RATE_LIMIT"]);
+/** The helper decides on a stop as soon as the run's stream ends, reading a usage window at most; none comes later. */
+export const HELPER_DECIDES_MS = 2 * 60_000;
+/** A stream is opened again this long after the time the helper waits for, so its resume is there to read. */
+export const AFTER_HELPER_WAIT_MS = 5_000;
+/** Streams opened again in a row that bring nothing new before the page stops listening; each waits twice as long. */
+const QUIET_LISTENS = 6;
+const QUIET_FIRST_MS = 2_000;
+const QUIET_MOST_MS = 30_000;
+const LONGEST_TIMER_MS = 2_147_483_647;
+
+/**
+ * When to listen to a run's events again after its stream ended, in milliseconds from `now`; null when nothing will move
+ * the run on but the person on this page (whose resume, decision or cancel subscribes afresh).
+ *
+ * The run helper acts on a failed run and one paused for usage once its stream ends: it leaves the stop to the person,
+ * or waits until a time and then resumes it, and says so in a `helper_action` event. So the page listens again in a
+ * moment while the helper has yet to decide on a fresh stop, or has just resumed the run or reached its time; at the
+ * time it waits for; and not at all for a finished, cancelled, blocked or budget-paused run, a stop the helper left, or
+ * an old one it never decided on. `quiet` counts the streams in a row that brought nothing new: after a few, the page
+ * stops listening.
+ */
+export function listenAgainIn(state: string | undefined, events: readonly RunEvent[], quiet: number, now: number): number | null {
+  if (state === undefined || !HELPER_STOPS.has(state)) return null;
+  const stop = events.findLastIndex(({ t }) => t === "run_transition");
+  const decision = events.slice(stop + 1).findLast(({ t }) => t === "helper_action");
+  const soon = quiet < QUIET_LISTENS ? Math.min(QUIET_FIRST_MS * 2 ** quiet, QUIET_MOST_MS) : null;
+  if (decision === undefined) {
+    const stopped = Date.parse(events[stop]?.at ?? "");
+    return Number.isFinite(stopped) && now - stopped < HELPER_DECIDES_MS ? soon : null;
+  }
+  if (decision.action === "wait") {
+    const until = Date.parse(decision.until ?? "");
+    // A browser fires a longer timer at once; the helper waits a week at most.
+    return Number.isFinite(until) && until > now ? Math.min(until - now + AFTER_HELPER_WAIT_MS, LONGEST_TIMER_MS) : soon;
+  }
+  return decision.action === "resume" ? soon : null;
 }
 
 export interface Loaded<T> { readonly value: T | null; readonly error: string | null; readonly loading: boolean }

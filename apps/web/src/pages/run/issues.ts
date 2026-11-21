@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { placeSpan } from "@arbitra/runtime/line-span.js";
 import type { ArtifactDescriptor } from "../../api/artifacts.js";
 import { useLoaded, type Loaded, type RunOverview } from "../../api/runs.js";
 import { useApis } from "../../app/apis.js";
@@ -31,7 +32,7 @@ export function findersOf(sourceFindingIds: readonly string[]): readonly string[
 
 /** A place as a person reads it: `src/a.ts:40`; with its range, `src/a.ts:40–52`. */
 export function placeText({ path, startLine }: PersistedLocation): string { return `${path}:${startLine}`; }
-export function placeRange({ path, startLine, endLine }: PersistedLocation): string { return endLine > startLine ? `${path}:${startLine}–${endLine}` : `${path}:${startLine}`; }
+export function placeRange(location: PersistedLocation): string { return placeSpan(location.path, location); }
 
 /** One issue as the Issues tab shows it, joined from the run's records; nothing here is computed that the run did not record. */
 export interface IssueView {
