@@ -81,6 +81,16 @@ describe("configuration drafts", () => {
     expect(withStrongestOffered(audit, { "antigravity-cli": [] })).toBe(audit);
   });
 
+  it("offers Argon at its highest thinking first, and no orchestrator", () => {
+    // Antigravity 1.5.14's list on November 21, 2026, in its own order (shortened).
+    const offered = { "antigravity-cli": [{ id: "gemini-4-neon-high", name: "Gemini 4 Neon (High)" }, { id: "gemini-4-argon-medium", name: "Gemini 4 Argon (Medium)" },
+      { id: "gemini-4-argon-high", name: "Gemini 4 Argon (High)" }, { id: "gemini-4-argon-low", name: "Gemini 4 Argon (Low)" }, { id: "gemini-pro-orchestrator-g1-pro", name: "Orchestrator (Argon)" },
+      { id: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)" }] };
+    expect(offeredCatalog("antigravity-cli", offered)?.map(({ modelId }) => modelId)).toEqual(["gemini-4-argon-high", "gemini-4-argon-medium", "gemini-4-argon-low",
+      "gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-3.8-flash-low", "gemini-4-neon-high"]);
+    expect(getIn(withStrongestOffered(template("subscription-audit-gemini").config, offered), ["models", "auditor-c", "modelId"])).toBe("gemini-4-argon-high");
+  });
+
   it("offers every model-backed template, each in the mode it says", () => {
     expect(TEMPLATES.map(({ id }) => id)).toEqual(["subscription-audit", "subscription-audit-gemini", "scripted-audit", "audit-mixed-providers", "audit-compatible-chat", "subscription-feature-interactive", "subscription-feature-automatic", "feature-interactive", "feature-automatic", "subscription-testing-plan", "subscription-testing-execute", "testing-plan", "testing-execute"]);
     for (const { mode, config } of TEMPLATES) expect(config["mode"]).toBe(mode);

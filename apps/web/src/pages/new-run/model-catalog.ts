@@ -28,6 +28,9 @@ const CLAUDE: readonly CatalogModel[] = [
 ];
 const OPENAI: readonly CatalogModel[] = [
   { modelId: "gpt-6.1-sol", family: "gpt", tier: "frontier", note: "strongest", limits: { contextTokens: 312_000, maxOutputTokens: 64_000 }, efforts: CLI_EFFORTS },
+  // Codex lists the same windows for both Sols (500,000 tokens, 872,000 at most), so 6.2 takes 6.1's measured limits.
+  // It stays second: the npm Codex (0.162.1, November 21, 2026) does not serve it yet.
+  { modelId: "gpt-6.2-sol", family: "gpt", tier: "frontier", note: "newest, needs Codex 0.171 or later", limits: { contextTokens: 312_000, maxOutputTokens: 64_000 }, efforts: CLI_EFFORTS },
   { modelId: "gpt-6-luna", family: "gpt", tier: "balanced", note: "faster, lighter on usage", efforts: CLI_EFFORTS },
   { modelId: "gpt-5.6-luna", family: "gpt", tier: "balanced", note: "previous Luna" },
 ];
@@ -53,6 +56,10 @@ export const MODEL_CATALOG: Readonly<Record<string, readonly CatalogModel[]>> = 
 /** Models a CLI on this machine says the account can use, by transport (only Antigravity lists them). */
 export type OfferedModels = Readonly<Record<string, readonly { readonly id: string; readonly name: string }[]>>;
 const ARGON = /argon/iu;
+const ORCHESTRATOR = /orchestrator/iu;
+const THINKING = ["low", "medium", "high", "xhigh"] as const;
+/** A model ID's thinking level by its last word (`-high`), higher first when sorted; an ID without one ranks lowest. */
+const thinking = (modelId: string): number => THINKING.indexOf(modelId.slice(modelId.lastIndexOf("-") + 1) as typeof THINKING[number]);
 
 /**
  * A transport's choices with the models its CLI offers added. For Antigravity only Gemini models are added: it also
@@ -63,8 +70,11 @@ export function offeredCatalog(transport: string, offered: OfferedModels): reado
   const base = MODEL_CATALOG[transport];
   const listed = offered[transport];
   if (base === undefined || transport !== "antigravity-cli" || listed === undefined) return base;
-  const extra = listed.filter(({ id }) => /gemini|argon/iu.test(id) && !base.some(({ modelId }) => modelId === id))
-    .map(({ id, name }): CatalogModel => ({ modelId: id, family: "gemini", tier: "frontier", note: ARGON.test(`${id} ${name}`) ? "strongest, offered by your CLI" : "offered by your CLI", limits: GEMINI_LIMITS }));
+  // An orchestrator ("Orchestrator (Argon)") hands work to other models, so its findings are not one model's; a model at
+  // several thinking levels (`gemini-4-argon-low` to `-high`) is offered at its highest first.
+  const extra = listed.filter(({ id }) => /gemini|argon/iu.test(id) && !ORCHESTRATOR.test(id) && !base.some(({ modelId }) => modelId === id))
+    .map(({ id, name }): CatalogModel => ({ modelId: id, family: "gemini", tier: "frontier", note: ARGON.test(`${id} ${name}`) ? "strongest, offered by your CLI" : "offered by your CLI", limits: GEMINI_LIMITS }))
+    .sort((a, b) => thinking(b.modelId) - thinking(a.modelId));
   return [...extra.filter(({ note }) => note.startsWith("strongest")), ...base, ...extra.filter(({ note }) => !note.startsWith("strongest"))];
 }
 

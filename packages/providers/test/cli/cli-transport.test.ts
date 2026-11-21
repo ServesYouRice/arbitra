@@ -662,6 +662,12 @@ describe("a CLI and the models it knows", { timeout: 30_000 }, () => {
     // Nothing reached the CLI; a model with no recorded minimum still goes.
     expect(await send(old.transport)).toMatchObject({ text: "pong" });
     expect(await reportsOf(old)).toEqual(["report.0"]);
+    // Observed live (November 21, 2026, Windows): the npm Codex CLI 0.162.1 did not serve gpt-6.2-sol; 0.171.0-alpha.13 did.
+    const npm = await fixture({ vendor: "codex", version: "0.162.1", replies: [{ kind: "text", text: "pong" }] });
+    expect((await failure(send(npm.transport, request({ modelId: "gpt-6.2-sol" })))).message).toContain("does not know gpt-6.2-sol, which needs 0.171.0 or later");
+    expect(await reportsOf(npm)).toEqual([]);
+    const newer = await fixture({ vendor: "codex", version: "0.171.0-alpha.13", replies: [{ kind: "text", text: "pong" }] });
+    expect(await send(newer.transport, request({ modelId: "gpt-6.2-sol" }))).toMatchObject({ text: "pong" });
     const current = await fixture({ vendor: "codex", version: "0.162.1", replies: [{ kind: "model_unavailable" }] });
     const unavailable = await failure(send(current.transport, request({ modelId: "gpt-6.1-sol" })));
     expect(unavailable).toMatchObject({ code: "INVALID_REQUEST", retryable: false });

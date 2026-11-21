@@ -59,7 +59,9 @@ export const CLI_TRANSPORT_SUPPORT: readonly CliTransportSupport[] = Object.free
     // Observed live (October 26, 2026, macOS): the ChatGPT app's bundled CLI, 0.158.0-alpha.2.1, answered gpt-6.1-sol with
     // model_not_found ("not supported when using Codex with a ChatGPT account"), while the app's own runtime (0.162.0)
     // served it on the same account; so did the CLI at 0.162.1 (Windows, every Sol call of October 25) and 0.164.0.
-    modelMinimumVersions: Object.freeze({ "gpt-6.1-sol": "0.162.0" }),
+    // GPT-6.2 Sol (November 21, 2026, Windows, one ChatGPT account): the npm CLI at 0.162.1, the newest on npm then,
+    // answered it with model_not_found; the VS Code extension's 0.171.0-alpha.13 served it. Versions between are untried.
+    modelMinimumVersions: Object.freeze({ "gpt-6.1-sol": "0.162.0", "gpt-6.2-sol": "0.171.0" }),
   }),
   Object.freeze({
     transport: "gemini-cli", vendor: "gemini", displayName: "Gemini CLI", endpoint: "cli://gemini",
