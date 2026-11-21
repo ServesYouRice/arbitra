@@ -1,9 +1,10 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { RunEvent } from "@arbitra/core/runner/events.js";
+import { BUILTIN_TRANSPORT_FACTORIES } from "@arbitra/providers/registry.js";
 import { readFailure, readResumeRefusal, type FailureKind, type FailureReading } from "./failure-kinds.js";
 import type { RunObserver } from "./orchestrator.js";
-import { RunStore, runsDirectoryOf } from "./run-store.js";
+import { atomicJson, RunStore, runsDirectoryOf } from "./run-store.js";
 import { readUsageWindows, type UsageWindow, type UsageWindows, type VendorUsage } from "./usage-windows.js";
 
 /**
@@ -16,7 +17,7 @@ import { readUsageWindows, type UsageWindow, type UsageWindows, type VendorUsage
  * - at most two automatic resumes per run, none for a stop that came back after one, and none for a run the owner
  *   cancelled;
  * - on by default, off for a run with `workflow.autoResume: false` and for all runs with `helper.autoResume: false`
- *   in `<state directory>/settings.json`.
+ *   in `<state directory>/settings.json`, which the Settings page changes (apps/server/src/settings.ts).
  *
  * Every other kind is left to the owner, with the words the run page shows. Each action is recorded in the run's store
  * (`helper-actions.json`: time, reason read, action, result) and emitted on its event stream as a `helper_action`
@@ -62,15 +63,76 @@ export interface HelperSettings { autoResume(): Promise<boolean> }
  * one that does not say `"helper": { "autoResume": false }`, leaves the helper on.
  */
 export function settingsFile(stateDirectory: string): HelperSettings {
-  return {
-    autoResume: async () => {
-      try {
-        const settings = JSON.parse(await readFile(join(stateDirectory, "settings.json"), "utf8")) as { readonly helper?: { readonly autoResume?: unknown } } | null;
-        return settings?.helper?.autoResume !== false;
-      } catch { return true; }
-    },
-  };
+  return { autoResume: async () => (await readHelperSettings(stateDirectory)).autoResume };
 }
+
+/**
+ * The model the helper asks where code cannot decide (`helper.model`): a stop no rule names and, once built, the
+ * Feature interview. Any model a lineup could use, by the route that reaches it; a frontier one by default.
+ */
+export interface HelperModel { readonly transport: string; readonly modelId: string }
+export const DEFAULT_HELPER_MODEL: HelperModel = Object.freeze({ transport: "claude-code-cli", modelId: "claude-opus-5-5" });
+/** The helper's part of the settings, with the defaults for what the file does not say. */
+export interface HelperSettingsRecord { readonly autoResume: boolean; readonly model: HelperModel }
+
+/**
+ * The routes a helper model may take: every transport arbitra has, except an OpenAI-compatible endpoint, which needs
+ * an endpoint of its own that a route and a model ID do not name.
+ */
+const HELPER_TRANSPORTS: ReadonlySet<string> = new Set(Object.keys(BUILTIN_TRANSPORT_FACTORIES).filter((transport) => transport !== "openai-chat"));
+const SETTINGS_FILE = "settings.json";
+
+/** The helper's settings as `<state directory>/settings.json` says them; the defaults for a missing or unreadable file. */
+export async function readHelperSettings(stateDirectory: string): Promise<HelperSettingsRecord> {
+  const settings = await settingsObject(stateDirectory).catch((): Readonly<Record<string, unknown>> => ({}));
+  const helper = recordOf(settings["helper"]) ?? {};
+  return Object.freeze({ autoResume: helper["autoResume"] !== false, model: helperModel(helper["model"]) ?? DEFAULT_HELPER_MODEL });
+}
+
+/**
+ * Writes `{ helper: { autoResume?, model? } }` into `<state directory>/settings.json`, keeping everything else the file
+ * says, and returns the helper's settings as they now are. A change of another shape is refused (400), and so is a
+ * file that is not a JSON object (409): it may be one a person is editing by hand, and is not overwritten.
+ */
+export async function saveHelperSettings(stateDirectory: string, change: unknown): Promise<HelperSettingsRecord> {
+  const helper = recordOf(recordOf(change)?.["helper"]);
+  const unknown = helper === null ? [] : Object.keys(helper).filter((key) => key !== "autoResume" && key !== "model");
+  if (helper === null || unknown.length > 0) throw settingsError(400, `SETTINGS_INVALID: send { "helper": { "autoResume", "model" } }${unknown.length === 0 ? "" : `; not a helper setting: ${unknown.join(", ")}`}`);
+  if (helper["autoResume"] !== undefined && typeof helper["autoResume"] !== "boolean") throw settingsError(400, "SETTINGS_INVALID: helper.autoResume is true or false");
+  const model = helper["model"] === undefined ? undefined : helperModel(helper["model"]);
+  if (model === null) throw settingsError(400, `SETTINGS_INVALID: helper.model is { "transport", "modelId" }, the transport one of ${[...HELPER_TRANSPORTS].join(", ")}`);
+  let settings: Readonly<Record<string, unknown>>;
+  try { settings = await settingsObject(stateDirectory); }
+  catch (error) { throw settingsError(409, `SETTINGS_FILE_UNREADABLE: ${join(stateDirectory, SETTINGS_FILE)} is not a JSON object (${error instanceof Error ? error.message : String(error)}); fix or remove it, then save again`); }
+  const next = { ...settings, helper: { ...recordOf(settings["helper"]), ...(helper["autoResume"] === undefined ? {} : { autoResume: helper["autoResume"] }), ...(model === undefined ? {} : { model }) } };
+  await mkdir(stateDirectory, { recursive: true });
+  await atomicJson(join(stateDirectory, SETTINGS_FILE), next);
+  return await readHelperSettings(stateDirectory);
+}
+
+/** The settings file as an object; an empty one when there is no file. */
+async function settingsObject(stateDirectory: string): Promise<Readonly<Record<string, unknown>>> {
+  let text: string;
+  try { text = await readFile(join(stateDirectory, SETTINGS_FILE), "utf8"); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return {}; throw error; }
+  const value = recordOf(JSON.parse(text) as unknown);
+  if (value === null) throw new Error("SETTINGS_NOT_AN_OBJECT");
+  return value;
+}
+
+function helperModel(value: unknown): HelperModel | null {
+  const model = recordOf(value);
+  const transport = model?.["transport"];
+  const modelId = model?.["modelId"];
+  if (typeof transport !== "string" || !HELPER_TRANSPORTS.has(transport) || typeof modelId !== "string" || !/^[^\s\0]{1,200}$/u.test(modelId)) return null;
+  return Object.freeze({ transport, modelId });
+}
+
+function recordOf(value: unknown): Readonly<Record<string, unknown>> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Readonly<Record<string, unknown>> : null;
+}
+
+function settingsError(statusCode: number, message: string): Error { return Object.assign(new Error(message), { statusCode }); }
 
 /**
  * A model's reading of a stop no rule names, from the reason and the run's state only. Left for later: without one,

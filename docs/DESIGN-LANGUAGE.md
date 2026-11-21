@@ -99,7 +99,7 @@ The first interface was a four-column shell: Model Pool, workflow graph,
 prompt/context/contract, and inspector with run controls. It set a run's record beside a
 draft of the next run's configuration and never said which panel described which, so R1
 failed at the level of the layout. Since 2026-09-29 the interface is four places, each with
-one job, and each addressable:
+one job, and each addressable; Settings joined them in November 2026:
 
 | Place | Address | Holds |
 |---|---|---|
@@ -107,6 +107,7 @@ one job, and each addressable:
 | Run | `?run=<id>&view=<tab>&item=<kind>:<id>` | One run: header, the decisions it waits on, the tabs its mode has, one details panel |
 | New run | `?page=new-run&from=<lineup>` | One lineup on one page: the project, how thorough (a card per depth, with each step's model and effort and what a run will use, from measured runs), the steps, each with its model and effort changed in place, what to read and what goes into the plan; checked by the orchestrator's preflight as it is filled in, saved when started |
 | Workflows | `?page=workflows` | The workflow graph editor |
+| Settings | `?page=settings` | This computer's settings, each saved as it is changed: whether the run helper resumes stopped runs, and its model |
 
 A run page reads top to bottom:
 

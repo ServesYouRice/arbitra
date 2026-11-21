@@ -364,7 +364,8 @@ function validateContext(value: unknown): asserts value is StoredRunContext {
   if (context["leftOutFinders"] !== undefined && (!Array.isArray(context["leftOutFinders"]) || !context["leftOutFinders"].every((id) => typeof id === "string"))) throw new Error("INVALID_RUN_CONTEXT_LEFT_OUT");
 }
 
-async function atomicJson(path: string, value: unknown): Promise<void> {
+/** Writes JSON to a temporary file and renames it into place, so a reader sees the old file or the new one, whole. */
+export async function atomicJson(path: string, value: unknown): Promise<void> {
   const temporary = `${path}.tmp`;
   const file = await open(temporary, "w");
   try { await file.writeFile(JSON.stringify(value, null, 2), "utf8"); await file.sync(); }

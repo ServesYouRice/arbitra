@@ -7,11 +7,8 @@
 .form-section__head > .button { margin-inline-start: auto; }
 .new-run .button--small { min-height: var(--s5); padding: 0 var(--s3); }
 .field-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: var(--s3); align-items: start; }
-.tick { display: flex; gap: var(--s2); align-items: flex-start; color: var(--ink); font: 400 var(--t-micro)/var(--lh-body) var(--font-body); cursor: pointer; }
-.tick > span { min-width: 0; }
-.tick .field__hint { display: block; }
-.tick input, .reading-table input, .choice input, .choice-inline input, .lineup-card__head input, .generated__row input { width: var(--s4); height: var(--s4); min-height: 0; margin: 0; padding: 0; flex: none; accent-color: var(--ink); }
-.tick input:disabled, .generated__row input:disabled { cursor: not-allowed; }
+.reading-table input, .choice input, .choice-inline input, .lineup-card__head input, .generated__row input { width: var(--s4); height: var(--s4); min-height: 0; margin: 0; padding: 0; flex: none; accent-color: var(--ink); }
+.generated__row input:disabled { cursor: not-allowed; }
 .fold > summary { width: fit-content; cursor: pointer; color: var(--mute); font: 400 var(--t-micro)/var(--lh-body) var(--font-data); }
 .fold[open] > summary { margin-block-end: var(--s2); }
 

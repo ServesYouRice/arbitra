@@ -13,6 +13,7 @@ describe("addresses", () => {
       { page: "new-run", from: "template:subscription-audit", graph: null },
       { page: "new-run", from: null, graph: "reviewed@abc" },
       { page: "workflows", source: "saved:reviewed:abc" },
+      { page: "settings" },
     ] as const) expect(parseRoute(routeHref(route).slice(1))).toEqual(route);
     expect(routeHref({ page: "runs" })).toBe("/");
     expect(routeHref({ page: "run", runId: "run 1", tab: "plan", item: "trace:task:T-1" })).toBe("/?run=run+1&view=plan&item=trace%3Atask%3AT-1");
