@@ -301,9 +301,12 @@ reset time when the CLI gives one (`CLI_USAGE_LIMIT_REACHED`); short throttles a
 `RATE_LIMIT` and retried. Keep `rateLimits` within what your plan allows and `timeoutMs`
 generous, because CLI calls carry several seconds of start-up and a large vendor system
 context. The subscription Feature and Testing templates use `maxConcurrent: 1`, `rpm: 10` and
-`timeoutMs` 600000; the subscription Audit templates use `maxConcurrent: 4`, `rpm: 30` (10 for
-Google), `timeoutMs` 900000 and `maximumParallelCalls: 4`. Batch lanes are not available on
-CLI endpoints.
+`timeoutMs` 600000; the subscription Audit templates use `maxConcurrent: 8` for every vendor,
+`rpm: 60` (30 for Google), `timeoutMs` 900000 and `maximumParallelCalls: 8` (four until
+November 21, 2026; eight is being measured on the next runs). `rateLimits` is set per vendor, so
+a plan with more room, or one that throttles, takes its own numbers. If Google throttles the
+Antigravity CLI or warns the account, lower `google` first: its `rpm` was kept low on purpose
+before. Batch lanes are not available on CLI endpoints.
 
 Known gaps: Claude Code still adds its own short environment block (working directory,
 platform, date and the signed-in account's email) to the context; Codex declares a few

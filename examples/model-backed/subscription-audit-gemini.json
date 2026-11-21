@@ -263,25 +263,25 @@
       "maximumOutputRepairs": 2,
       "rateLimits": {
         "anthropic": {
-          "rpm": 30,
+          "rpm": 60,
           "tpm": 4000000,
-          "maxConcurrent": 4
+          "maxConcurrent": 8
         },
         "openai": {
-          "rpm": 30,
+          "rpm": 60,
           "tpm": 4000000,
-          "maxConcurrent": 4
+          "maxConcurrent": 8
         },
         "google": {
-          "rpm": 10,
+          "rpm": 30,
           "tpm": 4000000,
-          "maxConcurrent": 4
+          "maxConcurrent": 8
         }
       },
       "planSections": {
         "issuesPerSection": 13
       },
-      "maximumParallelCalls": 4,
+      "maximumParallelCalls": 8,
       "planScope": {
         "minimumSeverity": "medium"
       }

@@ -184,7 +184,12 @@ From the research review; each decides a cut or a build.
 - **The verifier's required reason:** how often an answer leaves it out and costs a repair.
 - **A Sonnet second look at medium reports Opus leaves unsettled:** build it as an option, off by default; it decided
   6 of 7 rightly on nextra, at about 28K tokens a question.
-- **Eight discovery units at a time** instead of four: the audit runs in two waves (14 minutes of a 28-minute run).
+- **Eight calls at a time for every vendor** (since November 21; four before): the subscription audit templates set
+  `maximumParallelCalls` 8 and `maxConcurrent` 8 for Anthropic, OpenAI and Google, `rpm` 60 (30 for Google). With
+  four, the audit ran in two waves (14 minutes of a 28-minute run). Measure wall time per stage against the earlier
+  runs, throttling (`RATE_LIMIT` retries by vendor), the CLI processes' load on Windows (memory and CPU with up to 8
+  of each CLI at once, and no console windows), and whether the subscriptions' usage windows run out sooner. If one
+  vendor throttles, give it its own numbers (Google first; its `rpm` was kept low on purpose) rather than lower all.
 - **Claude Code's cache on first calls:** 72 first calls in one run wrote 1.18M tokens and read none.
 - **Whether the critic still lacks its source** (`critic-result.citedSourceLeftOut`), if it stays: on veritra's
   227-task plan its 12 batches carried none of the 254 files the plan cites.

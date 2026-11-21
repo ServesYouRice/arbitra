@@ -593,6 +593,16 @@ are put together in a fixed order. Each call in flight holds its own budget rese
 `maxConcurrent` still applies. The reviewers of a peer-review round and the auditors of one conflict are
 always asked together and recorded in the auditor order.
 
+The two limits work at different levels. `maximumParallelCalls` is per stage and per auditor: three finders
+at 8 may want 24 discovery calls at once, 8 each. `rateLimits.<provider>.maxConcurrent` is per vendor across
+the whole run: every profile on that vendor (a finder, a checker, a fallback) and every stage share it, and a
+call over it waits at admission (`RateLimitScheduler`) until one in flight ends; `rpm` and `tpm` bound the
+calls and tokens admitted in a rolling minute the same way. So a vendor never has more than its
+`maxConcurrent` calls in flight, however many stages or profiles ask. The subscription audit templates set 8
+for both, and `rpm` 60 (30 for Google) so the per-minute rate does not bind at 8 in flight (since November 21,
+2026; four before, from the October 11 speed build, which nothing measured as needed). A vendor whose plan
+throttles at 8 takes its own lower `maxConcurrent`.
+
 A peer-review reply is checked operation by operation. A citation of another candidate's evidence is left
 out when the operation also cites evidence of its own candidate. An operation that fails its own validation,
 including one of the wrong shape (a vote without its `type`), is left out and recorded (`peer-review-refused-operations-*`, limitation
