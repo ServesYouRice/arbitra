@@ -121,13 +121,18 @@ test.describe("run tabs", () => {
     // macOS WebKit (like Safari's default) moves Tab between form fields only; Option+Tab
     // reaches every control. That is the platform's keyboard model, not a skipped control.
     const next = browserName === "webkit" && process.platform === "darwin" ? "Alt+Tab" : "Tab";
+    // Playwright's WebKit for Windows moves Tab, and Option+Tab, between form controls and elements with a tabindex
+    // only, never to a plain link, like Safari with "Press Tab to highlight each item" off, and there is no Safari for
+    // Windows whose keyboard it stands for. There each view tab is focused directly and its visible focus checked; Tab
+    // between the tabs is checked in Chromium and Firefox everywhere and in WebKit on Linux and macOS.
+    const tabReachesLinks = !(browserName === "webkit" && process.platform === "win32");
     const runId = await createRun(request, "feature-blocked");
     await open(page, runId, "summary");
     const tabs = ["Summary", "Requirements", "Plan", "How it ran"];
     await expect(page.getByRole("navigation", { name: "run views" }).getByRole("link")).toHaveText(tabs);
     await viewTab(page, "Summary").focus();
     for (const [index, label] of tabs.entries()) {
-      if (index > 0) await page.keyboard.press(next);
+      if (index > 0) await (tabReachesLinks ? page.keyboard.press(next) : viewTab(page, label).focus());
       await expect(viewTab(page, label)).toBeFocused();
       await expect.poll(() => focusOutline(page)).not.toBe("none");
     }

@@ -116,7 +116,10 @@ Live-provider and Docker acceptance remain separate items (P03 and P04).
 - **Keyboard.** Tab order across the view tabs, visible `:focus-visible` outline, Enter/Space
   activation, checkbox toggling, and graph stage expansion and selection are all driven from
   the keyboard. WebKit on macOS follows the platform default, where Tab moves only between form
-  fields, so the WebKit pass uses Option+Tab, which reaches every control.
+  fields, so the WebKit pass uses Option+Tab, which reaches every control. Playwright's WebKit
+  for Windows reaches no plain link with Tab or Option+Tab, so there the view tabs are focused
+  directly and only their visible focus is checked (November 21, 2026); Tab between them is
+  checked in WebKit on Linux and macOS and in the other engines.
 
 ### Defects found and fixed during this QA
 
