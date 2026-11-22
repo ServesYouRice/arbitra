@@ -78,7 +78,7 @@ describe("the symbol index", () => {
   it.each([
     ["setUser(", "setUser"],
     ["  queryClient.clear  ", "clear"],
-    ["Blog.Posts.get_post/2", "get_post"],
+    ["Social.Posts.get_post/2", "get_post"],
     ["Foo::bar", "bar"],
     ["Foo#bar", "bar"],
     ["def show", "show"],

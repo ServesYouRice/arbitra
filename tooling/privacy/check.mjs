@@ -1,18 +1,15 @@
 #!/usr/bin/env node
 // Refuses personal data in what the repository publishes: home-folder paths and email addresses other than
-// placeholders, a commit identity that is not a noreply address, and the names of the maintainer's private projects.
-// The repository is public, and a rewritten history is the only way to take such data back out.
-//
-// The private names are listed in the clone's `.git/info/private-names` (one a line, `#` starts a comment), which Git
-// never publishes; without that file, as in a fresh clone, there are none to look for. A name matches as a whole
-// word, in any case, in a file's text and in its path.
+// placeholders, the names of the owner's private projects (AGENTS.md: describe them instead, "a comments service"),
+// and a commit identity that is not a noreply address. The repository is public, and a rewritten
+// history is the only way to take such data back out.
 //
 //   node tooling/privacy/check.mjs              every tracked file (part of `pnpm run ci`)
 //   node tooling/privacy/check.mjs --staged     the staged files and the commit identity (pre-commit hook)
 //   node tooling/privacy/check.mjs --message F  a commit message (commit-msg hook)
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 const git = (...args) => execFileSync("git", args, { encoding: "buffer", maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
@@ -31,37 +28,58 @@ const isPlaceholderEmail = (email) => {
   return PLACEHOLDER_DOMAIN.test(domain) || /^(?:noreply|no-reply|git)$/iu.test(local);
 };
 
-const escaped = (word) => word.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-/** A pattern matching any of `lines` (blank lines and `#` comments skipped) as a whole word, in any case; null for none. */
-export function namesPattern(lines) {
-  const names = lines.map((line) => line.trim()).filter((line) => line !== "" && !line.startsWith("#"));
-  return names.length === 0 ? null : new RegExp(`(?<![\\p{L}\\p{N}_])(?:${names.map(escaped).join("|")})(?![\\p{L}\\p{N}_])`, "giu");
+// The owner's private projects, each name and spelling (the repo name, the product name, a misspelling seen) lowercased
+// with its spaces, hyphens, underscores and apostrophes left out. Only their SHA-256 is kept, so that this file does not
+// name them either. Add a project by its hash: printf %s name | sha256sum.
+const PRIVATE_NAMES = new Set([
+  "1540e8a27a01a852a09db8586ce9f4479371f3e3fe5fde27c7cc17f8910cdb48",
+  "24108851ecaeef7942b447672ca222132cd0ae9c66863dc44c303c9220cc0b13",
+  "2767fb4fff53715630dc2e3728f9fb924abf499f6de38280be5f48560360291c",
+  "339b54e730d0f93dadaa0c5382493d208a327ef6fca9f6766627c049b10f33ca",
+  "371854646b0a79b29a21fe81858cb3b4e8113ed42313073ca5e5dbc90451d8d9",
+  "6e1f3da6cf8847b5c2ced23d0fa63272e6cd630dabe13b73f1d2666b0cb1444d",
+  "99a8a5361e067d9ee47e58928a90f93a430a1d09ef35133cd9d07b5ca35bddd8",
+  "9b1b21487684daa757cf7baf0452fe745da1c1b14259bcdf1093bfac974bbf44",
+  "b8cd2b6d371e3f3547edd6162a29c1d95e2bdd364e98a8f143ad38110bc2aedc",
+  "db4d5256d2971246b5cad83f09b9034c554fce466c48f9a3033264028c9f4a1e",
+  "e285cdd85064e369f2a8abef7052b621d9e596b3a29a8aadba8070de08c566c0",
+  "f0ab3e9d8c1954c6429e096cd1e77432488818ddae3ee6061818201260b0b0de",
+]);
+// Up to three words in a row are joined, so a name written as two or three words ("x y", "x-y", "x's y", "xY") is found.
+const WORDS_JOINED = 3;
+export const nameHash = (text) => createHash("sha256").update(text).digest("hex");
+
+/** The private names in a line, by `names` (hashes); a word is a run of letters and digits, split at camelCase too. */
+export function privateNames(text, names = PRIVATE_NAMES) {
+  const words = text.replace(/(\p{Ll})(\p{Lu})/gu, "$1 $2").toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const hits = [];
+  for (let start = 0; start < words.length; start += 1) {
+    let joined = "";
+    for (let end = start; end < Math.min(words.length, start + WORDS_JOINED); end += 1) {
+      joined += words[end];
+      // A trailing "s" may be a plural or a possessive written without its apostrophe.
+      if (joined.length >= 4 && (names.has(nameHash(joined)) || (joined.endsWith("s") && names.has(nameHash(joined.slice(0, -1)))))) {
+        hits.push(words.slice(start, end + 1).join(" "));
+      }
+    }
+  }
+  return hits;
 }
 
-/** The private names this clone lists in `.git/info/private-names`, as a pattern; null when it lists none. */
-function privateNames() {
-  try {
-    const file = join(git("rev-parse", "--git-common-dir").toString("utf8").trim(), "info", "private-names");
-    return existsSync(file) ? namesPattern(readFileSync(file, "utf8").split(/\r?\n/u)) : null;
-  } catch { return null; }
-}
-
-export function findings(text, names = null) {
+export function findings(text) {
   const hits = [];
   for (const pattern of HOME_PATTERNS) for (const match of text.matchAll(pattern)) hits.push(`home folder ${match[0]}`);
   for (const match of text.matchAll(EMAIL)) if (!isPlaceholderEmail(match[0])) hits.push(`email ${match[0]}`);
-  if (names !== null) for (const match of text.matchAll(names)) hits.push(`private project name ${match[0]}`);
+  for (const name of privateNames(text)) hits.push(`private project name "${name}": describe the project instead`);
   return hits;
 }
 
 function scan(entries) {
-  const names = privateNames();
   const problems = [];
   for (const { path, content } of entries) {
-    if (names !== null) for (const match of path.matchAll(names)) problems.push(`${path}: private project name ${match[0]} in the path`);
     if (content.includes(0)) continue; // binary
     const text = content.toString("utf8");
-    text.split("\n").forEach((line, index) => { for (const hit of findings(line, names)) problems.push(`${path}:${index + 1}: ${hit}`); });
+    text.split("\n").forEach((line, index) => { for (const hit of findings(line)) problems.push(`${path}:${index + 1}: ${hit}`); });
   }
   return problems;
 }

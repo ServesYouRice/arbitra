@@ -389,7 +389,7 @@ that involve accepted issues in full. From `targeted-verification` 1.1.0 (a run 
 as it did) a question also carries `relatedSource`, found by text without a model: where the
 names used at the cited lines are defined and where the function they sit in is called, in files
 the findings do not cite, within 8 KB (`verification-context.ts`; Elixir, JavaScript and
-TypeScript, Python, Ruby, Go and Rust). On the 197 questions of a recorded run (a social blogging platform,
+TypeScript, Python, Ruby, Go and Rust). On the 197 questions of a recorded run (the social web app,
 October 31, 2026; 914 tool calls, 417 of them reading an uncited file) it covers 22% of those
 reads, with 2.8 KB a question on average (8 KB at most), and costs 0.7 s for the whole run. The same version
 lays the prompt out for caches: its source label names the protocol and not the question, a

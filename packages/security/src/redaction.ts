@@ -84,8 +84,7 @@ const DETECTORS: readonly Detector[] = [
  * A call or an index on such a name reads as code whatever its arguments hold: `secrets.token_urlsafe(32)`,
  * `client.get("/safety/capability")` (the value is cut at its first quote, so it ends in the open parenthesis) and
  * `request.headers[TOKEN_HEADER]`. Only the name before the call is held to the no-digit rule. Observed live
- * (a desktop automation app, October 24, 2026): masking such lines hid how a project generated and compared its
- * capability token.
+ * (a desktop automation app, October 24, 2026): masking such lines hid how a project generated and compared its capability token.
  */
 const CODE_REFERENCE = /^[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*(?:\([^()]*\))?[,;)\]}]*$/u;
 const CODE_CALL = /^[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)*[([]/u;

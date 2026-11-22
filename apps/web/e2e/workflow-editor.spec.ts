@@ -1,8 +1,7 @@
 import { mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { expect, test, type APIRequestContext, type Locator, type Page, type TestInfo } from "@playwright/test";
-import { accessibilityAudit, expectInert, openRecord, stateChip, viewTab } from "./support.js";
+import { accessibilityAudit, expectInert, openRecord, QA_ROOT, stateChip, viewTab } from "./support.js";
 
 /**
  * Browser acceptance for operator-authored workflow graphs (completion plan P16).
@@ -11,7 +10,7 @@ import { accessibilityAudit, expectInert, openRecord, stateChip, viewTab } from 
  * real orchestrator with credential-free scripted auditors. One server serves every
  * browser project, so graph and configuration names carry the project name.
  */
-const QA = resolve(dirname(fileURLToPath(import.meta.url)), "../../../docs/qa/p16");
+const QA = resolve(QA_ROOT, "p16");
 const UNTRUSTED = `<img src=x onerror="window.__arbitraInjected=1">`;
 
 async function shot(page: Page, testInfo: TestInfo, name: string): Promise<void> {

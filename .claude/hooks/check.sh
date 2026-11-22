@@ -8,7 +8,8 @@ cd "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 
 run_checks() {
   # The full check (docs/qa/README.md): `pnpm run ci` (typecheck, lint,
-  # tests, lint-rule tests, example validation, design integrity, privacy) and
+  # tests, lint-rule tests, example validation, design integrity, privacy, and
+  # `pnpm audit` of the production dependencies, which fails at high) and
   # `pnpm build`, plus the web app's Playwright acceptance on Chromium,
   # Firefox and WebKit (kept out of `pnpm test` because it needs browsers).
   # Left out: the Docker sandbox acceptance (ARBITRA_DOCKER_ACCEPTANCE, needs
@@ -19,7 +20,11 @@ run_checks() {
   step() { echo "== $*"; "$@" || failed+=("$*"); }
   step pnpm run ci
   step pnpm build
-  step env E2E_PORT=4545 pnpm --filter @arbitra/web e2e
+  # The browser tests' screenshots go to a temporary folder, not over the
+  # tracked evidence in docs/qa, which would fail the changed-files guard.
+  local shots; shots=$(mktemp -d)
+  step env E2E_PORT=4545 ARBITRA_QA_DIRECTORY="$shots" pnpm --filter @arbitra/web e2e
+  rm -rf "$shots"
   if [ ${#failed[@]} -gt 0 ]; then
     printf 'FAILED: %s\n' "${failed[@]}" >&2
     return 1

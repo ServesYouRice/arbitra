@@ -57,8 +57,7 @@ describe("secret redaction", () => {
       "await runCli([\"dead\"], { token: TOKENS.emails, transport });",
       "    apiKey: config.gateway.apiKey,",
       "password = readPassword(prompt);",
-      // Observed live (a desktop automation app, October 24, 2026): these hid how the capability token was made and
-      // compared.
+      // Observed live (a desktop automation app, October 24, 2026): these hid how the capability token was made and compared.
       "        self.capability_token = secrets.token_urlsafe(32)",
       "            header_token = Headers(scope=scope).get(\"x-app-capability\")",
       "    token = production_client.get(\"/safety/capability\").json()[\"token\"]",

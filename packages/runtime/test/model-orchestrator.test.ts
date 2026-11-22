@@ -2107,8 +2107,7 @@ describe("composed model audits", () => {
   });
 
   it("sends a verification question that stops at its output ceiling once more at twice the ceiling, and records it", async () => {
-    // Observed (a social blogging platform, November 1, 2026): 2 of 197 questions stopped at 16,000 tokens and went
-    // unanswered.
+    // Observed (a social web app, November 1, 2026): 2 of 197 questions stopped at 16,000 tokens and went unanswered.
     const { create, config, requests } = await fixture({ verificationOutputLimit: "first" });
     (config.workflow["modelExecution"] as { maximumOutputTokens: number }).maximumOutputTokens = 64_000;
     const core = create(); const result = await core.run(config);

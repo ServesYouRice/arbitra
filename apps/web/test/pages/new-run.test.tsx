@@ -35,7 +35,7 @@ const READY = { valid: true, ready: true, mode: "audit", preset: "audit-two-find
   estimate: { estimate: { files: 4, lines: 1000, nodes: 7, auditors: 2, providerCalls: null, costUsd: null, currency: null, basis: "configured_models_cost_unknown_without_pricing_and_outputs" },
     read: { complete: true, files: FILES }, suggestedLeaveOut: [], gate: "clear" } };
 
-/** A project of the size of the one that paused Codex's five-hour window (a social blogging platform, November 1, 2026). */
+/** A project of the size of the one that paused Codex's five-hour window (a social web app, November 1, 2026). */
 const sized = (lines: number) => ({ ...READY, estimate: { ...READY.estimate, estimate: { ...READY.estimate.estimate, files: 1, lines }, read: { complete: true, files: [{ path: "src/big.ts", lines, test: false, leftOut: false }] } } });
 const BIG = sized(84_380);
 
@@ -151,6 +151,7 @@ describe("the new-run page", () => {
     expect(deep).toContain("basis: 2 measured runs, 1,290–1,330 tokens a line");
     // The whole basis is one click down, below the cards.
     expect(screen.getByText("How the estimates are made").closest("details")?.textContent).toContain("basis: 2 runs at deep since finders read beyond their unit for the tokens, 4 runs for the time, 11,719 to 84,380 lines");
+    expect(screen.getByText("How the estimates are made").closest("details")?.textContent).toContain("Tokens are split as a desktop automation app (two finders) and nextra (three, Gemini 3.8 Flash the third) split");
     expect(screen.getByRole("radio", { name: "Cheap" }).closest(".lineup-card")?.textContent).toContain("not measured yet");
   });
 
@@ -483,7 +484,7 @@ describe("the new-run page", () => {
     expect(screen.queryByText(/on Claude Code's five-hour window/u)).toBeNull();
     expect((screen.getByRole("button", { name: "Start audit" }) as HTMLButtonElement).disabled).toBe(false);
     // Where each window was measured is one click down.
-    expect(screen.getByText(/Codex's five-hour window, about 10\.6M tokens on ChatGPT Plus: November 1, 2026, a social blogging platform/u)).toBeTruthy();
+    expect(screen.getByText(/Codex's five-hour window, about 10\.6M tokens on ChatGPT Plus: November 1, 2026, a social web app/u)).toBeTruthy();
   });
 
   it("says nothing alarming when the meters cannot be read, and warns of a window already used when a smaller run would not fit what is left", async () => {

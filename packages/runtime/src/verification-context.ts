@@ -3,9 +3,8 @@ import { posix } from "node:path";
 /**
  * The source a verification question is handed beside the files its candidate cites: where the names used at the cited
  * lines are defined, and who calls the function the cited lines sit in, found by text and without a model. Measured on
- * a recorded run (a social blogging platform, October 31, 2026; 197 questions on 601 calls): 417 of the 914 tool
- * calls read a file the question did not cite, and with this context 91 of them (22%) land on a place it supplies, for
- * 4 KB a question.
+ * a recorded run (a social web app, October 31, 2026; 197 questions on 601 calls): 417 of the 914 tool calls read a file the
+ * question did not cite, and with this context 91 of them (22%) land on a place it supplies, for 4 KB a question.
  *
  * It only adds. The model still reads anything through the source tools, and the lookup guesses from names alone: a
  * name defined in several places, a name the cited files define themselves and a name of a language it cannot read

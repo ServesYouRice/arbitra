@@ -732,9 +732,8 @@ export class ModelAuditPipeline {
     const notAsked: { candidateId: string; activityId: string }[] = [];
     const allowed = (candidateId: string, activityId: string) => { if (spare >= 1) { spare -= 1; return true; } notAsked.push({ candidateId, activityId }); return false; };
     // A question that stops at its output ceiling is sent once more at twice the ceiling, up to what its model writes
-    // (a social blogging platform, November 1: 2 of 197 stopped at 16,000). The first attempt is untouched, and the
-    // second is an activity of its own, so a finished run replays as it ran. The raise is recorded
-    // (`verification-ceiling-raised-*`).
+    // (a social web app, November 1: 2 of 197 stopped at 16,000). The first attempt is untouched, and the second is an
+    // activity of its own, so a finished run replays as it ran. The raise is recorded (`verification-ceiling-raised-*`).
     const askOne = async <T extends object>(stage: ModelStageInput<T> & { maximumOutputTokens: number }, candidateId: string): Promise<T & { activityId: string; artifactRefs: never[] }> => {
       try { return { ...await this.call(stage), activityId: stage.activityId, artifactRefs: [] }; }
       catch (error) {

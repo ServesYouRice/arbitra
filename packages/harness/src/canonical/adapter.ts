@@ -16,9 +16,8 @@ export class CanonicalHarnessAdapter implements HarnessAdapter {
     const messages: HarnessMessage[] = [{ role: "user", content: prompt.text }];
     let response: HarnessModelResponse | null = null;
     // Tools run in `maxToolTurns` turns. Tool calls asked for after those are answered, unrun, with TOOL_TURN_LIMIT_REACHED,
-    // and the model gets one more turn to answer from what it has. Observed live (a comments service, October 23):
-    // Gemini asked for a ninth tool turn on one discovery window, nothing told it the tools were spent, and the run
-    // failed.
+    // and the model gets one more turn to answer from what it has. Observed live (a comments service, October 23): Gemini
+    // asked for a ninth tool turn on one discovery window, nothing told it the tools were spent, and the run failed.
     for (let turn = 0; turn <= node.maxToolTurns + 1; turn += 1) {
       if (policy.signal.aborted) throw policy.signal.reason;
       yield Object.freeze({ type: "model_turn_started", nodeId: node.id, turn });
@@ -34,8 +33,8 @@ export class CanonicalHarnessAdapter implements HarnessAdapter {
         const result = turn === node.maxToolTurns ? toolTurnLimitResult(node.maxToolTurns)
           : await toolRuntime.invoke(call.name, call.arguments, { ...policy.toolContext, nodeId: node.id, callId: call.id, turn, callIndex });
         yield Object.freeze({ type: "tool_result", nodeId: node.id, turn, callId: call.id, result });
-        // Observed live (a social blogging platform, November 1, 2026): 43 of Opus's 84 units asked for tools after
-        // their last tool turn, and each paid a whole turn of about 98,000 tokens to be told none remain.
+        // Observed live (a social web app, November 1, 2026): 43 of Opus's 84 units asked for tools after their last tool turn,
+        // and each paid a whole turn of about 98,000 tokens to be told none remain.
         const announced = node.announceToolTurns === true && turn < node.maxToolTurns && callIndex === response.toolCalls.length - 1 ? { ...result, toolTurnsLeft: node.maxToolTurns - turn - 1 } : result;
         messages.push({ role: "tool", content: JSON.stringify(announced), toolCallId: call.id, toolName: call.name });
       }
