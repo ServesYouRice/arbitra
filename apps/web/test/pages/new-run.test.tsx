@@ -461,8 +461,9 @@ describe("the new-run page", () => {
     visit("?page=new-run");
     render(<App />);
     const computer = await screen.findByRole("table", { name: "CLIs on this computer" });
-    // The CLIs are listed whether or not the meters have come back.
-    await waitFor(() => expect(within(computer).getByText(/^5-hour window 31% used, resets \d\d:\d\d; week 5%, resets \w{3} \d\d:\d\d · plus plan$/u)).toBeTruthy());
+    // The CLIs are listed whether or not the meters have come back. The five-hour reset, two hours on, names its day
+    // when it falls after midnight: the test failed when run after 22:00 (November 22, 2026).
+    await waitFor(() => expect(within(computer).getByText(/^5-hour window 31% used, resets (?:\w{3} )?\d\d:\d\d; week 5%, resets \w{3} \d\d:\d\d · plus plan$/u)).toBeTruthy());
     expect(within(computer).getByText("not read: Claude Code shows its windows only in a model call")).toBeTruthy();
     expect(calls.filter((call) => call === "GET /diagnostics/usage-windows")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Check again" }));
