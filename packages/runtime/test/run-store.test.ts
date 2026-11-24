@@ -1,4 +1,4 @@
-import { appendFile, mkdtemp, readFile, rm, utimes } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -7,8 +7,9 @@ import { RunStore } from "../src/run-store.js";
 
 // While `failingWrites` is above zero, each append to an event log fails: by default its write lands a prefix of the
 // record and then fails, as a write to a full disk can; with `failing` set to "sync", the whole record lands and the
-// sync after it fails.
-const partial = vi.hoisted(() => ({ failingWrites: 0, failing: "write" as "write" | "sync" }));
+// sync after it fails. `indexReads` counts the reads of an artifact index, and while `refusedRenames` is above zero each
+// rename onto one is refused, as Windows refuses it while a reader or a virus scan holds the file open.
+const partial = vi.hoisted(() => ({ failingWrites: 0, failing: "write" as "write" | "sync", indexReads: 0, refusedRenames: 0 }));
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
   const open = (async (...args: Parameters<typeof actual.open>) => {
@@ -27,7 +28,18 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     };
     return { writeFile, sync, stat: () => handle.stat(), close: () => handle.close() } as unknown as typeof handle;
   }) as typeof actual.open;
-  return { ...actual, open };
+  const readFile = (async (...args: Parameters<typeof actual.readFile>) => {
+    if (String(args[0]).endsWith("artifacts.json")) partial.indexReads += 1;
+    return actual.readFile(...args);
+  }) as typeof actual.readFile;
+  const rename = (async (from: Parameters<typeof actual.rename>[0], to: Parameters<typeof actual.rename>[1]) => {
+    if (partial.refusedRenames > 0 && String(to).endsWith("artifacts.json")) {
+      partial.refusedRenames -= 1;
+      throw Object.assign(new Error(`EPERM: operation not permitted, rename '${String(from)}' -> '${String(to)}'`), { code: "EPERM" });
+    }
+    return actual.rename(from, to);
+  }) as typeof actual.rename;
+  return { ...actual, open, readFile, rename };
 });
 
 describe("run store paths", () => {
@@ -80,6 +92,42 @@ describe("run store paths", () => {
       expect((JSON.parse((JSON.parse(read.text) as { value: string }).value) as { lines: { text: string }[] }).lines.map(({ text }) => text)).toEqual(["    apiKey: [REDACTED:assigned_secret],", "    clock,"]);
     } finally { await rm(directory, { recursive: true, force: true }); }
   });
+  it("reads the artifact index from its file only when the file has changed, and keeps it frozen", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "arbitra-run-index-"));
+    try {
+      const store = new RunStore(directory, "run-index");
+      const first = await store.publish("first", { value: 1 });
+      const second = await store.publish("second", { value: 2 });
+      partial.indexReads = 0;
+      // What this process wrote is served from memory, to this store and to another for the same run (the HTTP routes
+      // open their own): observed live, a 9.6 MB index read several times a model call was nearly always open.
+      for (let lookup = 0; lookup < 3; lookup += 1) expect((await store.listArtifacts()).map(({ artifactId }) => artifactId)).toEqual([first.artifactId, second.artifactId]);
+      expect((await new RunStore(directory, store.runId).listArtifacts()).map(({ artifactId }) => artifactId)).toEqual([first.artifactId, second.artifactId]);
+      expect(partial.indexReads).toBe(0);
+      const listed = await store.listArtifacts();
+      expect(Object.isFrozen(listed) && listed.every((descriptor) => Object.isFrozen(descriptor))).toBe(true);
+      // An index another process wrote is read again.
+      await writeFile(join(store.directory, "artifacts.json"), JSON.stringify([second]), "utf8");
+      expect((await store.listArtifacts()).map(({ artifactId }) => artifactId)).toEqual([second.artifactId]);
+      expect(partial.indexReads).toBe(1);
+      await store.listArtifacts();
+      expect(partial.indexReads).toBe(1);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it("goes on publishing when Windows refuses the index's rename for longer than half a second", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "arbitra-run-rename-"));
+    try {
+      const store = new RunStore(directory, "run-rename");
+      await store.publish("first", { value: 1 });
+      // Twelve refusals took the earlier ten tries past their end (observed live, November 24, 2026: the run failed).
+      partial.refusedRenames = 12;
+      const second = await store.publish("second", { value: 2 });
+      expect(partial.refusedRenames).toBe(0);
+      expect((JSON.parse(await readFile(join(store.directory, "artifacts.json"), "utf8")) as { artifactId: string }[]).map(({ artifactId }) => artifactId)).toContain(second.artifactId);
+    } finally { partial.refusedRenames = 0; await rm(directory, { recursive: true, force: true }); }
+  });
+
   it.each(["../outside", "..\\outside", "/absolute", "C:\\absolute", ".hidden", "run/id", ""])(
     "rejects an unsafe run id before constructing state paths: %s",
     (runId) => {

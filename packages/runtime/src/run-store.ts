@@ -256,7 +256,12 @@ export class RunStore {
     const write = this.#indexWrites.then(async () => {
       const existing = (await this.listArtifacts()).filter((item) => item.kind !== kind);
       await mkdir(this.directory, { recursive: true });
-      await atomicJson(this.#index, [...existing, descriptor]);
+      const next = freezeIndex([...existing, descriptor]);
+      await atomicJson(this.#index, next);
+      // Only this process writes a live run's index (the orchestrator refuses a second), so what it wrote is the index.
+      const written = await fileStamp(this.#index);
+      if (written === null) INDEX_CACHE.delete(this.#index);
+      else INDEX_CACHE.set(this.#index, { stamp: written, descriptors: next });
     });
     this.#indexWrites = write.catch(() => undefined);
     await write;
@@ -307,9 +312,25 @@ export class RunStore {
     await atomicJson(this.#helper, record);
   }
 
+  /**
+   * The run's artifact index. It is read from the file only when the file has changed since this process last read or
+   * wrote it (its size, modification time and file ID), and otherwise served from memory, frozen. Observed live
+   * (November 24, 2026, a run of 15,835 artifacts): the index had grown to 9.6 MB and was read whole on every lookup,
+   * several times a model call, so a reader nearly always held it open, and Windows refused the rename that replaces
+   * it (EPERM) through every retry; the run failed while writing its plan.
+   */
   async listArtifacts(): Promise<readonly ArtifactDescriptor[]> {
+    const seen = await fileStamp(this.#index);
+    if (seen === null) { INDEX_CACHE.delete(this.#index); return []; }
+    const cached = INDEX_CACHE.get(this.#index);
+    if (cached !== undefined && sameStamp(cached.stamp, seen)) return cached.descriptors;
     const text = await readOptional(this.#index);
-    return text === null ? [] : JSON.parse(text) as readonly ArtifactDescriptor[];
+    if (text === null) { INDEX_CACHE.delete(this.#index); return []; }
+    // The stamp taken before the read: a write between the two leaves a stamp the file no longer has, so the next
+    // lookup reads the file again rather than keep an index older than it.
+    const descriptors = freezeIndex(JSON.parse(text) as ArtifactDescriptor[]);
+    INDEX_CACHE.set(this.#index, { stamp: seen, descriptors });
+    return descriptors;
   }
 
   async readArtifact(artifactId: string): Promise<{ readonly descriptor: ArtifactDescriptor; readonly content: string }> {
@@ -328,6 +349,31 @@ export async function listRunIds(rootDirectory: string): Promise<readonly string
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;
   }
+}
+
+/** A file as `stat` shows it: enough to tell that it was replaced or rewritten since. */
+interface FileStamp { readonly size: number; readonly mtimeMs: number; readonly ino: number }
+/** Each artifact index this process has read or written, by path, with the file's stamp then. */
+const INDEX_CACHE = new Map<string, { readonly stamp: FileStamp; readonly descriptors: readonly ArtifactDescriptor[] }>();
+
+async function fileStamp(path: string): Promise<FileStamp | null> {
+  try {
+    const { size, mtimeMs, ino } = await stat(path);
+    return { size, mtimeMs, ino };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+function sameStamp(left: FileStamp, right: FileStamp): boolean {
+  return left.size === right.size && left.mtimeMs === right.mtimeMs && left.ino === right.ino;
+}
+
+/** The index is shared by every lookup in the process, so neither it nor its entries may be changed in place. */
+function freezeIndex(descriptors: ArtifactDescriptor[]): readonly ArtifactDescriptor[] {
+  for (const descriptor of descriptors) Object.freeze(descriptor);
+  return Object.freeze(descriptors);
 }
 
 async function modifiedAt(path: string): Promise<string | null> {
@@ -364,6 +410,10 @@ function validateContext(value: unknown): asserts value is StoredRunContext {
   if (context["leftOutFinders"] !== undefined && (!Array.isArray(context["leftOutFinders"]) || !context["leftOutFinders"].every((id) => typeof id === "string"))) throw new Error("INVALID_RUN_CONTEXT_LEFT_OUT");
 }
 
+/** How often `atomicJson` tries its rename, and the longest wait between two tries: about ten seconds in all. */
+const RENAME_ATTEMPTS = 50;
+const RENAME_RETRY_CAP_MS = 250;
+
 /** Writes JSON to a temporary file and renames it into place, so a reader sees the old file or the new one, whole. */
 export async function atomicJson(path: string, value: unknown): Promise<void> {
   const temporary = `${path}.tmp`;
@@ -373,11 +423,12 @@ export async function atomicJson(path: string, value: unknown): Promise<void> {
   for (let attempt = 0; ; attempt += 1) {
     try { await rename(temporary, path); return; }
     catch (error) {
-      // Windows readers and file scanners can briefly hold a replace target open.
-      // Preserve the existing committed file and retry the atomic rename itself.
+      // Windows readers and file scanners can hold a replace target open: a virus scan of a file of several MB takes
+      // longer than the half second these retries used to allow. Preserve the existing committed file and retry the
+      // atomic rename itself, for up to about ten seconds.
       const code = (error as NodeJS.ErrnoException).code;
-      if (attempt >= 9 || !["EPERM", "EACCES", "EBUSY"].includes(code ?? "")) throw error;
-      await delay(Math.min(100, 10 * (attempt + 1)));
+      if (attempt >= RENAME_ATTEMPTS - 1 || !["EPERM", "EACCES", "EBUSY"].includes(code ?? "")) throw error;
+      await delay(Math.min(RENAME_RETRY_CAP_MS, 10 * (attempt + 1)));
     }
   }
 }
