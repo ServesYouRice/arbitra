@@ -11,6 +11,7 @@ import type { RequirementsContract } from "@arbitra/workflow/nodes/requirements/
 import { validateFeatureExploration } from "../src/feature-exploration.js";
 import { ModelActivities } from "../src/model-activities.js";
 import { discoverWithModel } from "../src/model-discovery.js";
+import { ModelOutputLimitError } from "../src/context-budget.js";
 import { initialMessagesOf, isModelOutputRejection, ModelHarness, sharedStartOf } from "../src/model-harness.js";
 import { RunStore } from "../src/run-store.js";
 import { snapshotTools, SNAPSHOT_TOOLS } from "../src/snapshot-tools.js";
@@ -140,6 +141,25 @@ describe("durable canonical model harness", () => {
     // A restarted harness composes the same repair and replays both durable activities without new spend.
     expect(await create().invoke(review)).toEqual({ answer: "repaired" });
     expect(requests).toHaveLength(2);
+  });
+
+  it("marks an activity whose repair cannot fit beside its input as output-limited, so its stage splits it", async () => {
+    // Observed live (November 24, 2026): a plan section's repair could not carry the rejected reply, and the run failed.
+    const { create, send, requests } = await setup(2, 0, 1);
+    send.mockImplementation(async (value) => { requests.push(value); return { status: 200, headers: {}, body: { output_text: "No JSON here.", usage: { input_tokens: 10, output_tokens: 10 } } }; });
+    let refits = 0;
+    const section = { ...request(), activityId: "planner/section/a", refit: async () => { refits += 1; throw new Error("MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED"); } };
+    await expect(create().invoke(section)).rejects.toBeInstanceOf(ModelOutputLimitError);
+    expect(requests).toHaveLength(1);
+    // Durably: a restarted harness sends nothing and composes no repair; the stage is told to split.
+    const restarted = create();
+    expect(await restarted.outputLimited("planner/section/a")).toBe(true);
+    await expect(restarted.invoke(section)).rejects.toBeInstanceOf(ModelOutputLimitError);
+    expect(requests).toHaveLength(1);
+    expect(refits).toBe(1);
+    // Any other failure of the refit is the run's own, and stays as it is.
+    const other = { ...request(), activityId: "planner/section/b", refit: async () => { throw new Error("REFIT_BROKEN"); } };
+    await expect(create().invoke(other)).rejects.toThrow("REFIT_BROKEN");
   });
 
   it("traces an output repair, and the failed tool calls whose results a turn reads", async () => {

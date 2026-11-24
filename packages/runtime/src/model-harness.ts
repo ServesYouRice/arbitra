@@ -12,7 +12,7 @@ import { redactSecrets } from "@arbitra/security/redaction";
 import { boundModelHistory } from "./model-history.js";
 import { withinStringBudget } from "./model-context.js";
 import { promptByteLimit } from "@arbitra/providers/transports/cli/dialects.js";
-import { inputBytesPerToken, isModelOutputRejection, ModelOutputLimitError, ModelRefusalError, ModelTimeLimitError, outputLimitKind, refusalKind, requestCeiling, timeLimitKind } from "./context-budget.js";
+import { inputBytesPerToken, isCapacityError, isModelOutputRejection, ModelOutputLimitError, ModelRefusalError, ModelTimeLimitError, outputLimitKind, refusalKind, requestCeiling, timeLimitKind } from "./context-budget.js";
 import { ModelActivities, parsePromptJson, type ModelActivityRequest } from "./model-activities.js";
 import type { TransportMessage } from "@arbitra/providers/transport-contract.js";
 import type { ProviderUsageLimitError } from "@arbitra/providers/runtime.js";
@@ -168,7 +168,18 @@ export class ModelHarness {
         // What a repair appends has to fit beside what the request carries. A request that carries optional source up
         // to its limit is composed again by its stage, with less source. Observed live (P20 pilot): a review packed to
         // within 5,000 bytes of its transport's prompt limit failed the run when its repair added 16,000 bytes.
-        attempt = { ...input, activityId, repairCount: 1, ...(input.refit === undefined ? { messages: [...input.messages, ...appended] } : await input.refit(appended, activityId)) };
+        let refitted: { readonly messages: readonly TransportMessage[]; readonly admittedAsRequired?: boolean };
+        try { refitted = input.refit === undefined ? { messages: [...input.messages, ...appended] } : await input.refit(appended, activityId); }
+        catch (refitError) {
+          // A repair that cannot fit beside the input it answers means the activity's own reply does not fit, as at
+          // the output ceiling: the activity is marked, so the stage that composed it splits it. Observed live
+          // (November 24, 2026): a plan section of about 105,000 tokens had a reply rejected, its repair could not
+          // carry the rejected reply, and the run failed with MODEL_REQUIRED_CONTEXT_LIMIT_EXCEEDED.
+          if (!isCapacityError(refitError)) throw refitError;
+          await this.markOutputLimited(input, activityId);
+          throw new ModelOutputLimitError(input.activityId);
+        }
+        attempt = { ...input, activityId, repairCount: 1, ...refitted };
       }
     }
   }
