@@ -9,9 +9,11 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
 
 ## State
 
-- **Releases:** v0.4.0 (November 1, 301aa45: the Windows exe and the source zip) is the latest: cheaper reading and checking, a
-  Codex usage warning, tests left out of an audit until ticked in, and plans no longer ignored by Git. Work continues on
-  `main`; [`TESTERS.md`](TESTERS.md) is the testers' guide.
+- **Releases:** v0.5.0 (November 25, ee364d4: the Windows exe, its SHA-256 and the source zip) is the latest: the run
+  helper's resumes, waits in place for a limit that resets soon, optional steps that no longer hold a run, eight calls
+  at a time, the Gemini fallback, API ↔ subscription fallbacks with a dollar cap, suggested answers to the plan's
+  blocking questions, GPT-6.2 Sol and Gemini 4 Argon. Work continues on `main`; [`TESTERS.md`](TESTERS.md) is the
+  testers' guide.
 - **A social web app (Elixir and Next.js), November 1:** audited on v0.3.2 ([real runs](docs/qa/real-runs.md#the-runs)); its plan is in the owner's
   checkout, and the owner has started carrying it out. New projects come next: the owner would rather not run earlier ones again.
 - **memoria, November 10–11** (`run-bcd4fc1e`, 562 files, 87,971 lines by the run's preflight, tests left out):
@@ -450,9 +452,12 @@ is needed, and code everywhere else.
    `workflow.answerCheck`, on when the lineup has another vendor): each blocking question carries the planner's
    suggestion and reason; one batched call of another vendor's model, never Gemini unless the run names it, answers
    them blind; "Accept all suggested" takes only the ones they agree on whose blast radius is not high; each answer is
-   recorded as taken as suggested, chosen otherwise or written, and `questions.md` shows all of it. Open: a live run
-   (cheap models first) to see whether the suggestions and the other model's answers are good; no browser test covers
-   the new form; an incremental run asks the other model again.
+   recorded as taken as suggested, chosen otherwise or written, and `questions.md` shows all of it. First live run,
+   the property-management app (November 25): 21 blocking questions, each with a suggestion and the other vendor's
+   answer; the two agreed on 7, and 12 of the 21 suggestions were "no option is known to work", holding the task for
+   the owner. Open: whether the suggestions taken hold once the plan is carried out, and whether "no option is known"
+   is too often the planner's answer; no browser test covers the new form; an incremental run asks the other model
+   again.
 4. **Short summary.** The Summary opens with at most 3 issues to worry about, each in two plain sentences (what can
    go wrong, who can trigger it) with its evidence one click down. Ranking is code: severity, then the verifier's
    verdict, then how many vendors found it; one of the 3 places is kept for a confirmed critical or high issue only
