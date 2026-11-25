@@ -1,6 +1,6 @@
 # Remaining work
 
-Updated November 21, 2026, on `main`. This file lists open work only, each item with its next step and its place in
+Updated November 25, 2026, on `main`. This file lists open work only, each item with its next step and its place in
 the order below; an item is deleted once it is done, and Git keeps its history. Run records and measurements are in
 [real-project runs](docs/qa/real-runs.md), phase status in the [completion plan](docs/completion-plan.md), the design
 review in the [design audit](docs/design-audit.md), the research behind the pipeline in [research](docs/research.md),
@@ -32,11 +32,24 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
   - Tokens a line were 1,482, above New run's deep basis (1,290 to 1,330).
   - The `claude` on PATH (npm 2.0.51) is refused by current models; the run used the VS Code extension's 2.1.322
     through ARBITRA_CLAUDE_CODE_EXECUTABLE.
+- **A property-management app, November 21–25** (`run-5fd4c0d4`, 977 files, 138,051 lines, tests left out): Opus 5.5,
+  GPT-6.2 Sol and Gemini 4 Argon high as finders, on the subscriptions. 1,308 issues, 691 checked, 634 confirmed (107
+  high, 527 medium), a plan of 483 tasks, 261.2M tokens; written up in [real runs](docs/qa/real-runs.md#the-runs). Its
+  plan is in the owner's checkout. Fixed on `main` while it ran: the artifact index's rename on Windows and its reads
+  (05a8d7c), and a planner section whose repair could not fit beside its input (a12606a). Open from it:
+  - A long wait for a usage limit never reads the meter again: Claude's weekly limit reset five days early and the run
+    sat 13 h (placed under "Run helper").
+  - Sol found 412 confirmed issues alone on 22.0M tokens, Opus 142 on 94.9M: deep's defaults should weigh what each
+    finder costs a confirmed issue.
+  - Tokens a line were 1,892, above every earlier run and New run's deep basis (1,290 to 1,482).
+  - Merging left near-duplicates among the confirmed issues (under "Compare the right pairs for duplicates").
+  - The artifact index is rewritten whole on every publish (under "Need design").
+  - It ran four calls at a time and never met the Gemini fallback: both were built after it started.
 - **Default lineup:** New run starts on Claude Code and Codex (`subscription-audit`: two finders at depth deep, no
   peer-review round, plan critic off); balanced and cheap depths, a third finder and the critic are separate
   choices in New run (October 25). Gemini is only ever the opt-in third finder, labelled with Google's terms. The Feature templates still use Antigravity as
   their second reviewer behind the same warning.
-- **Evidence:** ten real projects audited; nextra's plan carried out on its `dev` branch: all 126 confirmed issues
+- **Evidence:** eleven real projects audited; nextra's plan carried out on its `dev` branch: all 126 confirmed issues
   were real, 118 shown by a failing test, and 14 more defects were found while fixing. P20 is closed on its pilot
   (October 19); its held-out set stays unrun by design.
 - **Research review, October 25:** every step checked against other labs, products and our own runs
@@ -63,9 +76,10 @@ and how the project's own testing runs, the vendors' terms and how to pick the w
    the computer awake.
 2. **Measure first** (no model calls, or one cheap run): they decide what to cut before anything is built.
 3. **Small builds before the next real runs** ("Need design", marked *before veritra*).
-4. **The next real runs:** first **a property-management app** (small and new), on the subscriptions, to try the November 11 and 21
-   builds (the run helper, an optional step's wait, suggested answers, the plan's new checks) and the experiments
-   under "To test next week", one change per run. What needs API credit waits for it (owner, November 21): the
+4. **The next real runs:** **a property-management app** ran November 21–25 on the subscriptions (see "State") and
+   tried the run helper, an optional step's limit and suggested answers; the plan's new checks wait for its plan to be
+   carried out. Still for the next runs: eight calls at a time, the Gemini fallback and the experiments under "To test
+   next week", one change per run. What needs API credit waits for it (owner, November 21): the
    API ↔ subscription fallback with a dollar cap, the key check and the cache marks. Then a media rating site and a strategy game, later, on
    a newer build, with "Measure on the next runs". The owner would rather not run earlier projects again.
 5. **UI phase**: built on the `ui` branch, merged into `main` and released in 0.3.0; the owner's review and the
@@ -142,7 +156,8 @@ From the research review; each decides a cut or a build.
   search, the critic or a finder's remaining units no longer hold the run past `fallbackWaitMs` on their model's
   window: a fallback route, else a stand-in of another vendor (never Gemini) for a second opinion, else the step goes
   without it and a severe rejection stays unsettled; `optional_step_limited` events and the `optional-steps` artifact.
-  Count on the next runs how often it moved a step and what it cost in unsettled issues. Still pausing: a finder out
+  Count on the next runs how often it moved a step and what it cost in unsettled issues (the property-management app:
+  once, Argon's 140 remaining units left undone at its weekly limit). Still pausing: a finder out
   during peer review or conflict votes, and an optional profile at its dollar cap. A limit resetting within
   `fallbackWaitMs` is waited for in place by the step's call; a second opinion does so in its question's place among
   the questions asked side by side, so one fewer is asked meanwhile. Watch whether that slows verification.
@@ -191,19 +206,22 @@ From the research review; each decides a cut or a build.
   6 of 7 rightly on nextra, at about 28K tokens a question.
 - **Eight calls at a time for every vendor** (since November 21; four before): the subscription audit templates set
   `maximumParallelCalls` 8 and `maxConcurrent` 8 for Anthropic, OpenAI and Google, `rpm` 60 (30 for Google). With
-  four, the audit ran in two waves (14 minutes of a 28-minute run). Measure wall time per stage against the earlier
+  four, the audit ran in two waves (14 minutes of a 28-minute run); the property-management app started before the
+  change and ran at four. Measure wall time per stage against the earlier
   runs, throttling (`RATE_LIMIT` retries by vendor), the CLI processes' load on Windows (memory and CPU with up to 8
   of each CLI at once, and no console windows), and whether the subscriptions' usage windows run out sooner. If one
   vendor throttles, give it its own numbers (Google first; its `rpm` was kept low on purpose) rather than lower all.
 - **The Gemini fallback between Antigravity's usage limits** (built November 21): a Gemini finder through Antigravity
   starts with the model of the other limit as its fallback (Neon to Argon, Argon to Neon) on the same CLI, and the
-  CLI's limits are recorded per model. It has only run against the stand-in CLI: watch the first live switch (the
+  CLI's limits are recorded per model. It has only run against the stand-in CLI (the property-management app started
+  before it, so Argon's weekly limit left its units undone): watch the first live switch (the
   `model_route_switched` event on the run page, Neon's discovery units after it, no finder left out) and whether
   Antigravity's limits hold as observed (Argon's own weekly limit, the others shared).
 - **Claude Code's cache on first calls:** 72 first calls in one run wrote 1.18M tokens and read none.
 - **Whether the critic still lacks its source** (`critic-result.citedSourceLeftOut`), if it stays: on veritra's
   227-task plan its 12 batches carried none of the 254 files the plan cites.
-- **What a verification question costs:** 159K tokens on the social web app (197 questions, 31.4M, 3 calls a question), 116K
+- **What a verification question costs:** 179K tokens on the property-management app (691 questions, 123.9M, 3.2 calls
+  a question), 159K on the social web app (197 questions, 31.4M, 3 calls a question), 116K
   on veritra, 75K to 86K before that. About 70% of a question's cost is its first call, which writes the whole cited
   files to the cache (48 KB on average, each file sent 5.3 times), and a later turn is mostly cheap cache reads. Built
   November 1 (targeted-verification 1.1.0): related source up front (2.8 KB a question), questions in the order of the
@@ -290,7 +308,12 @@ real runs' Summary and every other place measured 0 px at 390 px. It owns:
   subagents, skills and the operator's own CLI configuration.
 - **Compare the right pairs for duplicates** (*before veritra*): cross-auditor pairs first, same-answer pairs last (1
   merge in 332), a higher ceiling when batched, and TF-IDF neighbours in other files (the export's version found 4 of
-  nextra's 5 overlaps).
+  nextra's 5 overlaps). The property-management app's 634 confirmed issues hold one payment-outbox defect five times
+  and one receipt render three times, after merging joined 76 of 1,410 findings.
+- **The artifact index is rewritten whole on every publish:** the property-management app's reached 16,234 entries
+  and 9.9 MB, so a run writes it on the order of n² bytes (about 80 GB here), and its rename is what Windows refused. Reads
+  come from memory since 05a8d7c. Next: an append-only index (a line per artifact, the last line for an ID winning),
+  read once and kept in memory, with a test that a torn last line is ignored.
 - **Re-audit only what changed:** a later run on the same project audits the diff since the last run and the files
   that import it, and carries forward the issues still present. Builds on "Memory across runs". Owner: wanted, later.
 - **Boundary units from a channel map:** socket events, routes and fetch paths, WHIP/WHEP and environment keys found
@@ -353,6 +376,12 @@ the run's status, the report's lines that matter), never the whole run.
    limit's resumes count apart, and it is resumed again whenever it resets later than the one last resumed for, or
    with no reset given when calls were answered since; the same reset met again, or a limit met again after two
    resumes in a row that no call was answered after, is left to the owner (`limitResumes` in the record).
+   Measured on the property-management app (November 21–25): it resumed ten usage-limit stops by itself and the run
+   finished; its two failures went to the owner, as they should. Open from it: a wait for a reset days away never
+   reads the meter again. Claude's weekly limit reset five days early (the meter read 0% on November 22 at 20:59) and
+   the run sat 13 h until resumed by hand, since Claude's meter is read only from a model call and none runs during
+   a wait. Next: during a wait longer than about an hour, read the meters hourly (Codex's from its session files, at
+   no cost; Claude's from the smallest call on its cheapest model) and resume once one shows room.
 3. **The interview for Feature requests.** A model step before Feature mode's own requirements step
    (`model-requirements.ts`): from the owner's first sentence and the project's snapshot it asks at most about 5
    questions at a time, in plain words, each with a proposed answer, over at most 3 rounds; then it writes the

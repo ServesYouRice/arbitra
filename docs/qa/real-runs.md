@@ -20,6 +20,7 @@ the P20 pilot in `git show e917ec7:WORK-REMAINING.md`, the first narratives of t
 | Java and React project (MacBook), Oct 26–27 | `run-755a4cc3` | about 33,000 lines | 28 h wall, most of it asleep or stopped | 917 | 42.6M (about 1,290) | 84 of 275 confirmed (1 critical, 18 high, 65 medium) | 507K | 19 / 11 / 19 |
 | A social web app (Elixir and Next.js), Nov 1 | `run-b1997046` | 572 files, 84,380 lines, no tests | 3 h 17 (6 h 19 with its pause) | 1,627 | 112.2M (1,330) | 175 of 434 confirmed (36 high, 139 medium) | 641K | 81 / 51 / — |
 | memoria, Nov 10–11 | `run-bcd4fc1e` | 562 files, 87,971 lines, no tests | about 4 h 30 (21 h 09 with its pauses) | 2,252 | 130.3M (1,482) | 292 of 684 confirmed (42 high, 250 medium) | 446K | 134 / 89 / 4 |
+| A property-management app, Nov 21–25 | `run-5fd4c0d4` | 977 files, 138,051 lines, no tests | 7 h 22 awake (4 days 9 h with its waits and sleeps) | 3,884 | 261.2M (1,892) | 634 of 1,308 confirmed (107 high, 527 medium) | 412K | 142 / 412 / 31 |
 
 The beach-status map ran before confirmed issues were reported, so its counts are accepted issues. The beach-status map, the web app and
 the blog ran with one peer-review round; the comments service, nextra and the desktop automation app without one, the default since October 23.
@@ -127,13 +128,37 @@ What each run changed:
   for a stop this run met. The run used these as builds 664e9fa, 1906cfd, 5d4b08b, f3f0971, a10f773 and b0a0803,
   before they were rebased onto `main`. The `claude` on PATH (npm, 2.0.51) is refused by current models; the plan ran
   on the VS Code extension's 2.1.322 through `ARBITRA_CLAUDE_CODE_EXECUTABLE`.
+- **The property-management app**, the largest so far, on three finders at depth deep through the subscriptions
+  (Opus 5.5, GPT-6.2 Sol, Gemini 4 Argon at high through Antigravity), at f6bdb50 with the tests left out. It started
+  before eight calls at a time and the Gemini fallback were built, and a resumed run keeps its lineup, so it ran four
+  at a time and never switched Gemini's model. Finding took 4 h 14 awake: Opus 162 of 162 units (94.9M tokens, 1,116
+  calls), Sol 96 of 96 (22.0M, 365 calls) over four Codex Plus windows, Argon 23 of 163 (7.0M, 94 calls) before its
+  own weekly limit, after which its units went undone (`optional_step_limited`). Sol and Argon made 61 and 71
+  tool-call errors, Opus 9. Merging took 4 minutes (1,410 findings to 1,308 issues: 76 merged, 57 rejected; 0.54M),
+  checking 1 h 29 awake (691 questions in 2,203 calls, 123.9M, 179K a question; the 617 low and informational issues
+  were not checked; 92% of the checked were confirmed), the plan 1 h 35 (12.9M in 100 calls: 483 tasks in 51 sections,
+  288 questions, 21 of them blocking, with suggested answers checked). Sol was by far the cheapest finder: 412
+  confirmed issues no other finder found, 73 of them high, on 22.0M tokens, against Opus's 142 (19 high) on 94.9M.
+  Merging left near-duplicates among the confirmed issues: one payment-outbox defect five times, one receipt render
+  three times. Of the 4 days 9 h, 27.6 h were awake waits on usage limits and about 70 h the PC asleep (six sleeps;
+  checking's stage time counts 9.7 h of one). Claude's weekly limit stopped merging on November 22 and the run helper
+  waited for its reset on the 28th, but the limit reset early and the run sat 13 h until resumed by hand: a wait never
+  reads the meter again, and Claude's meter is read only from a model call. Claude's five-hour window then held about
+  26M of the run's tokens (shared with a coding session), against about 57M measured in October. The helper resumed
+  ten usage-limit stops by itself. Fixed on `main` because of it: Windows refused the rename of the artifact index
+  (16,234 entries, 9.9 MB, rewritten whole on every publish) for longer than its retries, which failed the run during
+  the plan, and every read of the index parsed the whole file again; it is now read from memory until its file
+  changes and the rename is retried for about 10 seconds (05a8d7c). A planner section whose output repair could not
+  fit beside its input failed the run; such a section now counts as output-limited, so its stage splits it (a12606a;
+  two sections split 7 and 6).
 
 Verification costs 75K to 86K tokens a question. Gemini's confirmed finds that no other model made, against what its
 audit cost: the web app 0 for 2.1M tokens at high thinking (560 call-minutes; 17 of 51 calls lost, 12 to its content
 filter and 5 to its output ceiling), 7 in that run's replay; the blog 2 for 1.9M at medium (135 call-minutes; 9 of 47
 calls refused); the comments service 2 for 1.1M (6 of 21 refused); nextra 3 for 2.0M (2 of 39 refused); the MacBook run 19 for 5.0M
 (200 call-minutes; 8 of 94 calls failed, most before the fix for agy 1.4.7); memoria 4 for 2.7M at high (263
-call-minutes; 25 of 70 calls failed, and 99 of its 104 units were never answered). Gemini has been
+call-minutes; 25 of 70 calls failed, and 99 of its 104 units were never answered); the property-management app 31
+for 7.0M on Gemini 4 Argon at high (94 calls; 23 of its 163 units before Argon's weekly limit). Gemini has been
 opt-in since v0.2.1, so its share is measured only on a run that uses it.
 
 ## What the reading costs (November 1)
